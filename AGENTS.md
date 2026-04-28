@@ -25,6 +25,5 @@ Contracts are the only shared DTO/schema/type language. When shared contracts ch
 
 - Apps and packages must import from public package entrypoints only.
 - Do not import from another package's internal `src` path.
-- `node:sqlite` is isolated to `packages/store-sqlite`.
+- SQLite runtime bindings are isolated to `packages/store-sqlite`.
 - `store-core` exposes async repository interfaces only.
-
