@@ -2,9 +2,12 @@ node_modules/
 dist/
 coverage/
 .nx/
+.nx/cache/
 .vite/
 tmp/
 .codexhub/data/
+.codexhub/data/*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.log
 *.tsbuildinfo
-
