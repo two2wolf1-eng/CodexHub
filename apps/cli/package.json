@@ -7,8 +7,8 @@
     "codexhub": "./src/main.ts"
   },
   "dependencies": {
+    "@codexhub/orchestrator-kernel": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "commander": "^12.1.0"
   }
 }
-

@@ -6,8 +6,8 @@
   "dependencies": {
     "@codexhub/contracts": "workspace:*",
     "@codexhub/observer-kernel": "workspace:*",
+    "@codexhub/orchestrator-kernel": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "fastify": "^5.2.1"
   }
 }
-

@@ -34,8 +34,10 @@ export type PolicyOutcome = z.infer<typeof PolicyOutcomeSchema>;
 
 export const EvidenceRefSchema = createdEntityBaseSchema.extend({
   kind: z.enum(['log', 'hash', 'snapshot', 'dry-run', 'audit']),
+  summary: z.string().min(1).optional(),
   hash: z.string().min(1),
   uri: z.string().optional(),
+  expiresAt: IsoDateTimeSchema.optional(),
   redacted: z.boolean().default(true),
   labels: z.array(z.string()).default([]),
 });
@@ -102,6 +104,7 @@ export const DryRunPlanSchema = createdEntityBaseSchema.extend({
   steps: z.array(WorkflowStepSchema),
   policyDecisions: z.array(PolicyDecisionSchema),
   evidenceRefs: z.array(EvidenceRefSchema).default([]),
+  auditEvents: z.array(z.lazy(() => AuditEventSchema)).default([]),
 });
 export type DryRunPlan = z.infer<typeof DryRunPlanSchema>;
 
@@ -143,19 +146,66 @@ export const DevelopmentRequestSchema = createdEntityBaseSchema.extend({
 });
 export type DevelopmentRequest = z.infer<typeof DevelopmentRequestSchema>;
 
-export const TaskGraphTaskSchema = createdEntityBaseSchema.extend({
+export const TaskNodeSchema = createdEntityBaseSchema.extend({
   title: z.string().min(1),
   description: z.string().min(1),
   dependsOn: z.array(z.string()).default([]),
   assignedCapability: z.string().optional(),
+  keywords: z.array(z.string()).default([]),
+  riskLevel: RiskLevelSchema.default('low'),
 });
+export type TaskNode = z.infer<typeof TaskNodeSchema>;
+
+export const TaskGraphTaskSchema = TaskNodeSchema;
 export type TaskGraphTask = z.infer<typeof TaskGraphTaskSchema>;
 
 export const TaskGraphSchema = createdEntityBaseSchema.extend({
   requestId: z.string().min(1),
-  tasks: z.array(TaskGraphTaskSchema),
+  tasks: z.array(TaskNodeSchema),
 });
 export type TaskGraph = z.infer<typeof TaskGraphSchema>;
+
+export const SkillCapabilitySchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  riskLevel: RiskLevelSchema,
+  readOnlyDefault: z.boolean(),
+});
+export type SkillCapability = z.infer<typeof SkillCapabilitySchema>;
+
+export const SkillTriggerSchema = z.object({
+  id: z.string().min(1),
+  keywords: z.array(z.string()).default([]),
+  capabilityIds: z.array(z.string()).default([]),
+});
+export type SkillTrigger = z.infer<typeof SkillTriggerSchema>;
+
+export const SkillDescriptorSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string().min(1),
+  capabilities: z.array(SkillCapabilitySchema),
+  triggers: z.array(SkillTriggerSchema),
+  metadata: MetadataSchema.optional(),
+});
+export type SkillDescriptor = z.infer<typeof SkillDescriptorSchema>;
+
+export const SkillResolutionResultSchema = createdEntityBaseSchema.extend({
+  inputSummary: z.string().min(1),
+  selectedSkills: z.array(SkillDescriptorSchema),
+  unmatchedCapabilities: z.array(z.string()).default([]),
+  reasons: z.array(z.string()).default([]),
+});
+export type SkillResolutionResult = z.infer<typeof SkillResolutionResultSchema>;
+
+export const OrchestrationPlanSchema = createdEntityBaseSchema.extend({
+  requestId: z.string().min(1),
+  taskGraphId: z.string().min(1),
+  skillResolutionId: z.string().min(1),
+  workflowNames: z.array(z.string()).default([]),
+  summary: z.string().min(1),
+});
+export type OrchestrationPlan = z.infer<typeof OrchestrationPlanSchema>;
 
 export const AgentRunStatusSchema = z.enum(['planned', 'running', 'completed', 'failed']);
 export type AgentRunStatus = z.infer<typeof AgentRunStatusSchema>;
@@ -192,4 +242,3 @@ export function foundationTimestamp(): string {
 export function foundationId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
 }
-

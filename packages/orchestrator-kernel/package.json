@@ -13,9 +13,10 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@codexhub/contracts": "workspace:*",
+    "@codexhub/evidence-kernel": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/skill-registry": "workspace:*",
+    "@codexhub/store-core": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*"
   }
 }
-

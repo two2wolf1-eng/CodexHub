@@ -1,35 +1,19 @@
-export interface SkillCapability {
-  id: string;
-  description: string;
-  riskLevel: 'low' | 'medium' | 'high' | 'critical';
-  readOnlyDefault: boolean;
-}
+import {
+  type SkillCapability,
+  type SkillDescriptor,
+  type SkillResolutionResult,
+  type SkillTrigger,
+  SchemaVersionSchema,
+  foundationId,
+  foundationTimestamp,
+} from '@codexhub/contracts';
 
-export interface SkillTrigger {
-  id: string;
-  keywords: string[];
-  capabilityIds: string[];
-}
-
-export interface SkillDescriptor {
-  id: string;
-  displayName: string;
-  description: string;
-  capabilities: SkillCapability[];
-  triggers: SkillTrigger[];
-  metadata?: Record<string, unknown>;
-}
+export type { SkillCapability, SkillDescriptor, SkillResolutionResult, SkillTrigger };
 
 export interface SkillResolutionInput {
   requestText: string;
+  taskKeywords?: string[];
   requestedCapabilities?: string[];
-  metadata?: Record<string, unknown>;
-}
-
-export interface SkillResolutionResult {
-  selectedSkills: SkillDescriptor[];
-  unmatchedCapabilities: string[];
-  reasons: string[];
   metadata?: Record<string, unknown>;
 }
 
@@ -46,7 +30,8 @@ export class MockSkillRegistry implements SkillRegistry {
   }
 
   async resolve(input: SkillResolutionInput): Promise<SkillResolutionResult> {
-    const normalizedText = input.requestText.toLowerCase();
+    const searchableText = [input.requestText, ...(input.taskKeywords ?? [])].join('\n');
+    const normalizedText = searchableText.toLowerCase();
     const requestedCapabilities = input.requestedCapabilities ?? [];
     const selectedSkills = this.descriptors.filter((descriptor) => {
       const capabilityMatch = descriptor.capabilities.some((capability) =>
@@ -63,13 +48,17 @@ export class MockSkillRegistry implements SkillRegistry {
     );
 
     return {
+      id: foundationId('skill_resolution'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      inputSummary: summarizeInput(input),
       selectedSkills,
       unmatchedCapabilities: requestedCapabilities.filter((id) => !matchedCapabilityIds.has(id)),
       reasons:
         selectedSkills.length > 0
           ? selectedSkills.map((skill) => `mock registry selected ${skill.id}`)
           : ['mock registry found no matching skill'],
-      metadata: { mock: true },
+      metadata: { mock: true, taskKeywords: input.taskKeywords ?? [] },
     };
   }
 }
@@ -114,6 +103,14 @@ export function createMockSkillDescriptors(): SkillDescriptor[] {
   ];
 }
 
+function summarizeInput(input: SkillResolutionInput): string {
+  const capabilityText =
+    input.requestedCapabilities && input.requestedCapabilities.length > 0
+      ? ` capabilities=${input.requestedCapabilities.join(',')}`
+      : '';
+  return `mock skill resolution for "${input.requestText.slice(0, 80)}"${capabilityText}`;
+}
+
 function descriptor(
   id: string,
   displayName: string,
@@ -142,4 +139,3 @@ function descriptor(
     metadata: { mock: true },
   };
 }
-

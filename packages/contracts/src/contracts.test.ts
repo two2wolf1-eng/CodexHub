@@ -4,6 +4,7 @@ import {
   EvidenceRefSchema,
   PolicyDecisionSchema,
   SchemaVersionSchema,
+  SkillResolutionResultSchema,
   WorkflowRunSchema,
 } from './index';
 
@@ -55,5 +56,38 @@ describe('contracts schemas', () => {
     expect(decision.outcome).toBe('allow');
     expect(run.workflowName).toBe('development.bootstrap');
     expect(request.constraints).toEqual([]);
+  });
+
+  it('parses skill resolution contract models', () => {
+    const result = SkillResolutionResultSchema.parse({
+      id: 'skill_resolution_1',
+      schemaVersion,
+      createdAt,
+      inputSummary: 'mock resolution',
+      selectedSkills: [
+        {
+          id: 'codexhub-architecture-planner',
+          displayName: 'Architecture Planner',
+          description: 'Mock descriptor',
+          capabilities: [
+            {
+              id: 'architecture.planning',
+              description: 'Plan architecture',
+              riskLevel: 'low',
+              readOnlyDefault: true,
+            },
+          ],
+          triggers: [
+            {
+              id: 'architecture.trigger',
+              keywords: ['architecture'],
+              capabilityIds: ['architecture.planning'],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.selectedSkills[0]?.id).toBe('codexhub-architecture-planner');
   });
 });

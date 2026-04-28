@@ -9,8 +9,10 @@ import {
 export interface EvidenceInput {
   kind: EvidenceRef['kind'];
   label: string;
+  summary?: string;
   metadata?: Record<string, unknown>;
   bodyForHashOnly?: string;
+  expiresAt?: string;
 }
 
 export interface EvidenceCollector {
@@ -36,7 +38,9 @@ export function createEvidenceRef(input: EvidenceInput): EvidenceRef {
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
     kind: input.kind,
+    summary: input.summary ?? input.label,
     hash: `sha256:${hashText(hashInput)}`,
+    expiresAt: input.expiresAt,
     redacted: true,
     labels: [input.label],
     metadata: redactedMetadata,
@@ -60,4 +64,3 @@ export function redactMetadata(metadata: Record<string, unknown>): Record<string
 
   return redacted;
 }
-

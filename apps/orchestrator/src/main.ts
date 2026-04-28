@@ -1,23 +1,10 @@
-import {
-  SchemaVersionSchema,
-  foundationId,
-  foundationTimestamp,
-  type DevelopmentRequest,
-} from '@codexhub/contracts';
-import { MockDevelopmentPlanner } from '@codexhub/orchestrator-kernel';
+import { runMockDevelopmentOrchestration } from '@codexhub/orchestrator-kernel';
 
-const request: DevelopmentRequest = {
-  id: foundationId('development_request'),
-  schemaVersion: SchemaVersionSchema.value,
-  createdAt: foundationTimestamp(),
-  title: 'Bootstrap CodexHub foundation',
-  description: 'Mock-only scaffold planning demo.',
-  constraints: ['foundation-only', 'dry-run-first'],
-  metadata: { mock: true },
-};
+const result = await runMockDevelopmentOrchestration({
+  title: 'Add Electron CDP read-only observation skeleton',
+  description: 'Create interfaces and tests only',
+  constraints: ['foundation-only', 'mock-only', 'no-real-cdp'],
+  metadata: { source: 'apps/orchestrator demo' },
+});
 
-const planner = new MockDevelopmentPlanner();
-const result = await planner.plan(request);
-
-console.log(JSON.stringify(result, null, 2));
-
+console.log(JSON.stringify(result.summary, null, 2));

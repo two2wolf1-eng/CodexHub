@@ -72,6 +72,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@codexhub/orchestrator-kernel':
+        specifier: workspace:*
+        version: link:../../packages/orchestrator-kernel
       '@codexhub/workflow-kernel':
         specifier: workspace:*
         version: link:../../packages/workflow-kernel
@@ -84,6 +87,9 @@ importers:
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@codexhub/orchestrator-kernel':
+        specifier: workspace:*
+        version: link:../../packages/orchestrator-kernel
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.2(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.3))
@@ -121,6 +127,9 @@ importers:
       '@codexhub/observer-kernel':
         specifier: workspace:*
         version: link:../../packages/observer-kernel
+      '@codexhub/orchestrator-kernel':
+        specifier: workspace:*
+        version: link:../../packages/orchestrator-kernel
       '@codexhub/workflow-kernel':
         specifier: workspace:*
         version: link:../../packages/workflow-kernel
@@ -172,12 +181,18 @@ importers:
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@codexhub/evidence-kernel':
+        specifier: workspace:*
+        version: link:../evidence-kernel
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../security-kernel
       '@codexhub/skill-registry':
         specifier: workspace:*
         version: link:../skill-registry
+      '@codexhub/store-core':
+        specifier: workspace:*
+        version: link:../store-core
       '@codexhub/workflow-kernel':
         specifier: workspace:*
         version: link:../workflow-kernel
@@ -188,7 +203,11 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
-  packages/skill-registry: {}
+  packages/skill-registry:
+    dependencies:
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/store-core:
     dependencies:

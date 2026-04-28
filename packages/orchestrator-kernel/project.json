@@ -3,7 +3,14 @@
   "name": "orchestrator-kernel",
   "projectType": "library",
   "sourceRoot": "packages/orchestrator-kernel/src",
-  "implicitDependencies": ["contracts", "workflow-kernel", "security-kernel", "skill-registry"],
+  "implicitDependencies": [
+    "contracts",
+    "workflow-kernel",
+    "security-kernel",
+    "skill-registry",
+    "evidence-kernel",
+    "store-core"
+  ],
   "targets": {
     "build": {
       "executor": "nx:run-commands",

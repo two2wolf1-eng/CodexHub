@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { SourceHealth, WorkflowRun } from '@codexhub/contracts';
+import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
 
 interface OverviewState {
   status: 'loading' | 'ready' | 'degraded';
   health?: Record<string, unknown>;
   runs: WorkflowRun[];
   sourceHealth: SourceHealth[];
+  developmentRuns: MockDevelopmentOrchestrationResult[];
   message?: string;
 }
 
@@ -16,6 +18,7 @@ export function App() {
     status: 'loading',
     runs: [],
     sourceHealth: [],
+    developmentRuns: [],
   });
 
   useEffect(() => {
@@ -23,10 +26,11 @@ export function App() {
 
     async function loadOverview() {
       try {
-        const [health, runsResponse, observationsResponse] = await Promise.all([
+        const [health, runsResponse, observationsResponse, developmentRunsResponse] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
           getJson<{ sourceHealth: SourceHealth[] }>('/api/observations'),
+          getJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
         ]);
 
         if (!cancelled) {
@@ -35,6 +39,7 @@ export function App() {
             health,
             runs: runsResponse.runs,
             sourceHealth: observationsResponse.sourceHealth,
+            developmentRuns: developmentRunsResponse.runs,
           });
         }
       } catch (error) {
@@ -43,6 +48,7 @@ export function App() {
             status: 'degraded',
             runs: [],
             sourceHealth: [],
+            developmentRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -104,6 +110,25 @@ export function App() {
             <p>Observation sources are not connected yet.</p>
           )}
         </Panel>
+
+        <Panel title="Development Mock Runs">
+          {overview.developmentRuns.length > 0 ? (
+            <ul>
+              {overview.developmentRuns.map((run) => (
+                <li key={run.request.id} className="stacked">
+                  <strong>{run.summary.requestTitle}</strong>
+                  <span>
+                    {run.summary.taskCount} tasks, {run.summary.selectedSkillIds.length} skills,{' '}
+                    {run.summary.agentRunCount} agents, verification {run.summary.verificationStatus},{' '}
+                    {run.summary.evidenceCount} evidence, {run.summary.auditEventCount} audits
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No mock development runs are available yet.</p>
+          )}
+        </Panel>
       </section>
     </main>
   );
@@ -127,4 +152,3 @@ async function getJson<T>(path: string): Promise<T> {
 
   return (await response.json()) as T;
 }
-

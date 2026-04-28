@@ -1,5 +1,6 @@
 import {
   type DryRunPlan,
+  type AuditEvent,
   type WorkflowDefinition,
   type WorkflowRun,
   type WorkflowStep,
@@ -48,6 +49,19 @@ export class WorkflowRunner {
           }),
         ]
       : [];
+    const auditEvents = policyDecisions.map((decision): AuditEvent => {
+      return {
+        id: foundationId('audit'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'workflow-kernel.mock',
+        action: `dry-run:${decision.actionType}`,
+        outcome: decision.outcome,
+        policyDecisionId: decision.id,
+        evidenceRefs,
+        metadata: { mock: true, workflowName: definition.name },
+      };
+    });
 
     return {
       id: foundationId('dry_run'),
@@ -59,6 +73,7 @@ export class WorkflowRunner {
       steps,
       policyDecisions,
       evidenceRefs,
+      auditEvents,
       metadata: { mock: true },
     };
   }
@@ -99,6 +114,14 @@ export class WorkflowRunner {
 }
 
 export function createMockWorkflowDefinition(name = 'development.bootstrap'): WorkflowDefinition {
+  if (name === 'development.request') {
+    return createDevelopmentRequestWorkflowDefinition();
+  }
+
+  if (name === 'development.verify') {
+    return createDevelopmentVerifyWorkflowDefinition();
+  }
+
   const now = foundationTimestamp();
 
   return {
@@ -128,6 +151,92 @@ export function createMockWorkflowDefinition(name = 'development.bootstrap'): Wo
   };
 }
 
+export function createDevelopmentRequestWorkflowDefinition(): WorkflowDefinition {
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('workflow_definition'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    name: 'development.request',
+    version: '0.1.0',
+    description: 'Mock-only development request planning workflow.',
+    riskLevel: 'medium',
+    steps: [
+      {
+        id: foundationId('workflow_step'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        name: 'Normalize development request',
+        actionType: 'development.request.read',
+        actionMode: 'read',
+        riskLevel: 'low',
+        status: 'pending',
+        dryRunOnly: true,
+        evidenceRefs: [],
+        metadata: { mock: true },
+      },
+      {
+        id: foundationId('workflow_step'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        name: 'Plan mock workspace patch',
+        actionType: 'workspace.patch.write.mock',
+        actionMode: 'write',
+        riskLevel: 'medium',
+        status: 'pending',
+        dryRunOnly: true,
+        evidenceRefs: [],
+        metadata: { mock: true, noRealWrite: true },
+      },
+    ],
+    metadata: { mock: true },
+  };
+}
+
+export function createDevelopmentVerifyWorkflowDefinition(): WorkflowDefinition {
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('workflow_definition'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    name: 'development.verify',
+    version: '0.1.0',
+    description: 'Mock-only verification workflow.',
+    riskLevel: 'low',
+    steps: [
+      {
+        id: foundationId('workflow_step'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        name: 'Run mock lint/test/build verification',
+        actionType: 'development.verify.read',
+        actionMode: 'read',
+        riskLevel: 'low',
+        status: 'pending',
+        dryRunOnly: true,
+        evidenceRefs: [],
+        metadata: { mock: true },
+      },
+      {
+        id: foundationId('workflow_step'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        name: 'Review browser and electron placeholders',
+        actionType: 'browser.electron.observe.placeholder',
+        actionMode: 'read',
+        riskLevel: 'high',
+        status: 'pending',
+        dryRunOnly: true,
+        evidenceRefs: [],
+        metadata: { mock: true, noConnection: true },
+      },
+    ],
+    metadata: { mock: true },
+  };
+}
+
 function toPolicyInput(step: WorkflowStep): PolicyActionInput {
   return {
     actionId: step.id,
@@ -138,4 +247,3 @@ function toPolicyInput(step: WorkflowStep): PolicyActionInput {
     metadata: step.metadata,
   };
 }
-
