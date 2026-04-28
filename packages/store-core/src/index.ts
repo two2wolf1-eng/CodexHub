@@ -1,5 +1,6 @@
 import type {
   AuditEvent,
+  CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
   Observation,
@@ -35,12 +36,19 @@ export interface DevelopmentRunRepository {
   getMockDevelopmentRun(id: string): Promise<MockDevelopmentRun | undefined>;
 }
 
+export interface CodexReplayRepository {
+  saveCodexReplay(record: CodexReplayRecord): Promise<CodexReplayRecord>;
+  listCodexReplays(limit?: number): Promise<CodexReplayRecord[]>;
+  getCodexReplay(id: string): Promise<CodexReplayRecord | undefined>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
   evidenceRefs: EvidenceRefRepository;
   observations: ObservationRepository;
   developmentRuns: DevelopmentRunRepository;
+  codexReplays: CodexReplayRepository;
   close(): Promise<void>;
 }
 

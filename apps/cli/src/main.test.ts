@@ -24,7 +24,7 @@ describe('cli development mock-run fallback', () => {
 
     expect(summary).toMatchObject({
       threadId: 'thread_fixture_basic',
-      finalStatus: 'completed',
+      status: 'completed',
       mockOnly: true,
       liveExecution: false,
       externalProcessStarted: false,

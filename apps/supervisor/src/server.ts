@@ -1,12 +1,14 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, parse, relative, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
 import {
   type CodexExecReplaySummary,
+  createCodexReplayRecord,
   replayCodexExecFixture,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
+import type { CodexReplayRecord } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
@@ -32,7 +34,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const workflowRunner = new WorkflowRunner();
   const observationSource = new MockObservationSource('codexhub.mock.supervisor');
   const mockDevelopmentRuns: MockDevelopmentOrchestrationResult[] = [];
-  const codexReplaySummaries: CodexExecReplaySummary[] = [];
+  const codexReplayRecords: CodexReplayRecord[] = [];
   let ownedStore: CodexHubStore | undefined;
   let storePromise: Promise<CodexHubStore | undefined> | undefined;
   let persistenceState: PersistenceState = options.disableStore
@@ -54,10 +56,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         persistenceState = { status: 'ok' };
         return store;
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         persistenceState = {
           status: 'degraded',
-          reason: error instanceof Error ? error.message : 'store initialization failed',
+          reason: 'store initialization failed',
         };
         return undefined;
       });
@@ -180,25 +182,64 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply.code(400).send({ error: guard.reason });
     }
 
+    if (!existsSync(guard.path)) {
+      return reply.code(404).send({ error: 'fixture file was not found' });
+    }
+
+    const store = await getStore();
     const fixtureText = await readFile(guard.path, 'utf8');
     const result = await replayCodexExecFixture(fixtureText);
-    const summary = summarizeCodexExecReplay(result);
-    codexReplaySummaries.unshift(summary);
+    const record = createCodexReplayRecord(result, guard.fixturePath);
 
-    return summary;
+    if (store) {
+      for (const evidenceRef of result.evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of result.auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+
+      await store.codexReplays.saveCodexReplay(record);
+    } else {
+      codexReplayRecords.unshift(record);
+    }
+
+    return {
+      ...summarizeCodexExecReplay(result, guard.fixturePath),
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
   });
 
-  server.get('/api/codex/replay-fixtures', async () => ({
-    runs: codexReplaySummaries.slice(0, 10),
-    metadata: { mockOnly: true, liveExecution: false, externalProcessStarted: false },
-  }));
+  server.get('/api/codex/replay-fixtures', async () => {
+    const store = await getStore();
+    const records = store
+      ? await store.codexReplays.listCodexReplays(10)
+      : codexReplayRecords.slice(0, 10);
+
+    return {
+      runs: records.map(recordToSummary),
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+      metadata: { mockOnly: true, liveExecution: false, externalProcessStarted: false },
+    };
+  });
 
   return server;
 }
 
 function resolveAllowedFixture(
   fixturePath: string,
-): { allowed: true; path: string } | { allowed: false; reason: string } {
+): { allowed: true; path: string; fixturePath: string } | { allowed: false; reason: string } {
+  if (isAbsolute(fixturePath)) {
+    return { allowed: false, reason: 'fixturePath must be a repository-relative fixture path' };
+  }
+
+  if (fixturePath.split(/[\\/]+/).includes('..')) {
+    return { allowed: false, reason: 'fixturePath cannot contain traversal segments' };
+  }
+
   const workspaceRoot = findWorkspaceRoot(process.cwd());
   const fixturesRoot = resolve(workspaceRoot, 'packages', 'codex-kernel', 'fixtures');
   const requestedPath = resolve(workspaceRoot, fixturePath);
@@ -210,7 +251,7 @@ function resolveAllowedFixture(
     };
   }
 
-  return { allowed: true, path: requestedPath };
+  return { allowed: true, path: requestedPath, fixturePath: toWorkspacePath(requestedPath, workspaceRoot) };
 }
 
 function findWorkspaceRoot(startDirectory: string): string {
@@ -235,4 +276,35 @@ function findWorkspaceRoot(startDirectory: string): string {
 function isPathInside(path: string, root: string): boolean {
   const relativePath = relative(root, path);
   return relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`);
+}
+
+function toWorkspacePath(path: string, workspaceRoot: string): string {
+  return relative(workspaceRoot, path).split(sep).join('/');
+}
+
+function recordToSummary(record: CodexReplayRecord): CodexExecReplaySummary {
+  return {
+    id: record.id,
+    schemaVersion: record.schemaVersion,
+    createdAt: record.createdAt,
+    sourceKind: record.sourceKind,
+    fixturePath: record.fixturePath,
+    threadId: record.threadId,
+    status: record.status,
+    summary: record.summary,
+    replayHash: record.replayHash,
+    eventCount: record.eventCount,
+    itemCount: record.itemCount,
+    commandExecutionCount: record.commandExecutionCount,
+    fileChangeCount: record.fileChangeCount,
+    mcpToolCallCount: record.mcpToolCallCount,
+    webSearchCount: record.webSearchCount,
+    errorCount: record.errorCount,
+    evidenceCount: record.evidenceRefs.length,
+    auditEventCount: record.auditEventIds.length,
+    mockOnly: record.mockOnly,
+    liveExecution: record.liveExecution,
+    externalProcessStarted: record.externalProcessStarted,
+    metadata: record.metadata,
+  };
 }

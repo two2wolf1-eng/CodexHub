@@ -150,8 +150,9 @@ export function App() {
                   <strong>{run.threadId ?? run.id}</strong>
                   <span>
                     {run.eventCount} events, {run.itemCount} items, {run.commandExecutionCount}{' '}
-                    commands, {run.fileChangeCount} file changes, {run.errorCount} errors,{' '}
-                    {run.finalStatus}
+                    commands, {run.fileChangeCount} file changes, {run.errorCount} errors, {run.status},{' '}
+                    mock {String(run.mockOnly)}, live {String(run.liveExecution)}, external process{' '}
+                    {String(run.externalProcessStarted)}
                   </span>
                 </li>
               ))}

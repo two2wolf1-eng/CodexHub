@@ -37,7 +37,9 @@ describe('supervisor mock development API', () => {
   });
 
   it('replays codex fixtures and guards fixture paths', async () => {
-    const server = buildSupervisorServer({ disableStore: true });
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-codex-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
 
     const replayResponse = await server.inject({
       method: 'POST',
@@ -50,24 +52,41 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/replay-fixtures',
     });
-    const rejectedResponse = await server.inject({
-      method: 'POST',
-      url: '/api/codex/replay-fixture',
-      payload: {
-        fixturePath: 'package.json',
-      },
-    });
+    const rejectedPayloads = [
+      '../codex-exec-basic.jsonl',
+      join(process.cwd(), 'packages', 'codex-kernel', 'fixtures', 'codex-exec-basic.jsonl'),
+      'packages/codex-kernel/fixtures/codex-exec-basic.txt',
+      'package.json',
+      'packages/codex-kernel/fixtures/missing.jsonl',
+    ];
+    const rejectedResponses = await Promise.all(
+      rejectedPayloads.map((fixturePath) =>
+        server.inject({
+          method: 'POST',
+          url: '/api/codex/replay-fixture',
+          payload: { fixturePath },
+        }),
+      ),
+    );
 
     await server.close();
+    await store.close();
 
     expect(replayResponse.statusCode).toBe(200);
     expect(replayResponse.json()).toMatchObject({
       threadId: 'thread_fixture_basic',
-      finalStatus: 'completed',
+      status: 'completed',
       liveExecution: false,
+      degraded: false,
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().runs).toHaveLength(1);
-    expect(rejectedResponse.statusCode).toBe(400);
+    expect(listResponse.json().degraded).toBe(false);
+    expect(listResponse.json().runs[0]).toMatchObject({
+      fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      status: 'completed',
+    });
+    expect(rejectedResponses.map((response) => response.statusCode)).toEqual([400, 400, 400, 400, 404]);
+    expect(rejectedResponses.every((response) => !response.body.includes(process.cwd()))).toBe(true);
   });
 });

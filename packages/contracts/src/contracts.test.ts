@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DevelopmentRequestSchema,
+  CodexReplayRecordSchema,
   CodexExecReplayResultSchema,
   EvidenceRefSchema,
   PolicyDecisionSchema,
@@ -152,5 +153,46 @@ describe('contracts schemas', () => {
 
     expect(result.finalStatus).toBe('completed');
     expect(result.evidenceRefs[0]?.kind).toBe('codex.exec.jsonl.replay');
+  });
+
+  it('parses codex replay storage records without jsonl body', () => {
+    const record = CodexReplayRecordSchema.parse({
+      id: 'codex_replay_1',
+      schemaVersion,
+      createdAt,
+      sourceKind: 'fixture',
+      fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      threadId: 'thread_fixture_1',
+      status: 'completed',
+      summary: 'Fixture replay completed: 1 events, 0 errors',
+      replayHash: 'sha256:replay',
+      eventCount: 1,
+      itemCount: 0,
+      commandExecutionCount: 0,
+      fileChangeCount: 0,
+      mcpToolCallCount: 0,
+      webSearchCount: 0,
+      errorCount: 0,
+      mockOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      evidenceRefs: [],
+      auditEventIds: ['audit_codex_1'],
+      storageMetadata: {
+        sourceKind: 'fixture',
+        fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+        fixturePathHash: 'sha256:path',
+        replayHash: 'sha256:replay',
+        bodyStored: false,
+        normalizedEventsStored: false,
+        eventHashCount: 1,
+        mockOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+      },
+    });
+
+    expect(record.sourceKind).toBe('fixture');
+    expect(JSON.stringify(record)).not.toContain('thread.started');
   });
 });

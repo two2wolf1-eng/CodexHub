@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, extname, parse, relative, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
 import {
   type CodexExecReplaySummary,
@@ -149,11 +149,15 @@ export async function replayCodexFixture(fixturePath: string): Promise<CodexExec
   } catch {
     const text = await readAllowedFixture(fixturePath);
     const result = await replayCodexExecFixture(text);
-    return summarizeCodexExecReplay(result);
+    return summarizeCodexExecReplay(result, toWorkspacePath(resolve(findWorkspaceRoot(process.cwd()), fixturePath)));
   }
 }
 
 async function readAllowedFixture(fixturePath: string): Promise<string> {
+  if (isAbsolute(fixturePath) || fixturePath.split(/[\\/]+/).includes('..')) {
+    throw new Error('Fixture path must be repository-relative and stay within fixtures.');
+  }
+
   const workspaceRoot = findWorkspaceRoot(process.cwd());
   const fixturesRoot = resolve(workspaceRoot, 'packages', 'codex-kernel', 'fixtures');
   const requestedPath = resolve(workspaceRoot, fixturePath);
@@ -187,6 +191,10 @@ function findWorkspaceRoot(startDirectory: string): string {
 function isPathInside(path: string, root: string): boolean {
   const relativePath = relative(root, path);
   return relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`);
+}
+
+function toWorkspacePath(path: string): string {
+  return relative(findWorkspaceRoot(process.cwd()), path).split(sep).join('/');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

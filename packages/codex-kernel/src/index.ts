@@ -6,6 +6,8 @@ import type {
   CodexExecNormalizedEvent,
   CodexExecNormalizedItem,
   CodexExecReplayResult,
+  CodexReplayRecord,
+  CodexReplaySummary,
   EvidenceRef,
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
@@ -60,23 +62,7 @@ export interface CodexExecParsedJsonlLine {
   parseErrorEvent?: CodexExecNormalizedEvent;
 }
 
-export interface CodexExecReplaySummary {
-  id: string;
-  threadId?: string;
-  eventCount: number;
-  itemCount: number;
-  commandExecutionCount: number;
-  fileChangeCount: number;
-  mcpToolCallCount: number;
-  webSearchCount: number;
-  errorCount: number;
-  finalStatus: CodexExecReplayResult['finalStatus'];
-  evidenceCount: number;
-  auditEventCount: number;
-  mockOnly: true;
-  liveExecution: false;
-  externalProcessStarted: false;
-}
+export type CodexExecReplaySummary = CodexReplaySummary;
 
 const knownEventTypes = new Set<CodexExecEventType>([
   'thread.started',
@@ -236,10 +222,22 @@ export async function replayCodexExecFixture(fixtureText: string): Promise<Codex
   };
 }
 
-export function summarizeCodexExecReplay(result: CodexExecReplayResult): CodexExecReplaySummary {
+export function summarizeCodexExecReplay(
+  result: CodexExecReplayResult,
+  fixturePath = 'unknown-fixture',
+): CodexReplaySummary {
+  const replayHash = createReplayHash(result, fixturePath);
+
   return {
     id: result.id,
+    schemaVersion: result.schemaVersion,
+    createdAt: result.createdAt,
+    sourceKind: 'fixture',
+    fixturePath,
     threadId: result.threadId,
+    status: result.finalStatus,
+    summary: `Fixture replay ${result.finalStatus}: ${result.eventCount} events, ${result.errorCount} errors`,
+    replayHash,
     eventCount: result.eventCount,
     itemCount: result.itemCount,
     commandExecutionCount: result.commandExecutionCount,
@@ -247,12 +245,56 @@ export function summarizeCodexExecReplay(result: CodexExecReplayResult): CodexEx
     mcpToolCallCount: result.mcpToolCallCount,
     webSearchCount: result.webSearchCount,
     errorCount: result.errorCount,
-    finalStatus: result.finalStatus,
     evidenceCount: result.evidenceRefs.length,
     auditEventCount: result.auditEvents.length,
     mockOnly: true,
     liveExecution: false,
     externalProcessStarted: false,
+    metadata: { source: 'codex-kernel.fixture-replay' },
+  };
+}
+
+export function createCodexReplayRecord(
+  result: CodexExecReplayResult,
+  fixturePath: string,
+): CodexReplayRecord {
+  const replayHash = createReplayHash(result, fixturePath);
+
+  return {
+    id: result.id,
+    schemaVersion: result.schemaVersion,
+    createdAt: result.createdAt,
+    sourceKind: 'fixture',
+    fixturePath,
+    threadId: result.threadId,
+    status: result.finalStatus,
+    summary: `Fixture replay ${result.finalStatus}: ${result.eventCount} events, ${result.errorCount} errors`,
+    replayHash,
+    eventCount: result.eventCount,
+    itemCount: result.itemCount,
+    commandExecutionCount: result.commandExecutionCount,
+    fileChangeCount: result.fileChangeCount,
+    mcpToolCallCount: result.mcpToolCallCount,
+    webSearchCount: result.webSearchCount,
+    errorCount: result.errorCount,
+    mockOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    evidenceRefs: result.evidenceRefs,
+    auditEventIds: result.auditEvents.map((event) => event.id),
+    storageMetadata: {
+      sourceKind: 'fixture',
+      fixturePath,
+      fixturePathHash: prefixedHash(fixturePath),
+      replayHash,
+      bodyStored: false,
+      normalizedEventsStored: false,
+      eventHashCount: result.events.length,
+      mockOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+    },
+    metadata: { source: 'codex-kernel.fixture-replay' },
   };
 }
 
@@ -521,6 +563,26 @@ function countItems(events: CodexExecNormalizedEvent[], itemType: CodexExecItemT
 
 function hasCompletedTurn(events: CodexExecNormalizedEvent[]): boolean {
   return events.some((event) => event.normalizedType === 'turn.completed');
+}
+
+function createReplayHash(result: CodexExecReplayResult, fixturePath: string): string {
+  return prefixedHash(
+    stableStringify({
+      fixturePath,
+      threadId: result.threadId,
+      finalStatus: result.finalStatus,
+      eventHashes: result.events.map((event) => event.payloadHash),
+      counts: {
+        eventCount: result.eventCount,
+        itemCount: result.itemCount,
+        commandExecutionCount: result.commandExecutionCount,
+        fileChangeCount: result.fileChangeCount,
+        mcpToolCallCount: result.mcpToolCallCount,
+        webSearchCount: result.webSearchCount,
+        errorCount: result.errorCount,
+      },
+    }),
+  );
 }
 
 function normalizeItemType(value: string | undefined): CodexExecItemType {

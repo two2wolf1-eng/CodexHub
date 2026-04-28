@@ -472,6 +472,70 @@ export const CodexExecReplayResultSchema = createdEntityBaseSchema.extend({
 });
 export type CodexExecReplayResult = z.infer<typeof CodexExecReplayResultSchema>;
 
+export const CodexReplayStatusSchema = z.enum(['completed', 'failed', 'unknown']);
+export type CodexReplayStatus = z.infer<typeof CodexReplayStatusSchema>;
+
+export const CodexReplaySourceKindSchema = z.literal('fixture');
+export type CodexReplaySourceKind = z.infer<typeof CodexReplaySourceKindSchema>;
+
+const codexReplayCountsSchema = z.object({
+  eventCount: z.number().int().nonnegative(),
+  itemCount: z.number().int().nonnegative(),
+  commandExecutionCount: z.number().int().nonnegative(),
+  fileChangeCount: z.number().int().nonnegative(),
+  mcpToolCallCount: z.number().int().nonnegative(),
+  webSearchCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
+});
+
+const codexReplaySafetyFlagsSchema = z.object({
+  mockOnly: z.literal(true),
+  liveExecution: z.literal(false),
+  externalProcessStarted: z.literal(false),
+});
+
+export const CodexReplayStorageMetadataSchema = codexReplaySafetyFlagsSchema.extend({
+  sourceKind: CodexReplaySourceKindSchema,
+  fixturePath: z.string().min(1),
+  fixturePathHash: z.string().min(1),
+  replayHash: z.string().min(1),
+  bodyStored: z.literal(false),
+  normalizedEventsStored: z.literal(false),
+  eventHashCount: z.number().int().nonnegative(),
+});
+export type CodexReplayStorageMetadata = z.infer<typeof CodexReplayStorageMetadataSchema>;
+
+export const CodexReplaySummarySchema = createdEntityBaseSchema
+  .merge(codexReplayCountsSchema)
+  .merge(codexReplaySafetyFlagsSchema)
+  .extend({
+    sourceKind: CodexReplaySourceKindSchema,
+    fixturePath: z.string().min(1),
+    threadId: z.string().optional(),
+    status: CodexReplayStatusSchema,
+    summary: z.string().min(1),
+    replayHash: z.string().min(1),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+  });
+export type CodexReplaySummary = z.infer<typeof CodexReplaySummarySchema>;
+
+export const CodexReplayRecordSchema = createdEntityBaseSchema
+  .merge(codexReplayCountsSchema)
+  .merge(codexReplaySafetyFlagsSchema)
+  .extend({
+    sourceKind: CodexReplaySourceKindSchema,
+    fixturePath: z.string().min(1),
+    threadId: z.string().optional(),
+    status: CodexReplayStatusSchema,
+    summary: z.string().min(1),
+    replayHash: z.string().min(1),
+    evidenceRefs: z.array(EvidenceRefSchema),
+    auditEventIds: z.array(z.string()).default([]),
+    storageMetadata: CodexReplayStorageMetadataSchema,
+  });
+export type CodexReplayRecord = z.infer<typeof CodexReplayRecordSchema>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

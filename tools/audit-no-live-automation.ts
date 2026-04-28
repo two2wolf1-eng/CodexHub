@@ -11,8 +11,10 @@ interface Violation {
 }
 
 interface AllowlistEntry {
+  scope: 'production-source' | 'fixture' | 'test' | 'docs' | 'audit';
   file?: string;
   filePrefix?: string;
+  fileSuffix?: string;
   terms: string[];
   reason: string;
 }
@@ -33,26 +35,43 @@ const sensitiveConceptTerms = [
   ['sess', 'ion'].join(''),
   ['M', 'F', 'A'].join(''),
 ];
-const allowedConceptMentions: AllowlistEntry[] = [
+const allTextTerms = [...executableTextTerms, ...sensitiveConceptTerms];
+const allowlistRules: AllowlistEntry[] = [
   {
+    scope: 'production-source',
     file: 'packages/evidence-kernel/src/index.ts',
     terms: sensitiveConceptTerms,
     reason: 'redaction vocabulary only; no external automation path',
   },
   {
+    scope: 'test',
     file: 'packages/evidence-kernel/src/evidence-kernel.test.ts',
     terms: sensitiveConceptTerms,
     reason: 'redaction test fixture only; no external automation path',
   },
   {
+    scope: 'audit',
     file: 'tools/audit-no-live-automation.ts',
-    terms: [...executableTextTerms, ...sensitiveConceptTerms],
+    terms: allTextTerms,
     reason: 'audit vocabulary only',
   },
   {
+    scope: 'fixture',
     filePrefix: 'packages/codex-kernel/fixtures/',
     terms: executableTextTerms,
     reason: 'synthetic fixture command text only; replay parser never starts a process',
+  },
+  {
+    scope: 'test',
+    fileSuffix: '.test.ts',
+    terms: allTextTerms,
+    reason: 'test files may contain explanatory vocabulary or synthetic assertions',
+  },
+  {
+    scope: 'docs',
+    filePrefix: 'docs/',
+    terms: allTextTerms,
+    reason: 'documentation may describe guarded concepts without executable paths',
   },
 ];
 const violations: Violation[] = [];
@@ -196,14 +215,11 @@ function collectModuleSpecifiers(sourceFile: ts.SourceFile, sourceText: string):
 }
 
 function isAllowed(workspacePath: string, term: string): boolean {
-  if (workspacePath.endsWith('.test.ts')) {
-    return true;
-  }
-
-  return allowedConceptMentions.some(
+  return allowlistRules.some(
     (entry) =>
       (entry.file === workspacePath ||
-        (entry.filePrefix !== undefined && workspacePath.startsWith(entry.filePrefix))) &&
+        (entry.filePrefix !== undefined && workspacePath.startsWith(entry.filePrefix)) ||
+        (entry.fileSuffix !== undefined && workspacePath.endsWith(entry.fileSuffix))) &&
       entry.terms.some((allowedTerm) => allowedTerm === term),
   );
 }

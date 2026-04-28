@@ -2,7 +2,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { type MockDevelopmentRun, SchemaVersionSchema } from '@codexhub/contracts';
+import {
+  type CodexReplayRecord,
+  type MockDevelopmentRun,
+  SchemaVersionSchema,
+} from '@codexhub/contracts';
 import { createSqliteStore, resolveCodexHubDbPath } from './index';
 
 describe('store-sqlite migration initialization', () => {
@@ -74,12 +78,50 @@ describe('store-sqlite migration initialization', () => {
       },
     };
     await first.developmentRuns.saveMockDevelopmentRun(mockDevelopmentRun);
+    const codexReplay: CodexReplayRecord = {
+      id: 'codex_replay_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-04-28T00:00:02.000Z',
+      sourceKind: 'fixture',
+      fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      threadId: 'thread_fixture_basic',
+      status: 'completed',
+      summary: 'Fixture replay completed: 10 events, 0 errors',
+      replayHash: 'sha256:replay',
+      eventCount: 10,
+      itemCount: 7,
+      commandExecutionCount: 1,
+      fileChangeCount: 1,
+      mcpToolCallCount: 1,
+      webSearchCount: 1,
+      errorCount: 0,
+      mockOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      evidenceRefs: [],
+      auditEventIds: ['audit_1', 'audit_2'],
+      storageMetadata: {
+        sourceKind: 'fixture',
+        fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+        fixturePathHash: 'sha256:path',
+        replayHash: 'sha256:replay',
+        bodyStored: false,
+        normalizedEventsStored: false,
+        eventHashCount: 10,
+        mockOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+      },
+    };
+    await first.codexReplays.saveCodexReplay(codexReplay);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
     const runs = await second.workflowRuns.list();
     const developmentRuns = await second.developmentRuns.listMockDevelopmentRuns(10);
     const developmentRun = await second.developmentRuns.getMockDevelopmentRun('development_run_1');
+    const codexReplays = await second.codexReplays.listCodexReplays(10);
+    const codexReplayRecord = await second.codexReplays.getCodexReplay('codex_replay_1');
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -90,5 +132,11 @@ describe('store-sqlite migration initialization', () => {
       'Add Electron CDP read-only observation skeleton',
     );
     expect(developmentRun?.id).toBe('development_run_1');
+    expect(codexReplays).toHaveLength(1);
+    expect(codexReplays[0]?.fixturePath).toBe(
+      'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+    );
+    expect(codexReplayRecord?.storageMetadata.bodyStored).toBe(false);
+    expect(JSON.stringify(codexReplayRecord)).not.toContain('thread.started');
   });
 });

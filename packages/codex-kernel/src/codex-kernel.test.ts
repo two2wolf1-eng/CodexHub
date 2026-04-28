@@ -5,6 +5,7 @@ import {
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
+  createCodexReplayRecord,
   replayCodexExecFixture,
   summarizeCodexExecReplay,
 } from './index';
@@ -62,10 +63,17 @@ describe('codex-kernel fixture replay parser', () => {
   it('replays the basic fixture and creates evidence plus audit events', async () => {
     const fixture = readFixture('codex-exec-basic.jsonl');
     const result = await replayCodexExecFixture(fixture);
-    const summary = summarizeCodexExecReplay(result);
+    const summary = summarizeCodexExecReplay(
+      result,
+      'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+    );
+    const record = createCodexReplayRecord(
+      result,
+      'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+    );
 
     expect(result.threadId).toBe('thread_fixture_basic');
-    expect(summary.finalStatus).toBe('completed');
+    expect(summary.status).toBe('completed');
     expect(summary.commandExecutionCount).toBe(1);
     expect(summary.fileChangeCount).toBe(1);
     expect(summary.mcpToolCallCount).toBe(1);
@@ -76,6 +84,10 @@ describe('codex-kernel fixture replay parser', () => {
       'codex.exec.fixture_replay.completed',
     );
     expect(result.auditEvents.every((event) => event.metadata?.liveExecution === false)).toBe(true);
+    expect(record.storageMetadata.bodyStored).toBe(false);
+    expect(record.storageMetadata.normalizedEventsStored).toBe(false);
+    expect(JSON.stringify(record)).not.toContain('synthetic stdout summary only');
+    expect(JSON.stringify(record)).not.toContain('Synthetic agent response for fixture replay.');
   });
 
   it('replays the error fixture as failed without throwing', async () => {

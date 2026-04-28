@@ -4,6 +4,7 @@ import { dirname, join, parse, resolve } from 'node:path';
 import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
+  CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
   Observation,
@@ -12,6 +13,7 @@ import type {
 import type {
   AuditEventRepository,
   CodexHubStore,
+  CodexReplayRepository,
   DevelopmentRunRepository,
   EvidenceRefRepository,
   ObservationRepository,
@@ -67,6 +69,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly evidenceRefs: EvidenceRefRepository;
   readonly observations: ObservationRepository;
   readonly developmentRuns: DevelopmentRunRepository;
+  readonly codexReplays: CodexReplayRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -90,6 +93,7 @@ class SqliteCodexHubStore implements CodexHubStore {
       (observation) => observation.observedAt,
     );
     this.developmentRuns = new SqliteDevelopmentRunRepository(database);
+    this.codexReplays = new SqliteCodexReplayRepository(database);
   }
 
   async close(): Promise<void> {
@@ -124,6 +128,35 @@ class SqliteDevelopmentRunRepository implements DevelopmentRunRepository {
   }
 
   async getMockDevelopmentRun(id: string): Promise<MockDevelopmentRun | undefined> {
+    return this.repository.getById(id);
+  }
+}
+
+class SqliteCodexReplayRepository implements CodexReplayRepository {
+  private readonly repository: JsonEntityRepository<CodexReplayRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexReplayRecord>(
+      database,
+      'codex_replays',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveCodexReplay(record: CodexReplayRecord): Promise<CodexReplayRecord> {
+    return this.repository.create(record);
+  }
+
+  async listCodexReplays(limit = 10): Promise<CodexReplayRecord[]> {
+    const safeLimit = Math.max(0, Math.trunc(limit));
+    const rows = this.database
+      .prepare('SELECT payload FROM codex_replays ORDER BY recorded_at DESC, id DESC LIMIT ?')
+      .all(safeLimit) as unknown as PayloadRow[];
+
+    return rows.map((row) => JSON.parse(row.payload) as CodexReplayRecord);
+  }
+
+  async getCodexReplay(id: string): Promise<CodexReplayRecord | undefined> {
     return this.repository.getById(id);
   }
 }
@@ -248,6 +281,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS development_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_replays (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL
