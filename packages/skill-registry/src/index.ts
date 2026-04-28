@@ -103,10 +103,10 @@ export function createMockSkillDescriptors(): SkillDescriptor[] {
       id: 'codexhub-codex-exec-adapter',
       displayName: 'CodexHub Codex Adapter',
       description:
-        'Use when modifying codex-kernel or the Codex adapter control plane, parser, replay, dry-run, preflight, approval, or gate logic.',
+        'Use when modifying codex-kernel or the Codex run-control plane, parser, replay, dry-run, preflight, approval, or gate logic.',
       capabilityId: 'codex.adapter.control_plane',
       capabilityDescription:
-        'Review Codex adapter parser, replay, dry-run, preflight, and gate logic.',
+        'Review Codex run-control parser, replay, dry-run, preflight, and gate logic.',
       keywords: [
         'codex',
         'kernel',
