@@ -142,6 +142,16 @@ describe('supervisor mock development API', () => {
         reason: 'manual private reason',
       },
     });
+    const duplicateApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/manual-approval',
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequest.id,
+        outcome: 'approved',
+        reason: 'manual private reason',
+      },
+    });
     const approvalListResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/approvals',
@@ -226,6 +236,11 @@ describe('supervisor mock development API', () => {
         externalProcessStarted: false,
         executionDisabled: true,
       },
+      approvalState: {
+        status: 'pending',
+        canDecide: true,
+        terminal: false,
+      },
       approvalRecord: {
         status: 'pending',
       },
@@ -237,6 +252,15 @@ describe('supervisor mock development API', () => {
         outcome: 'approved',
         approved: true,
       },
+      approvalState: {
+        status: 'approved',
+        canDecide: false,
+      },
+      approvalTransition: {
+        allowed: true,
+        fromStatus: 'pending',
+        toStatus: 'approved',
+      },
       approvalArtifact: {
         status: 'approved',
       },
@@ -245,10 +269,25 @@ describe('supervisor mock development API', () => {
       executionDisabled: true,
     });
     expect(JSON.stringify(manualApprovalResponse.json())).not.toContain('manual private reason');
+    expect(duplicateApprovalResponse.statusCode).toBe(409);
+    expect(duplicateApprovalResponse.json()).toMatchObject({
+      error: 'manual approval transition is blocked',
+      approvalTransition: {
+        allowed: false,
+        fromStatus: 'approved',
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
     expect(approvalListResponse.statusCode).toBe(200);
     expect(approvalListResponse.json().approvals).toHaveLength(1);
     expect(approvalListResponse.json().approvals[0]).toMatchObject({
       status: 'approved',
+      approvalState: {
+        status: 'approved',
+        nextAllowedActions: ['revoke'],
+      },
     });
     expect(gateResponse.statusCode).toBe(200);
     expect(gateResponse.json()).toMatchObject({

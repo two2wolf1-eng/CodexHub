@@ -239,13 +239,20 @@ export function App() {
                 <li key={record.id} className="stacked">
                   <strong>{record.request.dryRunPlanId}</strong>
                   <span>
-                    {record.status}, {record.request.riskLevel} risk, scope {record.request.scope}
+                    state {record.approvalState?.status ?? record.status},{' '}
+                    {record.request.riskLevel} risk, scope {record.request.scope}
                   </span>
                   <span>
                     decision {record.decision?.outcome ?? 'pending'}, artifact{' '}
                     {record.approvalArtifact?.status ?? 'not created'}, live{' '}
                     {String(record.liveExecution)}, disabled {String(record.executionDisabled)}
                   </span>
+                  <span>
+                    can decide {String(record.approvalState?.canDecide ?? false)}, terminal{' '}
+                    {String(record.approvalState?.terminal ?? false)}, next{' '}
+                    {record.approvalState?.nextAllowedActions.join(', ') || 'none'}
+                  </span>
+                  <span>{record.approvalState?.reasons[0] ?? 'state not evaluated'}</span>
                 </li>
               ))}
             </ul>

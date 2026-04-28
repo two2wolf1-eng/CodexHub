@@ -3,7 +3,9 @@ import {
   CodexExecLiveRunRecordSchema,
   CodexExecLiveConfigSchema,
   CodexExecConfigLoadResultSchema,
+  CodexExecApprovalTransitionResultSchema,
   CodexExecManualApprovalRecordSchema,
+  CodexExecManualApprovalStateSchema,
   CodexExecPreflightResultSchema,
   DevelopmentRequestSchema,
   CodexReplayRecordSchema,
@@ -449,5 +451,53 @@ describe('contracts schemas', () => {
     expect(configLoad.configFile?.bodyStored).toBe(false);
     expect(approvalRecord.decision?.approved).toBe(true);
     expect(approvalRecord.liveExecution).toBe(false);
+  });
+
+  it('parses codex manual approval state and transition results', () => {
+    const approvalState = CodexExecManualApprovalStateSchema.parse({
+      id: 'codex_approval_state_1',
+      schemaVersion,
+      createdAt,
+      approvalRecordId: 'codex_approval_record_1',
+      approvalRequestId: 'codex_approval_request_1',
+      dryRunPlanId: 'codex_dry_run_1',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: 'policy_1',
+      policyDecisionHash: 'sha256:policy',
+      status: 'pending',
+      requestedStatus: 'pending',
+      expiresAt: '2026-04-28T01:00:00.000Z',
+      expired: false,
+      terminal: false,
+      canDecide: true,
+      nextAllowedActions: ['approve', 'deny', 'revoke'],
+      reasons: ['manual approval is awaiting a decision'],
+      summary: 'Manual approval state is pending',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const transition = CodexExecApprovalTransitionResultSchema.parse({
+      id: 'codex_approval_transition_1',
+      schemaVersion,
+      createdAt,
+      approvalRecordId: 'codex_approval_record_1',
+      approvalRequestId: 'codex_approval_request_1',
+      dryRunPlanId: 'codex_dry_run_1',
+      action: 'approve',
+      fromStatus: 'pending',
+      toStatus: 'approved',
+      allowed: true,
+      reasons: ['manual approval transition approve is allowed'],
+      state: approvalState,
+      summary: 'Manual approval transition approve allowed',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(approvalState.canDecide).toBe(true);
+    expect(transition.allowed).toBe(true);
+    expect(transition.liveExecution).toBe(false);
   });
 });

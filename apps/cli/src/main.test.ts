@@ -103,12 +103,22 @@ describe('cli development mock-run fallback', () => {
         status: 'pending',
         liveExecution: false,
       },
+      approvalState: {
+        status: 'pending',
+        canDecide: true,
+      },
     });
     expect(JSON.stringify(request)).not.toContain('manual private reason');
     expect(decision).toMatchObject({
       approvalDecision: {
         outcome: 'approved',
         approved: true,
+      },
+      approvalState: {
+        status: 'approved',
+      },
+      approvalTransition: {
+        allowed: true,
       },
       liveExecution: false,
       externalProcessStarted: false,

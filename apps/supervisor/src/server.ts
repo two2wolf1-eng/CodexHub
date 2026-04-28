@@ -5,6 +5,7 @@ import Fastify from 'fastify';
 import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalArtifact,
+  createCodexExecApprovalTransitionResult,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
@@ -17,6 +18,7 @@ import {
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
   evaluateCodexExecLiveCapability,
+  evaluateCodexExecManualApprovalState,
   type CodexExecReplaySummary,
   parseCodexExecLiveConfigFile,
   createCodexReplayRecord,
@@ -514,19 +516,30 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         reason: body?.reason,
       },
     );
-    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalRequest });
+    let approvalRecord = createCodexExecManualApprovalRecord({
+      request: approvalRequest,
+    });
+    const approvalState =
+      approvalRecord.approvalState ?? evaluateCodexExecManualApprovalState(approvalRecord);
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalRequest,
+      approvalState,
+    });
     const auditEvents = createCodexExecControlPlaneAuditEvents({
       approvalRequest,
+      approvalState,
       evidenceRefs,
     });
-    const approvalRecord = createCodexExecManualApprovalRecord({
-      request: approvalRequest,
+    approvalRecord = {
+      ...approvalRecord,
+      approvalState,
       evidenceRefs,
-      auditEvents,
-    });
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
     const updatedRunRecord = {
       ...record,
       manualApprovalRequest: approvalRequest,
+      manualApprovalState: approvalState,
       manualApprovalRecord: approvalRecord,
       evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
       auditEvents: [...record.auditEvents, ...auditEvents],
@@ -537,6 +550,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     return {
       approvalRequest,
+      approvalState,
       approvalRecord,
       evidenceRefs,
       auditEvents,
@@ -581,6 +595,61 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       existingApprovalRecord?.request ??
       record.manualApprovalRequest ??
       createCodexExecManualApprovalRequest(record.dryRunPlan, record.policyDecision);
+    const baseApprovalRecord =
+      existingApprovalRecord ??
+      record.manualApprovalRecord ??
+      createCodexExecManualApprovalRecord({ request: approvalRequest });
+    const transitionAction = approvalActionForOutcome(outcome);
+    const approvalTransition = createCodexExecApprovalTransitionResult(
+      baseApprovalRecord,
+      transitionAction,
+    );
+    const transitionPolicyDecision = policyEngine.evaluateAction({
+      actionId: approvalRequest.id,
+      actionType: 'codex.exec.manual.approval',
+      actionMode: 'write',
+      riskLevel: approvalRequest.riskLevel,
+      dryRun: true,
+      approvalGranted: true,
+      metadata: {
+        dryRunPlanHashPresent: Boolean(approvalRequest.dryRunPlanHash),
+        policyDecisionHashPresent: Boolean(approvalRequest.policyDecisionHash),
+        transitionAllowed: approvalTransition.allowed,
+        transitionAction,
+        approvalExpired: approvalTransition.state.expired,
+        approvalTerminal: approvalTransition.state.terminal,
+        liveExecution: false,
+        externalProcessStarted: false,
+      },
+    });
+
+    if (transitionPolicyDecision.outcome === 'deny') {
+      const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+        approvalState: approvalTransition.state,
+        approvalTransition,
+      });
+      const auditEvents = createCodexExecControlPlaneAuditEvents({
+        approvalState: approvalTransition.state,
+        approvalTransition,
+        evidenceRefs,
+      });
+
+      return reply.code(409).send({
+        error: 'manual approval transition is blocked',
+        approvalRequest,
+        approvalState: approvalTransition.state,
+        approvalTransition,
+        policyDecision: transitionPolicyDecision,
+        evidenceRefs,
+        auditEvents,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
     const approvalDecision = createCodexExecManualApprovalDecision(approvalRequest, {
       outcome,
       decidedBy: body?.decidedBy,
@@ -592,30 +661,41 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       approvalRequest,
       approvalDecision,
     );
-    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
-      approvalDecision,
-      approvalArtifact,
-    });
-    const auditEvents = createCodexExecControlPlaneAuditEvents({
-      approvalDecision,
-      approvalArtifact,
-      evidenceRefs,
-    });
-    const approvalRecord = {
+    let approvalRecord = {
       ...createCodexExecManualApprovalRecord({
         request: approvalRequest,
         decision: approvalDecision,
         approvalArtifact,
-        evidenceRefs: [...(existingApprovalRecord?.evidenceRefs ?? []), ...evidenceRefs],
-        auditEvents,
       }),
       id: existingApprovalRecord?.id ?? foundationId('codex_approval_record'),
       createdAt: existingApprovalRecord?.createdAt ?? foundationTimestamp(),
+    };
+    const approvalState = evaluateCodexExecManualApprovalState(approvalRecord);
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalDecision,
+      approvalState,
+      approvalTransition,
+      approvalArtifact,
+    });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalDecision,
+      approvalState,
+      approvalTransition,
+      approvalArtifact,
+      evidenceRefs,
+    });
+    approvalRecord = {
+      ...approvalRecord,
+      status: approvalState.status,
+      approvalState,
+      evidenceRefs: [...(existingApprovalRecord?.evidenceRefs ?? []), ...evidenceRefs],
+      auditEventIds: auditEvents.map((event) => event.id),
     };
     const updatedRunRecord = {
       ...record,
       manualApprovalRequest: approvalRequest,
       manualApprovalDecision: approvalDecision,
+      manualApprovalState: approvalState,
       manualApprovalRecord: approvalRecord,
       approvalArtifact: approvalArtifact ?? record.approvalArtifact,
       evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
@@ -628,6 +708,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return {
       approvalRequest,
       approvalDecision,
+      approvalState,
+      approvalTransition,
+      transitionPolicyDecision,
       approvalArtifact,
       approvalRecord,
       evidenceRefs,
@@ -645,9 +728,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const records = store
       ? await store.codexExecApprovals.listCodexExecApprovalRecords(10)
       : codexExecApprovalRecords.slice(0, 10);
+    const approvals = records.map((record) => ({
+      ...record,
+      approvalState: evaluateCodexExecManualApprovalState(record),
+    }));
 
     return {
-      approvals: records,
+      approvals,
       degraded: persistenceState.status !== 'ok',
       reason: persistenceState.reason,
       metadata: { liveExecution: false, externalProcessStarted: false, executionDisabled: true },
@@ -792,6 +879,20 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     } else {
       codexExecApprovalRecords.unshift(record);
     }
+  }
+
+  function approvalActionForOutcome(
+    outcome: CodexExecApprovalDecisionOutcome,
+  ): 'approve' | 'deny' | 'revoke' {
+    if (outcome === 'approved') {
+      return 'approve';
+    }
+
+    if (outcome === 'denied') {
+      return 'deny';
+    }
+
+    return 'revoke';
   }
 
   function createDefaultCodexExecLiveRunRecord(): CodexExecLiveRunRecord {

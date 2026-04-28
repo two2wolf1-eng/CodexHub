@@ -217,6 +217,10 @@ function evaluateCodexManualApproval(input: PolicyActionInput): PolicyDecision {
   const riskLevel = input.riskLevel ?? 'medium';
   const reasons: string[] = [];
 
+  if (input.dryRun !== true) {
+    reasons.push('manual approval requires an existing dry-run record');
+  }
+
   if (metadata.dryRunPlanHashPresent !== true) {
     reasons.push('manual approval requires a dry-run plan hash');
   }
@@ -227,6 +231,18 @@ function evaluateCodexManualApproval(input: PolicyActionInput): PolicyDecision {
 
   if (metadata.liveExecution !== false || metadata.externalProcessStarted !== false) {
     reasons.push('manual approval must not start live execution');
+  }
+
+  if (metadata.transitionAllowed === false) {
+    reasons.push('manual approval transition is blocked by the approval state machine');
+  }
+
+  if (metadata.approvalExpired === true) {
+    reasons.push('manual approval request is expired');
+  }
+
+  if (metadata.approvalTerminal === true) {
+    reasons.push('terminal manual approval records cannot be decided again');
   }
 
   return {

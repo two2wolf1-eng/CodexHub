@@ -5,6 +5,8 @@ import type {
   CodexExecApprovalArtifact,
   CodexExecApprovalDecisionOutcome,
   CodexExecApprovalRequirement,
+  CodexExecApprovalTransitionAction,
+  CodexExecApprovalTransitionResult,
   CodexExecCommandPreview,
   CodexExecConfigFile,
   CodexExecConfigLoadResult,
@@ -21,6 +23,7 @@ import type {
   CodexExecManualApprovalDecision,
   CodexExecManualApprovalRecord,
   CodexExecManualApprovalRequest,
+  CodexExecManualApprovalState,
   CodexExecNormalizedEvent,
   CodexExecNormalizedItem,
   CodexExecPolicyInput,
@@ -132,6 +135,10 @@ export interface CodexExecManualApprovalDecisionInput {
   outcome: CodexExecApprovalDecisionOutcome;
   decidedBy?: string;
   reason?: string;
+}
+
+export interface CodexExecApprovalStateOptions {
+  now?: string;
 }
 
 export interface CodexExecParsedJsonlLine {
@@ -865,6 +872,132 @@ export function createCodexExecManualApprovalDecision(
   };
 }
 
+export function evaluateCodexExecManualApprovalState(
+  record: CodexExecManualApprovalRecord,
+  options: CodexExecApprovalStateOptions = {},
+): CodexExecManualApprovalState {
+  const nowMs = options.now ? Date.parse(options.now) : Date.now();
+  const requestExpiresAtMs = Date.parse(record.request.expiresAt);
+  const artifactExpiresAtMs = record.approvalArtifact
+    ? Date.parse(record.approvalArtifact.expiresAt)
+    : undefined;
+  const expired =
+    requestExpiresAtMs <= nowMs ||
+    (artifactExpiresAtMs !== undefined && artifactExpiresAtMs <= nowMs);
+  const reasons: string[] = [];
+  let status = record.status;
+
+  if (record.decision?.outcome === 'denied') {
+    status = 'denied';
+    reasons.push('manual approval was denied');
+  } else if (
+    record.decision?.outcome === 'revoked' ||
+    record.approvalArtifact?.revoked ||
+    record.approvalArtifact?.status === 'revoked'
+  ) {
+    status = 'revoked';
+    reasons.push('manual approval was revoked');
+  } else if (record.approvalArtifact?.status === 'used' || record.approvalArtifact?.usedAt) {
+    status = 'used';
+    reasons.push('approval artifact is already used');
+  } else if (expired && (record.status === 'pending' || record.status === 'approved')) {
+    status = 'expired';
+    reasons.push('manual approval is expired');
+  } else if (
+    record.decision?.outcome === 'approved' ||
+    record.approvalArtifact?.status === 'approved'
+  ) {
+    status = 'approved';
+    reasons.push('manual approval is approved but live execution remains disabled');
+  } else if (status === 'pending') {
+    reasons.push('manual approval is awaiting a decision');
+  }
+
+  const terminal =
+    status === 'denied' || status === 'revoked' || status === 'expired' || status === 'used';
+  const canDecide = status === 'pending' && !expired;
+  const nextAllowedActions: CodexExecApprovalTransitionAction[] = canDecide
+    ? ['approve', 'deny', 'revoke']
+    : status === 'approved'
+      ? ['revoke']
+      : [];
+
+  return {
+    id: foundationId('codex_approval_state'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    approvalRecordId: record.id,
+    approvalRequestId: record.request.id,
+    dryRunPlanId: record.request.dryRunPlanId,
+    dryRunPlanHash: record.request.dryRunPlanHash,
+    policyDecisionId: record.request.policyDecisionId,
+    policyDecisionHash: record.request.policyDecisionHash,
+    status,
+    requestedStatus: record.request.status,
+    decisionOutcome: record.decision?.outcome,
+    artifactStatus: record.approvalArtifact?.status,
+    expiresAt: record.approvalArtifact?.expiresAt ?? record.request.expiresAt,
+    expired,
+    terminal,
+    canDecide,
+    nextAllowedActions,
+    reasons,
+    summary: `Manual approval state is ${status} for ${record.request.dryRunPlanId}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      approvalRecordId: record.id,
+      approvalRequestId: record.request.id,
+      dryRunPlanId: record.request.dryRunPlanId,
+    }),
+  };
+}
+
+export function createCodexExecApprovalTransitionResult(
+  record: CodexExecManualApprovalRecord,
+  action: CodexExecApprovalTransitionAction,
+  options: CodexExecApprovalStateOptions = {},
+): CodexExecApprovalTransitionResult {
+  const state = evaluateCodexExecManualApprovalState(record, options);
+  const allowed = state.nextAllowedActions.includes(action);
+  const toStatus = allowed ? approvalStatusForTransitionAction(action) : state.status;
+  const reasons = allowed
+    ? [`manual approval transition ${action} is allowed`]
+    : [
+        `manual approval transition ${action} is not allowed from ${state.status}`,
+        ...state.reasons,
+      ];
+
+  return {
+    id: foundationId('codex_approval_transition'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    approvalRecordId: record.id,
+    approvalRequestId: record.request.id,
+    dryRunPlanId: record.request.dryRunPlanId,
+    action,
+    fromStatus: state.status,
+    toStatus,
+    allowed,
+    reasons,
+    state,
+    summary: allowed
+      ? `Manual approval transition ${action} allowed`
+      : `Manual approval transition ${action} blocked`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      approvalRecordId: record.id,
+      approvalRequestId: record.request.id,
+      action,
+      fromStatus: state.status,
+      toStatus,
+    }),
+  };
+}
+
 export function createCodexExecApprovalArtifactFromDecision(
   plan: CodexExecDryRunPlan,
   policyDecision: PolicyDecision,
@@ -895,8 +1028,7 @@ export function createCodexExecManualApprovalRecord(input: {
   auditEvents?: AuditEvent[];
 }): CodexExecManualApprovalRecord {
   const status = input.decision?.outcome ?? input.request.status;
-
-  return {
+  const record: CodexExecManualApprovalRecord = {
     id: foundationId('codex_approval_record'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
@@ -917,6 +1049,16 @@ export function createCodexExecManualApprovalRecord(input: {
       approvalDecisionId: input.decision?.id,
       approvalArtifactId: input.approvalArtifact?.id,
     }),
+  };
+  const approvalState = evaluateCodexExecManualApprovalState(record);
+
+  return {
+    ...record,
+    status: approvalState.status,
+    approvalState,
+    summary: input.decision
+      ? `Manual approval ${approvalState.status} for ${input.request.dryRunPlanId}`
+      : `Manual approval ${approvalState.status} for ${input.request.dryRunPlanId}`,
   };
 }
 
@@ -1026,6 +1168,8 @@ export function createCodexExecControlPlaneEvidenceRefs(input: {
   preflightResult?: CodexExecPreflightResult;
   approvalRequest?: CodexExecManualApprovalRequest;
   approvalDecision?: CodexExecManualApprovalDecision;
+  approvalState?: CodexExecManualApprovalState;
+  approvalTransition?: CodexExecApprovalTransitionResult;
   approvalArtifact?: CodexExecApprovalArtifact;
   executionGateResult?: CodexExecExecutionGateResult;
 }): EvidenceRef[] {
@@ -1120,6 +1264,57 @@ export function createCodexExecControlPlaneEvidenceRefs(input: {
     );
   }
 
+  if (input.approvalState) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.approval_state',
+        label: 'codex.approval_state',
+        summary: input.approvalState.summary,
+        metadata: createControlPlaneMetadata({
+          approvalStateId: input.approvalState.id,
+          approvalRecordId: input.approvalState.approvalRecordId,
+          approvalRequestId: input.approvalState.approvalRequestId,
+          dryRunPlanId: input.approvalState.dryRunPlanId,
+          status: input.approvalState.status,
+          terminal: input.approvalState.terminal,
+        }),
+        bodyForHashOnly: stableStringify({
+          approvalStateId: input.approvalState.id,
+          approvalRequestId: input.approvalState.approvalRequestId,
+          status: input.approvalState.status,
+          canDecide: input.approvalState.canDecide,
+          terminal: input.approvalState.terminal,
+          nextAllowedActions: input.approvalState.nextAllowedActions,
+        }),
+      }),
+    );
+  }
+
+  if (input.approvalTransition) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.approval_state',
+        label: 'codex.approval_transition',
+        summary: input.approvalTransition.summary,
+        metadata: createControlPlaneMetadata({
+          approvalTransitionId: input.approvalTransition.id,
+          approvalRecordId: input.approvalTransition.approvalRecordId,
+          approvalRequestId: input.approvalTransition.approvalRequestId,
+          dryRunPlanId: input.approvalTransition.dryRunPlanId,
+          action: input.approvalTransition.action,
+          allowed: input.approvalTransition.allowed,
+        }),
+        bodyForHashOnly: stableStringify({
+          approvalTransitionId: input.approvalTransition.id,
+          action: input.approvalTransition.action,
+          allowed: input.approvalTransition.allowed,
+          fromStatus: input.approvalTransition.fromStatus,
+          toStatus: input.approvalTransition.toStatus,
+        }),
+      }),
+    );
+  }
+
   if (input.approvalArtifact) {
     evidenceRefs.push(
       createEvidenceRef({
@@ -1172,6 +1367,8 @@ export function createCodexExecControlPlaneAuditEvents(input: {
   preflightResult?: CodexExecPreflightResult;
   approvalRequest?: CodexExecManualApprovalRequest;
   approvalDecision?: CodexExecManualApprovalDecision;
+  approvalState?: CodexExecManualApprovalState;
+  approvalTransition?: CodexExecApprovalTransitionResult;
   approvalArtifact?: CodexExecApprovalArtifact;
   executionGateResult?: CodexExecExecutionGateResult;
   evidenceRefs?: EvidenceRef[];
@@ -1248,6 +1445,49 @@ export function createCodexExecControlPlaneAuditEvents(input: {
         approvalDecisionId: input.approvalDecision.id,
         approvalRequestId: input.approvalDecision.approvalRequestId,
         approved: input.approvalDecision.approved,
+      }),
+    });
+  }
+
+  if (input.approvalState) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.manual_approval.state_evaluated',
+      outcome: input.approvalState.status,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.approval_state',
+      ),
+      metadata: createControlPlaneMetadata({
+        approvalStateId: input.approvalState.id,
+        approvalRecordId: input.approvalState.approvalRecordId,
+        approvalRequestId: input.approvalState.approvalRequestId,
+        terminal: input.approvalState.terminal,
+      }),
+    });
+  }
+
+  if (input.approvalTransition) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: input.approvalTransition.allowed
+        ? 'codex.exec.manual_approval.transition_allowed'
+        : 'codex.exec.manual_approval.transition_blocked',
+      outcome: input.approvalTransition.allowed ? 'allow' : 'blocked',
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.approval_state',
+      ),
+      metadata: createControlPlaneMetadata({
+        approvalTransitionId: input.approvalTransition.id,
+        approvalRecordId: input.approvalTransition.approvalRecordId,
+        approvalRequestId: input.approvalTransition.approvalRequestId,
+        action: input.approvalTransition.action,
+        allowed: input.approvalTransition.allowed,
       }),
     });
   }
@@ -2031,6 +2271,28 @@ function approvalScopeForSandboxMode(
   }
 
   return 'read_only_plan';
+}
+
+function approvalStatusForTransitionAction(
+  action: CodexExecApprovalTransitionAction,
+): CodexExecManualApprovalState['status'] {
+  if (action === 'approve') {
+    return 'approved';
+  }
+
+  if (action === 'deny') {
+    return 'denied';
+  }
+
+  if (action === 'revoke') {
+    return 'revoked';
+  }
+
+  if (action === 'mark_used') {
+    return 'used';
+  }
+
+  return 'expired';
 }
 
 function createControlPlaneMetadata(extra: Record<string, unknown>): Record<string, unknown> {

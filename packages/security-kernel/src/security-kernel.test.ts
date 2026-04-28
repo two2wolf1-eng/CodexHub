@@ -238,4 +238,29 @@ describe('security-kernel policy evaluation', () => {
     expect(denied.outcome).toBe('deny');
     expect(denied.reasons.join(' ')).toContain('dry-run plan hash');
   });
+
+  it('blocks manual approval transitions that the state machine rejects', () => {
+    const decision = evaluateAction({
+      actionId: 'manual-approval-transition',
+      actionType: 'codex.exec.manual.approval',
+      actionMode: 'write',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        dryRunPlanHashPresent: true,
+        policyDecisionHashPresent: true,
+        transitionAllowed: false,
+        transitionAction: 'approve',
+        approvalExpired: true,
+        approvalTerminal: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+      },
+    });
+
+    expect(decision.outcome).toBe('deny');
+    expect(decision.reasons.join(' ')).toContain('state machine');
+    expect(decision.reasons.join(' ')).toContain('expired');
+    expect(decision.reasons.join(' ')).toContain('terminal');
+  });
 });

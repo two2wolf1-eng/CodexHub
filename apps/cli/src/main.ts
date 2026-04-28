@@ -7,6 +7,7 @@ import { Command } from 'commander';
 import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalArtifact,
+  createCodexExecApprovalTransitionResult,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createCodexExecDisabledLiveRunRecord,
@@ -19,6 +20,7 @@ import {
   createDefaultCodexExecConfigLoadResult,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
+  evaluateCodexExecManualApprovalState,
   type CodexExecReplaySummary,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
@@ -359,16 +361,30 @@ export async function requestCodexExecApproval(
         reason,
       },
     );
-    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalRequest });
-    const auditEvents = createCodexExecControlPlaneAuditEvents({ approvalRequest, evidenceRefs });
-    const approvalRecord = createCodexExecManualApprovalRecord({
+    let approvalRecord = createCodexExecManualApprovalRecord({
       request: approvalRequest,
-      evidenceRefs,
-      auditEvents,
     });
+    const approvalState =
+      approvalRecord.approvalState ?? evaluateCodexExecManualApprovalState(approvalRecord);
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalRequest,
+      approvalState,
+    });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalRequest,
+      approvalState,
+      evidenceRefs,
+    });
+    approvalRecord = {
+      ...approvalRecord,
+      approvalState,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
 
     return {
       approvalRequest,
+      approvalState,
       approvalRecord,
       evidenceRefs,
       auditEvents,
@@ -414,6 +430,11 @@ export async function decideCodexExecApproval(
         reason: approvalRequestId ?? `Review ${dryRunId}`,
       },
     );
+    const pendingRecord = createCodexExecManualApprovalRecord({ request: approvalRequest });
+    const approvalTransition = createCodexExecApprovalTransitionResult(
+      pendingRecord,
+      approvalActionForOutcome(approvalOutcome),
+    );
     const approvalDecision = createCodexExecManualApprovalDecision(approvalRequest, {
       outcome: approvalOutcome,
       decidedBy: 'cli-fallback',
@@ -427,24 +448,34 @@ export async function decideCodexExecApproval(
     );
     const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
       approvalDecision,
+      approvalTransition,
       approvalArtifact,
     });
     const auditEvents = createCodexExecControlPlaneAuditEvents({
       approvalDecision,
+      approvalTransition,
       approvalArtifact,
       evidenceRefs,
     });
-    const approvalRecord = createCodexExecManualApprovalRecord({
+    let approvalRecord = createCodexExecManualApprovalRecord({
       request: approvalRequest,
       decision: approvalDecision,
       approvalArtifact,
       evidenceRefs,
       auditEvents,
     });
+    const approvalState =
+      approvalRecord.approvalState ?? evaluateCodexExecManualApprovalState(approvalRecord);
+    approvalRecord = {
+      ...approvalRecord,
+      approvalState,
+    };
 
     return {
       approvalRequest,
       approvalDecision,
+      approvalState,
+      approvalTransition,
       approvalArtifact,
       approvalRecord,
       evidenceRefs,
@@ -589,6 +620,20 @@ function parseApprovalOutcome(outcome: string): CodexExecApprovalDecisionOutcome
   }
 
   throw new Error('approval outcome must be approved, denied, or revoked');
+}
+
+function approvalActionForOutcome(
+  outcome: CodexExecApprovalDecisionOutcome,
+): 'approve' | 'deny' | 'revoke' {
+  if (outcome === 'approved') {
+    return 'approve';
+  }
+
+  if (outcome === 'denied') {
+    return 'deny';
+  }
+
+  return 'revoke';
 }
 
 async function readAllowedFixture(fixturePath: string): Promise<string> {

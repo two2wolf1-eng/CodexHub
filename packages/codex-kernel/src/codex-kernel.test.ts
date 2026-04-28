@@ -7,6 +7,7 @@ import {
   createCodexExecExecutionIntent,
   createCodexExecApprovalArtifact,
   createCodexExecApprovalArtifactFromDecision,
+  createCodexExecApprovalTransitionResult,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createDefaultCodexExecLiveConfig,
@@ -16,6 +17,7 @@ import {
   createCodexExecManualApprovalRequest,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
+  evaluateCodexExecManualApprovalState,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
@@ -266,14 +268,21 @@ describe('codex-kernel live control-plane skeleton', () => {
       request,
       decision,
     );
+    const pendingRecord = createCodexExecManualApprovalRecord({ request });
+    const transition = createCodexExecApprovalTransitionResult(pendingRecord, 'approve');
+    const state = evaluateCodexExecManualApprovalState(pendingRecord);
     const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
       approvalRequest: request,
       approvalDecision: decision,
+      approvalState: state,
+      approvalTransition: transition,
       approvalArtifact: artifact,
     });
     const auditEvents = createCodexExecControlPlaneAuditEvents({
       approvalRequest: request,
       approvalDecision: decision,
+      approvalState: state,
+      approvalTransition: transition,
       approvalArtifact: artifact,
       evidenceRefs,
     });
@@ -288,19 +297,57 @@ describe('codex-kernel live control-plane skeleton', () => {
 
     expect(request.status).toBe('pending');
     expect(decision.approved).toBe(true);
+    expect(state.canDecide).toBe(true);
+    expect(transition.allowed).toBe(true);
     expect(artifact?.status).toBe('approved');
     expect(record.status).toBe('approved');
+    expect(record.approvalState?.status).toBe('approved');
     expect(evidenceRefs.map((ref) => ref.kind)).toContain('codex.exec.approval_request');
     expect(evidenceRefs.map((ref) => ref.kind)).toContain('codex.exec.approval_decision');
+    expect(evidenceRefs.map((ref) => ref.kind)).toContain('codex.exec.approval_state');
     expect(auditEvents.map((event) => event.action)).toContain(
       'codex.exec.manual_approval.requested',
     );
     expect(auditEvents.map((event) => event.action)).toContain(
       'codex.exec.manual_approval.decided',
     );
+    expect(auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.manual_approval.transition_allowed',
+    );
     expect(gate.status).toBe('blocked');
     expect(gate.reasons.join(' ')).toContain('disabled');
     expect(JSON.stringify(record)).not.toContain('Approved for disabled gate evaluation');
+  });
+
+  it('blocks manual approval transitions for expired requests and terminal records', () => {
+    const { plan, policyDecision } = createControlPlaneFixture();
+    const expiredRequest = createCodexExecManualApprovalRequest(
+      plan,
+      policyDecision,
+      createDefaultCodexExecLiveConfig(),
+      {
+        expiresAt: '2020-01-01T00:00:00.000Z',
+      },
+    );
+    const expiredRecord = createCodexExecManualApprovalRecord({ request: expiredRequest });
+    const expiredState = evaluateCodexExecManualApprovalState(expiredRecord);
+    const expiredTransition = createCodexExecApprovalTransitionResult(expiredRecord, 'approve');
+    const deniedRequest = createCodexExecManualApprovalRequest(plan, policyDecision);
+    const deniedDecision = createCodexExecManualApprovalDecision(deniedRequest, {
+      outcome: 'denied',
+    });
+    const deniedRecord = createCodexExecManualApprovalRecord({
+      request: deniedRequest,
+      decision: deniedDecision,
+    });
+    const deniedTransition = createCodexExecApprovalTransitionResult(deniedRecord, 'approve');
+
+    expect(expiredState.status).toBe('expired');
+    expect(expiredState.canDecide).toBe(false);
+    expect(expiredTransition.allowed).toBe(false);
+    expect(expiredTransition.reasons.join(' ')).toContain('expired');
+    expect(deniedRecord.approvalState?.terminal).toBe(true);
+    expect(deniedTransition.allowed).toBe(false);
   });
 
   it('blocks approval artifact hash mismatch', () => {
