@@ -3,6 +3,8 @@ import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
 import type {
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
+  CodexExecConfigLoadResult,
+  CodexExecManualApprovalRecord,
   SourceHealth,
   WorkflowRun,
 } from '@codexhub/contracts';
@@ -17,6 +19,8 @@ interface OverviewState {
   codexReplayRuns: CodexExecReplaySummary[];
   codexExecDryRuns: CodexExecLiveRunRecord[];
   codexExecLiveConfig?: CodexExecLiveConfig;
+  codexExecConfigLoadResult?: CodexExecConfigLoadResult;
+  codexExecApprovals: CodexExecManualApprovalRecord[];
   message?: string;
 }
 
@@ -30,6 +34,7 @@ export function App() {
     developmentRuns: [],
     codexReplayRuns: [],
     codexExecDryRuns: [],
+    codexExecApprovals: [],
   });
 
   useEffect(() => {
@@ -44,6 +49,8 @@ export function App() {
           developmentRunsResponse,
           codexReplayRunsResponse,
           codexExecDryRunsResponse,
+          codexExecConfigResponse,
+          codexExecApprovalsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
@@ -53,6 +60,11 @@ export function App() {
           getJson<{ runs: CodexExecLiveRunRecord[]; liveConfig?: CodexExecLiveConfig }>(
             '/api/codex/exec/dry-runs',
           ),
+          getJson<{
+            configLoadResult?: CodexExecConfigLoadResult;
+            liveConfig?: CodexExecLiveConfig;
+          }>('/api/codex/exec/config'),
+          getJson<{ approvals: CodexExecManualApprovalRecord[] }>('/api/codex/exec/approvals'),
         ]);
 
         if (!cancelled) {
@@ -64,7 +76,10 @@ export function App() {
             developmentRuns: developmentRunsResponse.runs,
             codexReplayRuns: codexReplayRunsResponse.runs,
             codexExecDryRuns: codexExecDryRunsResponse.runs,
-            codexExecLiveConfig: codexExecDryRunsResponse.liveConfig,
+            codexExecLiveConfig:
+              codexExecConfigResponse.liveConfig ?? codexExecDryRunsResponse.liveConfig,
+            codexExecConfigLoadResult: codexExecConfigResponse.configLoadResult,
+            codexExecApprovals: codexExecApprovalsResponse.approvals,
           });
         }
       } catch (error) {
@@ -76,6 +91,7 @@ export function App() {
             developmentRuns: [],
             codexReplayRuns: [],
             codexExecDryRuns: [],
+            codexExecApprovals: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -179,6 +195,13 @@ export function App() {
         </Panel>
 
         <Panel title="Codex Dry-Run Control Plane">
+          {overview.codexExecConfigLoadResult ? (
+            <p>
+              config {overview.codexExecConfigLoadResult.status},{' '}
+              {overview.codexExecConfigLoadResult.source}, disabled{' '}
+              {String(overview.codexExecConfigLoadResult.executionDisabled)}
+            </p>
+          ) : null}
           {overview.codexExecLiveConfig ? (
             <p>
               liveEnabled {String(overview.codexExecLiveConfig.liveEnabled)}, allowed{' '}
@@ -206,6 +229,28 @@ export function App() {
             </ul>
           ) : (
             <p>No Codex dry-run control-plane records are available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Manual Approvals">
+          {overview.codexExecApprovals.length > 0 ? (
+            <ul>
+              {overview.codexExecApprovals.map((record) => (
+                <li key={record.id} className="stacked">
+                  <strong>{record.request.dryRunPlanId}</strong>
+                  <span>
+                    {record.status}, {record.request.riskLevel} risk, scope {record.request.scope}
+                  </span>
+                  <span>
+                    decision {record.decision?.outcome ?? 'pending'}, artifact{' '}
+                    {record.approvalArtifact?.status ?? 'not created'}, live{' '}
+                    {String(record.liveExecution)}, disabled {String(record.executionDisabled)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No manual approval records are available yet.</p>
           )}
         </Panel>
       </section>

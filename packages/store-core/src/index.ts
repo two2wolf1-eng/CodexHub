@@ -1,6 +1,7 @@
 import type {
   AuditEvent,
   CodexExecLiveRunRecord,
+  CodexExecManualApprovalRecord,
   CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
@@ -49,6 +50,14 @@ export interface CodexExecLiveRunRepository {
   getCodexExecLiveRunRecord(id: string): Promise<CodexExecLiveRunRecord | undefined>;
 }
 
+export interface CodexExecApprovalRepository {
+  saveCodexExecApprovalRecord(
+    record: CodexExecManualApprovalRecord,
+  ): Promise<CodexExecManualApprovalRecord>;
+  listCodexExecApprovalRecords(limit?: number): Promise<CodexExecManualApprovalRecord[]>;
+  getCodexExecApprovalRecord(id: string): Promise<CodexExecManualApprovalRecord | undefined>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -57,6 +66,7 @@ export interface CodexHubStore {
   developmentRuns: DevelopmentRunRepository;
   codexReplays: CodexReplayRepository;
   codexExecLiveRuns: CodexExecLiveRunRepository;
+  codexExecApprovals: CodexExecApprovalRepository;
   close(): Promise<void>;
 }
 

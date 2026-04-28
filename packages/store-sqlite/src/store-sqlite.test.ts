@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   type CodexExecLiveRunRecord,
+  type CodexExecManualApprovalRecord,
   type CodexReplayRecord,
   type MockDevelopmentRun,
   SchemaVersionSchema,
@@ -117,6 +118,8 @@ describe('store-sqlite migration initialization', () => {
     await first.codexReplays.saveCodexReplay(codexReplay);
     const codexExecLiveRun: CodexExecLiveRunRecord = createCodexExecLiveRunFixture();
     await first.codexExecLiveRuns.saveCodexExecLiveRunRecord(codexExecLiveRun);
+    const approvalRecord: CodexExecManualApprovalRecord = createCodexExecApprovalRecordFixture();
+    await first.codexExecApprovals.saveCodexExecApprovalRecord(approvalRecord);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -128,6 +131,9 @@ describe('store-sqlite migration initialization', () => {
     const codexExecLiveRuns = await second.codexExecLiveRuns.listCodexExecLiveRunRecords(10);
     const codexExecLiveRunRecord =
       await second.codexExecLiveRuns.getCodexExecLiveRunRecord('codex_live_run_1');
+    const codexExecApprovals = await second.codexExecApprovals.listCodexExecApprovalRecords(10);
+    const codexExecApprovalRecord =
+      await second.codexExecApprovals.getCodexExecApprovalRecord('codex_approval_record_1');
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -148,6 +154,10 @@ describe('store-sqlite migration initialization', () => {
     expect(codexExecLiveRuns[0]?.status).toBe('blocked');
     expect(codexExecLiveRunRecord?.promptBodyStored).toBe(false);
     expect(JSON.stringify(codexExecLiveRunRecord)).not.toContain('list risk areas');
+    expect(codexExecApprovals).toHaveLength(1);
+    expect(codexExecApprovals[0]?.status).toBe('approved');
+    expect(codexExecApprovalRecord?.request.reason).toContain('hash sha256:');
+    expect(JSON.stringify(codexExecApprovalRecord)).not.toContain('manual private reason');
   });
 });
 
@@ -267,6 +277,60 @@ function createCodexExecLiveRunFixture(): CodexExecLiveRunRecord {
     promptHash: intent.promptHash,
     promptLength: intent.promptLength,
     promptBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function createCodexExecApprovalRecordFixture(): CodexExecManualApprovalRecord {
+  const createdAt = '2026-04-28T00:00:04.000Z';
+
+  return {
+    id: 'codex_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    request: {
+      id: 'codex_approval_request_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      dryRunPlanId: 'codex_dry_run_1',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: 'policy_1',
+      policyDecisionHash: 'sha256:policy',
+      scope: 'read_only_plan',
+      status: 'pending',
+      riskLevel: 'medium',
+      requestedBy: 'local-human',
+      reason: 'approval request reason (21 chars, hash sha256:reason)',
+      expiresAt: '2026-04-28T01:00:00.000Z',
+      singleUse: true,
+      summary: 'Manual approval requested',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+    decision: {
+      id: 'codex_approval_decision_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      approvalRequestId: 'codex_approval_request_1',
+      dryRunPlanId: 'codex_dry_run_1',
+      policyDecisionId: 'policy_1',
+      outcome: 'approved',
+      decidedBy: 'local-human',
+      reasonSummary: 'approval decision reason (21 chars, hash sha256:decision)',
+      decisionHash: 'sha256:decision',
+      approved: true,
+      summary: 'Manual approval approved',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+    status: 'approved',
+    evidenceRefs: [],
+    auditEventIds: [],
+    summary: 'Manual approval record',
     liveExecution: false,
     externalProcessStarted: false,
     executionDisabled: true,

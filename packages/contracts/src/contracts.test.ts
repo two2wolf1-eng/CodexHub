@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CodexExecLiveRunRecordSchema,
   CodexExecLiveConfigSchema,
+  CodexExecConfigLoadResultSchema,
+  CodexExecManualApprovalRecordSchema,
   CodexExecPreflightResultSchema,
   DevelopmentRequestSchema,
   CodexReplayRecordSchema,
@@ -369,6 +371,83 @@ describe('contracts schemas', () => {
     expect(config.liveEnabled).toBe(false);
     expect(config.allowedSandboxModes).toEqual(['read_only']);
     expect(config.forbiddenSandboxModes).toEqual(['danger_full_access']);
+    expect(config.liveExecution).toBe(false);
+    expect(config.executionDisabled).toBe(true);
     expect(preflight.status).toBe('blocked');
+  });
+
+  it('parses codex config load and manual approval records', () => {
+    const config = CodexExecLiveConfigSchema.parse({
+      id: 'codex_live_config_1',
+      schemaVersion,
+      createdAt,
+      configSource: 'file',
+      configPath: '.codexhub/codex-exec.yaml',
+      configPathHash: 'sha256:path',
+    });
+    const configLoad = CodexExecConfigLoadResultSchema.parse({
+      id: 'codex_config_load_1',
+      schemaVersion,
+      createdAt,
+      source: 'file',
+      status: 'loaded',
+      config,
+      configFile: {
+        id: 'codex_config_file_1',
+        schemaVersion,
+        createdAt,
+        configPath: '.codexhub/codex-exec.yaml',
+        configPathHash: 'sha256:path',
+        configHash: 'sha256:config',
+        bodyStored: false,
+        summary: 'Loaded disabled config file',
+      },
+      summary: 'Loaded config',
+    });
+    const approvalRecord = CodexExecManualApprovalRecordSchema.parse({
+      id: 'codex_approval_record_1',
+      schemaVersion,
+      createdAt,
+      request: {
+        id: 'codex_approval_request_1',
+        schemaVersion,
+        createdAt,
+        dryRunPlanId: 'codex_dry_run_1',
+        dryRunPlanHash: 'sha256:dry-run',
+        policyDecisionId: 'policy_1',
+        policyDecisionHash: 'sha256:policy',
+        scope: 'read_only_plan',
+        status: 'pending',
+        riskLevel: 'medium',
+        requestedBy: 'local-human',
+        reason: 'Review disabled control-plane run',
+        expiresAt: '2026-04-28T01:00:00.000Z',
+        singleUse: true,
+        summary: 'Approval requested',
+      },
+      decision: {
+        id: 'codex_approval_decision_1',
+        schemaVersion,
+        createdAt,
+        approvalRequestId: 'codex_approval_request_1',
+        dryRunPlanId: 'codex_dry_run_1',
+        policyDecisionId: 'policy_1',
+        outcome: 'approved',
+        decidedBy: 'local-human',
+        reasonSummary: 'Approved for disabled gate evaluation',
+        decisionHash: 'sha256:decision',
+        approved: true,
+        summary: 'Approval approved',
+      },
+      status: 'approved',
+      evidenceRefs: [],
+      auditEventIds: [],
+      summary: 'Manual approval record',
+    });
+
+    expect(configLoad.config.configSource).toBe('file');
+    expect(configLoad.configFile?.bodyStored).toBe(false);
+    expect(approvalRecord.decision?.approved).toBe(true);
+    expect(approvalRecord.liveExecution).toBe(false);
   });
 });

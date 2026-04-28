@@ -38,6 +38,10 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
     return evaluateCodexExecutionGate(input);
   }
 
+  if (input.actionType === 'codex.exec.manual.approval') {
+    return evaluateCodexManualApproval(input);
+  }
+
   const riskLevel = input.riskLevel ?? inferRiskLevel(input.actionType);
   const requiresDryRun = input.actionMode === 'write';
   const requiresApproval = riskLevel === 'high' || riskLevel === 'critical';
@@ -204,6 +208,39 @@ function evaluateCodexExecutionGate(input: PolicyActionInput): PolicyDecision {
       reasons.length > 0 ? reasons : ['execution gate policy allows control-plane readiness'],
     requiresDryRun,
     requiresApproval,
+    metadata: input.metadata,
+  };
+}
+
+function evaluateCodexManualApproval(input: PolicyActionInput): PolicyDecision {
+  const metadata = input.metadata ?? {};
+  const riskLevel = input.riskLevel ?? 'medium';
+  const reasons: string[] = [];
+
+  if (metadata.dryRunPlanHashPresent !== true) {
+    reasons.push('manual approval requires a dry-run plan hash');
+  }
+
+  if (metadata.policyDecisionHashPresent !== true) {
+    reasons.push('manual approval requires a policy decision hash');
+  }
+
+  if (metadata.liveExecution !== false || metadata.externalProcessStarted !== false) {
+    reasons.push('manual approval must not start live execution');
+  }
+
+  return {
+    id: foundationId('policy'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    actionId: input.actionId,
+    actionType: input.actionType,
+    actionMode: input.actionMode,
+    riskLevel,
+    outcome: reasons.length > 0 ? 'deny' : 'allow',
+    reasons: reasons.length > 0 ? reasons : ['manual approval control-plane policy allows record'],
+    requiresDryRun: true,
+    requiresApproval: true,
     metadata: input.metadata,
   };
 }

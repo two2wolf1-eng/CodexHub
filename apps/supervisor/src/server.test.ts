@@ -120,6 +120,32 @@ describe('supervisor mock development API', () => {
       url: '/api/codex/exec/preflight',
       payload: { dryRunId },
     });
+    const configResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/config',
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/approval-request',
+      payload: {
+        dryRunId,
+        reason: 'manual private reason',
+      },
+    });
+    const manualApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/manual-approval',
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequest.id,
+        outcome: 'approved',
+        reason: 'manual private reason',
+      },
+    });
+    const approvalListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/approvals',
+    });
     const gateResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/evaluate-gate',
@@ -177,6 +203,52 @@ describe('supervisor mock development API', () => {
         externalProcessStarted: false,
         executionDisabled: true,
       },
+    });
+    expect(configResponse.statusCode).toBe(200);
+    expect(configResponse.json()).toMatchObject({
+      configLoadResult: {
+        status: 'loaded',
+        config: {
+          liveEnabled: false,
+          configSource: 'file',
+          configBodyStored: false,
+        },
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(approvalRequestResponse.json()).toMatchObject({
+      approvalRequest: {
+        status: 'pending',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      approvalRecord: {
+        status: 'pending',
+      },
+    });
+    expect(JSON.stringify(approvalRequestResponse.json())).not.toContain('manual private reason');
+    expect(manualApprovalResponse.statusCode).toBe(200);
+    expect(manualApprovalResponse.json()).toMatchObject({
+      approvalDecision: {
+        outcome: 'approved',
+        approved: true,
+      },
+      approvalArtifact: {
+        status: 'approved',
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(manualApprovalResponse.json())).not.toContain('manual private reason');
+    expect(approvalListResponse.statusCode).toBe(200);
+    expect(approvalListResponse.json().approvals).toHaveLength(1);
+    expect(approvalListResponse.json().approvals[0]).toMatchObject({
+      status: 'approved',
     });
     expect(gateResponse.statusCode).toBe(200);
     expect(gateResponse.json()).toMatchObject({

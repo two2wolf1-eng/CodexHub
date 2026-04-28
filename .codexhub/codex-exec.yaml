@@ -1,0 +1,10 @@
+version: 1
+liveEnabled: false
+allowedSandboxModes:
+  - read_only
+forbiddenSandboxModes:
+  - danger_full_access
+requiresApproval: true
+requiresIsolatedWorktreeForWorkspaceWrite: true
+approvalTtlMinutes: 30
+singleUseApprovals: true

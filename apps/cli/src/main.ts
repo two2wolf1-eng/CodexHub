@@ -5,19 +5,31 @@ import { fileURLToPath } from 'node:url';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
 import {
+  createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalArtifact,
+  createCodexExecControlPlaneAuditEvents,
+  createCodexExecControlPlaneEvidenceRefs,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
+  createCodexExecManualApprovalDecision,
+  createCodexExecManualApprovalRecord,
+  createCodexExecManualApprovalRequest,
   createDefaultCodexExecLiveConfig,
+  createDefaultCodexExecConfigLoadResult,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
   type CodexExecReplaySummary,
+  parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
-import type { CodexExecLiveRunRecord } from '@codexhub/contracts';
+import type {
+  CodexExecApprovalDecisionOutcome,
+  CodexExecConfigLoadResult,
+  CodexExecLiveRunRecord,
+} from '@codexhub/contracts';
 import {
   type MockDevelopmentOrchestrationResult,
   runMockDevelopmentOrchestration,
@@ -83,11 +95,59 @@ export function buildProgram(): Command {
     .description('Disabled live adapter control-plane commands');
 
   execCommand
+    .command('config')
+    .description('Read disabled live adapter configuration state')
+    .action(async () => {
+      const result = await getCodexExecConfig();
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  execCommand
     .command('dry-run')
     .argument('<prompt>')
     .description('Create a disabled dry-run plan for future live adapter use')
     .action(async (prompt: string) => {
       const result = await dryRunCodexExec(prompt);
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  execCommand
+    .command('approval-request')
+    .argument('<dryRunId>')
+    .option('-r, --reason <reason>', 'Approval request reason', 'Review disabled control-plane run')
+    .description('Create a manual approval request for a dry-run record')
+    .action(async (dryRunId: string, options: { reason: string }) => {
+      const result = await requestCodexExecApproval(dryRunId, options.reason);
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  execCommand
+    .command('manual-approval')
+    .argument('<dryRunId>')
+    .option('--request-id <approvalRequestId>', 'Approval request id')
+    .option('--outcome <outcome>', 'approved, denied, or revoked', 'approved')
+    .option('-r, --reason <reason>', 'Decision reason', 'Manual approval decision')
+    .description('Record a manual approval decision without executing anything')
+    .action(
+      async (
+        dryRunId: string,
+        options: { approvalRequestId?: string; outcome: string; reason: string },
+      ) => {
+        const result = await decideCodexExecApproval(
+          dryRunId,
+          options.outcome,
+          options.reason,
+          options.approvalRequestId,
+        );
+        console.log(JSON.stringify(result, null, 2));
+      },
+    );
+
+  execCommand
+    .command('approvals')
+    .description('List manual approval records')
+    .action(async () => {
+      const result = await listCodexExecApprovals();
       console.log(JSON.stringify(result, null, 2));
     });
 
@@ -206,6 +266,30 @@ export async function replayCodexFixture(fixturePath: string): Promise<CodexExec
   }
 }
 
+export async function getCodexExecConfig(): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/config`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const configLoadResult = await readLocalCodexExecConfig();
+
+    return {
+      configLoadResult,
+      liveConfig: configLoadResult.config,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export async function dryRunCodexExec(
   prompt: string,
 ): Promise<Record<string, unknown> | CodexExecLiveRunRecord> {
@@ -244,6 +328,155 @@ export async function dryRunCodexExec(
       policyDecision,
       'live adapter disabled in CLI fallback',
     );
+  }
+}
+
+export async function requestCodexExecApproval(
+  dryRunId: string,
+  reason: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/approval-request`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRunId, reason }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const liveConfig = createDefaultCodexExecLiveConfig();
+    const approvalRequest = createCodexExecManualApprovalRequest(
+      dryRunPlan,
+      policyDecision,
+      liveConfig,
+      {
+        requestedBy: 'cli-fallback',
+        reason,
+      },
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalRequest });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({ approvalRequest, evidenceRefs });
+    const approvalRecord = createCodexExecManualApprovalRecord({
+      request: approvalRequest,
+      evidenceRefs,
+      auditEvents,
+    });
+
+    return {
+      approvalRequest,
+      approvalRecord,
+      evidenceRefs,
+      auditEvents,
+      liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function decideCodexExecApproval(
+  dryRunId: string,
+  outcome: string,
+  reason: string,
+  approvalRequestId?: string,
+): Promise<Record<string, unknown>> {
+  const approvalOutcome = parseApprovalOutcome(outcome);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/manual-approval`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRunId, approvalRequestId, outcome: approvalOutcome, reason }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const liveConfig = createDefaultCodexExecLiveConfig();
+    const approvalRequest = createCodexExecManualApprovalRequest(
+      dryRunPlan,
+      policyDecision,
+      liveConfig,
+      {
+        requestedBy: 'cli-fallback',
+        reason: approvalRequestId ?? `Review ${dryRunId}`,
+      },
+    );
+    const approvalDecision = createCodexExecManualApprovalDecision(approvalRequest, {
+      outcome: approvalOutcome,
+      decidedBy: 'cli-fallback',
+      reason,
+    });
+    const approvalArtifact = createCodexExecApprovalArtifactFromDecision(
+      dryRunPlan,
+      policyDecision,
+      approvalRequest,
+      approvalDecision,
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalDecision,
+      approvalArtifact,
+    });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalDecision,
+      approvalArtifact,
+      evidenceRefs,
+    });
+    const approvalRecord = createCodexExecManualApprovalRecord({
+      request: approvalRequest,
+      decision: approvalDecision,
+      approvalArtifact,
+      evidenceRefs,
+      auditEvents,
+    });
+
+    return {
+      approvalRequest,
+      approvalDecision,
+      approvalArtifact,
+      approvalRecord,
+      evidenceRefs,
+      auditEvents,
+      liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function listCodexExecApprovals(): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/approvals`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return {
+      approvals: [],
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
   }
 }
 
@@ -331,6 +564,31 @@ function createLocalCodexExecControlPlaneRecord(dryRunId: string): CodexExecLive
     policyDecision,
     'live adapter disabled in CLI fallback',
   );
+}
+
+async function readLocalCodexExecConfig(): Promise<CodexExecConfigLoadResult> {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const configPath = resolve(workspaceRoot, '.codexhub', 'codex-exec.yaml');
+
+  if (!existsSync(configPath)) {
+    return createDefaultCodexExecConfigLoadResult();
+  }
+
+  const fileText = await readFile(configPath, 'utf8');
+
+  return parseCodexExecLiveConfigFile({
+    configPath: toWorkspacePath(configPath),
+    fileText,
+    metadata: { requestedBy: 'cli-fallback' },
+  });
+}
+
+function parseApprovalOutcome(outcome: string): CodexExecApprovalDecisionOutcome {
+  if (outcome === 'approved' || outcome === 'denied' || outcome === 'revoked') {
+    return outcome;
+  }
+
+  throw new Error('approval outcome must be approved, denied, or revoked');
 }
 
 async function readAllowedFixture(fixturePath: string): Promise<string> {

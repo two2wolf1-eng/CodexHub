@@ -47,6 +47,9 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.preflight_result',
     'codex.exec.approval_artifact',
     'codex.exec.execution_gate_result',
+    'codex.exec.live_config',
+    'codex.exec.approval_request',
+    'codex.exec.approval_decision',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -566,10 +569,13 @@ export const CodexExecLiveExecutionStatusSchema = z.enum([
 export type CodexExecLiveExecutionStatus = z.infer<typeof CodexExecLiveExecutionStatusSchema>;
 
 const codexExecControlPlaneSafetyFlagsSchema = z.object({
-  liveExecution: z.literal(false),
-  externalProcessStarted: z.literal(false),
-  executionDisabled: z.literal(true),
+  liveExecution: z.literal(false).default(false),
+  externalProcessStarted: z.literal(false).default(false),
+  executionDisabled: z.literal(true).default(true),
 });
+
+export const CodexExecConfigSourceSchema = z.enum(['default', 'file']);
+export type CodexExecConfigSource = z.infer<typeof CodexExecConfigSourceSchema>;
 
 export const CodexExecApprovalScopeSchema = z.enum([
   'read_only_plan',
@@ -581,11 +587,17 @@ export type CodexExecApprovalScope = z.infer<typeof CodexExecApprovalScopeSchema
 export const CodexExecApprovalStatusSchema = z.enum([
   'pending',
   'approved',
+  'denied',
   'expired',
   'revoked',
   'used',
 ]);
 export type CodexExecApprovalStatus = z.infer<typeof CodexExecApprovalStatusSchema>;
+
+export const CodexExecApprovalDecisionOutcomeSchema = z.enum(['approved', 'denied', 'revoked']);
+export type CodexExecApprovalDecisionOutcome = z.infer<
+  typeof CodexExecApprovalDecisionOutcomeSchema
+>;
 
 const codexExecWorktreeRequirementSchema = z.object({
   requiresIsolatedWorktree: z.boolean(),
@@ -602,16 +614,45 @@ export const CodexExecWorktreeRequirementSchema = createdEntityBaseSchema.extend
 });
 export type CodexExecWorktreeRequirement = z.infer<typeof CodexExecWorktreeRequirementSchema>;
 
-export const CodexExecLiveConfigSchema = createdEntityBaseSchema.extend({
-  liveEnabled: z.boolean().default(false),
-  allowedSandboxModes: z.array(CodexExecSandboxModeSchema).default(['read_only']),
-  forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema).default(['danger_full_access']),
-  requiresApproval: z.boolean().default(true),
-  requiresIsolatedWorktreeForWorkspaceWrite: z.boolean().default(true),
-  approvalTtlMinutes: z.number().int().positive().default(30),
-  singleUseApprovals: z.boolean().default(true),
-});
+export const CodexExecLiveConfigSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    liveEnabled: z.boolean().default(false),
+    allowedSandboxModes: z.array(CodexExecSandboxModeSchema).default(['read_only']),
+    forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema).default(['danger_full_access']),
+    requiresApproval: z.boolean().default(true),
+    requiresIsolatedWorktreeForWorkspaceWrite: z.boolean().default(true),
+    approvalTtlMinutes: z.number().int().positive().default(30),
+    singleUseApprovals: z.boolean().default(true),
+    configSource: CodexExecConfigSourceSchema.default('default'),
+    configPath: z.string().min(1).optional(),
+    configPathHash: z.string().min(1).optional(),
+    configBodyStored: z.literal(false).default(false),
+  });
 export type CodexExecLiveConfig = z.infer<typeof CodexExecLiveConfigSchema>;
+
+export const CodexExecConfigFileSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    configPath: z.string().min(1),
+    configPathHash: z.string().min(1),
+    configHash: z.string().min(1),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  });
+export type CodexExecConfigFile = z.infer<typeof CodexExecConfigFileSchema>;
+
+export const CodexExecConfigLoadResultSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    source: CodexExecConfigSourceSchema,
+    status: z.enum(['loaded', 'defaulted', 'failed']),
+    config: CodexExecLiveConfigSchema,
+    configFile: CodexExecConfigFileSchema.optional(),
+    errors: z.array(z.string()).default([]),
+    summary: z.string().min(1),
+  });
+export type CodexExecConfigLoadResult = z.infer<typeof CodexExecConfigLoadResultSchema>;
 
 export const CodexExecLiveCapabilityStateSchema = createdEntityBaseSchema.extend({
   liveEnabled: z.boolean(),
@@ -659,6 +700,53 @@ export const CodexExecApprovalArtifactSchema = createdEntityBaseSchema
     summary: z.string().min(1),
   });
 export type CodexExecApprovalArtifact = z.infer<typeof CodexExecApprovalArtifactSchema>;
+
+export const CodexExecManualApprovalRequestSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunPlanId: z.string().min(1),
+    dryRunPlanHash: z.string().min(1),
+    policyDecisionId: z.string().min(1),
+    policyDecisionHash: z.string().min(1),
+    scope: CodexExecApprovalScopeSchema,
+    status: CodexExecApprovalStatusSchema,
+    riskLevel: RiskLevelSchema,
+    requestedBy: z.string().min(1),
+    reason: z.string().min(1),
+    expiresAt: IsoDateTimeSchema,
+    singleUse: z.boolean(),
+    summary: z.string().min(1),
+  });
+export type CodexExecManualApprovalRequest = z.infer<typeof CodexExecManualApprovalRequestSchema>;
+
+export const CodexExecManualApprovalDecisionSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    approvalRequestId: z.string().min(1),
+    dryRunPlanId: z.string().min(1),
+    policyDecisionId: z.string().min(1),
+    outcome: CodexExecApprovalDecisionOutcomeSchema,
+    decidedBy: z.string().min(1),
+    reasonSummary: z.string().min(1),
+    decisionHash: z.string().min(1),
+    approved: z.boolean(),
+    approvalArtifactId: z.string().min(1).optional(),
+    summary: z.string().min(1),
+  });
+export type CodexExecManualApprovalDecision = z.infer<typeof CodexExecManualApprovalDecisionSchema>;
+
+export const CodexExecManualApprovalRecordSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    request: CodexExecManualApprovalRequestSchema,
+    decision: CodexExecManualApprovalDecisionSchema.optional(),
+    approvalArtifact: CodexExecApprovalArtifactSchema.optional(),
+    status: CodexExecApprovalStatusSchema,
+    evidenceRefs: z.array(EvidenceRefSchema),
+    auditEventIds: z.array(z.string()).default([]),
+    summary: z.string().min(1),
+  });
+export type CodexExecManualApprovalRecord = z.infer<typeof CodexExecManualApprovalRecordSchema>;
 
 export const CodexExecExecutionGateResultSchema = createdEntityBaseSchema
   .merge(codexExecControlPlaneSafetyFlagsSchema)
@@ -790,6 +878,10 @@ export const CodexExecLiveRunRecordSchema = createdEntityBaseSchema
     preflightResult: CodexExecPreflightResultSchema.optional(),
     approvalArtifact: CodexExecApprovalArtifactSchema.optional(),
     executionGateResult: CodexExecExecutionGateResultSchema.optional(),
+    configLoadResult: CodexExecConfigLoadResultSchema.optional(),
+    manualApprovalRequest: CodexExecManualApprovalRequestSchema.optional(),
+    manualApprovalDecision: CodexExecManualApprovalDecisionSchema.optional(),
+    manualApprovalRecord: CodexExecManualApprovalRecordSchema.optional(),
   });
 export type CodexExecLiveRunRecord = z.infer<typeof CodexExecLiveRunRecordSchema>;
 

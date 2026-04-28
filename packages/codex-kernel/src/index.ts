@@ -3,8 +3,11 @@ import type {
   AuditEvent,
   CodexExecApprovalMode,
   CodexExecApprovalArtifact,
+  CodexExecApprovalDecisionOutcome,
   CodexExecApprovalRequirement,
   CodexExecCommandPreview,
+  CodexExecConfigFile,
+  CodexExecConfigLoadResult,
   CodexExecDryRunPlan,
   CodexExecExecutionGateResult,
   CodexExecEventType,
@@ -15,6 +18,9 @@ import type {
   CodexExecLiveExecutionDisabledError,
   CodexExecLiveExecutionStatus,
   CodexExecLiveRunRecord,
+  CodexExecManualApprovalDecision,
+  CodexExecManualApprovalRecord,
+  CodexExecManualApprovalRequest,
   CodexExecNormalizedEvent,
   CodexExecNormalizedItem,
   CodexExecPolicyInput,
@@ -29,7 +35,12 @@ import type {
   PolicyDecision,
   RiskLevel,
 } from '@codexhub/contracts';
-import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
+import {
+  CodexExecLiveConfigSchema,
+  SchemaVersionSchema,
+  foundationId,
+  foundationTimestamp,
+} from '@codexhub/contracts';
 import {
   MetadataOnlyEvidenceCollector,
   createEvidenceRef,
@@ -103,6 +114,24 @@ export interface CodexExecPolicyEngine {
 export interface CodexExecPreflightOptions {
   isolatedWorktreePresent?: boolean;
   worktreePath?: string;
+}
+
+export interface CodexExecConfigFileInput {
+  configPath: string;
+  fileText: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CodexExecManualApprovalRequestInput {
+  requestedBy?: string;
+  reason?: string;
+  expiresAt?: string;
+}
+
+export interface CodexExecManualApprovalDecisionInput {
+  outcome: CodexExecApprovalDecisionOutcome;
+  decidedBy?: string;
+  reason?: string;
 }
 
 export interface CodexExecParsedJsonlLine {
@@ -560,10 +589,84 @@ export function createDefaultCodexExecLiveConfig(): CodexExecLiveConfig {
     requiresIsolatedWorktreeForWorkspaceWrite: true,
     approvalTtlMinutes: 30,
     singleUseApprovals: true,
+    configSource: 'default',
+    configBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
     metadata: {
       source: 'codex-kernel.control-plane',
       defaultDisabled: true,
     },
+  };
+}
+
+export function createDefaultCodexExecConfigLoadResult(): CodexExecConfigLoadResult {
+  const config = createDefaultCodexExecLiveConfig();
+
+  return {
+    id: foundationId('codex_config_load'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    source: 'default',
+    status: 'defaulted',
+    config,
+    errors: [],
+    summary: 'Using default disabled Codex control-plane config',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({ configId: config.id, sourceKind: 'default' }),
+  };
+}
+
+export function parseCodexExecLiveConfigFile(
+  input: CodexExecConfigFileInput,
+): CodexExecConfigLoadResult {
+  const defaultConfig = createDefaultCodexExecLiveConfig();
+  const configFile = createCodexExecConfigFile(input.configPath, input.fileText, input.metadata);
+  const parsed = parseSimpleCodexConfig(input.fileText);
+  const config = CodexExecLiveConfigSchema.parse({
+    ...defaultConfig,
+    ...parsed.values,
+    id: foundationId('codex_live_config'),
+    createdAt: foundationTimestamp(),
+    configSource: 'file',
+    configPath: input.configPath,
+    configPathHash: prefixedHash(input.configPath),
+    configBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      source: 'codex-kernel.config-file',
+      defaultDisabled: parsed.values.liveEnabled !== true,
+      parsedKeyCount: parsed.keyCount,
+    },
+  });
+  const status = parsed.errors.length === 0 ? 'loaded' : 'failed';
+
+  return {
+    id: foundationId('codex_config_load'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    source: 'file',
+    status,
+    config: status === 'loaded' ? config : defaultConfig,
+    configFile,
+    errors: parsed.errors,
+    summary:
+      status === 'loaded'
+        ? `Loaded Codex control-plane config from ${input.configPath}`
+        : 'Config file parsing failed; default disabled config is active',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      configFileId: configFile.id,
+      configPathHash: configFile.configPathHash,
+      status,
+    }),
   };
 }
 
@@ -648,8 +751,14 @@ export function runCodexExecPreflight(
 export function createCodexExecApprovalArtifact(
   plan: CodexExecDryRunPlan,
   policyDecision: PolicyDecision,
+  options: {
+    expiresAt?: string;
+    singleUse?: boolean;
+    summary?: string;
+    metadata?: Record<string, unknown>;
+  } = {},
 ): CodexExecApprovalArtifact {
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const expiresAt = options.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
   return {
     id: foundationId('codex_approval_artifact'),
@@ -662,17 +771,152 @@ export function createCodexExecApprovalArtifact(
     scope: approvalScopeForSandboxMode(plan.sandboxMode),
     status: 'approved',
     expiresAt,
-    singleUse: true,
+    singleUse: options.singleUse ?? true,
     revoked: false,
-    summary: `Approval artifact for ${plan.title} (${plan.sandboxMode})`,
+    summary: options.summary ?? `Approval artifact for ${plan.title} (${plan.sandboxMode})`,
     liveExecution: false,
     externalProcessStarted: false,
     executionDisabled: true,
     metadata: {
       dryRunPlanId: plan.id,
       policyDecisionId: policyDecision.id,
+      ...(options.metadata ?? {}),
       source: 'codex-kernel.control-plane',
     },
+  };
+}
+
+export function createCodexExecManualApprovalRequest(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+  config: CodexExecLiveConfig = createDefaultCodexExecLiveConfig(),
+  input: CodexExecManualApprovalRequestInput = {},
+): CodexExecManualApprovalRequest {
+  const expiresAt =
+    input.expiresAt ?? new Date(Date.now() + config.approvalTtlMinutes * 60 * 1000).toISOString();
+
+  return {
+    id: foundationId('codex_approval_request'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    dryRunPlanHash: hashCodexExecDryRunPlan(plan),
+    policyDecisionId: policyDecision.id,
+    policyDecisionHash: hashCodexExecPolicyDecision(policyDecision),
+    scope: approvalScopeForSandboxMode(plan.sandboxMode),
+    status: 'pending',
+    riskLevel: plan.riskLevel,
+    requestedBy: input.requestedBy ?? 'local-human',
+    reason: summarizeReason(input.reason ?? `Review ${plan.title}`, 'approval request reason'),
+    expiresAt,
+    singleUse: config.singleUseApprovals,
+    summary: `Manual approval requested for ${plan.title}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: plan.id,
+      policyDecisionId: policyDecision.id,
+      configId: config.id,
+    }),
+  };
+}
+
+export function createCodexExecManualApprovalDecision(
+  request: CodexExecManualApprovalRequest,
+  input: CodexExecManualApprovalDecisionInput,
+): CodexExecManualApprovalDecision {
+  const reasonSummary = summarizeReason(
+    input.reason ?? `${input.outcome} by local review`,
+    'approval decision reason',
+  );
+  const approved = input.outcome === 'approved';
+  const decisionHash = prefixedHash(
+    stableStringify({
+      approvalRequestId: request.id,
+      dryRunPlanHash: request.dryRunPlanHash,
+      policyDecisionHash: request.policyDecisionHash,
+      outcome: input.outcome,
+      reasonSummary,
+    }),
+  );
+
+  return {
+    id: foundationId('codex_approval_decision'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    approvalRequestId: request.id,
+    dryRunPlanId: request.dryRunPlanId,
+    policyDecisionId: request.policyDecisionId,
+    outcome: input.outcome,
+    decidedBy: input.decidedBy ?? 'local-human',
+    reasonSummary,
+    decisionHash,
+    approved,
+    summary: `Manual approval ${input.outcome} for request ${request.id}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      approvalRequestId: request.id,
+      scope: request.scope,
+      riskLevel: request.riskLevel,
+    }),
+  };
+}
+
+export function createCodexExecApprovalArtifactFromDecision(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+  request: CodexExecManualApprovalRequest,
+  decision: CodexExecManualApprovalDecision,
+): CodexExecApprovalArtifact | undefined {
+  if (!decision.approved) {
+    return undefined;
+  }
+
+  return createCodexExecApprovalArtifact(plan, policyDecision, {
+    expiresAt: request.expiresAt,
+    singleUse: request.singleUse,
+    summary: `Manual approval artifact for ${plan.title}`,
+    metadata: {
+      approvalRequestId: request.id,
+      approvalDecisionId: decision.id,
+      decisionHash: decision.decisionHash,
+    },
+  });
+}
+
+export function createCodexExecManualApprovalRecord(input: {
+  request: CodexExecManualApprovalRequest;
+  decision?: CodexExecManualApprovalDecision;
+  approvalArtifact?: CodexExecApprovalArtifact;
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
+}): CodexExecManualApprovalRecord {
+  const status = input.decision?.outcome ?? input.request.status;
+
+  return {
+    id: foundationId('codex_approval_record'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    request: input.request,
+    decision: input.decision,
+    approvalArtifact: input.approvalArtifact,
+    status,
+    evidenceRefs: input.evidenceRefs ?? [],
+    auditEventIds: (input.auditEvents ?? []).map((event) => event.id),
+    summary: input.decision
+      ? `Manual approval ${input.decision.outcome} for ${input.request.dryRunPlanId}`
+      : `Manual approval pending for ${input.request.dryRunPlanId}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      approvalRequestId: input.request.id,
+      approvalDecisionId: input.decision?.id,
+      approvalArtifactId: input.approvalArtifact?.id,
+    }),
   };
 }
 
@@ -730,6 +974,10 @@ export function evaluateCodexExecExecutionGate(
         reasons.push('approval artifact revoked');
       }
 
+      if (approvalArtifact.status !== 'approved') {
+        reasons.push(`approval artifact status ${approvalArtifact.status} is not approved`);
+      }
+
       if (approvalArtifact.status === 'used' || approvalArtifact.usedAt) {
         reasons.push('approval artifact already used');
       }
@@ -774,11 +1022,37 @@ export function evaluateCodexExecExecutionGate(
 }
 
 export function createCodexExecControlPlaneEvidenceRefs(input: {
+  configLoadResult?: CodexExecConfigLoadResult;
   preflightResult?: CodexExecPreflightResult;
+  approvalRequest?: CodexExecManualApprovalRequest;
+  approvalDecision?: CodexExecManualApprovalDecision;
   approvalArtifact?: CodexExecApprovalArtifact;
   executionGateResult?: CodexExecExecutionGateResult;
 }): EvidenceRef[] {
   const evidenceRefs: EvidenceRef[] = [];
+
+  if (input.configLoadResult) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.live_config',
+        label: 'codex.live_config',
+        summary: input.configLoadResult.summary,
+        metadata: createControlPlaneMetadata({
+          configLoadResultId: input.configLoadResult.id,
+          configId: input.configLoadResult.config.id,
+          status: input.configLoadResult.status,
+          source: input.configLoadResult.source,
+        }),
+        bodyForHashOnly: stableStringify({
+          configLoadResultId: input.configLoadResult.id,
+          configId: input.configLoadResult.config.id,
+          liveEnabled: input.configLoadResult.config.liveEnabled,
+          allowedSandboxModes: input.configLoadResult.config.allowedSandboxModes,
+          forbiddenSandboxModes: input.configLoadResult.config.forbiddenSandboxModes,
+        }),
+      }),
+    );
+  }
 
   if (input.preflightResult) {
     evidenceRefs.push(
@@ -795,6 +1069,52 @@ export function createCodexExecControlPlaneEvidenceRefs(input: {
           id: input.preflightResult.id,
           status: input.preflightResult.status,
           checkStatuses: input.preflightResult.checks.map((check) => [check.name, check.status]),
+        }),
+      }),
+    );
+  }
+
+  if (input.approvalRequest) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.approval_request',
+        label: 'codex.approval_request',
+        summary: input.approvalRequest.summary,
+        metadata: createControlPlaneMetadata({
+          approvalRequestId: input.approvalRequest.id,
+          dryRunPlanId: input.approvalRequest.dryRunPlanId,
+          status: input.approvalRequest.status,
+          riskLevel: input.approvalRequest.riskLevel,
+        }),
+        bodyForHashOnly: stableStringify({
+          approvalRequestId: input.approvalRequest.id,
+          dryRunPlanHash: input.approvalRequest.dryRunPlanHash,
+          policyDecisionHash: input.approvalRequest.policyDecisionHash,
+          scope: input.approvalRequest.scope,
+          status: input.approvalRequest.status,
+        }),
+      }),
+    );
+  }
+
+  if (input.approvalDecision) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.approval_decision',
+        label: 'codex.approval_decision',
+        summary: input.approvalDecision.summary,
+        metadata: createControlPlaneMetadata({
+          approvalDecisionId: input.approvalDecision.id,
+          approvalRequestId: input.approvalDecision.approvalRequestId,
+          dryRunPlanId: input.approvalDecision.dryRunPlanId,
+          outcome: input.approvalDecision.outcome,
+          approved: input.approvalDecision.approved,
+        }),
+        bodyForHashOnly: stableStringify({
+          approvalDecisionId: input.approvalDecision.id,
+          approvalRequestId: input.approvalDecision.approvalRequestId,
+          outcome: input.approvalDecision.outcome,
+          decisionHash: input.approvalDecision.decisionHash,
         }),
       }),
     );
@@ -848,13 +1168,34 @@ export function createCodexExecControlPlaneEvidenceRefs(input: {
 }
 
 export function createCodexExecControlPlaneAuditEvents(input: {
+  configLoadResult?: CodexExecConfigLoadResult;
   preflightResult?: CodexExecPreflightResult;
+  approvalRequest?: CodexExecManualApprovalRequest;
+  approvalDecision?: CodexExecManualApprovalDecision;
   approvalArtifact?: CodexExecApprovalArtifact;
   executionGateResult?: CodexExecExecutionGateResult;
   evidenceRefs?: EvidenceRef[];
 }): AuditEvent[] {
   const now = foundationTimestamp();
   const events: AuditEvent[] = [];
+
+  if (input.configLoadResult) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.live_config.loaded',
+      outcome: input.configLoadResult.status,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.live_config',
+      ),
+      metadata: createControlPlaneMetadata({
+        configLoadResultId: input.configLoadResult.id,
+        configId: input.configLoadResult.config.id,
+      }),
+    });
+  }
 
   if (input.preflightResult) {
     events.push({
@@ -870,6 +1211,43 @@ export function createCodexExecControlPlaneAuditEvents(input: {
       metadata: createControlPlaneMetadata({
         preflightResultId: input.preflightResult.id,
         dryRunPlanId: input.preflightResult.dryRunPlanId,
+      }),
+    });
+  }
+
+  if (input.approvalRequest) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.manual_approval.requested',
+      outcome: input.approvalRequest.status,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.approval_request',
+      ),
+      metadata: createControlPlaneMetadata({
+        approvalRequestId: input.approvalRequest.id,
+        dryRunPlanId: input.approvalRequest.dryRunPlanId,
+      }),
+    });
+  }
+
+  if (input.approvalDecision) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.manual_approval.decided',
+      outcome: input.approvalDecision.outcome,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.approval_decision',
+      ),
+      metadata: createControlPlaneMetadata({
+        approvalDecisionId: input.approvalDecision.id,
+        approvalRequestId: input.approvalDecision.approvalRequestId,
+        approved: input.approvalDecision.approved,
       }),
     });
   }
@@ -929,6 +1307,177 @@ export function createCodexExecControlPlaneAuditEvents(input: {
   }
 
   return events;
+}
+
+function createCodexExecConfigFile(
+  configPath: string,
+  fileText: string,
+  metadata?: Record<string, unknown>,
+): CodexExecConfigFile {
+  return {
+    id: foundationId('codex_config_file'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    configPath,
+    configPathHash: prefixedHash(configPath),
+    configHash: prefixedHash(fileText),
+    bodyStored: false,
+    summary: `Config file metadata for ${configPath}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      ...(metadata ?? {}),
+      configPathHash: prefixedHash(configPath),
+      configHash: prefixedHash(fileText),
+    }),
+  };
+}
+
+function parseSimpleCodexConfig(fileText: string): {
+  values: Partial<CodexExecLiveConfig>;
+  errors: string[];
+  keyCount: number;
+} {
+  const values: Partial<CodexExecLiveConfig> = {};
+  const errors: string[] = [];
+  let currentArrayKey: 'allowedSandboxModes' | 'forbiddenSandboxModes' | undefined;
+  let keyCount = 0;
+
+  for (const [index, rawLine] of fileText.split(/\r?\n/).entries()) {
+    const lineWithoutComment = rawLine.split('#')[0]?.trimEnd() ?? '';
+    const line = lineWithoutComment.trim();
+
+    if (line.length === 0) {
+      continue;
+    }
+
+    const arrayItem = line.match(/^-\s+(.+)$/);
+
+    if (arrayItem && currentArrayKey) {
+      const mode = parseSandboxMode(arrayItem[1]?.trim() ?? '');
+
+      if (mode) {
+        values[currentArrayKey] = [...(values[currentArrayKey] ?? []), mode];
+      } else {
+        errors.push(`line ${index + 1}: unsupported sandbox mode`);
+      }
+
+      continue;
+    }
+
+    const keyValue = line.match(/^([A-Za-z][A-Za-z0-9]*):\s*(.*)$/);
+
+    if (!keyValue) {
+      errors.push(`line ${index + 1}: unsupported config syntax`);
+      currentArrayKey = undefined;
+      continue;
+    }
+
+    const key = keyValue[1] ?? '';
+    const value = keyValue[2]?.trim() ?? '';
+    currentArrayKey = undefined;
+    keyCount += 1;
+
+    if (key === 'allowedSandboxModes' || key === 'forbiddenSandboxModes') {
+      currentArrayKey = key;
+      values[key] = [];
+
+      if (value.length > 0) {
+        const inlineModes = value
+          .replace(/^\[/, '')
+          .replace(/\]$/, '')
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean);
+
+        for (const inlineMode of inlineModes) {
+          const mode = parseSandboxMode(inlineMode);
+
+          if (mode) {
+            values[key] = [...(values[key] ?? []), mode];
+          } else {
+            errors.push(`line ${index + 1}: unsupported sandbox mode`);
+          }
+        }
+      }
+
+      continue;
+    }
+
+    if (
+      key === 'liveEnabled' ||
+      key === 'requiresApproval' ||
+      key === 'requiresIsolatedWorktreeForWorkspaceWrite' ||
+      key === 'singleUseApprovals'
+    ) {
+      const parsedBoolean = parseBoolean(value);
+
+      if (parsedBoolean === undefined) {
+        errors.push(`line ${index + 1}: ${key} must be true or false`);
+      } else {
+        values[key] = parsedBoolean;
+      }
+
+      continue;
+    }
+
+    if (key === 'approvalTtlMinutes') {
+      const parsedNumber = Number(value);
+
+      if (!Number.isInteger(parsedNumber) || parsedNumber <= 0) {
+        errors.push(`line ${index + 1}: approvalTtlMinutes must be a positive integer`);
+      } else {
+        values.approvalTtlMinutes = parsedNumber;
+      }
+
+      continue;
+    }
+
+    if (key === 'version') {
+      const parsedNumber = Number(value);
+
+      if (!Number.isInteger(parsedNumber) || parsedNumber <= 0) {
+        errors.push(`line ${index + 1}: version must be a positive integer`);
+      }
+
+      continue;
+    }
+
+    errors.push(`line ${index + 1}: unsupported config key ${key}`);
+  }
+
+  return { values, errors, keyCount };
+}
+
+function parseBoolean(value: string): boolean | undefined {
+  if (value === 'true') {
+    return true;
+  }
+
+  if (value === 'false') {
+    return false;
+  }
+
+  return undefined;
+}
+
+function parseSandboxMode(value: string): CodexExecSandboxMode | undefined {
+  const normalized = value.replace(/^['"]|['"]$/g, '');
+
+  if (
+    normalized === 'read_only' ||
+    normalized === 'workspace_write' ||
+    normalized === 'danger_full_access'
+  ) {
+    return normalized;
+  }
+
+  return undefined;
+}
+
+function summarizeReason(value: string, label: string): string {
+  return `${label} (${value.length} chars, hash ${prefixedHash(value)})`;
 }
 
 function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem {

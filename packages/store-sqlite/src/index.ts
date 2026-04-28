@@ -5,6 +5,7 @@ import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
   CodexExecLiveRunRecord,
+  CodexExecManualApprovalRecord,
   CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
@@ -13,6 +14,7 @@ import type {
 } from '@codexhub/contracts';
 import type {
   AuditEventRepository,
+  CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
   CodexHubStore,
   CodexReplayRepository,
@@ -73,6 +75,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly developmentRuns: DevelopmentRunRepository;
   readonly codexReplays: CodexReplayRepository;
   readonly codexExecLiveRuns: CodexExecLiveRunRepository;
+  readonly codexExecApprovals: CodexExecApprovalRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -98,6 +101,7 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.developmentRuns = new SqliteDevelopmentRunRepository(database);
     this.codexReplays = new SqliteCodexReplayRepository(database);
     this.codexExecLiveRuns = new SqliteCodexExecLiveRunRepository(database);
+    this.codexExecApprovals = new SqliteCodexExecApprovalRepository(database);
   }
 
   async close(): Promise<void> {
@@ -192,6 +196,39 @@ class SqliteCodexExecLiveRunRepository implements CodexExecLiveRunRepository {
   }
 
   async getCodexExecLiveRunRecord(id: string): Promise<CodexExecLiveRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+}
+
+class SqliteCodexExecApprovalRepository implements CodexExecApprovalRepository {
+  private readonly repository: JsonEntityRepository<CodexExecManualApprovalRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecManualApprovalRecord>(
+      database,
+      'codex_exec_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveCodexExecApprovalRecord(
+    record: CodexExecManualApprovalRecord,
+  ): Promise<CodexExecManualApprovalRecord> {
+    return this.repository.create(record);
+  }
+
+  async listCodexExecApprovalRecords(limit = 10): Promise<CodexExecManualApprovalRecord[]> {
+    const safeLimit = Math.max(0, Math.trunc(limit));
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_exec_approvals ORDER BY recorded_at DESC, id DESC LIMIT ?',
+      )
+      .all(safeLimit) as unknown as PayloadRow[];
+
+    return rows.map((row) => JSON.parse(row.payload) as CodexExecManualApprovalRecord);
+  }
+
+  async getCodexExecApprovalRecord(id: string): Promise<CodexExecManualApprovalRecord | undefined> {
     return this.repository.getById(id);
   }
 }
@@ -330,6 +367,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_exec_live_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_exec_approvals (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

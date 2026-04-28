@@ -69,4 +69,51 @@ describe('cli development mock-run fallback', () => {
       },
     });
   });
+
+  it('creates local config and manual approval records when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      getCodexExecConfig,
+      requestCodexExecApproval,
+      decideCodexExecApproval,
+      listCodexExecApprovals,
+    } = await import('./main');
+    const config = await getCodexExecConfig();
+    const request = await requestCodexExecApproval(
+      'codex_dry_run_fixture',
+      'manual private reason',
+    );
+    const decision = await decideCodexExecApproval(
+      'codex_dry_run_fixture',
+      'approved',
+      'manual private reason',
+    );
+    const approvals = await listCodexExecApprovals();
+
+    expect(config).toMatchObject({
+      liveConfig: {
+        liveEnabled: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+    expect(request).toMatchObject({
+      approvalRequest: {
+        status: 'pending',
+        liveExecution: false,
+      },
+    });
+    expect(JSON.stringify(request)).not.toContain('manual private reason');
+    expect(decision).toMatchObject({
+      approvalDecision: {
+        outcome: 'approved',
+        approved: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(approvals).toMatchObject({ approvals: [] });
+  });
 });

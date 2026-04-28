@@ -204,4 +204,38 @@ describe('security-kernel policy evaluation', () => {
     expect(fullAccessDecision.outcome).toBe('deny');
     expect(fullAccessDecision.reasons.join(' ')).toContain('danger_full_access');
   });
+
+  it('allows manual approval records only when hashes are present and no live path starts', () => {
+    const allowed = evaluateAction({
+      actionId: 'manual-approval',
+      actionType: 'codex.exec.manual.approval',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        dryRunPlanHashPresent: true,
+        policyDecisionHashPresent: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+      },
+    });
+    const denied = evaluateAction({
+      actionId: 'manual-approval-invalid',
+      actionType: 'codex.exec.manual.approval',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        dryRunPlanHashPresent: false,
+        policyDecisionHashPresent: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+      },
+    });
+
+    expect(allowed.outcome).toBe('allow');
+    expect(allowed.requiresApproval).toBe(true);
+    expect(denied.outcome).toBe('deny');
+    expect(denied.reasons.join(' ')).toContain('dry-run plan hash');
+  });
 });

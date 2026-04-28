@@ -6,12 +6,20 @@ import {
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
   createCodexExecApprovalArtifact,
+  createCodexExecApprovalArtifactFromDecision,
+  createCodexExecControlPlaneAuditEvents,
+  createCodexExecControlPlaneEvidenceRefs,
   createDefaultCodexExecLiveConfig,
+  createDefaultCodexExecConfigLoadResult,
+  createCodexExecManualApprovalDecision,
+  createCodexExecManualApprovalRecord,
+  createCodexExecManualApprovalRequest,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
+  parseCodexExecLiveConfigFile,
   createCodexReplayRecord,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -211,6 +219,88 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(gate.reasons.join(' ')).toContain('disabled');
     expect(gate.liveExecution).toBe(false);
     expect(gate.externalProcessStarted).toBe(false);
+  });
+
+  it('loads disabled config file metadata without storing file body', () => {
+    const result = parseCodexExecLiveConfigFile({
+      configPath: '.codexhub/codex-exec.yaml',
+      fileText: [
+        'liveEnabled: false',
+        'allowedSandboxModes:',
+        '  - read_only',
+        'forbiddenSandboxModes:',
+        '  - danger_full_access',
+        'requiresApproval: true',
+        'requiresIsolatedWorktreeForWorkspaceWrite: true',
+        'approvalTtlMinutes: 20',
+        'singleUseApprovals: true',
+      ].join('\n'),
+    });
+    const defaultResult = createDefaultCodexExecConfigLoadResult();
+
+    expect(result.status).toBe('loaded');
+    expect(result.config.liveEnabled).toBe(false);
+    expect(result.config.configSource).toBe('file');
+    expect(result.config.configBodyStored).toBe(false);
+    expect(result.configFile?.bodyStored).toBe(false);
+    expect(result.configFile?.configHash).toMatch(/^sha256:/);
+    expect(defaultResult.status).toBe('defaulted');
+    expect(JSON.stringify(result)).not.toContain('liveEnabled: false');
+  });
+
+  it('creates manual approval request, decision, record, evidence, and audit safely', () => {
+    const { plan, policyDecision } = createControlPlaneFixture();
+    const config = createDefaultCodexExecLiveConfig();
+    const request = createCodexExecManualApprovalRequest(plan, policyDecision, config, {
+      requestedBy: 'local-human',
+      reason: 'Review disabled control-plane run',
+    });
+    const decision = createCodexExecManualApprovalDecision(request, {
+      outcome: 'approved',
+      decidedBy: 'local-human',
+      reason: 'Approved for disabled gate evaluation',
+    });
+    const artifact = createCodexExecApprovalArtifactFromDecision(
+      plan,
+      policyDecision,
+      request,
+      decision,
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalRequest: request,
+      approvalDecision: decision,
+      approvalArtifact: artifact,
+    });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalRequest: request,
+      approvalDecision: decision,
+      approvalArtifact: artifact,
+      evidenceRefs,
+    });
+    const record = createCodexExecManualApprovalRecord({
+      request,
+      decision,
+      approvalArtifact: artifact,
+      evidenceRefs,
+      auditEvents,
+    });
+    const gate = evaluateCodexExecExecutionGate(plan, policyDecision, artifact, config);
+
+    expect(request.status).toBe('pending');
+    expect(decision.approved).toBe(true);
+    expect(artifact?.status).toBe('approved');
+    expect(record.status).toBe('approved');
+    expect(evidenceRefs.map((ref) => ref.kind)).toContain('codex.exec.approval_request');
+    expect(evidenceRefs.map((ref) => ref.kind)).toContain('codex.exec.approval_decision');
+    expect(auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.manual_approval.requested',
+    );
+    expect(auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.manual_approval.decided',
+    );
+    expect(gate.status).toBe('blocked');
+    expect(gate.reasons.join(' ')).toContain('disabled');
+    expect(JSON.stringify(record)).not.toContain('Approved for disabled gate evaluation');
   });
 
   it('blocks approval artifact hash mismatch', () => {

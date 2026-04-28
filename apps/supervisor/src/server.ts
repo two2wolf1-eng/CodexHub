@@ -3,16 +3,22 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
 import {
+  createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalArtifact,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
-  createDefaultCodexExecLiveConfig,
+  createCodexExecManualApprovalDecision,
+  createCodexExecManualApprovalRecord,
+  createCodexExecManualApprovalRequest,
+  createDefaultCodexExecConfigLoadResult,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
+  evaluateCodexExecLiveCapability,
   type CodexExecReplaySummary,
+  parseCodexExecLiveConfigFile,
   createCodexReplayRecord,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -20,8 +26,11 @@ import {
 } from '@codexhub/codex-kernel';
 import type {
   CodexExecApprovalArtifact,
+  CodexExecApprovalDecisionOutcome,
   CodexExecApprovalMode,
+  CodexExecConfigLoadResult,
   CodexExecLiveRunRecord,
+  CodexExecManualApprovalRecord,
   CodexExecSandboxMode,
   CodexReplayRecord,
 } from '@codexhub/contracts';
@@ -53,8 +62,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const mockDevelopmentRuns: MockDevelopmentOrchestrationResult[] = [];
   const codexReplayRecords: CodexReplayRecord[] = [];
   const codexExecLiveRunRecords: CodexExecLiveRunRecord[] = [];
+  const codexExecApprovalRecords: CodexExecManualApprovalRecord[] = [];
   const policyEngine = new DefaultPolicyEngine();
-  const liveConfig = createDefaultCodexExecLiveConfig();
+  let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
   let storePromise: Promise<CodexHubStore | undefined> | undefined;
   let persistenceState: PersistenceState = options.disableStore
@@ -85,6 +95,28 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       });
 
     return storePromise;
+  }
+
+  async function getLiveConfigLoadResult(): Promise<CodexExecConfigLoadResult> {
+    configLoadPromise ??= loadCodexExecConfig();
+    return configLoadPromise;
+  }
+
+  async function loadCodexExecConfig(): Promise<CodexExecConfigLoadResult> {
+    const workspaceRoot = findWorkspaceRoot(process.cwd());
+    const configPath = resolve(workspaceRoot, '.codexhub', 'codex-exec.yaml');
+
+    if (!existsSync(configPath)) {
+      return createDefaultCodexExecConfigLoadResult();
+    }
+
+    const fileText = await readFile(configPath, 'utf8');
+
+    return parseCodexExecLiveConfigFile({
+      configPath: toWorkspacePath(configPath, workspaceRoot),
+      fileText,
+      metadata: { requestedBy: 'supervisor' },
+    });
   }
 
   server.addHook('onRequest', async (_request, reply) => {
@@ -276,21 +308,27 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     const store = await getStore();
+    const configLoadResult = await getLiveConfigLoadResult();
+    const liveConfig = configLoadResult.config;
     const intent = createCodexExecExecutionIntent({
       title: body.title,
       prompt: body.prompt,
       cwd: cwdGuard.cwd,
       sandboxMode: body.sandboxMode ?? 'read_only',
       approvalMode: body.approvalMode ?? 'required',
+      liveAdapterEnabled: liveConfig.liveEnabled,
       metadata: body.metadata,
     });
     const dryRunPlan = createCodexExecDryRunPlan(intent);
     const policyDecision = evaluateCodexExecDryRunPolicy(dryRunPlan, policyEngine);
-    const liveRunRecord = createCodexExecDisabledLiveRunRecord(
-      dryRunPlan,
-      policyDecision,
-      'live adapter disabled in Round 3B control-plane skeleton',
-    );
+    const liveRunRecord = {
+      ...createCodexExecDisabledLiveRunRecord(
+        dryRunPlan,
+        policyDecision,
+        'live adapter disabled in Round 3B control-plane skeleton',
+      ),
+      configLoadResult,
+    };
 
     if (store) {
       for (const evidenceRef of liveRunRecord.evidenceRefs) {
@@ -315,6 +353,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       evidenceRefs: liveRunRecord.evidenceRefs,
       auditEvents: liveRunRecord.auditEvents,
       liveRunRecord,
+      configLoadResult,
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -325,6 +364,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   server.get('/api/codex/exec/dry-runs', async () => {
     const store = await getStore();
+    const configLoadResult = await getLiveConfigLoadResult();
+    const liveConfig = configLoadResult.config;
     const records = store
       ? await store.codexExecLiveRuns.listCodexExecLiveRunRecords(10)
       : codexExecLiveRunRecords.slice(0, 10);
@@ -338,6 +379,25 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.get('/api/codex/exec/config', async () => {
+    const configLoadResult = await getLiveConfigLoadResult();
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ configLoadResult });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({ configLoadResult, evidenceRefs });
+
+    return {
+      configLoadResult,
+      liveConfig: configLoadResult.config,
+      capability: evaluateCodexExecLiveCapability(configLoadResult.config),
+      evidenceRefs,
+      auditEvents,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
   server.post('/api/codex/exec/preflight', async (request, reply) => {
     const body = request.body as
       | {
@@ -347,6 +407,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         }
       | undefined;
     const store = await getStore();
+    const configLoadResult = await getLiveConfigLoadResult();
+    const liveConfig = configLoadResult.config;
     const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
 
     if (!record) {
@@ -373,6 +435,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       evidenceRefs,
       auditEvents,
       liveConfig,
+      configLoadResult,
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -384,6 +447,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   server.post('/api/codex/exec/approval-artifact', async (request, reply) => {
     const body = request.body as { dryRunId?: string } | undefined;
     const store = await getStore();
+    const configLoadResult = await getLiveConfigLoadResult();
+    const liveConfig = configLoadResult.config;
     const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
 
     if (!record) {
@@ -393,6 +458,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const approvalArtifact = createCodexExecApprovalArtifact(
       record.dryRunPlan,
       record.policyDecision,
+      {
+        singleUse: liveConfig.singleUseApprovals,
+        expiresAt: new Date(Date.now() + liveConfig.approvalTtlMinutes * 60 * 1000).toISOString(),
+      },
     );
     const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalArtifact });
     const auditEvents = createCodexExecControlPlaneAuditEvents({ approvalArtifact, evidenceRefs });
@@ -409,6 +478,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       approvalArtifact,
       evidenceRefs,
       auditEvents,
+      liveConfig,
+      configLoadResult,
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -417,11 +488,179 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.post('/api/codex/exec/approval-request', async (request, reply) => {
+    const body = request.body as
+      | {
+          dryRunId?: string;
+          requestedBy?: string;
+          reason?: string;
+        }
+      | undefined;
+    const store = await getStore();
+    const configLoadResult = await getLiveConfigLoadResult();
+    const liveConfig = configLoadResult.config;
+    const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const approvalRequest = createCodexExecManualApprovalRequest(
+      record.dryRunPlan,
+      record.policyDecision,
+      liveConfig,
+      {
+        requestedBy: body?.requestedBy,
+        reason: body?.reason,
+      },
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalRequest });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalRequest,
+      evidenceRefs,
+    });
+    const approvalRecord = createCodexExecManualApprovalRecord({
+      request: approvalRequest,
+      evidenceRefs,
+      auditEvents,
+    });
+    const updatedRunRecord = {
+      ...record,
+      manualApprovalRequest: approvalRequest,
+      manualApprovalRecord: approvalRecord,
+      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+      auditEvents: [...record.auditEvents, ...auditEvents],
+    };
+
+    await persistCodexExecApprovalRecord(approvalRecord, store);
+    await persistCodexExecLiveRunRecord(updatedRunRecord, store, evidenceRefs, auditEvents);
+
+    return {
+      approvalRequest,
+      approvalRecord,
+      evidenceRefs,
+      auditEvents,
+      liveConfig,
+      configLoadResult,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.post('/api/codex/exec/manual-approval', async (request, reply) => {
+    const body = request.body as
+      | {
+          dryRunId?: string;
+          approvalRequestId?: string;
+          outcome?: CodexExecApprovalDecisionOutcome;
+          decidedBy?: string;
+          reason?: string;
+        }
+      | undefined;
+    const outcome: CodexExecApprovalDecisionOutcome = body?.outcome ?? 'approved';
+
+    if (!['approved', 'denied', 'revoked'].includes(outcome)) {
+      return reply.code(400).send({ error: 'outcome must be approved, denied, or revoked' });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const existingApprovalRecord = await resolveCodexExecApprovalRecord(
+      body?.approvalRequestId ?? record.manualApprovalRequest?.id,
+      store,
+    );
+    const approvalRequest =
+      existingApprovalRecord?.request ??
+      record.manualApprovalRequest ??
+      createCodexExecManualApprovalRequest(record.dryRunPlan, record.policyDecision);
+    const approvalDecision = createCodexExecManualApprovalDecision(approvalRequest, {
+      outcome,
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+    const approvalArtifact = createCodexExecApprovalArtifactFromDecision(
+      record.dryRunPlan,
+      record.policyDecision,
+      approvalRequest,
+      approvalDecision,
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalDecision,
+      approvalArtifact,
+    });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalDecision,
+      approvalArtifact,
+      evidenceRefs,
+    });
+    const approvalRecord = {
+      ...createCodexExecManualApprovalRecord({
+        request: approvalRequest,
+        decision: approvalDecision,
+        approvalArtifact,
+        evidenceRefs: [...(existingApprovalRecord?.evidenceRefs ?? []), ...evidenceRefs],
+        auditEvents,
+      }),
+      id: existingApprovalRecord?.id ?? foundationId('codex_approval_record'),
+      createdAt: existingApprovalRecord?.createdAt ?? foundationTimestamp(),
+    };
+    const updatedRunRecord = {
+      ...record,
+      manualApprovalRequest: approvalRequest,
+      manualApprovalDecision: approvalDecision,
+      manualApprovalRecord: approvalRecord,
+      approvalArtifact: approvalArtifact ?? record.approvalArtifact,
+      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+      auditEvents: [...record.auditEvents, ...auditEvents],
+    };
+
+    await persistCodexExecApprovalRecord(approvalRecord, store);
+    await persistCodexExecLiveRunRecord(updatedRunRecord, store, evidenceRefs, auditEvents);
+
+    return {
+      approvalRequest,
+      approvalDecision,
+      approvalArtifact,
+      approvalRecord,
+      evidenceRefs,
+      auditEvents,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/approvals', async () => {
+    const store = await getStore();
+    const records = store
+      ? await store.codexExecApprovals.listCodexExecApprovalRecords(10)
+      : codexExecApprovalRecords.slice(0, 10);
+
+    return {
+      approvals: records,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+      metadata: { liveExecution: false, externalProcessStarted: false, executionDisabled: true },
+    };
+  });
+
   server.post('/api/codex/exec/evaluate-gate', async (request, reply) => {
     const body = request.body as
       | { dryRunId?: string; approvalArtifact?: CodexExecApprovalArtifact }
       | undefined;
     const store = await getStore();
+    const configLoadResult = await getLiveConfigLoadResult();
+    const liveConfig = configLoadResult.config;
     const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
 
     if (!record) {
@@ -455,6 +694,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       evidenceRefs,
       auditEvents,
       liveConfig,
+      configLoadResult,
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -507,6 +747,50 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       codexExecLiveRunRecords.splice(existingIndex, 1, record);
     } else {
       codexExecLiveRunRecords.unshift(record);
+    }
+  }
+
+  async function resolveCodexExecApprovalRecord(
+    approvalRequestId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecManualApprovalRecord | undefined> {
+    if (!approvalRequestId) {
+      return undefined;
+    }
+
+    if (store) {
+      const byId = await store.codexExecApprovals.getCodexExecApprovalRecord(approvalRequestId);
+
+      if (byId) {
+        return byId;
+      }
+
+      const records = await store.codexExecApprovals.listCodexExecApprovalRecords(50);
+      return records.find((record) => record.request.id === approvalRequestId);
+    }
+
+    return codexExecApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.request.id === approvalRequestId,
+    );
+  }
+
+  async function persistCodexExecApprovalRecord(
+    record: CodexExecManualApprovalRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.codexExecApprovals.saveCodexExecApprovalRecord(record);
+      return;
+    }
+
+    const existingIndex = codexExecApprovalRecords.findIndex(
+      (candidate) => candidate.id === record.id || candidate.request.id === record.request.id,
+    );
+
+    if (existingIndex >= 0) {
+      codexExecApprovalRecords.splice(existingIndex, 1, record);
+    } else {
+      codexExecApprovalRecords.unshift(record);
     }
   }
 
