@@ -1,0 +1,10 @@
+[codexhub]
+mode = "foundation"
+dry_run_first = true
+supervisor_url = "http://127.0.0.1:3333"
+
+[safety]
+allow_real_browser_input = false
+allow_real_electron_cdp = false
+allow_workspace_writes = false
+

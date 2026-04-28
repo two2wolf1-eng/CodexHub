@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "react-jsx",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@codexhub/browser-profile-kernel": ["packages/browser-profile-kernel/src/index.ts"],
+      "@codexhub/codex-kernel": ["packages/codex-kernel/src/index.ts"],
+      "@codexhub/contracts": ["packages/contracts/src/index.ts"],
+      "@codexhub/electron-cdp-kernel": ["packages/electron-cdp-kernel/src/index.ts"],
+      "@codexhub/evidence-kernel": ["packages/evidence-kernel/src/index.ts"],
+      "@codexhub/observer-kernel": ["packages/observer-kernel/src/index.ts"],
+      "@codexhub/orchestrator-kernel": ["packages/orchestrator-kernel/src/index.ts"],
+      "@codexhub/security-kernel": ["packages/security-kernel/src/index.ts"],
+      "@codexhub/skill-registry": ["packages/skill-registry/src/index.ts"],
+      "@codexhub/store-core": ["packages/store-core/src/index.ts"],
+      "@codexhub/store-sqlite": ["packages/store-sqlite/src/index.ts"],
+      "@codexhub/workflow-kernel": ["packages/workflow-kernel/src/index.ts"]
+    }
+  }
+}
+

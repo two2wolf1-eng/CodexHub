@@ -1,0 +1,16 @@
+version: 1
+defaults:
+  readOnlyAction: allow
+  writeAction: dry_run_required
+  highRiskAction: approval_required
+  criticalRiskAction: approval_required
+blocked:
+  - token_collection
+  - cookie_collection
+  - mfa_bypass
+  - account_automation
+  - permission_bypass
+  - quota_bypass
+  - real_browser_click_input
+  - electron_main_inspector_connection
+

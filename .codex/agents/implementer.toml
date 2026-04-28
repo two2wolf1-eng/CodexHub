@@ -1,0 +1,5 @@
+name = "codexhub-implementer"
+role = "implementation"
+default_mode = "dry-run"
+allowed_actions = ["read", "mock", "test"]
+

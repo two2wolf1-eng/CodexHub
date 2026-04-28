@@ -1,0 +1,5 @@
+name = "codexhub-security"
+role = "security"
+default_mode = "read-only"
+allowed_actions = ["read", "policy-review", "audit-review"]
+

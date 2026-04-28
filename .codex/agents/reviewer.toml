@@ -1,0 +1,5 @@
+name = "codexhub-reviewer"
+role = "review"
+default_mode = "read-only"
+allowed_actions = ["read", "lint", "test", "review"]
+

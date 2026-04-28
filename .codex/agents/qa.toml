@@ -1,0 +1,4 @@
+name = "codexhub-qa"
+role = "quality"
+default_mode = "dry-run"
+allowed_actions = ["read", "test", "mock-qa"]

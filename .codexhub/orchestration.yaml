@@ -1,0 +1,12 @@
+version: 1
+mode: foundation
+defaultWorkflow: development.bootstrap
+rules:
+  dryRunFirst: true
+  requirePolicyDecision: true
+  requireEvidence: true
+  requireAudit: true
+development:
+  affectedCommand: pnpm nx affected
+  qualityGate: pnpm nx run-many -t lint,test,build
+

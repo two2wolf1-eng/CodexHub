@@ -1,0 +1,5 @@
+name = "codexhub-architect"
+role = "architecture"
+default_mode = "dry-run"
+allowed_actions = ["read", "plan", "mock"]
+
