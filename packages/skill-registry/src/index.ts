@@ -38,7 +38,9 @@ export class MockSkillRegistry implements SkillRegistry {
 
   async resolve(input: SkillResolutionInput): Promise<SkillResolutionResult> {
     const requestedCapabilities = input.requestedCapabilities ?? [];
-    const inputKeywords = toKeywordSet([input.requestText, ...(input.taskKeywords ?? [])].join(' '));
+    const inputKeywords = toKeywordSet(
+      [input.requestText, ...(input.taskKeywords ?? [])].join(' '),
+    );
     const selectedSkills = this.descriptors
       .map((descriptor) => scoreDescriptor(descriptor, requestedCapabilities, inputKeywords))
       .filter((selection) => selection.required || selection.matchedKeywords.length > 0)
@@ -70,57 +72,92 @@ export class MockSkillRegistry implements SkillRegistry {
 
 export function createMockSkillDescriptors(): SkillDescriptor[] {
   return [
-    descriptor('codexhub-architecture-planner', 'Architecture Planner', 'architecture.planning', [
-      'architecture',
-      'architect',
-      'plan',
-      'planner',
-      'system',
-      'skeleton',
-    ]),
-    descriptor('codexhub-contract-designer', 'Contract Designer', 'contracts.design', [
-      'contract',
-      'contracts',
-      'schema',
-      'schemas',
-      'dto',
-      'interface',
-      'interfaces',
-    ]),
-    descriptor('codexhub-workflow-policy-reviewer', 'Workflow Policy Reviewer', 'workflow.policy', [
-      'policy',
-      'workflow',
-      'workflows',
-      'approval',
-      'dry',
-      'run',
-    ]),
-    descriptor('codexhub-electron-cdp-observer', 'Electron CDP Observer', 'electron.observe', [
-      'electron',
-      'cdp',
-      'desktop',
-      'observation',
-      'observer',
-      'read',
-      'only',
-    ]),
-    descriptor('codexhub-browser-profile-observer', 'Browser Profile Observer', 'browser.observe', [
-      'browser',
-      'profile',
-      'workspace',
-    ]),
-    descriptor('codexhub-playwright-qa', 'Playwright QA', 'qa.browser', [
-      'qa',
-      'playwright',
-      'test',
-      'tests',
-    ]),
-    descriptor('codexhub-release-auditor', 'Release Auditor', 'release.audit', [
-      'release',
-      'audit',
-      'auditor',
-      'evidence',
-    ]),
+    descriptor({
+      id: 'codexhub-architecture-planner',
+      displayName: 'CodexHub Architecture Planner',
+      description:
+        'Use when planning CodexHub architecture, package boundaries, app/package ownership, or cross-plane changes.',
+      capabilityId: 'architecture.planning',
+      capabilityDescription: 'Plan CodexHub architecture and package boundaries.',
+      keywords: ['architecture', 'architect', 'plan', 'planner', 'system', 'skeleton'],
+    }),
+    descriptor({
+      id: 'codexhub-contract-designer',
+      displayName: 'CodexHub Contract Designer',
+      description:
+        'Use when modifying contracts, Zod schemas, DTOs, inferred TypeScript types, or public exports.',
+      capabilityId: 'contracts.design',
+      capabilityDescription: 'Design shared contracts, schemas, DTOs, and public exports.',
+      keywords: ['contract', 'contracts', 'schema', 'schemas', 'dto', 'interface', 'interfaces'],
+    }),
+    descriptor({
+      id: 'codexhub-workflow-policy-reviewer',
+      displayName: 'CodexHub Workflow Policy Reviewer',
+      description:
+        'Use when modifying workflow, security, approval, evidence, audit, policy, or risk behavior.',
+      capabilityId: 'workflow.policy',
+      capabilityDescription: 'Review workflow, policy, approval, evidence, and audit behavior.',
+      keywords: ['policy', 'workflow', 'workflows', 'approval', 'dry', 'run', 'evidence', 'audit'],
+    }),
+    descriptor({
+      id: 'codexhub-codex-exec-adapter',
+      displayName: 'CodexHub Codex Adapter',
+      description:
+        'Use when modifying codex-kernel or the Codex adapter control plane, parser, replay, dry-run, preflight, approval, or gate logic.',
+      capabilityId: 'codex.adapter.control_plane',
+      capabilityDescription:
+        'Review Codex adapter parser, replay, dry-run, preflight, and gate logic.',
+      keywords: [
+        'codex',
+        'kernel',
+        'adapter',
+        'parser',
+        'replay',
+        'preflight',
+        'gate',
+        'dry',
+        'run',
+      ],
+    }),
+    descriptor({
+      id: 'codexhub-electron-cdp-observer',
+      displayName: 'CodexHub Electron CDP Observer',
+      description:
+        'Use when working on Electron or CDP observation interfaces, target models, endpoint models, or read-only observer placeholders.',
+      capabilityId: 'electron.observe',
+      capabilityDescription: 'Design read-only Electron/CDP observer interfaces and models.',
+      keywords: ['electron', 'cdp', 'desktop', 'observation', 'observer', 'read', 'only'],
+    }),
+    descriptor({
+      id: 'codexhub-browser-profile-observer',
+      displayName: 'CodexHub Browser Profile Observer',
+      description:
+        'Use when working on Browser Profile, Chrome Profile, workspace observation, browser profile health, or profile observation models.',
+      capabilityId: 'browser.observe',
+      capabilityDescription:
+        'Design read-only browser profile observer interfaces and health models.',
+      keywords: ['browser', 'profile', 'chrome', 'workspace', 'health'],
+    }),
+    descriptor({
+      id: 'codexhub-playwright-qa',
+      displayName: 'CodexHub Playwright QA',
+      description:
+        'Use when modifying Dashboard UI, browser smoke checks, QA notes, frontend state handling, or visual verification plans.',
+      capabilityId: 'qa.browser',
+      capabilityDescription:
+        'Review Dashboard smoke checks, degraded states, and browser QA plans.',
+      keywords: ['qa', 'playwright', 'test', 'tests', 'dashboard', 'smoke', 'frontend'],
+    }),
+    descriptor({
+      id: 'codexhub-release-auditor',
+      displayName: 'CodexHub Release Auditor',
+      description:
+        'Use when finishing a CodexHub round, reviewing diffs, running verification, preparing commits, or writing release summaries.',
+      capabilityId: 'release.audit',
+      capabilityDescription:
+        'Audit closeout, verification evidence, commits, and release summaries.',
+      keywords: ['release', 'audit', 'auditor', 'evidence', 'verify', 'commit', 'summary'],
+    }),
   ];
 }
 
@@ -135,7 +172,8 @@ function scoreDescriptor(
   const matchedKeywords = unique(triggerKeywords.filter((keyword) => inputKeywords.has(keyword)));
   const requiredByKeyword = isRequiredKeywordMatch(descriptor.id, matchedKeywords);
   const required = requiredByCapability || requiredByKeyword;
-  const score = (requiredByCapability ? 75 : 0) + (requiredByKeyword ? 45 : 0) + matchedKeywords.length * 8;
+  const score =
+    (requiredByCapability ? 75 : 0) + (requiredByKeyword ? 45 : 0) + matchedKeywords.length * 8;
 
   return {
     skillId: descriptor.id,
@@ -181,32 +219,39 @@ function buildReason(
   return parts.length > 0 ? parts.join('; ') : 'no strong match';
 }
 
-function descriptor(
-  id: string,
-  displayName: string,
-  capabilityId: string,
-  keywords: string[],
-): SkillDescriptor {
+function descriptor(input: {
+  id: string;
+  displayName: string;
+  description: string;
+  capabilityId: string;
+  capabilityDescription: string;
+  keywords: string[];
+}): SkillDescriptor {
   return {
-    id,
-    displayName,
-    description: `Mock descriptor for ${displayName}.`,
+    id: input.id,
+    displayName: input.displayName,
+    description: input.description,
     capabilities: [
       {
-        id: capabilityId,
-        description: `Mock capability ${capabilityId}.`,
-        riskLevel: id.includes('electron') || id.includes('browser') ? 'high' : 'low',
+        id: input.capabilityId,
+        description: input.capabilityDescription,
+        riskLevel:
+          input.id.includes('electron') ||
+          input.id.includes('browser') ||
+          input.id.includes('codex-exec')
+            ? 'high'
+            : 'low',
         readOnlyDefault: true,
       },
     ],
     triggers: [
       {
-        id: `${id}.trigger`,
-        keywords,
-        capabilityIds: [capabilityId],
+        id: `${input.id}.trigger`,
+        keywords: input.keywords,
+        capabilityIds: [input.capabilityId],
       },
     ],
-    metadata: { mock: true },
+    metadata: { mock: true, skillPath: `.agents/skills/${input.id}/SKILL.md` },
   };
 }
 
