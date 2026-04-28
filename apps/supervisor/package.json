@@ -7,6 +7,8 @@
     "@codexhub/contracts": "workspace:*",
     "@codexhub/observer-kernel": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
+    "@codexhub/store-core": "workspace:*",
+    "@codexhub/store-sqlite": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "fastify": "^5.2.1"
   }

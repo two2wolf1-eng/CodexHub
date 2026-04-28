@@ -190,9 +190,19 @@ export const SkillDescriptorSchema = z.object({
 });
 export type SkillDescriptor = z.infer<typeof SkillDescriptorSchema>;
 
+export const SkillSelectionSchema = z.object({
+  skillId: z.string().min(1),
+  skill: SkillDescriptorSchema,
+  score: z.number().nonnegative(),
+  matchedKeywords: z.array(z.string()).default([]),
+  reason: z.string().min(1),
+  required: z.boolean(),
+});
+export type SkillSelection = z.infer<typeof SkillSelectionSchema>;
+
 export const SkillResolutionResultSchema = createdEntityBaseSchema.extend({
   inputSummary: z.string().min(1),
-  selectedSkills: z.array(SkillDescriptorSchema),
+  selectedSkills: z.array(SkillSelectionSchema),
   unmatchedCapabilities: z.array(z.string()).default([]),
   reasons: z.array(z.string()).default([]),
 });
@@ -234,6 +244,31 @@ export const VerificationRunSchema = createdEntityBaseSchema.extend({
   evidenceRefs: z.array(EvidenceRefSchema).default([]),
 });
 export type VerificationRun = z.infer<typeof VerificationRunSchema>;
+
+export const MockDevelopmentRunSummarySchema = z.object({
+  requestTitle: z.string().min(1),
+  taskCount: z.number().int().nonnegative(),
+  selectedSkillIds: z.array(z.string()).default([]),
+  agentRunCount: z.number().int().nonnegative(),
+  verificationStatus: VerificationRunSchema.shape.status,
+  evidenceCount: z.number().int().nonnegative(),
+  auditEventCount: z.number().int().nonnegative(),
+  orchestrationPlanId: z.string().min(1),
+  mockOnly: z.literal(true),
+});
+export type MockDevelopmentRunSummary = z.infer<typeof MockDevelopmentRunSummarySchema>;
+
+export const MockDevelopmentRunSchema = createdEntityBaseSchema.extend({
+  request: DevelopmentRequestSchema,
+  taskGraph: TaskGraphSchema,
+  skillResolution: SkillResolutionResultSchema,
+  agentRuns: z.array(AgentRunSchema),
+  verificationRun: VerificationRunSchema,
+  evidenceRefs: z.array(EvidenceRefSchema),
+  auditEvents: z.array(AuditEventSchema),
+  summary: MockDevelopmentRunSummarySchema,
+});
+export type MockDevelopmentRun = z.infer<typeof MockDevelopmentRunSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

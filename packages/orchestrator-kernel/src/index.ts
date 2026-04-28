@@ -3,10 +3,10 @@ import {
   type AuditEvent,
   type DevelopmentRequest,
   type EvidenceRef,
-  type OrchestrationPlan,
   type SkillResolutionResult,
   type TaskGraph,
   type VerificationRun,
+  type MockDevelopmentRun,
   SchemaVersionSchema,
   foundationId,
   foundationTimestamp,
@@ -33,24 +33,18 @@ export interface MockDevelopmentOrchestrationInput {
 }
 
 export interface MockDevelopmentOrchestrationResult {
-  request: DevelopmentRequest;
-  taskGraph: TaskGraph;
-  skillResolution: SkillResolutionResult;
-  agentRuns: AgentRun[];
-  verificationRun: VerificationRun;
-  evidenceRefs: EvidenceRef[];
-  auditEvents: AuditEvent[];
-  summary: {
-    requestTitle: string;
-    taskCount: number;
-    selectedSkillIds: string[];
-    agentRunCount: number;
-    verificationStatus: VerificationRun['status'];
-    evidenceCount: number;
-    auditEventCount: number;
-    orchestrationPlanId: string;
-    mockOnly: true;
-  };
+  id: MockDevelopmentRun['id'];
+  schemaVersion: MockDevelopmentRun['schemaVersion'];
+  createdAt: MockDevelopmentRun['createdAt'];
+  request: MockDevelopmentRun['request'];
+  taskGraph: MockDevelopmentRun['taskGraph'];
+  skillResolution: MockDevelopmentRun['skillResolution'];
+  agentRuns: MockDevelopmentRun['agentRuns'];
+  verificationRun: MockDevelopmentRun['verificationRun'];
+  evidenceRefs: MockDevelopmentRun['evidenceRefs'];
+  auditEvents: MockDevelopmentRun['auditEvents'];
+  summary: MockDevelopmentRun['summary'];
+  metadata?: MockDevelopmentRun['metadata'];
 }
 
 export interface PlanningResult {
@@ -133,7 +127,7 @@ export function createTaskGraph(request: DevelopmentRequest): TaskGraph {
         description: 'Mock plan for interfaces, contracts, and package boundaries.',
         dependsOn: [],
         assignedCapability: 'architecture.planning',
-        keywords: [...requestKeywords, 'architecture', 'contract', 'schema'],
+        keywords: [...requestKeywords, 'architecture', 'interface', 'interfaces', 'contract', 'schema'],
         riskLevel: 'low',
         metadata: { mock: true },
       },
@@ -145,7 +139,7 @@ export function createTaskGraph(request: DevelopmentRequest): TaskGraph {
         description: 'Mock review for dry-run, policy, approval, evidence, and audit flow.',
         dependsOn: [],
         assignedCapability: 'workflow.policy',
-        keywords: [...requestKeywords, 'workflow', 'policy', 'audit'],
+        keywords: [...requestKeywords, 'workflow', 'policy'],
         riskLevel: 'medium',
         metadata: { mock: true },
       },
@@ -157,7 +151,7 @@ export function createTaskGraph(request: DevelopmentRequest): TaskGraph {
         description: 'Mock verification for Electron CDP and browser profile observer placeholders.',
         dependsOn: [],
         assignedCapability: 'electron.observe',
-        keywords: [...requestKeywords, 'electron', 'cdp', 'browser', 'profile', 'qa', 'test'],
+        keywords: [...requestKeywords, 'electron', 'cdp', 'observation', 'read', 'only'],
         riskLevel: 'high',
         metadata: { mock: true, readOnly: true },
       },
@@ -198,7 +192,7 @@ export function createMockAgentRuns(
   return taskGraph.tasks.map((task, index) => {
     const skill =
       skillResolution.selectedSkills.find((candidate) =>
-        candidate.capabilities.some((capability) => capability.id === task.assignedCapability),
+        candidate.skill.capabilities.some((capability) => capability.id === task.assignedCapability),
       ) ?? skillResolution.selectedSkills[index % Math.max(skillResolution.selectedSkills.length, 1)];
 
     return {
@@ -206,7 +200,7 @@ export function createMockAgentRuns(
       schemaVersion: SchemaVersionSchema.value,
       createdAt: foundationTimestamp(),
       taskId: task.id,
-      agentId: skill?.id ?? 'codexhub-mock-agent',
+      agentId: skill?.skillId ?? 'codexhub-mock-agent',
       status: 'completed',
       events: [
         `mock agent planned task "${task.title}"`,
@@ -216,7 +210,7 @@ export function createMockAgentRuns(
       metadata: {
         mock: true,
         taskTitle: task.title,
-        selectedSkillId: skill?.id,
+        selectedSkillId: skill?.skillId,
         noExternalProcess: true,
       },
     };
@@ -396,10 +390,10 @@ export async function runMockDevelopmentOrchestration(
     input.policyEngine,
   );
 
-  await persistMockArtifacts(input.store, evidenceRefs, auditEvents);
-  await persistMockWorkflowRuns(input.store);
-
-  return {
+  const result: MockDevelopmentOrchestrationResult = {
+    id: foundationId('development_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
     request,
     taskGraph,
     skillResolution,
@@ -410,7 +404,7 @@ export async function runMockDevelopmentOrchestration(
     summary: {
       requestTitle: request.title,
       taskCount: taskGraph.tasks.length,
-      selectedSkillIds: skillResolution.selectedSkills.map((skill) => skill.id),
+      selectedSkillIds: skillResolution.selectedSkills.map((selection) => selection.skillId),
       agentRunCount: agentRunsWithEvidence.length,
       verificationStatus: verificationRunWithEvidence.status,
       evidenceCount: evidenceRefs.length,
@@ -418,7 +412,13 @@ export async function runMockDevelopmentOrchestration(
       orchestrationPlanId: orchestrationPlan.id,
       mockOnly: true,
     },
+    metadata: { mock: true, persistence: input.store ? 'store-core' : 'not-requested' },
   };
+
+  await persistMockArtifacts(input.store, result, evidenceRefs, auditEvents);
+  await persistMockWorkflowRuns(input.store);
+
+  return result;
 }
 
 export function createMockTaskGraph(
@@ -432,7 +432,17 @@ function createOrchestrationPlan(
   request: DevelopmentRequest,
   taskGraph: TaskGraph,
   skillResolution: SkillResolutionResult,
-): OrchestrationPlan {
+): {
+  id: string;
+  schemaVersion: string;
+  createdAt: string;
+  requestId: string;
+  taskGraphId: string;
+  skillResolutionId: string;
+  workflowNames: string[];
+  summary: string;
+  metadata: Record<string, unknown>;
+} {
   return {
     id: foundationId('orchestration_plan'),
     schemaVersion: SchemaVersionSchema.value,
@@ -448,6 +458,7 @@ function createOrchestrationPlan(
 
 async function persistMockArtifacts(
   store: CodexHubStore | undefined,
+  result: MockDevelopmentOrchestrationResult,
   evidenceRefs: EvidenceRef[],
   auditEvents: AuditEvent[],
 ): Promise<void> {
@@ -462,6 +473,8 @@ async function persistMockArtifacts(
   for (const auditEvent of auditEvents) {
     await store.auditEvents.append(auditEvent);
   }
+
+  await store.developmentRuns.saveMockDevelopmentRun(result);
 }
 
 async function persistMockWorkflowRuns(store: CodexHubStore | undefined): Promise<void> {

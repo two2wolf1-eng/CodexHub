@@ -3,7 +3,14 @@
   "name": "supervisor",
   "projectType": "application",
   "sourceRoot": "apps/supervisor/src",
-  "implicitDependencies": ["contracts", "observer-kernel", "workflow-kernel", "orchestrator-kernel"],
+  "implicitDependencies": [
+    "contracts",
+    "observer-kernel",
+    "workflow-kernel",
+    "orchestrator-kernel",
+    "store-core",
+    "store-sqlite"
+  ],
   "targets": {
     "build": {
       "executor": "nx:run-commands",

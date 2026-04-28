@@ -2,10 +2,17 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, parse, resolve } from 'node:path';
 import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
-import type { AuditEvent, EvidenceRef, Observation, WorkflowRun } from '@codexhub/contracts';
+import type {
+  AuditEvent,
+  EvidenceRef,
+  MockDevelopmentRun,
+  Observation,
+  WorkflowRun,
+} from '@codexhub/contracts';
 import type {
   AuditEventRepository,
   CodexHubStore,
+  DevelopmentRunRepository,
   EvidenceRefRepository,
   ObservationRepository,
   StoreFactoryOptions,
@@ -59,6 +66,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly auditEvents: AuditEventRepository;
   readonly evidenceRefs: EvidenceRefRepository;
   readonly observations: ObservationRepository;
+  readonly developmentRuns: DevelopmentRunRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -81,10 +89,42 @@ class SqliteCodexHubStore implements CodexHubStore {
       'observations',
       (observation) => observation.observedAt,
     );
+    this.developmentRuns = new SqliteDevelopmentRunRepository(database);
   }
 
   async close(): Promise<void> {
     this.database.close();
+  }
+}
+
+class SqliteDevelopmentRunRepository implements DevelopmentRunRepository {
+  private readonly repository: JsonEntityRepository<MockDevelopmentRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<MockDevelopmentRun>(
+      database,
+      'development_runs',
+      (run) => run.createdAt,
+    );
+  }
+
+  async saveMockDevelopmentRun(result: MockDevelopmentRun): Promise<MockDevelopmentRun> {
+    return this.repository.create(result);
+  }
+
+  async listMockDevelopmentRuns(limit = 10): Promise<MockDevelopmentRun[]> {
+    const safeLimit = Math.max(0, Math.trunc(limit));
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM development_runs ORDER BY recorded_at DESC, id DESC LIMIT ?',
+      )
+      .all(safeLimit) as unknown as PayloadRow[];
+
+    return rows.map((row) => JSON.parse(row.payload) as MockDevelopmentRun);
+  }
+
+  async getMockDevelopmentRun(id: string): Promise<MockDevelopmentRun | undefined> {
+    return this.repository.getById(id);
   }
 }
 
@@ -202,6 +242,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS observations (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS development_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

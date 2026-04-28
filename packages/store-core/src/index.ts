@@ -1,4 +1,10 @@
-import type { AuditEvent, EvidenceRef, Observation, WorkflowRun } from '@codexhub/contracts';
+import type {
+  AuditEvent,
+  EvidenceRef,
+  MockDevelopmentRun,
+  Observation,
+  WorkflowRun,
+} from '@codexhub/contracts';
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -23,11 +29,18 @@ export interface ObservationRepository {
   list(): Promise<Observation[]>;
 }
 
+export interface DevelopmentRunRepository {
+  saveMockDevelopmentRun(result: MockDevelopmentRun): Promise<MockDevelopmentRun>;
+  listMockDevelopmentRuns(limit?: number): Promise<MockDevelopmentRun[]>;
+  getMockDevelopmentRun(id: string): Promise<MockDevelopmentRun | undefined>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
   evidenceRefs: EvidenceRefRepository;
   observations: ObservationRepository;
+  developmentRuns: DevelopmentRunRepository;
   close(): Promise<void>;
 }
 
@@ -35,4 +48,3 @@ export interface StoreFactoryOptions {
   workspaceRoot?: string;
   dbPath?: string;
 }
-
