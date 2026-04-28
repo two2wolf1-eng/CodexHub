@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thread_fixture_unknown","metadata":{"fixture":true}}
+{"type":"future.event","thread_id":"thread_fixture_unknown","payload":{"shape":"synthetic unknown event","nested":{"value":42}}}
+{"type":"item.completed","thread_id":"thread_fixture_unknown","turn_id":"turn_fixture_unknown_1","item":{"id":"item_unknown_1","type":"future_item","body":"Synthetic unknown item body."}}
+{"type":"turn.completed","thread_id":"thread_fixture_unknown","turn_id":"turn_fixture_unknown_1","status":"completed"}

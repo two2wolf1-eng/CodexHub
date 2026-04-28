@@ -33,7 +33,15 @@ export const PolicyOutcomeSchema = z.enum(['allow', 'deny', 'approval_required']
 export type PolicyOutcome = z.infer<typeof PolicyOutcomeSchema>;
 
 export const EvidenceRefSchema = createdEntityBaseSchema.extend({
-  kind: z.enum(['log', 'hash', 'snapshot', 'dry-run', 'audit']),
+  kind: z.enum([
+    'log',
+    'hash',
+    'snapshot',
+    'dry-run',
+    'audit',
+    'codex.exec.jsonl.replay',
+    'codex.exec.event.summary',
+  ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
   uri: z.string().optional(),
@@ -269,6 +277,200 @@ export const MockDevelopmentRunSchema = createdEntityBaseSchema.extend({
   summary: MockDevelopmentRunSummarySchema,
 });
 export type MockDevelopmentRun = z.infer<typeof MockDevelopmentRunSchema>;
+
+export const CodexExecEventTypeSchema = z.enum([
+  'thread.started',
+  'turn.started',
+  'turn.completed',
+  'turn.failed',
+  'item.started',
+  'item.updated',
+  'item.completed',
+  'item.failed',
+  'error',
+  'parse_error',
+  'unknown',
+]);
+export type CodexExecEventType = z.infer<typeof CodexExecEventTypeSchema>;
+
+export const CodexExecItemTypeSchema = z.enum([
+  'command_execution',
+  'agent_message',
+  'reasoning',
+  'file_change',
+  'mcp_tool_call',
+  'web_search',
+  'plan_update',
+  'unknown',
+]);
+export type CodexExecItemType = z.infer<typeof CodexExecItemTypeSchema>;
+
+const codexExecTextSummarySchema = z.object({
+  summary: z.string().min(1),
+  contentHash: z.string().min(1),
+  contentLength: z.number().int().nonnegative(),
+});
+
+export const CodexExecRawEventSchema = createdEntityBaseSchema.extend({
+  lineNumber: z.number().int().positive(),
+  rawEventType: z.string().min(1),
+  safeSummary: z.string().min(1),
+  payloadHash: z.string().min(1),
+  payloadLength: z.number().int().nonnegative(),
+  parseError: z.string().optional(),
+});
+export type CodexExecRawEvent = z.infer<typeof CodexExecRawEventSchema>;
+
+export const CodexExecCommandExecutionItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('command_execution'),
+  itemId: z.string().optional(),
+  command: codexExecTextSummarySchema,
+  status: z.string().optional(),
+  exitCode: z.number().int().optional(),
+  output: codexExecTextSummarySchema.optional(),
+});
+export type CodexExecCommandExecutionItem = z.infer<
+  typeof CodexExecCommandExecutionItemSchema
+>;
+
+export const CodexExecAgentMessageItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('agent_message'),
+  itemId: z.string().optional(),
+  message: codexExecTextSummarySchema,
+});
+export type CodexExecAgentMessageItem = z.infer<typeof CodexExecAgentMessageItemSchema>;
+
+export const CodexExecReasoningItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('reasoning'),
+  itemId: z.string().optional(),
+  reasoning: codexExecTextSummarySchema,
+});
+export type CodexExecReasoningItem = z.infer<typeof CodexExecReasoningItemSchema>;
+
+export const CodexExecFileChangeItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('file_change'),
+  itemId: z.string().optional(),
+  pathSummary: z.string().min(1),
+  pathHash: z.string().min(1),
+  operation: z.string().optional(),
+  changeSummary: codexExecTextSummarySchema.optional(),
+});
+export type CodexExecFileChangeItem = z.infer<typeof CodexExecFileChangeItemSchema>;
+
+export const CodexExecMcpToolCallItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('mcp_tool_call'),
+  itemId: z.string().optional(),
+  toolName: z.string().min(1),
+  argumentsSummary: codexExecTextSummarySchema.optional(),
+  resultSummary: codexExecTextSummarySchema.optional(),
+});
+export type CodexExecMcpToolCallItem = z.infer<typeof CodexExecMcpToolCallItemSchema>;
+
+export const CodexExecWebSearchItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('web_search'),
+  itemId: z.string().optional(),
+  query: codexExecTextSummarySchema.optional(),
+  resultCount: z.number().int().nonnegative().optional(),
+});
+export type CodexExecWebSearchItem = z.infer<typeof CodexExecWebSearchItemSchema>;
+
+export const CodexExecPlanUpdateItemSchema = createdEntityBaseSchema.extend({
+  itemType: z.literal('plan_update'),
+  itemId: z.string().optional(),
+  stepCount: z.number().int().nonnegative(),
+  completedStepCount: z.number().int().nonnegative(),
+  planSummary: codexExecTextSummarySchema.optional(),
+});
+export type CodexExecPlanUpdateItem = z.infer<typeof CodexExecPlanUpdateItemSchema>;
+
+export const CodexExecNormalizedItemSchema = z.discriminatedUnion('itemType', [
+  CodexExecCommandExecutionItemSchema,
+  CodexExecAgentMessageItemSchema,
+  CodexExecReasoningItemSchema,
+  CodexExecFileChangeItemSchema,
+  CodexExecMcpToolCallItemSchema,
+  CodexExecWebSearchItemSchema,
+  CodexExecPlanUpdateItemSchema,
+  createdEntityBaseSchema.extend({
+    itemType: z.literal('unknown'),
+    itemId: z.string().optional(),
+    safeSummary: z.string().min(1),
+    payloadHash: z.string().min(1),
+    payloadLength: z.number().int().nonnegative(),
+  }),
+]);
+export type CodexExecNormalizedItem = z.infer<typeof CodexExecNormalizedItemSchema>;
+
+export const CodexExecNormalizedEventSchema = createdEntityBaseSchema.extend({
+  rawEventType: z.string().min(1),
+  normalizedType: CodexExecEventTypeSchema,
+  threadId: z.string().optional(),
+  turnId: z.string().optional(),
+  itemId: z.string().optional(),
+  itemType: CodexExecItemTypeSchema.optional(),
+  status: z.string().optional(),
+  summary: z.string().min(1),
+  payloadHash: z.string().min(1),
+  payloadLength: z.number().int().nonnegative(),
+  item: CodexExecNormalizedItemSchema.optional(),
+  safe: z.literal(true),
+});
+export type CodexExecNormalizedEvent = z.infer<typeof CodexExecNormalizedEventSchema>;
+
+export const CodexExecThreadStartedEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.literal('thread.started'),
+});
+export type CodexExecThreadStartedEvent = z.infer<typeof CodexExecThreadStartedEventSchema>;
+
+export const CodexExecTurnStartedEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.literal('turn.started'),
+});
+export type CodexExecTurnStartedEvent = z.infer<typeof CodexExecTurnStartedEventSchema>;
+
+export const CodexExecTurnCompletedEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.literal('turn.completed'),
+});
+export type CodexExecTurnCompletedEvent = z.infer<typeof CodexExecTurnCompletedEventSchema>;
+
+export const CodexExecTurnFailedEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.literal('turn.failed'),
+});
+export type CodexExecTurnFailedEvent = z.infer<typeof CodexExecTurnFailedEventSchema>;
+
+export const CodexExecItemEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.enum(['item.started', 'item.updated', 'item.completed', 'item.failed']),
+  item: CodexExecNormalizedItemSchema,
+});
+export type CodexExecItemEvent = z.infer<typeof CodexExecItemEventSchema>;
+
+export const CodexExecErrorEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.union([z.literal('error'), z.literal('parse_error')]),
+});
+export type CodexExecErrorEvent = z.infer<typeof CodexExecErrorEventSchema>;
+
+export const CodexExecUnknownEventSchema = CodexExecNormalizedEventSchema.extend({
+  normalizedType: z.literal('unknown'),
+});
+export type CodexExecUnknownEvent = z.infer<typeof CodexExecUnknownEventSchema>;
+
+export const CodexExecFinalStatusSchema = z.enum(['completed', 'failed', 'unknown']);
+export type CodexExecFinalStatus = z.infer<typeof CodexExecFinalStatusSchema>;
+
+export const CodexExecReplayResultSchema = createdEntityBaseSchema.extend({
+  threadId: z.string().optional(),
+  events: z.array(CodexExecNormalizedEventSchema),
+  eventCount: z.number().int().nonnegative(),
+  itemCount: z.number().int().nonnegative(),
+  commandExecutionCount: z.number().int().nonnegative(),
+  fileChangeCount: z.number().int().nonnegative(),
+  mcpToolCallCount: z.number().int().nonnegative(),
+  webSearchCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
+  finalStatus: CodexExecFinalStatusSchema,
+  evidenceRefs: z.array(EvidenceRefSchema),
+  auditEvents: z.array(AuditEventSchema),
+});
+export type CodexExecReplayResult = z.infer<typeof CodexExecReplayResultSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

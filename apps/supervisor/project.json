@@ -5,6 +5,7 @@
   "sourceRoot": "apps/supervisor/src",
   "implicitDependencies": [
     "contracts",
+    "codex-kernel",
     "observer-kernel",
     "workflow-kernel",
     "orchestrator-kernel",

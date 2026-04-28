@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
     "@vitejs/plugin-react": "^4.3.4",

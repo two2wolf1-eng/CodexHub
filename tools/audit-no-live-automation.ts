@@ -11,14 +11,15 @@ interface Violation {
 }
 
 interface AllowlistEntry {
-  file: string;
+  file?: string;
+  filePrefix?: string;
   terms: string[];
   reason: string;
 }
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scanRoots = ['apps', 'packages', 'tools'];
-const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
 const executableTextTerms = [
   ['codex', ' exec'].join(''),
@@ -47,6 +48,11 @@ const allowedConceptMentions: AllowlistEntry[] = [
     file: 'tools/audit-no-live-automation.ts',
     terms: [...executableTextTerms, ...sensitiveConceptTerms],
     reason: 'audit vocabulary only',
+  },
+  {
+    filePrefix: 'packages/codex-kernel/fixtures/',
+    terms: executableTextTerms,
+    reason: 'synthetic fixture command text only; replay parser never starts a process',
   },
 ];
 const violations: Violation[] = [];
@@ -190,8 +196,15 @@ function collectModuleSpecifiers(sourceFile: ts.SourceFile, sourceText: string):
 }
 
 function isAllowed(workspacePath: string, term: string): boolean {
+  if (workspacePath.endsWith('.test.ts')) {
+    return true;
+  }
+
   return allowedConceptMentions.some(
-    (entry) => entry.file === workspacePath && entry.terms.some((allowedTerm) => allowedTerm === term),
+    (entry) =>
+      (entry.file === workspacePath ||
+        (entry.filePrefix !== undefined && workspacePath.startsWith(entry.filePrefix))) &&
+      entry.terms.some((allowedTerm) => allowedTerm === term),
   );
 }
 

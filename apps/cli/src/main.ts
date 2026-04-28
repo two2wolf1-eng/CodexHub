@@ -1,7 +1,14 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, extname, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
+import {
+  type CodexExecReplaySummary,
+  replayCodexExecFixture,
+  summarizeCodexExecReplay,
+} from '@codexhub/codex-kernel';
 import {
   type MockDevelopmentOrchestrationResult,
   runMockDevelopmentOrchestration,
@@ -41,6 +48,17 @@ export function buildProgram(): Command {
     .action(async (title: string, options: { description: string }) => {
       const result = await mockRunDevelopment(title, options.description);
       console.log(JSON.stringify(result, null, 2));
+    });
+
+  program
+    .command('codex')
+    .description('Codex fixture tools')
+    .command('replay-fixture')
+    .argument('<fixturePath>')
+    .description('Replay a local Codex JSONL fixture without live execution')
+    .action(async (fixturePath: string) => {
+      const summary = await replayCodexFixture(fixturePath);
+      console.log(JSON.stringify(summary, null, 2));
     });
 
   return program;
@@ -113,6 +131,62 @@ export async function mockRunDevelopment(
       metadata: { requestedBy: 'cli-fallback' },
     });
   }
+}
+
+export async function replayCodexFixture(fixturePath: string): Promise<CodexExecReplaySummary> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/replay-fixture`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fixturePath }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as CodexExecReplaySummary;
+  } catch {
+    const text = await readAllowedFixture(fixturePath);
+    const result = await replayCodexExecFixture(text);
+    return summarizeCodexExecReplay(result);
+  }
+}
+
+async function readAllowedFixture(fixturePath: string): Promise<string> {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const fixturesRoot = resolve(workspaceRoot, 'packages', 'codex-kernel', 'fixtures');
+  const requestedPath = resolve(workspaceRoot, fixturePath);
+
+  if (!isPathInside(requestedPath, fixturesRoot) || extname(requestedPath) !== '.jsonl') {
+    throw new Error('Fixture path must point to packages/codex-kernel/fixtures/*.jsonl');
+  }
+
+  return readFile(requestedPath, 'utf8');
+}
+
+function findWorkspaceRoot(startDirectory: string): string {
+  let current = resolve(startDirectory);
+  const root = parse(current).root;
+
+  while (true) {
+    if (existsSync(resolve(current, 'pnpm-workspace.yaml'))) {
+      return current;
+    }
+
+    const parent = dirname(current);
+
+    if (parent === current || current === root) {
+      return resolve(startDirectory);
+    }
+
+    current = parent;
+  }
+}
+
+function isPathInside(path: string, root: string): boolean {
+  const relativePath = relative(root, path);
+  return relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

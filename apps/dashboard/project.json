@@ -3,7 +3,7 @@
   "name": "dashboard",
   "projectType": "application",
   "sourceRoot": "apps/dashboard/src",
-  "implicitDependencies": ["contracts", "orchestrator-kernel"],
+  "implicitDependencies": ["contracts", "orchestrator-kernel", "codex-kernel"],
   "targets": {
     "build": {
       "executor": "nx:run-commands",

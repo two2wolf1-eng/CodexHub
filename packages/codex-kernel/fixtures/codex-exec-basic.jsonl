@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"thread_fixture_basic","metadata":{"fixture":true}}
+{"type":"turn.started","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1"}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_command_1","type":"command_execution","command":"codex exec --json --dry-run synthetic task","status":"completed","exit_code":0,"stdout":"synthetic stdout summary only"}}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_message_1","type":"agent_message","message":"Synthetic agent response for fixture replay."}}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_reasoning_1","type":"reasoning","text":"Synthetic reasoning placeholder, intentionally short and non-sensitive."}}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_file_1","type":"file_change","path":"packages/example/src/index.ts","operation":"mock-summary","summary":"Synthetic file change summary only."}}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_mcp_1","type":"mcp_tool_call","tool":"mock.registry.resolve","arguments":{"query":"architecture planner"},"result":{"selected":1}}}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_search_1","type":"web_search","query":"Synthetic local fixture search query","results":[{"title":"Fixture result"}]}}
+{"type":"item.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","item":{"id":"item_plan_1","type":"plan_update","steps":[{"title":"Parse fixture","status":"completed"},{"title":"Summarize replay","status":"completed"}]}}
+{"type":"turn.completed","thread_id":"thread_fixture_basic","turn_id":"turn_fixture_1","status":"completed"}

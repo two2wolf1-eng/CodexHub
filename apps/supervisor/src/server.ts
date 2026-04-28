@@ -1,4 +1,12 @@
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { dirname, extname, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
+import {
+  type CodexExecReplaySummary,
+  replayCodexExecFixture,
+  summarizeCodexExecReplay,
+} from '@codexhub/codex-kernel';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
@@ -24,6 +32,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const workflowRunner = new WorkflowRunner();
   const observationSource = new MockObservationSource('codexhub.mock.supervisor');
   const mockDevelopmentRuns: MockDevelopmentOrchestrationResult[] = [];
+  const codexReplaySummaries: CodexExecReplaySummary[] = [];
   let ownedStore: CodexHubStore | undefined;
   let storePromise: Promise<CodexHubStore | undefined> | undefined;
   let persistenceState: PersistenceState = options.disableStore
@@ -157,5 +166,73 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.post('/api/codex/replay-fixture', async (request, reply) => {
+    const body = request.body as { fixturePath?: string } | undefined;
+    const fixturePath = body?.fixturePath;
+
+    if (!fixturePath) {
+      return reply.code(400).send({ error: 'fixturePath is required' });
+    }
+
+    const guard = resolveAllowedFixture(fixturePath);
+
+    if (!guard.allowed) {
+      return reply.code(400).send({ error: guard.reason });
+    }
+
+    const fixtureText = await readFile(guard.path, 'utf8');
+    const result = await replayCodexExecFixture(fixtureText);
+    const summary = summarizeCodexExecReplay(result);
+    codexReplaySummaries.unshift(summary);
+
+    return summary;
+  });
+
+  server.get('/api/codex/replay-fixtures', async () => ({
+    runs: codexReplaySummaries.slice(0, 10),
+    metadata: { mockOnly: true, liveExecution: false, externalProcessStarted: false },
+  }));
+
   return server;
+}
+
+function resolveAllowedFixture(
+  fixturePath: string,
+): { allowed: true; path: string } | { allowed: false; reason: string } {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const fixturesRoot = resolve(workspaceRoot, 'packages', 'codex-kernel', 'fixtures');
+  const requestedPath = resolve(workspaceRoot, fixturePath);
+
+  if (!isPathInside(requestedPath, fixturesRoot) || extname(requestedPath) !== '.jsonl') {
+    return {
+      allowed: false,
+      reason: 'fixturePath must point to packages/codex-kernel/fixtures/*.jsonl',
+    };
+  }
+
+  return { allowed: true, path: requestedPath };
+}
+
+function findWorkspaceRoot(startDirectory: string): string {
+  let current = resolve(startDirectory);
+  const root = parse(current).root;
+
+  while (true) {
+    if (existsSync(resolve(current, 'pnpm-workspace.yaml'))) {
+      return current;
+    }
+
+    const parent = dirname(current);
+
+    if (parent === current || current === root) {
+      return resolve(startDirectory);
+    }
+
+    current = parent;
+  }
+}
+
+function isPathInside(path: string, root: string): boolean {
+  const relativePath = relative(root, path);
+  return relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`);
 }

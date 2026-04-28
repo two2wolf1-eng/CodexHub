@@ -12,7 +12,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
-    "@codexhub/contracts": "workspace:*"
+    "@codexhub/contracts": "workspace:*",
+    "@codexhub/evidence-kernel": "workspace:*"
   }
 }
-

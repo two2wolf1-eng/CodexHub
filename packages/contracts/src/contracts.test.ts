@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DevelopmentRequestSchema,
+  CodexExecReplayResultSchema,
   EvidenceRefSchema,
   PolicyDecisionSchema,
   SchemaVersionSchema,
@@ -96,5 +97,60 @@ describe('contracts schemas', () => {
     });
 
     expect(result.selectedSkills[0]?.skillId).toBe('codexhub-architecture-planner');
+  });
+
+  it('parses codex exec replay contract models', () => {
+    const result = CodexExecReplayResultSchema.parse({
+      id: 'codex_replay_1',
+      schemaVersion,
+      createdAt,
+      threadId: 'thread_fixture_1',
+      events: [
+        {
+          id: 'codex_event_1',
+          schemaVersion,
+          createdAt,
+          rawEventType: 'thread.started',
+          normalizedType: 'thread.started',
+          threadId: 'thread_fixture_1',
+          summary: 'Thread started',
+          payloadHash: 'sha256:event',
+          payloadLength: 42,
+          safe: true,
+        },
+      ],
+      eventCount: 1,
+      itemCount: 0,
+      commandExecutionCount: 0,
+      fileChangeCount: 0,
+      mcpToolCallCount: 0,
+      webSearchCount: 0,
+      errorCount: 0,
+      finalStatus: 'completed',
+      evidenceRefs: [
+        {
+          id: 'evidence_codex_1',
+          schemaVersion,
+          createdAt,
+          kind: 'codex.exec.jsonl.replay',
+          hash: 'sha256:replay',
+          summary: 'Codex fixture replay summary',
+        },
+      ],
+      auditEvents: [
+        {
+          id: 'audit_codex_1',
+          schemaVersion,
+          createdAt,
+          actor: 'codex-kernel.fixture-replay',
+          action: 'codex.exec.fixture_replay.completed',
+          outcome: 'completed',
+          evidenceRefs: [],
+        },
+      ],
+    });
+
+    expect(result.finalStatus).toBe('completed');
+    expect(result.evidenceRefs[0]?.kind).toBe('codex.exec.jsonl.replay');
   });
 });

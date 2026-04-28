@@ -35,4 +35,39 @@ describe('supervisor mock development API', () => {
     expect(listResponse.json().runs).toHaveLength(1);
     expect(listResponse.json().persistence.status).toBe('ok');
   });
+
+  it('replays codex fixtures and guards fixture paths', async () => {
+    const server = buildSupervisorServer({ disableStore: true });
+
+    const replayResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/replay-fixture',
+      payload: {
+        fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      },
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/replay-fixtures',
+    });
+    const rejectedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/replay-fixture',
+      payload: {
+        fixturePath: 'package.json',
+      },
+    });
+
+    await server.close();
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json()).toMatchObject({
+      threadId: 'thread_fixture_basic',
+      finalStatus: 'completed',
+      liveExecution: false,
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().runs).toHaveLength(1);
+    expect(rejectedResponse.statusCode).toBe(400);
+  });
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
 import type { SourceHealth, WorkflowRun } from '@codexhub/contracts';
 import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
 
@@ -8,6 +9,7 @@ interface OverviewState {
   runs: WorkflowRun[];
   sourceHealth: SourceHealth[];
   developmentRuns: MockDevelopmentOrchestrationResult[];
+  codexReplayRuns: CodexExecReplaySummary[];
   message?: string;
 }
 
@@ -19,6 +21,7 @@ export function App() {
     runs: [],
     sourceHealth: [],
     developmentRuns: [],
+    codexReplayRuns: [],
   });
 
   useEffect(() => {
@@ -26,11 +29,18 @@ export function App() {
 
     async function loadOverview() {
       try {
-        const [health, runsResponse, observationsResponse, developmentRunsResponse] = await Promise.all([
+        const [
+          health,
+          runsResponse,
+          observationsResponse,
+          developmentRunsResponse,
+          codexReplayRunsResponse,
+        ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
           getJson<{ sourceHealth: SourceHealth[] }>('/api/observations'),
           getJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
+          getJson<{ runs: CodexExecReplaySummary[] }>('/api/codex/replay-fixtures'),
         ]);
 
         if (!cancelled) {
@@ -40,6 +50,7 @@ export function App() {
             runs: runsResponse.runs,
             sourceHealth: observationsResponse.sourceHealth,
             developmentRuns: developmentRunsResponse.runs,
+            codexReplayRuns: codexReplayRunsResponse.runs,
           });
         }
       } catch (error) {
@@ -49,6 +60,7 @@ export function App() {
             runs: [],
             sourceHealth: [],
             developmentRuns: [],
+            codexReplayRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -127,6 +139,25 @@ export function App() {
             </ul>
           ) : (
             <p>No mock development runs are available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Fixture Replays">
+          {overview.codexReplayRuns.length > 0 ? (
+            <ul>
+              {overview.codexReplayRuns.map((run) => (
+                <li key={run.id} className="stacked">
+                  <strong>{run.threadId ?? run.id}</strong>
+                  <span>
+                    {run.eventCount} events, {run.itemCount} items, {run.commandExecutionCount}{' '}
+                    commands, {run.fileChangeCount} file changes, {run.errorCount} errors,{' '}
+                    {run.finalStatus}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Codex fixture replays are available yet.</p>
           )}
         </Panel>
       </section>

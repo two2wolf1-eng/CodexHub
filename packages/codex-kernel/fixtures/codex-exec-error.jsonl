@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thread_fixture_error","metadata":{"fixture":true}}
+{"type":"turn.started","thread_id":"thread_fixture_error","turn_id":"turn_fixture_error_1"}
+{"type":"item.completed","thread_id":"thread_fixture_error","turn_id":"turn_fixture_error_1","item":{"id":"item_command_error_1","type":"command_execution","command":"codex exec --json --dry-run synthetic failing task","status":"failed","exit_code":1,"stderr":"synthetic failure summary only"}}
+{"type":"turn.failed","thread_id":"thread_fixture_error","turn_id":"turn_fixture_error_1","status":"failed","message":"Synthetic fixture failure."}
+{"type":"error","thread_id":"thread_fixture_error","message":"Synthetic parser-safe error event."}

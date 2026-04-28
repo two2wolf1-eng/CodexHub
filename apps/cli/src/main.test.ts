@@ -14,4 +14,20 @@ describe('cli development mock-run fallback', () => {
       mockOnly: true,
     });
   });
+
+  it('replays a local codex fixture when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { replayCodexFixture } = await import('./main');
+    const summary = await replayCodexFixture(
+      'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+    );
+
+    expect(summary).toMatchObject({
+      threadId: 'thread_fixture_basic',
+      finalStatus: 'completed',
+      mockOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+    });
+  });
 });
