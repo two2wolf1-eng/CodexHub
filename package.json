@@ -7,6 +7,10 @@
   "scripts": {
     "nx": "nx",
     "codexhub": "tsx apps/cli/src/main.ts",
+    "audit:boundaries": "tsx tools/audit-import-boundaries.ts",
+    "audit:sqlite-isolation": "tsx tools/audit-sqlite-isolation.ts",
+    "scaffold:health": "tsx tools/scaffold-health.ts",
+    "verify:foundation": "pnpm scaffold:health && pnpm audit:boundaries && pnpm audit:sqlite-isolation && pnpm nx run-many -t lint,test,build",
     "lint": "pnpm nx run-many -t lint",
     "test": "pnpm nx run-many -t test",
     "build": "pnpm nx run-many -t build",
@@ -37,4 +41,3 @@
     "vitest": "^2.1.8"
   }
 }
-
