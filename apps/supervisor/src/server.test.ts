@@ -86,7 +86,74 @@ describe('supervisor mock development API', () => {
       fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
       status: 'completed',
     });
-    expect(rejectedResponses.map((response) => response.statusCode)).toEqual([400, 400, 400, 400, 404]);
-    expect(rejectedResponses.every((response) => !response.body.includes(process.cwd()))).toBe(true);
+    expect(rejectedResponses.map((response) => response.statusCode)).toEqual([
+      400, 400, 400, 400, 404,
+    ]);
+    expect(rejectedResponses.every((response) => !response.body.includes(process.cwd()))).toBe(
+      true,
+    );
+  });
+
+  it('creates and lists disabled codex dry-run control-plane records', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-codex-dry-run-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/dry-run',
+      payload: {
+        title: 'Summarize repository structure',
+        prompt: 'Summarize the repository structure and list risk areas',
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+      },
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/dry-runs',
+    });
+    const rejectedCwdResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/dry-run',
+      payload: {
+        title: 'Bad cwd',
+        prompt: 'Summarize safely',
+        cwd: '..',
+      },
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: false,
+      dryRunPlan: {
+        riskLevel: 'medium',
+        promptBodyStored: false,
+      },
+      policyDecision: {
+        outcome: 'deny',
+      },
+      liveRunRecord: {
+        status: 'blocked',
+        promptBodyStored: false,
+      },
+    });
+    expect(JSON.stringify(dryRunResponse.json())).not.toContain('list risk areas');
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().runs).toHaveLength(1);
+    expect(listResponse.json().runs[0]).toMatchObject({
+      title: 'Summarize repository structure',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(rejectedCwdResponse.statusCode).toBe(400);
   });
 });

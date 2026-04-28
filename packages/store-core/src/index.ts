@@ -1,5 +1,6 @@
 import type {
   AuditEvent,
+  CodexExecLiveRunRecord,
   CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
@@ -42,6 +43,12 @@ export interface CodexReplayRepository {
   getCodexReplay(id: string): Promise<CodexReplayRecord | undefined>;
 }
 
+export interface CodexExecLiveRunRepository {
+  saveCodexExecLiveRunRecord(record: CodexExecLiveRunRecord): Promise<CodexExecLiveRunRecord>;
+  listCodexExecLiveRunRecords(limit?: number): Promise<CodexExecLiveRunRecord[]>;
+  getCodexExecLiveRunRecord(id: string): Promise<CodexExecLiveRunRecord | undefined>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -49,6 +56,7 @@ export interface CodexHubStore {
   observations: ObservationRepository;
   developmentRuns: DevelopmentRunRepository;
   codexReplays: CodexReplayRepository;
+  codexExecLiveRuns: CodexExecLiveRunRepository;
   close(): Promise<void>;
 }
 

@@ -8,7 +8,9 @@
   },
   "dependencies": {
     "@codexhub/codex-kernel": "workspace:*",
+    "@codexhub/contracts": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
+    "@codexhub/security-kernel": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "commander": "^12.1.0"
   }

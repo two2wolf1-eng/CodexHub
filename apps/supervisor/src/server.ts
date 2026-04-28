@@ -3,12 +3,21 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
 import {
+  createCodexExecDisabledLiveRunRecord,
+  createCodexExecDryRunPlan,
+  createCodexExecExecutionIntent,
+  evaluateCodexExecDryRunPolicy,
   type CodexExecReplaySummary,
   createCodexReplayRecord,
   replayCodexExecFixture,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
-import type { CodexReplayRecord } from '@codexhub/contracts';
+import type {
+  CodexExecApprovalMode,
+  CodexExecLiveRunRecord,
+  CodexExecSandboxMode,
+  CodexReplayRecord,
+} from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
@@ -17,6 +26,7 @@ import {
 } from '@codexhub/orchestrator-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
+import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 
 interface SupervisorServerOptions {
@@ -35,6 +45,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const observationSource = new MockObservationSource('codexhub.mock.supervisor');
   const mockDevelopmentRuns: MockDevelopmentOrchestrationResult[] = [];
   const codexReplayRecords: CodexReplayRecord[] = [];
+  const codexExecLiveRunRecords: CodexExecLiveRunRecord[] = [];
+  const policyEngine = new DefaultPolicyEngine();
   let ownedStore: CodexHubStore | undefined;
   let storePromise: Promise<CodexHubStore | undefined> | undefined;
   let persistenceState: PersistenceState = options.disableStore
@@ -92,7 +104,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   }));
 
   server.post('/api/workflows/dry-run', async (request) => {
-    const body = request.body as { workflowName?: string; input?: Record<string, unknown> } | undefined;
+    const body = request.body as
+      | { workflowName?: string; input?: Record<string, unknown> }
+      | undefined;
     const workflowName = body?.workflowName ?? 'development.bootstrap';
     const definition = createMockWorkflowDefinition(workflowName);
 
@@ -127,7 +141,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   server.post('/api/development/mock-run', async (request) => {
     const body = request.body as
-      | { title?: string; description?: string; constraints?: string[]; metadata?: Record<string, unknown> }
+      | {
+          title?: string;
+          description?: string;
+          constraints?: string[];
+          metadata?: Record<string, unknown>;
+        }
       | undefined;
     const store = await getStore();
     const result = await runMockDevelopmentOrchestration({
@@ -226,6 +245,90 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.post('/api/codex/exec/dry-run', async (request, reply) => {
+    const body = request.body as
+      | {
+          title?: string;
+          prompt?: string;
+          cwd?: string;
+          sandboxMode?: CodexExecSandboxMode;
+          approvalMode?: CodexExecApprovalMode;
+          metadata?: Record<string, unknown>;
+        }
+      | undefined;
+
+    if (!body?.title || !body.prompt) {
+      return reply.code(400).send({ error: 'title and prompt are required' });
+    }
+
+    const cwdGuard = resolveAllowedCwd(body.cwd ?? '.');
+
+    if (!cwdGuard.allowed) {
+      return reply.code(400).send({ error: cwdGuard.reason });
+    }
+
+    const store = await getStore();
+    const intent = createCodexExecExecutionIntent({
+      title: body.title,
+      prompt: body.prompt,
+      cwd: cwdGuard.cwd,
+      sandboxMode: body.sandboxMode ?? 'read_only',
+      approvalMode: body.approvalMode ?? 'required',
+      metadata: body.metadata,
+    });
+    const dryRunPlan = createCodexExecDryRunPlan(intent);
+    const policyDecision = evaluateCodexExecDryRunPolicy(dryRunPlan, policyEngine);
+    const liveRunRecord = createCodexExecDisabledLiveRunRecord(
+      dryRunPlan,
+      policyDecision,
+      'live adapter disabled in Round 3B control-plane skeleton',
+    );
+
+    if (store) {
+      for (const evidenceRef of liveRunRecord.evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of liveRunRecord.auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+
+      await store.codexExecLiveRuns.saveCodexExecLiveRunRecord(liveRunRecord);
+    } else {
+      codexExecLiveRunRecords.unshift(liveRunRecord);
+    }
+
+    return {
+      intent,
+      dryRunPlan,
+      commandPreview: liveRunRecord.commandPreview,
+      policyDecision,
+      approvalRequirement: liveRunRecord.approvalRequirement,
+      evidenceRefs: liveRunRecord.evidenceRefs,
+      auditEvents: liveRunRecord.auditEvents,
+      liveRunRecord,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/dry-runs', async () => {
+    const store = await getStore();
+    const records = store
+      ? await store.codexExecLiveRuns.listCodexExecLiveRunRecords(10)
+      : codexExecLiveRunRecords.slice(0, 10);
+
+    return {
+      runs: records,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+      metadata: { liveExecution: false, externalProcessStarted: false, executionDisabled: true },
+    };
+  });
+
   return server;
 }
 
@@ -251,7 +354,34 @@ function resolveAllowedFixture(
     };
   }
 
-  return { allowed: true, path: requestedPath, fixturePath: toWorkspacePath(requestedPath, workspaceRoot) };
+  return {
+    allowed: true,
+    path: requestedPath,
+    fixturePath: toWorkspacePath(requestedPath, workspaceRoot),
+  };
+}
+
+function resolveAllowedCwd(
+  requestedCwd: string,
+): { allowed: true; path: string; cwd: string } | { allowed: false; reason: string } {
+  if (requestedCwd.split(/[\\/]+/).includes('..')) {
+    return { allowed: false, reason: 'cwd cannot contain traversal segments' };
+  }
+
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const requestedPath = isAbsolute(requestedCwd)
+    ? resolve(requestedCwd)
+    : resolve(workspaceRoot, requestedCwd);
+
+  if (requestedPath !== workspaceRoot && !isPathInside(requestedPath, workspaceRoot)) {
+    return { allowed: false, reason: 'cwd must stay within the repository root' };
+  }
+
+  return {
+    allowed: true,
+    path: requestedPath,
+    cwd: requestedPath === workspaceRoot ? '.' : toWorkspacePath(requestedPath, workspaceRoot),
+  };
 }
 
 function findWorkspaceRoot(startDirectory: string): string {
@@ -275,7 +405,9 @@ function findWorkspaceRoot(startDirectory: string): string {
 
 function isPathInside(path: string, root: string): boolean {
   const relativePath = relative(root, path);
-  return relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`);
+  return (
+    relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`)
+  );
 }
 
 function toWorkspacePath(path: string, workspaceRoot: string): string {

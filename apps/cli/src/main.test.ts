@@ -30,4 +30,19 @@ describe('cli development mock-run fallback', () => {
       externalProcessStarted: false,
     });
   });
+
+  it('creates a local codex dry-run control-plane record when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { dryRunCodexExec } = await import('./main');
+    const result = await dryRunCodexExec('Summarize repository structure');
+
+    expect(result).toMatchObject({
+      title: 'Summarize repository structure',
+      status: 'blocked',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      promptBodyStored: false,
+    });
+  });
 });

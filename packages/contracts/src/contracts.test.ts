@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CodexExecLiveRunRecordSchema,
   DevelopmentRequestSchema,
   CodexReplayRecordSchema,
   CodexExecReplayResultSchema,
@@ -194,5 +195,130 @@ describe('contracts schemas', () => {
 
     expect(record.sourceKind).toBe('fixture');
     expect(JSON.stringify(record)).not.toContain('thread.started');
+  });
+
+  it('parses codex live control-plane records without prompt body', () => {
+    const intent = {
+      id: 'codex_intent_1',
+      schemaVersion,
+      createdAt,
+      title: 'Summarize repository structure',
+      cwd: '.',
+      sandboxMode: 'read_only',
+      approvalMode: 'required',
+      promptSummary: 'Summarize repository structure',
+      promptHash: 'sha256:prompt',
+      promptLength: 30,
+      promptBodyStored: false,
+      liveAdapterEnabled: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const dryRunPlan = {
+      id: 'codex_dry_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      intent,
+      title: intent.title,
+      cwd: '.',
+      sandboxMode: 'read_only',
+      approvalMode: 'required',
+      riskLevel: 'medium',
+      promptSummary: intent.promptSummary,
+      promptHash: intent.promptHash,
+      promptLength: intent.promptLength,
+      promptBodyStored: false,
+      liveAdapterEnabled: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      summary: 'Dry-run control plan',
+    };
+    const policyDecision = {
+      id: 'policy_1',
+      schemaVersion,
+      createdAt,
+      actionId: dryRunPlan.id,
+      actionType: 'codex.exec.live.intent',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      outcome: 'deny',
+      reasons: ['disabled'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    };
+    const record = CodexExecLiveRunRecordSchema.parse({
+      id: 'codex_live_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      dryRunPlanId: dryRunPlan.id,
+      title: intent.title,
+      cwd: '.',
+      sandboxMode: 'read_only',
+      approvalMode: 'required',
+      riskLevel: 'medium',
+      status: 'blocked',
+      intent,
+      dryRunPlan,
+      commandPreview: {
+        id: 'codex_preview_1',
+        schemaVersion,
+        createdAt,
+        intentId: intent.id,
+        dryRunPlanId: dryRunPlan.id,
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+        previewSummary: 'Disabled preview',
+        binaryName: 'codex',
+        argumentSummary: 'summarized arguments only',
+        previewHash: 'sha256:preview',
+        redacted: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      policyDecision,
+      approvalRequirement: {
+        id: 'codex_approval_1',
+        schemaVersion,
+        createdAt,
+        dryRunPlanId: dryRunPlan.id,
+        policyDecisionId: policyDecision.id,
+        required: true,
+        riskLevel: 'medium',
+        approvalMode: 'required',
+        status: 'blocked',
+        reason: 'approval required',
+      },
+      disabledError: {
+        id: 'codex_disabled_error_1',
+        schemaVersion,
+        createdAt,
+        code: 'CODEX_EXEC_LIVE_DISABLED',
+        message: 'Live adapter disabled',
+        reason: 'control-plane only',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      evidenceRefs: [],
+      auditEvents: [],
+      promptSummary: intent.promptSummary,
+      promptHash: intent.promptHash,
+      promptLength: intent.promptLength,
+      promptBodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(record.liveExecution).toBe(false);
+    expect(record.externalProcessStarted).toBe(false);
+    expect(record.promptBodyStored).toBe(false);
+    expect(JSON.stringify(record)).not.toContain('list risk areas');
   });
 });

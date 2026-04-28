@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  type CodexExecLiveRunRecord,
   type CodexReplayRecord,
   type MockDevelopmentRun,
   SchemaVersionSchema,
@@ -114,6 +115,8 @@ describe('store-sqlite migration initialization', () => {
       },
     };
     await first.codexReplays.saveCodexReplay(codexReplay);
+    const codexExecLiveRun: CodexExecLiveRunRecord = createCodexExecLiveRunFixture();
+    await first.codexExecLiveRuns.saveCodexExecLiveRunRecord(codexExecLiveRun);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -122,6 +125,9 @@ describe('store-sqlite migration initialization', () => {
     const developmentRun = await second.developmentRuns.getMockDevelopmentRun('development_run_1');
     const codexReplays = await second.codexReplays.listCodexReplays(10);
     const codexReplayRecord = await second.codexReplays.getCodexReplay('codex_replay_1');
+    const codexExecLiveRuns = await second.codexExecLiveRuns.listCodexExecLiveRunRecords(10);
+    const codexExecLiveRunRecord =
+      await second.codexExecLiveRuns.getCodexExecLiveRunRecord('codex_live_run_1');
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -138,5 +144,131 @@ describe('store-sqlite migration initialization', () => {
     );
     expect(codexReplayRecord?.storageMetadata.bodyStored).toBe(false);
     expect(JSON.stringify(codexReplayRecord)).not.toContain('thread.started');
+    expect(codexExecLiveRuns).toHaveLength(1);
+    expect(codexExecLiveRuns[0]?.status).toBe('blocked');
+    expect(codexExecLiveRunRecord?.promptBodyStored).toBe(false);
+    expect(JSON.stringify(codexExecLiveRunRecord)).not.toContain('list risk areas');
   });
 });
+
+function createCodexExecLiveRunFixture(): CodexExecLiveRunRecord {
+  const createdAt = '2026-04-28T00:00:03.000Z';
+  const intent = {
+    id: 'codex_intent_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    title: 'Summarize repository structure',
+    cwd: '.',
+    sandboxMode: 'read_only' as const,
+    approvalMode: 'required' as const,
+    promptSummary: 'Summarize repository structure',
+    promptHash: 'sha256:prompt',
+    promptLength: 30,
+    promptBodyStored: false as const,
+    liveAdapterEnabled: false,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+  };
+  const dryRunPlan = {
+    id: 'codex_dry_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    intentId: intent.id,
+    intent,
+    title: intent.title,
+    cwd: '.',
+    sandboxMode: 'read_only' as const,
+    approvalMode: 'required' as const,
+    riskLevel: 'medium' as const,
+    promptSummary: intent.promptSummary,
+    promptHash: intent.promptHash,
+    promptLength: intent.promptLength,
+    promptBodyStored: false as const,
+    liveAdapterEnabled: false,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+    summary: 'Dry-run control plan',
+  };
+  const policyDecision = {
+    id: 'policy_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    actionId: dryRunPlan.id,
+    actionType: 'codex.exec.live.intent',
+    actionMode: 'read' as const,
+    riskLevel: 'medium' as const,
+    outcome: 'deny' as const,
+    reasons: ['disabled'],
+    requiresDryRun: true,
+    requiresApproval: true,
+  };
+
+  return {
+    id: 'codex_live_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    intentId: intent.id,
+    dryRunPlanId: dryRunPlan.id,
+    title: intent.title,
+    cwd: '.',
+    sandboxMode: 'read_only',
+    approvalMode: 'required',
+    riskLevel: 'medium',
+    status: 'blocked',
+    intent,
+    dryRunPlan,
+    commandPreview: {
+      id: 'codex_preview_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      intentId: intent.id,
+      dryRunPlanId: dryRunPlan.id,
+      cwd: '.',
+      sandboxMode: 'read_only',
+      approvalMode: 'required',
+      previewSummary: 'Disabled preview',
+      binaryName: 'codex',
+      argumentSummary: 'summarized arguments only',
+      previewHash: 'sha256:preview',
+      redacted: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+    policyDecision,
+    approvalRequirement: {
+      id: 'codex_approval_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      dryRunPlanId: dryRunPlan.id,
+      policyDecisionId: policyDecision.id,
+      required: true,
+      riskLevel: 'medium',
+      approvalMode: 'required',
+      status: 'blocked',
+      reason: 'approval required',
+    },
+    disabledError: {
+      id: 'codex_disabled_error_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      code: 'CODEX_EXEC_LIVE_DISABLED',
+      message: 'Live adapter disabled',
+      reason: 'control-plane only',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+    evidenceRefs: [],
+    auditEvents: [],
+    promptSummary: intent.promptSummary,
+    promptHash: intent.promptHash,
+    promptLength: intent.promptLength,
+    promptBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}

@@ -5,14 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
 import {
+  createCodexExecDisabledLiveRunRecord,
+  createCodexExecDryRunPlan,
+  createCodexExecExecutionIntent,
+  evaluateCodexExecDryRunPolicy,
   type CodexExecReplaySummary,
   replayCodexExecFixture,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
+import type { CodexExecLiveRunRecord } from '@codexhub/contracts';
 import {
   type MockDevelopmentOrchestrationResult,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
+import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 
 const supervisorUrl = process.env.CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
@@ -22,10 +28,13 @@ export function buildProgram(): Command {
 
   program.name('codexhub').description('Local CodexHub control CLI').version('0.1.0');
 
-  program.command('health').description('Read local supervisor health').action(async () => {
-    const health = await getSupervisorHealth();
-    console.log(JSON.stringify(health, null, 2));
-  });
+  program
+    .command('health')
+    .description('Read local supervisor health')
+    .action(async () => {
+      const health = await getSupervisorHealth();
+      console.log(JSON.stringify(health, null, 2));
+    });
 
   program
     .command('workflow')
@@ -43,22 +52,37 @@ export function buildProgram(): Command {
     .description('Development orchestration commands')
     .command('mock-run')
     .argument('<title>')
-    .option('-d, --description <description>', 'Mock request description', 'Create interfaces and tests only')
+    .option(
+      '-d, --description <description>',
+      'Mock request description',
+      'Create interfaces and tests only',
+    )
     .description('Run a foundation-only mock development orchestration')
     .action(async (title: string, options: { description: string }) => {
       const result = await mockRunDevelopment(title, options.description);
       console.log(JSON.stringify(result, null, 2));
     });
 
-  program
-    .command('codex')
-    .description('Codex fixture tools')
+  const codexCommand = program.command('codex').description('Codex control-plane tools');
+
+  codexCommand
     .command('replay-fixture')
     .argument('<fixturePath>')
     .description('Replay a local Codex JSONL fixture without live execution')
     .action(async (fixturePath: string) => {
       const summary = await replayCodexFixture(fixturePath);
       console.log(JSON.stringify(summary, null, 2));
+    });
+
+  codexCommand
+    .command('exec')
+    .description('Disabled live adapter control-plane commands')
+    .command('dry-run')
+    .argument('<prompt>')
+    .description('Create a disabled dry-run plan for future live adapter use')
+    .action(async (prompt: string) => {
+      const result = await dryRunCodexExec(prompt);
+      console.log(JSON.stringify(result, null, 2));
     });
 
   return program;
@@ -103,7 +127,9 @@ export async function dryRunWorkflow(workflowName: string): Promise<Record<strin
     return (await response.json()) as Record<string, unknown>;
   } catch {
     const runner = new WorkflowRunner();
-    return runner.dryRun(createMockWorkflowDefinition(workflowName), { requestedBy: 'cli-fallback' });
+    return runner.dryRun(createMockWorkflowDefinition(workflowName), {
+      requestedBy: 'cli-fallback',
+    });
   }
 }
 
@@ -149,7 +175,51 @@ export async function replayCodexFixture(fixturePath: string): Promise<CodexExec
   } catch {
     const text = await readAllowedFixture(fixturePath);
     const result = await replayCodexExecFixture(text);
-    return summarizeCodexExecReplay(result, toWorkspacePath(resolve(findWorkspaceRoot(process.cwd()), fixturePath)));
+    return summarizeCodexExecReplay(
+      result,
+      toWorkspacePath(resolve(findWorkspaceRoot(process.cwd()), fixturePath)),
+    );
+  }
+}
+
+export async function dryRunCodexExec(
+  prompt: string,
+): Promise<Record<string, unknown> | CodexExecLiveRunRecord> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/dry-run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: prompt,
+        prompt,
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const intent = createCodexExecExecutionIntent({
+      title: prompt,
+      prompt,
+      cwd: '.',
+      sandboxMode: 'read_only',
+      approvalMode: 'required',
+      metadata: { requestedBy: 'cli-fallback' },
+    });
+    const dryRunPlan = createCodexExecDryRunPlan(intent);
+    const policyDecision = evaluateCodexExecDryRunPolicy(dryRunPlan, new DefaultPolicyEngine());
+
+    return createCodexExecDisabledLiveRunRecord(
+      dryRunPlan,
+      policyDecision,
+      'live adapter disabled in CLI fallback',
+    );
   }
 }
 
@@ -190,7 +260,9 @@ function findWorkspaceRoot(startDirectory: string): string {
 
 function isPathInside(path: string, root: string): boolean {
   const relativePath = relative(root, path);
-  return relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`);
+  return (
+    relativePath.length > 0 && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`)
+  );
 }
 
 function toWorkspacePath(path: string): string {

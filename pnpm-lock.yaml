@@ -75,9 +75,15 @@ importers:
       '@codexhub/codex-kernel':
         specifier: workspace:*
         version: link:../../packages/codex-kernel
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
+      '@codexhub/security-kernel':
+        specifier: workspace:*
+        version: link:../../packages/security-kernel
       '@codexhub/workflow-kernel':
         specifier: workspace:*
         version: link:../../packages/workflow-kernel
@@ -139,6 +145,9 @@ importers:
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
+      '@codexhub/security-kernel':
+        specifier: workspace:*
+        version: link:../../packages/security-kernel
       '@codexhub/store-core':
         specifier: workspace:*
         version: link:../../packages/store-core

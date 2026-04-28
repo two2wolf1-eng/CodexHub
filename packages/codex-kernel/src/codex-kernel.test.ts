@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  createCodexExecDisabledLiveRunRecord,
+  createCodexExecDryRunPlan,
+  createCodexExecExecutionIntent,
+  evaluateCodexExecDryRunPolicy,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
@@ -99,6 +103,94 @@ describe('codex-kernel fixture replay parser', () => {
     expect(result.auditEvents.map((event) => event.action)).toContain(
       'codex.exec.fixture_replay.failed',
     );
+  });
+});
+
+describe('codex-kernel live control-plane skeleton', () => {
+  it('creates a dry-run plan without storing prompt body', () => {
+    const intent = createCodexExecExecutionIntent({
+      title: 'Summarize repository structure',
+      prompt: 'Summarize the repository structure and list risk areas',
+      cwd: '.',
+    });
+    const plan = createCodexExecDryRunPlan(intent);
+
+    expect(plan.riskLevel).toBe('medium');
+    expect(plan.promptSummary).toContain('Summarize');
+    expect(plan.promptHash).toMatch(/^sha256:/);
+    expect(plan.promptBodyStored).toBe(false);
+    expect(JSON.stringify(plan)).not.toContain('list risk areas');
+  });
+
+  it('maps sandbox modes to conservative risk levels', () => {
+    const workspacePlan = createCodexExecDryRunPlan(
+      createCodexExecExecutionIntent({
+        title: 'Workspace write preview',
+        prompt: 'Preview a workspace change',
+        sandboxMode: 'workspace_write',
+      }),
+    );
+    const dangerPlan = createCodexExecDryRunPlan(
+      createCodexExecExecutionIntent({
+        title: 'Full access preview',
+        prompt: 'Preview a full access run',
+        sandboxMode: 'danger_full_access',
+      }),
+    );
+
+    expect(workspacePlan.riskLevel).toBe('high');
+    expect(dangerPlan.riskLevel).toBe('critical');
+  });
+
+  it('creates evidence and audit metadata with live execution disabled', () => {
+    const plan = createCodexExecDryRunPlan(
+      createCodexExecExecutionIntent({
+        title: 'Summarize repository structure',
+        prompt: 'Summarize the repository structure and list risk areas',
+      }),
+    );
+    const policyDecision = evaluateCodexExecDryRunPolicy(plan, {
+      evaluateAction: (input) => ({
+        id: 'policy_test',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt: '2026-04-28T00:00:00.000Z',
+        actionId: input.actionId,
+        actionType: input.actionType,
+        actionMode: input.actionMode,
+        riskLevel: input.riskLevel ?? 'medium',
+        outcome: 'deny',
+        reasons: ['disabled'],
+        requiresDryRun: true,
+        requiresApproval: true,
+        metadata: input.metadata,
+      }),
+    });
+    const record = createCodexExecDisabledLiveRunRecord(plan, policyDecision, 'disabled for test');
+
+    expect(record.status).toBe('blocked');
+    expect(record.evidenceRefs.map((ref) => ref.kind)).toEqual([
+      'codex.exec.dry_run_plan',
+      'codex.exec.command_preview',
+      'codex.exec.policy_decision',
+    ]);
+    expect(record.auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.live_execution.blocked',
+    );
+    expect(record.auditEvents.every((event) => event.metadata?.liveExecution === false)).toBe(true);
+    expect(
+      record.auditEvents.every((event) => event.metadata?.externalProcessStarted === false),
+    ).toBe(true);
+    expect(record.auditEvents.every((event) => event.metadata?.executionDisabled === true)).toBe(
+      true,
+    );
+    expect(JSON.stringify(record)).not.toContain('list risk areas');
+  });
+
+  it('does not import external process modules', () => {
+    const source = readFileSync('src/index.ts', 'utf8');
+
+    expect(source).not.toContain(['node:', 'child', '_process'].join(''));
+    expect(source).not.toContain(['child', '_process'].join(''));
   });
 });
 

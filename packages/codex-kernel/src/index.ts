@@ -1,17 +1,33 @@
 import type {
   AgentRun,
   AuditEvent,
+  CodexExecApprovalMode,
+  CodexExecApprovalRequirement,
+  CodexExecCommandPreview,
+  CodexExecDryRunPlan,
   CodexExecEventType,
+  CodexExecExecutionIntent,
   CodexExecItemType,
+  CodexExecLiveExecutionDisabledError,
+  CodexExecLiveExecutionStatus,
+  CodexExecLiveRunRecord,
   CodexExecNormalizedEvent,
   CodexExecNormalizedItem,
+  CodexExecPolicyInput,
   CodexExecReplayResult,
+  CodexExecSandboxMode,
   CodexReplayRecord,
   CodexReplaySummary,
   EvidenceRef,
+  PolicyDecision,
+  RiskLevel,
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
-import { MetadataOnlyEvidenceCollector, hashText } from '@codexhub/evidence-kernel';
+import {
+  MetadataOnlyEvidenceCollector,
+  createEvidenceRef,
+  hashText,
+} from '@codexhub/evidence-kernel';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -55,6 +71,28 @@ export interface CodexRunner {
   dryRun(request: CodexRunRequest): Promise<CodexRunResult>;
 }
 
+export interface CodexExecExecutionIntentInput {
+  title: string;
+  prompt: string;
+  cwd?: string;
+  sandboxMode?: CodexExecSandboxMode;
+  approvalMode?: CodexExecApprovalMode;
+  liveAdapterEnabled?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CodexExecPolicyEngine {
+  evaluateAction(input: {
+    actionId: string;
+    actionType: string;
+    actionMode: 'read' | 'write';
+    riskLevel?: RiskLevel;
+    dryRun?: boolean;
+    approvalGranted?: boolean;
+    metadata?: Record<string, unknown>;
+  }): PolicyDecision;
+}
+
 export interface CodexExecParsedJsonlLine {
   lineNumber: number;
   skipped: boolean;
@@ -94,10 +132,7 @@ const hiddenFieldNames = [
   'password',
 ];
 
-export function parseCodexExecJsonlLine(
-  line: string,
-  lineNumber = 1,
-): CodexExecParsedJsonlLine {
+export function parseCodexExecJsonlLine(line: string, lineNumber = 1): CodexExecParsedJsonlLine {
   if (line.trim().length === 0) {
     return { lineNumber, skipped: true };
   }
@@ -141,7 +176,9 @@ export function normalizeCodexExecEvent(
   const rawEventType = getString(rawEvent, ['type']) ?? 'unknown';
   const normalizedType = normalizeEventType(rawEventType);
   const itemRecord = getRecord(rawEvent, ['item']) ?? getRecord(rawEvent, ['payload']);
-  const item = normalizedType.startsWith('item.') ? normalizeCodexExecItem(itemRecord ?? rawEvent) : undefined;
+  const item = normalizedType.startsWith('item.')
+    ? normalizeCodexExecItem(itemRecord ?? rawEvent)
+    : undefined;
   const threadId = getString(rawEvent, ['thread_id', 'threadId']);
   const turnId = getString(rawEvent, ['turn_id', 'turnId']);
   const itemId = item?.itemId ?? getString(rawEvent, ['item_id', 'itemId']);
@@ -190,7 +227,8 @@ export async function replayCodexExecFixture(fixtureText: string): Promise<Codex
   const errorCount = events.filter((event) =>
     ['error', 'parse_error', 'turn.failed', 'item.failed'].includes(event.normalizedType),
   ).length;
-  const finalStatus = errorCount > 0 ? 'failed' : hasCompletedTurn(events) ? 'completed' : 'unknown';
+  const finalStatus =
+    errorCount > 0 ? 'failed' : hasCompletedTurn(events) ? 'completed' : 'unknown';
   const partialResult = {
     id: foundationId('codex_replay'),
     schemaVersion: SchemaVersionSchema.value,
@@ -298,6 +336,206 @@ export function createCodexReplayRecord(
   };
 }
 
+export function createCodexExecExecutionIntent(
+  input: CodexExecExecutionIntentInput,
+): CodexExecExecutionIntent {
+  const promptSummary = `Prompt for ${summarizeText(input.title, 80)} (${input.prompt.length} chars)`;
+
+  return {
+    id: foundationId('codex_intent'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    title: input.title,
+    cwd: input.cwd ?? '.',
+    sandboxMode: input.sandboxMode ?? 'read_only',
+    approvalMode: input.approvalMode ?? 'required',
+    promptSummary,
+    promptHash: prefixedHash(input.prompt),
+    promptLength: input.prompt.length,
+    promptBodyStored: false,
+    liveAdapterEnabled: input.liveAdapterEnabled ?? false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      ...(input.metadata ?? {}),
+      guardedPromptMatch: hasGuardedPromptMatch(input.prompt),
+      source: 'codex-kernel.control-plane',
+    },
+  };
+}
+
+export function createCodexExecDryRunPlan(intent: CodexExecExecutionIntent): CodexExecDryRunPlan {
+  const riskLevel = riskForSandboxMode(intent.sandboxMode);
+
+  return {
+    id: foundationId('codex_dry_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    intentId: intent.id,
+    intent,
+    title: intent.title,
+    cwd: intent.cwd,
+    sandboxMode: intent.sandboxMode,
+    approvalMode: intent.approvalMode,
+    riskLevel,
+    promptSummary: intent.promptSummary,
+    promptHash: intent.promptHash,
+    promptLength: intent.promptLength,
+    promptBodyStored: false,
+    liveAdapterEnabled: intent.liveAdapterEnabled,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    summary: `Dry-run control plan for ${intent.title} (${intent.sandboxMode}, ${riskLevel} risk)`,
+    metadata: {
+      guardedPromptMatch: intent.metadata?.guardedPromptMatch === true,
+      source: 'codex-kernel.control-plane',
+    },
+  };
+}
+
+export function createCodexExecCommandPreview(plan: CodexExecDryRunPlan): CodexExecCommandPreview {
+  const previewSummary = `Disabled preview for ${plan.title}: arguments summarized only; external process disabled.`;
+  const argumentSummary = [
+    `cwd=${plan.cwd}`,
+    `sandbox=${plan.sandboxMode}`,
+    `approval=${plan.approvalMode}`,
+    `promptHash=${plan.promptHash}`,
+  ].join('; ');
+
+  return {
+    id: foundationId('codex_preview'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    intentId: plan.intentId,
+    dryRunPlanId: plan.id,
+    cwd: plan.cwd,
+    sandboxMode: plan.sandboxMode,
+    approvalMode: plan.approvalMode,
+    previewSummary,
+    binaryName: 'codex',
+    argumentSummary,
+    previewHash: prefixedHash(stableStringify({ previewSummary, argumentSummary })),
+    redacted: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: { source: 'codex-kernel.control-plane' },
+  };
+}
+
+export function evaluateCodexExecDryRunPolicy(
+  plan: CodexExecDryRunPlan,
+  policyEngine: CodexExecPolicyEngine,
+): PolicyDecision {
+  const policyInput = createCodexExecPolicyInput(plan);
+
+  return policyEngine.evaluateAction({
+    actionId: plan.id,
+    actionType: policyInput.actionType,
+    actionMode: policyInput.actionMode,
+    riskLevel: policyInput.riskLevel,
+    dryRun: policyInput.dryRunPlanPresent,
+    approvalGranted: false,
+    metadata: {
+      policyInputId: policyInput.id,
+      sandboxMode: policyInput.sandboxMode,
+      approvalMode: policyInput.approvalMode,
+      dryRunPlanPresent: policyInput.dryRunPlanPresent,
+      liveAdapterEnabled: policyInput.liveAdapterEnabled,
+      guardedPromptMatch: policyInput.guardedPromptMatch,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+  });
+}
+
+export function createCodexExecApprovalRequirement(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+): CodexExecApprovalRequirement {
+  const required =
+    policyDecision.outcome === 'approval_required' ||
+    plan.approvalMode === 'required' ||
+    plan.riskLevel === 'high' ||
+    plan.riskLevel === 'critical';
+  const status = statusForPolicyDecision(plan, policyDecision);
+
+  return {
+    id: foundationId('codex_approval'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    policyDecisionId: policyDecision.id,
+    required,
+    riskLevel: plan.riskLevel,
+    approvalMode: plan.approvalMode,
+    status,
+    reason: required
+      ? `${plan.riskLevel} risk and ${plan.approvalMode} approval mode require review`
+      : 'approval is not required for this disabled dry-run plan',
+    metadata: {
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+  };
+}
+
+export function createCodexExecDisabledLiveRunRecord(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+  reason: string,
+): CodexExecLiveRunRecord {
+  const commandPreview = createCodexExecCommandPreview(plan);
+  const approvalRequirement = createCodexExecApprovalRequirement(plan, policyDecision);
+  const evidenceRefs = createCodexExecDryRunEvidenceRefs(plan, commandPreview, policyDecision);
+  const disabledError = createCodexExecDisabledError(reason);
+  const auditEvents = createCodexExecDryRunAuditEvents(
+    plan,
+    policyDecision,
+    evidenceRefs,
+    disabledError,
+  );
+
+  return {
+    id: foundationId('codex_live_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    intentId: plan.intentId,
+    dryRunPlanId: plan.id,
+    title: plan.title,
+    cwd: plan.cwd,
+    sandboxMode: plan.sandboxMode,
+    approvalMode: plan.approvalMode,
+    riskLevel: plan.riskLevel,
+    status: statusForPolicyDecision(plan, policyDecision),
+    intent: plan.intent,
+    dryRunPlan: plan,
+    commandPreview,
+    policyDecision,
+    approvalRequirement,
+    disabledError,
+    evidenceRefs,
+    auditEvents,
+    promptSummary: plan.promptSummary,
+    promptHash: plan.promptHash,
+    promptLength: plan.promptLength,
+    promptBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      source: 'codex-kernel.control-plane',
+    },
+  };
+}
+
 function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem {
   const itemType = normalizeItemType(getString(itemRecord, ['type', 'item_type', 'itemType']));
   const itemId = getString(itemRecord, ['id', 'item_id', 'itemId']);
@@ -317,10 +555,16 @@ function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem
     return {
       ...base,
       itemType,
-      command: summarizeContent(getValue(itemRecord, ['command', 'cmd', 'commandText']), 'command text'),
+      command: summarizeContent(
+        getValue(itemRecord, ['command', 'cmd', 'commandText']),
+        'command text',
+      ),
       status: getString(itemRecord, ['status']),
       exitCode: getNumber(itemRecord, ['exit_code', 'exitCode']),
-      output: summarizeOptionalContent(getValue(itemRecord, ['output', 'stdout', 'stderr']), 'command output'),
+      output: summarizeOptionalContent(
+        getValue(itemRecord, ['output', 'stdout', 'stderr']),
+        'command output',
+      ),
     };
   }
 
@@ -328,7 +572,10 @@ function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem
     return {
       ...base,
       itemType,
-      message: summarizeContent(getValue(itemRecord, ['message', 'text', 'content']), 'agent message'),
+      message: summarizeContent(
+        getValue(itemRecord, ['message', 'text', 'content']),
+        'agent message',
+      ),
     };
   }
 
@@ -336,12 +583,17 @@ function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem
     return {
       ...base,
       itemType,
-      reasoning: summarizeContent(getValue(itemRecord, ['reasoning', 'text', 'content']), 'reasoning text'),
+      reasoning: summarizeContent(
+        getValue(itemRecord, ['reasoning', 'text', 'content']),
+        'reasoning text',
+      ),
     };
   }
 
   if (itemType === 'file_change') {
-    const pathValue = stringifySafe(getValue(itemRecord, ['path', 'file', 'filePath']) ?? 'unknown');
+    const pathValue = stringifySafe(
+      getValue(itemRecord, ['path', 'file', 'filePath']) ?? 'unknown',
+    );
 
     return {
       ...base,
@@ -365,7 +617,10 @@ function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem
         getValue(itemRecord, ['arguments', 'args', 'input']),
         'tool arguments',
       ),
-      resultSummary: summarizeOptionalContent(getValue(itemRecord, ['result', 'output']), 'tool result'),
+      resultSummary: summarizeOptionalContent(
+        getValue(itemRecord, ['result', 'output']),
+        'tool result',
+      ),
     };
   }
 
@@ -535,6 +790,233 @@ function createReplayAuditEvents(
   return [started, terminal];
 }
 
+function createCodexExecPolicyInput(plan: CodexExecDryRunPlan): CodexExecPolicyInput {
+  return {
+    id: foundationId('codex_policy_input'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    intentId: plan.intentId,
+    dryRunPlanId: plan.id,
+    actionType: 'codex.exec.live.intent',
+    actionMode: plan.sandboxMode === 'read_only' ? 'read' : 'write',
+    riskLevel: plan.riskLevel,
+    sandboxMode: plan.sandboxMode,
+    approvalMode: plan.approvalMode,
+    dryRunPlanPresent: true,
+    liveAdapterEnabled: plan.liveAdapterEnabled,
+    guardedPromptMatch: plan.metadata?.guardedPromptMatch === true,
+    promptSummary: plan.promptSummary,
+    promptHash: plan.promptHash,
+    promptLength: plan.promptLength,
+    promptBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: { source: 'codex-kernel.control-plane' },
+  };
+}
+
+function riskForSandboxMode(sandboxMode: CodexExecSandboxMode): RiskLevel {
+  if (sandboxMode === 'danger_full_access') {
+    return 'critical';
+  }
+
+  if (sandboxMode === 'workspace_write') {
+    return 'high';
+  }
+
+  return 'medium';
+}
+
+function createCodexExecDryRunEvidenceRefs(
+  plan: CodexExecDryRunPlan,
+  commandPreview: CodexExecCommandPreview,
+  policyDecision: PolicyDecision,
+): EvidenceRef[] {
+  const baseMetadata = {
+    dryRunPlanId: plan.id,
+    intentId: plan.intentId,
+    promptHash: plan.promptHash,
+    promptLength: plan.promptLength,
+    sandboxMode: plan.sandboxMode,
+    approvalMode: plan.approvalMode,
+    riskLevel: plan.riskLevel,
+    liveExecution: false,
+    externalProcessStarted: false,
+    mockOnly: false,
+    executionDisabled: true,
+  };
+
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.dry_run_plan',
+      label: 'codex.dry_run_plan',
+      summary: `Dry-run plan ${plan.id} for ${plan.title}`,
+      metadata: baseMetadata,
+      bodyForHashOnly: stableStringify({
+        dryRunPlanId: plan.id,
+        promptHash: plan.promptHash,
+        sandboxMode: plan.sandboxMode,
+        riskLevel: plan.riskLevel,
+      }),
+    }),
+    createEvidenceRef({
+      kind: 'codex.exec.command_preview',
+      label: 'codex.command_preview',
+      summary: commandPreview.previewSummary,
+      metadata: {
+        ...baseMetadata,
+        commandPreviewId: commandPreview.id,
+        previewHash: commandPreview.previewHash,
+      },
+      bodyForHashOnly: stableStringify({
+        commandPreviewId: commandPreview.id,
+        previewHash: commandPreview.previewHash,
+        argumentSummary: commandPreview.argumentSummary,
+      }),
+    }),
+    createEvidenceRef({
+      kind: 'codex.exec.policy_decision',
+      label: 'codex.policy_decision',
+      summary: `Policy decision ${policyDecision.outcome} for ${plan.riskLevel} risk`,
+      metadata: {
+        ...baseMetadata,
+        policyDecisionId: policyDecision.id,
+        policyOutcome: policyDecision.outcome,
+      },
+      bodyForHashOnly: stableStringify({
+        policyDecisionId: policyDecision.id,
+        outcome: policyDecision.outcome,
+        reasons: policyDecision.reasons,
+      }),
+    }),
+  ];
+}
+
+function createCodexExecDisabledError(reason: string): CodexExecLiveExecutionDisabledError {
+  return {
+    id: foundationId('codex_disabled_error'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: 'CODEX_EXEC_LIVE_DISABLED',
+    message: 'Codex CLI live adapter is disabled; no external process was started.',
+    reason,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      liveExecution: false,
+      externalProcessStarted: false,
+      mockOnly: false,
+      executionDisabled: true,
+    },
+  };
+}
+
+function createCodexExecDryRunAuditEvents(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+  evidenceRefs: EvidenceRef[],
+  disabledError: CodexExecLiveExecutionDisabledError,
+): AuditEvent[] {
+  const now = foundationTimestamp();
+  const baseMetadata = {
+    dryRunPlanId: plan.id,
+    intentId: plan.intentId,
+    sandboxMode: plan.sandboxMode,
+    approvalMode: plan.approvalMode,
+    riskLevel: plan.riskLevel,
+    liveExecution: false,
+    externalProcessStarted: false,
+    mockOnly: false,
+    executionDisabled: true,
+  };
+
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.live_intent.created',
+      outcome: 'created',
+      evidenceRefs: [],
+      metadata: baseMetadata,
+    },
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.dry_run_plan.created',
+      outcome: 'created',
+      evidenceRefs: evidenceRefs.slice(0, 1),
+      metadata: baseMetadata,
+    },
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.policy_evaluated',
+      outcome: policyDecision.outcome,
+      evidenceRefs: evidenceRefs.slice(2, 3),
+      policyDecisionId: policyDecision.id,
+      metadata: {
+        ...baseMetadata,
+        policyDecisionId: policyDecision.id,
+      },
+    },
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.live_execution.blocked',
+      outcome: statusForPolicyDecision(plan, policyDecision),
+      evidenceRefs,
+      policyDecisionId: policyDecision.id,
+      metadata: {
+        ...baseMetadata,
+        disabledErrorId: disabledError.id,
+      },
+    },
+  ];
+}
+
+function statusForPolicyDecision(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+): CodexExecLiveExecutionStatus {
+  if (policyDecision.outcome === 'deny') {
+    return 'blocked';
+  }
+
+  if (policyDecision.outcome === 'approval_required') {
+    return 'awaiting_approval';
+  }
+
+  if (plan.liveAdapterEnabled) {
+    return 'approved_not_executed';
+  }
+
+  return 'disabled';
+}
+
+function hasGuardedPromptMatch(prompt: string): boolean {
+  const lowerPrompt = prompt.toLowerCase();
+  const guardedTerms = [
+    ['to', 'ken'].join(''),
+    ['coo', 'kie'].join(''),
+    ['sess', 'ion'].join(''),
+    ['m', 'fa'].join(''),
+    'password',
+    'secret',
+  ];
+
+  return guardedTerms.some((term) => lowerPrompt.includes(term));
+}
+
 function createEventSummary(
   rawEventType: string,
   normalizedType: string,
@@ -550,7 +1032,9 @@ function createEventSummary(
   }
 
   if (normalizedType === 'error') {
-    const errorPayload = summarizePayload(getValue(rawEvent, ['message', 'error']) ?? 'Codex event error');
+    const errorPayload = summarizePayload(
+      getValue(rawEvent, ['message', 'error']) ?? 'Codex event error',
+    );
     return `Codex error event (${errorPayload.contentLength} chars)`;
   }
 

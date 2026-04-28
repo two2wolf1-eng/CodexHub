@@ -4,6 +4,7 @@ import { dirname, join, parse, resolve } from 'node:path';
 import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
+  CodexExecLiveRunRecord,
   CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
@@ -12,6 +13,7 @@ import type {
 } from '@codexhub/contracts';
 import type {
   AuditEventRepository,
+  CodexExecLiveRunRepository,
   CodexHubStore,
   CodexReplayRepository,
   DevelopmentRunRepository,
@@ -70,6 +72,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly observations: ObservationRepository;
   readonly developmentRuns: DevelopmentRunRepository;
   readonly codexReplays: CodexReplayRepository;
+  readonly codexExecLiveRuns: CodexExecLiveRunRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -94,6 +97,7 @@ class SqliteCodexHubStore implements CodexHubStore {
     );
     this.developmentRuns = new SqliteDevelopmentRunRepository(database);
     this.codexReplays = new SqliteCodexReplayRepository(database);
+    this.codexExecLiveRuns = new SqliteCodexExecLiveRunRepository(database);
   }
 
   async close(): Promise<void> {
@@ -119,9 +123,7 @@ class SqliteDevelopmentRunRepository implements DevelopmentRunRepository {
   async listMockDevelopmentRuns(limit = 10): Promise<MockDevelopmentRun[]> {
     const safeLimit = Math.max(0, Math.trunc(limit));
     const rows = this.database
-      .prepare(
-        'SELECT payload FROM development_runs ORDER BY recorded_at DESC, id DESC LIMIT ?',
-      )
+      .prepare('SELECT payload FROM development_runs ORDER BY recorded_at DESC, id DESC LIMIT ?')
       .all(safeLimit) as unknown as PayloadRow[];
 
     return rows.map((row) => JSON.parse(row.payload) as MockDevelopmentRun);
@@ -157,6 +159,39 @@ class SqliteCodexReplayRepository implements CodexReplayRepository {
   }
 
   async getCodexReplay(id: string): Promise<CodexReplayRecord | undefined> {
+    return this.repository.getById(id);
+  }
+}
+
+class SqliteCodexExecLiveRunRepository implements CodexExecLiveRunRepository {
+  private readonly repository: JsonEntityRepository<CodexExecLiveRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecLiveRunRecord>(
+      database,
+      'codex_exec_live_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveCodexExecLiveRunRecord(
+    record: CodexExecLiveRunRecord,
+  ): Promise<CodexExecLiveRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async listCodexExecLiveRunRecords(limit = 10): Promise<CodexExecLiveRunRecord[]> {
+    const safeLimit = Math.max(0, Math.trunc(limit));
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_exec_live_runs ORDER BY recorded_at DESC, id DESC LIMIT ?',
+      )
+      .all(safeLimit) as unknown as PayloadRow[];
+
+    return rows.map((row) => JSON.parse(row.payload) as CodexExecLiveRunRecord);
+  }
+
+  async getCodexExecLiveRunRecord(id: string): Promise<CodexExecLiveRunRecord | undefined> {
     return this.repository.getById(id);
   }
 }
@@ -212,7 +247,9 @@ class AppendOnlyJsonEntityRepository<T extends PersistedEntity> {
 
   async append(entity: T): Promise<T> {
     this.database
-      .prepare(`INSERT OR REPLACE INTO ${this.tableName} (id, recorded_at, payload) VALUES (?, ?, ?)`)
+      .prepare(
+        `INSERT OR REPLACE INTO ${this.tableName} (id, recorded_at, payload) VALUES (?, ?, ?)`,
+      )
       .run(entity.id, this.timestampSelector(entity), JSON.stringify(entity));
 
     return entity;
@@ -287,6 +324,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_replays (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_exec_live_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

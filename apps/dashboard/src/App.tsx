@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
-import type { SourceHealth, WorkflowRun } from '@codexhub/contracts';
+import type { CodexExecLiveRunRecord, SourceHealth, WorkflowRun } from '@codexhub/contracts';
 import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
 
 interface OverviewState {
@@ -10,6 +10,7 @@ interface OverviewState {
   sourceHealth: SourceHealth[];
   developmentRuns: MockDevelopmentOrchestrationResult[];
   codexReplayRuns: CodexExecReplaySummary[];
+  codexExecDryRuns: CodexExecLiveRunRecord[];
   message?: string;
 }
 
@@ -22,6 +23,7 @@ export function App() {
     sourceHealth: [],
     developmentRuns: [],
     codexReplayRuns: [],
+    codexExecDryRuns: [],
   });
 
   useEffect(() => {
@@ -35,12 +37,14 @@ export function App() {
           observationsResponse,
           developmentRunsResponse,
           codexReplayRunsResponse,
+          codexExecDryRunsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
           getJson<{ sourceHealth: SourceHealth[] }>('/api/observations'),
           getJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
           getJson<{ runs: CodexExecReplaySummary[] }>('/api/codex/replay-fixtures'),
+          getJson<{ runs: CodexExecLiveRunRecord[] }>('/api/codex/exec/dry-runs'),
         ]);
 
         if (!cancelled) {
@@ -51,6 +55,7 @@ export function App() {
             sourceHealth: observationsResponse.sourceHealth,
             developmentRuns: developmentRunsResponse.runs,
             codexReplayRuns: codexReplayRunsResponse.runs,
+            codexExecDryRuns: codexExecDryRunsResponse.runs,
           });
         }
       } catch (error) {
@@ -61,6 +66,7 @@ export function App() {
             sourceHealth: [],
             developmentRuns: [],
             codexReplayRuns: [],
+            codexExecDryRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -131,8 +137,9 @@ export function App() {
                   <strong>{run.summary.requestTitle}</strong>
                   <span>
                     {run.summary.taskCount} tasks, {run.summary.selectedSkillIds.length} skills,{' '}
-                    {run.summary.agentRunCount} agents, verification {run.summary.verificationStatus},{' '}
-                    {run.summary.evidenceCount} evidence, {run.summary.auditEventCount} audits
+                    {run.summary.agentRunCount} agents, verification{' '}
+                    {run.summary.verificationStatus}, {run.summary.evidenceCount} evidence,{' '}
+                    {run.summary.auditEventCount} audits
                   </span>
                 </li>
               ))}
@@ -150,15 +157,34 @@ export function App() {
                   <strong>{run.threadId ?? run.id}</strong>
                   <span>
                     {run.eventCount} events, {run.itemCount} items, {run.commandExecutionCount}{' '}
-                    commands, {run.fileChangeCount} file changes, {run.errorCount} errors, {run.status},{' '}
-                    mock {String(run.mockOnly)}, live {String(run.liveExecution)}, external process{' '}
-                    {String(run.externalProcessStarted)}
+                    commands, {run.fileChangeCount} file changes, {run.errorCount} errors,{' '}
+                    {run.status}, mock {String(run.mockOnly)}, live {String(run.liveExecution)},
+                    external process {String(run.externalProcessStarted)}
                   </span>
                 </li>
               ))}
             </ul>
           ) : (
             <p>No Codex fixture replays are available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Dry-Run Control Plane">
+          {overview.codexExecDryRuns.length > 0 ? (
+            <ul>
+              {overview.codexExecDryRuns.map((run) => (
+                <li key={run.id} className="stacked">
+                  <strong>{run.title}</strong>
+                  <span>
+                    {run.sandboxMode}, {run.approvalMode}, {run.riskLevel} risk, policy{' '}
+                    {run.policyDecision.outcome}, live {String(run.liveExecution)}, external process{' '}
+                    {String(run.externalProcessStarted)}, disabled {String(run.executionDisabled)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Codex dry-run control-plane records are available yet.</p>
           )}
         </Panel>
       </section>
