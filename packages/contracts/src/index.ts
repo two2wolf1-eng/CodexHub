@@ -940,6 +940,82 @@ export const CodexExecLiveRunRecordSchema = createdEntityBaseSchema
   });
 export type CodexExecLiveRunRecord = z.infer<typeof CodexExecLiveRunRecordSchema>;
 
+export const CodexExecTimelineStatusSchema = z.enum([
+  'dry_run_created',
+  'blocked',
+  'preflight_blocked',
+  'preflight_passed',
+  'approval_pending',
+  'approval_approved',
+  'approval_denied',
+  'approval_revoked',
+  'gate_blocked',
+  'gate_ready',
+]);
+export type CodexExecTimelineStatus = z.infer<typeof CodexExecTimelineStatusSchema>;
+
+export const CodexExecTimelineEventSourceKindSchema = z.enum([
+  'config',
+  'dry_run',
+  'command_preview',
+  'policy',
+  'preflight',
+  'approval_request',
+  'approval_decision',
+  'approval_state',
+  'approval_artifact',
+  'gate',
+  'evidence',
+  'audit',
+]);
+export type CodexExecTimelineEventSourceKind = z.infer<
+  typeof CodexExecTimelineEventSourceKindSchema
+>;
+
+export const CodexExecTimelineEventTypeSchema = z.enum([
+  'codex.exec.config.loaded',
+  'codex.exec.dry_run.created',
+  'codex.exec.command_preview.created',
+  'codex.exec.policy.evaluated',
+  'codex.exec.preflight.completed',
+  'codex.exec.approval.requested',
+  'codex.exec.approval.decided',
+  'codex.exec.approval.state_evaluated',
+  'codex.exec.approval.artifact_available',
+  'codex.exec.gate.evaluated',
+  'codex.exec.evidence.recorded',
+  'codex.exec.audit.recorded',
+]);
+export type CodexExecTimelineEventType = z.infer<typeof CodexExecTimelineEventTypeSchema>;
+
+export const CodexExecTimelineEventSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    liveRunRecordId: z.string().min(1),
+    eventType: CodexExecTimelineEventTypeSchema,
+    sourceKind: CodexExecTimelineEventSourceKindSchema,
+    sourceId: z.string().min(1).optional(),
+    status: z.string().min(1),
+    summary: z.string().min(1),
+    occurredAt: IsoDateTimeSchema,
+  });
+export type CodexExecTimelineEvent = z.infer<typeof CodexExecTimelineEventSchema>;
+
+export const CodexExecControlPlaneTimelineSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    liveRunRecordId: z.string().min(1),
+    status: CodexExecTimelineStatusSchema,
+    events: z.array(CodexExecTimelineEventSchema),
+    eventCount: z.number().int().nonnegative(),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  });
+export type CodexExecControlPlaneTimeline = z.infer<typeof CodexExecControlPlaneTimelineSchema>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

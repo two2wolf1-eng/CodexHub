@@ -4,6 +4,7 @@ import {
   CodexExecLiveConfigSchema,
   CodexExecConfigLoadResultSchema,
   CodexExecApprovalTransitionResultSchema,
+  CodexExecControlPlaneTimelineSchema,
   CodexExecManualApprovalRecordSchema,
   CodexExecManualApprovalStateSchema,
   CodexExecPreflightResultSchema,
@@ -499,5 +500,62 @@ describe('contracts schemas', () => {
     expect(approvalState.canDecide).toBe(true);
     expect(transition.allowed).toBe(true);
     expect(transition.liveExecution).toBe(false);
+  });
+
+  it('parses codex control-plane timeline models', () => {
+    const timeline = CodexExecControlPlaneTimelineSchema.parse({
+      id: 'codex_timeline_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      liveRunRecordId: 'codex_live_run_1',
+      status: 'gate_blocked',
+      events: [
+        {
+          id: 'codex_timeline_event_1',
+          schemaVersion,
+          createdAt,
+          dryRunId: 'codex_dry_run_1',
+          liveRunRecordId: 'codex_live_run_1',
+          eventType: 'codex.exec.dry_run.created',
+          sourceKind: 'dry_run',
+          sourceId: 'codex_dry_run_1',
+          status: 'medium',
+          summary: 'Dry-run control plan',
+          occurredAt: createdAt,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        },
+        {
+          id: 'codex_timeline_event_2',
+          schemaVersion,
+          createdAt,
+          dryRunId: 'codex_dry_run_1',
+          liveRunRecordId: 'codex_live_run_1',
+          eventType: 'codex.exec.gate.evaluated',
+          sourceKind: 'gate',
+          sourceId: 'codex_gate_1',
+          status: 'blocked',
+          summary: 'Execution gate blocked',
+          occurredAt: createdAt,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        },
+      ],
+      eventCount: 2,
+      evidenceCount: 1,
+      auditEventCount: 1,
+      summary: 'Timeline has 2 events',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(timeline.status).toBe('gate_blocked');
+    expect(timeline.events.every((event) => event.liveExecution === false)).toBe(true);
+    expect(timeline.events.every((event) => event.externalProcessStarted === false)).toBe(true);
+    expect(timeline.events.every((event) => event.executionDisabled === true)).toBe(true);
   });
 });

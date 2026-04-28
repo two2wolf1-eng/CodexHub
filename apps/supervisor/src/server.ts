@@ -4,8 +4,8 @@ import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'nod
 import Fastify from 'fastify';
 import {
   createCodexExecApprovalArtifactFromDecision,
-  createCodexExecApprovalArtifact,
   createCodexExecApprovalTransitionResult,
+  createCodexExecControlPlaneTimeline,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
@@ -446,48 +446,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
-  server.post('/api/codex/exec/approval-artifact', async (request, reply) => {
-    const body = request.body as { dryRunId?: string } | undefined;
-    const store = await getStore();
-    const configLoadResult = await getLiveConfigLoadResult();
-    const liveConfig = configLoadResult.config;
-    const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
-
-    if (!record) {
-      return reply.code(404).send({ error: 'dry-run record was not found' });
-    }
-
-    const approvalArtifact = createCodexExecApprovalArtifact(
-      record.dryRunPlan,
-      record.policyDecision,
-      {
-        singleUse: liveConfig.singleUseApprovals,
-        expiresAt: new Date(Date.now() + liveConfig.approvalTtlMinutes * 60 * 1000).toISOString(),
-      },
-    );
-    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalArtifact });
-    const auditEvents = createCodexExecControlPlaneAuditEvents({ approvalArtifact, evidenceRefs });
-    const updatedRecord = {
-      ...record,
-      approvalArtifact,
-      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
-      auditEvents: [...record.auditEvents, ...auditEvents],
-    };
-
-    await persistCodexExecLiveRunRecord(updatedRecord, store, evidenceRefs, auditEvents);
-
-    return {
-      approvalArtifact,
-      evidenceRefs,
-      auditEvents,
-      liveConfig,
-      configLoadResult,
+  server.post('/api/codex/exec/approval-artifact', async (_request, reply) => {
+    return reply.code(410).send({
+      error:
+        'approval-artifact creation is deprecated; use manual approval request and decision endpoints',
+      strategy: 'deprecated-gone',
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
       degraded: persistenceState.status !== 'ok',
       reason: persistenceState.reason,
-    };
+    });
   });
 
   server.post('/api/codex/exec/approval-request', async (request, reply) => {
@@ -790,6 +759,39 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(params.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const approvalRecords = await resolveCodexExecApprovalRecordsForDryRun(
+      record.dryRunPlanId,
+      store,
+    );
+    const timeline = createCodexExecControlPlaneTimeline({
+      record,
+      approvalRecords,
+    });
+
+    return {
+      timeline,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
   async function resolveCodexExecLiveRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -799,7 +801,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     if (store) {
-      return store.codexExecLiveRuns.getCodexExecLiveRunRecord(dryRunId);
+      const byId = await store.codexExecLiveRuns.getCodexExecLiveRunRecord(dryRunId);
+
+      if (byId) {
+        return byId;
+      }
+
+      const records = await store.codexExecLiveRuns.listCodexExecLiveRunRecords(50);
+      return records.find((record) => record.dryRunPlanId === dryRunId);
     }
 
     return codexExecLiveRunRecords.find(
@@ -859,6 +868,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return codexExecApprovalRecords.find(
       (record) => record.id === approvalRequestId || record.request.id === approvalRequestId,
     );
+  }
+
+  async function resolveCodexExecApprovalRecordsForDryRun(
+    dryRunId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecManualApprovalRecord[]> {
+    const records = store
+      ? await store.codexExecApprovals.listCodexExecApprovalRecords(50)
+      : codexExecApprovalRecords;
+
+    return records.filter((record) => record.request.dryRunPlanId === dryRunId);
   }
 
   async function persistCodexExecApprovalRecord(

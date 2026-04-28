@@ -132,6 +132,11 @@ describe('supervisor mock development API', () => {
         reason: 'manual private reason',
       },
     });
+    const legacyApprovalArtifactResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/approval-artifact',
+      payload: { dryRunId },
+    });
     const manualApprovalResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/manual-approval',
@@ -160,6 +165,10 @@ describe('supervisor mock development API', () => {
       method: 'POST',
       url: '/api/codex/exec/evaluate-gate',
       payload: { dryRunId },
+    });
+    const timelineResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/timeline/${dryRunId}`,
     });
     const rejectedCwdResponse = await server.inject({
       method: 'POST',
@@ -246,6 +255,14 @@ describe('supervisor mock development API', () => {
       },
     });
     expect(JSON.stringify(approvalRequestResponse.json())).not.toContain('manual private reason');
+    expect(legacyApprovalArtifactResponse.statusCode).toBe(410);
+    expect(legacyApprovalArtifactResponse.json()).toMatchObject({
+      strategy: 'deprecated-gone',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(legacyApprovalArtifactResponse.json().approvalArtifact).toBeUndefined();
     expect(manualApprovalResponse.statusCode).toBe(200);
     expect(manualApprovalResponse.json()).toMatchObject({
       approvalDecision: {
@@ -299,6 +316,40 @@ describe('supervisor mock development API', () => {
       },
     });
     expect(gateResponse.json().executionGateResult.reasons.join(' ')).toContain('disabled');
+    expect(timelineResponse.statusCode).toBe(200);
+    expect(timelineResponse.json()).toMatchObject({
+      timeline: {
+        status: 'gate_blocked',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const timelineEvents = timelineResponse
+      .json()
+      .timeline.events.map((event: { eventType: string }) => event.eventType);
+    expect(timelineEvents.indexOf('codex.exec.dry_run.created')).toBeLessThan(
+      timelineEvents.indexOf('codex.exec.policy.evaluated'),
+    );
+    expect(timelineEvents).toContain('codex.exec.approval.state_evaluated');
+    expect(timelineEvents).toContain('codex.exec.gate.evaluated');
+    expect(
+      timelineResponse
+        .json()
+        .timeline.events.every(
+          (event: {
+            liveExecution: boolean;
+            externalProcessStarted: boolean;
+            executionDisabled: boolean;
+          }) =>
+            event.liveExecution === false &&
+            event.externalProcessStarted === false &&
+            event.executionDisabled === true,
+        ),
+    ).toBe(true);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });
 });

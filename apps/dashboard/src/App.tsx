@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
 import type {
+  CodexExecControlPlaneTimeline,
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
   CodexExecConfigLoadResult,
@@ -21,6 +22,7 @@ interface OverviewState {
   codexExecLiveConfig?: CodexExecLiveConfig;
   codexExecConfigLoadResult?: CodexExecConfigLoadResult;
   codexExecApprovals: CodexExecManualApprovalRecord[];
+  codexExecTimelines: CodexExecControlPlaneTimeline[];
   message?: string;
 }
 
@@ -35,6 +37,7 @@ export function App() {
     codexReplayRuns: [],
     codexExecDryRuns: [],
     codexExecApprovals: [],
+    codexExecTimelines: [],
   });
 
   useEffect(() => {
@@ -66,6 +69,20 @@ export function App() {
           }>('/api/codex/exec/config'),
           getJson<{ approvals: CodexExecManualApprovalRecord[] }>('/api/codex/exec/approvals'),
         ]);
+        const codexExecTimelines = (
+          await Promise.all(
+            codexExecDryRunsResponse.runs.slice(0, 3).map(async (run) => {
+              try {
+                const response = await getJson<{ timeline: CodexExecControlPlaneTimeline }>(
+                  `/api/codex/exec/timeline/${encodeURIComponent(run.id)}`,
+                );
+                return response.timeline;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((timeline): timeline is CodexExecControlPlaneTimeline => timeline !== undefined);
 
         if (!cancelled) {
           setOverview({
@@ -80,6 +97,7 @@ export function App() {
               codexExecConfigResponse.liveConfig ?? codexExecDryRunsResponse.liveConfig,
             codexExecConfigLoadResult: codexExecConfigResponse.configLoadResult,
             codexExecApprovals: codexExecApprovalsResponse.approvals,
+            codexExecTimelines,
           });
         }
       } catch (error) {
@@ -92,6 +110,7 @@ export function App() {
             codexReplayRuns: [],
             codexExecDryRuns: [],
             codexExecApprovals: [],
+            codexExecTimelines: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -258,6 +277,35 @@ export function App() {
             </ul>
           ) : (
             <p>No manual approval records are available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Control Timeline">
+          {overview.codexExecTimelines.length > 0 ? (
+            <ul>
+              {overview.codexExecTimelines.map((timeline) => (
+                <li key={timeline.id} className="stacked">
+                  <strong>{timeline.dryRunId}</strong>
+                  <span>
+                    {timeline.status}, {timeline.eventCount} events, {timeline.evidenceCount}{' '}
+                    evidence, {timeline.auditEventCount} audits
+                  </span>
+                  <span>
+                    live {String(timeline.liveExecution)}, external process{' '}
+                    {String(timeline.externalProcessStarted)}, disabled{' '}
+                    {String(timeline.executionDisabled)}
+                  </span>
+                  <span>
+                    {timeline.events
+                      .slice(0, 4)
+                      .map((event) => `${event.sourceKind}:${event.status}`)
+                      .join(' | ')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only control-plane timeline is available yet.</p>
           )}
         </Panel>
       </section>

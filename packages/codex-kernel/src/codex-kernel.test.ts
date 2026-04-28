@@ -10,6 +10,7 @@ import {
   createCodexExecApprovalTransitionResult,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
+  createCodexExecControlPlaneTimeline,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
   createCodexExecManualApprovalDecision,
@@ -435,6 +436,61 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(plan.riskLevel).toBe('critical');
     expect(gate.status).toBe('blocked');
     expect(gate.reasons.join(' ')).toContain('danger_full_access');
+  });
+
+  it('creates an ordered read-only control-plane timeline', () => {
+    const { plan, policyDecision } = createControlPlaneFixture();
+    const config = createDefaultCodexExecLiveConfig();
+    const preflightResult = runCodexExecPreflight(plan, config);
+    const request = createCodexExecManualApprovalRequest(plan, policyDecision, config);
+    const decision = createCodexExecManualApprovalDecision(request, {
+      outcome: 'approved',
+    });
+    const approvalArtifact = createCodexExecApprovalArtifactFromDecision(
+      plan,
+      policyDecision,
+      request,
+      decision,
+    );
+    const approvalRecord = createCodexExecManualApprovalRecord({
+      request,
+      decision,
+      approvalArtifact,
+    });
+    const executionGateResult = evaluateCodexExecExecutionGate(
+      plan,
+      policyDecision,
+      approvalArtifact,
+      config,
+    );
+    const record = {
+      ...createCodexExecDisabledLiveRunRecord(plan, policyDecision, 'disabled for timeline test'),
+      preflightResult,
+      manualApprovalRequest: request,
+      manualApprovalDecision: decision,
+      manualApprovalRecord: approvalRecord,
+      manualApprovalState: approvalRecord.approvalState,
+      approvalArtifact,
+      executionGateResult,
+    };
+    const timeline = createCodexExecControlPlaneTimeline({
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const eventTypes = timeline.events.map((event) => event.eventType);
+
+    expect(timeline.status).toBe('gate_blocked');
+    expect(eventTypes.indexOf('codex.exec.dry_run.created')).toBeLessThan(
+      eventTypes.indexOf('codex.exec.policy.evaluated'),
+    );
+    expect(eventTypes).toContain('codex.exec.approval.state_evaluated');
+    expect(eventTypes).toContain('codex.exec.gate.evaluated');
+    expect(timeline.liveExecution).toBe(false);
+    expect(timeline.externalProcessStarted).toBe(false);
+    expect(timeline.executionDisabled).toBe(true);
+    expect(timeline.events.every((event) => event.liveExecution === false)).toBe(true);
+    expect(timeline.events.every((event) => event.externalProcessStarted === false)).toBe(true);
+    expect(timeline.events.every((event) => event.executionDisabled === true)).toBe(true);
   });
 });
 

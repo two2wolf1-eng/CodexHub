@@ -48,9 +48,11 @@ describe('cli development mock-run fallback', () => {
 
   it('creates local preflight and gate results when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
-    const { preflightCodexExec, evaluateCodexExecGate } = await import('./main');
+    const { preflightCodexExec, evaluateCodexExecGate, getCodexExecTimeline } =
+      await import('./main');
     const preflight = await preflightCodexExec('codex_dry_run_fixture');
     const gate = await evaluateCodexExecGate('codex_dry_run_fixture');
+    const timeline = await getCodexExecTimeline('codex_dry_run_fixture');
 
     expect(preflight).toMatchObject({
       preflightResult: {
@@ -68,6 +70,25 @@ describe('cli development mock-run fallback', () => {
         executionDisabled: true,
       },
     });
+    expect(gate.executionGateResult).toMatchObject({
+      status: 'blocked',
+    });
+    expect(JSON.stringify(gate)).not.toContain('approvalArtifact');
+    expect(timeline).toMatchObject({
+      timeline: {
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(
+      (timeline.timeline as { events: Array<{ eventType: string }> }).events.map(
+        (event) => event.eventType,
+      ),
+    ).toContain('codex.exec.dry_run.created');
   });
 
   it('creates local config and manual approval records when supervisor is unavailable', async () => {

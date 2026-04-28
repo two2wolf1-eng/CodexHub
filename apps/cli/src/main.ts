@@ -6,10 +6,10 @@ import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'nod
 import { Command } from 'commander';
 import {
   createCodexExecApprovalArtifactFromDecision,
-  createCodexExecApprovalArtifact,
   createCodexExecApprovalTransitionResult,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
+  createCodexExecControlPlaneTimeline,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
@@ -168,6 +168,15 @@ export function buildProgram(): Command {
     .description('Evaluate the disabled execution gate for a dry-run record')
     .action(async (dryRunId: string) => {
       const result = await evaluateCodexExecGate(dryRunId);
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  execCommand
+    .command('timeline')
+    .argument('<dryRunId>')
+    .description('Read a disabled control-plane timeline for a dry-run record')
+    .action(async (dryRunId: string) => {
+      const result = await getCodexExecTimeline(dryRunId);
       console.log(JSON.stringify(result, null, 2));
     });
 
@@ -557,18 +566,42 @@ export async function evaluateCodexExecGate(dryRunId: string): Promise<Record<st
   } catch {
     const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
     const liveConfig = createDefaultCodexExecLiveConfig();
-    const approvalArtifact = createCodexExecApprovalArtifact(dryRunPlan, policyDecision);
     const executionGateResult = evaluateCodexExecExecutionGate(
       dryRunPlan,
       policyDecision,
-      approvalArtifact,
+      undefined,
       liveConfig,
     );
 
     return {
       executionGateResult,
-      approvalArtifact,
       liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function getCodexExecTimeline(dryRunId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/timeline/${encodeURIComponent(dryRunId)}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const timeline = createCodexExecControlPlaneTimeline({ record });
+
+    return {
+      timeline,
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
