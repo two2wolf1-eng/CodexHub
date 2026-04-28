@@ -45,4 +45,28 @@ describe('cli development mock-run fallback', () => {
       promptBodyStored: false,
     });
   });
+
+  it('creates local preflight and gate results when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { preflightCodexExec, evaluateCodexExecGate } = await import('./main');
+    const preflight = await preflightCodexExec('codex_dry_run_fixture');
+    const gate = await evaluateCodexExecGate('codex_dry_run_fixture');
+
+    expect(preflight).toMatchObject({
+      preflightResult: {
+        status: 'blocked',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+    expect(gate).toMatchObject({
+      executionGateResult: {
+        status: 'blocked',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+  });
 });

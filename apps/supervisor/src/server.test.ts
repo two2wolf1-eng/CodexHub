@@ -114,6 +114,17 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/dry-runs',
     });
+    const dryRunId = dryRunResponse.json().liveRunRecord.id as string;
+    const preflightResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/preflight',
+      payload: { dryRunId },
+    });
+    const gateResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/evaluate-gate',
+      payload: { dryRunId },
+    });
     const rejectedCwdResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/dry-run',
@@ -154,6 +165,29 @@ describe('supervisor mock development API', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    expect(listResponse.json().liveConfig).toMatchObject({
+      liveEnabled: false,
+      allowedSandboxModes: ['read_only'],
+    });
+    expect(preflightResponse.statusCode).toBe(200);
+    expect(preflightResponse.json()).toMatchObject({
+      preflightResult: {
+        status: 'blocked',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+    expect(gateResponse.statusCode).toBe(200);
+    expect(gateResponse.json()).toMatchObject({
+      executionGateResult: {
+        status: 'blocked',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+    expect(gateResponse.json().executionGateResult.reasons.join(' ')).toContain('disabled');
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });
 });

@@ -3,16 +3,23 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
 import {
+  createCodexExecApprovalArtifact,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
+  createCodexExecControlPlaneAuditEvents,
+  createCodexExecControlPlaneEvidenceRefs,
+  createDefaultCodexExecLiveConfig,
   evaluateCodexExecDryRunPolicy,
+  evaluateCodexExecExecutionGate,
   type CodexExecReplaySummary,
   createCodexReplayRecord,
   replayCodexExecFixture,
+  runCodexExecPreflight,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type {
+  CodexExecApprovalArtifact,
   CodexExecApprovalMode,
   CodexExecLiveRunRecord,
   CodexExecSandboxMode,
@@ -47,6 +54,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const codexReplayRecords: CodexReplayRecord[] = [];
   const codexExecLiveRunRecords: CodexExecLiveRunRecord[] = [];
   const policyEngine = new DefaultPolicyEngine();
+  const liveConfig = createDefaultCodexExecLiveConfig();
   let ownedStore: CodexHubStore | undefined;
   let storePromise: Promise<CodexHubStore | undefined> | undefined;
   let persistenceState: PersistenceState = options.disableStore
@@ -323,11 +331,203 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     return {
       runs: records,
+      liveConfig,
       degraded: persistenceState.status !== 'ok',
       reason: persistenceState.reason,
       metadata: { liveExecution: false, externalProcessStarted: false, executionDisabled: true },
     };
   });
+
+  server.post('/api/codex/exec/preflight', async (request, reply) => {
+    const body = request.body as
+      | {
+          dryRunId?: string;
+          isolatedWorktreePresent?: boolean;
+          worktreePath?: string;
+        }
+      | undefined;
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const preflightResult = runCodexExecPreflight(record.dryRunPlan, liveConfig, {
+      isolatedWorktreePresent: body?.isolatedWorktreePresent,
+      worktreePath: body?.worktreePath,
+    });
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ preflightResult });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({ preflightResult, evidenceRefs });
+    const updatedRecord = {
+      ...record,
+      preflightResult,
+      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+      auditEvents: [...record.auditEvents, ...auditEvents],
+    };
+
+    await persistCodexExecLiveRunRecord(updatedRecord, store, evidenceRefs, auditEvents);
+
+    return {
+      preflightResult,
+      evidenceRefs,
+      auditEvents,
+      liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.post('/api/codex/exec/approval-artifact', async (request, reply) => {
+    const body = request.body as { dryRunId?: string } | undefined;
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const approvalArtifact = createCodexExecApprovalArtifact(
+      record.dryRunPlan,
+      record.policyDecision,
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ approvalArtifact });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({ approvalArtifact, evidenceRefs });
+    const updatedRecord = {
+      ...record,
+      approvalArtifact,
+      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+      auditEvents: [...record.auditEvents, ...auditEvents],
+    };
+
+    await persistCodexExecLiveRunRecord(updatedRecord, store, evidenceRefs, auditEvents);
+
+    return {
+      approvalArtifact,
+      evidenceRefs,
+      auditEvents,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.post('/api/codex/exec/evaluate-gate', async (request, reply) => {
+    const body = request.body as
+      | { dryRunId?: string; approvalArtifact?: CodexExecApprovalArtifact }
+      | undefined;
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(body?.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const approvalArtifact = body?.approvalArtifact ?? record.approvalArtifact;
+    const executionGateResult = evaluateCodexExecExecutionGate(
+      record.dryRunPlan,
+      record.policyDecision,
+      approvalArtifact,
+      liveConfig,
+    );
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({ executionGateResult });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      executionGateResult,
+      evidenceRefs,
+    });
+    const updatedRecord = {
+      ...record,
+      approvalArtifact,
+      executionGateResult,
+      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+      auditEvents: [...record.auditEvents, ...auditEvents],
+    };
+
+    await persistCodexExecLiveRunRecord(updatedRecord, store, evidenceRefs, auditEvents);
+
+    return {
+      executionGateResult,
+      evidenceRefs,
+      auditEvents,
+      liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  async function resolveCodexExecLiveRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecLiveRunRecord | undefined> {
+    if (!dryRunId) {
+      return createDefaultCodexExecLiveRunRecord();
+    }
+
+    if (store) {
+      return store.codexExecLiveRuns.getCodexExecLiveRunRecord(dryRunId);
+    }
+
+    return codexExecLiveRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunPlanId === dryRunId,
+    );
+  }
+
+  async function persistCodexExecLiveRunRecord(
+    record: CodexExecLiveRunRecord,
+    store: CodexHubStore | undefined,
+    evidenceRefs: CodexExecLiveRunRecord['evidenceRefs'],
+    auditEvents: CodexExecLiveRunRecord['auditEvents'],
+  ): Promise<void> {
+    if (store) {
+      for (const evidenceRef of evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+
+      await store.codexExecLiveRuns.saveCodexExecLiveRunRecord(record);
+      return;
+    }
+
+    const existingIndex = codexExecLiveRunRecords.findIndex(
+      (candidate) => candidate.id === record.id,
+    );
+
+    if (existingIndex >= 0) {
+      codexExecLiveRunRecords.splice(existingIndex, 1, record);
+    } else {
+      codexExecLiveRunRecords.unshift(record);
+    }
+  }
+
+  function createDefaultCodexExecLiveRunRecord(): CodexExecLiveRunRecord {
+    const intent = createCodexExecExecutionIntent({
+      title: 'Default Codex dry-run control-plane record',
+      prompt: 'Default control-plane preflight request',
+      cwd: '.',
+      sandboxMode: 'read_only',
+      approvalMode: 'required',
+      metadata: { requestedBy: 'supervisor-default' },
+    });
+    const dryRunPlan = createCodexExecDryRunPlan(intent);
+    const policyDecision = evaluateCodexExecDryRunPolicy(dryRunPlan, policyEngine);
+
+    return createCodexExecDisabledLiveRunRecord(
+      dryRunPlan,
+      policyDecision,
+      'live adapter disabled in supervisor default control-plane record',
+    );
+  }
 
   return server;
 }

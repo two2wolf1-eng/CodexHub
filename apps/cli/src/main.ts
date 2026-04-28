@@ -5,12 +5,16 @@ import { fileURLToPath } from 'node:url';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
 import {
+  createCodexExecApprovalArtifact,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
+  createDefaultCodexExecLiveConfig,
   evaluateCodexExecDryRunPolicy,
+  evaluateCodexExecExecutionGate,
   type CodexExecReplaySummary,
   replayCodexExecFixture,
+  runCodexExecPreflight,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type { CodexExecLiveRunRecord } from '@codexhub/contracts';
@@ -74,14 +78,34 @@ export function buildProgram(): Command {
       console.log(JSON.stringify(summary, null, 2));
     });
 
-  codexCommand
+  const execCommand = codexCommand
     .command('exec')
-    .description('Disabled live adapter control-plane commands')
+    .description('Disabled live adapter control-plane commands');
+
+  execCommand
     .command('dry-run')
     .argument('<prompt>')
     .description('Create a disabled dry-run plan for future live adapter use')
     .action(async (prompt: string) => {
       const result = await dryRunCodexExec(prompt);
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  execCommand
+    .command('preflight')
+    .argument('<dryRunId>')
+    .description('Run preflight checks for a disabled dry-run record')
+    .action(async (dryRunId: string) => {
+      const result = await preflightCodexExec(dryRunId);
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  execCommand
+    .command('evaluate-gate')
+    .argument('<dryRunId>')
+    .description('Evaluate the disabled execution gate for a dry-run record')
+    .action(async (dryRunId: string) => {
+      const result = await evaluateCodexExecGate(dryRunId);
       console.log(JSON.stringify(result, null, 2));
     });
 
@@ -221,6 +245,92 @@ export async function dryRunCodexExec(
       'live adapter disabled in CLI fallback',
     );
   }
+}
+
+export async function preflightCodexExec(dryRunId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRunId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const { dryRunPlan } = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const liveConfig = createDefaultCodexExecLiveConfig();
+    const preflightResult = runCodexExecPreflight(dryRunPlan, liveConfig);
+
+    return {
+      preflightResult,
+      liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function evaluateCodexExecGate(dryRunId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/evaluate-gate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRunId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const liveConfig = createDefaultCodexExecLiveConfig();
+    const approvalArtifact = createCodexExecApprovalArtifact(dryRunPlan, policyDecision);
+    const executionGateResult = evaluateCodexExecExecutionGate(
+      dryRunPlan,
+      policyDecision,
+      approvalArtifact,
+      liveConfig,
+    );
+
+    return {
+      executionGateResult,
+      approvalArtifact,
+      liveConfig,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+function createLocalCodexExecControlPlaneRecord(dryRunId: string): CodexExecLiveRunRecord {
+  const intent = createCodexExecExecutionIntent({
+    title: `Local preflight for ${dryRunId}`,
+    prompt: `Local control-plane fallback for ${dryRunId}`,
+    cwd: '.',
+    sandboxMode: 'read_only',
+    approvalMode: 'required',
+    metadata: { requestedBy: 'cli-fallback', dryRunId },
+  });
+  const dryRunPlan = createCodexExecDryRunPlan(intent);
+  const policyDecision = evaluateCodexExecDryRunPolicy(dryRunPlan, new DefaultPolicyEngine());
+
+  return createCodexExecDisabledLiveRunRecord(
+    dryRunPlan,
+    policyDecision,
+    'live adapter disabled in CLI fallback',
+  );
 }
 
 async function readAllowedFixture(fixturePath: string): Promise<string> {

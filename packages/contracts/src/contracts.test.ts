@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CodexExecLiveRunRecordSchema,
+  CodexExecLiveConfigSchema,
+  CodexExecPreflightResultSchema,
   DevelopmentRequestSchema,
   CodexReplayRecordSchema,
   CodexExecReplayResultSchema,
@@ -320,5 +322,53 @@ describe('contracts schemas', () => {
     expect(record.externalProcessStarted).toBe(false);
     expect(record.promptBodyStored).toBe(false);
     expect(JSON.stringify(record)).not.toContain('list risk areas');
+  });
+
+  it('parses codex live config and preflight models', () => {
+    const config = CodexExecLiveConfigSchema.parse({
+      id: 'codex_live_config_1',
+      schemaVersion,
+      createdAt,
+    });
+    const preflight = CodexExecPreflightResultSchema.parse({
+      id: 'codex_preflight_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: 'codex_dry_run_1',
+      dryRunPlanHash: 'sha256:dry-run',
+      configId: config.id,
+      status: 'blocked',
+      checks: [
+        {
+          id: 'codex_preflight_check_1',
+          schemaVersion,
+          createdAt,
+          name: 'live-config',
+          status: 'failed',
+          summary: 'disabled by config',
+        },
+      ],
+      worktreeRequirement: {
+        id: 'codex_worktree_requirement_1',
+        schemaVersion,
+        createdAt,
+        sandboxMode: 'read_only',
+        requirement: {
+          requiresIsolatedWorktree: false,
+          isolatedWorktreePresent: false,
+        },
+        status: 'not_required',
+        summary: 'not required',
+      },
+      summary: 'blocked',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(config.liveEnabled).toBe(false);
+    expect(config.allowedSandboxModes).toEqual(['read_only']);
+    expect(config.forbiddenSandboxModes).toEqual(['danger_full_access']);
+    expect(preflight.status).toBe('blocked');
   });
 });

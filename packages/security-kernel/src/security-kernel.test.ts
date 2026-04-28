@@ -126,4 +126,82 @@ describe('security-kernel policy evaluation', () => {
 
     expect(decision.outcome).toBe('deny');
   });
+
+  it('blocks execution gate when config or approval state is invalid', () => {
+    const decision = evaluateAction({
+      actionId: 'codex-gate',
+      actionType: 'codex.exec.execution.gate',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        sandboxMode: 'read_only',
+        liveEnabled: false,
+        dryRunPlanHashMatches: true,
+        policyDecisionHashMatches: true,
+        approvalExpired: false,
+        approvalRevoked: false,
+        approvalUsed: false,
+      },
+    });
+
+    expect(decision.outcome).toBe('deny');
+    expect(decision.reasons.join(' ')).toContain('disabled');
+  });
+
+  it('blocks execution gate for hash mismatch and invalid approval artifact state', () => {
+    const decision = evaluateAction({
+      actionId: 'codex-gate-invalid-approval',
+      actionType: 'codex.exec.execution.gate',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        sandboxMode: 'read_only',
+        liveEnabled: true,
+        dryRunPlanHashMatches: false,
+        policyDecisionHashMatches: false,
+        approvalExpired: true,
+        approvalRevoked: true,
+        approvalUsed: true,
+      },
+    });
+
+    expect(decision.outcome).toBe('deny');
+    expect(decision.reasons.join(' ')).toContain('hash mismatch');
+    expect(decision.reasons.join(' ')).toContain('expired');
+    expect(decision.reasons.join(' ')).toContain('revoked');
+    expect(decision.reasons.join(' ')).toContain('already used');
+  });
+
+  it('blocks execution gate for workspace write without isolated worktree and full access', () => {
+    const workspaceDecision = evaluateAction({
+      actionId: 'codex-gate-workspace',
+      actionType: 'codex.exec.execution.gate',
+      actionMode: 'write',
+      riskLevel: 'high',
+      dryRun: true,
+      metadata: {
+        sandboxMode: 'workspace_write',
+        liveEnabled: true,
+        isolatedWorktreePresent: false,
+      },
+    });
+    const fullAccessDecision = evaluateAction({
+      actionId: 'codex-gate-full-access',
+      actionType: 'codex.exec.execution.gate',
+      actionMode: 'write',
+      riskLevel: 'critical',
+      dryRun: true,
+      metadata: {
+        sandboxMode: 'danger_full_access',
+        liveEnabled: true,
+      },
+    });
+
+    expect(workspaceDecision.outcome).toBe('deny');
+    expect(workspaceDecision.reasons.join(' ')).toContain('isolated worktree');
+    expect(fullAccessDecision.outcome).toBe('deny');
+    expect(fullAccessDecision.reasons.join(' ')).toContain('danger_full_access');
+  });
 });

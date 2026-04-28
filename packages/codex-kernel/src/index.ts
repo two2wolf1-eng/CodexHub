@@ -2,11 +2,15 @@ import type {
   AgentRun,
   AuditEvent,
   CodexExecApprovalMode,
+  CodexExecApprovalArtifact,
   CodexExecApprovalRequirement,
   CodexExecCommandPreview,
   CodexExecDryRunPlan,
+  CodexExecExecutionGateResult,
   CodexExecEventType,
   CodexExecExecutionIntent,
+  CodexExecLiveCapabilityState,
+  CodexExecLiveConfig,
   CodexExecItemType,
   CodexExecLiveExecutionDisabledError,
   CodexExecLiveExecutionStatus,
@@ -14,8 +18,11 @@ import type {
   CodexExecNormalizedEvent,
   CodexExecNormalizedItem,
   CodexExecPolicyInput,
+  CodexExecPreflightCheck,
+  CodexExecPreflightResult,
   CodexExecReplayResult,
   CodexExecSandboxMode,
+  CodexExecWorktreeRequirement,
   CodexReplayRecord,
   CodexReplaySummary,
   EvidenceRef,
@@ -91,6 +98,11 @@ export interface CodexExecPolicyEngine {
     approvalGranted?: boolean;
     metadata?: Record<string, unknown>;
   }): PolicyDecision;
+}
+
+export interface CodexExecPreflightOptions {
+  isolatedWorktreePresent?: boolean;
+  worktreePath?: string;
 }
 
 export interface CodexExecParsedJsonlLine {
@@ -534,6 +546,389 @@ export function createCodexExecDisabledLiveRunRecord(
       source: 'codex-kernel.control-plane',
     },
   };
+}
+
+export function createDefaultCodexExecLiveConfig(): CodexExecLiveConfig {
+  return {
+    id: foundationId('codex_live_config'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    liveEnabled: false,
+    allowedSandboxModes: ['read_only'],
+    forbiddenSandboxModes: ['danger_full_access'],
+    requiresApproval: true,
+    requiresIsolatedWorktreeForWorkspaceWrite: true,
+    approvalTtlMinutes: 30,
+    singleUseApprovals: true,
+    metadata: {
+      source: 'codex-kernel.control-plane',
+      defaultDisabled: true,
+    },
+  };
+}
+
+export function evaluateCodexExecLiveCapability(
+  config: CodexExecLiveConfig,
+): CodexExecLiveCapabilityState {
+  const reasons = config.liveEnabled
+    ? ['live adapter can proceed to policy gate checks']
+    : ['live adapter disabled by configuration'];
+
+  return {
+    id: foundationId('codex_live_capability'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    liveEnabled: config.liveEnabled,
+    enabled: config.liveEnabled,
+    status: config.liveEnabled ? 'available' : 'disabled',
+    allowedSandboxModes: config.allowedSandboxModes,
+    forbiddenSandboxModes: config.forbiddenSandboxModes,
+    reasons,
+    metadata: { configId: config.id },
+  };
+}
+
+export function runCodexExecPreflight(
+  plan: CodexExecDryRunPlan,
+  config: CodexExecLiveConfig,
+  options: CodexExecPreflightOptions = {},
+): CodexExecPreflightResult {
+  const dryRunPlanHash = hashCodexExecDryRunPlan(plan);
+  const worktreeRequirement = createWorktreeRequirement(plan, config, options);
+  const checks: CodexExecPreflightCheck[] = [
+    createPreflightCheck(
+      'live-config',
+      config.liveEnabled ? 'passed' : 'failed',
+      config.liveEnabled ? 'live adapter enabled in config' : 'live adapter disabled in config',
+    ),
+    createPreflightCheck(
+      'sandbox-allowlist',
+      config.allowedSandboxModes.includes(plan.sandboxMode) ? 'passed' : 'failed',
+      `sandbox mode ${plan.sandboxMode} is ${
+        config.allowedSandboxModes.includes(plan.sandboxMode) ? 'allowed' : 'not allowed'
+      }`,
+    ),
+    createPreflightCheck(
+      'sandbox-forbidden-list',
+      config.forbiddenSandboxModes.includes(plan.sandboxMode) ? 'failed' : 'passed',
+      config.forbiddenSandboxModes.includes(plan.sandboxMode)
+        ? `sandbox mode ${plan.sandboxMode} is forbidden`
+        : `sandbox mode ${plan.sandboxMode} is not forbidden`,
+    ),
+    createPreflightCheck(
+      'isolated-worktree',
+      worktreeRequirement.status === 'missing' ? 'failed' : 'passed',
+      worktreeRequirement.summary,
+    ),
+  ];
+  const status = checks.some((check) => check.status === 'failed') ? 'blocked' : 'passed';
+
+  return {
+    id: foundationId('codex_preflight'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    dryRunPlanHash,
+    configId: config.id,
+    status,
+    checks,
+    worktreeRequirement,
+    summary: status === 'passed' ? 'Preflight checks passed' : 'Preflight checks blocked execution',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      sandboxMode: plan.sandboxMode,
+      liveEnabled: config.liveEnabled,
+      source: 'codex-kernel.control-plane',
+    },
+  };
+}
+
+export function createCodexExecApprovalArtifact(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+): CodexExecApprovalArtifact {
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+  return {
+    id: foundationId('codex_approval_artifact'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    dryRunPlanHash: hashCodexExecDryRunPlan(plan),
+    policyDecisionId: policyDecision.id,
+    policyDecisionHash: hashCodexExecPolicyDecision(policyDecision),
+    scope: approvalScopeForSandboxMode(plan.sandboxMode),
+    status: 'approved',
+    expiresAt,
+    singleUse: true,
+    revoked: false,
+    summary: `Approval artifact for ${plan.title} (${plan.sandboxMode})`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      dryRunPlanId: plan.id,
+      policyDecisionId: policyDecision.id,
+      source: 'codex-kernel.control-plane',
+    },
+  };
+}
+
+export function evaluateCodexExecExecutionGate(
+  plan: CodexExecDryRunPlan,
+  policyDecision: PolicyDecision,
+  approvalArtifact: CodexExecApprovalArtifact | undefined,
+  config: CodexExecLiveConfig,
+): CodexExecExecutionGateResult {
+  const dryRunPlanHash = hashCodexExecDryRunPlan(plan);
+  const policyDecisionHash = hashCodexExecPolicyDecision(policyDecision);
+  const reasons: string[] = [];
+
+  if (!config.liveEnabled) {
+    reasons.push('live adapter disabled by configuration');
+  }
+
+  if (!config.allowedSandboxModes.includes(plan.sandboxMode)) {
+    reasons.push(`sandbox mode ${plan.sandboxMode} is not allowed`);
+  }
+
+  if (config.forbiddenSandboxModes.includes(plan.sandboxMode)) {
+    reasons.push(`sandbox mode ${plan.sandboxMode} is forbidden`);
+  }
+
+  if (plan.sandboxMode === 'danger_full_access') {
+    reasons.push('danger_full_access is blocked by default');
+  }
+
+  if (policyDecision.outcome === 'deny') {
+    reasons.push('policy decision denied the live intent');
+  }
+
+  if (plan.sandboxMode === 'workspace_write' && config.requiresIsolatedWorktreeForWorkspaceWrite) {
+    const isolatedWorktreePresent = plan.metadata?.isolatedWorktreePresent === true;
+
+    if (!isolatedWorktreePresent) {
+      reasons.push('workspace_write requires an isolated worktree');
+    }
+  }
+
+  if (config.requiresApproval || policyDecision.requiresApproval) {
+    if (!approvalArtifact) {
+      reasons.push('approval artifact is required');
+    } else {
+      if (approvalArtifact.dryRunPlanHash !== dryRunPlanHash) {
+        reasons.push('approval artifact dry-run hash mismatch');
+      }
+
+      if (approvalArtifact.policyDecisionHash !== policyDecisionHash) {
+        reasons.push('approval artifact policy hash mismatch');
+      }
+
+      if (approvalArtifact.revoked || approvalArtifact.status === 'revoked') {
+        reasons.push('approval artifact revoked');
+      }
+
+      if (approvalArtifact.status === 'used' || approvalArtifact.usedAt) {
+        reasons.push('approval artifact already used');
+      }
+
+      if (
+        approvalArtifact.status === 'expired' ||
+        Date.parse(approvalArtifact.expiresAt) <= Date.now()
+      ) {
+        reasons.push('approval artifact expired');
+      }
+    }
+  }
+
+  const status = reasons.length === 0 ? 'ready' : 'blocked';
+
+  return {
+    id: foundationId('codex_gate'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    dryRunPlanHash,
+    policyDecisionId: policyDecision.id,
+    policyDecisionHash,
+    approvalArtifactId: approvalArtifact?.id,
+    status,
+    reasons,
+    liveEnabled: config.liveEnabled,
+    allowedSandboxModes: config.allowedSandboxModes,
+    summary:
+      status === 'ready'
+        ? 'Execution gate ready, but this round still does not execute'
+        : `Execution gate blocked: ${reasons.join('; ')}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: {
+      sandboxMode: plan.sandboxMode,
+      approvalMode: plan.approvalMode,
+      source: 'codex-kernel.control-plane',
+    },
+  };
+}
+
+export function createCodexExecControlPlaneEvidenceRefs(input: {
+  preflightResult?: CodexExecPreflightResult;
+  approvalArtifact?: CodexExecApprovalArtifact;
+  executionGateResult?: CodexExecExecutionGateResult;
+}): EvidenceRef[] {
+  const evidenceRefs: EvidenceRef[] = [];
+
+  if (input.preflightResult) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.preflight_result',
+        label: 'codex.preflight_result',
+        summary: input.preflightResult.summary,
+        metadata: createControlPlaneMetadata({
+          preflightResultId: input.preflightResult.id,
+          dryRunPlanId: input.preflightResult.dryRunPlanId,
+          status: input.preflightResult.status,
+        }),
+        bodyForHashOnly: stableStringify({
+          id: input.preflightResult.id,
+          status: input.preflightResult.status,
+          checkStatuses: input.preflightResult.checks.map((check) => [check.name, check.status]),
+        }),
+      }),
+    );
+  }
+
+  if (input.approvalArtifact) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.approval_artifact',
+        label: 'codex.approval_artifact',
+        summary: input.approvalArtifact.summary,
+        metadata: createControlPlaneMetadata({
+          approvalArtifactId: input.approvalArtifact.id,
+          dryRunPlanId: input.approvalArtifact.dryRunPlanId,
+          status: input.approvalArtifact.status,
+          singleUse: input.approvalArtifact.singleUse,
+          revoked: input.approvalArtifact.revoked,
+        }),
+        bodyForHashOnly: stableStringify({
+          id: input.approvalArtifact.id,
+          dryRunPlanHash: input.approvalArtifact.dryRunPlanHash,
+          policyDecisionHash: input.approvalArtifact.policyDecisionHash,
+          status: input.approvalArtifact.status,
+        }),
+      }),
+    );
+  }
+
+  if (input.executionGateResult) {
+    evidenceRefs.push(
+      createEvidenceRef({
+        kind: 'codex.exec.execution_gate_result',
+        label: 'codex.execution_gate_result',
+        summary: input.executionGateResult.summary,
+        metadata: createControlPlaneMetadata({
+          executionGateResultId: input.executionGateResult.id,
+          dryRunPlanId: input.executionGateResult.dryRunPlanId,
+          status: input.executionGateResult.status,
+          liveEnabled: input.executionGateResult.liveEnabled,
+        }),
+        bodyForHashOnly: stableStringify({
+          id: input.executionGateResult.id,
+          status: input.executionGateResult.status,
+          reasons: input.executionGateResult.reasons,
+        }),
+      }),
+    );
+  }
+
+  return evidenceRefs;
+}
+
+export function createCodexExecControlPlaneAuditEvents(input: {
+  preflightResult?: CodexExecPreflightResult;
+  approvalArtifact?: CodexExecApprovalArtifact;
+  executionGateResult?: CodexExecExecutionGateResult;
+  evidenceRefs?: EvidenceRef[];
+}): AuditEvent[] {
+  const now = foundationTimestamp();
+  const events: AuditEvent[] = [];
+
+  if (input.preflightResult) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.preflight.completed',
+      outcome: input.preflightResult.status,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.preflight_result',
+      ),
+      metadata: createControlPlaneMetadata({
+        preflightResultId: input.preflightResult.id,
+        dryRunPlanId: input.preflightResult.dryRunPlanId,
+      }),
+    });
+  }
+
+  if (input.approvalArtifact) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.approval_artifact.created',
+      outcome: input.approvalArtifact.status,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.approval_artifact',
+      ),
+      metadata: createControlPlaneMetadata({
+        approvalArtifactId: input.approvalArtifact.id,
+        dryRunPlanId: input.approvalArtifact.dryRunPlanId,
+      }),
+    });
+  }
+
+  if (input.executionGateResult) {
+    events.push({
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.execution_gate.evaluated',
+      outcome: input.executionGateResult.status,
+      evidenceRefs: (input.evidenceRefs ?? []).filter(
+        (ref) => ref.kind === 'codex.exec.execution_gate_result',
+      ),
+      metadata: createControlPlaneMetadata({
+        executionGateResultId: input.executionGateResult.id,
+        dryRunPlanId: input.executionGateResult.dryRunPlanId,
+      }),
+    });
+
+    if (!input.executionGateResult.liveEnabled) {
+      events.push({
+        id: foundationId('audit'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        actor: 'codex-kernel.control-plane',
+        action: 'codex.exec.live_execution.disabled_by_config',
+        outcome: 'blocked',
+        evidenceRefs: (input.evidenceRefs ?? []).filter(
+          (ref) => ref.kind === 'codex.exec.execution_gate_result',
+        ),
+        metadata: createControlPlaneMetadata({
+          executionGateResultId: input.executionGateResult.id,
+          dryRunPlanId: input.executionGateResult.dryRunPlanId,
+        }),
+      });
+    }
+  }
+
+  return events;
 }
 
 function normalizeCodexExecItem(itemRecord: JsonRecord): CodexExecNormalizedItem {
@@ -982,6 +1377,122 @@ function createCodexExecDryRunAuditEvents(
       },
     },
   ];
+}
+
+function hashCodexExecDryRunPlan(plan: CodexExecDryRunPlan): string {
+  return prefixedHash(
+    stableStringify({
+      id: plan.id,
+      intentId: plan.intentId,
+      promptHash: plan.promptHash,
+      promptLength: plan.promptLength,
+      cwd: plan.cwd,
+      sandboxMode: plan.sandboxMode,
+      approvalMode: plan.approvalMode,
+      riskLevel: plan.riskLevel,
+    }),
+  );
+}
+
+function hashCodexExecPolicyDecision(policyDecision: PolicyDecision): string {
+  return prefixedHash(
+    stableStringify({
+      id: policyDecision.id,
+      actionId: policyDecision.actionId,
+      actionType: policyDecision.actionType,
+      actionMode: policyDecision.actionMode,
+      riskLevel: policyDecision.riskLevel,
+      outcome: policyDecision.outcome,
+      requiresDryRun: policyDecision.requiresDryRun,
+      requiresApproval: policyDecision.requiresApproval,
+      reasons: policyDecision.reasons,
+    }),
+  );
+}
+
+function createWorktreeRequirement(
+  plan: CodexExecDryRunPlan,
+  config: CodexExecLiveConfig,
+  options: CodexExecPreflightOptions,
+): CodexExecWorktreeRequirement {
+  const requiresIsolatedWorktree =
+    plan.sandboxMode === 'workspace_write' && config.requiresIsolatedWorktreeForWorkspaceWrite;
+  const isolatedWorktreePresent =
+    options.isolatedWorktreePresent === true || plan.metadata?.isolatedWorktreePresent === true;
+  const status = !requiresIsolatedWorktree
+    ? 'not_required'
+    : isolatedWorktreePresent
+      ? 'satisfied'
+      : 'missing';
+  const worktreePathSummary = options.worktreePath
+    ? summarizePath(options.worktreePath)
+    : undefined;
+
+  return {
+    id: foundationId('codex_worktree_requirement'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    sandboxMode: plan.sandboxMode,
+    requirement: {
+      requiresIsolatedWorktree,
+      isolatedWorktreePresent,
+      worktreePathSummary,
+      worktreePathHash: options.worktreePath ? prefixedHash(options.worktreePath) : undefined,
+    },
+    status,
+    summary:
+      status === 'not_required'
+        ? 'isolated worktree is not required'
+        : status === 'satisfied'
+          ? 'isolated worktree requirement is satisfied'
+          : 'isolated worktree is required but missing',
+    metadata: {
+      dryRunPlanId: plan.id,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+  };
+}
+
+function createPreflightCheck(
+  name: string,
+  status: CodexExecPreflightCheck['status'],
+  summary: string,
+): CodexExecPreflightCheck {
+  return {
+    id: foundationId('codex_preflight_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    name,
+    status,
+    summary,
+  };
+}
+
+function approvalScopeForSandboxMode(
+  sandboxMode: CodexExecSandboxMode,
+): CodexExecApprovalArtifact['scope'] {
+  if (sandboxMode === 'workspace_write') {
+    return 'workspace_write_plan';
+  }
+
+  if (sandboxMode === 'danger_full_access') {
+    return 'danger_full_access_plan';
+  }
+
+  return 'read_only_plan';
+}
+
+function createControlPlaneMetadata(extra: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...extra,
+    liveExecution: false,
+    externalProcessStarted: false,
+    mockOnly: false,
+    executionDisabled: true,
+    source: 'codex-kernel.control-plane',
+  };
 }
 
 function statusForPolicyDecision(

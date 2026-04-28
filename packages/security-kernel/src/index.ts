@@ -34,6 +34,10 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
     return evaluateCodexLiveIntent(input);
   }
 
+  if (input.actionType === 'codex.exec.execution.gate') {
+    return evaluateCodexExecutionGate(input);
+  }
+
   const riskLevel = input.riskLevel ?? inferRiskLevel(input.actionType);
   const requiresDryRun = input.actionMode === 'write';
   const requiresApproval = riskLevel === 'high' || riskLevel === 'critical';
@@ -140,6 +144,64 @@ function evaluateCodexLiveIntent(input: PolicyActionInput): PolicyDecision {
     riskLevel,
     outcome,
     reasons,
+    requiresDryRun,
+    requiresApproval,
+    metadata: input.metadata,
+  };
+}
+
+function evaluateCodexExecutionGate(input: PolicyActionInput): PolicyDecision {
+  const metadata = input.metadata ?? {};
+  const sandboxMode = readString(metadata.sandboxMode) as CodexExecSandboxMode | undefined;
+  const riskLevel = input.riskLevel ?? riskForCodexSandboxMode(sandboxMode);
+  const requiresDryRun = true;
+  const requiresApproval =
+    riskLevel === 'high' || riskLevel === 'critical' || metadata.requiresApproval === true;
+  const reasons: string[] = [];
+
+  if (metadata.liveEnabled !== true) {
+    reasons.push('live adapter disabled by configuration');
+  }
+
+  if (metadata.dryRunPlanHashMatches === false) {
+    reasons.push('approval artifact dry-run hash mismatch');
+  }
+
+  if (metadata.policyDecisionHashMatches === false) {
+    reasons.push('approval artifact policy hash mismatch');
+  }
+
+  if (metadata.approvalExpired === true) {
+    reasons.push('approval artifact expired');
+  }
+
+  if (metadata.approvalRevoked === true) {
+    reasons.push('approval artifact revoked');
+  }
+
+  if (metadata.approvalUsed === true) {
+    reasons.push('approval artifact already used');
+  }
+
+  if (sandboxMode === 'workspace_write' && metadata.isolatedWorktreePresent !== true) {
+    reasons.push('workspace_write requires an isolated worktree');
+  }
+
+  if (sandboxMode === 'danger_full_access') {
+    reasons.push('danger_full_access is blocked by default');
+  }
+
+  return {
+    id: foundationId('policy'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    actionId: input.actionId,
+    actionType: input.actionType,
+    actionMode: input.actionMode,
+    riskLevel,
+    outcome: reasons.length > 0 ? 'deny' : 'allow',
+    reasons:
+      reasons.length > 0 ? reasons : ['execution gate policy allows control-plane readiness'],
     requiresDryRun,
     requiresApproval,
     metadata: input.metadata,

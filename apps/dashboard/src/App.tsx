@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
-import type { CodexExecLiveRunRecord, SourceHealth, WorkflowRun } from '@codexhub/contracts';
+import type {
+  CodexExecLiveConfig,
+  CodexExecLiveRunRecord,
+  SourceHealth,
+  WorkflowRun,
+} from '@codexhub/contracts';
 import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
 
 interface OverviewState {
@@ -11,6 +16,7 @@ interface OverviewState {
   developmentRuns: MockDevelopmentOrchestrationResult[];
   codexReplayRuns: CodexExecReplaySummary[];
   codexExecDryRuns: CodexExecLiveRunRecord[];
+  codexExecLiveConfig?: CodexExecLiveConfig;
   message?: string;
 }
 
@@ -44,7 +50,9 @@ export function App() {
           getJson<{ sourceHealth: SourceHealth[] }>('/api/observations'),
           getJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
           getJson<{ runs: CodexExecReplaySummary[] }>('/api/codex/replay-fixtures'),
-          getJson<{ runs: CodexExecLiveRunRecord[] }>('/api/codex/exec/dry-runs'),
+          getJson<{ runs: CodexExecLiveRunRecord[]; liveConfig?: CodexExecLiveConfig }>(
+            '/api/codex/exec/dry-runs',
+          ),
         ]);
 
         if (!cancelled) {
@@ -56,6 +64,7 @@ export function App() {
             developmentRuns: developmentRunsResponse.runs,
             codexReplayRuns: codexReplayRunsResponse.runs,
             codexExecDryRuns: codexExecDryRunsResponse.runs,
+            codexExecLiveConfig: codexExecDryRunsResponse.liveConfig,
           });
         }
       } catch (error) {
@@ -170,6 +179,12 @@ export function App() {
         </Panel>
 
         <Panel title="Codex Dry-Run Control Plane">
+          {overview.codexExecLiveConfig ? (
+            <p>
+              liveEnabled {String(overview.codexExecLiveConfig.liveEnabled)}, allowed{' '}
+              {overview.codexExecLiveConfig.allowedSandboxModes.join(', ')}
+            </p>
+          ) : null}
           {overview.codexExecDryRuns.length > 0 ? (
             <ul>
               {overview.codexExecDryRuns.map((run) => (
@@ -179,6 +194,12 @@ export function App() {
                     {run.sandboxMode}, {run.approvalMode}, {run.riskLevel} risk, policy{' '}
                     {run.policyDecision.outcome}, live {String(run.liveExecution)}, external process{' '}
                     {String(run.externalProcessStarted)}, disabled {String(run.executionDisabled)}
+                  </span>
+                  <span>
+                    preflight {run.preflightResult?.status ?? 'not run'}, approval{' '}
+                    {run.approvalArtifact?.status ?? 'not created'}, gate{' '}
+                    {run.executionGateResult?.status ?? 'not evaluated'}{' '}
+                    {run.executionGateResult?.reasons[0] ?? ''}
                   </span>
                 </li>
               ))}

@@ -5,12 +5,16 @@ import {
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
+  createCodexExecApprovalArtifact,
+  createDefaultCodexExecLiveConfig,
   evaluateCodexExecDryRunPolicy,
+  evaluateCodexExecExecutionGate,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
   createCodexReplayRecord,
   replayCodexExecFixture,
+  runCodexExecPreflight,
   summarizeCodexExecReplay,
 } from './index';
 
@@ -192,7 +196,143 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(source).not.toContain(['node:', 'child', '_process'].join(''));
     expect(source).not.toContain(['child', '_process'].join(''));
   });
+
+  it('blocks execution with the default live config', () => {
+    const { plan, policyDecision } = createControlPlaneFixture();
+    const config = createDefaultCodexExecLiveConfig();
+    const artifact = createCodexExecApprovalArtifact(plan, policyDecision);
+    const preflight = runCodexExecPreflight(plan, config);
+    const gate = evaluateCodexExecExecutionGate(plan, policyDecision, artifact, config);
+
+    expect(config.liveEnabled).toBe(false);
+    expect(config.allowedSandboxModes).toEqual(['read_only']);
+    expect(preflight.status).toBe('blocked');
+    expect(gate.status).toBe('blocked');
+    expect(gate.reasons.join(' ')).toContain('disabled');
+    expect(gate.liveExecution).toBe(false);
+    expect(gate.externalProcessStarted).toBe(false);
+  });
+
+  it('blocks approval artifact hash mismatch', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({ liveAdapterEnabled: true });
+    const config = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      allowedSandboxModes: ['read_only' as const],
+    };
+    const artifact = {
+      ...createCodexExecApprovalArtifact(plan, policyDecision),
+      dryRunPlanHash: 'sha256:mismatch',
+    };
+    const gate = evaluateCodexExecExecutionGate(plan, policyDecision, artifact, config);
+
+    expect(gate.status).toBe('blocked');
+    expect(gate.reasons.join(' ')).toContain('hash mismatch');
+  });
+
+  it('blocks expired, revoked, or used approvals', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({ liveAdapterEnabled: true });
+    const config = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      allowedSandboxModes: ['read_only' as const],
+    };
+    const artifact = createCodexExecApprovalArtifact(plan, policyDecision);
+    const expired = evaluateCodexExecExecutionGate(
+      plan,
+      policyDecision,
+      { ...artifact, expiresAt: '2020-01-01T00:00:00.000Z' },
+      config,
+    );
+    const revoked = evaluateCodexExecExecutionGate(
+      plan,
+      policyDecision,
+      { ...artifact, revoked: true, status: 'revoked' },
+      config,
+    );
+    const used = evaluateCodexExecExecutionGate(
+      plan,
+      policyDecision,
+      { ...artifact, status: 'used', usedAt: '2026-04-28T00:00:00.000Z' },
+      config,
+    );
+
+    expect(expired.reasons.join(' ')).toContain('expired');
+    expect(revoked.reasons.join(' ')).toContain('revoked');
+    expect(used.reasons.join(' ')).toContain('already used');
+  });
+
+  it('blocks workspace writes without an isolated worktree', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({
+      sandboxMode: 'workspace_write',
+      liveAdapterEnabled: true,
+    });
+    const config = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      allowedSandboxModes: ['read_only' as const, 'workspace_write' as const],
+    };
+    const artifact = createCodexExecApprovalArtifact(plan, policyDecision);
+    const preflight = runCodexExecPreflight(plan, config);
+    const gate = evaluateCodexExecExecutionGate(plan, policyDecision, artifact, config);
+
+    expect(preflight.status).toBe('blocked');
+    expect(preflight.worktreeRequirement.status).toBe('missing');
+    expect(gate.status).toBe('blocked');
+    expect(gate.reasons.join(' ')).toContain('isolated worktree');
+  });
+
+  it('keeps full access blocked by default', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({
+      sandboxMode: 'danger_full_access',
+      liveAdapterEnabled: true,
+    });
+    const config = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      allowedSandboxModes: ['read_only' as const, 'danger_full_access' as const],
+    };
+    const artifact = createCodexExecApprovalArtifact(plan, policyDecision);
+    const gate = evaluateCodexExecExecutionGate(plan, policyDecision, artifact, config);
+
+    expect(plan.riskLevel).toBe('critical');
+    expect(gate.status).toBe('blocked');
+    expect(gate.reasons.join(' ')).toContain('danger_full_access');
+  });
 });
+
+function createControlPlaneFixture(
+  options: {
+    sandboxMode?: 'read_only' | 'workspace_write' | 'danger_full_access';
+    liveAdapterEnabled?: boolean;
+  } = {},
+) {
+  const intent = createCodexExecExecutionIntent({
+    title: 'Summarize repository structure',
+    prompt: 'Summarize repository structure',
+    sandboxMode: options.sandboxMode ?? 'read_only',
+    liveAdapterEnabled: options.liveAdapterEnabled ?? false,
+  });
+  const plan = createCodexExecDryRunPlan(intent);
+  const policyDecision = evaluateCodexExecDryRunPolicy(plan, {
+    evaluateAction: (input) => ({
+      id: 'policy_test',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: '2026-04-28T00:00:00.000Z',
+      actionId: input.actionId,
+      actionType: input.actionType,
+      actionMode: input.actionMode,
+      riskLevel: input.riskLevel ?? 'medium',
+      outcome: 'allow',
+      reasons: ['test policy'],
+      requiresDryRun: true,
+      requiresApproval: true,
+      metadata: input.metadata,
+    }),
+  });
+
+  return { intent, plan, policyDecision };
+}
 
 function readFixture(name: string): string {
   return readFileSync(join('fixtures', name), 'utf8');
