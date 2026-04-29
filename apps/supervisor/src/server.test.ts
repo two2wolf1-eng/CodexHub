@@ -1,9 +1,17 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
+
+const symlinkEscapeFixturePath =
+  'packages/codex-kernel/fixtures/codexhub-symlink-escape-test.jsonl';
+const symlinkEscapeAbsolutePath = join(process.cwd(), ...symlinkEscapeFixturePath.split('/'));
+
+afterEach(() => {
+  rmSync(symlinkEscapeAbsolutePath, { force: true });
+});
 
 describe('supervisor mock development API', () => {
   it('runs and lists mock development orchestrations', async () => {
@@ -1359,6 +1367,16 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/read-only-adapter/skeleton-reviews?status=recorded&outcome=skeleton_accepted_for_fixture_boundary_only&limit=10',
     });
+    let symlinkEscapeAvailable = false;
+
+    try {
+      rmSync(symlinkEscapeAbsolutePath, { force: true });
+      symlinkSync(join(process.cwd(), 'package.json'), symlinkEscapeAbsolutePath, 'file');
+      symlinkEscapeAvailable = true;
+    } catch {
+      rmSync(symlinkEscapeAbsolutePath, { force: true });
+    }
+
     const fixtureResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/read-only-adapter/fixture-boundary',
@@ -1366,14 +1384,20 @@ describe('supervisor mock development API', () => {
         fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
       },
     });
+    const rejectedFixturePayloads = [
+      '../codex-exec-basic.jsonl',
+      join(process.cwd(), 'packages', 'codex-kernel', 'fixtures', 'codex-exec-basic.jsonl'),
+      'packages/codex-kernel/fixtures/codex-exec-basic.txt',
+      'package.json',
+      'packages/codex-kernel/fixtures/missing.jsonl',
+    ];
+
+    if (symlinkEscapeAvailable) {
+      rejectedFixturePayloads.push(symlinkEscapeFixturePath);
+    }
+
     const rejectedFixtureResponses = await Promise.all(
-      [
-        '../codex-exec-basic.jsonl',
-        join(process.cwd(), 'packages', 'codex-kernel', 'fixtures', 'codex-exec-basic.jsonl'),
-        'packages/codex-kernel/fixtures/codex-exec-basic.txt',
-        'package.json',
-        'packages/codex-kernel/fixtures/missing.jsonl',
-      ].map((fixturePath) =>
+      rejectedFixturePayloads.map((fixturePath) =>
         server.inject({
           method: 'POST',
           url: '/api/codex/exec/read-only-adapter/fixture-boundary',
@@ -1462,9 +1486,9 @@ describe('supervisor mock development API', () => {
     expect(fixtureResponse.json().result.auditEventIds).toEqual(
       fixtureResponse.json().auditEvents.map((event: { id: string }) => event.id),
     );
-    expect(rejectedFixtureResponses.map((response) => response.statusCode)).toEqual([
-      400, 400, 400, 400, 404,
-    ]);
+    expect(rejectedFixtureResponses.map((response) => response.statusCode)).toEqual(
+      symlinkEscapeAvailable ? [400, 400, 400, 400, 404, 400] : [400, 400, 400, 400, 404],
+    );
     expect(rejectedFixtureResponses.every((response) => !response.body.includes(process.cwd()))).toBe(
       true,
     );

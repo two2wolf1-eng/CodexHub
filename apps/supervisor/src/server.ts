@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
@@ -3862,6 +3862,18 @@ function resolveAllowedFixture(
       allowed: false,
       reason: 'fixturePath must point to packages/codex-kernel/fixtures/*.jsonl',
     };
+  }
+
+  if (existsSync(requestedPath)) {
+    const fixturesRootRealPath = realpathSync(fixturesRoot);
+    const requestedRealPath = realpathSync(requestedPath);
+
+    if (!isPathInside(requestedRealPath, fixturesRootRealPath) || extname(requestedRealPath) !== '.jsonl') {
+      return {
+        allowed: false,
+        reason: 'fixturePath must resolve inside packages/codex-kernel/fixtures/*.jsonl',
+      };
+    }
   }
 
   return {
