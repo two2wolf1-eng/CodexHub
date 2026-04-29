@@ -71,6 +71,13 @@ import type {
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveAdapterAdrDecisionSummary,
+  CodexExecReadOnlyAdapterOperatorChecklistItem,
+  CodexExecReadOnlyAdapterPreflightSimulationBlocker,
+  CodexExecReadOnlyAdapterPreflightSimulationCheck,
+  CodexExecReadOnlyAdapterPreflightSimulationCheckSource,
+  CodexExecReadOnlyAdapterPreflightSimulationResult,
+  CodexExecReadOnlyAdapterPreflightSimulationStatus,
+  CodexExecReadOnlyAdapterPreflightSimulationSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -3018,6 +3025,576 @@ function sortLiveAdapterAdrDecisionsNewestFirst(
   });
 }
 
+export interface ReadOnlyAdapterPreflightSimulationInput {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  config?: CodexExecLiveConfig;
+  approvalArtifact?: CodexExecApprovalArtifact;
+  adrDecision?: CodexExecLiveAdapterAdrDecisionRecord;
+  requestedSandboxMode?: CodexExecSandboxMode;
+  isolatedWorktreePresent?: boolean;
+  evidenceStoreReady?: boolean;
+  auditStoreReady?: boolean;
+  operatorChecklist?: CodexExecReadOnlyAdapterOperatorChecklistItem[];
+  dashboardTriggerAttempted?: boolean;
+  processAdapterAttempted?: boolean;
+  workspaceWriteRequested?: boolean;
+  dangerFullAccessRequested?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export function createDefaultReadOnlyAdapterOperatorChecklist(): CodexExecReadOnlyAdapterOperatorChecklistItem[] {
+  return [
+    createReadOnlyAdapterChecklistItem({
+      code: 'dry_run_reviewed',
+      label: 'Dry-run reviewed',
+      summary: 'Operator reviewed the dry-run summary and hash before any later design review.',
+      required: true,
+    }),
+    createReadOnlyAdapterChecklistItem({
+      code: 'approval_hashes_reviewed',
+      label: 'Approval hashes reviewed',
+      summary: 'Operator reviewed dry-run and policy hash bindings in the approval artifact.',
+      required: true,
+    }),
+    createReadOnlyAdapterChecklistItem({
+      code: 'isolated_worktree_confirmed',
+      label: 'Isolated worktree confirmed',
+      summary: 'Operator confirmed an isolated worktree is present for any later adapter review.',
+      required: true,
+    }),
+    createReadOnlyAdapterChecklistItem({
+      code: 'dashboard_trigger_absent',
+      label: 'Dashboard trigger absent',
+      summary: 'Operator confirmed Dashboard remains read-only and exposes no adapter trigger.',
+      required: true,
+    }),
+    createReadOnlyAdapterChecklistItem({
+      code: 'post_run_verification_ready',
+      label: 'Post-run verification ready',
+      summary: 'Operator confirmed the foundation verification command remains the required check.',
+      required: true,
+    }),
+  ];
+}
+
+export function simulateReadOnlyAdapterPreflight(
+  input: ReadOnlyAdapterPreflightSimulationInput,
+): CodexExecReadOnlyAdapterPreflightSimulationResult {
+  const record = input.record;
+  const config = input.config ?? createDefaultCodexExecLiveConfig();
+  const plan = record?.dryRunPlan;
+  const policyDecision = record?.policyDecision;
+  const approvalArtifact = input.approvalArtifact ?? record?.approvalArtifact;
+  const requestedSandboxMode = input.requestedSandboxMode ?? plan?.sandboxMode ?? 'read_only';
+  const operatorChecklist = normalizeReadOnlyAdapterChecklist(input.operatorChecklist);
+  const now = Date.now();
+  const expectedDryRunPlanHash = plan ? hashCodexExecDryRunPlan(plan) : undefined;
+  const expectedPolicyDecisionHash = policyDecision
+    ? hashCodexExecPolicyDecision(policyDecision)
+    : undefined;
+  const approvalArtifactValid =
+    approvalArtifact?.status === 'approved' &&
+    approvalArtifact.revoked === false &&
+    approvalArtifact.usedAt === undefined &&
+    Date.parse(approvalArtifact.expiresAt) > now;
+  const dryRunPlanHashMatched =
+    Boolean(expectedDryRunPlanHash) &&
+    approvalArtifact?.dryRunPlanHash === expectedDryRunPlanHash;
+  const policyDecisionHashMatched =
+    Boolean(expectedPolicyDecisionHash) &&
+    approvalArtifact?.policyDecisionHash === expectedPolicyDecisionHash;
+  const policyCompatible =
+    Boolean(policyDecision) &&
+    policyDecision?.outcome !== 'deny' &&
+    policyDecision?.requiresDryRun === true;
+  const checklistComplete = operatorChecklist
+    .filter((item) => item.required)
+    .every((item) => item.checked);
+  const adrDecisionDesignOnly =
+    input.adrDecision?.decision === 'conditional_read_only_go' &&
+    input.adrDecision.status === 'recorded' &&
+    input.adrDecision.implementationApproved === false &&
+    input.adrDecision.processAdapterApproved === false &&
+    input.adrDecision.dashboardTriggerAllowed === false &&
+    input.adrDecision.allowedSandboxModes.includes('read_only') &&
+    input.adrDecision.forbiddenSandboxModes.includes('workspace_write') &&
+    input.adrDecision.forbiddenSandboxModes.includes('danger_full_access');
+  const forbiddenModeRequested =
+    requestedSandboxMode !== 'read_only' ||
+    config.forbiddenSandboxModes.includes(requestedSandboxMode);
+  const forbiddenCapabilityRequested =
+    forbiddenModeRequested ||
+    input.dashboardTriggerAttempted === true ||
+    input.processAdapterAttempted === true ||
+    input.workspaceWriteRequested === true ||
+    input.dangerFullAccessRequested === true;
+  const checks: CodexExecReadOnlyAdapterPreflightSimulationCheck[] = [
+    createReadOnlyAdapterSimulationCheck({
+      code: 'config_explicit_enable_state',
+      source: 'config',
+      status: config.liveEnabled ? 'passed' : 'failed',
+      required: true,
+      summary: config.liveEnabled
+        ? 'Explicit config enable state is present for simulation.'
+        : 'Explicit config enable state is disabled; simulation cannot pass.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'sandbox_read_only_only',
+      source: 'sandbox',
+      status: requestedSandboxMode === 'read_only' ? 'passed' : 'failed',
+      required: true,
+      summary:
+        requestedSandboxMode === 'read_only'
+          ? 'Requested sandbox mode is read_only.'
+          : `Requested sandbox mode ${requestedSandboxMode} is not allowed for read-only adapter simulation.`,
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'forbidden_sandbox_modes_remain_forbidden',
+      source: 'sandbox',
+      status:
+        config.forbiddenSandboxModes.includes('workspace_write') &&
+        config.forbiddenSandboxModes.includes('danger_full_access') &&
+        requestedSandboxMode === 'read_only'
+          ? 'passed'
+          : 'failed',
+      required: true,
+      summary: 'workspace_write and danger_full_access must remain forbidden.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'dry_run_exists',
+      source: 'dry_run',
+      status: plan ? 'passed' : 'failed',
+      required: true,
+      summary: plan ? 'Dry-run plan exists.' : 'Dry-run plan is missing.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'policy_decision_exists',
+      source: 'policy',
+      status: policyDecision ? 'passed' : 'failed',
+      required: true,
+      summary: policyDecision ? 'Policy decision exists.' : 'Policy decision is missing.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'policy_decision_compatible',
+      source: 'policy',
+      status: policyCompatible ? 'passed' : 'failed',
+      required: true,
+      summary: policyCompatible
+        ? 'Policy decision is compatible with dry-run-first simulation.'
+        : 'Policy decision is absent, denied, or not dry-run-first compatible.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'approval_artifact_exists',
+      source: 'approval',
+      status: approvalArtifact ? 'passed' : 'failed',
+      required: true,
+      summary: approvalArtifact
+        ? 'Approval artifact exists for simulation.'
+        : 'Approval artifact is missing.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'approval_artifact_valid',
+      source: 'approval',
+      status: approvalArtifactValid ? 'passed' : 'failed',
+      required: true,
+      summary: approvalArtifactValid
+        ? 'Approval artifact is approved, unused, unrevoked, and unexpired.'
+        : 'Approval artifact is absent, expired, revoked, used, or not approved.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'dry_run_plan_hash_match',
+      source: 'hash',
+      status: dryRunPlanHashMatched ? 'passed' : 'failed',
+      required: true,
+      summary: dryRunPlanHashMatched
+        ? 'Approval artifact dry-run hash matches the current dry-run plan.'
+        : 'Approval artifact dry-run hash is missing or mismatched.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'policy_decision_hash_match',
+      source: 'hash',
+      status: policyDecisionHashMatched ? 'passed' : 'failed',
+      required: true,
+      summary: policyDecisionHashMatched
+        ? 'Approval artifact policy hash matches the current policy decision.'
+        : 'Approval artifact policy hash is missing or mismatched.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'isolated_worktree_present',
+      source: 'worktree',
+      status: input.isolatedWorktreePresent === true ? 'passed' : 'failed',
+      required: true,
+      summary:
+        input.isolatedWorktreePresent === true
+          ? 'Isolated worktree is present.'
+          : 'Isolated worktree is required for simulator pass.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'evidence_store_ready',
+      source: 'evidence',
+      status: input.evidenceStoreReady === true ? 'passed' : 'failed',
+      required: true,
+      summary:
+        input.evidenceStoreReady === true
+          ? 'Evidence store is ready for metadata-only refs.'
+          : 'Evidence store readiness is missing.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'audit_store_ready',
+      source: 'audit',
+      status: input.auditStoreReady === true ? 'passed' : 'failed',
+      required: true,
+      summary:
+        input.auditStoreReady === true
+          ? 'Audit store is ready for metadata-only events.'
+          : 'Audit store readiness is missing.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'operator_checklist_complete',
+      source: 'operator',
+      status: checklistComplete ? 'passed' : 'warning',
+      required: false,
+      summary: checklistComplete
+        ? 'Operator checklist is complete.'
+        : 'Operator checklist is incomplete and requires human review.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'dashboard_trigger_forbidden',
+      source: 'dashboard',
+      status: input.dashboardTriggerAttempted === true ? 'failed' : 'passed',
+      required: true,
+      summary:
+        input.dashboardTriggerAttempted === true
+          ? 'Dashboard trigger attempt is forbidden.'
+          : 'Dashboard trigger remains forbidden and absent.',
+    }),
+    createReadOnlyAdapterSimulationCheck({
+      code: 'adr_decision_design_only',
+      source: 'adr_decision',
+      status: adrDecisionDesignOnly ? 'passed' : 'warning',
+      required: false,
+      summary: adrDecisionDesignOnly
+        ? 'ADR decision allows design only and does not approve implementation.'
+        : 'ADR design-only decision is missing or incomplete; human review is required.',
+    }),
+  ];
+
+  if (input.processAdapterAttempted === true) {
+    checks.push(
+      createReadOnlyAdapterSimulationCheck({
+        code: 'process_adapter_not_attempted',
+        source: 'sandbox',
+        status: 'failed',
+        required: true,
+        summary: 'Process adapter attempt is forbidden in simulator input.',
+      }),
+    );
+  }
+
+  if (input.workspaceWriteRequested === true || input.dangerFullAccessRequested === true) {
+    checks.push(
+      createReadOnlyAdapterSimulationCheck({
+        code: 'write_or_full_access_not_requested',
+        source: 'sandbox',
+        status: 'failed',
+        required: true,
+        summary: 'workspace_write and danger_full_access requests are blocked by simulation.',
+      }),
+    );
+  }
+
+  const blockers = createReadOnlyAdapterSimulationBlockers(checks, forbiddenCapabilityRequested);
+  const hasFailedRequired = checks.some((check) => check.required && check.status === 'failed');
+  const hasWarnings = checks.some((check) => check.status === 'warning');
+  const status: CodexExecReadOnlyAdapterPreflightSimulationStatus = blockers.some(
+    (blocker) => blocker.severity === 'critical',
+  )
+    ? 'blocked'
+    : hasFailedRequired
+      ? 'failed'
+      : hasWarnings
+        ? 'requires_review'
+        : 'passed';
+  const passedCheckCount = checks.filter((check) => check.status === 'passed').length;
+  const failedCheckCount = checks.filter((check) => check.status === 'failed').length;
+  const warningCheckCount = checks.filter((check) => check.status === 'warning').length;
+
+  return {
+    id: foundationId('codex_read_only_adapter_preflight_simulation'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    status,
+    requestedSandboxMode,
+    checks,
+    blockers,
+    operatorChecklist,
+    configLiveEnabled: config.liveEnabled,
+    dryRunExists: plan !== undefined,
+    policyDecisionExists: policyDecision !== undefined,
+    approvalArtifactExists: approvalArtifact !== undefined,
+    approvalArtifactValid,
+    dryRunPlanHashMatched,
+    policyDecisionHashMatched,
+    isolatedWorktreePresent: input.isolatedWorktreePresent === true,
+    evidenceStoreReady: input.evidenceStoreReady === true,
+    auditStoreReady: input.auditStoreReady === true,
+    checklistComplete,
+    adrDecisionDesignOnly,
+    passedCheckCount,
+    failedCheckCount,
+    warningCheckCount,
+    blockerCount: blockers.length,
+    summary: `Read-only adapter preflight simulation ${status}: ${passedCheckCount} passed, ${failedCheckCount} failed, ${warningCheckCount} require review.`,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      requestedSandboxMode,
+      configId: config.id,
+      liveConfigEnabled: config.liveEnabled,
+      dryRunPlanId: plan?.id ?? input.dryRunId,
+      policyDecisionId: policyDecision?.id,
+      approvalArtifactId: approvalArtifact?.id,
+      adrDecisionId: input.adrDecision?.id,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    }),
+  };
+}
+
+export function summarizeReadOnlyAdapterPreflightSimulation(
+  result: CodexExecReadOnlyAdapterPreflightSimulationResult,
+): CodexExecReadOnlyAdapterPreflightSimulationSummary {
+  const checkedRequired = result.operatorChecklist.filter(
+    (item) => item.required && item.checked,
+  ).length;
+  const totalRequired = result.operatorChecklist.filter((item) => item.required).length;
+
+  return {
+    id: foundationId('codex_read_only_adapter_preflight_simulation_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    simulationId: result.id,
+    dryRunId: result.dryRunId,
+    status: result.status,
+    requestedSandboxMode: result.requestedSandboxMode,
+    passedCheckCount: result.passedCheckCount,
+    failedCheckCount: result.failedCheckCount,
+    warningCheckCount: result.warningCheckCount,
+    blockerCount: result.blockerCount,
+    checklistCompletedCount: checkedRequired,
+    checklistTotalCount: totalRequired,
+    summary: result.summary,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    metadata: createControlPlaneMetadata({
+      simulationId: result.id,
+      dryRunPlanId: result.dryRunId,
+      status: result.status,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    }),
+  };
+}
+
+export function createReadOnlyAdapterPreflightSimulationEvidenceRefs(
+  result: CodexExecReadOnlyAdapterPreflightSimulationResult,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.preflight_simulation',
+      label: 'codex.read_only_adapter.preflight_simulation',
+      summary: result.summary,
+      metadata: createControlPlaneMetadata({
+        simulationId: result.id,
+        dryRunPlanId: result.dryRunId,
+        status: result.status,
+        blockerCount: result.blockerCount,
+        metadataOnly: true,
+        bodyStored: false,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: result.id,
+        dryRunId: result.dryRunId,
+        status: result.status,
+        checks: result.checks.map((check) => ({
+          code: check.code,
+          status: check.status,
+          required: check.required,
+        })),
+        blockers: result.blockers.map((blocker) => ({
+          code: blocker.code,
+          severity: blocker.severity,
+        })),
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterPreflightSimulationAuditEvents(
+  result: CodexExecReadOnlyAdapterPreflightSimulationResult,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.preflight_simulated',
+      outcome: result.status,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        simulationId: result.id,
+        dryRunPlanId: result.dryRunId,
+        status: result.status,
+        blockerCount: result.blockerCount,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+      }),
+    },
+  ];
+}
+
+function normalizeReadOnlyAdapterChecklist(
+  checklist: CodexExecReadOnlyAdapterOperatorChecklistItem[] | undefined,
+): CodexExecReadOnlyAdapterOperatorChecklistItem[] {
+  return checklist && checklist.length > 0
+    ? checklist
+    : createDefaultReadOnlyAdapterOperatorChecklist();
+}
+
+function createReadOnlyAdapterChecklistItem(input: {
+  code: string;
+  label: string;
+  summary: string;
+  checked?: boolean;
+  required?: boolean;
+}): CodexExecReadOnlyAdapterOperatorChecklistItem {
+  return {
+    id: foundationId('codex_read_only_adapter_operator_checklist_item'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    summary: input.summary,
+    checked: input.checked ?? false,
+    required: input.required ?? true,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      source: 'operator_checklist',
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    }),
+  };
+}
+
+function createReadOnlyAdapterSimulationCheck(input: {
+  code: string;
+  source: CodexExecReadOnlyAdapterPreflightSimulationCheckSource;
+  status: 'passed' | 'failed' | 'warning';
+  required: boolean;
+  summary: string;
+}): CodexExecReadOnlyAdapterPreflightSimulationCheck {
+  return {
+    id: foundationId('codex_read_only_adapter_preflight_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    source: input.source,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      source: input.source,
+      status: input.status,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    }),
+  };
+}
+
+function createReadOnlyAdapterSimulationBlockers(
+  checks: CodexExecReadOnlyAdapterPreflightSimulationCheck[],
+  forbiddenCapabilityRequested: boolean,
+): CodexExecReadOnlyAdapterPreflightSimulationBlocker[] {
+  return checks
+    .filter((check) => check.status === 'failed' && check.required)
+    .map((check) => {
+      const critical =
+        forbiddenCapabilityRequested &&
+        (check.source === 'sandbox' || check.source === 'dashboard');
+
+      return {
+        id: foundationId('codex_read_only_adapter_preflight_blocker'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        code: check.code,
+        source: check.source,
+        severity: critical ? 'critical' : 'high',
+        relatedCheckCode: check.code,
+        summary: check.summary,
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+        metadata: createControlPlaneMetadata({
+          code: check.code,
+          source: check.source,
+          severity: critical ? 'critical' : 'high',
+          processAdapterStarted: false,
+          implementationApproved: false,
+          dashboardTriggerAllowed: false,
+        }),
+      };
+    });
+}
+
 function createLiveAdapterAdrDraftQuery(input: {
   dryRunId: string;
   format: CodexExecLiveAdapterAdrDraftFormat;
@@ -4102,7 +4679,7 @@ export function createDefaultCodexExecLiveConfig(): CodexExecLiveConfig {
     createdAt: foundationTimestamp(),
     liveEnabled: false,
     allowedSandboxModes: ['read_only'],
-    forbiddenSandboxModes: ['danger_full_access'],
+    forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
     requiresApproval: true,
     requiresIsolatedWorktreeForWorkspaceWrite: true,
     approvalTtlMinutes: 30,

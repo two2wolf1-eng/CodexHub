@@ -3,6 +3,7 @@ liveEnabled: false
 allowedSandboxModes:
   - read_only
 forbiddenSandboxModes:
+  - workspace_write
   - danger_full_access
 requiresApproval: true
 requiresIsolatedWorktreeForWorkspaceWrite: true

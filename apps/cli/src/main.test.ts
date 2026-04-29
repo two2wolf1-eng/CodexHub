@@ -426,6 +426,51 @@ describe('cli development mock-run fallback', () => {
     expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
   });
 
+  it('simulates read-only adapter preflight locally without implying execution approval', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      formatReadOnlyAdapterPreflightSimulationOutput,
+      simulateReadOnlyAdapterPreflightCommand,
+    } = await import('./main');
+    const result = await simulateReadOnlyAdapterPreflightCommand('codex_dry_run_fixture', {
+      isolatedWorktree: true,
+      evidenceReady: true,
+      auditReady: true,
+      checklistComplete: true,
+    });
+    const output = formatReadOnlyAdapterPreflightSimulationOutput(result);
+
+    expect(result).toMatchObject({
+      simulationResult: {
+        dryRunId: 'codex_dry_run_fixture',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      degraded: true,
+    });
+    expect(output).toContain('Read-only adapter preflight simulation');
+    expect(output).toContain('liveExecution=false');
+    expect(output).toContain('externalProcessStarted=false');
+    expect(output).toContain('executionDisabled=true');
+    expect(output).toContain('processAdapterStarted=false');
+    expect(output).toContain('implementationApproved=false');
+    expect(output).toContain('dashboardTriggerAllowed=false');
+    expect(output).toContain('does not grant execution permission');
+    expect(output).not.toContain('execution approval');
+    expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
+  });
+
   it('creates local report review records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

@@ -328,6 +328,44 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/live-adapter-adr-decisions?dryRunId=${canonicalDryRunPlanId}&decision=execute_now`,
     });
+    const readOnlyPreflightSimulationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/preflight-simulate',
+      payload: {
+        dryRunId: canonicalDryRunPlanId,
+        isolatedWorktreePresent: true,
+        evidenceStoreReady: true,
+        auditStoreReady: true,
+        checklistComplete: true,
+      },
+    });
+    const blockedReadOnlyPreflightSimulationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/preflight-simulate',
+      payload: {
+        dryRunId: canonicalDryRunPlanId,
+        requestedSandboxMode: 'workspace_write',
+        workspaceWriteRequested: true,
+        isolatedWorktreePresent: true,
+        evidenceStoreReady: true,
+        auditStoreReady: true,
+        checklistComplete: true,
+      },
+    });
+    const readOnlyPreflightSimulationListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/preflight-simulations?limit=10',
+    });
+    const missingReadOnlyPreflightSimulationDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/preflight-simulate',
+      payload: { dryRunId: 'missing_dry_run' },
+    });
+    const missingReadOnlyPreflightSimulationIdResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/preflight-simulate',
+      payload: {},
+    });
     const missingReportReviewResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/report-review/missing_review',
@@ -1000,6 +1038,70 @@ describe('supervisor mock development API', () => {
     expect(missingAdrDecisionLatestResponse.statusCode).toBe(404);
     expect(missingAdrDecisionLatestResponse.body).not.toContain(process.cwd());
     expect(invalidAdrDecisionQueryResponse.statusCode).toBe(400);
+    expect(readOnlyPreflightSimulationResponse.statusCode).toBe(200);
+    expect(readOnlyPreflightSimulationResponse.json()).toMatchObject({
+      simulationResult: {
+        dryRunId: canonicalDryRunPlanId,
+        status: 'failed',
+        requestedSandboxMode: 'read_only',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+      },
+      summary: {
+        dryRunId: canonicalDryRunPlanId,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(readOnlyPreflightSimulationResponse.json().evidenceRefs).toHaveLength(1);
+    expect(readOnlyPreflightSimulationResponse.json().auditEvents).toHaveLength(1);
+    expect(
+      readOnlyPreflightSimulationResponse
+        .json()
+        .simulationResult.blockers.map((blocker: { code: string }) => blocker.code),
+    ).toContain('config_explicit_enable_state');
+    expect(JSON.stringify(readOnlyPreflightSimulationResponse.json())).not.toContain(
+      'list risk areas',
+    );
+    expect(blockedReadOnlyPreflightSimulationResponse.statusCode).toBe(200);
+    expect(blockedReadOnlyPreflightSimulationResponse.json()).toMatchObject({
+      simulationResult: {
+        status: 'blocked',
+        requestedSandboxMode: 'workspace_write',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+    expect(
+      blockedReadOnlyPreflightSimulationResponse
+        .json()
+        .simulationResult.blockers.some(
+          (blocker: { severity: string }) => blocker.severity === 'critical',
+        ),
+    ).toBe(true);
+    expect(readOnlyPreflightSimulationListResponse.statusCode).toBe(200);
+    expect(readOnlyPreflightSimulationListResponse.json().simulations.length).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(missingReadOnlyPreflightSimulationDryRunResponse.statusCode).toBe(404);
+    expect(missingReadOnlyPreflightSimulationDryRunResponse.body).not.toContain(process.cwd());
+    expect(missingReadOnlyPreflightSimulationIdResponse.statusCode).toBe(400);
     expect(missingReportReviewResponse.statusCode).toBe(404);
     expect(missingReportReviewResponse.body).not.toContain(process.cwd());
     expect(missingReportReviewLatestResponse.statusCode).toBe(404);

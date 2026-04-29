@@ -17,6 +17,9 @@ import {
   createCodexExecLiveAdapterAdrDecisionAuditEvents,
   createCodexExecLiveAdapterAdrDecisionEvidenceRefs,
   createCodexExecLiveAdapterAdrDecisionRecord,
+  createDefaultReadOnlyAdapterOperatorChecklist,
+  createReadOnlyAdapterPreflightSimulationAuditEvents,
+  createReadOnlyAdapterPreflightSimulationEvidenceRefs,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -49,8 +52,10 @@ import {
   renderCodexExecLiveAdapterAdrDraftMarkdown,
   summarizeCodexExecReportReview,
   summarizeCodexExecLiveAdapterAdrDecision,
+  summarizeReadOnlyAdapterPreflightSimulation,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
+  simulateReadOnlyAdapterPreflight,
 } from '@codexhub/codex-kernel';
 import type {
   CodexExecApprovalDecisionOutcome,
@@ -63,6 +68,7 @@ import type {
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveRunRecord,
+  CodexExecReadOnlyAdapterOperatorChecklistItem,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -151,6 +157,13 @@ export interface CodexExecAdrDecisionListCliOptions extends CodexExecJsonCliOpti
   dryRun?: string;
   status?: string;
   decision?: string;
+}
+
+export interface CodexExecReadOnlyAdapterPreflightCliOptions extends CodexExecJsonCliOptions {
+  isolatedWorktree?: boolean;
+  evidenceReady?: boolean;
+  auditReady?: boolean;
+  checklistComplete?: boolean;
 }
 
 export function buildProgram(): Command {
@@ -557,6 +570,26 @@ export function buildProgram(): Command {
       const result = await getCodexExecReportReviewHandoff(dryRunId, options);
       console.log(formatCodexExecReportReviewHandoffOutput(result, options));
     });
+
+  const readOnlyAdapterCommand = execCommand
+    .command('read-only-adapter')
+    .description('Read-only adapter design and simulator commands');
+
+  readOnlyAdapterCommand
+    .command('preflight-simulate')
+    .argument('<dryRunId>')
+    .option('--isolated-worktree', 'Mark the simulated isolated worktree check ready')
+    .option('--evidence-ready', 'Mark the simulated evidence store check ready')
+    .option('--audit-ready', 'Mark the simulated audit store check ready')
+    .option('--checklist-complete', 'Mark all simulated operator checklist items complete')
+    .option('--json', 'Print full JSON output')
+    .description('Simulate future read-only adapter preflight gates without executing anything')
+    .action(
+      async (dryRunId: string, options: CodexExecReadOnlyAdapterPreflightCliOptions) => {
+        const result = await simulateReadOnlyAdapterPreflightCommand(dryRunId, options);
+        console.log(formatReadOnlyAdapterPreflightSimulationOutput(result, options));
+      },
+    );
 
   return program;
 }
@@ -1445,6 +1478,73 @@ export async function getLatestCodexExecAdrDecisionCommand(
   }
 }
 
+export async function simulateReadOnlyAdapterPreflightCommand(
+  dryRunId: string,
+  options: CodexExecReadOnlyAdapterPreflightCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/preflight-simulate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRunId,
+          isolatedWorktreePresent: options.isolatedWorktree === true,
+          evidenceStoreReady: options.evidenceReady === true,
+          auditStoreReady: options.auditReady === true,
+          checklistComplete: options.checklistComplete === true,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const configLoadResult = await readLocalCodexExecConfig();
+    const adrDecision = createLocalLiveAdapterAdrDecisionRecord(record.dryRunPlanId);
+    const simulationResult = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: configLoadResult.config,
+      adrDecision,
+      isolatedWorktreePresent: options.isolatedWorktree === true,
+      evidenceStoreReady: options.evidenceReady === true,
+      auditStoreReady: options.auditReady === true,
+      operatorChecklist: createReadOnlyAdapterChecklistFromOptions(options),
+      metadata: { requestedBy: 'cli-fallback' },
+    });
+    const summary = summarizeReadOnlyAdapterPreflightSimulation(simulationResult);
+    const evidenceRefs = createReadOnlyAdapterPreflightSimulationEvidenceRefs(simulationResult);
+    const auditEvents = createReadOnlyAdapterPreflightSimulationAuditEvents(
+      simulationResult,
+      evidenceRefs,
+    );
+
+    return {
+      simulationResult,
+      summary,
+      blockers: simulationResult.blockers,
+      evidenceRefs,
+      auditEvents,
+      configLoadResult,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      degraded: true,
+      reason:
+        'supervisor unavailable; local read-only adapter preflight simulation was not persisted',
+    };
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -2142,6 +2242,64 @@ export function formatCodexExecAdrDecisionListOutput(
   ].join('\n');
 }
 
+export function formatReadOnlyAdapterPreflightSimulationOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReadOnlyAdapterPreflightCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const simulation = result.simulationResult as
+    | {
+        dryRunId?: string;
+        status?: string;
+        passedCheckCount?: number;
+        failedCheckCount?: number;
+        warningCheckCount?: number;
+        blockerCount?: number;
+        liveExecution?: boolean;
+        externalProcessStarted?: boolean;
+        executionDisabled?: boolean;
+        processAdapterStarted?: boolean;
+        implementationApproved?: boolean;
+        dashboardTriggerAllowed?: boolean;
+        summary?: string;
+      }
+    | undefined;
+  const blockers = (result.blockers as Array<{ code?: string; severity?: string }> | undefined)
+    ?.slice(0, 5)
+    .map((blocker) => `- ${blocker.severity ?? 'unknown'} ${blocker.code ?? 'unknown'}`);
+
+  return [
+    'Read-only adapter preflight simulation',
+    `dryRunId: ${simulation?.dryRunId ?? 'unknown'}`,
+    `status: ${simulation?.status ?? 'unknown'}`,
+    `checks: ${simulation?.passedCheckCount ?? 0} passed, ${simulation?.failedCheckCount ?? 0} failed, ${simulation?.warningCheckCount ?? 0} require review`,
+    `blockers: ${simulation?.blockerCount ?? 0}`,
+    `liveExecution=${String(simulation?.liveExecution ?? result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(
+      simulation?.externalProcessStarted ?? result.externalProcessStarted ?? false,
+    )}`,
+    `executionDisabled=${String(simulation?.executionDisabled ?? result.executionDisabled ?? true)}`,
+    `processAdapterStarted=${String(
+      simulation?.processAdapterStarted ?? result.processAdapterStarted ?? false,
+    )}`,
+    `implementationApproved=${String(
+      simulation?.implementationApproved ?? result.implementationApproved ?? false,
+    )}`,
+    `dashboardTriggerAllowed=${String(
+      simulation?.dashboardTriggerAllowed ?? result.dashboardTriggerAllowed ?? false,
+    )}`,
+    'simulation only; it does not grant execution permission',
+    blockers && blockers.length > 0 ? 'blockers:' : 'blockers: none',
+    ...(blockers ?? []),
+    simulation?.summary ?? '',
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
+}
+
 export function formatCodexExecReportReviewOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -2771,6 +2929,16 @@ function noLiveFlagsText(result: Record<string, unknown>): string {
     `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
     `executionDisabled=${String(result.executionDisabled ?? true)}`,
   ].join('\n');
+}
+
+function createReadOnlyAdapterChecklistFromOptions(
+  options: CodexExecReadOnlyAdapterPreflightCliOptions,
+): CodexExecReadOnlyAdapterOperatorChecklistItem[] {
+  const checklist = createDefaultReadOnlyAdapterOperatorChecklist();
+
+  return options.checklistComplete === true
+    ? checklist.map((item) => ({ ...item, checked: true }))
+    : checklist;
 }
 
 function isTimelineFilterSource(

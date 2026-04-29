@@ -14,6 +14,9 @@ import {
   createCodexExecLiveAdapterAdrDecisionAuditEvents,
   createCodexExecLiveAdapterAdrDecisionEvidenceRefs,
   createCodexExecLiveAdapterAdrDecisionRecord,
+  createDefaultReadOnlyAdapterOperatorChecklist,
+  createReadOnlyAdapterPreflightSimulationAuditEvents,
+  createReadOnlyAdapterPreflightSimulationEvidenceRefs,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -57,9 +60,11 @@ import {
   renderCodexExecLiveAdapterAdrDraftMarkdown,
   summarizeCodexExecGovernanceReviewPackage,
   summarizeCodexExecLiveAdapterAdrDraft,
+  summarizeReadOnlyAdapterPreflightSimulation,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
+  simulateReadOnlyAdapterPreflight,
 } from './index';
 
 describe('codex-kernel fixture replay parser', () => {
@@ -265,6 +270,7 @@ describe('codex-kernel live control-plane skeleton', () => {
         'allowedSandboxModes:',
         '  - read_only',
         'forbiddenSandboxModes:',
+        '  - workspace_write',
         '  - danger_full_access',
         'requiresApproval: true',
         'requiresIsolatedWorktreeForWorkspaceWrite: true',
@@ -1159,6 +1165,191 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(latest?.id).toBe(record.id);
     expect(JSON.stringify(persistedRecord)).not.toContain('full prompt body');
     expect(JSON.stringify(persistedRecord)).not.toContain('full command body');
+  });
+
+  it('simulates a passing read-only adapter preflight without granting execution', () => {
+    const { record } = createFullTimelineFixture();
+    const config = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+    };
+    const adrDecision = createCodexExecLiveAdapterAdrDecisionRecord({
+      dryRunId: record.dryRunPlanId,
+      reviewerLabel: 'local-operator',
+    });
+    const checklist = createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+      ...item,
+      checked: true,
+    }));
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config,
+      adrDecision,
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: checklist,
+    });
+    const summary = summarizeReadOnlyAdapterPreflightSimulation(result);
+
+    expect(result.status).toBe('passed');
+    expect(result.executionDisabled).toBe(true);
+    expect(result.liveExecution).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(result.processAdapterStarted).toBe(false);
+    expect(result.implementationApproved).toBe(false);
+    expect(result.dashboardTriggerAllowed).toBe(false);
+    expect(result.recommendationGrantsExecution).toBe(false);
+    expect(result.blockers).toHaveLength(0);
+    expect(summary.status).toBe('passed');
+    expect(summary.checklistCompletedCount).toBe(summary.checklistTotalCount);
+  });
+
+  it('fails simulation when config is disabled or required governance is missing', () => {
+    const { record } = createFullTimelineFixture();
+    const disabledResult = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: createDefaultCodexExecLiveConfig(),
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+        ...item,
+        checked: true,
+      })),
+    });
+    const { approvalArtifact: _approvalArtifact, ...recordWithoutApprovalArtifact } = record;
+    const missingApprovalResult = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record: recordWithoutApprovalArtifact,
+      config: {
+        ...createDefaultCodexExecLiveConfig(),
+        liveEnabled: true,
+        forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+      },
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+        ...item,
+        checked: true,
+      })),
+    });
+
+    expect(disabledResult.status).toBe('failed');
+    expect(disabledResult.blockers.map((blocker) => blocker.code)).toContain(
+      'config_explicit_enable_state',
+    );
+    expect(missingApprovalResult.status).toBe('failed');
+    expect(missingApprovalResult.blockers.map((blocker) => blocker.code)).toContain(
+      'approval_artifact_exists',
+    );
+  });
+
+  it('blocks simulation when forbidden sandbox capabilities are requested', () => {
+    const { record } = createFullTimelineFixture();
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: {
+        ...createDefaultCodexExecLiveConfig(),
+        liveEnabled: true,
+        forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+      },
+      requestedSandboxMode: 'workspace_write',
+      workspaceWriteRequested: true,
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+        ...item,
+        checked: true,
+      })),
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blockers.some((blocker) => blocker.severity === 'critical')).toBe(true);
+    expect(result.liveExecution).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(result.executionDisabled).toBe(true);
+  });
+
+  it('fails simulation on hash mismatch or missing isolated worktree', () => {
+    const { record } = createFullTimelineFixture();
+    const config = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+    };
+    const checklist = createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+      ...item,
+      checked: true,
+    }));
+    const hashMismatch = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config,
+      approvalArtifact: record.approvalArtifact
+        ? { ...record.approvalArtifact, dryRunPlanHash: 'sha256:mismatch' }
+        : undefined,
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: checklist,
+    });
+    const missingWorktree = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config,
+      isolatedWorktreePresent: false,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: checklist,
+    });
+
+    expect(hashMismatch.status).toBe('failed');
+    expect(hashMismatch.blockers.map((blocker) => blocker.code)).toContain(
+      'dry_run_plan_hash_match',
+    );
+    expect(missingWorktree.status).toBe('failed');
+    expect(missingWorktree.blockers.map((blocker) => blocker.code)).toContain(
+      'isolated_worktree_present',
+    );
+  });
+
+  it('requires review for incomplete operator checklist and creates metadata-only evidence/audit', () => {
+    const { record } = createFullTimelineFixture();
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: {
+        ...createDefaultCodexExecLiveConfig(),
+        liveEnabled: true,
+        forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+      },
+      adrDecision: createCodexExecLiveAdapterAdrDecisionRecord({
+        dryRunId: record.dryRunPlanId,
+        reviewerLabel: 'local-operator',
+      }),
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: createDefaultReadOnlyAdapterOperatorChecklist(),
+    });
+    const evidenceRefs = createReadOnlyAdapterPreflightSimulationEvidenceRefs(result);
+    const auditEvents = createReadOnlyAdapterPreflightSimulationAuditEvents(result, evidenceRefs);
+
+    expect(result.status).toBe('requires_review');
+    expect(result.warningCheckCount).toBeGreaterThan(0);
+    expect(evidenceRefs).toHaveLength(1);
+    expect(evidenceRefs[0]?.kind).toBe('codex.exec.read_only_adapter.preflight_simulation');
+    expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
+    expect(auditEvents[0]?.action).toBe('codex.exec.read_only_adapter.preflight_simulated');
+    expect(auditEvents[0]?.metadata?.externalProcessStarted).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('Summarize repository structure and list');
   });
 
   it('returns a safe not_found review draft when report is unavailable', () => {

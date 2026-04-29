@@ -27,6 +27,12 @@ import {
   CodexExecLiveAdapterAdrDecisionQuerySchema,
   CodexExecLiveAdapterAdrDecisionRecordSchema,
   CodexExecLiveAdapterAdrDecisionSummarySchema,
+  CodexExecReadOnlyAdapterOperatorChecklistItemSchema,
+  CodexExecReadOnlyAdapterPreflightSimulationBlockerSchema,
+  CodexExecReadOnlyAdapterPreflightSimulationCheckSchema,
+  CodexExecReadOnlyAdapterPreflightSimulationInputSchema,
+  CodexExecReadOnlyAdapterPreflightSimulationResultSchema,
+  CodexExecReadOnlyAdapterPreflightSimulationSummarySchema,
   CodexExecNoLiveEvidenceSummarySchema,
   CodexExecReportReviewComparisonSchema,
   CodexExecReportReviewComparisonItemSchema,
@@ -404,7 +410,7 @@ describe('contracts schemas', () => {
 
     expect(config.liveEnabled).toBe(false);
     expect(config.allowedSandboxModes).toEqual(['read_only']);
-    expect(config.forbiddenSandboxModes).toEqual(['danger_full_access']);
+    expect(config.forbiddenSandboxModes).toEqual(['workspace_write', 'danger_full_access']);
     expect(config.liveExecution).toBe(false);
     expect(config.executionDisabled).toBe(true);
     expect(preflight.status).toBe('blocked');
@@ -1516,5 +1522,152 @@ describe('contracts schemas', () => {
     expect(query.limit).toBe(10);
     expect(JSON.stringify(record)).not.toContain('full prompt body');
     expect(JSON.stringify(record)).not.toContain('full command body');
+  });
+
+  it('parses read-only adapter preflight simulator contracts with fixed no-live flags', () => {
+    const checklistItem = CodexExecReadOnlyAdapterOperatorChecklistItemSchema.parse({
+      id: 'codex_read_only_checklist_1',
+      schemaVersion,
+      createdAt,
+      code: 'dry_run_reviewed',
+      label: 'Dry-run reviewed',
+      summary: 'Operator reviewed metadata-only dry-run summary.',
+      checked: true,
+      required: true,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const check = CodexExecReadOnlyAdapterPreflightSimulationCheckSchema.parse({
+      id: 'codex_read_only_preflight_check_1',
+      schemaVersion,
+      createdAt,
+      code: 'sandbox_read_only_only',
+      source: 'sandbox',
+      status: 'passed',
+      required: true,
+      summary: 'Sandbox is read_only.',
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const blocker = CodexExecReadOnlyAdapterPreflightSimulationBlockerSchema.parse({
+      id: 'codex_read_only_preflight_blocker_1',
+      schemaVersion,
+      createdAt,
+      code: 'approval_artifact_exists',
+      source: 'approval',
+      severity: 'high',
+      relatedCheckCode: 'approval_artifact_exists',
+      summary: 'Approval artifact is missing.',
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const input = CodexExecReadOnlyAdapterPreflightSimulationInputSchema.parse({
+      id: 'codex_read_only_preflight_input_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      requestedSandboxMode: 'read_only',
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: [checklistItem],
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const result = CodexExecReadOnlyAdapterPreflightSimulationResultSchema.parse({
+      id: 'codex_read_only_preflight_result_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: input.dryRunId,
+      status: 'failed',
+      requestedSandboxMode: 'read_only',
+      checks: [check],
+      blockers: [blocker],
+      operatorChecklist: [checklistItem],
+      configLiveEnabled: false,
+      dryRunExists: true,
+      policyDecisionExists: true,
+      approvalArtifactExists: false,
+      approvalArtifactValid: false,
+      dryRunPlanHashMatched: false,
+      policyDecisionHashMatched: false,
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      checklistComplete: true,
+      adrDecisionDesignOnly: true,
+      passedCheckCount: 1,
+      failedCheckCount: 1,
+      warningCheckCount: 0,
+      blockerCount: 1,
+      summary: 'Simulation failed because approval artifact is missing.',
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const summary = CodexExecReadOnlyAdapterPreflightSimulationSummarySchema.parse({
+      id: 'codex_read_only_preflight_summary_1',
+      schemaVersion,
+      createdAt,
+      simulationId: result.id,
+      dryRunId: result.dryRunId,
+      status: result.status,
+      requestedSandboxMode: 'read_only',
+      passedCheckCount: 1,
+      failedCheckCount: 1,
+      warningCheckCount: 0,
+      blockerCount: 1,
+      checklistCompletedCount: 1,
+      checklistTotalCount: 1,
+      summary: result.summary,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+
+    expect(result.liveExecution).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(result.executionDisabled).toBe(true);
+    expect(result.processAdapterStarted).toBe(false);
+    expect(result.implementationApproved).toBe(false);
+    expect(result.dashboardTriggerAllowed).toBe(false);
+    expect(result.recommendationGrantsExecution).toBe(false);
+    expect(summary.status).toBe('failed');
   });
 });

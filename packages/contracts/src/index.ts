@@ -52,6 +52,7 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.approval_decision',
     'codex.exec.approval_state',
     'codex.exec.live_adapter_adr_decision',
+    'codex.exec.read_only_adapter.preflight_simulation',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -576,6 +577,12 @@ const codexExecControlPlaneSafetyFlagsSchema = z.object({
   executionDisabled: z.literal(true).default(true),
 });
 
+const codexExecReadOnlyAdapterSafetyFlagsSchema = codexExecControlPlaneSafetyFlagsSchema.extend({
+  processAdapterStarted: z.literal(false).default(false),
+  implementationApproved: z.literal(false).default(false),
+  dashboardTriggerAllowed: z.literal(false).default(false),
+});
+
 export const CodexExecConfigSourceSchema = z.enum(['default', 'file']);
 export type CodexExecConfigSource = z.infer<typeof CodexExecConfigSourceSchema>;
 
@@ -632,7 +639,7 @@ export const CodexExecLiveConfigSchema = createdEntityBaseSchema
   .extend({
     liveEnabled: z.boolean().default(false),
     allowedSandboxModes: z.array(CodexExecSandboxModeSchema).default(['read_only']),
-    forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema).default(['danger_full_access']),
+    forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema).default(['workspace_write', 'danger_full_access']),
     requiresApproval: z.boolean().default(true),
     requiresIsolatedWorktreeForWorkspaceWrite: z.boolean().default(true),
     approvalTtlMinutes: z.number().int().positive().default(30),
@@ -1979,6 +1986,155 @@ export const CodexExecLiveAdapterAdrDecisionQuerySchema = createdEntityBaseSchem
   });
 export type CodexExecLiveAdapterAdrDecisionQuery = z.infer<
   typeof CodexExecLiveAdapterAdrDecisionQuerySchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationStatusSchema = z.enum([
+  'passed',
+  'failed',
+  'requires_review',
+  'blocked',
+]);
+export type CodexExecReadOnlyAdapterPreflightSimulationStatus = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationStatusSchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationCheckSourceSchema = z.enum([
+  'config',
+  'sandbox',
+  'dry_run',
+  'policy',
+  'approval',
+  'hash',
+  'worktree',
+  'evidence',
+  'audit',
+  'operator',
+  'dashboard',
+  'adr_decision',
+]);
+export type CodexExecReadOnlyAdapterPreflightSimulationCheckSource = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationCheckSourceSchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationCheckSchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    source: CodexExecReadOnlyAdapterPreflightSimulationCheckSourceSchema,
+    status: z.enum(['passed', 'failed', 'warning']),
+    required: z.boolean(),
+    summary: z.string().min(1),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterPreflightSimulationCheck = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationCheckSchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationBlockerSchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    source: CodexExecReadOnlyAdapterPreflightSimulationCheckSourceSchema,
+    severity: RiskLevelSchema,
+    relatedCheckCode: z.string().min(1).optional(),
+    summary: z.string().min(1),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterPreflightSimulationBlocker = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationBlockerSchema
+>;
+
+export const CodexExecReadOnlyAdapterOperatorChecklistItemSchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    summary: z.string().min(1),
+    checked: z.boolean().default(false),
+    required: z.boolean().default(true),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterOperatorChecklistItem = z.infer<
+  typeof CodexExecReadOnlyAdapterOperatorChecklistItemSchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationInputSchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    requestedSandboxMode: CodexExecSandboxModeSchema.default('read_only'),
+    isolatedWorktreePresent: z.boolean().default(false),
+    evidenceStoreReady: z.boolean().default(false),
+    auditStoreReady: z.boolean().default(false),
+    dashboardTriggerAttempted: z.boolean().default(false),
+    processAdapterAttempted: z.boolean().default(false),
+    workspaceWriteRequested: z.boolean().default(false),
+    dangerFullAccessRequested: z.boolean().default(false),
+    operatorChecklist: z.array(CodexExecReadOnlyAdapterOperatorChecklistItemSchema).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterPreflightSimulationInput = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationInputSchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationResultSchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecReadOnlyAdapterPreflightSimulationStatusSchema,
+    requestedSandboxMode: CodexExecSandboxModeSchema,
+    checks: z.array(CodexExecReadOnlyAdapterPreflightSimulationCheckSchema),
+    blockers: z.array(CodexExecReadOnlyAdapterPreflightSimulationBlockerSchema),
+    operatorChecklist: z.array(CodexExecReadOnlyAdapterOperatorChecklistItemSchema),
+    configLiveEnabled: z.boolean(),
+    dryRunExists: z.boolean(),
+    policyDecisionExists: z.boolean(),
+    approvalArtifactExists: z.boolean(),
+    approvalArtifactValid: z.boolean(),
+    dryRunPlanHashMatched: z.boolean(),
+    policyDecisionHashMatched: z.boolean(),
+    isolatedWorktreePresent: z.boolean(),
+    evidenceStoreReady: z.boolean(),
+    auditStoreReady: z.boolean(),
+    checklistComplete: z.boolean(),
+    adrDecisionDesignOnly: z.boolean(),
+    passedCheckCount: z.number().int().nonnegative(),
+    failedCheckCount: z.number().int().nonnegative(),
+    warningCheckCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterPreflightSimulationResult = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationResultSchema
+>;
+
+export const CodexExecReadOnlyAdapterPreflightSimulationSummarySchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    simulationId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    status: CodexExecReadOnlyAdapterPreflightSimulationStatusSchema,
+    requestedSandboxMode: CodexExecSandboxModeSchema,
+    passedCheckCount: z.number().int().nonnegative(),
+    failedCheckCount: z.number().int().nonnegative(),
+    warningCheckCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    checklistCompletedCount: z.number().int().nonnegative(),
+    checklistTotalCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterPreflightSimulationSummary = z.infer<
+  typeof CodexExecReadOnlyAdapterPreflightSimulationSummarySchema
 >;
 
 export function foundationTimestamp(): string {

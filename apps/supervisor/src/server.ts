@@ -16,6 +16,9 @@ import {
   createCodexExecLiveAdapterAdrDecisionAuditEvents,
   createCodexExecLiveAdapterAdrDecisionEvidenceRefs,
   createCodexExecLiveAdapterAdrDecisionRecord,
+  createDefaultReadOnlyAdapterOperatorChecklist,
+  createReadOnlyAdapterPreflightSimulationAuditEvents,
+  createReadOnlyAdapterPreflightSimulationEvidenceRefs,
   createCodexExecTimelineDetailView,
   createCodexExecReportReviewRecord,
   createCodexExecDisabledLiveRunRecord,
@@ -46,6 +49,8 @@ import {
   getLatestCodexExecReportReview,
   getLatestCodexExecLiveAdapterAdrDecision,
   listCodexExecLiveAdapterAdrDecisionSummaries,
+  simulateReadOnlyAdapterPreflight,
+  summarizeReadOnlyAdapterPreflightSimulation,
   summarizeCodexExecLiveAdapterAdrDecision,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
@@ -65,6 +70,8 @@ import type {
   CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
+  CodexExecReadOnlyAdapterOperatorChecklistItem,
+  CodexExecReadOnlyAdapterPreflightSimulationResult,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -105,6 +112,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const codexExecApprovalRecords: CodexExecManualApprovalRecord[] = [];
   const codexReportReviewRecords: CodexExecReportReviewRecord[] = [];
   const codexLiveAdapterAdrDecisionRecords: CodexExecLiveAdapterAdrDecisionRecord[] = [];
+  const readOnlyAdapterPreflightSimulations: CodexExecReadOnlyAdapterPreflightSimulationResult[] =
+    [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -794,6 +803,138 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.post('/api/codex/exec/read-only-adapter/preflight-simulate', async (request, reply) => {
+    const body = request.body as
+      | {
+          dryRunId?: string;
+          requestedSandboxMode?: CodexExecSandboxMode;
+          isolatedWorktreePresent?: boolean;
+          evidenceStoreReady?: boolean;
+          auditStoreReady?: boolean;
+          checklistComplete?: boolean;
+          operatorChecklist?: CodexExecReadOnlyAdapterOperatorChecklistItem[];
+          dashboardTriggerAttempted?: boolean;
+          processAdapterAttempted?: boolean;
+          workspaceWriteRequested?: boolean;
+          dangerFullAccessRequested?: boolean;
+        }
+      | undefined;
+
+    if (!body?.dryRunId) {
+      return reply.code(400).send({
+        error: 'dryRunId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    if (body.requestedSandboxMode && !codexExecSandboxModes.has(body.requestedSandboxMode)) {
+      return reply.code(400).send({
+        error: 'unsupported sandbox mode',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({
+        error: 'dry-run record was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const configLoadResult = await getLiveConfigLoadResult();
+    const adrDecisions = await listCodexExecLiveAdapterAdrDecisionRecords(store, {
+      dryRunId: record.dryRunPlanId,
+      limit: 50,
+    });
+    const adrDecision = getLatestCodexExecLiveAdapterAdrDecision(
+      adrDecisions,
+      record.dryRunPlanId,
+    );
+    const operatorChecklist = createReadOnlyAdapterOperatorChecklistFromBody(body);
+    const simulationResult = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: configLoadResult.config,
+      adrDecision,
+      requestedSandboxMode: body.requestedSandboxMode,
+      isolatedWorktreePresent: body.isolatedWorktreePresent === true,
+      evidenceStoreReady: body.evidenceStoreReady ?? store !== undefined,
+      auditStoreReady: body.auditStoreReady ?? store !== undefined,
+      operatorChecklist,
+      dashboardTriggerAttempted: body.dashboardTriggerAttempted === true,
+      processAdapterAttempted: body.processAdapterAttempted === true,
+      workspaceWriteRequested: body.workspaceWriteRequested === true,
+      dangerFullAccessRequested: body.dangerFullAccessRequested === true,
+      metadata: {
+        requestedBy: 'supervisor-api',
+        liveRunRecordId: record.id,
+        configLoadResultId: configLoadResult.id,
+      },
+    });
+    const summary = summarizeReadOnlyAdapterPreflightSimulation(simulationResult);
+    const evidenceRefs = createReadOnlyAdapterPreflightSimulationEvidenceRefs(simulationResult);
+    const auditEvents = createReadOnlyAdapterPreflightSimulationAuditEvents(
+      simulationResult,
+      evidenceRefs,
+    );
+
+    readOnlyAdapterPreflightSimulations.unshift(simulationResult);
+
+    if (store) {
+      for (const evidenceRef of evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+    }
+
+    return {
+      simulationResult,
+      summary,
+      blockers: simulationResult.blockers,
+      evidenceRefs,
+      auditEvents,
+      configLoadResult,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/read-only-adapter/preflight-simulations', (request) => {
+    const limitResult = parseLimitQueryValue(readQueryValue(request.query, 'limit'));
+    const limit = limitResult.allowed ? (limitResult.limit ?? 10) : 10;
+
+    return {
+      simulations: readOnlyAdapterPreflightSimulations.slice(0, limit),
+      count: Math.min(readOnlyAdapterPreflightSimulations.length, limit),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
       degraded: persistenceState.status !== 'ok',
       reason: persistenceState.reason,
     };
@@ -2026,6 +2167,7 @@ const evidenceKinds = new Set([
   'codex.exec.approval_decision',
   'codex.exec.approval_state',
   'codex.exec.live_adapter_adr_decision',
+  'codex.exec.read_only_adapter.preflight_simulation',
 ]);
 const reportReviewStatuses = new Set([
   'draft',
@@ -2042,6 +2184,26 @@ const reportReviewRecommendations = new Set([
 ]);
 const liveAdapterAdrDecisionOutcomes = new Set(['no_go', 'conditional_read_only_go']);
 const liveAdapterAdrDecisionStatuses = new Set(['draft', 'recorded', 'superseded']);
+const codexExecSandboxModes = new Set(['read_only', 'workspace_write', 'danger_full_access']);
+
+function createReadOnlyAdapterOperatorChecklistFromBody(
+  body:
+    | {
+        checklistComplete?: boolean;
+        operatorChecklist?: CodexExecReadOnlyAdapterOperatorChecklistItem[];
+      }
+    | undefined,
+): CodexExecReadOnlyAdapterOperatorChecklistItem[] {
+  if (body?.operatorChecklist && body.operatorChecklist.length > 0) {
+    return body.operatorChecklist;
+  }
+
+  const checklist = createDefaultReadOnlyAdapterOperatorChecklist();
+
+  return body?.checklistComplete === true
+    ? checklist.map((item) => ({ ...item, checked: true }))
+    : checklist;
+}
 
 function parseTimelineFilter(
   query: unknown,

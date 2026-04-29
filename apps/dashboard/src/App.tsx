@@ -6,6 +6,7 @@ import type {
   CodexExecGovernanceReviewPackage,
   CodexExecLiveAdapterAdrDecisionSummary,
   CodexExecLiveAdapterAdrDraft,
+  CodexExecReadOnlyAdapterPreflightSimulationResult,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -39,6 +40,7 @@ interface OverviewState {
   codexExecGovernancePackages: CodexExecGovernanceReviewPackage[];
   codexExecAdrDecisions: CodexExecLiveAdapterAdrDecisionSummary[];
   codexExecAdrDrafts: CodexExecLiveAdapterAdrDraft[];
+  codexExecReadOnlyAdapterPreflightSimulations: CodexExecReadOnlyAdapterPreflightSimulationResult[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -64,6 +66,7 @@ export function App() {
     codexExecGovernancePackages: [],
     codexExecAdrDecisions: [],
     codexExecAdrDrafts: [],
+    codexExecReadOnlyAdapterPreflightSimulations: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -84,6 +87,7 @@ export function App() {
           codexExecDryRunsResponse,
           codexExecConfigResponse,
           codexExecApprovalsResponse,
+          readOnlyAdapterPreflightSimulationsResponse,
           codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
@@ -99,6 +103,9 @@ export function App() {
             liveConfig?: CodexExecLiveConfig;
           }>('/api/codex/exec/config'),
           getJson<{ approvals: CodexExecManualApprovalRecord[] }>('/api/codex/exec/approvals'),
+          getJson<{
+            simulations: CodexExecReadOnlyAdapterPreflightSimulationResult[];
+          }>('/api/codex/exec/read-only-adapter/preflight-simulations?limit=5'),
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
@@ -285,6 +292,8 @@ export function App() {
             codexExecGovernancePackages,
             codexExecAdrDecisions,
             codexExecAdrDrafts,
+            codexExecReadOnlyAdapterPreflightSimulations:
+              readOnlyAdapterPreflightSimulationsResponse.simulations,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -308,6 +317,7 @@ export function App() {
             codexExecGovernancePackages: [],
             codexExecAdrDecisions: [],
             codexExecAdrDrafts: [],
+            codexExecReadOnlyAdapterPreflightSimulations: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -965,6 +975,74 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only Live Adapter ADR decision is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Read-only Adapter Preflight Simulator">
+          {overview.codexExecReadOnlyAdapterPreflightSimulations.length > 0 ? (
+            <ul>
+              {overview.codexExecReadOnlyAdapterPreflightSimulations.map((simulation) => (
+                <li key={simulation.id} className="stacked report-detail">
+                  <strong>{simulation.dryRunId}</strong>
+                  <span>
+                    status {simulation.status}, sandbox {simulation.requestedSandboxMode}, blockers{' '}
+                    {simulation.blockerCount}
+                  </span>
+                  <span>
+                    checks {simulation.passedCheckCount} passed, {simulation.failedCheckCount}{' '}
+                    failed, {simulation.warningCheckCount} require review
+                  </span>
+                  <span>
+                    isolated worktree {String(simulation.isolatedWorktreePresent)}, evidence ready{' '}
+                    {String(simulation.evidenceStoreReady)}, audit ready{' '}
+                    {String(simulation.auditStoreReady)}
+                  </span>
+                  <span>
+                    liveExecution {String(simulation.liveExecution)}, externalProcessStarted{' '}
+                    {String(simulation.externalProcessStarted)}, executionDisabled{' '}
+                    {String(simulation.executionDisabled)}
+                  </span>
+                  <span>
+                    processAdapterStarted {String(simulation.processAdapterStarted)},
+                    implementationApproved {String(simulation.implementationApproved)}, dashboard
+                    trigger allowed {String(simulation.dashboardTriggerAllowed)}
+                  </span>
+                  <div
+                    className="report-section-grid"
+                    aria-label="Read-only adapter preflight simulator summary"
+                  >
+                    <div className="report-section">
+                      <strong>Operator checklist</strong>
+                      {simulation.operatorChecklist.slice(0, 6).map((item) => (
+                        <p key={item.id}>
+                          {item.code}: {item.checked ? 'checked' : 'not checked'}
+                        </p>
+                      ))}
+                      {simulation.operatorChecklist.length === 0 ? (
+                        <p>No checklist items are available.</p>
+                      ) : null}
+                    </div>
+                    <div className="report-section">
+                      <strong>Blockers</strong>
+                      {simulation.blockers.slice(0, 6).map((blocker) => (
+                        <p key={blocker.id}>
+                          {blocker.severity} {blocker.code}: {blocker.summary}
+                        </p>
+                      ))}
+                      {simulation.blockers.length === 0 ? (
+                        <p>No simulator blockers are present.</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p>
+                    Simulation result is readiness evidence only and does not grant execution
+                    permission.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only adapter preflight simulation has been recorded yet.</p>
           )}
         </Panel>
 
