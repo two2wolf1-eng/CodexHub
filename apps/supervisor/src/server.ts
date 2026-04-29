@@ -7,6 +7,7 @@ import {
   createCodexExecApprovalTransitionResult,
   buildControlPlaneDrilldownView,
   createCodexExecControlPlaneTimeline,
+  buildCodexExecControlPlaneReport,
   createCodexExecTimelineDetailView,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
@@ -29,6 +30,8 @@ import {
   runCodexExecPreflight,
   searchAuditEvents,
   searchEvidence,
+  renderCodexExecControlPlaneReportJson,
+  renderCodexExecControlPlaneReportMarkdown,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type {
@@ -38,6 +41,7 @@ import type {
   CodexExecConfigLoadResult,
   CodexExecEvidenceQuery,
   CodexExecAuditQuery,
+  CodexExecControlPlaneReportFormat,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
   CodexExecSandboxMode,
@@ -1049,6 +1053,71 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.get('/api/codex/exec/report/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+    const queryResult = parseReportQuery(request.query);
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({ error: queryResult.reason });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(params.dryRunId, store);
+    const records = record ? [record] : await resolveCodexExecLiveRunRecords(store);
+    const evidenceRefs =
+      store && queryResult.includeEvidence
+        ? await store.evidenceRefs.listEvidenceRefs({ dryRunId: params.dryRunId, limit: 100 })
+        : undefined;
+    const auditEvents =
+      store && queryResult.includeAudit
+        ? await store.auditEvents.listAuditEvents({ dryRunId: params.dryRunId, limit: 100 })
+        : undefined;
+    const approvalRecords = await resolveCodexExecApprovalRecordsForDryRun(
+      record?.dryRunPlanId ?? params.dryRunId,
+      store,
+    );
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: params.dryRunId,
+      record,
+      records,
+      approvalRecords,
+      evidenceRefs,
+      auditEvents,
+      format: queryResult.format,
+      includeEvidence: queryResult.includeEvidence,
+      includeAudit: queryResult.includeAudit,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    });
+    const exportResult =
+      queryResult.format === 'markdown'
+        ? renderCodexExecControlPlaneReportMarkdown(report)
+        : renderCodexExecControlPlaneReportJson(report);
+    const responseBody = {
+      report,
+      exportResult,
+      renderedContent: exportResult.renderedContent,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+
+    if (report.status === 'not_found') {
+      return reply.code(404).send({
+        ...responseBody,
+        error: 'dry-run record was not found',
+      });
+    }
+
+    return responseBody;
+  });
+
   async function resolveCodexExecLiveRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -1338,6 +1407,44 @@ function parseAuditQuery(
       action,
       limit: limitResult.limit,
     },
+  };
+}
+
+function parseReportQuery(query: unknown):
+  | {
+      allowed: true;
+      format: CodexExecControlPlaneReportFormat;
+      includeEvidence: boolean;
+      includeAudit: boolean;
+    }
+  | { allowed: false; reason: string } {
+  const formatValue = readQueryValue(query, 'format');
+  const includeEvidenceValue = readQueryValue(query, 'includeEvidence');
+  const includeAuditValue = readQueryValue(query, 'includeAudit');
+  const format = formatValue ?? 'json';
+
+  if (format !== 'json' && format !== 'markdown') {
+    return { allowed: false, reason: 'format must be json or markdown' };
+  }
+
+  const includeEvidence =
+    includeEvidenceValue === undefined ? true : parseBooleanQueryValue(includeEvidenceValue);
+  const includeAudit =
+    includeAuditValue === undefined ? true : parseBooleanQueryValue(includeAuditValue);
+
+  if (includeEvidence === undefined) {
+    return { allowed: false, reason: 'includeEvidence must be true or false' };
+  }
+
+  if (includeAudit === undefined) {
+    return { allowed: false, reason: 'includeAudit must be true or false' };
+  }
+
+  return {
+    allowed: true,
+    format,
+    includeEvidence,
+    includeAudit,
   };
 }
 

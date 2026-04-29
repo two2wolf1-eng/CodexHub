@@ -15,6 +15,7 @@ import {
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
   buildControlPlaneDrilldownView,
+  buildCodexExecControlPlaneReport,
   createCodexExecManualApprovalDecision,
   createCodexExecManualApprovalRecord,
   createCodexExecManualApprovalRequest,
@@ -32,6 +33,8 @@ import {
   runCodexExecPreflight,
   searchAuditEvents,
   searchEvidence,
+  renderCodexExecControlPlaneReportJson,
+  renderCodexExecControlPlaneReportMarkdown,
   summarizeCodexExecReplay,
 } from './index';
 
@@ -616,6 +619,96 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(drilldown.externalProcessStarted).toBe(false);
     expect(drilldown.executionDisabled).toBe(true);
     expect(JSON.stringify(drilldown)).not.toContain('disabled for timeline test');
+  });
+
+  it('builds a read-only report with required sections and no body exposure', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+      format: 'json',
+      includeEvidence: true,
+      includeAudit: true,
+    });
+    const sectionKinds = report.sections.map((section) => section.kind);
+
+    expect(sectionKinds).toEqual([
+      'overview',
+      'dry_run',
+      'timeline',
+      'approval',
+      'gate',
+      'evidence',
+      'audit',
+      'no_live_boundary',
+      'risks',
+      'recommendations',
+    ]);
+    expect(report.summary.evidenceCount).toBeGreaterThan(0);
+    expect(report.summary.auditEventCount).toBeGreaterThan(0);
+    expect(report.liveExecution).toBe(false);
+    expect(report.externalProcessStarted).toBe(false);
+    expect(report.executionDisabled).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('disabled for timeline test');
+    expect(JSON.stringify(report)).not.toContain('Summarize repository structure and list');
+  });
+
+  it('renders report JSON and Markdown with no-live flags and safe content only', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+      format: 'markdown',
+    });
+    const jsonExport = renderCodexExecControlPlaneReportJson(report);
+    const markdownExport = renderCodexExecControlPlaneReportMarkdown(report);
+
+    expect(jsonExport.format).toBe('json');
+    expect(jsonExport.renderedContentHash).toMatch(/^sha256:/);
+    expect(jsonExport.liveExecution).toBe(false);
+    expect(markdownExport.format).toBe('markdown');
+    expect(markdownExport.renderedContent).toContain('# Codex Control-plane Report');
+    expect(markdownExport.renderedContent).toContain('liveExecution=false');
+    expect(markdownExport.renderedContent).toContain('externalProcessStarted=false');
+    expect(markdownExport.renderedContent).toContain('executionDisabled=true');
+    expect(markdownExport.renderedContent).not.toContain('disabled for timeline test');
+    expect(markdownExport.renderedContent).not.toContain('Summarize repository structure and list');
+  });
+
+  it('excludes evidence and audit summaries when disabled by query', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+      includeEvidence: false,
+      includeAudit: false,
+    });
+    const evidenceSection = report.sections.find((section) => section.kind === 'evidence');
+    const auditSection = report.sections.find((section) => section.kind === 'audit');
+
+    expect(report.summary.evidenceCount).toBe(0);
+    expect(report.summary.auditEventCount).toBe(0);
+    expect(evidenceSection?.summary).toContain('excluded');
+    expect(auditSection?.summary).toContain('excluded');
+    expect(evidenceSection?.refIds).toEqual([]);
+    expect(auditSection?.refIds).toEqual([]);
+  });
+
+  it('returns a safe not_found report without throwing', () => {
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: 'missing_dry_run',
+      records: [],
+    });
+
+    expect(report.status).toBe('not_found');
+    expect(report.summary.finalControlPlaneStatus).toBe('not_found');
+    expect(report.sections.find((section) => section.kind === 'overview')?.status).toBe('missing');
+    expect(report.liveExecution).toBe(false);
+    expect(report.externalProcessStarted).toBe(false);
+    expect(report.executionDisabled).toBe(true);
   });
 });
 

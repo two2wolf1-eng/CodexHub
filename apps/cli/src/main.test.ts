@@ -257,4 +257,45 @@ describe('cli development mock-run fallback', () => {
     expect(formatCodexExecEvidenceListOutput(evidenceSearch)).toContain('liveExecution=false');
     expect(formatCodexExecDrilldownOutput(drilldown)).toContain('executionDisabled=true');
   });
+
+  it('creates a local report when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { formatCodexExecReportOutput, getCodexExecReport } = await import('./main');
+    const result = await getCodexExecReport('codex_dry_run_fixture', {
+      format: 'markdown',
+      includeEvidence: true,
+      includeAudit: true,
+    });
+    const output = formatCodexExecReportOutput(result);
+
+    expect(result).toMatchObject({
+      report: {
+        status: 'found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      exportResult: {
+        format: 'markdown',
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(output).toContain('# Codex Control-plane Report');
+    expect(output).toContain('liveExecution=false');
+    expect(output).toContain('externalProcessStarted=false');
+    expect(output).toContain('executionDisabled=true');
+    expect(output).not.toContain('Local control-plane fallback for');
+  });
+
+  it('guards report output paths', async () => {
+    const { resolveCodexExecReportOutputPath } = await import('./main');
+
+    expect(resolveCodexExecReportOutputPath('reports/foo.md').workspacePath).toBe('reports/foo.md');
+    expect(resolveCodexExecReportOutputPath('tmp/foo.md').workspacePath).toBe('tmp/foo.md');
+    expect(() => resolveCodexExecReportOutputPath('C:/tmp/foo.md')).toThrow('repository-relative');
+    expect(() => resolveCodexExecReportOutputPath('../foo.md')).toThrow('traversal');
+    expect(() => resolveCodexExecReportOutputPath('docs/foo.md')).toThrow('reports/ or tmp/');
+  });
 });

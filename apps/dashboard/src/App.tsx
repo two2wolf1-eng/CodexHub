@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type {
   CodexExecControlPlaneTimeline,
   CodexExecControlPlaneDrilldownView,
+  CodexExecControlPlaneReport,
   CodexExecTimelineDetailView,
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
@@ -27,6 +28,7 @@ interface OverviewState {
   codexExecTimelines: CodexExecControlPlaneTimeline[];
   codexExecTimelineDetails: CodexExecTimelineDetailView[];
   codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
+  codexExecReports: CodexExecControlPlaneReport[];
   message?: string;
 }
 
@@ -44,6 +46,7 @@ export function App() {
     codexExecTimelines: [],
     codexExecTimelineDetails: [],
     codexExecDrilldowns: [],
+    codexExecReports: [],
   });
 
   useEffect(() => {
@@ -121,6 +124,22 @@ export function App() {
         ).filter(
           (drilldown): drilldown is CodexExecControlPlaneDrilldownView => drilldown !== undefined,
         );
+        const codexExecReports = (
+          await Promise.all(
+            codexExecDryRunsResponse.runs.slice(0, 3).map(async (run) => {
+              try {
+                const response = await getJson<{ report: CodexExecControlPlaneReport }>(
+                  `/api/codex/exec/report/${encodeURIComponent(
+                    run.id,
+                  )}?format=json&includeEvidence=true&includeAudit=true`,
+                );
+                return response.report;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((report): report is CodexExecControlPlaneReport => report !== undefined);
 
         if (!cancelled) {
           setOverview({
@@ -138,6 +157,7 @@ export function App() {
             codexExecTimelines,
             codexExecTimelineDetails,
             codexExecDrilldowns,
+            codexExecReports,
           });
         }
       } catch (error) {
@@ -153,6 +173,7 @@ export function App() {
             codexExecTimelines: [],
             codexExecTimelineDetails: [],
             codexExecDrilldowns: [],
+            codexExecReports: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -481,6 +502,53 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only evidence or audit drilldown is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Control Report Preview">
+          {overview.codexExecReports.length > 0 ? (
+            <ul>
+              {overview.codexExecReports.map((report) => (
+                <li key={report.id} className="stacked report-detail">
+                  <strong>{report.dryRunId}</strong>
+                  <span>
+                    status {report.status}, sections {report.summary.sectionCount}, evidence{' '}
+                    {report.summary.evidenceCount}, audit {report.summary.auditEventCount}
+                  </span>
+                  <span>
+                    liveExecution {String(report.liveExecution)}, externalProcessStarted{' '}
+                    {String(report.externalProcessStarted)}, executionDisabled{' '}
+                    {String(report.executionDisabled)}
+                  </span>
+                  <div className="report-section-grid" aria-label="Read-only report sections">
+                    {report.sections.map((section) => (
+                      <div key={section.id} className="report-section">
+                        <strong>{section.title}</strong>
+                        <span>
+                          {section.kind} / {section.status}
+                        </span>
+                        <p>{section.summary}</p>
+                        <span>
+                          refs {section.refIds.length}, hashes {section.hashes.length}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <span>
+                    risks{' '}
+                    {report.sections.find((section) => section.kind === 'risks')?.summary ??
+                      'not available'}
+                  </span>
+                  <span>
+                    recommendations{' '}
+                    {report.sections.find((section) => section.kind === 'recommendations')
+                      ?.summary ?? 'not available'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only control-plane report preview is available yet.</p>
           )}
         </Panel>
       </section>

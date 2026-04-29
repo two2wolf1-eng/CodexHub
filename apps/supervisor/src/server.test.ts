@@ -208,6 +208,22 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/drilldown/${dryRunId}`,
     });
+    const reportJsonResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report/${dryRunId}?format=json&includeEvidence=true&includeAudit=true`,
+    });
+    const reportMarkdownResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report/${dryRunId}?format=markdown&includeEvidence=false&includeAudit=false`,
+    });
+    const missingReportResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/report/missing_dry_run?format=markdown',
+    });
+    const invalidReportResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report/${dryRunId}?format=txt`,
+    });
     const invalidTimelineResponse = await server.inject({
       method: 'GET',
       url: `/api/codex/exec/timeline/${dryRunId}?source=unsupported`,
@@ -513,6 +529,62 @@ describe('supervisor mock development API', () => {
     expect(drilldownResponse.json().drilldown.evidenceCount).toBeGreaterThan(0);
     expect(drilldownResponse.json().drilldown.auditEventCount).toBeGreaterThan(0);
     expect(JSON.stringify(drilldownResponse.json())).not.toContain('manual private reason');
+    expect(reportJsonResponse.statusCode).toBe(200);
+    expect(reportJsonResponse.json()).toMatchObject({
+      report: {
+        status: 'found',
+        summary: {
+          evidenceCount: expect.any(Number),
+          auditEventCount: expect.any(Number),
+        },
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      exportResult: {
+        format: 'json',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    });
+    expect(
+      reportJsonResponse.json().report.sections.map((section: { kind: string }) => section.kind),
+    ).toEqual([
+      'overview',
+      'dry_run',
+      'timeline',
+      'approval',
+      'gate',
+      'evidence',
+      'audit',
+      'no_live_boundary',
+      'risks',
+      'recommendations',
+    ]);
+    expect(JSON.stringify(reportJsonResponse.json())).not.toContain('manual private reason');
+    expect(JSON.stringify(reportJsonResponse.json())).not.toContain('list risk areas');
+    expect(reportMarkdownResponse.statusCode).toBe(200);
+    expect(reportMarkdownResponse.json()).toMatchObject({
+      report: {
+        status: 'found',
+        summary: {
+          evidenceCount: 0,
+          auditEventCount: 0,
+        },
+      },
+      exportResult: {
+        format: 'markdown',
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reportMarkdownResponse.json().renderedContent).toContain('# Codex Control-plane Report');
+    expect(reportMarkdownResponse.json().renderedContent).toContain('liveExecution=false');
+    expect(missingReportResponse.statusCode).toBe(404);
+    expect(missingReportResponse.body).not.toContain(process.cwd());
+    expect(invalidReportResponse.statusCode).toBe(400);
     expect(invalidTimelineResponse.statusCode).toBe(400);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });

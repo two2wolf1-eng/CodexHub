@@ -14,6 +14,14 @@ import type {
   CodexExecConfigFile,
   CodexExecConfigLoadResult,
   CodexExecControlPlaneDrilldownView,
+  CodexExecControlPlaneReport,
+  CodexExecControlPlaneReportExportResult,
+  CodexExecControlPlaneReportFormat,
+  CodexExecControlPlaneReportQuery,
+  CodexExecControlPlaneReportSection,
+  CodexExecControlPlaneReportSectionKind,
+  CodexExecControlPlaneReportStatus,
+  CodexExecControlPlaneReportSummary,
   CodexExecControlPlaneTimeline,
   CodexExecDryRunPlan,
   CodexExecEvidenceDetailView,
@@ -1243,6 +1251,641 @@ export function buildControlPlaneDrilldownView(input: {
       status: 'found',
     }),
   };
+}
+
+export interface CodexExecControlPlaneReportInput {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  records?: CodexExecLiveRunRecord[];
+  approvalRecords?: CodexExecManualApprovalRecord[];
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
+  format?: CodexExecControlPlaneReportFormat;
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
+  degraded?: boolean;
+  reason?: string;
+}
+
+const reportSectionOrder: CodexExecControlPlaneReportSectionKind[] = [
+  'overview',
+  'dry_run',
+  'timeline',
+  'approval',
+  'gate',
+  'evidence',
+  'audit',
+  'no_live_boundary',
+  'risks',
+  'recommendations',
+];
+
+export function buildCodexExecControlPlaneReport(
+  input: CodexExecControlPlaneReportInput,
+): CodexExecControlPlaneReport {
+  const format = input.format ?? 'json';
+  const includeEvidence = input.includeEvidence ?? true;
+  const includeAudit = input.includeAudit ?? true;
+  const records = input.record ? [input.record] : (input.records ?? []);
+  const record =
+    input.record ??
+    records.find(
+      (candidate) => candidate.id === input.dryRunId || candidate.dryRunPlanId === input.dryRunId,
+    );
+  const dryRunId = record?.dryRunPlanId ?? input.dryRunId;
+  const approvalRecords = (input.approvalRecords ?? []).filter(
+    (approvalRecord) => approvalRecord.request.dryRunPlanId === dryRunId,
+  );
+  const drilldown = buildControlPlaneDrilldownView({
+    dryRunId,
+    records: record ? [record] : records,
+    approvalRecords,
+    evidenceRefs: input.evidenceRefs,
+    auditEvents: input.auditEvents,
+  });
+  const status: CodexExecControlPlaneReportStatus = record ? 'found' : 'not_found';
+  const query: CodexExecControlPlaneReportQuery = {
+    id: foundationId('codex_report_query'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    format,
+    includeEvidence,
+    includeAudit,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      includeEvidence,
+      includeAudit,
+    }),
+  };
+  const sections = createReportSections({
+    dryRunId,
+    record,
+    approvalRecords,
+    drilldown,
+    includeEvidence,
+    includeAudit,
+    degraded: input.degraded === true,
+    reason: input.reason,
+  });
+  const recommendationSection = sections.find((section) => section.kind === 'recommendations');
+  const summary: CodexExecControlPlaneReportSummary = {
+    id: foundationId('codex_report_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    status,
+    sectionCount: sections.length,
+    evidenceCount: includeEvidence ? drilldown.evidenceCount : 0,
+    auditEventCount: includeAudit ? drilldown.auditEventCount : 0,
+    riskLevel: record?.riskLevel,
+    finalControlPlaneStatus:
+      drilldown.timeline?.status ?? record?.executionGateResult?.status ?? status,
+    recommendationCount: recommendationSection?.items.length ?? 0,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      liveRunRecordId: record?.id,
+      status,
+    }),
+  };
+
+  return {
+    id: foundationId('codex_report'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    status,
+    format,
+    query,
+    summary,
+    sections,
+    sectionOrder: reportSectionOrder,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      liveRunRecordId: record?.id,
+      status,
+      format,
+    }),
+  };
+}
+
+export function renderCodexExecControlPlaneReportJson(
+  report: CodexExecControlPlaneReport,
+): CodexExecControlPlaneReportExportResult {
+  const renderedContent = JSON.stringify(report, null, 2);
+
+  return createReportExportResult(report, 'json', renderedContent);
+}
+
+export function renderCodexExecControlPlaneReportMarkdown(
+  report: CodexExecControlPlaneReport,
+): CodexExecControlPlaneReportExportResult {
+  const renderedContent = [
+    `# Codex Control-plane Report`,
+    '',
+    `dryRunId: ${report.dryRunId}`,
+    `status: ${report.status}`,
+    `liveExecution=false`,
+    `externalProcessStarted=false`,
+    `executionDisabled=true`,
+    '',
+    ...report.sections.flatMap((section) => [
+      `## ${section.title}`,
+      '',
+      section.summary,
+      '',
+      ...section.items.map(
+        (item) => `- ${escapeMarkdown(item.label)}: ${escapeMarkdown(item.value)}`,
+      ),
+      section.refIds.length > 0 ? `- refs: ${section.refIds.map(escapeMarkdown).join(', ')}` : '',
+      section.hashes.length > 0 ? `- hashes: ${section.hashes.map(escapeMarkdown).join(', ')}` : '',
+      '',
+    ]),
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+
+  return createReportExportResult(report, 'markdown', renderedContent);
+}
+
+function createReportSections(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  approvalRecords: CodexExecManualApprovalRecord[];
+  drilldown: CodexExecControlPlaneDrilldownView;
+  includeEvidence: boolean;
+  includeAudit: boolean;
+  degraded: boolean;
+  reason?: string;
+}): CodexExecControlPlaneReportSection[] {
+  return [
+    createOverviewReportSection(input),
+    createDryRunReportSection(input),
+    createTimelineReportSection(input),
+    createApprovalReportSection(input),
+    createGateReportSection(input),
+    createEvidenceReportSection(input),
+    createAuditReportSection(input),
+    createNoLiveBoundaryReportSection(input),
+    createRisksReportSection(input),
+    createRecommendationsReportSection(input),
+  ];
+}
+
+function createOverviewReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  drilldown: CodexExecControlPlaneDrilldownView;
+}): CodexExecControlPlaneReportSection {
+  return createReportSection({
+    kind: 'overview',
+    title: 'Overview',
+    status: input.record ? 'ok' : 'missing',
+    summary: input.record
+      ? `Read-only report for ${input.dryRunId} is available.`
+      : `No read-only report source was found for ${input.dryRunId}.`,
+    items: [
+      reportItem('dryRunId', input.dryRunId, input.dryRunId),
+      reportItem('status', input.record ? 'found' : 'not_found'),
+      reportItem('createdAt', input.record?.createdAt ?? 'missing'),
+      reportItem('riskLevel', input.record?.riskLevel ?? 'missing'),
+      reportItem('finalControlPlaneStatus', input.drilldown.timeline?.status ?? 'not_found'),
+    ],
+    refIds: input.record ? [input.record.id, input.record.dryRunPlanId] : [input.dryRunId],
+    hashes: input.record ? [input.record.promptHash] : [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createDryRunReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+}): CodexExecControlPlaneReportSection {
+  return createReportSection({
+    kind: 'dry_run',
+    title: 'Dry-run',
+    status: input.record ? 'ok' : 'missing',
+    summary: input.record
+      ? 'Dry-run metadata is summarized without storing source prompt body.'
+      : 'Dry-run metadata is unavailable.',
+    items: [
+      reportItem('promptSummary', input.record?.promptSummary ?? 'missing'),
+      reportItem('promptHash', input.record?.promptHash ?? 'missing'),
+      reportItem('promptLength', String(input.record?.promptLength ?? 0)),
+      reportItem('sandboxMode', input.record?.sandboxMode ?? 'missing'),
+      reportItem('approvalMode', input.record?.approvalMode ?? 'missing'),
+      reportItem('promptBodyStored', 'false'),
+    ],
+    refIds: input.record ? [input.record.dryRunPlanId, input.record.commandPreview.id] : [],
+    hashes: input.record ? [input.record.promptHash, input.record.commandPreview.previewHash] : [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createTimelineReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  drilldown: CodexExecControlPlaneDrilldownView;
+}): CodexExecControlPlaneReportSection {
+  const timelineDetail = input.drilldown.timelineDetail;
+  const sourceBreakdown = timelineDetail?.sourceBreakdown ?? {};
+
+  return createReportSection({
+    kind: 'timeline',
+    title: 'Timeline',
+    status: input.drilldown.timeline ? 'ok' : 'missing',
+    summary: input.drilldown.timeline
+      ? `Timeline ${input.drilldown.timeline.status} with ${input.drilldown.timeline.eventCount} events.`
+      : 'Timeline data is unavailable.',
+    items: [
+      reportItem('eventCount', String(input.drilldown.timeline?.eventCount ?? 0)),
+      reportItem('sourceBreakdown', formatCounts(sourceBreakdown)),
+      reportItem('latestGateStatus', timelineDetail?.latestGateStatus ?? 'missing'),
+      reportItem('approvalState', timelineDetail?.approvalStatus ?? 'missing'),
+    ],
+    refIds: input.drilldown.timeline?.events.map((event) => event.id) ?? [],
+    hashes: [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createApprovalReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  approvalRecords: CodexExecManualApprovalRecord[];
+}): CodexExecControlPlaneReportSection {
+  const approvalRecords = dedupeApprovalRecords([
+    ...(input.record?.manualApprovalRecord ? [input.record.manualApprovalRecord] : []),
+    ...input.approvalRecords,
+  ]);
+  const latestRecord = approvalRecords[approvalRecords.length - 1];
+  const latestState = input.record
+    ? getLatestApprovalState(input.record, approvalRecords)
+    : latestRecord?.approvalState;
+  const latestDecision = latestRecord?.decision ?? input.record?.manualApprovalDecision;
+  const latestArtifact = latestRecord?.approvalArtifact ?? input.record?.approvalArtifact;
+
+  return createReportSection({
+    kind: 'approval',
+    title: 'Approval',
+    status: latestState ? 'ok' : 'missing',
+    summary: latestState
+      ? `Approval state is ${latestState.status}.`
+      : 'No manual approval state is available.',
+    items: [
+      reportItem('currentState', latestState?.status ?? 'missing'),
+      reportItem('terminal', String(latestState?.terminal ?? false)),
+      reportItem('canDecide', String(latestState?.canDecide ?? false)),
+      reportItem('latestDecision', latestDecision?.outcome ?? 'missing'),
+      reportItem('approvalArtifactId', latestArtifact?.id ?? 'missing', latestArtifact?.id),
+      reportItem('approvalDryRunPlanHash', latestArtifact?.dryRunPlanHash ?? 'missing'),
+      reportItem('approvalPolicyDecisionHash', latestArtifact?.policyDecisionHash ?? 'missing'),
+    ],
+    refIds: [latestRecord?.id, latestState?.id, latestDecision?.id, latestArtifact?.id].filter(
+      (value): value is string => Boolean(value),
+    ),
+    hashes: [latestArtifact?.dryRunPlanHash, latestArtifact?.policyDecisionHash].filter(
+      (value): value is string => Boolean(value),
+    ),
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createGateReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+}): CodexExecControlPlaneReportSection {
+  const gate = input.record?.executionGateResult;
+
+  return createReportSection({
+    kind: 'gate',
+    title: 'Execution Gate',
+    status: gate ? 'ok' : 'missing',
+    summary: gate ? `Execution gate is ${gate.status}.` : 'Execution gate has not been evaluated.',
+    items: [
+      reportItem('status', gate?.status ?? 'missing'),
+      reportItem('blockedReasons', gate?.reasons.join('; ') || 'none'),
+      reportItem('liveExecution', 'false'),
+      reportItem('externalProcessStarted', 'false'),
+      reportItem('executionDisabled', 'true'),
+    ],
+    refIds: gate ? [gate.id] : [],
+    hashes: gate ? [gate.dryRunPlanHash, gate.policyDecisionHash] : [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createEvidenceReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  drilldown: CodexExecControlPlaneDrilldownView;
+  includeEvidence: boolean;
+}): CodexExecControlPlaneReportSection {
+  const items = input.includeEvidence
+    ? input.drilldown.evidenceSearch.items.map((item) =>
+        reportItem(
+          item.kind ?? 'evidence',
+          item.summary ?? item.evidenceRefId,
+          item.evidenceRefId,
+          item.hash,
+        ),
+      )
+    : [];
+
+  return createReportSection({
+    kind: 'evidence',
+    title: 'Evidence',
+    status: input.includeEvidence ? 'ok' : 'missing',
+    summary: input.includeEvidence
+      ? `Evidence summary includes ${input.drilldown.evidenceCount} metadata-only refs.`
+      : 'Evidence summary was excluded by query.',
+    items: [
+      reportItem(
+        'evidenceCount',
+        String(input.includeEvidence ? input.drilldown.evidenceCount : 0),
+      ),
+      reportItem(
+        'evidenceKinds',
+        input.includeEvidence ? formatEvidenceKinds(input.drilldown) : 'excluded',
+      ),
+      ...items,
+    ],
+    refIds: input.includeEvidence
+      ? input.drilldown.evidenceSearch.items.map((item) => item.evidenceRefId)
+      : [],
+    hashes: input.includeEvidence
+      ? input.drilldown.evidenceSearch.items
+          .map((item) => item.hash)
+          .filter((value): value is string => Boolean(value))
+      : [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createAuditReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  drilldown: CodexExecControlPlaneDrilldownView;
+  includeAudit: boolean;
+}): CodexExecControlPlaneReportSection {
+  const items = input.includeAudit
+    ? input.drilldown.auditSearch.items.map((item) =>
+        reportItem(item.action ?? 'audit', item.outcome ?? item.auditEventId, item.auditEventId),
+      )
+    : [];
+
+  return createReportSection({
+    kind: 'audit',
+    title: 'Audit',
+    status: input.includeAudit ? 'ok' : 'missing',
+    summary: input.includeAudit
+      ? `Audit summary includes ${input.drilldown.auditEventCount} metadata-only events.`
+      : 'Audit summary was excluded by query.',
+    items: [
+      reportItem(
+        'auditEventCount',
+        String(input.includeAudit ? input.drilldown.auditEventCount : 0),
+      ),
+      reportItem(
+        'auditActions',
+        input.includeAudit ? formatAuditActions(input.drilldown) : 'excluded',
+      ),
+      ...items,
+    ],
+    refIds: input.includeAudit
+      ? input.drilldown.auditSearch.items.map((item) => item.auditEventId)
+      : [],
+    hashes: [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createNoLiveBoundaryReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+}): CodexExecControlPlaneReportSection {
+  const codexExecutionLabel = ['Codex', 'exec'].join(' ');
+
+  return createReportSection({
+    kind: 'no_live_boundary',
+    title: 'No-live Boundary',
+    status: 'ok',
+    summary: 'This report is read-only and derived from control-plane summaries.',
+    items: [
+      reportItem(`${codexExecutionLabel} process`, 'not executed'),
+      reportItem('external process', 'not started'),
+      reportItem('browser/CDP/workspace action', 'not performed'),
+      reportItem('report mode', 'read-only'),
+      reportItem('liveExecution', 'false'),
+      reportItem('externalProcessStarted', 'false'),
+      reportItem('executionDisabled', 'true'),
+    ],
+    refIds: input.record ? [input.record.id, input.record.dryRunPlanId] : [input.dryRunId],
+    hashes: input.record ? [input.record.promptHash] : [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createRisksReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  degraded: boolean;
+  reason?: string;
+}): CodexExecControlPlaneReportSection {
+  const risks = [
+    input.record ? undefined : reportItem('missingData', 'dry-run record was not found'),
+    input.degraded
+      ? reportItem('degradedFallback', input.reason ?? 'degraded persistence state')
+      : undefined,
+    reportItem('liveAdapter', 'requires separate ADR before any execution path'),
+  ].filter(
+    (item): item is CodexExecControlPlaneReportSection['items'][number] => item !== undefined,
+  );
+
+  return createReportSection({
+    kind: 'risks',
+    title: 'Risks',
+    status: input.degraded || !input.record ? 'degraded' : 'ok',
+    summary:
+      risks.length > 0
+        ? `${risks.length} report risks or TODOs are listed.`
+        : 'No report-specific risk was detected.',
+    items:
+      risks.length > 0
+        ? risks
+        : [reportItem('knownTodo', 'continue read-only control-plane review')],
+    refIds: input.record ? [input.record.id] : [],
+    hashes: [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createRecommendationsReportSection(input: {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+}): CodexExecControlPlaneReportSection {
+  return createReportSection({
+    kind: 'recommendations',
+    title: 'Recommendations',
+    status: 'ok',
+    summary: 'Recommended next steps preserve the disabled control-plane boundary.',
+    items: [
+      reportItem(
+        'nextSafeStep',
+        input.record
+          ? 'review report evidence and audit refs'
+          : 'create a dry-run before reporting',
+      ),
+      reportItem(
+        'liveAdapterDecision',
+        'separate ADR and go/no-go review required before execution path',
+      ),
+    ],
+    refIds: input.record ? [input.record.dryRunPlanId] : [input.dryRunId],
+    hashes: [],
+    dryRunId: input.dryRunId,
+    liveRunRecordId: input.record?.id,
+  });
+}
+
+function createReportSection(input: {
+  kind: CodexExecControlPlaneReportSectionKind;
+  title: string;
+  status: CodexExecControlPlaneReportSection['status'];
+  summary: string;
+  items: CodexExecControlPlaneReportSection['items'];
+  refIds: string[];
+  hashes: string[];
+  dryRunId: string;
+  liveRunRecordId?: string;
+}): CodexExecControlPlaneReportSection {
+  return {
+    id: foundationId('codex_report_section'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    kind: input.kind,
+    title: input.title,
+    status: input.status,
+    summary: input.summary,
+    items: input.items,
+    refIds: uniqueStrings(input.refIds),
+    hashes: uniqueStrings(input.hashes),
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      liveRunRecordId: input.liveRunRecordId,
+      reportSection: input.kind,
+    }),
+  };
+}
+
+function reportItem(
+  label: string,
+  value: string,
+  refId?: string,
+  hash?: string,
+): CodexExecControlPlaneReportSection['items'][number] {
+  return {
+    label,
+    value: value.length > 0 ? value : 'none',
+    refId,
+    hash,
+  };
+}
+
+function createReportExportResult(
+  report: CodexExecControlPlaneReport,
+  format: CodexExecControlPlaneReportFormat,
+  renderedContent: string,
+): CodexExecControlPlaneReportExportResult {
+  return {
+    id: foundationId('codex_report_export'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: report.dryRunId,
+    format,
+    status: report.status,
+    report: {
+      ...report,
+      format,
+    },
+    renderedContent,
+    renderedContentHash: prefixedHash(renderedContent),
+    renderedContentLength: renderedContent.length,
+    metadataOnly: true,
+    sourceBodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: report.dryRunId,
+      reportId: report.id,
+      format,
+    }),
+  };
+}
+
+function formatCounts(counts: Record<string, number>): string {
+  const entries = Object.entries(counts).sort(([left], [right]) => left.localeCompare(right));
+  return entries.length > 0 ? entries.map(([key, value]) => `${key}:${value}`).join(', ') : 'none';
+}
+
+function formatEvidenceKinds(drilldown: CodexExecControlPlaneDrilldownView): string {
+  return formatCounts(
+    drilldown.evidenceSearch.items.reduce(
+      (counts, item) => ({
+        ...counts,
+        [item.kind ?? 'unknown']: (counts[item.kind ?? 'unknown'] ?? 0) + 1,
+      }),
+      {} as Record<string, number>,
+    ),
+  );
+}
+
+function formatAuditActions(drilldown: CodexExecControlPlaneDrilldownView): string {
+  return formatCounts(
+    drilldown.auditSearch.items.reduce(
+      (counts, item) => ({
+        ...counts,
+        [item.action ?? 'unknown']: (counts[item.action ?? 'unknown'] ?? 0) + 1,
+      }),
+      {} as Record<string, number>,
+    ),
+  );
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter((value) => value.length > 0))).sort();
+}
+
+function escapeMarkdown(value: string): string {
+  return value.replace(/([\\`*_{}[\]()#+\-.!|>])/g, '\\$1');
 }
 
 export function createDefaultCodexExecLiveConfig(): CodexExecLiveConfig {

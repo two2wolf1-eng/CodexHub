@@ -11,6 +11,8 @@ import {
   CodexExecControlPlaneDrilldownViewSchema,
   CodexExecEvidenceDetailViewSchema,
   CodexExecEvidenceSearchResultSchema,
+  CodexExecControlPlaneReportExportResultSchema,
+  CodexExecControlPlaneReportSchema,
   CodexExecTimelineFilterSchema,
   CodexExecTimelineQuerySchema,
   CodexExecManualApprovalRecordSchema,
@@ -835,5 +837,110 @@ describe('contracts schemas', () => {
     expect(drilldown.evidenceSearch.items[0]?.metadataOnly).toBe(true);
     expect(drilldown.auditSearch.items[0]?.bodyStored).toBe(false);
     expect(JSON.stringify(drilldown)).not.toContain('full command body');
+  });
+
+  it('parses codex control-plane report export models', () => {
+    const query = {
+      id: 'codex_report_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      format: 'markdown',
+      includeEvidence: true,
+      includeAudit: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const section = {
+      id: 'codex_report_section_1',
+      schemaVersion,
+      createdAt,
+      kind: 'overview',
+      title: 'Overview',
+      status: 'ok',
+      summary: 'Report overview summary only',
+      items: [
+        {
+          label: 'dryRunId',
+          value: 'codex_dry_run_1',
+          refId: 'codex_dry_run_1',
+        },
+      ],
+      refIds: ['codex_dry_run_1'],
+      hashes: ['sha256:summary'],
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const summary = {
+      id: 'codex_report_summary_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      status: 'found',
+      sectionCount: 10,
+      evidenceCount: 1,
+      auditEventCount: 1,
+      riskLevel: 'medium',
+      finalControlPlaneStatus: 'gate_blocked',
+      recommendationCount: 1,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const report = CodexExecControlPlaneReportSchema.parse({
+      id: 'codex_report_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      status: 'found',
+      format: 'markdown',
+      query,
+      summary,
+      sections: [section],
+      sectionOrder: [
+        'overview',
+        'dry_run',
+        'timeline',
+        'approval',
+        'gate',
+        'evidence',
+        'audit',
+        'no_live_boundary',
+        'risks',
+        'recommendations',
+      ],
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const exportResult = CodexExecControlPlaneReportExportResultSchema.parse({
+      id: 'codex_report_export_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      format: 'markdown',
+      status: 'found',
+      report,
+      renderedContent: '# Safe report',
+      renderedContentHash: 'sha256:rendered',
+      renderedContentLength: 13,
+      metadataOnly: true,
+      sourceBodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(report.sections[0]?.bodyStored).toBe(false);
+    expect(exportResult.report.summary.sectionCount).toBe(10);
+    expect(JSON.stringify(exportResult)).not.toContain('full stdout body');
   });
 });

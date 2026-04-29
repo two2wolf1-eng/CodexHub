@@ -1268,6 +1268,122 @@ export type CodexExecControlPlaneDrilldownView = z.infer<
   typeof CodexExecControlPlaneDrilldownViewSchema
 >;
 
+export const CodexExecControlPlaneReportFormatSchema = z.enum(['json', 'markdown']);
+export type CodexExecControlPlaneReportFormat = z.infer<
+  typeof CodexExecControlPlaneReportFormatSchema
+>;
+
+export const CodexExecControlPlaneReportSectionKindSchema = z.enum([
+  'overview',
+  'dry_run',
+  'timeline',
+  'approval',
+  'gate',
+  'evidence',
+  'audit',
+  'no_live_boundary',
+  'risks',
+  'recommendations',
+]);
+export type CodexExecControlPlaneReportSectionKind = z.infer<
+  typeof CodexExecControlPlaneReportSectionKindSchema
+>;
+
+export const CodexExecControlPlaneReportStatusSchema = z.enum(['found', 'not_found', 'degraded']);
+export type CodexExecControlPlaneReportStatus = z.infer<
+  typeof CodexExecControlPlaneReportStatusSchema
+>;
+
+export const CodexExecControlPlaneReportQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    format: CodexExecControlPlaneReportFormatSchema.default('json'),
+    includeEvidence: z.boolean().default(true),
+    includeAudit: z.boolean().default(true),
+  });
+export type CodexExecControlPlaneReportQuery = z.infer<
+  typeof CodexExecControlPlaneReportQuerySchema
+>;
+
+export const CodexExecControlPlaneReportSectionItemSchema = z.object({
+  label: z.string().min(1),
+  value: z.string().min(1),
+  refId: z.string().min(1).optional(),
+  hash: z.string().min(1).optional(),
+  metadata: MetadataSchema.optional(),
+});
+export type CodexExecControlPlaneReportSectionItem = z.infer<
+  typeof CodexExecControlPlaneReportSectionItemSchema
+>;
+
+export const CodexExecControlPlaneReportSectionSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    kind: CodexExecControlPlaneReportSectionKindSchema,
+    title: z.string().min(1),
+    status: z.enum(['ok', 'missing', 'degraded']),
+    summary: z.string().min(1),
+    items: z.array(CodexExecControlPlaneReportSectionItemSchema).default([]),
+    refIds: z.array(z.string()).default([]),
+    hashes: z.array(z.string()).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecControlPlaneReportSection = z.infer<
+  typeof CodexExecControlPlaneReportSectionSchema
+>;
+
+export const CodexExecControlPlaneReportSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecControlPlaneReportStatusSchema,
+    sectionCount: z.number().int().nonnegative(),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    riskLevel: RiskLevelSchema.optional(),
+    finalControlPlaneStatus: z.string().min(1),
+    recommendationCount: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecControlPlaneReportSummary = z.infer<
+  typeof CodexExecControlPlaneReportSummarySchema
+>;
+
+export const CodexExecControlPlaneReportSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecControlPlaneReportStatusSchema,
+    format: CodexExecControlPlaneReportFormatSchema,
+    query: CodexExecControlPlaneReportQuerySchema,
+    summary: CodexExecControlPlaneReportSummarySchema,
+    sections: z.array(CodexExecControlPlaneReportSectionSchema),
+    sectionOrder: z.array(CodexExecControlPlaneReportSectionKindSchema),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecControlPlaneReport = z.infer<typeof CodexExecControlPlaneReportSchema>;
+
+export const CodexExecControlPlaneReportExportResultSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    format: CodexExecControlPlaneReportFormatSchema,
+    status: CodexExecControlPlaneReportStatusSchema,
+    report: CodexExecControlPlaneReportSchema,
+    renderedContent: z.string().min(1),
+    renderedContentHash: z.string().min(1),
+    renderedContentLength: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    sourceBodyStored: z.literal(false),
+  });
+export type CodexExecControlPlaneReportExportResult = z.infer<
+  typeof CodexExecControlPlaneReportExportResultSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

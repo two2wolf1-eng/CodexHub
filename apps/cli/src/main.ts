@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
@@ -8,6 +8,7 @@ import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalTransitionResult,
   buildControlPlaneDrilldownView,
+  buildCodexExecControlPlaneReport,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createCodexExecControlPlaneTimeline,
@@ -29,12 +30,15 @@ import {
   runCodexExecPreflight,
   searchAuditEvents,
   searchEvidence,
+  renderCodexExecControlPlaneReportJson,
+  renderCodexExecControlPlaneReportMarkdown,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type {
   CodexExecApprovalDecisionOutcome,
   CodexExecAuditQuery,
   CodexExecConfigLoadResult,
+  CodexExecControlPlaneReportFormat,
   CodexExecEvidenceQuery,
   CodexExecLiveRunRecord,
   CodexExecTimelineFilter,
@@ -71,6 +75,13 @@ export interface CodexExecAuditListCliOptions {
 
 export interface CodexExecJsonCliOptions {
   json?: boolean;
+}
+
+export interface CodexExecReportCliOptions {
+  format?: string;
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
+  out?: string;
 }
 
 export function buildProgram(): Command {
@@ -273,6 +284,27 @@ export function buildProgram(): Command {
     .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
       const result = await getCodexExecDrilldown(dryRunId);
       console.log(formatCodexExecDrilldownOutput(result, options));
+    });
+
+  execCommand
+    .command('report')
+    .argument('<dryRunId>')
+    .option('--format <format>', 'json or markdown', 'json')
+    .option('--include-evidence', 'Include evidence summaries')
+    .option('--include-audit', 'Include audit summaries')
+    .option('--out <relativePath>', 'Write safe report text under reports/ or tmp/')
+    .description('Read a disabled control-plane report for a dry-run record')
+    .action(async (dryRunId: string, options: CodexExecReportCliOptions) => {
+      const result = await getCodexExecReport(dryRunId, options);
+      const output = formatCodexExecReportOutput(result);
+
+      if (options.out) {
+        const written = await writeCodexExecReportOutput(options.out, output);
+        console.log([output, '', `written: ${written.workspacePath}`].join('\n'));
+        return;
+      }
+
+      console.log(output);
     });
 
   return program;
@@ -870,6 +902,55 @@ export async function getCodexExecDrilldown(dryRunId: string): Promise<Record<st
   }
 }
 
+export async function getCodexExecReport(
+  dryRunId: string,
+  options: CodexExecReportCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const reportFormat = normalizeReportFormat(options.format);
+  const query = createReportQueryString({
+    ...options,
+    format: reportFormat,
+  });
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/report/${encodeURIComponent(dryRunId)}${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      format: reportFormat,
+      includeEvidence: options.includeEvidence ?? true,
+      includeAudit: options.includeAudit ?? true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    });
+    const exportResult =
+      reportFormat === 'markdown'
+        ? renderCodexExecControlPlaneReportMarkdown(report)
+        : renderCodexExecControlPlaneReportJson(report);
+
+    return {
+      report,
+      exportResult,
+      renderedContent: exportResult.renderedContent,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export function formatCodexExecTimelineOutput(
   result: Record<string, unknown>,
   options: CodexExecTimelineCliOptions = {},
@@ -1037,6 +1118,76 @@ export function formatCodexExecDrilldownOutput(
   ].join('\n');
 }
 
+export function formatCodexExecReportOutput(result: Record<string, unknown>): string {
+  const exportResult = result.exportResult as
+    | {
+        renderedContent?: string;
+        format?: string;
+      }
+    | undefined;
+
+  if (exportResult?.renderedContent) {
+    return exportResult.renderedContent;
+  }
+
+  const report = result.report as
+    | {
+        dryRunId?: string;
+        status?: string;
+        summary?: { sectionCount?: number; evidenceCount?: number; auditEventCount?: number };
+      }
+    | undefined;
+
+  return [
+    'Codex control report',
+    `dryRunId: ${report?.dryRunId ?? 'unknown'}`,
+    `status: ${report?.status ?? 'unknown'}`,
+    `sections: ${report?.summary?.sectionCount ?? 0}`,
+    `evidence: ${report?.summary?.evidenceCount ?? 0}`,
+    `audit: ${report?.summary?.auditEventCount ?? 0}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export async function writeCodexExecReportOutput(
+  outputPath: string,
+  content: string,
+): Promise<{ path: string; workspacePath: string }> {
+  const resolved = resolveCodexExecReportOutputPath(outputPath);
+
+  await mkdir(dirname(resolved.path), { recursive: true });
+  await writeFile(resolved.path, content, 'utf8');
+
+  return resolved;
+}
+
+export function resolveCodexExecReportOutputPath(outputPath: string): {
+  path: string;
+  workspacePath: string;
+} {
+  if (isAbsolute(outputPath)) {
+    throw new Error('Report output path must be repository-relative.');
+  }
+
+  if (outputPath.split(/[\\/]+/).includes('..')) {
+    throw new Error('Report output path cannot contain traversal segments.');
+  }
+
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const targetPath = resolve(workspaceRoot, outputPath);
+  const reportsRoot = resolve(workspaceRoot, 'reports');
+  const tmpRoot = resolve(workspaceRoot, 'tmp');
+
+  if (!isPathInside(targetPath, reportsRoot) && !isPathInside(targetPath, tmpRoot)) {
+    throw new Error('Report output path must stay under reports/ or tmp/.');
+  }
+
+  return {
+    path: targetPath,
+    workspacePath: toWorkspacePath(targetPath),
+  };
+}
+
 function createTimelineQueryString(options: CodexExecTimelineCliOptions): string {
   const params = new URLSearchParams();
 
@@ -1102,6 +1253,27 @@ function createAuditQueryString(options: CodexExecAuditListCliOptions): string {
 
   const queryString = params.toString();
   return queryString ? `?${queryString}` : '';
+}
+
+function createReportQueryString(options: CodexExecReportCliOptions): string {
+  const params = new URLSearchParams();
+
+  params.set('format', normalizeReportFormat(options.format));
+  params.set('includeEvidence', String(options.includeEvidence ?? true));
+  params.set('includeAudit', String(options.includeAudit ?? true));
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function normalizeReportFormat(format: string | undefined): CodexExecControlPlaneReportFormat {
+  const normalized = format ?? 'json';
+
+  if (normalized !== 'json' && normalized !== 'markdown') {
+    throw new Error('report format must be json or markdown');
+  }
+
+  return normalized;
 }
 
 function createEvidenceQueryFromCliOptions(
