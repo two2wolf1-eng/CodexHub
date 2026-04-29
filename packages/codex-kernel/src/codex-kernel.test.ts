@@ -11,6 +11,7 @@ import {
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createCodexExecControlPlaneTimeline,
+  createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
   createCodexExecManualApprovalDecision,
@@ -439,40 +440,7 @@ describe('codex-kernel live control-plane skeleton', () => {
   });
 
   it('creates an ordered read-only control-plane timeline', () => {
-    const { plan, policyDecision } = createControlPlaneFixture();
-    const config = createDefaultCodexExecLiveConfig();
-    const preflightResult = runCodexExecPreflight(plan, config);
-    const request = createCodexExecManualApprovalRequest(plan, policyDecision, config);
-    const decision = createCodexExecManualApprovalDecision(request, {
-      outcome: 'approved',
-    });
-    const approvalArtifact = createCodexExecApprovalArtifactFromDecision(
-      plan,
-      policyDecision,
-      request,
-      decision,
-    );
-    const approvalRecord = createCodexExecManualApprovalRecord({
-      request,
-      decision,
-      approvalArtifact,
-    });
-    const executionGateResult = evaluateCodexExecExecutionGate(
-      plan,
-      policyDecision,
-      approvalArtifact,
-      config,
-    );
-    const record = {
-      ...createCodexExecDisabledLiveRunRecord(plan, policyDecision, 'disabled for timeline test'),
-      preflightResult,
-      manualApprovalRequest: request,
-      manualApprovalDecision: decision,
-      manualApprovalRecord: approvalRecord,
-      manualApprovalState: approvalRecord.approvalState,
-      approvalArtifact,
-      executionGateResult,
-    };
+    const { record, approvalRecord } = createFullTimelineFixture();
     const timeline = createCodexExecControlPlaneTimeline({
       record,
       approvalRecords: [approvalRecord],
@@ -491,6 +459,57 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(timeline.events.every((event) => event.liveExecution === false)).toBe(true);
     expect(timeline.events.every((event) => event.externalProcessStarted === false)).toBe(true);
     expect(timeline.events.every((event) => event.executionDisabled === true)).toBe(true);
+  });
+
+  it('filters control-plane timeline events by source, status, and evidence/audit toggles', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const approvalTimeline = createCodexExecControlPlaneTimeline({
+      record,
+      approvalRecords: [approvalRecord],
+      filter: {
+        source: 'approval',
+        includeEvidence: false,
+        includeAudit: false,
+      },
+    });
+    const blockedTimeline = createCodexExecControlPlaneTimeline({
+      record,
+      approvalRecords: [approvalRecord],
+      filter: {
+        status: 'blocked',
+        includeEvidence: false,
+        includeAudit: false,
+      },
+    });
+
+    expect(approvalTimeline.events).toHaveLength(4);
+    expect(approvalTimeline.events.every((event) => event.sourceKind.startsWith('approval_'))).toBe(
+      true,
+    );
+    expect(blockedTimeline.events.every((event) => event.status === 'blocked')).toBe(true);
+    expect(blockedTimeline.events.some((event) => event.sourceKind === 'evidence')).toBe(false);
+    expect(blockedTimeline.events.some((event) => event.sourceKind === 'audit')).toBe(false);
+  });
+
+  it('creates metadata-only timeline detail summaries', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const detail = createCodexExecTimelineDetailView({
+      record,
+      approvalRecords: [approvalRecord],
+      filter: { includeEvidence: true, includeAudit: true },
+    });
+
+    expect(detail.latestGateStatus).toBe('blocked');
+    expect(detail.approvalStatus).toBe('approved');
+    expect(detail.evidenceSummary.metadataOnly).toBe(true);
+    expect(detail.evidenceSummary.bodyStored).toBe(false);
+    expect(detail.auditSummary.metadataOnly).toBe(true);
+    expect(detail.auditSummary.bodyStored).toBe(false);
+    expect(detail.liveExecution).toBe(false);
+    expect(detail.externalProcessStarted).toBe(false);
+    expect(detail.executionDisabled).toBe(true);
+    expect(JSON.stringify(detail)).not.toContain('Summarize repository structure and list');
+    expect(JSON.stringify(detail)).not.toContain('disabled for timeline test');
   });
 });
 
@@ -525,6 +544,45 @@ function createControlPlaneFixture(
   });
 
   return { intent, plan, policyDecision };
+}
+
+function createFullTimelineFixture() {
+  const { plan, policyDecision } = createControlPlaneFixture();
+  const config = createDefaultCodexExecLiveConfig();
+  const preflightResult = runCodexExecPreflight(plan, config);
+  const request = createCodexExecManualApprovalRequest(plan, policyDecision, config);
+  const decision = createCodexExecManualApprovalDecision(request, {
+    outcome: 'approved',
+  });
+  const approvalArtifact = createCodexExecApprovalArtifactFromDecision(
+    plan,
+    policyDecision,
+    request,
+    decision,
+  );
+  const approvalRecord = createCodexExecManualApprovalRecord({
+    request,
+    decision,
+    approvalArtifact,
+  });
+  const executionGateResult = evaluateCodexExecExecutionGate(
+    plan,
+    policyDecision,
+    approvalArtifact,
+    config,
+  );
+  const record = {
+    ...createCodexExecDisabledLiveRunRecord(plan, policyDecision, 'disabled for timeline test'),
+    preflightResult,
+    manualApprovalRequest: request,
+    manualApprovalDecision: decision,
+    manualApprovalRecord: approvalRecord,
+    manualApprovalState: approvalRecord.approvalState,
+    approvalArtifact,
+    executionGateResult,
+  };
+
+  return { record, approvalRecord };
 }
 
 function readFixture(name: string): string {

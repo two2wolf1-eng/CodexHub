@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
 import type {
   CodexExecControlPlaneTimeline,
+  CodexExecTimelineDetailView,
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
   CodexExecConfigLoadResult,
@@ -23,6 +24,7 @@ interface OverviewState {
   codexExecConfigLoadResult?: CodexExecConfigLoadResult;
   codexExecApprovals: CodexExecManualApprovalRecord[];
   codexExecTimelines: CodexExecControlPlaneTimeline[];
+  codexExecTimelineDetails: CodexExecTimelineDetailView[];
   message?: string;
 }
 
@@ -38,6 +40,7 @@ export function App() {
     codexExecDryRuns: [],
     codexExecApprovals: [],
     codexExecTimelines: [],
+    codexExecTimelineDetails: [],
   });
 
   useEffect(() => {
@@ -83,6 +86,22 @@ export function App() {
             }),
           )
         ).filter((timeline): timeline is CodexExecControlPlaneTimeline => timeline !== undefined);
+        const codexExecTimelineDetails = (
+          await Promise.all(
+            codexExecDryRunsResponse.runs.slice(0, 3).map(async (run) => {
+              try {
+                const response = await getJson<{ detail: CodexExecTimelineDetailView }>(
+                  `/api/codex/exec/timeline/${encodeURIComponent(
+                    run.id,
+                  )}/detail?includeEvidence=true&includeAudit=true`,
+                );
+                return response.detail;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((detail): detail is CodexExecTimelineDetailView => detail !== undefined);
 
         if (!cancelled) {
           setOverview({
@@ -98,6 +117,7 @@ export function App() {
             codexExecConfigLoadResult: codexExecConfigResponse.configLoadResult,
             codexExecApprovals: codexExecApprovalsResponse.approvals,
             codexExecTimelines,
+            codexExecTimelineDetails,
           });
         }
       } catch (error) {
@@ -111,6 +131,7 @@ export function App() {
             codexExecDryRuns: [],
             codexExecApprovals: [],
             codexExecTimelines: [],
+            codexExecTimelineDetails: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -281,7 +302,56 @@ export function App() {
         </Panel>
 
         <Panel title="Codex Control Timeline">
-          {overview.codexExecTimelines.length > 0 ? (
+          {overview.codexExecTimelineDetails.length > 0 ? (
+            <ul>
+              {overview.codexExecTimelineDetails.map((detail) => (
+                <li key={detail.id} className="stacked timeline-detail">
+                  <strong>{detail.dryRunId}</strong>
+                  <span>
+                    status {detail.timeline.status}, {detail.timeline.eventCount} events, gate{' '}
+                    {detail.latestGateStatus ?? 'none'}, approval {detail.approvalStatus ?? 'none'}
+                  </span>
+                  <span>
+                    evidence {detail.evidenceSummary.count}, audit {detail.auditSummary.count},
+                    liveExecution {String(detail.liveExecution)}, externalProcessStarted{' '}
+                    {String(detail.externalProcessStarted)}, executionDisabled{' '}
+                    {String(detail.executionDisabled)}
+                  </span>
+                  <span>sources {formatSourceBreakdown(detail.sourceBreakdown)}</span>
+                  <div className="timeline-list" aria-label="Read-only timeline events">
+                    {detail.timeline.events.length > 0 ? (
+                      detail.timeline.events.slice(0, 8).map((event) => (
+                        <div key={event.id} className="timeline-event">
+                          <span>
+                            {event.sourceKind} / {event.status}
+                          </span>
+                          <span>{event.eventType}</span>
+                          <span>{new Date(event.occurredAt).toLocaleString()}</span>
+                          <p>{event.summary}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p>No timeline events match the current read-only view.</p>
+                    )}
+                  </div>
+                  <span>
+                    evidence refs{' '}
+                    {detail.evidenceSummary.items
+                      .slice(0, 3)
+                      .map((item) => `${item.kind}:${item.hash}`)
+                      .join(' | ') || 'none'}
+                  </span>
+                  <span>
+                    audit refs{' '}
+                    {detail.auditSummary.items
+                      .slice(0, 3)
+                      .map((item) => `${item.action}:${item.outcome}`)
+                      .join(' | ') || 'none'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : overview.codexExecTimelines.length > 0 ? (
             <ul>
               {overview.codexExecTimelines.map((timeline) => (
                 <li key={timeline.id} className="stacked">
@@ -291,15 +361,9 @@ export function App() {
                     evidence, {timeline.auditEventCount} audits
                   </span>
                   <span>
-                    live {String(timeline.liveExecution)}, external process{' '}
-                    {String(timeline.externalProcessStarted)}, disabled{' '}
+                    liveExecution {String(timeline.liveExecution)}, externalProcessStarted{' '}
+                    {String(timeline.externalProcessStarted)}, executionDisabled{' '}
                     {String(timeline.executionDisabled)}
-                  </span>
-                  <span>
-                    {timeline.events
-                      .slice(0, 4)
-                      .map((event) => `${event.sourceKind}:${event.status}`)
-                      .join(' | ')}
                   </span>
                 </li>
               ))}
@@ -320,6 +384,13 @@ function Panel(props: { title: string; children: React.ReactNode }) {
       {props.children}
     </article>
   );
+}
+
+function formatSourceBreakdown(sourceBreakdown: Record<string, number>): string {
+  const entries = Object.entries(sourceBreakdown);
+  return entries.length > 0
+    ? entries.map(([source, count]) => `${source}:${count}`).join(', ')
+    : 'none';
 }
 
 async function getJson<T>(path: string): Promise<T> {

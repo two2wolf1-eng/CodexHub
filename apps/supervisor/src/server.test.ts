@@ -170,6 +170,18 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/timeline/${dryRunId}`,
     });
+    const filteredTimelineResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/timeline/${dryRunId}?source=approval&includeEvidence=false&includeAudit=false`,
+    });
+    const detailResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/timeline/${dryRunId}/detail?includeEvidence=true&includeAudit=true`,
+    });
+    const invalidTimelineResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/timeline/${dryRunId}?source=unsupported`,
+    });
     const rejectedCwdResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/dry-run',
@@ -350,6 +362,47 @@ describe('supervisor mock development API', () => {
             event.executionDisabled === true,
         ),
     ).toBe(true);
+    expect(filteredTimelineResponse.statusCode).toBe(200);
+    expect(
+      filteredTimelineResponse
+        .json()
+        .timeline.events.every((event: { sourceKind: string }) =>
+          event.sourceKind.startsWith('approval_'),
+        ),
+    ).toBe(true);
+    expect(
+      filteredTimelineResponse
+        .json()
+        .timeline.events.some(
+          (event: { sourceKind: string }) =>
+            event.sourceKind === 'evidence' || event.sourceKind === 'audit',
+        ),
+    ).toBe(false);
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject({
+      detail: {
+        dryRunId: dryRunResponse.json().liveRunRecord.dryRunPlanId,
+        latestGateStatus: 'blocked',
+        approvalStatus: 'approved',
+        evidenceSummary: {
+          metadataOnly: true,
+          bodyStored: false,
+        },
+        auditSummary: {
+          metadataOnly: true,
+          bodyStored: false,
+        },
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(detailResponse.json())).not.toContain('list risk areas');
+    expect(JSON.stringify(detailResponse.json())).not.toContain('manual private reason');
+    expect(invalidTimelineResponse.statusCode).toBe(400);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });
 });

@@ -5,6 +5,9 @@ import {
   CodexExecConfigLoadResultSchema,
   CodexExecApprovalTransitionResultSchema,
   CodexExecControlPlaneTimelineSchema,
+  CodexExecTimelineDetailViewSchema,
+  CodexExecTimelineFilterSchema,
+  CodexExecTimelineQuerySchema,
   CodexExecManualApprovalRecordSchema,
   CodexExecManualApprovalStateSchema,
   CodexExecPreflightResultSchema,
@@ -557,5 +560,147 @@ describe('contracts schemas', () => {
     expect(timeline.events.every((event) => event.liveExecution === false)).toBe(true);
     expect(timeline.events.every((event) => event.externalProcessStarted === false)).toBe(true);
     expect(timeline.events.every((event) => event.executionDisabled === true)).toBe(true);
+  });
+
+  it('parses codex timeline query and detail view models without body storage', () => {
+    const filter = CodexExecTimelineFilterSchema.parse({
+      source: 'approval',
+      status: 'blocked',
+      includeEvidence: false,
+      includeAudit: false,
+      limit: 10,
+    });
+    const query = CodexExecTimelineQuerySchema.parse({
+      id: 'codex_timeline_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      filter,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const detail = CodexExecTimelineDetailViewSchema.parse({
+      id: 'codex_timeline_detail_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      liveRunRecordId: 'codex_live_run_1',
+      timeline: {
+        id: 'codex_timeline_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: 'codex_dry_run_1',
+        liveRunRecordId: 'codex_live_run_1',
+        status: 'gate_blocked',
+        events: [],
+        eventCount: 0,
+        evidenceCount: 1,
+        auditEventCount: 1,
+        summary: 'Timeline has no filtered events',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      sourceBreakdown: {},
+      latestGateStatus: 'blocked',
+      approvalStatus: 'approved',
+      dryRunSummary: {
+        dryRunPlanId: 'codex_dry_run_1',
+        title: 'Summarize repository structure',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+        riskLevel: 'medium',
+        promptSummary: 'Prompt summary only',
+        promptHash: 'sha256:prompt',
+        promptLength: 30,
+        promptBodyStored: false,
+      },
+      commandPreviewSummary: {
+        commandPreviewId: 'codex_preview_1',
+        previewSummary: 'Preview summary only',
+        previewHash: 'sha256:preview',
+        redacted: true,
+        argumentSummary: 'promptHash=sha256:prompt',
+      },
+      policySummary: {
+        policyDecisionId: 'policy_1',
+        outcome: 'deny',
+        riskLevel: 'medium',
+        requiresDryRun: true,
+        requiresApproval: true,
+        reasonCount: 1,
+      },
+      approvalStateSummary: {
+        approvalRequestId: 'codex_approval_request_1',
+        status: 'approved',
+        canDecide: false,
+        terminal: true,
+        reasonCount: 1,
+      },
+      gateSummary: {
+        executionGateResultId: 'codex_gate_1',
+        status: 'blocked',
+        reasonCount: 1,
+        liveEnabled: false,
+      },
+      evidenceSummary: {
+        id: 'codex_evidence_summary_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: 'codex_dry_run_1',
+        liveRunRecordId: 'codex_live_run_1',
+        count: 1,
+        evidenceRefIds: ['evidence_1'],
+        items: [
+          {
+            evidenceRefId: 'evidence_1',
+            kind: 'codex.exec.dry_run_plan',
+            summary: 'Evidence summary only',
+            hash: 'sha256:evidence',
+            labels: ['codex.dry_run_plan'],
+            createdAt,
+          },
+        ],
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      auditSummary: {
+        id: 'codex_audit_summary_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: 'codex_dry_run_1',
+        liveRunRecordId: 'codex_live_run_1',
+        count: 1,
+        auditEventIds: ['audit_1'],
+        items: [
+          {
+            auditEventId: 'audit_1',
+            action: 'codex.exec.policy_evaluated',
+            outcome: 'deny',
+            createdAt,
+            policyDecisionId: 'policy_1',
+            evidenceRefIds: ['evidence_1'],
+          },
+        ],
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      summary: 'Detail summary only',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(query.filter.source).toBe('approval');
+    expect(detail.evidenceSummary.bodyStored).toBe(false);
+    expect(detail.auditSummary.metadataOnly).toBe(true);
+    expect(JSON.stringify(detail)).not.toContain('full prompt body');
   });
 });

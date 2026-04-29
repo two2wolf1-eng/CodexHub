@@ -31,6 +31,7 @@ import type {
   CodexExecApprovalDecisionOutcome,
   CodexExecConfigLoadResult,
   CodexExecLiveRunRecord,
+  CodexExecTimelineFilter,
 } from '@codexhub/contracts';
 import {
   type MockDevelopmentOrchestrationResult,
@@ -40,6 +41,14 @@ import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 
 const supervisorUrl = process.env.CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
+
+export interface CodexExecTimelineCliOptions {
+  source?: string;
+  status?: string;
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
+  json?: boolean;
+}
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -174,10 +183,15 @@ export function buildProgram(): Command {
   execCommand
     .command('timeline')
     .argument('<dryRunId>')
+    .option('--source <source>', 'Filter timeline by source')
+    .option('--status <status>', 'Filter timeline by event status')
+    .option('--include-evidence', 'Include evidence events in timeline output')
+    .option('--include-audit', 'Include audit events in timeline output')
+    .option('--json', 'Print full JSON output')
     .description('Read a disabled control-plane timeline for a dry-run record')
-    .action(async (dryRunId: string) => {
-      const result = await getCodexExecTimeline(dryRunId);
-      console.log(JSON.stringify(result, null, 2));
+    .action(async (dryRunId: string, options: CodexExecTimelineCliOptions) => {
+      const result = await getCodexExecTimeline(dryRunId, options);
+      console.log(formatCodexExecTimelineOutput(result, options));
     });
 
   return program;
@@ -585,10 +599,14 @@ export async function evaluateCodexExecGate(dryRunId: string): Promise<Record<st
   }
 }
 
-export async function getCodexExecTimeline(dryRunId: string): Promise<Record<string, unknown>> {
+export async function getCodexExecTimeline(
+  dryRunId: string,
+  options: CodexExecTimelineCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createTimelineQueryString(options);
   try {
     const response = await fetch(
-      `${supervisorUrl}/api/codex/exec/timeline/${encodeURIComponent(dryRunId)}`,
+      `${supervisorUrl}/api/codex/exec/timeline/${encodeURIComponent(dryRunId)}${query}`,
     );
 
     if (!response.ok) {
@@ -598,10 +616,17 @@ export async function getCodexExecTimeline(dryRunId: string): Promise<Record<str
     return (await response.json()) as Record<string, unknown>;
   } catch {
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
-    const timeline = createCodexExecControlPlaneTimeline({ record });
+    const timeline = createCodexExecControlPlaneTimeline({
+      record,
+      filter: createTimelineFilterFromCliOptions(options),
+    });
 
     return {
       timeline,
+      query: {
+        dryRunId,
+        filter: createTimelineFilterFromCliOptions(options),
+      },
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -609,6 +634,108 @@ export async function getCodexExecTimeline(dryRunId: string): Promise<Record<str
       reason: 'supervisor unavailable; local control-plane fallback used',
     };
   }
+}
+
+export function formatCodexExecTimelineOutput(
+  result: Record<string, unknown>,
+  options: CodexExecTimelineCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const timeline = result.timeline as
+    | {
+        dryRunId?: string;
+        status?: string;
+        eventCount?: number;
+        evidenceCount?: number;
+        auditEventCount?: number;
+        liveExecution?: boolean;
+        externalProcessStarted?: boolean;
+        executionDisabled?: boolean;
+        events?: Array<{ sourceKind: string; status: string; summary: string }>;
+      }
+    | undefined;
+
+  if (!timeline) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const eventLines = (timeline.events ?? [])
+    .slice(0, 8)
+    .map((event) => `- ${event.sourceKind}:${event.status} ${event.summary}`);
+
+  return [
+    'Codex control timeline',
+    `dryRunId: ${timeline.dryRunId ?? 'unknown'}`,
+    `status: ${timeline.status ?? 'unknown'}`,
+    `events: ${timeline.eventCount ?? 0}`,
+    `evidence: ${timeline.evidenceCount ?? 0}`,
+    `audit: ${timeline.auditEventCount ?? 0}`,
+    `liveExecution=${String(timeline.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(timeline.externalProcessStarted ?? false)}`,
+    `executionDisabled=${String(timeline.executionDisabled ?? true)}`,
+    eventLines.length > 0 ? 'filtered events:' : 'filtered events: none',
+    ...eventLines,
+  ].join('\n');
+}
+
+function createTimelineQueryString(options: CodexExecTimelineCliOptions): string {
+  const params = new URLSearchParams();
+
+  if (options.source) {
+    params.set('source', options.source);
+  }
+
+  if (options.status) {
+    params.set('status', options.status);
+  }
+
+  params.set('includeEvidence', String(options.includeEvidence === true));
+  params.set('includeAudit', String(options.includeAudit === true));
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function createTimelineFilterFromCliOptions(
+  options: CodexExecTimelineCliOptions,
+): CodexExecTimelineFilter {
+  const filter: CodexExecTimelineFilter = {
+    includeEvidence: options.includeEvidence === true,
+    includeAudit: options.includeAudit === true,
+  };
+
+  if (options.source && isTimelineFilterSource(options.source)) {
+    filter.source = options.source;
+  }
+
+  if (options.status) {
+    filter.status = options.status;
+  }
+
+  return filter;
+}
+
+function isTimelineFilterSource(
+  value: string,
+): value is NonNullable<CodexExecTimelineFilter['source']> {
+  return [
+    'config',
+    'dry_run',
+    'command_preview',
+    'policy',
+    'preflight',
+    'approval',
+    'approval_request',
+    'approval_decision',
+    'approval_state',
+    'approval_artifact',
+    'gate',
+    'evidence',
+    'audit',
+  ].includes(value);
 }
 
 function createLocalCodexExecControlPlaneRecord(dryRunId: string): CodexExecLiveRunRecord {

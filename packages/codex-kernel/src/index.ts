@@ -15,6 +15,9 @@ import type {
   CodexExecExecutionGateResult,
   CodexExecEventType,
   CodexExecExecutionIntent,
+  CodexExecTimelineAuditSummary,
+  CodexExecTimelineDetailView,
+  CodexExecTimelineEvidenceSummary,
   CodexExecLiveCapabilityState,
   CodexExecLiveConfig,
   CodexExecItemType,
@@ -32,6 +35,7 @@ import type {
   CodexExecPreflightResult,
   CodexExecReplayResult,
   CodexExecSandboxMode,
+  CodexExecTimelineFilter,
   CodexExecTimelineEvent,
   CodexExecTimelineStatus,
   CodexExecWorktreeRequirement,
@@ -590,6 +594,7 @@ export function createCodexExecDisabledLiveRunRecord(
 export function createCodexExecControlPlaneTimeline(input: {
   record: CodexExecLiveRunRecord;
   approvalRecords?: CodexExecManualApprovalRecord[];
+  filter?: CodexExecTimelineFilter;
 }): CodexExecControlPlaneTimeline {
   const record = input.record;
   const approvalRecords = dedupeApprovalRecords([
@@ -621,6 +626,7 @@ export function createCodexExecControlPlaneTimeline(input: {
       summary: record.dryRunPlan.summary,
       occurredAt: record.dryRunPlan.createdAt,
       order: 20,
+      metadata: { riskLevel: record.dryRunPlan.riskLevel },
     }),
     createTimelineEvent(record, {
       eventType: 'codex.exec.command_preview.created',
@@ -639,6 +645,7 @@ export function createCodexExecControlPlaneTimeline(input: {
       summary: `Policy ${record.policyDecision.outcome} for ${record.policyDecision.riskLevel} risk`,
       occurredAt: record.policyDecision.createdAt,
       order: 40,
+      metadata: { riskLevel: record.policyDecision.riskLevel },
     }),
   );
 
@@ -666,6 +673,7 @@ export function createCodexExecControlPlaneTimeline(input: {
         summary: approvalRecord.request.summary,
         occurredAt: approvalRecord.request.createdAt,
         order: 60,
+        metadata: { riskLevel: approvalRecord.request.riskLevel },
       }),
     );
 
@@ -768,7 +776,7 @@ export function createCodexExecControlPlaneTimeline(input: {
     ),
   );
 
-  const sortedEvents = events.sort(compareTimelineEvents);
+  const sortedEvents = applyTimelineFilter(events.sort(compareTimelineEvents), input.filter);
   const status = deriveTimelineStatus(record, approvalRecords);
 
   return {
@@ -790,6 +798,146 @@ export function createCodexExecControlPlaneTimeline(input: {
       dryRunPlanId: record.dryRunPlanId,
       liveRunRecordId: record.id,
       approvalRecordCount: approvalRecords.length,
+      filterApplied: Boolean(input.filter),
+    }),
+  };
+}
+
+export function createCodexExecTimelineEvidenceSummary(
+  record: CodexExecLiveRunRecord,
+): CodexExecTimelineEvidenceSummary {
+  return {
+    id: foundationId('codex_timeline_evidence_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: record.dryRunPlanId,
+    liveRunRecordId: record.id,
+    count: record.evidenceRefs.length,
+    evidenceRefIds: record.evidenceRefs.map((evidenceRef) => evidenceRef.id),
+    items: record.evidenceRefs.map((evidenceRef) => ({
+      evidenceRefId: evidenceRef.id,
+      kind: evidenceRef.kind,
+      summary: evidenceRef.summary,
+      hash: evidenceRef.hash,
+      labels: evidenceRef.labels,
+      createdAt: evidenceRef.createdAt,
+    })),
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: record.dryRunPlanId,
+      liveRunRecordId: record.id,
+    }),
+  };
+}
+
+export function createCodexExecTimelineAuditSummary(
+  record: CodexExecLiveRunRecord,
+): CodexExecTimelineAuditSummary {
+  return {
+    id: foundationId('codex_timeline_audit_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: record.dryRunPlanId,
+    liveRunRecordId: record.id,
+    count: record.auditEvents.length,
+    auditEventIds: record.auditEvents.map((auditEvent) => auditEvent.id),
+    items: record.auditEvents.map((auditEvent) => ({
+      auditEventId: auditEvent.id,
+      action: auditEvent.action,
+      outcome: auditEvent.outcome,
+      createdAt: auditEvent.createdAt,
+      policyDecisionId: auditEvent.policyDecisionId,
+      evidenceRefIds: auditEvent.evidenceRefs.map((evidenceRef) => evidenceRef.id),
+    })),
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: record.dryRunPlanId,
+      liveRunRecordId: record.id,
+    }),
+  };
+}
+
+export function createCodexExecTimelineDetailView(input: {
+  record: CodexExecLiveRunRecord;
+  approvalRecords?: CodexExecManualApprovalRecord[];
+  filter?: CodexExecTimelineFilter;
+}): CodexExecTimelineDetailView {
+  const timeline = createCodexExecControlPlaneTimeline(input);
+  const latestApprovalState = getLatestApprovalState(input.record, input.approvalRecords ?? []);
+  const evidenceSummary = createCodexExecTimelineEvidenceSummary(input.record);
+  const auditSummary = createCodexExecTimelineAuditSummary(input.record);
+
+  return {
+    id: foundationId('codex_timeline_detail'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.record.dryRunPlanId,
+    liveRunRecordId: input.record.id,
+    timeline,
+    sourceBreakdown: createSourceBreakdown(timeline.events),
+    latestGateStatus: input.record.executionGateResult?.status,
+    approvalStatus: latestApprovalState?.status,
+    dryRunSummary: {
+      dryRunPlanId: input.record.dryRunPlan.id,
+      title: input.record.dryRunPlan.title,
+      sandboxMode: input.record.dryRunPlan.sandboxMode,
+      approvalMode: input.record.dryRunPlan.approvalMode,
+      riskLevel: input.record.dryRunPlan.riskLevel,
+      promptSummary: input.record.dryRunPlan.promptSummary,
+      promptHash: input.record.dryRunPlan.promptHash,
+      promptLength: input.record.dryRunPlan.promptLength,
+      promptBodyStored: false,
+    },
+    commandPreviewSummary: {
+      commandPreviewId: input.record.commandPreview.id,
+      previewSummary: input.record.commandPreview.previewSummary,
+      previewHash: input.record.commandPreview.previewHash,
+      redacted: true,
+      argumentSummary: input.record.commandPreview.argumentSummary,
+    },
+    policySummary: {
+      policyDecisionId: input.record.policyDecision.id,
+      outcome: input.record.policyDecision.outcome,
+      riskLevel: input.record.policyDecision.riskLevel,
+      requiresDryRun: input.record.policyDecision.requiresDryRun,
+      requiresApproval: input.record.policyDecision.requiresApproval,
+      reasonCount: input.record.policyDecision.reasons.length,
+    },
+    approvalStateSummary: latestApprovalState
+      ? {
+          approvalRequestId: latestApprovalState.approvalRequestId,
+          status: latestApprovalState.status,
+          canDecide: latestApprovalState.canDecide,
+          terminal: latestApprovalState.terminal,
+          reasonCount: latestApprovalState.reasons.length,
+        }
+      : undefined,
+    gateSummary: input.record.executionGateResult
+      ? {
+          executionGateResultId: input.record.executionGateResult.id,
+          status: input.record.executionGateResult.status,
+          reasonCount: input.record.executionGateResult.reasons.length,
+          liveEnabled: input.record.executionGateResult.liveEnabled,
+        }
+      : undefined,
+    evidenceSummary,
+    auditSummary,
+    summary: `Read-only timeline detail ${timeline.status}: ${timeline.eventCount} filtered events for ${input.record.title}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.record.dryRunPlanId,
+      liveRunRecordId: input.record.id,
+      filterApplied: Boolean(input.filter),
     }),
   };
 }
@@ -2515,6 +2663,7 @@ function createTimelineEvent(
     summary: string;
     occurredAt: string;
     order: number;
+    metadata?: Record<string, unknown>;
   },
 ): CodexExecTimelineEvent {
   return {
@@ -2538,8 +2687,91 @@ function createTimelineEvent(
       sourceKind: input.sourceKind,
       sourceId: input.sourceId,
       order: input.order,
+      ...(input.metadata ?? {}),
     }),
   };
+}
+
+function applyTimelineFilter(
+  events: CodexExecTimelineEvent[],
+  filter: CodexExecTimelineFilter | undefined,
+): CodexExecTimelineEvent[] {
+  if (!filter) {
+    return events;
+  }
+
+  const filteredEvents = events.filter((event) => {
+    if (filter.source && !matchesTimelineSource(event, filter.source)) {
+      return false;
+    }
+
+    if (filter.status && event.status !== filter.status) {
+      return false;
+    }
+
+    if (filter.eventType && event.eventType !== filter.eventType) {
+      return false;
+    }
+
+    if (filter.riskLevel && event.metadata?.riskLevel !== filter.riskLevel) {
+      return false;
+    }
+
+    if (filter.includeEvidence === false && event.sourceKind === 'evidence') {
+      return false;
+    }
+
+    if (filter.includeAudit === false && event.sourceKind === 'audit') {
+      return false;
+    }
+
+    return true;
+  });
+
+  return filter.limit ? filteredEvents.slice(0, filter.limit) : filteredEvents;
+}
+
+function matchesTimelineSource(
+  event: CodexExecTimelineEvent,
+  source: NonNullable<CodexExecTimelineFilter['source']>,
+): boolean {
+  if (source === 'approval') {
+    return [
+      'approval_request',
+      'approval_decision',
+      'approval_state',
+      'approval_artifact',
+    ].includes(event.sourceKind);
+  }
+
+  return event.sourceKind === source;
+}
+
+function createSourceBreakdown(
+  events: CodexExecTimelineEvent[],
+): Record<CodexExecTimelineEvent['sourceKind'], number> {
+  return events.reduce(
+    (breakdown, event) => ({
+      ...breakdown,
+      [event.sourceKind]: (breakdown[event.sourceKind] ?? 0) + 1,
+    }),
+    {} as Record<CodexExecTimelineEvent['sourceKind'], number>,
+  );
+}
+
+function getLatestApprovalState(
+  record: CodexExecLiveRunRecord,
+  approvalRecords: CodexExecManualApprovalRecord[],
+): CodexExecManualApprovalState | undefined {
+  return dedupeApprovalRecords([
+    ...(record.manualApprovalRecord ? [record.manualApprovalRecord] : []),
+    ...approvalRecords,
+  ])
+    .map(
+      (approvalRecord) =>
+        approvalRecord.approvalState ?? evaluateCodexExecManualApprovalState(approvalRecord),
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
 }
 
 function compareTimelineEvents(

@@ -52,7 +52,11 @@ describe('cli development mock-run fallback', () => {
       await import('./main');
     const preflight = await preflightCodexExec('codex_dry_run_fixture');
     const gate = await evaluateCodexExecGate('codex_dry_run_fixture');
-    const timeline = await getCodexExecTimeline('codex_dry_run_fixture');
+    const timeline = await getCodexExecTimeline('codex_dry_run_fixture', {
+      source: 'dry_run',
+      includeEvidence: false,
+      includeAudit: false,
+    });
 
     expect(preflight).toMatchObject({
       preflightResult: {
@@ -89,6 +93,26 @@ describe('cli development mock-run fallback', () => {
         (event) => event.eventType,
       ),
     ).toContain('codex.exec.dry_run.created');
+    expect(
+      (timeline.timeline as { events: Array<{ sourceKind: string }> }).events.every(
+        (event) => event.sourceKind === 'dry_run',
+      ),
+    ).toBe(true);
+  });
+
+  it('formats timeline fallback output with no-live flags', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { formatCodexExecTimelineOutput, getCodexExecTimeline } = await import('./main');
+    const timeline = await getCodexExecTimeline('codex_dry_run_fixture', {
+      includeEvidence: false,
+      includeAudit: false,
+    });
+    const output = formatCodexExecTimelineOutput(timeline);
+
+    expect(output).toContain('Codex control timeline');
+    expect(output).toContain('liveExecution=false');
+    expect(output).toContain('externalProcessStarted=false');
+    expect(output).toContain('executionDisabled=true');
   });
 
   it('creates local config and manual approval records when supervisor is unavailable', async () => {

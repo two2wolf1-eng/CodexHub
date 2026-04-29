@@ -6,6 +6,7 @@ import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalTransitionResult,
   createCodexExecControlPlaneTimeline,
+  createCodexExecTimelineDetailView,
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
   createCodexExecExecutionIntent,
@@ -34,6 +35,7 @@ import type {
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
   CodexExecSandboxMode,
+  CodexExecTimelineFilter,
   CodexReplayRecord,
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
@@ -761,9 +763,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
     const params = request.params as { dryRunId?: string };
+    const filterResult = parseTimelineFilter(request.query);
 
     if (!params.dryRunId) {
       return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    if (!filterResult.allowed) {
+      return reply.code(400).send({ error: filterResult.reason });
     }
 
     const store = await getStore();
@@ -780,10 +787,58 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const timeline = createCodexExecControlPlaneTimeline({
       record,
       approvalRecords,
+      filter: filterResult.filter,
     });
 
     return {
       timeline,
+      query: {
+        dryRunId: params.dryRunId,
+        filter: filterResult.filter,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/timeline/:dryRunId/detail', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+    const filterResult = parseTimelineFilter(request.query);
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    if (!filterResult.allowed) {
+      return reply.code(400).send({ error: filterResult.reason });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(params.dryRunId, store);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'dry-run record was not found' });
+    }
+
+    const approvalRecords = await resolveCodexExecApprovalRecordsForDryRun(
+      record.dryRunPlanId,
+      store,
+    );
+    const detail = createCodexExecTimelineDetailView({
+      record,
+      approvalRecords,
+      filter: filterResult.filter,
+    });
+
+    return {
+      detail,
+      query: {
+        dryRunId: params.dryRunId,
+        filter: filterResult.filter,
+      },
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -935,6 +990,107 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   }
 
   return server;
+}
+
+const timelineSources = new Set([
+  'config',
+  'dry_run',
+  'command_preview',
+  'policy',
+  'preflight',
+  'approval',
+  'approval_request',
+  'approval_decision',
+  'approval_state',
+  'approval_artifact',
+  'gate',
+  'evidence',
+  'audit',
+]);
+
+function parseTimelineFilter(
+  query: unknown,
+): { allowed: true; filter: CodexExecTimelineFilter } | { allowed: false; reason: string } {
+  const source = readQueryValue(query, 'source');
+  const status = readQueryValue(query, 'status');
+  const limitValue = readQueryValue(query, 'limit');
+  const includeEvidenceValue = readQueryValue(query, 'includeEvidence');
+  const includeAuditValue = readQueryValue(query, 'includeAudit');
+  const filter: CodexExecTimelineFilter = {
+    includeEvidence: true,
+    includeAudit: true,
+  };
+
+  if (source) {
+    if (!timelineSources.has(source)) {
+      return { allowed: false, reason: 'unsupported timeline source filter' };
+    }
+
+    filter.source = source as CodexExecTimelineFilter['source'];
+  }
+
+  if (status) {
+    filter.status = status;
+  }
+
+  if (limitValue) {
+    const limit = Number.parseInt(limitValue, 10);
+
+    if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
+      return { allowed: false, reason: 'limit must be an integer from 1 to 200' };
+    }
+
+    filter.limit = limit;
+  }
+
+  if (includeEvidenceValue !== undefined) {
+    const parsed = parseBooleanQueryValue(includeEvidenceValue);
+
+    if (parsed === undefined) {
+      return { allowed: false, reason: 'includeEvidence must be true or false' };
+    }
+
+    filter.includeEvidence = parsed;
+  }
+
+  if (includeAuditValue !== undefined) {
+    const parsed = parseBooleanQueryValue(includeAuditValue);
+
+    if (parsed === undefined) {
+      return { allowed: false, reason: 'includeAudit must be true or false' };
+    }
+
+    filter.includeAudit = parsed;
+  }
+
+  return { allowed: true, filter };
+}
+
+function readQueryValue(query: unknown, key: string): string | undefined {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) {
+    return undefined;
+  }
+
+  const value = (query as Record<string, unknown>)[key];
+
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return typeof first === 'string' ? first : undefined;
+  }
+
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseBooleanQueryValue(value: string): boolean | undefined {
+  if (value === 'true') {
+    return true;
+  }
+
+  if (value === 'false') {
+    return false;
+  }
+
+  return undefined;
 }
 
 function resolveAllowedFixture(

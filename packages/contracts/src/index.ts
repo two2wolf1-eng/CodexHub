@@ -972,6 +972,12 @@ export type CodexExecTimelineEventSourceKind = z.infer<
   typeof CodexExecTimelineEventSourceKindSchema
 >;
 
+export const CodexExecTimelineFilterSourceSchema = z.union([
+  CodexExecTimelineEventSourceKindSchema,
+  z.literal('approval'),
+]);
+export type CodexExecTimelineFilterSource = z.infer<typeof CodexExecTimelineFilterSourceSchema>;
+
 export const CodexExecTimelineEventTypeSchema = z.enum([
   'codex.exec.config.loaded',
   'codex.exec.dry_run.created',
@@ -1015,6 +1021,135 @@ export const CodexExecControlPlaneTimelineSchema = createdEntityBaseSchema
     summary: z.string().min(1),
   });
 export type CodexExecControlPlaneTimeline = z.infer<typeof CodexExecControlPlaneTimelineSchema>;
+
+export const CodexExecTimelineFilterSchema = z.object({
+  source: CodexExecTimelineFilterSourceSchema.optional(),
+  status: z.string().min(1).optional(),
+  eventType: CodexExecTimelineEventTypeSchema.optional(),
+  riskLevel: RiskLevelSchema.optional(),
+  limit: z.number().int().positive().max(200).optional(),
+  includeEvidence: z.boolean().default(true),
+  includeAudit: z.boolean().default(true),
+});
+export type CodexExecTimelineFilter = z.infer<typeof CodexExecTimelineFilterSchema>;
+
+export const CodexExecTimelineQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    filter: CodexExecTimelineFilterSchema.default({}),
+  });
+export type CodexExecTimelineQuery = z.infer<typeof CodexExecTimelineQuerySchema>;
+
+export const CodexExecTimelineEvidenceSummaryItemSchema = z.object({
+  evidenceRefId: z.string().min(1),
+  kind: EvidenceRefSchema.shape.kind,
+  summary: z.string().min(1).optional(),
+  hash: z.string().min(1),
+  labels: z.array(z.string()).default([]),
+  createdAt: IsoDateTimeSchema,
+});
+export type CodexExecTimelineEvidenceSummaryItem = z.infer<
+  typeof CodexExecTimelineEvidenceSummaryItemSchema
+>;
+
+export const CodexExecTimelineEvidenceSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    liveRunRecordId: z.string().min(1),
+    count: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string()).default([]),
+    items: z.array(CodexExecTimelineEvidenceSummaryItemSchema).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecTimelineEvidenceSummary = z.infer<
+  typeof CodexExecTimelineEvidenceSummarySchema
+>;
+
+export const CodexExecTimelineAuditSummaryItemSchema = z.object({
+  auditEventId: z.string().min(1),
+  action: z.string().min(1),
+  outcome: z.string().min(1),
+  createdAt: IsoDateTimeSchema,
+  policyDecisionId: z.string().optional(),
+  evidenceRefIds: z.array(z.string()).default([]),
+});
+export type CodexExecTimelineAuditSummaryItem = z.infer<
+  typeof CodexExecTimelineAuditSummaryItemSchema
+>;
+
+export const CodexExecTimelineAuditSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    liveRunRecordId: z.string().min(1),
+    count: z.number().int().nonnegative(),
+    auditEventIds: z.array(z.string()).default([]),
+    items: z.array(CodexExecTimelineAuditSummaryItemSchema).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecTimelineAuditSummary = z.infer<typeof CodexExecTimelineAuditSummarySchema>;
+
+export const CodexExecTimelineDetailViewSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    liveRunRecordId: z.string().min(1),
+    timeline: CodexExecControlPlaneTimelineSchema,
+    sourceBreakdown: z.record(z.number().int().nonnegative()),
+    latestGateStatus: z.string().min(1).optional(),
+    approvalStatus: CodexExecApprovalStatusSchema.optional(),
+    dryRunSummary: z.object({
+      dryRunPlanId: z.string().min(1),
+      title: z.string().min(1),
+      sandboxMode: CodexExecSandboxModeSchema,
+      approvalMode: CodexExecApprovalModeSchema,
+      riskLevel: RiskLevelSchema,
+      promptSummary: z.string().min(1),
+      promptHash: z.string().min(1),
+      promptLength: z.number().int().nonnegative(),
+      promptBodyStored: z.literal(false),
+    }),
+    commandPreviewSummary: z.object({
+      commandPreviewId: z.string().min(1),
+      previewSummary: z.string().min(1),
+      previewHash: z.string().min(1),
+      redacted: z.literal(true),
+      argumentSummary: z.string().min(1),
+    }),
+    policySummary: z.object({
+      policyDecisionId: z.string().min(1),
+      outcome: PolicyOutcomeSchema,
+      riskLevel: RiskLevelSchema,
+      requiresDryRun: z.boolean(),
+      requiresApproval: z.boolean(),
+      reasonCount: z.number().int().nonnegative(),
+    }),
+    approvalStateSummary: z
+      .object({
+        approvalRequestId: z.string().min(1),
+        status: CodexExecApprovalStatusSchema,
+        canDecide: z.boolean(),
+        terminal: z.boolean(),
+        reasonCount: z.number().int().nonnegative(),
+      })
+      .optional(),
+    gateSummary: z
+      .object({
+        executionGateResultId: z.string().min(1),
+        status: z.enum(['blocked', 'ready']),
+        reasonCount: z.number().int().nonnegative(),
+        liveEnabled: z.boolean(),
+      })
+      .optional(),
+    evidenceSummary: CodexExecTimelineEvidenceSummarySchema,
+    auditSummary: CodexExecTimelineAuditSummarySchema,
+    summary: z.string().min(1),
+  });
+export type CodexExecTimelineDetailView = z.infer<typeof CodexExecTimelineDetailViewSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();
