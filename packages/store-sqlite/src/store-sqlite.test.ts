@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   type AuditEvent,
+  type CodexExecLiveAdapterAdrDecisionRecord,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
   type CodexExecReportReviewRecord,
@@ -155,6 +156,9 @@ describe('store-sqlite migration initialization', () => {
     await first.codexExecApprovals.saveCodexExecApprovalRecord(approvalRecord);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
+    const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
+      createCodexExecLiveAdapterAdrDecisionFixture();
+    await first.codexExecLiveAdapterAdrDecisions.saveDecision(adrDecision);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -187,6 +191,16 @@ describe('store-sqlite migration initialization', () => {
     });
     const reportReviewRecord =
       await second.codexReportReviews.getReportReview('codex_report_review_1');
+    const adrDecisions = await second.codexExecLiveAdapterAdrDecisions.listDecisions({
+      dryRunId: 'codex_dry_run_1',
+      status: 'recorded',
+      decision: 'conditional_read_only_go',
+      limit: 10,
+    });
+    const adrDecisionRecord =
+      await second.codexExecLiveAdapterAdrDecisions.getDecision(
+        'codex_live_adapter_adr_decision_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -218,6 +232,16 @@ describe('store-sqlite migration initialization', () => {
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
     expect(JSON.stringify(reportReviewRecord)).not.toContain('full report markdown');
+    expect(adrDecisions).toHaveLength(1);
+    expect(adrDecisionRecord?.implementationApproved).toBe(false);
+    expect(adrDecisionRecord?.processAdapterApproved).toBe(false);
+    expect(adrDecisionRecord?.dashboardTriggerAllowed).toBe(false);
+    expect(adrDecisionRecord?.allowedSandboxModes).toEqual(['read_only']);
+    expect(adrDecisionRecord?.forbiddenSandboxModes).toEqual([
+      'workspace_write',
+      'danger_full_access',
+    ]);
+    expect(JSON.stringify(adrDecisionRecord)).not.toContain('full command body');
   });
 });
 
@@ -435,6 +459,72 @@ function createCodexReportReviewFixture(): CodexExecReportReviewRecord {
     ],
     findings: [],
     notesSummary: 'No-live boundary intact; live adapter still requires ADR.',
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function createCodexExecLiveAdapterAdrDecisionFixture(): CodexExecLiveAdapterAdrDecisionRecord {
+  const createdAt = '2026-04-28T00:00:06.000Z';
+  const gatePolicy = {
+    id: 'codex_live_adapter_adr_gate_policy_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    allowedSandboxModes: ['read_only' as const],
+    forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+    triggerSurface: 'cli_only' as const,
+    dashboardTriggerAllowed: false as const,
+    dryRunRequired: true as const,
+    approvalArtifactRequired: true as const,
+    dryRunPlanHashMatchRequired: true as const,
+    policyDecisionHashMatchRequired: true as const,
+    isolatedWorktreeRequired: true as const,
+    postRunVerificationCommand: 'pnpm verify:foundation' as const,
+    evidenceRequired: true as const,
+    auditRequired: true as const,
+    implementationApproved: false as const,
+    processAdapterApproved: false as const,
+    recommendationGrantsExecution: false as const,
+    metadataOnly: true as const,
+    bodyStored: false as const,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+  };
+
+  return {
+    id: 'codex_live_adapter_adr_decision_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    adrDocumentPath: 'docs/adr/round-3n-live-adapter-adr.md',
+    decisionDocumentPath: 'docs/adr/round-3n-go-no-go-decision.md',
+    decision: 'conditional_read_only_go',
+    status: 'recorded',
+    reviewerLabel: 'local-operator',
+    rationaleSummary: 'Conditional read-only design can continue; implementation is not approved.',
+    recordedAt: createdAt,
+    gatePolicy,
+    allowedSandboxModes: ['read_only'],
+    forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+    futureTriggerPolicy: 'cli_only',
+    dashboardTriggerAllowed: false,
+    dryRunRequired: true,
+    approvalArtifactRequired: true,
+    dryRunPlanHashMatchRequired: true,
+    policyDecisionHashMatchRequired: true,
+    isolatedWorktreeRequired: true,
+    postRunVerificationCommand: 'pnpm verify:foundation',
+    evidenceRequired: true,
+    auditRequired: true,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    evidenceRefs: [],
+    auditEventIds: ['audit_adr_decision_1'],
     metadataOnly: true,
     bodyStored: false,
     liveExecution: false,

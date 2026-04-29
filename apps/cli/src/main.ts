@@ -14,6 +14,9 @@ import {
   buildCodexExecReportReviewHistory,
   buildCodexExecReviewerHandoffSummary,
   compareCodexExecReportReviews,
+  createCodexExecLiveAdapterAdrDecisionAuditEvents,
+  createCodexExecLiveAdapterAdrDecisionEvidenceRefs,
+  createCodexExecLiveAdapterAdrDecisionRecord,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -33,6 +36,8 @@ import {
   getAuditDetail,
   getEvidenceDetail,
   getLatestCodexExecReportReview,
+  getLatestCodexExecLiveAdapterAdrDecision,
+  listCodexExecLiveAdapterAdrDecisionSummaries,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -43,6 +48,7 @@ import {
   renderCodexExecLiveAdapterAdrDraftJson,
   renderCodexExecLiveAdapterAdrDraftMarkdown,
   summarizeCodexExecReportReview,
+  summarizeCodexExecLiveAdapterAdrDecision,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
@@ -52,6 +58,10 @@ import type {
   CodexExecConfigLoadResult,
   CodexExecControlPlaneReportFormat,
   CodexExecEvidenceQuery,
+  CodexExecLiveAdapterAdrDecisionOutcome,
+  CodexExecLiveAdapterAdrDecisionQuery,
+  CodexExecLiveAdapterAdrDecisionRecord,
+  CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveRunRecord,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
@@ -128,6 +138,19 @@ export interface CodexExecAdrDraftCliOptions {
   includeEvidence?: boolean;
   includeAudit?: boolean;
   out?: string;
+}
+
+export interface CodexExecAdrDecisionCreateCliOptions extends CodexExecJsonCliOptions {
+  reviewer?: string;
+  rationaleSummary?: string;
+  decision?: string;
+  status?: string;
+}
+
+export interface CodexExecAdrDecisionListCliOptions extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
+  decision?: string;
 }
 
 export function buildProgram(): Command {
@@ -384,6 +407,60 @@ export function buildProgram(): Command {
       }
 
       console.log(output);
+    });
+
+  const adrDecisionCommand = execCommand
+    .command('adr-decision')
+    .description('Record and read non-executing live adapter ADR decisions');
+
+  adrDecisionCommand
+    .command('create')
+    .argument('<dryRunId>')
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option(
+      '--rationale-summary <summary>',
+      'ADR decision rationale summary',
+      'Conditional read-only design only; implementation remains unapproved.',
+    )
+    .option('--decision <decision>', 'no_go or conditional_read_only_go', 'conditional_read_only_go')
+    .option('--status <status>', 'draft, recorded, or superseded', 'recorded')
+    .option('--json', 'Print full JSON output')
+    .description('Create a governance ADR decision record; it never grants execution')
+    .action(async (dryRunId: string, options: CodexExecAdrDecisionCreateCliOptions) => {
+      const result = await createCodexExecAdrDecision(dryRunId, options);
+      console.log(formatCodexExecAdrDecisionOutput(result, options));
+    });
+
+  adrDecisionCommand
+    .command('get')
+    .argument('<decisionId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one live adapter ADR decision record')
+    .action(async (decisionId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getCodexExecAdrDecision(decisionId);
+      console.log(formatCodexExecAdrDecisionOutput(result, options));
+    });
+
+  adrDecisionCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by decision status')
+    .option('--decision <decision>', 'Filter by decision outcome')
+    .option('--json', 'Print full JSON output')
+    .description('List live adapter ADR decisions')
+    .action(async (options: CodexExecAdrDecisionListCliOptions) => {
+      const result = await listCodexExecAdrDecisions(options);
+      console.log(formatCodexExecAdrDecisionListOutput(result, options));
+    });
+
+  adrDecisionCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest live adapter ADR decision for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestCodexExecAdrDecisionCommand(dryRunId);
+      console.log(formatCodexExecAdrDecisionOutput(result, options));
     });
 
   const reportReviewCommand = execCommand
@@ -1226,6 +1303,148 @@ export async function getCodexExecAdrDraft(
   }
 }
 
+export async function createCodexExecAdrDecision(
+  dryRunId: string,
+  options: CodexExecAdrDecisionCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const decision = normalizeAdrDecisionOutcome(options.decision);
+  const status = normalizeAdrDecisionStatus(options.status);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/live-adapter-adr-decision`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        dryRunId,
+        reviewerLabel: options.reviewer ?? 'local-operator',
+        rationaleSummary:
+          options.rationaleSummary ??
+          'Conditional read-only design only; implementation remains unapproved.',
+        decision,
+        status,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const decisionRecord = createLocalLiveAdapterAdrDecisionRecord(dryRunId, {
+      reviewer: options.reviewer,
+      rationaleSummary: options.rationaleSummary,
+      decision,
+      status,
+    });
+
+    return createAdrDecisionResponse(decisionRecord, true);
+  }
+}
+
+export async function getCodexExecAdrDecision(decisionId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/live-adapter-adr-decision/${encodeURIComponent(
+        decisionId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const decisionRecord = {
+      ...createLocalLiveAdapterAdrDecisionRecord('codex_dry_run_fixture', {
+        reviewer: 'cli-fallback',
+        rationaleSummary: `Supervisor unavailable while reading ADR decision ${decisionId}.`,
+      }),
+      id: decisionId,
+    };
+
+    return createAdrDecisionResponse(decisionRecord, true);
+  }
+}
+
+export async function listCodexExecAdrDecisions(
+  options: CodexExecAdrDecisionListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createAdrDecisionQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/live-adapter-adr-decisions${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const dryRunId = options.dryRun ?? 'codex_dry_run_fixture';
+    const records = createLocalLiveAdapterAdrDecisionRecords(dryRunId).filter((record) => {
+      const queryObject = createAdrDecisionQueryFromCliOptions(options, dryRunId);
+
+      if (queryObject.dryRunId && record.dryRunId !== queryObject.dryRunId) {
+        return false;
+      }
+
+      if (queryObject.status && record.status !== queryObject.status) {
+        return false;
+      }
+
+      if (queryObject.decision && record.decision !== queryObject.decision) {
+        return false;
+      }
+
+      return true;
+    });
+    const queryObject = createAdrDecisionQueryFromCliOptions(options, dryRunId);
+
+    return {
+      records,
+      decisions: listCodexExecLiveAdapterAdrDecisionSummaries(records, queryObject),
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local ADR decision fallback used and was not persisted',
+    };
+  }
+}
+
+export async function getLatestCodexExecAdrDecisionCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/live-adapter-adr-decision/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const records = createLocalLiveAdapterAdrDecisionRecords(dryRunId);
+    const decisionRecord = getLatestCodexExecLiveAdapterAdrDecision(records, dryRunId);
+
+    return createAdrDecisionResponse(
+      decisionRecord ?? createLocalLiveAdapterAdrDecisionRecord(dryRunId),
+      true,
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -1820,6 +2039,109 @@ export function formatCodexExecAdrDraftOutput(result: Record<string, unknown>): 
   ].join('\n');
 }
 
+export function formatCodexExecAdrDecisionOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const decision = result.decisionRecord as
+    | {
+        id?: string;
+        dryRunId?: string;
+        decision?: string;
+        status?: string;
+        reviewerLabel?: string;
+        allowedSandboxModes?: string[];
+        forbiddenSandboxModes?: string[];
+        futureTriggerPolicy?: string;
+        dashboardTriggerAllowed?: boolean;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+        gatePolicy?: {
+          dryRunPlanHashMatchRequired?: boolean;
+          policyDecisionHashMatchRequired?: boolean;
+          isolatedWorktreeRequired?: boolean;
+          postRunVerificationCommand?: string;
+        };
+        evidenceRefs?: unknown[];
+        auditEventIds?: string[];
+      }
+    | undefined;
+
+  return [
+    'Codex live adapter ADR decision',
+    `decisionId: ${decision?.id ?? 'unknown'}`,
+    `dryRunId: ${decision?.dryRunId ?? 'unknown'}`,
+    `decision: ${decision?.decision ?? 'unknown'}`,
+    `status: ${decision?.status ?? 'unknown'}`,
+    `reviewer: ${decision?.reviewerLabel ?? 'unknown'}`,
+    `allowedSandboxModes: ${(decision?.allowedSandboxModes ?? []).join(', ') || 'none'}`,
+    `forbiddenSandboxModes: ${(decision?.forbiddenSandboxModes ?? []).join(', ') || 'none'}`,
+    `futureTriggerPolicy: ${decision?.futureTriggerPolicy ?? 'cli_only'}`,
+    `dashboardTriggerAllowed=${String(decision?.dashboardTriggerAllowed ?? false)}`,
+    `implementationApproved=${String(decision?.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(decision?.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(decision?.recommendationGrantsExecution ?? false)}`,
+    `dryRunPlanHashMatchRequired=${String(
+      decision?.gatePolicy?.dryRunPlanHashMatchRequired ?? true,
+    )}`,
+    `policyDecisionHashMatchRequired=${String(
+      decision?.gatePolicy?.policyDecisionHashMatchRequired ?? true,
+    )}`,
+    `isolatedWorktreeRequired=${String(decision?.gatePolicy?.isolatedWorktreeRequired ?? true)}`,
+    `postRunVerificationCommand=${decision?.gatePolicy?.postRunVerificationCommand ?? 'pnpm verify:foundation'}`,
+    `evidence: ${decision?.evidenceRefs?.length ?? 0}`,
+    `audit: ${decision?.auditEventIds?.length ?? 0}`,
+    'This ADR decision is governance guidance only and does not approve implementation.',
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatCodexExecAdrDecisionListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecAdrDecisionListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const decisions = result.decisions as
+    | Array<{
+        decisionId?: string;
+        dryRunId?: string;
+        decision?: string;
+        status?: string;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+      }>
+    | undefined;
+  const lines = (decisions ?? []).slice(0, 8).map(
+    (decision) =>
+      `- ${decision.decisionId ?? 'unknown'} ${decision.status ?? 'unknown'} ${
+        decision.decision ?? 'unknown'
+      } implementationApproved=${String(
+        decision.implementationApproved ?? false,
+      )} processAdapterApproved=${String(
+        decision.processAdapterApproved ?? false,
+      )} recommendationGrantsExecution=${String(
+        decision.recommendationGrantsExecution ?? false,
+      )}`,
+  );
+
+  return [
+    'Codex live adapter ADR decision list',
+    `count: ${decisions?.length ?? 0}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
 export function formatCodexExecReportReviewOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -2163,6 +2485,25 @@ function createReportReviewQueryString(options: CodexExecReportReviewListCliOpti
   return queryString ? `?${queryString}` : '';
 }
 
+function createAdrDecisionQueryString(options: CodexExecAdrDecisionListCliOptions): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeAdrDecisionStatus(options.status));
+  }
+
+  if (options.decision) {
+    params.set('decision', normalizeAdrDecisionOutcome(options.decision));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -2173,6 +2514,18 @@ function createReportReviewQueryFromCliOptions(
     recommendation: options.recommendation
       ? normalizeReportReviewRecommendation(options.recommendation)
       : undefined,
+    limit: 20,
+  };
+}
+
+function createAdrDecisionQueryFromCliOptions(
+  options: CodexExecAdrDecisionListCliOptions,
+  fallbackDryRunId: string,
+): Partial<CodexExecLiveAdapterAdrDecisionQuery> {
+  return {
+    dryRunId: options.dryRun ?? fallbackDryRunId,
+    status: options.status ? normalizeAdrDecisionStatus(options.status) : undefined,
+    decision: options.decision ? normalizeAdrDecisionOutcome(options.decision) : undefined,
     limit: 20,
   };
 }
@@ -2220,6 +2573,30 @@ function normalizeReportReviewRecommendation(
   throw new Error('report review recommendation is unsupported');
 }
 
+function normalizeAdrDecisionStatus(
+  status: string | undefined,
+): CodexExecLiveAdapterAdrDecisionStatus {
+  const normalized = status ?? 'recorded';
+
+  if (normalized === 'draft' || normalized === 'recorded' || normalized === 'superseded') {
+    return normalized;
+  }
+
+  throw new Error('ADR decision status is unsupported');
+}
+
+function normalizeAdrDecisionOutcome(
+  decision: string | undefined,
+): CodexExecLiveAdapterAdrDecisionOutcome {
+  const normalized = decision ?? 'conditional_read_only_go';
+
+  if (normalized === 'no_go' || normalized === 'conditional_read_only_go') {
+    return normalized;
+  }
+
+  throw new Error('ADR decision outcome is unsupported');
+}
+
 function createEvidenceQueryFromCliOptions(
   options: CodexExecEvidenceListCliOptions,
   fallbackDryRunId: string,
@@ -2256,6 +2633,97 @@ function createReportReviewResponse(
     degraded,
     reason: degraded ? 'supervisor unavailable; local control-plane fallback used' : undefined,
   };
+}
+
+function createAdrDecisionResponse(
+  decisionRecord: CodexExecLiveAdapterAdrDecisionRecord,
+  degraded: boolean,
+): Record<string, unknown> {
+  const evidenceRefs = decisionRecord.evidenceRefs;
+  const auditEvents = createCodexExecLiveAdapterAdrDecisionAuditEvents(decisionRecord, evidenceRefs);
+  const responseRecord = {
+    ...decisionRecord,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+
+  return {
+    decisionRecord: responseRecord,
+    summary: summarizeCodexExecLiveAdapterAdrDecision(responseRecord),
+    evidenceRefs,
+    auditEvents,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    degraded,
+    reason: degraded
+      ? 'supervisor unavailable; local ADR decision fallback used and was not persisted'
+      : undefined,
+  };
+}
+
+function createLocalLiveAdapterAdrDecisionRecord(
+  dryRunId: string,
+  options: {
+    reviewer?: string;
+    rationaleSummary?: string;
+    decision?: CodexExecLiveAdapterAdrDecisionOutcome;
+    status?: CodexExecLiveAdapterAdrDecisionStatus;
+  } = {},
+): CodexExecLiveAdapterAdrDecisionRecord {
+  const draftRecord = createCodexExecLiveAdapterAdrDecisionRecord({
+    dryRunId,
+    reviewerLabel: options.reviewer ?? 'cli-fallback',
+    rationaleSummary:
+      options.rationaleSummary ??
+      'Conditional read-only design may continue; implementation remains unapproved.',
+    decision: options.decision,
+    status: options.status,
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const evidenceRefs = createCodexExecLiveAdapterAdrDecisionEvidenceRefs(draftRecord);
+  const auditEvents = createCodexExecLiveAdapterAdrDecisionAuditEvents(draftRecord, evidenceRefs);
+
+  return {
+    ...draftRecord,
+    evidenceRefs,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+}
+
+function createLocalLiveAdapterAdrDecisionRecords(
+  dryRunId: string,
+): CodexExecLiveAdapterAdrDecisionRecord[] {
+  const older = createLocalLiveAdapterAdrDecisionRecord(dryRunId, {
+    reviewer: 'cli-fallback-initial',
+    decision: 'no_go',
+    status: 'superseded',
+    rationaleSummary: 'Initial local fallback decision kept implementation blocked.',
+  });
+  const latest = createLocalLiveAdapterAdrDecisionRecord(dryRunId, {
+    reviewer: 'cli-fallback-latest',
+    decision: 'conditional_read_only_go',
+    status: 'recorded',
+    rationaleSummary:
+      'Latest local fallback decision allows future read-only design only; implementation remains unapproved.',
+  });
+
+  return [
+    {
+      ...latest,
+      id: 'codex_live_adapter_adr_decision_cli_latest',
+      createdAt: '2026-04-28T04:00:00.000Z',
+      recordedAt: '2026-04-28T04:00:00.000Z',
+    },
+    {
+      ...older,
+      id: 'codex_live_adapter_adr_decision_cli_older',
+      createdAt: '2026-04-28T03:00:00.000Z',
+      recordedAt: '2026-04-28T03:00:00.000Z',
+    },
+  ];
 }
 
 function createLocalReportReviewRecords(dryRunId: string): CodexExecReportReviewRecord[] {

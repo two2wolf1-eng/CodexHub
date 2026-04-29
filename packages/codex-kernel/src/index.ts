@@ -65,6 +65,12 @@ import type {
   CodexExecLiveAdapterAdrDraftSectionKind,
   CodexExecLiveAdapterAdrDraftStatus,
   CodexExecLiveAdapterAdrDraftSummary,
+  CodexExecLiveAdapterAdrDecisionGatePolicy,
+  CodexExecLiveAdapterAdrDecisionOutcome,
+  CodexExecLiveAdapterAdrDecisionQuery,
+  CodexExecLiveAdapterAdrDecisionRecord,
+  CodexExecLiveAdapterAdrDecisionStatus,
+  CodexExecLiveAdapterAdrDecisionSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -2750,6 +2756,266 @@ export function renderCodexExecLiveAdapterAdrDraftMarkdown(
     .join('\n');
 
   return createLiveAdapterAdrDraftExportResult(draft, 'markdown', renderedContent);
+}
+
+export interface CodexExecLiveAdapterAdrDecisionInput {
+  dryRunId: string;
+  reviewerLabel: string;
+  rationaleSummary?: string;
+  decision?: CodexExecLiveAdapterAdrDecisionOutcome;
+  status?: CodexExecLiveAdapterAdrDecisionStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export function createCodexExecLiveAdapterAdrDecisionRecord(
+  input: CodexExecLiveAdapterAdrDecisionInput,
+): CodexExecLiveAdapterAdrDecisionRecord {
+  const gatePolicy = createCodexExecLiveAdapterAdrDecisionGatePolicy(input.dryRunId);
+  const decision = input.decision ?? 'conditional_read_only_go';
+  const status = input.status ?? 'recorded';
+  const rationaleSummary =
+    input.rationaleSummary ??
+    'Conditional read-only design can continue; implementation and process adapter work are not approved.';
+
+  return {
+    id: foundationId('codex_live_adapter_adr_decision'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    adrDocumentPath: 'docs/adr/round-3n-live-adapter-adr.md',
+    decisionDocumentPath: 'docs/adr/round-3n-go-no-go-decision.md',
+    decision,
+    status,
+    reviewerLabel: input.reviewerLabel,
+    rationaleSummary,
+    recordedAt: foundationTimestamp(),
+    gatePolicy,
+    allowedSandboxModes: gatePolicy.allowedSandboxModes,
+    forbiddenSandboxModes: gatePolicy.forbiddenSandboxModes,
+    futureTriggerPolicy: 'cli_only',
+    dashboardTriggerAllowed: false,
+    dryRunRequired: true,
+    approvalArtifactRequired: true,
+    dryRunPlanHashMatchRequired: true,
+    policyDecisionHashMatchRequired: true,
+    isolatedWorktreeRequired: true,
+    postRunVerificationCommand: 'pnpm verify:foundation',
+    evidenceRequired: true,
+    auditRequired: true,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    evidenceRefs: [],
+    auditEventIds: [],
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      dryRunPlanId: input.dryRunId,
+      decision,
+      status,
+      futureTriggerPolicy: 'cli_only',
+      dashboardTriggerAllowed: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function summarizeCodexExecLiveAdapterAdrDecision(
+  record: CodexExecLiveAdapterAdrDecisionRecord,
+): CodexExecLiveAdapterAdrDecisionSummary {
+  return {
+    id: foundationId('codex_live_adapter_adr_decision_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    decisionId: record.id,
+    dryRunId: record.dryRunId,
+    decision: record.decision,
+    status: record.status,
+    reviewerLabel: record.reviewerLabel,
+    rationaleSummary: record.rationaleSummary,
+    allowedSandboxModes: record.allowedSandboxModes,
+    forbiddenSandboxModes: record.forbiddenSandboxModes,
+    futureTriggerPolicy: record.futureTriggerPolicy,
+    dashboardTriggerAllowed: false,
+    approvalArtifactRequired: true,
+    dryRunPlanHashMatchRequired: true,
+    policyDecisionHashMatchRequired: true,
+    isolatedWorktreeRequired: true,
+    postRunVerificationCommand: 'pnpm verify:foundation',
+    evidenceCount: record.evidenceRefs.length,
+    auditEventCount: record.auditEventIds.length,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      decisionId: record.id,
+      dryRunPlanId: record.dryRunId,
+      decision: record.decision,
+      status: record.status,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listCodexExecLiveAdapterAdrDecisionSummaries(
+  records: CodexExecLiveAdapterAdrDecisionRecord[],
+  query: Partial<CodexExecLiveAdapterAdrDecisionQuery> = {},
+): CodexExecLiveAdapterAdrDecisionSummary[] {
+  return sortLiveAdapterAdrDecisionsNewestFirst(filterLiveAdapterAdrDecisions(records, query))
+    .slice(0, query.limit ?? 20)
+    .map(summarizeCodexExecLiveAdapterAdrDecision);
+}
+
+export function getLatestCodexExecLiveAdapterAdrDecision(
+  records: CodexExecLiveAdapterAdrDecisionRecord[],
+  dryRunId: string,
+): CodexExecLiveAdapterAdrDecisionRecord | undefined {
+  return sortLiveAdapterAdrDecisionsNewestFirst(
+    records.filter((record) => record.dryRunId === dryRunId),
+  )[0];
+}
+
+export function createCodexExecLiveAdapterAdrDecisionEvidenceRefs(
+  record: CodexExecLiveAdapterAdrDecisionRecord,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.live_adapter_adr_decision',
+      label: 'codex.live_adapter_adr_decision',
+      summary: `ADR decision ${record.decision} for ${record.dryRunId}; implementation remains unapproved.`,
+      metadata: createControlPlaneMetadata({
+        decisionId: record.id,
+        dryRunPlanId: record.dryRunId,
+        decision: record.decision,
+        status: record.status,
+        allowedSandboxModes: record.allowedSandboxModes,
+        forbiddenSandboxModes: record.forbiddenSandboxModes,
+        futureTriggerPolicy: record.futureTriggerPolicy,
+        dashboardTriggerAllowed: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        decisionId: record.id,
+        dryRunId: record.dryRunId,
+        decision: record.decision,
+        status: record.status,
+        gatePolicyId: record.gatePolicy.id,
+        rationaleSummaryHash: prefixedHash(record.rationaleSummary),
+      }),
+    }),
+  ];
+}
+
+export function createCodexExecLiveAdapterAdrDecisionAuditEvents(
+  record: CodexExecLiveAdapterAdrDecisionRecord,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.live_adapter_adr_decision.recorded',
+      outcome: record.decision,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        decisionId: record.id,
+        dryRunPlanId: record.dryRunId,
+        decision: record.decision,
+        status: record.status,
+        futureTriggerPolicy: record.futureTriggerPolicy,
+        dashboardTriggerAllowed: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+    },
+  ];
+}
+
+function createCodexExecLiveAdapterAdrDecisionGatePolicy(
+  dryRunId: string,
+): CodexExecLiveAdapterAdrDecisionGatePolicy {
+  return {
+    id: foundationId('codex_live_adapter_adr_gate_policy'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    allowedSandboxModes: ['read_only'],
+    forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+    triggerSurface: 'cli_only',
+    dashboardTriggerAllowed: false,
+    dryRunRequired: true,
+    approvalArtifactRequired: true,
+    dryRunPlanHashMatchRequired: true,
+    policyDecisionHashMatchRequired: true,
+    isolatedWorktreeRequired: true,
+    postRunVerificationCommand: 'pnpm verify:foundation',
+    evidenceRequired: true,
+    auditRequired: true,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      triggerSurface: 'cli_only',
+      allowedSandboxModes: ['read_only'],
+      forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function filterLiveAdapterAdrDecisions(
+  records: CodexExecLiveAdapterAdrDecisionRecord[],
+  query: Partial<CodexExecLiveAdapterAdrDecisionQuery>,
+): CodexExecLiveAdapterAdrDecisionRecord[] {
+  return records.filter((record) => {
+    if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+      return false;
+    }
+
+    if (query.status && record.status !== query.status) {
+      return false;
+    }
+
+    if (query.decision && record.decision !== query.decision) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function sortLiveAdapterAdrDecisionsNewestFirst(
+  records: CodexExecLiveAdapterAdrDecisionRecord[],
+): CodexExecLiveAdapterAdrDecisionRecord[] {
+  return [...records].sort((left, right) => {
+    const byRecordedAt = right.recordedAt.localeCompare(left.recordedAt);
+    return byRecordedAt !== 0 ? byRecordedAt : right.createdAt.localeCompare(left.createdAt);
+  });
 }
 
 function createLiveAdapterAdrDraftQuery(input: {

@@ -4,6 +4,8 @@ import { dirname, join, parse, resolve } from 'node:path';
 import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
+  CodexExecLiveAdapterAdrDecisionQuery,
+  CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
   CodexExecReportReviewQuery,
@@ -17,6 +19,7 @@ import type {
 import type {
   AuditEventQuery,
   AuditEventRepository,
+  CodexExecLiveAdapterAdrDecisionRepository,
   CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
   CodexHubStore,
@@ -82,6 +85,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecLiveRuns: CodexExecLiveRunRepository;
   readonly codexExecApprovals: CodexExecApprovalRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
+  readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -101,6 +105,8 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.codexExecLiveRuns = new SqliteCodexExecLiveRunRepository(database);
     this.codexExecApprovals = new SqliteCodexExecApprovalRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
+    this.codexExecLiveAdapterAdrDecisions =
+      new SqliteCodexExecLiveAdapterAdrDecisionRepository(database);
   }
 
   async close(): Promise<void> {
@@ -368,6 +374,62 @@ class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   }
 }
 
+class SqliteCodexExecLiveAdapterAdrDecisionRepository
+  implements CodexExecLiveAdapterAdrDecisionRepository
+{
+  private readonly repository: JsonEntityRepository<CodexExecLiveAdapterAdrDecisionRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecLiveAdapterAdrDecisionRecord>(
+      database,
+      'codex_live_adapter_adr_decisions',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDecision(
+    record: CodexExecLiveAdapterAdrDecisionRecord,
+  ): Promise<CodexExecLiveAdapterAdrDecisionRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDecision(id: string): Promise<CodexExecLiveAdapterAdrDecisionRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDecisions(
+    query: Partial<CodexExecLiveAdapterAdrDecisionQuery> = {},
+  ): Promise<CodexExecLiveAdapterAdrDecisionRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_live_adapter_adr_decisions ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) => JSON.parse(row.payload) as CodexExecLiveAdapterAdrDecisionRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        if (query.decision && record.decision !== query.decision) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -514,6 +576,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_report_reviews (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_live_adapter_adr_decisions (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

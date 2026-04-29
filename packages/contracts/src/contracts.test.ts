@@ -23,6 +23,10 @@ import {
   CodexExecLiveAdapterAdrDraftSchema,
   CodexExecLiveAdapterAdrDraftSectionSchema,
   CodexExecLiveAdapterAdrDraftSummarySchema,
+  CodexExecLiveAdapterAdrDecisionGatePolicySchema,
+  CodexExecLiveAdapterAdrDecisionQuerySchema,
+  CodexExecLiveAdapterAdrDecisionRecordSchema,
+  CodexExecLiveAdapterAdrDecisionSummarySchema,
   CodexExecNoLiveEvidenceSummarySchema,
   CodexExecReportReviewComparisonSchema,
   CodexExecReportReviewComparisonItemSchema,
@@ -1378,5 +1382,139 @@ describe('contracts schemas', () => {
     expect(JSON.stringify(handoff)).not.toContain('full command body');
     expect(JSON.stringify(governancePackage)).not.toContain('full command body');
     expect(JSON.stringify(adrDraft)).not.toContain('full command body');
+  });
+
+  it('parses live adapter ADR decision records without granting execution', () => {
+    const gatePolicy = CodexExecLiveAdapterAdrDecisionGatePolicySchema.parse({
+      id: 'codex_live_adapter_adr_gate_policy_1',
+      schemaVersion,
+      createdAt,
+      allowedSandboxModes: ['read_only'],
+      forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+      triggerSurface: 'cli_only',
+      dashboardTriggerAllowed: false,
+      dryRunRequired: true,
+      approvalArtifactRequired: true,
+      dryRunPlanHashMatchRequired: true,
+      policyDecisionHashMatchRequired: true,
+      isolatedWorktreeRequired: true,
+      postRunVerificationCommand: 'pnpm verify:foundation',
+      evidenceRequired: true,
+      auditRequired: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const evidenceRef = {
+      id: 'evidence_adr_decision_1',
+      schemaVersion,
+      createdAt,
+      kind: 'codex.exec.live_adapter_adr_decision',
+      summary: 'ADR decision evidence is metadata-only.',
+      hash: 'sha256:adr-decision',
+      redacted: true,
+      labels: ['codex.live_adapter_adr_decision'],
+    };
+    const record = CodexExecLiveAdapterAdrDecisionRecordSchema.parse({
+      id: 'codex_live_adapter_adr_decision_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      adrDocumentPath: 'docs/adr/round-3n-live-adapter-adr.md',
+      decisionDocumentPath: 'docs/adr/round-3n-go-no-go-decision.md',
+      decision: 'conditional_read_only_go',
+      status: 'recorded',
+      reviewerLabel: 'local-operator',
+      rationaleSummary: 'Conditional read-only design can continue; implementation is not approved.',
+      recordedAt: createdAt,
+      gatePolicy,
+      allowedSandboxModes: ['read_only'],
+      forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+      futureTriggerPolicy: 'cli_only',
+      dashboardTriggerAllowed: false,
+      dryRunRequired: true,
+      approvalArtifactRequired: true,
+      dryRunPlanHashMatchRequired: true,
+      policyDecisionHashMatchRequired: true,
+      isolatedWorktreeRequired: true,
+      postRunVerificationCommand: 'pnpm verify:foundation',
+      evidenceRequired: true,
+      auditRequired: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      evidenceRefs: [evidenceRef],
+      auditEventIds: ['audit_adr_decision_1'],
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const summary = CodexExecLiveAdapterAdrDecisionSummarySchema.parse({
+      id: 'codex_live_adapter_adr_decision_summary_1',
+      schemaVersion,
+      createdAt,
+      decisionId: record.id,
+      dryRunId: record.dryRunId,
+      decision: record.decision,
+      status: record.status,
+      reviewerLabel: record.reviewerLabel,
+      rationaleSummary: record.rationaleSummary,
+      allowedSandboxModes: record.allowedSandboxModes,
+      forbiddenSandboxModes: record.forbiddenSandboxModes,
+      futureTriggerPolicy: 'cli_only',
+      dashboardTriggerAllowed: false,
+      approvalArtifactRequired: true,
+      dryRunPlanHashMatchRequired: true,
+      policyDecisionHashMatchRequired: true,
+      isolatedWorktreeRequired: true,
+      postRunVerificationCommand: 'pnpm verify:foundation',
+      evidenceCount: 1,
+      auditEventCount: 1,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const query = CodexExecLiveAdapterAdrDecisionQuerySchema.parse({
+      id: 'codex_live_adapter_adr_decision_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      status: 'recorded',
+      decision: 'conditional_read_only_go',
+      limit: 10,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      dashboardTriggerAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(record.decision).toBe('conditional_read_only_go');
+    expect(record.allowedSandboxModes).toEqual(['read_only']);
+    expect(record.forbiddenSandboxModes).toEqual(['workspace_write', 'danger_full_access']);
+    expect(record.dashboardTriggerAllowed).toBe(false);
+    expect(record.implementationApproved).toBe(false);
+    expect(record.processAdapterApproved).toBe(false);
+    expect(record.recommendationGrantsExecution).toBe(false);
+    expect(summary.evidenceCount).toBe(1);
+    expect(query.limit).toBe(10);
+    expect(JSON.stringify(record)).not.toContain('full prompt body');
+    expect(JSON.stringify(record)).not.toContain('full command body');
   });
 });

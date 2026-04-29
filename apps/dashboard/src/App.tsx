@@ -4,6 +4,7 @@ import type {
   CodexExecControlPlaneDrilldownView,
   CodexExecControlPlaneReport,
   CodexExecGovernanceReviewPackage,
+  CodexExecLiveAdapterAdrDecisionSummary,
   CodexExecLiveAdapterAdrDraft,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
@@ -36,6 +37,7 @@ interface OverviewState {
   codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
   codexExecReports: CodexExecControlPlaneReport[];
   codexExecGovernancePackages: CodexExecGovernanceReviewPackage[];
+  codexExecAdrDecisions: CodexExecLiveAdapterAdrDecisionSummary[];
   codexExecAdrDrafts: CodexExecLiveAdapterAdrDraft[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
@@ -60,6 +62,7 @@ export function App() {
     codexExecDrilldowns: [],
     codexExecReports: [],
     codexExecGovernancePackages: [],
+    codexExecAdrDecisions: [],
     codexExecAdrDrafts: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
@@ -241,6 +244,26 @@ export function App() {
             }),
           )
         ).filter((adrDraft): adrDraft is CodexExecLiveAdapterAdrDraft => adrDraft !== undefined);
+        const codexExecAdrDecisions = (
+          await Promise.all(
+            governanceDryRunIds.slice(0, 3).map(async (dryRunId) => {
+              try {
+                const response = await getJson<{
+                  summary: CodexExecLiveAdapterAdrDecisionSummary;
+                }>(
+                  `/api/codex/exec/live-adapter-adr-decision/latest/${encodeURIComponent(
+                    dryRunId,
+                  )}`,
+                );
+                return response.summary;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter(
+          (decision): decision is CodexExecLiveAdapterAdrDecisionSummary => decision !== undefined,
+        );
 
         if (!cancelled) {
           setOverview({
@@ -260,6 +283,7 @@ export function App() {
             codexExecDrilldowns,
             codexExecReports,
             codexExecGovernancePackages,
+            codexExecAdrDecisions,
             codexExecAdrDrafts,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
@@ -282,6 +306,7 @@ export function App() {
             codexExecDrilldowns: [],
             codexExecReports: [],
             codexExecGovernancePackages: [],
+            codexExecAdrDecisions: [],
             codexExecAdrDrafts: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
@@ -889,6 +914,57 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only Live Adapter ADR draft preview is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Live Adapter ADR Decision">
+          {overview.codexExecAdrDecisions.length > 0 ? (
+            <ul>
+              {overview.codexExecAdrDecisions.map((decision) => (
+                <li key={decision.id} className="stacked report-detail">
+                  <strong>{decision.dryRunId}</strong>
+                  <span>
+                    decision {decision.decision}, status {decision.status}, reviewer{' '}
+                    {decision.reviewerLabel}
+                  </span>
+                  <span>
+                    allowed sandbox modes {decision.allowedSandboxModes.join(', ') || 'none'};
+                    forbidden sandbox modes {decision.forbiddenSandboxModes.join(', ') || 'none'}
+                  </span>
+                  <span>
+                    future trigger {decision.futureTriggerPolicy}, dashboard trigger allowed{' '}
+                    {String(decision.dashboardTriggerAllowed)}
+                  </span>
+                  <span>
+                    approval artifact required {String(decision.approvalArtifactRequired)}, dry-run
+                    hash match {String(decision.dryRunPlanHashMatchRequired)}, policy hash match{' '}
+                    {String(decision.policyDecisionHashMatchRequired)}
+                  </span>
+                  <span>
+                    isolated worktree {String(decision.isolatedWorktreeRequired)}, post-run verify{' '}
+                    {decision.postRunVerificationCommand}
+                  </span>
+                  <span>
+                    implementationApproved {String(decision.implementationApproved)},
+                    processAdapterApproved {String(decision.processAdapterApproved)},
+                    recommendationGrantsExecution{' '}
+                    {String(decision.recommendationGrantsExecution)}
+                  </span>
+                  <span>
+                    evidence {decision.evidenceCount}, audit {decision.auditEventCount},
+                    liveExecution {String(decision.liveExecution)}, externalProcessStarted{' '}
+                    {String(decision.externalProcessStarted)}, executionDisabled{' '}
+                    {String(decision.executionDisabled)}
+                  </span>
+                  <p>
+                    This ADR decision is governance guidance only. It does not approve
+                    implementation, process adapter work, or Dashboard-triggered execution.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only Live Adapter ADR decision is available yet.</p>
           )}
         </Panel>
 

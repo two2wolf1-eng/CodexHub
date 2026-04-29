@@ -11,6 +11,9 @@ import {
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createCodexExecControlPlaneTimeline,
+  createCodexExecLiveAdapterAdrDecisionAuditEvents,
+  createCodexExecLiveAdapterAdrDecisionEvidenceRefs,
+  createCodexExecLiveAdapterAdrDecisionRecord,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -37,6 +40,8 @@ import {
   getAuditDetail,
   getEvidenceDetail,
   getLatestCodexExecReportReview,
+  getLatestCodexExecLiveAdapterAdrDecision,
+  listCodexExecLiveAdapterAdrDecisionSummaries,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
@@ -1110,6 +1115,50 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(draft.executionDisabled).toBe(true);
     expect(markdown.renderedContent).toContain('does not grant execution');
     expect(markdown.renderedContent).not.toContain('full command body');
+  });
+
+  it('records a conditional read-only ADR decision without approving implementation', () => {
+    const record = createCodexExecLiveAdapterAdrDecisionRecord({
+      dryRunId: 'codex_dry_run_1',
+      reviewerLabel: 'local-operator',
+      rationaleSummary: 'Conditional read-only design can continue; implementation is not approved.',
+    });
+    const evidenceRefs = createCodexExecLiveAdapterAdrDecisionEvidenceRefs(record);
+    const auditEvents = createCodexExecLiveAdapterAdrDecisionAuditEvents(record, evidenceRefs);
+    const persistedRecord = {
+      ...record,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
+    const summary = listCodexExecLiveAdapterAdrDecisionSummaries([persistedRecord], {
+      dryRunId: record.dryRunId,
+      decision: 'conditional_read_only_go',
+      status: 'recorded',
+      limit: 10,
+    })[0];
+    const latest = getLatestCodexExecLiveAdapterAdrDecision([persistedRecord], record.dryRunId);
+
+    expect(record.decision).toBe('conditional_read_only_go');
+    expect(record.allowedSandboxModes).toEqual(['read_only']);
+    expect(record.forbiddenSandboxModes).toEqual(['workspace_write', 'danger_full_access']);
+    expect(record.futureTriggerPolicy).toBe('cli_only');
+    expect(record.dashboardTriggerAllowed).toBe(false);
+    expect(record.implementationApproved).toBe(false);
+    expect(record.processAdapterApproved).toBe(false);
+    expect(record.recommendationGrantsExecution).toBe(false);
+    expect(record.gatePolicy.dryRunPlanHashMatchRequired).toBe(true);
+    expect(record.gatePolicy.policyDecisionHashMatchRequired).toBe(true);
+    expect(record.gatePolicy.isolatedWorktreeRequired).toBe(true);
+    expect(record.gatePolicy.postRunVerificationCommand).toBe('pnpm verify:foundation');
+    expect(evidenceRefs).toHaveLength(1);
+    expect(evidenceRefs[0]?.kind).toBe('codex.exec.live_adapter_adr_decision');
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]?.action).toBe('codex.exec.live_adapter_adr_decision.recorded');
+    expect(summary?.decisionId).toBe(record.id);
+    expect(summary?.evidenceCount).toBe(1);
+    expect(latest?.id).toBe(record.id);
+    expect(JSON.stringify(persistedRecord)).not.toContain('full prompt body');
+    expect(JSON.stringify(persistedRecord)).not.toContain('full command body');
   });
 
   it('returns a safe not_found review draft when report is unavailable', () => {

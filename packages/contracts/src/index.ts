@@ -51,6 +51,7 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.approval_request',
     'codex.exec.approval_decision',
     'codex.exec.approval_state',
+    'codex.exec.live_adapter_adr_decision',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -1852,6 +1853,132 @@ export const CodexExecLiveAdapterAdrDraftExportResultSchema = createdEntityBaseS
   });
 export type CodexExecLiveAdapterAdrDraftExportResult = z.infer<
   typeof CodexExecLiveAdapterAdrDraftExportResultSchema
+>;
+
+export const CodexExecLiveAdapterAdrDecisionOutcomeSchema = z.enum([
+  'no_go',
+  'conditional_read_only_go',
+]);
+export type CodexExecLiveAdapterAdrDecisionOutcome = z.infer<
+  typeof CodexExecLiveAdapterAdrDecisionOutcomeSchema
+>;
+
+export const CodexExecLiveAdapterAdrDecisionStatusSchema = z.enum([
+  'draft',
+  'recorded',
+  'superseded',
+]);
+export type CodexExecLiveAdapterAdrDecisionStatus = z.infer<
+  typeof CodexExecLiveAdapterAdrDecisionStatusSchema
+>;
+
+export const CodexExecLiveAdapterAdrDecisionGatePolicySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    allowedSandboxModes: z.array(CodexExecSandboxModeSchema),
+    forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema),
+    triggerSurface: z.literal('cli_only'),
+    dashboardTriggerAllowed: z.literal(false),
+    dryRunRequired: z.literal(true),
+    approvalArtifactRequired: z.literal(true),
+    dryRunPlanHashMatchRequired: z.literal(true),
+    policyDecisionHashMatchRequired: z.literal(true),
+    isolatedWorktreeRequired: z.literal(true),
+    postRunVerificationCommand: z.literal('pnpm verify:foundation'),
+    evidenceRequired: z.literal(true),
+    auditRequired: z.literal(true),
+    implementationApproved: z.literal(false),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecLiveAdapterAdrDecisionGatePolicy = z.infer<
+  typeof CodexExecLiveAdapterAdrDecisionGatePolicySchema
+>;
+
+export const CodexExecLiveAdapterAdrDecisionRecordSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    adrDocumentPath: z.string().min(1),
+    decisionDocumentPath: z.string().min(1),
+    decision: CodexExecLiveAdapterAdrDecisionOutcomeSchema,
+    status: CodexExecLiveAdapterAdrDecisionStatusSchema,
+    reviewerLabel: z.string().min(1),
+    rationaleSummary: z.string().min(1),
+    recordedAt: IsoDateTimeSchema,
+    gatePolicy: CodexExecLiveAdapterAdrDecisionGatePolicySchema,
+    allowedSandboxModes: z.array(CodexExecSandboxModeSchema),
+    forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema),
+    futureTriggerPolicy: z.literal('cli_only'),
+    dashboardTriggerAllowed: z.literal(false),
+    dryRunRequired: z.literal(true),
+    approvalArtifactRequired: z.literal(true),
+    dryRunPlanHashMatchRequired: z.literal(true),
+    policyDecisionHashMatchRequired: z.literal(true),
+    isolatedWorktreeRequired: z.literal(true),
+    postRunVerificationCommand: z.literal('pnpm verify:foundation'),
+    evidenceRequired: z.literal(true),
+    auditRequired: z.literal(true),
+    implementationApproved: z.literal(false),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecLiveAdapterAdrDecisionRecord = z.infer<
+  typeof CodexExecLiveAdapterAdrDecisionRecordSchema
+>;
+
+export const CodexExecLiveAdapterAdrDecisionSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    decisionId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    decision: CodexExecLiveAdapterAdrDecisionOutcomeSchema,
+    status: CodexExecLiveAdapterAdrDecisionStatusSchema,
+    reviewerLabel: z.string().min(1),
+    rationaleSummary: z.string().min(1),
+    allowedSandboxModes: z.array(CodexExecSandboxModeSchema),
+    forbiddenSandboxModes: z.array(CodexExecSandboxModeSchema),
+    futureTriggerPolicy: z.literal('cli_only'),
+    dashboardTriggerAllowed: z.literal(false),
+    approvalArtifactRequired: z.literal(true),
+    dryRunPlanHashMatchRequired: z.literal(true),
+    policyDecisionHashMatchRequired: z.literal(true),
+    isolatedWorktreeRequired: z.literal(true),
+    postRunVerificationCommand: z.literal('pnpm verify:foundation'),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    implementationApproved: z.literal(false),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecLiveAdapterAdrDecisionSummary = z.infer<
+  typeof CodexExecLiveAdapterAdrDecisionSummarySchema
+>;
+
+export const CodexExecLiveAdapterAdrDecisionQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    status: CodexExecLiveAdapterAdrDecisionStatusSchema.optional(),
+    decision: CodexExecLiveAdapterAdrDecisionOutcomeSchema.optional(),
+    limit: z.number().int().positive().max(200).default(20),
+    implementationApproved: z.literal(false),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    dashboardTriggerAllowed: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecLiveAdapterAdrDecisionQuery = z.infer<
+  typeof CodexExecLiveAdapterAdrDecisionQuerySchema
 >;
 
 export function foundationTimestamp(): string {

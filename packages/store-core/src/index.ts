@@ -1,6 +1,8 @@
 import type {
   AuditEvent,
   CodexExecLiveRunRecord,
+  CodexExecLiveAdapterAdrDecisionQuery,
+  CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecManualApprovalRecord,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -84,6 +86,16 @@ export interface CodexReportReviewRepository {
   ): Promise<CodexExecReportReviewRecord[]>;
 }
 
+export interface CodexExecLiveAdapterAdrDecisionRepository {
+  saveDecision(
+    record: CodexExecLiveAdapterAdrDecisionRecord,
+  ): Promise<CodexExecLiveAdapterAdrDecisionRecord>;
+  getDecision(id: string): Promise<CodexExecLiveAdapterAdrDecisionRecord | undefined>;
+  listDecisions(
+    query?: Partial<CodexExecLiveAdapterAdrDecisionQuery>,
+  ): Promise<CodexExecLiveAdapterAdrDecisionRecord[]>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -94,6 +106,7 @@ export interface CodexHubStore {
   codexExecLiveRuns: CodexExecLiveRunRepository;
   codexExecApprovals: CodexExecApprovalRepository;
   codexReportReviews: CodexReportReviewRepository;
+  codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   close(): Promise<void>;
 }
 

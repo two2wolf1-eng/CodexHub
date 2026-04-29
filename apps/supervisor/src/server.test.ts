@@ -293,6 +293,41 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/adr-draft/missing_dry_run?format=markdown',
     });
+    const adrDecisionCreateResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/live-adapter-adr-decision',
+      payload: {
+        dryRunId: canonicalDryRunPlanId,
+        reviewerLabel: 'local-operator',
+        rationaleSummary:
+          'Conditional read-only design is allowed; implementation remains unapproved.',
+      },
+    });
+    const adrDecisionId = adrDecisionCreateResponse.json().decisionRecord.id as string;
+    const adrDecisionGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/live-adapter-adr-decision/${adrDecisionId}`,
+    });
+    const adrDecisionListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/live-adapter-adr-decisions?dryRunId=${canonicalDryRunPlanId}&status=recorded&decision=conditional_read_only_go&limit=10`,
+    });
+    const adrDecisionLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/live-adapter-adr-decision/latest/${canonicalDryRunPlanId}`,
+    });
+    const missingAdrDecisionResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/live-adapter-adr-decision/missing_decision',
+    });
+    const missingAdrDecisionLatestResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/live-adapter-adr-decision/latest/missing_dry_run',
+    });
+    const invalidAdrDecisionQueryResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/live-adapter-adr-decisions?dryRunId=${canonicalDryRunPlanId}&decision=execute_now`,
+    });
     const missingReportReviewResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/report-review/missing_review',
@@ -888,6 +923,83 @@ describe('supervisor mock development API', () => {
       executionDisabled: true,
     });
     expect(missingAdrDraftResponse.body).not.toContain(process.cwd());
+    expect(adrDecisionCreateResponse.statusCode).toBe(200);
+    expect(adrDecisionCreateResponse.json()).toMatchObject({
+      decisionRecord: {
+        dryRunId: canonicalDryRunPlanId,
+        decision: 'conditional_read_only_go',
+        status: 'recorded',
+        allowedSandboxModes: ['read_only'],
+        forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+        futureTriggerPolicy: 'cli_only',
+        dashboardTriggerAllowed: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        gatePolicy: {
+          dryRunPlanHashMatchRequired: true,
+          policyDecisionHashMatchRequired: true,
+          isolatedWorktreeRequired: true,
+          postRunVerificationCommand: 'pnpm verify:foundation',
+        },
+      },
+      summary: {
+        decision: 'conditional_read_only_go',
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(adrDecisionCreateResponse.json().evidenceRefs).toHaveLength(1);
+    expect(adrDecisionCreateResponse.json().auditEvents).toHaveLength(1);
+    expect(JSON.stringify(adrDecisionCreateResponse.json())).not.toContain('list risk areas');
+    expect(adrDecisionGetResponse.statusCode).toBe(200);
+    expect(adrDecisionGetResponse.json().decisionRecord.id).toBe(adrDecisionId);
+    expect(adrDecisionGetResponse.json()).toMatchObject({
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(adrDecisionListResponse.statusCode).toBe(200);
+    expect(adrDecisionListResponse.json().records).toHaveLength(1);
+    expect(adrDecisionListResponse.json().decisions[0]).toMatchObject({
+      decisionId: adrDecisionId,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(adrDecisionLatestResponse.statusCode).toBe(200);
+    expect(adrDecisionLatestResponse.json()).toMatchObject({
+      decisionRecord: {
+        id: adrDecisionId,
+        dashboardTriggerAllowed: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(missingAdrDecisionResponse.statusCode).toBe(404);
+    expect(missingAdrDecisionResponse.body).not.toContain(process.cwd());
+    expect(missingAdrDecisionLatestResponse.statusCode).toBe(404);
+    expect(missingAdrDecisionLatestResponse.body).not.toContain(process.cwd());
+    expect(invalidAdrDecisionQueryResponse.statusCode).toBe(400);
     expect(missingReportReviewResponse.statusCode).toBe(404);
     expect(missingReportReviewResponse.body).not.toContain(process.cwd());
     expect(missingReportReviewLatestResponse.statusCode).toBe(404);

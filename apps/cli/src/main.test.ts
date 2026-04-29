@@ -336,6 +336,96 @@ describe('cli development mock-run fallback', () => {
     expect(output).not.toContain('Local control-plane fallback for');
   });
 
+  it('creates local ADR decision records without approving implementation', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      createCodexExecAdrDecision,
+      formatCodexExecAdrDecisionListOutput,
+      formatCodexExecAdrDecisionOutput,
+      getCodexExecAdrDecision,
+      getLatestCodexExecAdrDecisionCommand,
+      listCodexExecAdrDecisions,
+    } = await import('./main');
+    const result = await createCodexExecAdrDecision('codex_dry_run_fixture', {
+      reviewer: 'local-operator',
+      rationaleSummary: 'Conditional read-only design only.',
+      json: false,
+    });
+    const decisionId = (result.decisionRecord as { id: string }).id;
+    const detail = await getCodexExecAdrDecision(decisionId);
+    const list = await listCodexExecAdrDecisions({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'recorded',
+      decision: 'conditional_read_only_go',
+    });
+    const latest = await getLatestCodexExecAdrDecisionCommand('codex_dry_run_fixture');
+    const output = formatCodexExecAdrDecisionOutput(result);
+    const listOutput = formatCodexExecAdrDecisionListOutput(list);
+
+    expect(result).toMatchObject({
+      decisionRecord: {
+        decision: 'conditional_read_only_go',
+        status: 'recorded',
+        allowedSandboxModes: ['read_only'],
+        forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+        futureTriggerPolicy: 'cli_only',
+        dashboardTriggerAllowed: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+    });
+    expect(detail).toMatchObject({
+      decisionRecord: {
+        id: decisionId,
+        implementationApproved: false,
+        processAdapterApproved: false,
+      },
+    });
+    expect(list).toMatchObject({
+      decisions: [
+        {
+          decision: 'conditional_read_only_go',
+          implementationApproved: false,
+          processAdapterApproved: false,
+          recommendationGrantsExecution: false,
+        },
+      ],
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(latest).toMatchObject({
+      decisionRecord: {
+        decision: 'conditional_read_only_go',
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(output).toContain('implementationApproved=false');
+    expect(output).toContain('processAdapterApproved=false');
+    expect(output).toContain('recommendationGrantsExecution=false');
+    expect(output).toContain('does not approve implementation');
+    expect(output).not.toContain('execution approval');
+    expect(listOutput).toContain('processAdapterApproved=false');
+    expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
+  });
+
   it('creates local report review records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

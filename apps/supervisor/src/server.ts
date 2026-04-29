@@ -13,6 +13,9 @@ import {
   buildCodexExecReportReviewHistory,
   buildCodexExecReviewerHandoffSummary,
   compareCodexExecReportReviews,
+  createCodexExecLiveAdapterAdrDecisionAuditEvents,
+  createCodexExecLiveAdapterAdrDecisionEvidenceRefs,
+  createCodexExecLiveAdapterAdrDecisionRecord,
   createCodexExecTimelineDetailView,
   createCodexExecReportReviewRecord,
   createCodexExecDisabledLiveRunRecord,
@@ -41,6 +44,9 @@ import {
   renderCodexExecLiveAdapterAdrDraftJson,
   renderCodexExecLiveAdapterAdrDraftMarkdown,
   getLatestCodexExecReportReview,
+  getLatestCodexExecLiveAdapterAdrDecision,
+  listCodexExecLiveAdapterAdrDecisionSummaries,
+  summarizeCodexExecLiveAdapterAdrDecision,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -53,6 +59,10 @@ import type {
   CodexExecEvidenceQuery,
   CodexExecAuditQuery,
   CodexExecControlPlaneReportFormat,
+  CodexExecLiveAdapterAdrDecisionOutcome,
+  CodexExecLiveAdapterAdrDecisionQuery,
+  CodexExecLiveAdapterAdrDecisionRecord,
+  CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
   CodexExecReportRecommendation,
@@ -94,6 +104,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const codexExecLiveRunRecords: CodexExecLiveRunRecord[] = [];
   const codexExecApprovalRecords: CodexExecManualApprovalRecord[] = [];
   const codexReportReviewRecords: CodexExecReportReviewRecord[] = [];
+  const codexLiveAdapterAdrDecisionRecords: CodexExecLiveAdapterAdrDecisionRecord[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -1551,6 +1562,190 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   });
 
+  server.post('/api/codex/exec/live-adapter-adr-decision', async (request, reply) => {
+    const body = request.body as
+      | {
+          dryRunId?: string;
+          reviewerLabel?: string;
+          rationaleSummary?: string;
+          decision?: CodexExecLiveAdapterAdrDecisionOutcome;
+          status?: CodexExecLiveAdapterAdrDecisionStatus;
+        }
+      | undefined;
+
+    if (!body?.dryRunId || !body.reviewerLabel) {
+      return reply.code(400).send({
+        error: 'dryRunId and reviewerLabel are required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    if (body.decision && !liveAdapterAdrDecisionOutcomes.has(body.decision)) {
+      return reply.code(400).send({
+        error: 'unsupported ADR decision outcome',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    if (body.status && !liveAdapterAdrDecisionStatuses.has(body.status)) {
+      return reply.code(400).send({
+        error: 'unsupported ADR decision status',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const dryRunRecord = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({
+        error: 'dry-run record was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const draftRecord = createCodexExecLiveAdapterAdrDecisionRecord({
+      dryRunId: dryRunRecord.dryRunPlanId,
+      reviewerLabel: body.reviewerLabel,
+      rationaleSummary: body.rationaleSummary,
+      decision: body.decision,
+      status: body.status,
+      metadata: { liveRunRecordId: dryRunRecord.id },
+    });
+    const evidenceRefs = createCodexExecLiveAdapterAdrDecisionEvidenceRefs(draftRecord);
+    const auditEvents = createCodexExecLiveAdapterAdrDecisionAuditEvents(draftRecord, evidenceRefs);
+    const decisionRecord = {
+      ...draftRecord,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
+
+    await persistCodexExecLiveAdapterAdrDecisionRecord(decisionRecord, store);
+
+    if (store) {
+      for (const evidenceRef of evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+    }
+
+    return {
+      decisionRecord,
+      summary: summarizeCodexExecLiveAdapterAdrDecision(decisionRecord),
+      evidenceRefs,
+      auditEvents,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/live-adapter-adr-decision/:decisionId', async (request, reply) => {
+    const params = request.params as { decisionId?: string };
+
+    if (!params.decisionId) {
+      return reply.code(400).send({
+        error: 'decisionId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const decisionRecord = await resolveCodexExecLiveAdapterAdrDecisionRecord(
+      params.decisionId,
+      store,
+    );
+
+    if (!decisionRecord) {
+      return reply.code(404).send({
+        error: 'ADR decision record was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    return createCodexExecLiveAdapterAdrDecisionResponse(decisionRecord);
+  });
+
+  server.get('/api/codex/exec/live-adapter-adr-decisions', async (request, reply) => {
+    const queryResult = parseLiveAdapterAdrDecisionQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({
+        error: queryResult.reason,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const records = await listCodexExecLiveAdapterAdrDecisionRecords(store, queryResult.query);
+
+    return {
+      decisions: listCodexExecLiveAdapterAdrDecisionSummaries(records, queryResult.query),
+      records,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/live-adapter-adr-decision/latest/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({
+        error: 'dryRunId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const records = await listCodexExecLiveAdapterAdrDecisionRecords(store, {
+      dryRunId: params.dryRunId,
+      limit: 50,
+    });
+    const latest = getLatestCodexExecLiveAdapterAdrDecision(records, params.dryRunId);
+
+    if (!latest) {
+      return reply.code(404).send({
+        error: 'ADR decision record was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    return createCodexExecLiveAdapterAdrDecisionResponse(latest);
+  });
+
   async function resolveCodexExecLiveRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -1706,6 +1901,61 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
   }
 
+  async function resolveCodexExecLiveAdapterAdrDecisionRecord(
+    decisionId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecLiveAdapterAdrDecisionRecord | undefined> {
+    return store
+      ? await store.codexExecLiveAdapterAdrDecisions.getDecision(decisionId)
+      : codexLiveAdapterAdrDecisionRecords.find((record) => record.id === decisionId);
+  }
+
+  async function listCodexExecLiveAdapterAdrDecisionRecords(
+    store: CodexHubStore | undefined,
+    query: Partial<CodexExecLiveAdapterAdrDecisionQuery>,
+  ): Promise<CodexExecLiveAdapterAdrDecisionRecord[]> {
+    return store
+      ? await store.codexExecLiveAdapterAdrDecisions.listDecisions(query)
+      : filterInMemoryLiveAdapterAdrDecisions(codexLiveAdapterAdrDecisionRecords, query);
+  }
+
+  async function persistCodexExecLiveAdapterAdrDecisionRecord(
+    record: CodexExecLiveAdapterAdrDecisionRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.codexExecLiveAdapterAdrDecisions.saveDecision(record);
+      return;
+    }
+
+    const existingIndex = codexLiveAdapterAdrDecisionRecords.findIndex(
+      (candidate) => candidate.id === record.id,
+    );
+
+    if (existingIndex >= 0) {
+      codexLiveAdapterAdrDecisionRecords.splice(existingIndex, 1, record);
+    } else {
+      codexLiveAdapterAdrDecisionRecords.unshift(record);
+    }
+  }
+
+  function createCodexExecLiveAdapterAdrDecisionResponse(
+    decisionRecord: CodexExecLiveAdapterAdrDecisionRecord,
+  ) {
+    return {
+      decisionRecord,
+      summary: summarizeCodexExecLiveAdapterAdrDecision(decisionRecord),
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  }
+
   function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
@@ -1775,6 +2025,7 @@ const evidenceKinds = new Set([
   'codex.exec.approval_request',
   'codex.exec.approval_decision',
   'codex.exec.approval_state',
+  'codex.exec.live_adapter_adr_decision',
 ]);
 const reportReviewStatuses = new Set([
   'draft',
@@ -1789,6 +2040,8 @@ const reportReviewRecommendations = new Set([
   'ready_for_adr',
   'ready_for_read_only_live_review',
 ]);
+const liveAdapterAdrDecisionOutcomes = new Set(['no_go', 'conditional_read_only_go']);
+const liveAdapterAdrDecisionStatuses = new Set(['draft', 'recorded', 'superseded']);
 
 function parseTimelineFilter(
   query: unknown,
@@ -1965,6 +2218,39 @@ function parseReportReviewQuery(
   };
 }
 
+function parseLiveAdapterAdrDecisionQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecLiveAdapterAdrDecisionQuery> }
+  | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const decision = readQueryValue(query, 'decision');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !liveAdapterAdrDecisionStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported ADR decision status' };
+  }
+
+  if (decision && !liveAdapterAdrDecisionOutcomes.has(decision)) {
+    return { allowed: false, reason: 'unsupported ADR decision outcome' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecLiveAdapterAdrDecisionStatus | undefined,
+      decision: decision as CodexExecLiveAdapterAdrDecisionOutcome | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
 function filterInMemoryReportReviews(
   records: CodexExecReportReviewRecord[],
   query: Partial<CodexExecReportReviewQuery>,
@@ -1985,6 +2271,30 @@ function filterInMemoryReportReviews(
 
       return true;
     })
+    .slice(0, query.limit ?? 20);
+}
+
+function filterInMemoryLiveAdapterAdrDecisions(
+  records: CodexExecLiveAdapterAdrDecisionRecord[],
+  query: Partial<CodexExecLiveAdapterAdrDecisionQuery>,
+): CodexExecLiveAdapterAdrDecisionRecord[] {
+  return records
+    .filter((record) => {
+      if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.decision && record.decision !== query.decision) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, query.limit ?? 20);
 }
 
