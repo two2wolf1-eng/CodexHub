@@ -7,11 +7,18 @@ import type {
   CodexExecApprovalRequirement,
   CodexExecApprovalTransitionAction,
   CodexExecApprovalTransitionResult,
+  CodexExecAuditDetailView,
+  CodexExecAuditQuery,
+  CodexExecAuditSearchResult,
   CodexExecCommandPreview,
   CodexExecConfigFile,
   CodexExecConfigLoadResult,
+  CodexExecControlPlaneDrilldownView,
   CodexExecControlPlaneTimeline,
   CodexExecDryRunPlan,
+  CodexExecEvidenceDetailView,
+  CodexExecEvidenceQuery,
+  CodexExecEvidenceSearchResult,
   CodexExecExecutionGateResult,
   CodexExecEventType,
   CodexExecExecutionIntent,
@@ -938,6 +945,302 @@ export function createCodexExecTimelineDetailView(input: {
       dryRunPlanId: input.record.dryRunPlanId,
       liveRunRecordId: input.record.id,
       filterApplied: Boolean(input.filter),
+    }),
+  };
+}
+
+export function getEvidenceDetail(input: {
+  evidenceRefId: string;
+  records?: CodexExecLiveRunRecord[];
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
+}): CodexExecEvidenceDetailView {
+  const records = input.records ?? [];
+  const evidenceRefs = dedupeEvidenceRefs([
+    ...(input.evidenceRefs ?? []),
+    ...records.flatMap((record) => record.evidenceRefs),
+  ]);
+  const evidenceRef = evidenceRefs.find((ref) => ref.id === input.evidenceRefId);
+  const record = evidenceRef
+    ? records.find((candidate) => candidate.evidenceRefs.some((ref) => ref.id === evidenceRef.id))
+    : undefined;
+
+  if (!evidenceRef) {
+    return createEvidenceNotFoundDetail(input.evidenceRefId);
+  }
+
+  const relatedAuditEvents = dedupeAuditEvents([
+    ...(input.auditEvents ?? []),
+    ...records.flatMap((candidate) => candidate.auditEvents),
+  ]).filter((event) => event.evidenceRefs.some((ref) => ref.id === evidenceRef.id));
+  const dryRunId = record?.dryRunPlanId ?? readMetadataString(evidenceRef.metadata, 'dryRunPlanId');
+  const liveRunRecordId = record?.id ?? readMetadataString(evidenceRef.metadata, 'liveRunRecordId');
+
+  return {
+    id: foundationId('codex_evidence_detail'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    status: 'found',
+    evidenceRefId: evidenceRef.id,
+    dryRunId,
+    liveRunRecordId,
+    kind: evidenceRef.kind,
+    summary: evidenceRef.summary,
+    hash: evidenceRef.hash,
+    labels: evidenceRef.labels,
+    refCreatedAt: evidenceRef.createdAt,
+    expiresAt: evidenceRef.expiresAt,
+    relatedAuditEventIds: relatedAuditEvents.map((event) => event.id),
+    metadataSummary: createDetailMetadataSummary(evidenceRef.metadata),
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      liveRunRecordId,
+      evidenceRefId: evidenceRef.id,
+      status: 'found',
+    }),
+  };
+}
+
+export function searchEvidence(input: {
+  query?: Partial<CodexExecEvidenceQuery>;
+  records?: CodexExecLiveRunRecord[];
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
+}): CodexExecEvidenceSearchResult {
+  const records = input.records ?? [];
+  const query = createEvidenceQuery(input.query);
+  const evidenceRefs = dedupeEvidenceRefs([
+    ...(input.evidenceRefs ?? []),
+    ...records.flatMap((record) => record.evidenceRefs),
+  ]);
+  const matchedRefs = evidenceRefs.filter((ref) => {
+    if (query.kind && ref.kind !== query.kind) {
+      return false;
+    }
+
+    if (query.dryRunId && !evidenceMatchesDryRun(ref, records, query.dryRunId)) {
+      return false;
+    }
+
+    return true;
+  });
+  const limitedRefs = matchedRefs.slice(0, query.limit);
+  const items = limitedRefs.map((ref) =>
+    getEvidenceDetail({
+      evidenceRefId: ref.id,
+      records,
+      evidenceRefs,
+      auditEvents: input.auditEvents,
+    }),
+  );
+
+  return {
+    id: foundationId('codex_evidence_search'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    query,
+    count: matchedRefs.length,
+    items,
+    metadataOnly: true,
+    bodyStored: false,
+    summary: `Read-only evidence search returned ${matchedRefs.length} refs`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: query.dryRunId,
+      kind: query.kind,
+      limit: query.limit,
+    }),
+  };
+}
+
+export function getAuditDetail(input: {
+  auditEventId: string;
+  records?: CodexExecLiveRunRecord[];
+  auditEvents?: AuditEvent[];
+}): CodexExecAuditDetailView {
+  const records = input.records ?? [];
+  const auditEvents = dedupeAuditEvents([
+    ...(input.auditEvents ?? []),
+    ...records.flatMap((record) => record.auditEvents),
+  ]);
+  const auditEvent = auditEvents.find((event) => event.id === input.auditEventId);
+  const record = auditEvent
+    ? records.find((candidate) => candidate.auditEvents.some((event) => event.id === auditEvent.id))
+    : undefined;
+
+  if (!auditEvent) {
+    return createAuditNotFoundDetail(input.auditEventId);
+  }
+
+  const dryRunId = record?.dryRunPlanId ?? readMetadataString(auditEvent.metadata, 'dryRunPlanId');
+  const liveRunRecordId = record?.id ?? readMetadataString(auditEvent.metadata, 'liveRunRecordId');
+
+  return {
+    id: foundationId('codex_audit_detail'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    status: 'found',
+    auditEventId: auditEvent.id,
+    dryRunId,
+    liveRunRecordId,
+    action: auditEvent.action,
+    outcome: auditEvent.outcome,
+    actor: auditEvent.actor,
+    eventCreatedAt: auditEvent.createdAt,
+    policyDecisionId: auditEvent.policyDecisionId,
+    evidenceRefIds: auditEvent.evidenceRefs.map((ref) => ref.id),
+    metadataSummary: createDetailMetadataSummary(auditEvent.metadata),
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      liveRunRecordId,
+      auditEventId: auditEvent.id,
+      status: 'found',
+    }),
+  };
+}
+
+export function searchAuditEvents(input: {
+  query?: Partial<CodexExecAuditQuery>;
+  records?: CodexExecLiveRunRecord[];
+  auditEvents?: AuditEvent[];
+}): CodexExecAuditSearchResult {
+  const records = input.records ?? [];
+  const query = createAuditQuery(input.query);
+  const auditEvents = dedupeAuditEvents([
+    ...(input.auditEvents ?? []),
+    ...records.flatMap((record) => record.auditEvents),
+  ]);
+  const matchedEvents = auditEvents.filter((event) => {
+    if (query.action && event.action !== query.action) {
+      return false;
+    }
+
+    if (query.dryRunId && !auditMatchesDryRun(event, records, query.dryRunId)) {
+      return false;
+    }
+
+    return true;
+  });
+  const limitedEvents = matchedEvents.slice(0, query.limit);
+  const items = limitedEvents.map((event) =>
+    getAuditDetail({
+      auditEventId: event.id,
+      records,
+      auditEvents,
+    }),
+  );
+
+  return {
+    id: foundationId('codex_audit_search'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    query,
+    count: matchedEvents.length,
+    items,
+    metadataOnly: true,
+    bodyStored: false,
+    summary: `Read-only audit search returned ${matchedEvents.length} events`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: query.dryRunId,
+      action: query.action,
+      limit: query.limit,
+    }),
+  };
+}
+
+export function buildControlPlaneDrilldownView(input: {
+  dryRunId: string;
+  records?: CodexExecLiveRunRecord[];
+  approvalRecords?: CodexExecManualApprovalRecord[];
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
+}): CodexExecControlPlaneDrilldownView {
+  const record = (input.records ?? []).find(
+    (candidate) => candidate.id === input.dryRunId || candidate.dryRunPlanId === input.dryRunId,
+  );
+  const dryRunId = record?.dryRunPlanId ?? input.dryRunId;
+  const evidenceSearch = searchEvidence({
+    query: { dryRunId, limit: 50 },
+    records: record ? [record] : input.records,
+    evidenceRefs: input.evidenceRefs,
+    auditEvents: input.auditEvents,
+  });
+  const auditSearch = searchAuditEvents({
+    query: { dryRunId, limit: 50 },
+    records: record ? [record] : input.records,
+    auditEvents: input.auditEvents,
+  });
+
+  if (!record) {
+    return {
+      id: foundationId('codex_drilldown'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId,
+      status: 'not_found',
+      evidenceSearch,
+      auditSearch,
+      evidenceCount: evidenceSearch.count,
+      auditEventCount: auditSearch.count,
+      metadataOnly: true,
+      bodyStored: false,
+      summary: `No read-only control-plane drilldown found for ${dryRunId}`,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      metadata: createControlPlaneMetadata({
+        dryRunPlanId: dryRunId,
+        status: 'not_found',
+      }),
+    };
+  }
+
+  const approvalRecords = (input.approvalRecords ?? []).filter(
+    (approvalRecord) => approvalRecord.request.dryRunPlanId === record.dryRunPlanId,
+  );
+  const timeline = createCodexExecControlPlaneTimeline({ record, approvalRecords });
+  const timelineDetail = createCodexExecTimelineDetailView({ record, approvalRecords });
+
+  return {
+    id: foundationId('codex_drilldown'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: record.dryRunPlanId,
+    liveRunRecordId: record.id,
+    status: 'found',
+    timeline,
+    timelineDetail,
+    evidenceSearch,
+    auditSearch,
+    selectedEvidence: evidenceSearch.items[0],
+    selectedAudit: auditSearch.items[0],
+    evidenceCount: evidenceSearch.count,
+    auditEventCount: auditSearch.count,
+    metadataOnly: true,
+    bodyStored: false,
+    summary: `Read-only drilldown ${timeline.status}: ${evidenceSearch.count} evidence refs and ${auditSearch.count} audit events`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: record.dryRunPlanId,
+      liveRunRecordId: record.id,
+      status: 'found',
     }),
   };
 }
@@ -2812,6 +3115,221 @@ function dedupeApprovalRecords(
   return Array.from(byId.values()).sort((left, right) =>
     left.request.createdAt.localeCompare(right.request.createdAt),
   );
+}
+
+function dedupeEvidenceRefs(refs: EvidenceRef[]): EvidenceRef[] {
+  const byId = new Map<string, EvidenceRef>();
+
+  for (const ref of refs) {
+    byId.set(ref.id, ref);
+  }
+
+  return Array.from(byId.values()).sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+}
+
+function dedupeAuditEvents(events: AuditEvent[]): AuditEvent[] {
+  const byId = new Map<string, AuditEvent>();
+
+  for (const event of events) {
+    byId.set(event.id, event);
+  }
+
+  return Array.from(byId.values()).sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+}
+
+function createEvidenceQuery(query: Partial<CodexExecEvidenceQuery> = {}): CodexExecEvidenceQuery {
+  return {
+    id: foundationId('codex_evidence_query'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: query.dryRunId,
+    kind: query.kind,
+    limit: normalizeQueryLimit(query.limit),
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: query.dryRunId,
+      kind: query.kind,
+    }),
+  };
+}
+
+function createAuditQuery(query: Partial<CodexExecAuditQuery> = {}): CodexExecAuditQuery {
+  return {
+    id: foundationId('codex_audit_query'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: query.dryRunId,
+    action: query.action,
+    limit: normalizeQueryLimit(query.limit),
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: query.dryRunId,
+      action: query.action,
+    }),
+  };
+}
+
+function normalizeQueryLimit(limit: number | undefined): number {
+  if (!Number.isInteger(limit) || limit === undefined) {
+    return 20;
+  }
+
+  return Math.min(200, Math.max(1, limit));
+}
+
+function createEvidenceNotFoundDetail(evidenceRefId: string): CodexExecEvidenceDetailView {
+  return {
+    id: foundationId('codex_evidence_detail'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    status: 'not_found',
+    evidenceRefId,
+    labels: [],
+    relatedAuditEventIds: [],
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      evidenceRefId,
+      status: 'not_found',
+    }),
+  };
+}
+
+function createAuditNotFoundDetail(auditEventId: string): CodexExecAuditDetailView {
+  return {
+    id: foundationId('codex_audit_detail'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    status: 'not_found',
+    auditEventId,
+    evidenceRefIds: [],
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      auditEventId,
+      status: 'not_found',
+    }),
+  };
+}
+
+function evidenceMatchesDryRun(
+  ref: EvidenceRef,
+  records: CodexExecLiveRunRecord[],
+  dryRunId: string,
+): boolean {
+  if (recordMatchesEvidence(records, ref, dryRunId)) {
+    return true;
+  }
+
+  return (
+    readMetadataString(ref.metadata, 'dryRunPlanId') === dryRunId ||
+    readMetadataString(ref.metadata, 'dryRunId') === dryRunId ||
+    readMetadataString(ref.metadata, 'liveRunRecordId') === dryRunId
+  );
+}
+
+function auditMatchesDryRun(
+  event: AuditEvent,
+  records: CodexExecLiveRunRecord[],
+  dryRunId: string,
+): boolean {
+  if (recordMatchesAuditEvent(records, event, dryRunId)) {
+    return true;
+  }
+
+  return (
+    readMetadataString(event.metadata, 'dryRunPlanId') === dryRunId ||
+    readMetadataString(event.metadata, 'dryRunId') === dryRunId ||
+    readMetadataString(event.metadata, 'liveRunRecordId') === dryRunId
+  );
+}
+
+function recordMatchesEvidence(
+  records: CodexExecLiveRunRecord[],
+  ref: EvidenceRef,
+  dryRunId: string,
+): boolean {
+  return records.some(
+    (record) =>
+      (record.id === dryRunId || record.dryRunPlanId === dryRunId) &&
+      record.evidenceRefs.some((candidate) => candidate.id === ref.id),
+  );
+}
+
+function recordMatchesAuditEvent(
+  records: CodexExecLiveRunRecord[],
+  event: AuditEvent,
+  dryRunId: string,
+): boolean {
+  return records.some(
+    (record) =>
+      (record.id === dryRunId || record.dryRunPlanId === dryRunId) &&
+      record.auditEvents.some((candidate) => candidate.id === event.id),
+  );
+}
+
+function createDetailMetadataSummary(metadata: Record<string, unknown> | undefined): {
+  keyCount: number;
+  keys: string[];
+  relatedIds: string[];
+  bodyStored: false;
+} {
+  const keys = Object.keys(metadata ?? {}).sort();
+
+  return {
+    keyCount: keys.length,
+    keys,
+    relatedIds: collectRelatedIds(metadata),
+    bodyStored: false,
+  };
+}
+
+function collectRelatedIds(metadata: Record<string, unknown> | undefined): string[] {
+  if (!metadata) {
+    return [];
+  }
+
+  const relatedIds = new Set<string>();
+
+  for (const [key, value] of Object.entries(metadata)) {
+    const normalizedKey = key.toLowerCase();
+
+    if (typeof value === 'string' && normalizedKey.endsWith('id')) {
+      relatedIds.add(value);
+    }
+
+    if (Array.isArray(value) && normalizedKey.endsWith('ids')) {
+      for (const item of value) {
+        if (typeof item === 'string') {
+          relatedIds.add(item);
+        }
+      }
+    }
+  }
+
+  return Array.from(relatedIds).sort();
+}
+
+function readMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : undefined;
 }
 
 function deriveTimelineStatus(

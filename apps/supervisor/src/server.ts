@@ -5,6 +5,7 @@ import Fastify from 'fastify';
 import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalTransitionResult,
+  buildControlPlaneDrilldownView,
   createCodexExecControlPlaneTimeline,
   createCodexExecTimelineDetailView,
   createCodexExecDisabledLiveRunRecord,
@@ -23,8 +24,12 @@ import {
   type CodexExecReplaySummary,
   parseCodexExecLiveConfigFile,
   createCodexReplayRecord,
+  getAuditDetail,
+  getEvidenceDetail,
   replayCodexExecFixture,
   runCodexExecPreflight,
+  searchAuditEvents,
+  searchEvidence,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type {
@@ -32,6 +37,8 @@ import type {
   CodexExecApprovalDecisionOutcome,
   CodexExecApprovalMode,
   CodexExecConfigLoadResult,
+  CodexExecEvidenceQuery,
+  CodexExecAuditQuery,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
   CodexExecSandboxMode,
@@ -847,6 +854,201 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.get('/api/codex/exec/evidence/:evidenceId', async (request, reply) => {
+    const params = request.params as { evidenceId?: string };
+
+    if (!params.evidenceId) {
+      return reply.code(400).send({ error: 'evidenceId is required' });
+    }
+
+    const store = await getStore();
+    const records = await resolveCodexExecLiveRunRecords(store);
+    const evidenceRef = store
+      ? await store.evidenceRefs.getEvidenceRef(params.evidenceId)
+      : undefined;
+    const auditEvents = store ? await store.auditEvents.listAuditEvents({ limit: 100 }) : [];
+    const detail = getEvidenceDetail({
+      evidenceRefId: params.evidenceId,
+      records,
+      evidenceRefs: evidenceRef ? [evidenceRef] : undefined,
+      auditEvents,
+    });
+
+    if (detail.status === 'not_found') {
+      return reply.code(404).send({
+        detail,
+        error: 'evidence ref was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
+    return {
+      detail,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/evidence', async (request, reply) => {
+    const queryResult = parseEvidenceQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({ error: queryResult.reason });
+    }
+
+    const store = await getStore();
+    const records = await resolveCodexExecLiveRunRecords(store);
+    const evidenceRefs = store
+      ? await store.evidenceRefs.listEvidenceRefs(queryResult.query)
+      : undefined;
+    const auditEvents = store
+      ? await store.auditEvents.listAuditEvents({
+          dryRunId: queryResult.query.dryRunId,
+          limit: queryResult.query.limit,
+        })
+      : undefined;
+    const result = searchEvidence({
+      query: queryResult.query,
+      records,
+      evidenceRefs,
+      auditEvents,
+    });
+
+    return {
+      result,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/audit/:auditEventId', async (request, reply) => {
+    const params = request.params as { auditEventId?: string };
+
+    if (!params.auditEventId) {
+      return reply.code(400).send({ error: 'auditEventId is required' });
+    }
+
+    const store = await getStore();
+    const records = await resolveCodexExecLiveRunRecords(store);
+    const auditEvent = store
+      ? await store.auditEvents.getAuditEvent(params.auditEventId)
+      : undefined;
+    const detail = getAuditDetail({
+      auditEventId: params.auditEventId,
+      records,
+      auditEvents: auditEvent ? [auditEvent] : undefined,
+    });
+
+    if (detail.status === 'not_found') {
+      return reply.code(404).send({
+        detail,
+        error: 'audit event was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
+    return {
+      detail,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/audit', async (request, reply) => {
+    const queryResult = parseAuditQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({ error: queryResult.reason });
+    }
+
+    const store = await getStore();
+    const records = await resolveCodexExecLiveRunRecords(store);
+    const auditEvents = store
+      ? await store.auditEvents.listAuditEvents(queryResult.query)
+      : undefined;
+    const result = searchAuditEvents({
+      query: queryResult.query,
+      records,
+      auditEvents,
+    });
+
+    return {
+      result,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/drilldown/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(params.dryRunId, store);
+    const records = record ? [record] : await resolveCodexExecLiveRunRecords(store);
+    const evidenceRefs = store
+      ? await store.evidenceRefs.listEvidenceRefs({ dryRunId: params.dryRunId, limit: 100 })
+      : undefined;
+    const auditEvents = store
+      ? await store.auditEvents.listAuditEvents({ dryRunId: params.dryRunId, limit: 100 })
+      : undefined;
+    const approvalRecords = await resolveCodexExecApprovalRecordsForDryRun(
+      record?.dryRunPlanId ?? params.dryRunId,
+      store,
+    );
+    const drilldown = buildControlPlaneDrilldownView({
+      dryRunId: params.dryRunId,
+      records,
+      approvalRecords,
+      evidenceRefs,
+      auditEvents,
+    });
+
+    if (drilldown.status === 'not_found') {
+      return reply.code(404).send({
+        drilldown,
+        error: 'dry-run record was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
+    return {
+      drilldown,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
   async function resolveCodexExecLiveRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -869,6 +1071,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return codexExecLiveRunRecords.find(
       (record) => record.id === dryRunId || record.dryRunPlanId === dryRunId,
     );
+  }
+
+  async function resolveCodexExecLiveRunRecords(
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecLiveRunRecord[]> {
+    return store
+      ? await store.codexExecLiveRuns.listCodexExecLiveRunRecords(100)
+      : codexExecLiveRunRecords.slice(0, 100);
   }
 
   async function persistCodexExecLiveRunRecord(
@@ -1007,6 +1217,25 @@ const timelineSources = new Set([
   'evidence',
   'audit',
 ]);
+const evidenceKinds = new Set([
+  'log',
+  'hash',
+  'snapshot',
+  'dry-run',
+  'audit',
+  'codex.exec.jsonl.replay',
+  'codex.exec.event.summary',
+  'codex.exec.dry_run_plan',
+  'codex.exec.command_preview',
+  'codex.exec.policy_decision',
+  'codex.exec.preflight_result',
+  'codex.exec.approval_artifact',
+  'codex.exec.execution_gate_result',
+  'codex.exec.live_config',
+  'codex.exec.approval_request',
+  'codex.exec.approval_decision',
+  'codex.exec.approval_state',
+]);
 
 function parseTimelineFilter(
   query: unknown,
@@ -1064,6 +1293,68 @@ function parseTimelineFilter(
   }
 
   return { allowed: true, filter };
+}
+
+function parseEvidenceQuery(
+  query: unknown,
+): { allowed: true; query: Partial<CodexExecEvidenceQuery> } | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const kind = readQueryValue(query, 'kind');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (kind && !evidenceKinds.has(kind)) {
+    return { allowed: false, reason: 'unsupported evidence kind filter' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      kind: kind as CodexExecEvidenceQuery['kind'],
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseAuditQuery(
+  query: unknown,
+): { allowed: true; query: Partial<CodexExecAuditQuery> } | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const action = readQueryValue(query, 'action');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      action,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseLimitQueryValue(
+  value: string | undefined,
+): { allowed: true; limit: number | undefined } | { allowed: false; reason: string } {
+  if (!value) {
+    return { allowed: true, limit: undefined };
+  }
+
+  const limit = Number.parseInt(value, 10);
+
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
+    return { allowed: false, reason: 'limit must be an integer from 1 to 200' };
+  }
+
+  return { allowed: true, limit };
 }
 
 function readQueryValue(query: unknown, key: string): string | undefined {

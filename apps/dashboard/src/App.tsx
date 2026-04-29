@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
 import type {
   CodexExecControlPlaneTimeline,
+  CodexExecControlPlaneDrilldownView,
   CodexExecTimelineDetailView,
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
@@ -25,6 +26,7 @@ interface OverviewState {
   codexExecApprovals: CodexExecManualApprovalRecord[];
   codexExecTimelines: CodexExecControlPlaneTimeline[];
   codexExecTimelineDetails: CodexExecTimelineDetailView[];
+  codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
   message?: string;
 }
 
@@ -41,6 +43,7 @@ export function App() {
     codexExecApprovals: [],
     codexExecTimelines: [],
     codexExecTimelineDetails: [],
+    codexExecDrilldowns: [],
   });
 
   useEffect(() => {
@@ -102,6 +105,22 @@ export function App() {
             }),
           )
         ).filter((detail): detail is CodexExecTimelineDetailView => detail !== undefined);
+        const codexExecDrilldowns = (
+          await Promise.all(
+            codexExecDryRunsResponse.runs.slice(0, 3).map(async (run) => {
+              try {
+                const response = await getJson<{ drilldown: CodexExecControlPlaneDrilldownView }>(
+                  `/api/codex/exec/drilldown/${encodeURIComponent(run.id)}`,
+                );
+                return response.drilldown;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter(
+          (drilldown): drilldown is CodexExecControlPlaneDrilldownView => drilldown !== undefined,
+        );
 
         if (!cancelled) {
           setOverview({
@@ -118,6 +137,7 @@ export function App() {
             codexExecApprovals: codexExecApprovalsResponse.approvals,
             codexExecTimelines,
             codexExecTimelineDetails,
+            codexExecDrilldowns,
           });
         }
       } catch (error) {
@@ -132,6 +152,7 @@ export function App() {
             codexExecApprovals: [],
             codexExecTimelines: [],
             codexExecTimelineDetails: [],
+            codexExecDrilldowns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -370,6 +391,96 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only control-plane timeline is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Evidence And Audit Drilldown">
+          {overview.codexExecDrilldowns.length > 0 ? (
+            <ul>
+              {overview.codexExecDrilldowns.map((drilldown) => (
+                <li key={drilldown.id} className="stacked drilldown-detail">
+                  <strong>{drilldown.dryRunId}</strong>
+                  <span>
+                    status {drilldown.status}, evidence {drilldown.evidenceCount}, audit{' '}
+                    {drilldown.auditEventCount}
+                  </span>
+                  <span>
+                    liveExecution {String(drilldown.liveExecution)}, externalProcessStarted{' '}
+                    {String(drilldown.externalProcessStarted)}, executionDisabled{' '}
+                    {String(drilldown.executionDisabled)}
+                  </span>
+                  <div className="drilldown-grid" aria-label="Read-only evidence and audit refs">
+                    <div>
+                      <strong>Evidence refs</strong>
+                      {drilldown.evidenceSearch.items.length > 0 ? (
+                        drilldown.evidenceSearch.items.slice(0, 5).map((item) => (
+                          <div key={item.id} className="drilldown-item">
+                            <span>{item.kind ?? 'unknown'}</span>
+                            <span>{item.evidenceRefId}</span>
+                            <span>{item.hash ?? 'hash unavailable'}</span>
+                            <p>{item.summary ?? 'No evidence summary available.'}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <p>No evidence refs match this read-only view.</p>
+                      )}
+                    </div>
+                    <div>
+                      <strong>Audit events</strong>
+                      {drilldown.auditSearch.items.length > 0 ? (
+                        drilldown.auditSearch.items.slice(0, 5).map((item) => (
+                          <div key={item.id} className="drilldown-item">
+                            <span>{item.action ?? 'unknown'}</span>
+                            <span>{item.auditEventId}</span>
+                            <span>{item.outcome ?? 'outcome unavailable'}</span>
+                            <p>
+                              evidence refs {item.evidenceRefIds.length}, policy{' '}
+                              {item.policyDecisionId ?? 'none'}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <p>No audit events match this read-only view.</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="drilldown-grid">
+                    <div className="drilldown-item">
+                      <strong>Selected evidence</strong>
+                      {drilldown.selectedEvidence ? (
+                        <>
+                          <span>{drilldown.selectedEvidence.evidenceRefId}</span>
+                          <span>{drilldown.selectedEvidence.kind ?? 'unknown'}</span>
+                          <span>{drilldown.selectedEvidence.hash ?? 'hash unavailable'}</span>
+                          <p>{drilldown.selectedEvidence.summary ?? 'No summary available.'}</p>
+                        </>
+                      ) : (
+                        <p>No selected evidence detail.</p>
+                      )}
+                    </div>
+                    <div className="drilldown-item">
+                      <strong>Selected audit</strong>
+                      {drilldown.selectedAudit ? (
+                        <>
+                          <span>{drilldown.selectedAudit.auditEventId}</span>
+                          <span>{drilldown.selectedAudit.action ?? 'unknown'}</span>
+                          <span>{drilldown.selectedAudit.outcome ?? 'outcome unavailable'}</span>
+                          <p>
+                            evidence refs {drilldown.selectedAudit.evidenceRefIds.length}, metadata
+                            keys{' '}
+                            {drilldown.selectedAudit.metadataSummary?.keys.join(', ') || 'none'}
+                          </p>
+                        </>
+                      ) : (
+                        <p>No selected audit detail.</p>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only evidence or audit drilldown is available yet.</p>
           )}
         </Panel>
       </section>

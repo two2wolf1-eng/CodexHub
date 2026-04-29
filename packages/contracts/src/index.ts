@@ -1151,6 +1151,123 @@ export const CodexExecTimelineDetailViewSchema = createdEntityBaseSchema
   });
 export type CodexExecTimelineDetailView = z.infer<typeof CodexExecTimelineDetailViewSchema>;
 
+export const CodexExecEvidenceQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    kind: EvidenceRefSchema.shape.kind.optional(),
+    limit: z.number().int().positive().max(200).default(20),
+  });
+export type CodexExecEvidenceQuery = z.infer<typeof CodexExecEvidenceQuerySchema>;
+
+export const CodexExecAuditQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    action: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(200).default(20),
+  });
+export type CodexExecAuditQuery = z.infer<typeof CodexExecAuditQuerySchema>;
+
+export const CodexExecDetailMetadataSummarySchema = z.object({
+  keyCount: z.number().int().nonnegative(),
+  keys: z.array(z.string()).default([]),
+  relatedIds: z.array(z.string()).default([]),
+  bodyStored: z.literal(false),
+});
+export type CodexExecDetailMetadataSummary = z.infer<typeof CodexExecDetailMetadataSummarySchema>;
+
+export const CodexExecEvidenceDetailStatusSchema = z.enum(['found', 'not_found']);
+export type CodexExecEvidenceDetailStatus = z.infer<typeof CodexExecEvidenceDetailStatusSchema>;
+
+export const CodexExecEvidenceDetailViewSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    status: CodexExecEvidenceDetailStatusSchema,
+    evidenceRefId: z.string().min(1),
+    dryRunId: z.string().min(1).optional(),
+    liveRunRecordId: z.string().min(1).optional(),
+    kind: EvidenceRefSchema.shape.kind.optional(),
+    summary: z.string().min(1).optional(),
+    hash: z.string().min(1).optional(),
+    labels: z.array(z.string()).default([]),
+    refCreatedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    relatedAuditEventIds: z.array(z.string()).default([]),
+    metadataSummary: CodexExecDetailMetadataSummarySchema.optional(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecEvidenceDetailView = z.infer<typeof CodexExecEvidenceDetailViewSchema>;
+
+export const CodexExecEvidenceSearchResultSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    query: CodexExecEvidenceQuerySchema,
+    count: z.number().int().nonnegative(),
+    items: z.array(CodexExecEvidenceDetailViewSchema).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  });
+export type CodexExecEvidenceSearchResult = z.infer<typeof CodexExecEvidenceSearchResultSchema>;
+
+export const CodexExecAuditDetailStatusSchema = z.enum(['found', 'not_found']);
+export type CodexExecAuditDetailStatus = z.infer<typeof CodexExecAuditDetailStatusSchema>;
+
+export const CodexExecAuditDetailViewSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    status: CodexExecAuditDetailStatusSchema,
+    auditEventId: z.string().min(1),
+    dryRunId: z.string().min(1).optional(),
+    liveRunRecordId: z.string().min(1).optional(),
+    action: z.string().min(1).optional(),
+    outcome: z.string().min(1).optional(),
+    actor: z.string().min(1).optional(),
+    eventCreatedAt: IsoDateTimeSchema.optional(),
+    policyDecisionId: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string()).default([]),
+    metadataSummary: CodexExecDetailMetadataSummarySchema.optional(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecAuditDetailView = z.infer<typeof CodexExecAuditDetailViewSchema>;
+
+export const CodexExecAuditSearchResultSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    query: CodexExecAuditQuerySchema,
+    count: z.number().int().nonnegative(),
+    items: z.array(CodexExecAuditDetailViewSchema).default([]),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  });
+export type CodexExecAuditSearchResult = z.infer<typeof CodexExecAuditSearchResultSchema>;
+
+export const CodexExecControlPlaneDrilldownViewSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    liveRunRecordId: z.string().min(1).optional(),
+    status: z.enum(['found', 'not_found']),
+    timeline: CodexExecControlPlaneTimelineSchema.optional(),
+    timelineDetail: CodexExecTimelineDetailViewSchema.optional(),
+    evidenceSearch: CodexExecEvidenceSearchResultSchema,
+    auditSearch: CodexExecAuditSearchResultSchema,
+    selectedEvidence: CodexExecEvidenceDetailViewSchema.optional(),
+    selectedAudit: CodexExecAuditDetailViewSchema.optional(),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  });
+export type CodexExecControlPlaneDrilldownView = z.infer<
+  typeof CodexExecControlPlaneDrilldownViewSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

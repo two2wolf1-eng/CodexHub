@@ -9,6 +9,18 @@ import type {
   WorkflowRun,
 } from '@codexhub/contracts';
 
+export interface AuditEventQuery {
+  dryRunId?: string;
+  action?: string;
+  limit?: number;
+}
+
+export interface EvidenceRefQuery {
+  dryRunId?: string;
+  kind?: EvidenceRef['kind'];
+  limit?: number;
+}
+
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
   getById(id: string): Promise<WorkflowRun | undefined>;
@@ -18,12 +30,16 @@ export interface WorkflowRunRepository {
 
 export interface AuditEventRepository {
   append(event: AuditEvent): Promise<AuditEvent>;
+  getAuditEvent(id: string): Promise<AuditEvent | undefined>;
+  listAuditEvents(query?: AuditEventQuery): Promise<AuditEvent[]>;
   list(): Promise<AuditEvent[]>;
 }
 
 export interface EvidenceRefRepository {
   create(ref: EvidenceRef): Promise<EvidenceRef>;
   getById(id: string): Promise<EvidenceRef | undefined>;
+  getEvidenceRef(id: string): Promise<EvidenceRef | undefined>;
+  listEvidenceRefs(query?: EvidenceRefQuery): Promise<EvidenceRef[]>;
   list(): Promise<EvidenceRef[]>;
 }
 

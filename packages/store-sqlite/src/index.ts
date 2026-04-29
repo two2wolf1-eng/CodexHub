@@ -13,12 +13,14 @@ import type {
   WorkflowRun,
 } from '@codexhub/contracts';
 import type {
+  AuditEventQuery,
   AuditEventRepository,
   CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
   CodexHubStore,
   CodexReplayRepository,
   DevelopmentRunRepository,
+  EvidenceRefQuery,
   EvidenceRefRepository,
   ObservationRepository,
   StoreFactoryOptions,
@@ -83,16 +85,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       'workflow_runs',
       (run) => run.createdAt,
     );
-    this.auditEvents = new AppendOnlyJsonEntityRepository<AuditEvent>(
-      database,
-      'audit_events',
-      (event) => event.createdAt,
-    );
-    this.evidenceRefs = new JsonEntityRepository<EvidenceRef>(
-      database,
-      'evidence_refs',
-      (ref) => ref.createdAt,
-    );
+    this.auditEvents = new SqliteAuditEventRepository(database);
+    this.evidenceRefs = new SqliteEvidenceRefRepository(database);
     this.observations = new AppendOnlyJsonEntityRepository<Observation>(
       database,
       'observations',
@@ -106,6 +100,92 @@ class SqliteCodexHubStore implements CodexHubStore {
 
   async close(): Promise<void> {
     this.database.close();
+  }
+}
+
+class SqliteEvidenceRefRepository implements EvidenceRefRepository {
+  private readonly repository: JsonEntityRepository<EvidenceRef>;
+
+  constructor(database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<EvidenceRef>(
+      database,
+      'evidence_refs',
+      (ref) => ref.createdAt,
+    );
+  }
+
+  async create(ref: EvidenceRef): Promise<EvidenceRef> {
+    return this.repository.create(ref);
+  }
+
+  async getById(id: string): Promise<EvidenceRef | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getEvidenceRef(id: string): Promise<EvidenceRef | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listEvidenceRefs(query: EvidenceRefQuery = {}): Promise<EvidenceRef[]> {
+    const refs = await this.repository.list();
+    const filteredRefs = refs.filter((ref) => {
+      if (query.kind && ref.kind !== query.kind) {
+        return false;
+      }
+
+      if (query.dryRunId && !metadataMatchesDryRun(ref.metadata, query.dryRunId)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return filteredRefs.slice(0, normalizeLimit(query.limit));
+  }
+
+  async list(): Promise<EvidenceRef[]> {
+    return this.repository.list();
+  }
+}
+
+class SqliteAuditEventRepository implements AuditEventRepository {
+  private readonly repository: AppendOnlyJsonEntityRepository<AuditEvent>;
+
+  constructor(database: SqliteDatabase) {
+    this.repository = new AppendOnlyJsonEntityRepository<AuditEvent>(
+      database,
+      'audit_events',
+      (event) => event.createdAt,
+    );
+  }
+
+  async append(event: AuditEvent): Promise<AuditEvent> {
+    return this.repository.append(event);
+  }
+
+  async getAuditEvent(id: string): Promise<AuditEvent | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listAuditEvents(query: AuditEventQuery = {}): Promise<AuditEvent[]> {
+    const events = await this.repository.list();
+    const filteredEvents = events.filter((event) => {
+      if (query.action && event.action !== query.action) {
+        return false;
+      }
+
+      if (query.dryRunId && !metadataMatchesDryRun(event.metadata, query.dryRunId)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return filteredEvents.slice(0, normalizeLimit(query.limit));
+  }
+
+  async list(): Promise<AuditEvent[]> {
+    return this.repository.list();
   }
 }
 
@@ -381,6 +461,22 @@ function initializeDatabase(database: SqliteDatabase): void {
   database
     .prepare('INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)')
     .run('foundation_0001', new Date().toISOString());
+}
+
+function normalizeLimit(limit: number | undefined): number {
+  if (!Number.isInteger(limit) || limit === undefined) {
+    return 50;
+  }
+
+  return Math.min(200, Math.max(1, Math.trunc(limit)));
+}
+
+function metadataMatchesDryRun(metadata: Record<string, unknown> | undefined, dryRunId: string) {
+  return (
+    metadata?.dryRunPlanId === dryRunId ||
+    metadata?.dryRunId === dryRunId ||
+    metadata?.liveRunRecordId === dryRunId
+  );
 }
 
 function findWorkspaceRoot(startDirectory: string): string {

@@ -178,6 +178,36 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/timeline/${dryRunId}/detail?includeEvidence=true&includeAudit=true`,
     });
+    const evidenceListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/evidence?dryRunId=${dryRunId}&kind=codex.exec.dry_run_plan&limit=10`,
+    });
+    const evidenceId = evidenceListResponse.json().result.items[0].evidenceRefId as string;
+    const evidenceDetailResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/evidence/${evidenceId}`,
+    });
+    const missingEvidenceResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/evidence/missing_evidence',
+    });
+    const auditListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/audit?dryRunId=${dryRunId}&action=codex.exec.policy_evaluated&limit=10`,
+    });
+    const auditEventId = auditListResponse.json().result.items[0].auditEventId as string;
+    const auditDetailResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/audit/${auditEventId}`,
+    });
+    const missingAuditResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/audit/missing_audit',
+    });
+    const drilldownResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/drilldown/${dryRunId}`,
+    });
     const invalidTimelineResponse = await server.inject({
       method: 'GET',
       url: `/api/codex/exec/timeline/${dryRunId}?source=unsupported`,
@@ -402,6 +432,87 @@ describe('supervisor mock development API', () => {
     });
     expect(JSON.stringify(detailResponse.json())).not.toContain('list risk areas');
     expect(JSON.stringify(detailResponse.json())).not.toContain('manual private reason');
+    expect(evidenceListResponse.statusCode).toBe(200);
+    expect(evidenceListResponse.json()).toMatchObject({
+      result: {
+        count: 1,
+        items: [
+          {
+            status: 'found',
+            kind: 'codex.exec.dry_run_plan',
+            metadataOnly: true,
+            bodyStored: false,
+          },
+        ],
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(evidenceDetailResponse.statusCode).toBe(200);
+    expect(evidenceDetailResponse.json()).toMatchObject({
+      detail: {
+        status: 'found',
+        evidenceRefId: evidenceId,
+        metadataOnly: true,
+        bodyStored: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(evidenceDetailResponse.json())).not.toContain('list risk areas');
+    expect(missingEvidenceResponse.statusCode).toBe(404);
+    expect(missingEvidenceResponse.body).not.toContain(process.cwd());
+    expect(auditListResponse.statusCode).toBe(200);
+    expect(auditListResponse.json()).toMatchObject({
+      result: {
+        count: 1,
+        items: [
+          {
+            status: 'found',
+            action: 'codex.exec.policy_evaluated',
+            metadataOnly: true,
+            bodyStored: false,
+          },
+        ],
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(auditDetailResponse.statusCode).toBe(200);
+    expect(auditDetailResponse.json()).toMatchObject({
+      detail: {
+        status: 'found',
+        auditEventId,
+        metadataOnly: true,
+        bodyStored: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(auditDetailResponse.json())).not.toContain('manual private reason');
+    expect(missingAuditResponse.statusCode).toBe(404);
+    expect(missingAuditResponse.body).not.toContain(process.cwd());
+    expect(drilldownResponse.statusCode).toBe(200);
+    expect(drilldownResponse.json()).toMatchObject({
+      drilldown: {
+        status: 'found',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(drilldownResponse.json().drilldown.evidenceCount).toBeGreaterThan(0);
+    expect(drilldownResponse.json().drilldown.auditEventCount).toBeGreaterThan(0);
+    expect(JSON.stringify(drilldownResponse.json())).not.toContain('manual private reason');
     expect(invalidTimelineResponse.statusCode).toBe(400);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });

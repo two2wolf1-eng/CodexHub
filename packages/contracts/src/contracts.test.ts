@@ -6,6 +6,11 @@ import {
   CodexExecApprovalTransitionResultSchema,
   CodexExecControlPlaneTimelineSchema,
   CodexExecTimelineDetailViewSchema,
+  CodexExecAuditDetailViewSchema,
+  CodexExecAuditSearchResultSchema,
+  CodexExecControlPlaneDrilldownViewSchema,
+  CodexExecEvidenceDetailViewSchema,
+  CodexExecEvidenceSearchResultSchema,
   CodexExecTimelineFilterSchema,
   CodexExecTimelineQuerySchema,
   CodexExecManualApprovalRecordSchema,
@@ -702,5 +707,133 @@ describe('contracts schemas', () => {
     expect(detail.evidenceSummary.bodyStored).toBe(false);
     expect(detail.auditSummary.metadataOnly).toBe(true);
     expect(JSON.stringify(detail)).not.toContain('full prompt body');
+  });
+
+  it('parses codex evidence and audit drilldown views without body storage', () => {
+    const evidenceDetail = CodexExecEvidenceDetailViewSchema.parse({
+      id: 'codex_evidence_detail_1',
+      schemaVersion,
+      createdAt,
+      status: 'found',
+      evidenceRefId: 'evidence_1',
+      dryRunId: 'codex_dry_run_1',
+      liveRunRecordId: 'codex_live_run_1',
+      kind: 'codex.exec.dry_run_plan',
+      summary: 'Evidence summary only',
+      hash: 'sha256:evidence',
+      labels: ['codex.dry_run_plan'],
+      refCreatedAt: createdAt,
+      relatedAuditEventIds: ['audit_1'],
+      metadataSummary: {
+        keyCount: 2,
+        keys: ['dryRunPlanId', 'riskLevel'],
+        relatedIds: ['codex_dry_run_1'],
+        bodyStored: false,
+      },
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const auditDetail = CodexExecAuditDetailViewSchema.parse({
+      id: 'codex_audit_detail_1',
+      schemaVersion,
+      createdAt,
+      status: 'found',
+      auditEventId: 'audit_1',
+      dryRunId: 'codex_dry_run_1',
+      liveRunRecordId: 'codex_live_run_1',
+      action: 'codex.exec.policy_evaluated',
+      outcome: 'deny',
+      actor: 'codex-kernel.control-plane',
+      eventCreatedAt: createdAt,
+      policyDecisionId: 'policy_1',
+      evidenceRefIds: ['evidence_1'],
+      metadataSummary: {
+        keyCount: 2,
+        keys: ['dryRunPlanId', 'policyDecisionId'],
+        relatedIds: ['codex_dry_run_1', 'policy_1'],
+        bodyStored: false,
+      },
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const evidenceSearch = CodexExecEvidenceSearchResultSchema.parse({
+      id: 'codex_evidence_search_1',
+      schemaVersion,
+      createdAt,
+      query: {
+        id: 'codex_evidence_query_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: 'codex_dry_run_1',
+        kind: 'codex.exec.dry_run_plan',
+        limit: 20,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      count: 1,
+      items: [evidenceDetail],
+      metadataOnly: true,
+      bodyStored: false,
+      summary: '1 evidence refs',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const auditSearch = CodexExecAuditSearchResultSchema.parse({
+      id: 'codex_audit_search_1',
+      schemaVersion,
+      createdAt,
+      query: {
+        id: 'codex_audit_query_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: 'codex_dry_run_1',
+        action: 'codex.exec.policy_evaluated',
+        limit: 20,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      count: 1,
+      items: [auditDetail],
+      metadataOnly: true,
+      bodyStored: false,
+      summary: '1 audit events',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const drilldown = CodexExecControlPlaneDrilldownViewSchema.parse({
+      id: 'codex_drilldown_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      liveRunRecordId: 'codex_live_run_1',
+      status: 'found',
+      evidenceSearch,
+      auditSearch,
+      selectedEvidence: evidenceDetail,
+      selectedAudit: auditDetail,
+      evidenceCount: 1,
+      auditEventCount: 1,
+      metadataOnly: true,
+      bodyStored: false,
+      summary: 'Read-only drilldown summary',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(drilldown.status).toBe('found');
+    expect(drilldown.evidenceSearch.items[0]?.metadataOnly).toBe(true);
+    expect(drilldown.auditSearch.items[0]?.bodyStored).toBe(false);
+    expect(JSON.stringify(drilldown)).not.toContain('full command body');
   });
 });

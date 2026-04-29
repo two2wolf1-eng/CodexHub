@@ -171,4 +171,90 @@ describe('cli development mock-run fallback', () => {
     });
     expect(approvals).toMatchObject({ approvals: [] });
   });
+
+  it('creates local evidence, audit, and drilldown views when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      formatCodexExecDrilldownOutput,
+      formatCodexExecEvidenceListOutput,
+      getCodexExecAudit,
+      getCodexExecDrilldown,
+      getCodexExecEvidence,
+      listCodexExecAudit,
+      listCodexExecEvidence,
+    } = await import('./main');
+    const evidenceSearch = await listCodexExecEvidence({
+      dryRun: 'codex_dry_run_fixture',
+      kind: 'codex.exec.dry_run_plan',
+    });
+    const auditSearch = await listCodexExecAudit({
+      dryRun: 'codex_dry_run_fixture',
+      action: 'codex.exec.policy_evaluated',
+    });
+    const evidenceItem = (
+      evidenceSearch.result as {
+        items: Array<{ evidenceRefId: string }>;
+      }
+    ).items[0];
+    const auditItem = (
+      auditSearch.result as {
+        items: Array<{ auditEventId: string }>;
+      }
+    ).items[0];
+    const evidenceDetail = await getCodexExecEvidence(evidenceItem?.evidenceRefId ?? 'missing');
+    const auditDetail = await getCodexExecAudit(auditItem?.auditEventId ?? 'missing');
+    const drilldown = await getCodexExecDrilldown('codex_dry_run_fixture');
+
+    expect(evidenceSearch).toMatchObject({
+      result: {
+        count: 1,
+        items: [
+          {
+            status: 'found',
+            kind: 'codex.exec.dry_run_plan',
+            bodyStored: false,
+          },
+        ],
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(auditSearch).toMatchObject({
+      result: {
+        count: 1,
+        items: [
+          {
+            status: 'found',
+            action: 'codex.exec.policy_evaluated',
+            bodyStored: false,
+          },
+        ],
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(evidenceDetail.detail).toMatchObject({
+      status: 'not_found',
+      bodyStored: false,
+    });
+    expect(auditDetail.detail).toMatchObject({
+      status: 'not_found',
+      bodyStored: false,
+    });
+    expect(drilldown).toMatchObject({
+      drilldown: {
+        status: 'found',
+        evidenceCount: 3,
+        auditEventCount: 4,
+        bodyStored: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(formatCodexExecEvidenceListOutput(evidenceSearch)).toContain('liveExecution=false');
+    expect(formatCodexExecDrilldownOutput(drilldown)).toContain('executionDisabled=true');
+  });
 });

@@ -14,12 +14,15 @@ import {
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
+  buildControlPlaneDrilldownView,
   createCodexExecManualApprovalDecision,
   createCodexExecManualApprovalRecord,
   createCodexExecManualApprovalRequest,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
   evaluateCodexExecManualApprovalState,
+  getAuditDetail,
+  getEvidenceDetail,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
@@ -27,6 +30,8 @@ import {
   createCodexReplayRecord,
   replayCodexExecFixture,
   runCodexExecPreflight,
+  searchAuditEvents,
+  searchEvidence,
   summarizeCodexExecReplay,
 } from './index';
 
@@ -510,6 +515,107 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(detail.executionDisabled).toBe(true);
     expect(JSON.stringify(detail)).not.toContain('Summarize repository structure and list');
     expect(JSON.stringify(detail)).not.toContain('disabled for timeline test');
+  });
+
+  it('creates evidence and audit details without exposing stored body fields', () => {
+    const { record } = createFullTimelineFixture();
+    const evidenceDetail = getEvidenceDetail({
+      evidenceRefId: record.evidenceRefs[0]?.id ?? 'missing',
+      records: [record],
+    });
+    const auditDetail = getAuditDetail({
+      auditEventId: record.auditEvents[0]?.id ?? 'missing',
+      records: [record],
+    });
+
+    expect(evidenceDetail).toMatchObject({
+      status: 'found',
+      dryRunId: record.dryRunPlanId,
+      liveRunRecordId: record.id,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(auditDetail).toMatchObject({
+      status: 'found',
+      dryRunId: record.dryRunPlanId,
+      liveRunRecordId: record.id,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(evidenceDetail)).not.toContain('disabled for timeline test');
+    expect(JSON.stringify(auditDetail)).not.toContain('disabled for timeline test');
+  });
+
+  it('searches evidence and audit events by dry-run and kind or action', () => {
+    const { record } = createFullTimelineFixture();
+    const evidenceSearch = searchEvidence({
+      query: {
+        dryRunId: record.dryRunPlanId,
+        kind: 'codex.exec.dry_run_plan',
+      },
+      records: [record],
+    });
+    const auditSearch = searchAuditEvents({
+      query: {
+        dryRunId: record.dryRunPlanId,
+        action: 'codex.exec.policy_evaluated',
+      },
+      records: [record],
+    });
+
+    expect(evidenceSearch.count).toBe(1);
+    expect(evidenceSearch.items[0]?.kind).toBe('codex.exec.dry_run_plan');
+    expect(auditSearch.count).toBe(1);
+    expect(auditSearch.items[0]?.action).toBe('codex.exec.policy_evaluated');
+    expect(evidenceSearch.items.every((item) => item.metadataOnly)).toBe(true);
+    expect(auditSearch.items.every((item) => item.bodyStored === false)).toBe(true);
+  });
+
+  it('returns safe not_found details without throwing', () => {
+    const evidenceDetail = getEvidenceDetail({ evidenceRefId: 'missing_evidence' });
+    const auditDetail = getAuditDetail({ auditEventId: 'missing_audit' });
+
+    expect(evidenceDetail).toMatchObject({
+      status: 'not_found',
+      evidenceRefId: 'missing_evidence',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(auditDetail).toMatchObject({
+      status: 'not_found',
+      auditEventId: 'missing_audit',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+  });
+
+  it('builds a read-only drilldown view with timeline, evidence, and audit summaries', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const drilldown = buildControlPlaneDrilldownView({
+      dryRunId: record.dryRunPlanId,
+      records: [record],
+      approvalRecords: [approvalRecord],
+    });
+
+    expect(drilldown.status).toBe('found');
+    expect(drilldown.timeline?.status).toBe('gate_blocked');
+    expect(drilldown.timelineDetail?.latestGateStatus).toBe('blocked');
+    expect(drilldown.evidenceCount).toBe(record.evidenceRefs.length);
+    expect(drilldown.auditEventCount).toBe(record.auditEvents.length);
+    expect(drilldown.selectedEvidence?.metadataOnly).toBe(true);
+    expect(drilldown.selectedAudit?.bodyStored).toBe(false);
+    expect(drilldown.liveExecution).toBe(false);
+    expect(drilldown.externalProcessStarted).toBe(false);
+    expect(drilldown.executionDisabled).toBe(true);
+    expect(JSON.stringify(drilldown)).not.toContain('disabled for timeline test');
   });
 });
 

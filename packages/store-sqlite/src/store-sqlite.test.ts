@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  type AuditEvent,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
   type CodexReplayRecord,
+  type EvidenceRef,
   type MockDevelopmentRun,
   SchemaVersionSchema,
 } from '@codexhub/contracts';
@@ -118,6 +120,36 @@ describe('store-sqlite migration initialization', () => {
     await first.codexReplays.saveCodexReplay(codexReplay);
     const codexExecLiveRun: CodexExecLiveRunRecord = createCodexExecLiveRunFixture();
     await first.codexExecLiveRuns.saveCodexExecLiveRunRecord(codexExecLiveRun);
+    const evidenceRef: EvidenceRef = {
+      id: 'evidence_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-04-28T00:00:03.000Z',
+      kind: 'codex.exec.dry_run_plan',
+      hash: 'sha256:evidence',
+      summary: 'Evidence summary only',
+      labels: ['codex.dry_run_plan'],
+      redacted: true,
+      metadata: {
+        dryRunPlanId: 'codex_dry_run_1',
+        liveRunRecordId: 'codex_live_run_1',
+      },
+    };
+    const auditEvent: AuditEvent = {
+      id: 'audit_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-04-28T00:00:03.000Z',
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.policy_evaluated',
+      outcome: 'deny',
+      evidenceRefs: [evidenceRef],
+      policyDecisionId: 'policy_1',
+      metadata: {
+        dryRunPlanId: 'codex_dry_run_1',
+        liveRunRecordId: 'codex_live_run_1',
+      },
+    };
+    await first.evidenceRefs.create(evidenceRef);
+    await first.auditEvents.append(auditEvent);
     const approvalRecord: CodexExecManualApprovalRecord = createCodexExecApprovalRecordFixture();
     await first.codexExecApprovals.saveCodexExecApprovalRecord(approvalRecord);
     await first.close();
@@ -131,6 +163,16 @@ describe('store-sqlite migration initialization', () => {
     const codexExecLiveRuns = await second.codexExecLiveRuns.listCodexExecLiveRunRecords(10);
     const codexExecLiveRunRecord =
       await second.codexExecLiveRuns.getCodexExecLiveRunRecord('codex_live_run_1');
+    const evidenceRefs = await second.evidenceRefs.listEvidenceRefs({
+      dryRunId: 'codex_dry_run_1',
+      kind: 'codex.exec.dry_run_plan',
+    });
+    const evidenceRecord = await second.evidenceRefs.getEvidenceRef('evidence_1');
+    const auditEvents = await second.auditEvents.listAuditEvents({
+      dryRunId: 'codex_dry_run_1',
+      action: 'codex.exec.policy_evaluated',
+    });
+    const auditRecord = await second.auditEvents.getAuditEvent('audit_1');
     const codexExecApprovals = await second.codexExecApprovals.listCodexExecApprovalRecords(10);
     const codexExecApprovalRecord =
       await second.codexExecApprovals.getCodexExecApprovalRecord('codex_approval_record_1');
@@ -154,6 +196,10 @@ describe('store-sqlite migration initialization', () => {
     expect(codexExecLiveRuns[0]?.status).toBe('blocked');
     expect(codexExecLiveRunRecord?.promptBodyStored).toBe(false);
     expect(JSON.stringify(codexExecLiveRunRecord)).not.toContain('list risk areas');
+    expect(evidenceRefs).toHaveLength(1);
+    expect(evidenceRecord?.summary).toBe('Evidence summary only');
+    expect(auditEvents).toHaveLength(1);
+    expect(auditRecord?.policyDecisionId).toBe('policy_1');
     expect(codexExecApprovals).toHaveLength(1);
     expect(codexExecApprovals[0]?.status).toBe('approved');
     expect(codexExecApprovalRecord?.request.reason).toContain('hash sha256:');

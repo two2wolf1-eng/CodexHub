@@ -7,6 +7,7 @@ import { Command } from 'commander';
 import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalTransitionResult,
+  buildControlPlaneDrilldownView,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createCodexExecControlPlaneTimeline,
@@ -21,15 +22,21 @@ import {
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
   evaluateCodexExecManualApprovalState,
+  getAuditDetail,
+  getEvidenceDetail,
   type CodexExecReplaySummary,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
+  searchAuditEvents,
+  searchEvidence,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type {
   CodexExecApprovalDecisionOutcome,
+  CodexExecAuditQuery,
   CodexExecConfigLoadResult,
+  CodexExecEvidenceQuery,
   CodexExecLiveRunRecord,
   CodexExecTimelineFilter,
 } from '@codexhub/contracts';
@@ -47,6 +54,22 @@ export interface CodexExecTimelineCliOptions {
   status?: string;
   includeEvidence?: boolean;
   includeAudit?: boolean;
+  json?: boolean;
+}
+
+export interface CodexExecEvidenceListCliOptions {
+  dryRun?: string;
+  kind?: string;
+  json?: boolean;
+}
+
+export interface CodexExecAuditListCliOptions {
+  dryRun?: string;
+  action?: string;
+  json?: boolean;
+}
+
+export interface CodexExecJsonCliOptions {
   json?: boolean;
 }
 
@@ -192,6 +215,64 @@ export function buildProgram(): Command {
     .action(async (dryRunId: string, options: CodexExecTimelineCliOptions) => {
       const result = await getCodexExecTimeline(dryRunId, options);
       console.log(formatCodexExecTimelineOutput(result, options));
+    });
+
+  const evidenceCommand = execCommand
+    .command('evidence')
+    .description('Read evidence refs for disabled control-plane records');
+
+  evidenceCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--kind <kind>', 'Filter by evidence kind')
+    .option('--json', 'Print full JSON output')
+    .description('List evidence refs without exposing bodies')
+    .action(async (options: CodexExecEvidenceListCliOptions) => {
+      const result = await listCodexExecEvidence(options);
+      console.log(formatCodexExecEvidenceListOutput(result, options));
+    });
+
+  evidenceCommand
+    .argument('<evidenceId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one evidence ref without exposing bodies')
+    .action(async (evidenceId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getCodexExecEvidence(evidenceId);
+      console.log(formatCodexExecDetailOutput('Codex control evidence detail', result, options));
+    });
+
+  const auditCommand = execCommand
+    .command('audit')
+    .description('Read audit events for disabled control-plane records');
+
+  auditCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--action <action>', 'Filter by audit action')
+    .option('--json', 'Print full JSON output')
+    .description('List audit events without exposing bodies')
+    .action(async (options: CodexExecAuditListCliOptions) => {
+      const result = await listCodexExecAudit(options);
+      console.log(formatCodexExecAuditListOutput(result, options));
+    });
+
+  auditCommand
+    .argument('<auditEventId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one audit event without exposing bodies')
+    .action(async (auditEventId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getCodexExecAudit(auditEventId);
+      console.log(formatCodexExecDetailOutput('Codex control audit detail', result, options));
+    });
+
+  execCommand
+    .command('drilldown')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read timeline, evidence, and audit summaries for a dry-run record')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getCodexExecDrilldown(dryRunId);
+      console.log(formatCodexExecDrilldownOutput(result, options));
     });
 
   return program;
@@ -636,6 +717,159 @@ export async function getCodexExecTimeline(
   }
 }
 
+export async function getCodexExecEvidence(evidenceId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/evidence/${encodeURIComponent(evidenceId)}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord('codex_dry_run_fixture');
+    const detail = getEvidenceDetail({
+      evidenceRefId: evidenceId,
+      records: [record],
+    });
+
+    return {
+      detail,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function listCodexExecEvidence(
+  options: CodexExecEvidenceListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createEvidenceQueryString(options);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/evidence${query}`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(
+      options.dryRun ?? 'codex_dry_run_fixture',
+    );
+    const result = searchEvidence({
+      query: createEvidenceQueryFromCliOptions(options, record.dryRunPlanId),
+      records: [record],
+    });
+
+    return {
+      result,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function getCodexExecAudit(auditEventId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/audit/${encodeURIComponent(auditEventId)}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord('codex_dry_run_fixture');
+    const detail = getAuditDetail({
+      auditEventId,
+      records: [record],
+    });
+
+    return {
+      detail,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function listCodexExecAudit(
+  options: CodexExecAuditListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createAuditQueryString(options);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/audit${query}`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(
+      options.dryRun ?? 'codex_dry_run_fixture',
+    );
+    const result = searchAuditEvents({
+      query: createAuditQueryFromCliOptions(options, record.dryRunPlanId),
+      records: [record],
+    });
+
+    return {
+      result,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function getCodexExecDrilldown(dryRunId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/drilldown/${encodeURIComponent(dryRunId)}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const drilldown = buildControlPlaneDrilldownView({
+      dryRunId: record.dryRunPlanId,
+      records: [record],
+    });
+
+    return {
+      drilldown,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export function formatCodexExecTimelineOutput(
   result: Record<string, unknown>,
   options: CodexExecTimelineCliOptions = {},
@@ -681,6 +915,128 @@ export function formatCodexExecTimelineOutput(
   ].join('\n');
 }
 
+export function formatCodexExecEvidenceListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecEvidenceListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const searchResult = result.result as
+    | {
+        count?: number;
+        items?: Array<{ evidenceRefId?: string; kind?: string; summary?: string; hash?: string }>;
+      }
+    | undefined;
+  const lines = (searchResult?.items ?? [])
+    .slice(0, 8)
+    .map(
+      (item) => `- ${item.evidenceRefId ?? 'unknown'} ${item.kind ?? 'unknown'} ${item.hash ?? ''}`,
+    );
+
+  return [
+    'Codex control evidence search',
+    `count: ${searchResult?.count ?? 0}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
+export function formatCodexExecAuditListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecAuditListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const searchResult = result.result as
+    | {
+        count?: number;
+        items?: Array<{ auditEventId?: string; action?: string; outcome?: string }>;
+      }
+    | undefined;
+  const lines = (searchResult?.items ?? [])
+    .slice(0, 8)
+    .map(
+      (item) =>
+        `- ${item.auditEventId ?? 'unknown'} ${item.action ?? 'unknown'} ${item.outcome ?? ''}`,
+    );
+
+  return [
+    'Codex control audit search',
+    `count: ${searchResult?.count ?? 0}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
+export function formatCodexExecDetailOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const detail = result.detail as
+    | {
+        status?: string;
+        evidenceRefId?: string;
+        auditEventId?: string;
+        kind?: string;
+        action?: string;
+        summary?: string;
+        hash?: string;
+      }
+    | undefined;
+
+  return [
+    title,
+    `status: ${detail?.status ?? 'unknown'}`,
+    `id: ${detail?.evidenceRefId ?? detail?.auditEventId ?? 'unknown'}`,
+    `kind/action: ${detail?.kind ?? detail?.action ?? 'unknown'}`,
+    detail?.summary ? `summary: ${detail.summary}` : undefined,
+    detail?.hash ? `hash: ${detail.hash}` : undefined,
+    noLiveFlagsText(result),
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatCodexExecDrilldownOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const drilldown = result.drilldown as
+    | {
+        dryRunId?: string;
+        status?: string;
+        evidenceCount?: number;
+        auditEventCount?: number;
+        timeline?: { status?: string; eventCount?: number };
+      }
+    | undefined;
+
+  return [
+    'Codex control drilldown',
+    `dryRunId: ${drilldown?.dryRunId ?? 'unknown'}`,
+    `status: ${drilldown?.status ?? 'unknown'}`,
+    `timeline: ${drilldown?.timeline?.status ?? 'none'} (${drilldown?.timeline?.eventCount ?? 0} events)`,
+    `evidence: ${drilldown?.evidenceCount ?? 0}`,
+    `audit: ${drilldown?.auditEventCount ?? 0}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
 function createTimelineQueryString(options: CodexExecTimelineCliOptions): string {
   const params = new URLSearchParams();
 
@@ -718,6 +1074,66 @@ function createTimelineFilterFromCliOptions(
   return filter;
 }
 
+function createEvidenceQueryString(options: CodexExecEvidenceListCliOptions): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.kind) {
+    params.set('kind', options.kind);
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function createAuditQueryString(options: CodexExecAuditListCliOptions): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.action) {
+    params.set('action', options.action);
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function createEvidenceQueryFromCliOptions(
+  options: CodexExecEvidenceListCliOptions,
+  fallbackDryRunId: string,
+): Partial<CodexExecEvidenceQuery> {
+  return {
+    dryRunId: options.dryRun ?? fallbackDryRunId,
+    kind: options.kind as CodexExecEvidenceQuery['kind'],
+    limit: 20,
+  };
+}
+
+function createAuditQueryFromCliOptions(
+  options: CodexExecAuditListCliOptions,
+  fallbackDryRunId: string,
+): Partial<CodexExecAuditQuery> {
+  return {
+    dryRunId: options.dryRun ?? fallbackDryRunId,
+    action: options.action,
+    limit: 20,
+  };
+}
+
+function noLiveFlagsText(result: Record<string, unknown>): string {
+  return [
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `executionDisabled=${String(result.executionDisabled ?? true)}`,
+  ].join('\n');
+}
+
 function isTimelineFilterSource(
   value: string,
 ): value is NonNullable<CodexExecTimelineFilter['source']> {
@@ -750,11 +1166,54 @@ function createLocalCodexExecControlPlaneRecord(dryRunId: string): CodexExecLive
   const dryRunPlan = createCodexExecDryRunPlan(intent);
   const policyDecision = evaluateCodexExecDryRunPolicy(dryRunPlan, new DefaultPolicyEngine());
 
-  return createCodexExecDisabledLiveRunRecord(
+  const record = createCodexExecDisabledLiveRunRecord(
     dryRunPlan,
     policyDecision,
     'live adapter disabled in CLI fallback',
   );
+  const reboundEvidenceRefs = record.evidenceRefs.map((ref) => ({
+    ...ref,
+    metadata: {
+      ...(ref.metadata ?? {}),
+      dryRunPlanId: dryRunId,
+      liveRunRecordId: record.id,
+    },
+  }));
+  const reboundAuditEvents = record.auditEvents.map((event) => ({
+    ...event,
+    evidenceRefs: event.evidenceRefs.map(
+      (ref) => reboundEvidenceRefs.find((candidate) => candidate.id === ref.id) ?? ref,
+    ),
+    metadata: {
+      ...(event.metadata ?? {}),
+      dryRunPlanId: dryRunId,
+      liveRunRecordId: record.id,
+    },
+  }));
+
+  return {
+    ...record,
+    dryRunPlanId: dryRunId,
+    dryRunPlan: {
+      ...record.dryRunPlan,
+      id: dryRunId,
+    },
+    commandPreview: {
+      ...record.commandPreview,
+      dryRunPlanId: dryRunId,
+    },
+    policyDecision: {
+      ...record.policyDecision,
+      actionId: dryRunId,
+    },
+    approvalRequirement: {
+      ...record.approvalRequirement,
+      dryRunPlanId: dryRunId,
+      policyDecisionId: record.policyDecision.id,
+    },
+    evidenceRefs: reboundEvidenceRefs,
+    auditEvents: reboundAuditEvents,
+  };
 }
 
 async function readLocalCodexExecConfig(): Promise<CodexExecConfigLoadResult> {
