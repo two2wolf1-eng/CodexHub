@@ -17,6 +17,10 @@ import {
   createDefaultReadOnlyAdapterOperatorChecklist,
   createReadOnlyAdapterPreflightSimulationAuditEvents,
   createReadOnlyAdapterPreflightSimulationEvidenceRefs,
+  classifyReadOnlyAdapterSimulatorGateChecks,
+  createReadOnlyAdapterSimulatorReviewAuditEvents,
+  createReadOnlyAdapterSimulatorReviewDecisionRecord,
+  createReadOnlyAdapterSimulatorReviewEvidenceRefs,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -61,10 +65,13 @@ import {
   summarizeCodexExecGovernanceReviewPackage,
   summarizeCodexExecLiveAdapterAdrDraft,
   summarizeReadOnlyAdapterPreflightSimulation,
+  summarizeReadOnlyAdapterSimulatorReview,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
   simulateReadOnlyAdapterPreflight,
+  getLatestReadOnlyAdapterSimulatorReview,
+  listReadOnlyAdapterSimulatorReviewSummaries,
 } from './index';
 
 describe('codex-kernel fixture replay parser', () => {
@@ -1350,6 +1357,139 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(auditEvents[0]?.action).toBe('codex.exec.read_only_adapter.preflight_simulated');
     expect(auditEvents[0]?.metadata?.externalProcessStarted).toBe(false);
     expect(JSON.stringify(result)).not.toContain('Summarize repository structure and list');
+  });
+
+  it('classifies simulator checks into hard gates and requires-review items', () => {
+    const { record } = createFullTimelineFixture();
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: {
+        ...createDefaultCodexExecLiveConfig(),
+        liveEnabled: true,
+        forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+      },
+      adrDecision: createCodexExecLiveAdapterAdrDecisionRecord({
+        dryRunId: record.dryRunPlanId,
+        reviewerLabel: 'local-operator',
+      }),
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: createDefaultReadOnlyAdapterOperatorChecklist(),
+    });
+    const classified = classifyReadOnlyAdapterSimulatorGateChecks(result);
+
+    expect(classified.some((item) => item.disposition === 'hard_gate')).toBe(true);
+    expect(
+      classified.some(
+        (item) =>
+          item.checkCode === 'operator_checklist_complete' &&
+          item.disposition === 'requires_review' &&
+          item.status === 'requires_review',
+      ),
+    ).toBe(true);
+    expect(classified.every((item) => item.implementationApproved === false)).toBe(true);
+    expect(classified.every((item) => item.recommendationGrantsExecution === false)).toBe(true);
+  });
+
+  it('creates simulator review record from a passing simulation without approving implementation', () => {
+    const { record } = createFullTimelineFixture();
+    const checklist = createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+      ...item,
+      checked: true,
+    }));
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: {
+        ...createDefaultCodexExecLiveConfig(),
+        liveEnabled: true,
+        forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+      },
+      adrDecision: createCodexExecLiveAdapterAdrDecisionRecord({
+        dryRunId: record.dryRunPlanId,
+        reviewerLabel: 'local-operator',
+      }),
+      isolatedWorktreePresent: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklist: checklist,
+    });
+    const review = createReadOnlyAdapterSimulatorReviewDecisionRecord({
+      simulationResult: result,
+      reviewerLabel: 'local-operator',
+      outcome: 'go_to_implementation_planning',
+    });
+    const summary = summarizeReadOnlyAdapterSimulatorReview(review);
+
+    expect(result.status).toBe('passed');
+    expect(review.outcome).toBe('go_to_implementation_planning');
+    expect(review.implementationApproved).toBe(false);
+    expect(review.processAdapterApproved).toBe(false);
+    expect(review.recommendationGrantsExecution).toBe(false);
+    expect(summary.summary).toContain('implementationApproved=false');
+    expect(JSON.stringify(review)).not.toContain('full prompt body');
+    expect(JSON.stringify(review)).not.toContain('full command body');
+  });
+
+  it('records simulator blockers and creates metadata-only review evidence/audit', () => {
+    const { record } = createFullTimelineFixture();
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: createDefaultCodexExecLiveConfig(),
+      isolatedWorktreePresent: false,
+      evidenceStoreReady: false,
+      auditStoreReady: false,
+    });
+    const review = createReadOnlyAdapterSimulatorReviewDecisionRecord({
+      simulationResult: result,
+      reviewerLabel: 'local-operator',
+      rationaleSummary: 'Planning can continue, but hard gates remain unresolved.',
+    });
+    const evidenceRefs = createReadOnlyAdapterSimulatorReviewEvidenceRefs(review);
+    const auditEvents = createReadOnlyAdapterSimulatorReviewAuditEvents(review, evidenceRefs);
+
+    expect(result.status).toBe('failed');
+    expect(review.unresolvedBlockerCount).toBeGreaterThan(0);
+    expect(review.findings.some((finding) => finding.disposition === 'hard_gate')).toBe(true);
+    expect(evidenceRefs[0]?.kind).toBe('codex.exec.read_only_adapter.simulator_review');
+    expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
+    expect(auditEvents[0]?.action).toBe('codex.exec.read_only_adapter.simulator_review.recorded');
+    expect(auditEvents[0]?.metadata?.implementationApproved).toBe(false);
+  });
+
+  it('lists and selects latest simulator review summaries by dry-run', () => {
+    const { record } = createFullTimelineFixture();
+    const result = simulateReadOnlyAdapterPreflight({
+      dryRunId: record.dryRunPlanId,
+      record,
+      config: createDefaultCodexExecLiveConfig(),
+    });
+    const first = createReadOnlyAdapterSimulatorReviewDecisionRecord({
+      simulationResult: result,
+      status: 'superseded',
+      outcome: 'no_go',
+      reviewerLabel: 'first-reviewer',
+    });
+    const second = createReadOnlyAdapterSimulatorReviewDecisionRecord({
+      simulationResult: result,
+      outcome: 'go_to_implementation_planning',
+      reviewerLabel: 'second-reviewer',
+    });
+    const records = [first, second];
+    const summaries = listReadOnlyAdapterSimulatorReviewSummaries(records, {
+      dryRunId: record.dryRunPlanId,
+      status: 'recorded',
+      outcome: 'go_to_implementation_planning',
+      limit: 10,
+    });
+    const latest = getLatestReadOnlyAdapterSimulatorReview(records, record.dryRunPlanId);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.outcome).toBe('go_to_implementation_planning');
+    expect(latest?.reviewerLabel).toBe('second-reviewer');
   });
 
   it('returns a safe not_found review draft when report is unavailable', () => {

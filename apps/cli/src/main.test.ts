@@ -471,6 +471,98 @@ describe('cli development mock-run fallback', () => {
     expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
   });
 
+  it('creates local simulator review records without approving implementation', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      createReadOnlyAdapterSimulatorReviewCommand,
+      formatReadOnlyAdapterSimulatorReviewListOutput,
+      formatReadOnlyAdapterSimulatorReviewOutput,
+      getLatestReadOnlyAdapterSimulatorReviewCommand,
+      getReadOnlyAdapterSimulatorReviewCommand,
+      listReadOnlyAdapterSimulatorReviewsCommand,
+    } = await import('./main');
+    const result = await createReadOnlyAdapterSimulatorReviewCommand('codex_dry_run_fixture', {
+      reviewer: 'local-operator',
+      outcome: 'go_to_implementation_planning',
+      rationaleSummary:
+        'Simulator review allows implementation planning only; implementation remains unapproved.',
+    });
+    const reviewId = (result.reviewRecord as { id: string }).id;
+    const detail = await getReadOnlyAdapterSimulatorReviewCommand(reviewId);
+    const list = await listReadOnlyAdapterSimulatorReviewsCommand({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'recorded',
+      outcome: 'go_to_implementation_planning',
+    });
+    const latest = await getLatestReadOnlyAdapterSimulatorReviewCommand('codex_dry_run_fixture');
+    const output = formatReadOnlyAdapterSimulatorReviewOutput(result);
+    const listOutput = formatReadOnlyAdapterSimulatorReviewListOutput(list);
+
+    expect(result).toMatchObject({
+      reviewRecord: {
+        dryRunId: 'codex_dry_run_fixture',
+        outcome: 'go_to_implementation_planning',
+        status: 'recorded',
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      degraded: true,
+    });
+    expect(detail).toMatchObject({
+      reviewRecord: {
+        id: reviewId,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+    });
+    expect(list).toMatchObject({
+      reviews: [
+        {
+          outcome: 'go_to_implementation_planning',
+          implementationApproved: false,
+          processAdapterApproved: false,
+          recommendationGrantsExecution: false,
+        },
+      ],
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(latest).toMatchObject({
+      reviewRecord: {
+        outcome: 'go_to_implementation_planning',
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(output).toContain('implementationApproved=false');
+    expect(output).toContain('processAdapterApproved=false');
+    expect(output).toContain('recommendationGrantsExecution=false');
+    expect(output).toContain('does not approve implementation or execution');
+    expect(output).not.toContain('execution approval');
+    expect(listOutput).toContain('processAdapterApproved=false');
+    expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
+  });
+
   it('creates local report review records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

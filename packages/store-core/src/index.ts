@@ -4,6 +4,8 @@ import type {
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecManualApprovalRecord,
+  CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -96,6 +98,18 @@ export interface CodexExecLiveAdapterAdrDecisionRepository {
   ): Promise<CodexExecLiveAdapterAdrDecisionRecord[]>;
 }
 
+export interface CodexExecReadOnlyAdapterSimulatorReviewRepository {
+  saveSimulatorReview(
+    record: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  ): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord>;
+  getSimulatorReview(
+    id: string,
+  ): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord | undefined>;
+  listSimulatorReviews(
+    query?: Partial<CodexExecReadOnlyAdapterSimulatorReviewQuery>,
+  ): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[]>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -107,6 +121,7 @@ export interface CodexHubStore {
   codexExecApprovals: CodexExecApprovalRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
+  codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
   close(): Promise<void>;
 }
 

@@ -7,6 +7,7 @@ import type {
   CodexExecLiveAdapterAdrDecisionSummary,
   CodexExecLiveAdapterAdrDraft,
   CodexExecReadOnlyAdapterPreflightSimulationResult,
+  CodexExecReadOnlyAdapterSimulatorReviewSummary,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -41,6 +42,7 @@ interface OverviewState {
   codexExecAdrDecisions: CodexExecLiveAdapterAdrDecisionSummary[];
   codexExecAdrDrafts: CodexExecLiveAdapterAdrDraft[];
   codexExecReadOnlyAdapterPreflightSimulations: CodexExecReadOnlyAdapterPreflightSimulationResult[];
+  codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewSummary[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -67,6 +69,7 @@ export function App() {
     codexExecAdrDecisions: [],
     codexExecAdrDrafts: [],
     codexExecReadOnlyAdapterPreflightSimulations: [],
+    codexExecReadOnlyAdapterSimulatorReviews: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -88,6 +91,7 @@ export function App() {
           codexExecConfigResponse,
           codexExecApprovalsResponse,
           readOnlyAdapterPreflightSimulationsResponse,
+          readOnlyAdapterSimulatorReviewsResponse,
           codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
@@ -106,6 +110,9 @@ export function App() {
           getJson<{
             simulations: CodexExecReadOnlyAdapterPreflightSimulationResult[];
           }>('/api/codex/exec/read-only-adapter/preflight-simulations?limit=5'),
+          getJson<{
+            reviews: CodexExecReadOnlyAdapterSimulatorReviewSummary[];
+          }>('/api/codex/exec/read-only-adapter/simulator-reviews?limit=5'),
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
@@ -294,6 +301,8 @@ export function App() {
             codexExecAdrDrafts,
             codexExecReadOnlyAdapterPreflightSimulations:
               readOnlyAdapterPreflightSimulationsResponse.simulations,
+            codexExecReadOnlyAdapterSimulatorReviews:
+              readOnlyAdapterSimulatorReviewsResponse.reviews,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -318,6 +327,7 @@ export function App() {
             codexExecAdrDecisions: [],
             codexExecAdrDrafts: [],
             codexExecReadOnlyAdapterPreflightSimulations: [],
+            codexExecReadOnlyAdapterSimulatorReviews: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -1043,6 +1053,44 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only adapter preflight simulation has been recorded yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Simulator Review / Go-No-Go">
+          {overview.codexExecReadOnlyAdapterSimulatorReviews.length > 0 ? (
+            <ul>
+              {overview.codexExecReadOnlyAdapterSimulatorReviews.map((review) => (
+                <li key={review.id} className="stacked report-detail">
+                  <strong>{review.dryRunId}</strong>
+                  <span>
+                    outcome {review.outcome}, status {review.status}, simulator{' '}
+                    {review.simulationStatus}
+                  </span>
+                  <span>
+                    hard gates {review.hardGateCount}, requires review{' '}
+                    {review.requiresReviewCount}, informational {review.informationalCount},
+                    unresolved {review.unresolvedBlockerCount}
+                  </span>
+                  <span>
+                    implementationApproved {String(review.implementationApproved)},
+                    processAdapterApproved {String(review.processAdapterApproved)},
+                    recommendationGrantsExecution{' '}
+                    {String(review.recommendationGrantsExecution)}
+                  </span>
+                  <span>
+                    liveExecution {String(review.liveExecution)}, externalProcessStarted{' '}
+                    {String(review.externalProcessStarted)}, executionDisabled{' '}
+                    {String(review.executionDisabled)}
+                  </span>
+                  <p>
+                    Review outcome is planning guidance only. It does not approve an adapter,
+                    process launch, or Dashboard-triggered action.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only simulator review has been recorded yet.</p>
           )}
         </Panel>
 

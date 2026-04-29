@@ -53,6 +53,7 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.approval_state',
     'codex.exec.live_adapter_adr_decision',
     'codex.exec.read_only_adapter.preflight_simulation',
+    'codex.exec.read_only_adapter.simulator_review',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -2135,6 +2136,137 @@ export const CodexExecReadOnlyAdapterPreflightSimulationSummarySchema = createdE
   });
 export type CodexExecReadOnlyAdapterPreflightSimulationSummary = z.infer<
   typeof CodexExecReadOnlyAdapterPreflightSimulationSummarySchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewOutcomeSchema = z.enum([
+  'no_go',
+  'go_to_implementation_planning',
+]);
+export type CodexExecReadOnlyAdapterSimulatorReviewOutcome = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewOutcomeSchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewStatusSchema = z.enum([
+  'draft',
+  'recorded',
+  'superseded',
+]);
+export type CodexExecReadOnlyAdapterSimulatorReviewStatus = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewStatusSchema
+>;
+
+export const CodexExecReadOnlyAdapterGateDispositionSchema = z.enum([
+  'hard_gate',
+  'requires_review',
+  'informational',
+]);
+export type CodexExecReadOnlyAdapterGateDisposition = z.infer<
+  typeof CodexExecReadOnlyAdapterGateDispositionSchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewChecklistItemSchema =
+  createdEntityBaseSchema.merge(codexExecReadOnlyAdapterSafetyFlagsSchema).extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    checkCode: z.string().min(1).optional(),
+    disposition: CodexExecReadOnlyAdapterGateDispositionSchema,
+    status: z.enum(['passed', 'failed', 'requires_review']),
+    required: z.boolean(),
+    summary: z.string().min(1),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterSimulatorReviewChecklistItem = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewChecklistItemSchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewFindingSchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    severity: RiskLevelSchema,
+    relatedCheckCode: z.string().min(1).optional(),
+    disposition: CodexExecReadOnlyAdapterGateDispositionSchema,
+    summary: z.string().min(1),
+    recommendation: z.string().min(1),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterSimulatorReviewFinding = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewFindingSchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewDecisionRecordSchema =
+  createdEntityBaseSchema.merge(codexExecReadOnlyAdapterSafetyFlagsSchema).extend({
+    dryRunId: z.string().min(1),
+    simulationId: z.string().min(1),
+    simulationStatus: CodexExecReadOnlyAdapterPreflightSimulationStatusSchema,
+    outcome: CodexExecReadOnlyAdapterSimulatorReviewOutcomeSchema,
+    status: CodexExecReadOnlyAdapterSimulatorReviewStatusSchema,
+    reviewerLabel: z.string().min(1),
+    rationaleSummary: z.string().min(1),
+    reviewedAt: IsoDateTimeSchema,
+    checklistItems: z.array(CodexExecReadOnlyAdapterSimulatorReviewChecklistItemSchema),
+    findings: z.array(CodexExecReadOnlyAdapterSimulatorReviewFindingSchema),
+    simulatorBlockers: z.array(CodexExecReadOnlyAdapterPreflightSimulationBlockerSchema),
+    hardGateCount: z.number().int().nonnegative(),
+    requiresReviewCount: z.number().int().nonnegative(),
+    informationalCount: z.number().int().nonnegative(),
+    unresolvedBlockerCount: z.number().int().nonnegative(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewDecisionRecordSchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewSummarySchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    reviewId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    simulationId: z.string().min(1),
+    simulationStatus: CodexExecReadOnlyAdapterPreflightSimulationStatusSchema,
+    outcome: CodexExecReadOnlyAdapterSimulatorReviewOutcomeSchema,
+    status: CodexExecReadOnlyAdapterSimulatorReviewStatusSchema,
+    reviewerLabel: z.string().min(1),
+    reviewedAt: IsoDateTimeSchema,
+    hardGateCount: z.number().int().nonnegative(),
+    requiresReviewCount: z.number().int().nonnegative(),
+    informationalCount: z.number().int().nonnegative(),
+    unresolvedBlockerCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterSimulatorReviewSummary = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewSummarySchema
+>;
+
+export const CodexExecReadOnlyAdapterSimulatorReviewQuerySchema = createdEntityBaseSchema
+  .merge(codexExecReadOnlyAdapterSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    status: CodexExecReadOnlyAdapterSimulatorReviewStatusSchema.optional(),
+    outcome: CodexExecReadOnlyAdapterSimulatorReviewOutcomeSchema.optional(),
+    limit: z.number().int().positive().max(200).default(50),
+    processAdapterApproved: z.literal(false),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReadOnlyAdapterSimulatorReviewQuery = z.infer<
+  typeof CodexExecReadOnlyAdapterSimulatorReviewQuerySchema
 >;
 
 export function foundationTimestamp(): string {

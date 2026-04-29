@@ -20,6 +20,9 @@ import {
   createDefaultReadOnlyAdapterOperatorChecklist,
   createReadOnlyAdapterPreflightSimulationAuditEvents,
   createReadOnlyAdapterPreflightSimulationEvidenceRefs,
+  createReadOnlyAdapterSimulatorReviewAuditEvents,
+  createReadOnlyAdapterSimulatorReviewDecisionRecord,
+  createReadOnlyAdapterSimulatorReviewEvidenceRefs,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -40,7 +43,9 @@ import {
   getEvidenceDetail,
   getLatestCodexExecReportReview,
   getLatestCodexExecLiveAdapterAdrDecision,
+  getLatestReadOnlyAdapterSimulatorReview,
   listCodexExecLiveAdapterAdrDecisionSummaries,
+  listReadOnlyAdapterSimulatorReviewSummaries,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -52,6 +57,7 @@ import {
   renderCodexExecLiveAdapterAdrDraftMarkdown,
   summarizeCodexExecReportReview,
   summarizeCodexExecLiveAdapterAdrDecision,
+  summarizeReadOnlyAdapterSimulatorReview,
   summarizeReadOnlyAdapterPreflightSimulation,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -69,6 +75,11 @@ import type {
   CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveRunRecord,
   CodexExecReadOnlyAdapterOperatorChecklistItem,
+  CodexExecReadOnlyAdapterPreflightSimulationResult,
+  CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSimulatorReviewOutcome,
+  CodexExecReadOnlyAdapterSimulatorReviewQuery,
+  CodexExecReadOnlyAdapterSimulatorReviewStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -164,6 +175,21 @@ export interface CodexExecReadOnlyAdapterPreflightCliOptions extends CodexExecJs
   evidenceReady?: boolean;
   auditReady?: boolean;
   checklistComplete?: boolean;
+}
+
+export interface CodexExecReadOnlyAdapterSimulatorReviewCreateCliOptions
+  extends CodexExecJsonCliOptions {
+  reviewer?: string;
+  outcome?: string;
+  status?: string;
+  rationaleSummary?: string;
+}
+
+export interface CodexExecReadOnlyAdapterSimulatorReviewListCliOptions
+  extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
+  outcome?: string;
 }
 
 export function buildProgram(): Command {
@@ -590,6 +616,69 @@ export function buildProgram(): Command {
         console.log(formatReadOnlyAdapterPreflightSimulationOutput(result, options));
       },
     );
+
+  const simulatorReviewCommand = readOnlyAdapterCommand
+    .command('simulator-review')
+    .description('Record and read simulator go/no-go reviews without execution approval');
+
+  simulatorReviewCommand
+    .command('create')
+    .argument('<dryRunId>')
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option(
+      '--outcome <outcome>',
+      'no_go or go_to_implementation_planning',
+      'go_to_implementation_planning',
+    )
+    .option('--status <status>', 'draft, recorded, or superseded', 'recorded')
+    .option(
+      '--rationale-summary <summary>',
+      'Review rationale summary',
+      'Simulator review allows implementation planning only; implementation remains unapproved.',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Create a simulator review record; it never grants execution')
+    .action(
+      async (
+        dryRunId: string,
+        options: CodexExecReadOnlyAdapterSimulatorReviewCreateCliOptions,
+      ) => {
+        const result = await createReadOnlyAdapterSimulatorReviewCommand(dryRunId, options);
+        console.log(formatReadOnlyAdapterSimulatorReviewOutput(result, options));
+      },
+    );
+
+  simulatorReviewCommand
+    .command('get')
+    .argument('<reviewId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one simulator review record')
+    .action(async (reviewId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getReadOnlyAdapterSimulatorReviewCommand(reviewId);
+      console.log(formatReadOnlyAdapterSimulatorReviewOutput(result, options));
+    });
+
+  simulatorReviewCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by review status')
+    .option('--outcome <outcome>', 'Filter by review outcome')
+    .option('--json', 'Print full JSON output')
+    .description('List simulator review records')
+    .action(async (options: CodexExecReadOnlyAdapterSimulatorReviewListCliOptions) => {
+      const result = await listReadOnlyAdapterSimulatorReviewsCommand(options);
+      console.log(formatReadOnlyAdapterSimulatorReviewListOutput(result, options));
+    });
+
+  simulatorReviewCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest simulator review for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestReadOnlyAdapterSimulatorReviewCommand(dryRunId);
+      console.log(formatReadOnlyAdapterSimulatorReviewOutput(result, options));
+    });
 
   return program;
 }
@@ -1545,6 +1634,156 @@ export async function simulateReadOnlyAdapterPreflightCommand(
   }
 }
 
+export async function createReadOnlyAdapterSimulatorReviewCommand(
+  dryRunId: string,
+  options: CodexExecReadOnlyAdapterSimulatorReviewCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const outcome = normalizeReadOnlyAdapterSimulatorReviewOutcome(options.outcome);
+  const status = normalizeReadOnlyAdapterSimulatorReviewStatus(options.status);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/simulator-review`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRunId,
+          reviewerLabel: options.reviewer ?? 'local-operator',
+          outcome,
+          status,
+          rationaleSummary:
+            options.rationaleSummary ??
+            'Simulator review allows implementation planning only; implementation remains unapproved.',
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviewRecord = await createLocalReadOnlyAdapterSimulatorReviewRecord(dryRunId, {
+      reviewer: options.reviewer,
+      outcome,
+      status,
+      rationaleSummary: options.rationaleSummary,
+    });
+
+    return createReadOnlyAdapterSimulatorReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function getReadOnlyAdapterSimulatorReviewCommand(
+  reviewId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/simulator-review/${encodeURIComponent(
+        reviewId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviewRecord = {
+      ...(await createLocalReadOnlyAdapterSimulatorReviewRecord('codex_dry_run_fixture', {
+        reviewer: 'cli-fallback',
+        rationaleSummary: `Supervisor unavailable while reading simulator review ${reviewId}.`,
+      })),
+      id: reviewId,
+    };
+
+    return createReadOnlyAdapterSimulatorReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function listReadOnlyAdapterSimulatorReviewsCommand(
+  options: CodexExecReadOnlyAdapterSimulatorReviewListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createReadOnlyAdapterSimulatorReviewQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/simulator-reviews${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const dryRunId = options.dryRun ?? 'codex_dry_run_fixture';
+    const queryObject = createReadOnlyAdapterSimulatorReviewQueryFromCliOptions(options, dryRunId);
+    const records = (await createLocalReadOnlyAdapterSimulatorReviewRecords(dryRunId)).filter(
+      (record) => {
+        if (queryObject.dryRunId && record.dryRunId !== queryObject.dryRunId) {
+          return false;
+        }
+
+        if (queryObject.status && record.status !== queryObject.status) {
+          return false;
+        }
+
+        if (queryObject.outcome && record.outcome !== queryObject.outcome) {
+          return false;
+        }
+
+        return true;
+      },
+    );
+
+    return {
+      records,
+      reviews: listReadOnlyAdapterSimulatorReviewSummaries(records, queryObject),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      degraded: true,
+      reason:
+        'supervisor unavailable; local simulator review fallback used and was not persisted',
+    };
+  }
+}
+
+export async function getLatestReadOnlyAdapterSimulatorReviewCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/simulator-review/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const records = await createLocalReadOnlyAdapterSimulatorReviewRecords(dryRunId);
+    const reviewRecord = getLatestReadOnlyAdapterSimulatorReview(records, dryRunId);
+
+    return createReadOnlyAdapterSimulatorReviewResponse(
+      reviewRecord ?? (await createLocalReadOnlyAdapterSimulatorReviewRecord(dryRunId)),
+      true,
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -2300,6 +2539,94 @@ export function formatReadOnlyAdapterPreflightSimulationOutput(
     .join('\n');
 }
 
+export function formatReadOnlyAdapterSimulatorReviewOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const review = result.reviewRecord as
+    | {
+        id?: string;
+        dryRunId?: string;
+        simulationStatus?: string;
+        outcome?: string;
+        status?: string;
+        reviewerLabel?: string;
+        hardGateCount?: number;
+        requiresReviewCount?: number;
+        unresolvedBlockerCount?: number;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+      }
+    | undefined;
+
+  return [
+    'Read-only adapter simulator review',
+    `reviewId: ${review?.id ?? 'unknown'}`,
+    `dryRunId: ${review?.dryRunId ?? 'unknown'}`,
+    `simulationStatus: ${review?.simulationStatus ?? 'unknown'}`,
+    `outcome: ${review?.outcome ?? 'unknown'} (planning guidance only)`,
+    `status: ${review?.status ?? 'unknown'}`,
+    `reviewer: ${review?.reviewerLabel ?? 'unknown'}`,
+    `hardGates: ${review?.hardGateCount ?? 0}`,
+    `requiresReview: ${review?.requiresReviewCount ?? 0}`,
+    `unresolvedBlockers: ${review?.unresolvedBlockerCount ?? 0}`,
+    `implementationApproved=${String(review?.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(review?.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(review?.recommendationGrantsExecution ?? false)}`,
+    'Outcome may allow Round 3R planning only; it does not approve implementation or execution.',
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatReadOnlyAdapterSimulatorReviewListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReadOnlyAdapterSimulatorReviewListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const reviews = result.reviews as
+    | Array<{
+        reviewId?: string;
+        dryRunId?: string;
+        status?: string;
+        outcome?: string;
+        hardGateCount?: number;
+        requiresReviewCount?: number;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+      }>
+    | undefined;
+  const lines = (reviews ?? []).slice(0, 8).map(
+    (review) =>
+      `- ${review.reviewId ?? 'unknown'} ${review.status ?? 'unknown'} ${
+        review.outcome ?? 'unknown'
+      } hardGates=${review.hardGateCount ?? 0} requiresReview=${
+        review.requiresReviewCount ?? 0
+      } implementationApproved=${String(
+        review.implementationApproved ?? false,
+      )} processAdapterApproved=${String(
+        review.processAdapterApproved ?? false,
+      )} recommendationGrantsExecution=${String(review.recommendationGrantsExecution ?? false)}`,
+  );
+
+  return [
+    'Read-only adapter simulator review list',
+    `count: ${reviews?.length ?? 0}`,
+    noLiveFlagsText(result),
+    'Reviews are planning guidance only and never grant execution.',
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
 export function formatCodexExecReportReviewOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -2662,6 +2989,27 @@ function createAdrDecisionQueryString(options: CodexExecAdrDecisionListCliOption
   return queryString ? `?${queryString}` : '';
 }
 
+function createReadOnlyAdapterSimulatorReviewQueryString(
+  options: CodexExecReadOnlyAdapterSimulatorReviewListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeReadOnlyAdapterSimulatorReviewStatus(options.status));
+  }
+
+  if (options.outcome) {
+    params.set('outcome', normalizeReadOnlyAdapterSimulatorReviewOutcome(options.outcome));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -2684,6 +3032,20 @@ function createAdrDecisionQueryFromCliOptions(
     dryRunId: options.dryRun ?? fallbackDryRunId,
     status: options.status ? normalizeAdrDecisionStatus(options.status) : undefined,
     decision: options.decision ? normalizeAdrDecisionOutcome(options.decision) : undefined,
+    limit: 20,
+  };
+}
+
+function createReadOnlyAdapterSimulatorReviewQueryFromCliOptions(
+  options: CodexExecReadOnlyAdapterSimulatorReviewListCliOptions,
+  fallbackDryRunId: string,
+): Partial<CodexExecReadOnlyAdapterSimulatorReviewQuery> {
+  return {
+    dryRunId: options.dryRun ?? fallbackDryRunId,
+    status: options.status ? normalizeReadOnlyAdapterSimulatorReviewStatus(options.status) : undefined,
+    outcome: options.outcome
+      ? normalizeReadOnlyAdapterSimulatorReviewOutcome(options.outcome)
+      : undefined,
     limit: 20,
   };
 }
@@ -2755,6 +3117,30 @@ function normalizeAdrDecisionOutcome(
   throw new Error('ADR decision outcome is unsupported');
 }
 
+function normalizeReadOnlyAdapterSimulatorReviewStatus(
+  status: string | undefined,
+): CodexExecReadOnlyAdapterSimulatorReviewStatus {
+  const normalized = status ?? 'recorded';
+
+  if (normalized === 'draft' || normalized === 'recorded' || normalized === 'superseded') {
+    return normalized;
+  }
+
+  throw new Error('simulator review status is unsupported');
+}
+
+function normalizeReadOnlyAdapterSimulatorReviewOutcome(
+  outcome: string | undefined,
+): CodexExecReadOnlyAdapterSimulatorReviewOutcome {
+  const normalized = outcome ?? 'go_to_implementation_planning';
+
+  if (normalized === 'no_go' || normalized === 'go_to_implementation_planning') {
+    return normalized;
+  }
+
+  throw new Error('simulator review outcome is unsupported');
+}
+
 function createEvidenceQueryFromCliOptions(
   options: CodexExecEvidenceListCliOptions,
   fallbackDryRunId: string,
@@ -2822,6 +3208,37 @@ function createAdrDecisionResponse(
   };
 }
 
+function createReadOnlyAdapterSimulatorReviewResponse(
+  reviewRecord: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  degraded: boolean,
+): Record<string, unknown> {
+  const evidenceRefs = reviewRecord.evidenceRefs;
+  const auditEvents = createReadOnlyAdapterSimulatorReviewAuditEvents(reviewRecord, evidenceRefs);
+  const responseRecord = {
+    ...reviewRecord,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+
+  return {
+    reviewRecord: responseRecord,
+    summary: summarizeReadOnlyAdapterSimulatorReview(responseRecord),
+    evidenceRefs,
+    auditEvents,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    degraded,
+    reason: degraded
+      ? 'supervisor unavailable; local simulator review fallback used and was not persisted'
+      : undefined,
+  };
+}
+
 function createLocalLiveAdapterAdrDecisionRecord(
   dryRunId: string,
   options: {
@@ -2882,6 +3299,92 @@ function createLocalLiveAdapterAdrDecisionRecords(
       recordedAt: '2026-04-28T03:00:00.000Z',
     },
   ];
+}
+
+async function createLocalReadOnlyAdapterSimulatorReviewRecord(
+  dryRunId: string,
+  options: {
+    reviewer?: string;
+    outcome?: CodexExecReadOnlyAdapterSimulatorReviewOutcome;
+    status?: CodexExecReadOnlyAdapterSimulatorReviewStatus;
+    rationaleSummary?: string;
+  } = {},
+): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord> {
+  const simulationResult = await createLocalReadOnlyAdapterSimulationResult(dryRunId);
+  const draftRecord = createReadOnlyAdapterSimulatorReviewDecisionRecord({
+    simulationResult,
+    reviewerLabel: options.reviewer ?? 'cli-fallback',
+    outcome: options.outcome,
+    status: options.status,
+    rationaleSummary:
+      options.rationaleSummary ??
+      'Simulator review permits Round 3R implementation planning only; implementation remains unapproved.',
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const evidenceRefs = createReadOnlyAdapterSimulatorReviewEvidenceRefs(draftRecord);
+  const auditEvents = createReadOnlyAdapterSimulatorReviewAuditEvents(draftRecord, evidenceRefs);
+
+  return {
+    ...draftRecord,
+    evidenceRefs,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+}
+
+async function createLocalReadOnlyAdapterSimulatorReviewRecords(
+  dryRunId: string,
+): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[]> {
+  const older = await createLocalReadOnlyAdapterSimulatorReviewRecord(dryRunId, {
+    reviewer: 'cli-fallback-initial',
+    outcome: 'no_go',
+    status: 'superseded',
+    rationaleSummary: 'Initial local fallback simulator review kept implementation blocked.',
+  });
+  const latest = await createLocalReadOnlyAdapterSimulatorReviewRecord(dryRunId, {
+    reviewer: 'cli-fallback-latest',
+    outcome: 'go_to_implementation_planning',
+    status: 'recorded',
+    rationaleSummary:
+      'Latest local fallback simulator review allows Round 3R planning only; implementation remains unapproved.',
+  });
+
+  return [
+    {
+      ...latest,
+      id: 'codex_read_only_adapter_simulator_review_cli_latest',
+      createdAt: '2026-04-28T05:00:00.000Z',
+      reviewedAt: '2026-04-28T05:00:00.000Z',
+    },
+    {
+      ...older,
+      id: 'codex_read_only_adapter_simulator_review_cli_older',
+      createdAt: '2026-04-28T04:00:00.000Z',
+      reviewedAt: '2026-04-28T04:00:00.000Z',
+    },
+  ];
+}
+
+async function createLocalReadOnlyAdapterSimulationResult(
+  dryRunId: string,
+): Promise<CodexExecReadOnlyAdapterPreflightSimulationResult> {
+  const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+  const configLoadResult = await readLocalCodexExecConfig();
+  const adrDecision = createLocalLiveAdapterAdrDecisionRecord(record.dryRunPlanId);
+
+  return simulateReadOnlyAdapterPreflight({
+    dryRunId: record.dryRunPlanId,
+    record,
+    config: configLoadResult.config,
+    adrDecision,
+    isolatedWorktreePresent: true,
+    evidenceStoreReady: true,
+    auditStoreReady: true,
+    operatorChecklist: createDefaultReadOnlyAdapterOperatorChecklist().map((item) => ({
+      ...item,
+      checked: true,
+    })),
+    metadata: { requestedBy: 'cli-fallback', simulatorReviewFallback: true },
+  });
 }
 
 function createLocalReportReviewRecords(dryRunId: string): CodexExecReportReviewRecord[] {

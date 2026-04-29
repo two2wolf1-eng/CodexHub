@@ -356,6 +356,62 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/read-only-adapter/preflight-simulations?limit=10',
     });
+    const readOnlySimulatorReviewCreateResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/simulator-review',
+      payload: {
+        dryRunId: canonicalDryRunPlanId,
+        reviewerLabel: 'local-operator',
+        outcome: 'go_to_implementation_planning',
+        rationaleSummary:
+          'Simulator review allows Round 3R planning only; implementation remains unapproved.',
+      },
+    });
+    const readOnlySimulatorReviewId = readOnlySimulatorReviewCreateResponse.json().reviewRecord
+      .id as string;
+    const readOnlySimulatorReviewGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/read-only-adapter/simulator-review/${readOnlySimulatorReviewId}`,
+    });
+    const readOnlySimulatorReviewListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/read-only-adapter/simulator-reviews?dryRunId=${canonicalDryRunPlanId}&status=recorded&outcome=go_to_implementation_planning&limit=10`,
+    });
+    const readOnlySimulatorReviewLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/read-only-adapter/simulator-review/latest/${canonicalDryRunPlanId}`,
+    });
+    const missingReadOnlySimulatorReviewGetResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/simulator-review/missing_review',
+    });
+    const invalidReadOnlySimulatorReviewQueryResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/read-only-adapter/simulator-reviews?dryRunId=${canonicalDryRunPlanId}&outcome=execute_now`,
+    });
+    const readOnlySimulatorReviewMissingIdResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/simulator-review',
+      payload: {},
+    });
+    const dryRunWithoutSimulationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/dry-run',
+      payload: {
+        title: 'Dry-run without simulator result',
+        prompt: 'Summarize repository structure only',
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+      },
+    });
+    const missingReadOnlySimulatorReviewSimulationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/simulator-review',
+      payload: {
+        dryRunId: dryRunWithoutSimulationResponse.json().liveRunRecord.dryRunPlanId,
+      },
+    });
     const missingReadOnlyPreflightSimulationDryRunResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/read-only-adapter/preflight-simulate',
@@ -1099,6 +1155,70 @@ describe('supervisor mock development API', () => {
     expect(readOnlyPreflightSimulationListResponse.json().simulations.length).toBeGreaterThanOrEqual(
       2,
     );
+    expect(readOnlySimulatorReviewCreateResponse.statusCode).toBe(200);
+    expect(readOnlySimulatorReviewCreateResponse.json()).toMatchObject({
+      reviewRecord: {
+        dryRunId: canonicalDryRunPlanId,
+        outcome: 'go_to_implementation_planning',
+        status: 'recorded',
+        simulationStatus: 'blocked',
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      summary: {
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(readOnlySimulatorReviewCreateResponse.json().evidenceRefs).toHaveLength(1);
+    expect(readOnlySimulatorReviewCreateResponse.json().auditEvents).toHaveLength(1);
+    expect(JSON.stringify(readOnlySimulatorReviewCreateResponse.json())).not.toContain(
+      'list risk areas',
+    );
+    expect(readOnlySimulatorReviewGetResponse.statusCode).toBe(200);
+    expect(readOnlySimulatorReviewGetResponse.json().reviewRecord.id).toBe(
+      readOnlySimulatorReviewId,
+    );
+    expect(readOnlySimulatorReviewListResponse.statusCode).toBe(200);
+    expect(readOnlySimulatorReviewListResponse.json().records).toHaveLength(1);
+    expect(readOnlySimulatorReviewListResponse.json().reviews[0]).toMatchObject({
+      reviewId: readOnlySimulatorReviewId,
+      outcome: 'go_to_implementation_planning',
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(readOnlySimulatorReviewLatestResponse.statusCode).toBe(200);
+    expect(readOnlySimulatorReviewLatestResponse.json()).toMatchObject({
+      reviewRecord: {
+        id: readOnlySimulatorReviewId,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(missingReadOnlySimulatorReviewGetResponse.statusCode).toBe(404);
+    expect(missingReadOnlySimulatorReviewGetResponse.body).not.toContain(process.cwd());
+    expect(invalidReadOnlySimulatorReviewQueryResponse.statusCode).toBe(400);
+    expect(readOnlySimulatorReviewMissingIdResponse.statusCode).toBe(400);
+    expect(missingReadOnlySimulatorReviewSimulationResponse.statusCode).toBe(404);
+    expect(missingReadOnlySimulatorReviewSimulationResponse.body).not.toContain(process.cwd());
     expect(missingReadOnlyPreflightSimulationDryRunResponse.statusCode).toBe(404);
     expect(missingReadOnlyPreflightSimulationDryRunResponse.body).not.toContain(process.cwd());
     expect(missingReadOnlyPreflightSimulationIdResponse.statusCode).toBe(400);

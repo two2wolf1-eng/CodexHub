@@ -72,12 +72,20 @@ import type {
   CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveAdapterAdrDecisionSummary,
   CodexExecReadOnlyAdapterOperatorChecklistItem,
+  CodexExecReadOnlyAdapterGateDisposition,
   CodexExecReadOnlyAdapterPreflightSimulationBlocker,
   CodexExecReadOnlyAdapterPreflightSimulationCheck,
   CodexExecReadOnlyAdapterPreflightSimulationCheckSource,
   CodexExecReadOnlyAdapterPreflightSimulationResult,
   CodexExecReadOnlyAdapterPreflightSimulationStatus,
   CodexExecReadOnlyAdapterPreflightSimulationSummary,
+  CodexExecReadOnlyAdapterSimulatorReviewChecklistItem,
+  CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSimulatorReviewFinding,
+  CodexExecReadOnlyAdapterSimulatorReviewOutcome,
+  CodexExecReadOnlyAdapterSimulatorReviewQuery,
+  CodexExecReadOnlyAdapterSimulatorReviewStatus,
+  CodexExecReadOnlyAdapterSimulatorReviewSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -3476,6 +3484,416 @@ export function createReadOnlyAdapterPreflightSimulationAuditEvents(
       }),
     },
   ];
+}
+
+export interface ReadOnlyAdapterSimulatorReviewDecisionInput {
+  simulationResult: CodexExecReadOnlyAdapterPreflightSimulationResult;
+  reviewerLabel?: string;
+  outcome?: CodexExecReadOnlyAdapterSimulatorReviewOutcome;
+  status?: CodexExecReadOnlyAdapterSimulatorReviewStatus;
+  rationaleSummary?: string;
+  metadata?: Record<string, unknown>;
+}
+
+const READ_ONLY_ADAPTER_SIMULATOR_HARD_GATE_CODES = new Set([
+  'config_explicit_enable_state',
+  'sandbox_read_only_only',
+  'forbidden_sandbox_modes_remain_forbidden',
+  'dry_run_exists',
+  'policy_decision_exists',
+  'policy_decision_compatible',
+  'approval_artifact_exists',
+  'approval_artifact_valid',
+  'dry_run_plan_hash_match',
+  'policy_decision_hash_match',
+  'isolated_worktree_present',
+  'evidence_store_ready',
+  'audit_store_ready',
+  'dashboard_trigger_forbidden',
+  'process_adapter_not_attempted',
+  'write_or_full_access_not_requested',
+]);
+
+export function classifyReadOnlyAdapterSimulatorGateChecks(
+  simulationResult: CodexExecReadOnlyAdapterPreflightSimulationResult,
+): CodexExecReadOnlyAdapterSimulatorReviewChecklistItem[] {
+  const checkItems = simulationResult.checks.map((check) =>
+    createReadOnlyAdapterSimulatorReviewChecklistItem({
+      code: `simulator_check_${check.code}`,
+      label: titleFromCode(check.code),
+      checkCode: check.code,
+      disposition: getReadOnlyAdapterGateDisposition(check),
+      status:
+        check.status === 'warning'
+          ? 'requires_review'
+          : check.status === 'failed'
+            ? 'failed'
+            : 'passed',
+      required: check.required,
+      summary: check.summary,
+    }),
+  );
+
+  return [
+    ...checkItems,
+    createReadOnlyAdapterSimulatorReviewChecklistItem({
+      code: 'post_run_verify_foundation_required',
+      label: 'Post-run foundation verification required',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary:
+        'Any later approved read-only implementation must run pnpm verify:foundation after the attempt.',
+    }),
+    createReadOnlyAdapterSimulatorReviewChecklistItem({
+      code: 'no_sensitive_body_storage',
+      label: 'No sensitive body storage',
+      disposition: 'hard_gate',
+      status: simulationResult.bodyStored === false ? 'passed' : 'failed',
+      required: true,
+      summary: 'Simulator review stores metadata, hashes, counts, and ids only.',
+    }),
+    createReadOnlyAdapterSimulatorReviewChecklistItem({
+      code: 'implementation_not_approved',
+      label: 'Implementation remains unapproved',
+      disposition: 'hard_gate',
+      status: simulationResult.implementationApproved === false ? 'passed' : 'failed',
+      required: true,
+      summary:
+        'Round 3Q may allow implementation planning only; it does not approve a process adapter.',
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterSimulatorReviewDecisionRecord(
+  input: ReadOnlyAdapterSimulatorReviewDecisionInput,
+): CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord {
+  const simulationResult = input.simulationResult;
+  const checklistItems = classifyReadOnlyAdapterSimulatorGateChecks(simulationResult);
+  const findings = createReadOnlyAdapterSimulatorReviewFindings(simulationResult, checklistItems);
+  const hardGateCount = checklistItems.filter((item) => item.disposition === 'hard_gate').length;
+  const requiresReviewCount = checklistItems.filter(
+    (item) => item.disposition === 'requires_review',
+  ).length;
+  const informationalCount = checklistItems.filter(
+    (item) => item.disposition === 'informational',
+  ).length;
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('codex_read_only_adapter_simulator_review'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    dryRunId: simulationResult.dryRunId,
+    simulationId: simulationResult.id,
+    simulationStatus: simulationResult.status,
+    outcome: input.outcome ?? 'go_to_implementation_planning',
+    status: input.status ?? 'recorded',
+    reviewerLabel: input.reviewerLabel ?? 'local-operator',
+    rationaleSummary:
+      input.rationaleSummary ??
+      'Simulator review allows Round 3R implementation planning only; implementation remains unapproved.',
+    reviewedAt: now,
+    checklistItems,
+    findings,
+    simulatorBlockers: simulationResult.blockers,
+    hardGateCount,
+    requiresReviewCount,
+    informationalCount,
+    unresolvedBlockerCount: simulationResult.blockerCount,
+    evidenceRefs: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      dryRunPlanId: simulationResult.dryRunId,
+      simulationId: simulationResult.id,
+      simulationStatus: simulationResult.status,
+      outcome: input.outcome ?? 'go_to_implementation_planning',
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      dashboardTriggerAllowed: false,
+    }),
+  };
+}
+
+export function summarizeReadOnlyAdapterSimulatorReview(
+  record: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+): CodexExecReadOnlyAdapterSimulatorReviewSummary {
+  return {
+    id: foundationId('codex_read_only_adapter_simulator_review_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    reviewId: record.id,
+    dryRunId: record.dryRunId,
+    simulationId: record.simulationId,
+    simulationStatus: record.simulationStatus,
+    outcome: record.outcome,
+    status: record.status,
+    reviewerLabel: record.reviewerLabel,
+    reviewedAt: record.reviewedAt,
+    hardGateCount: record.hardGateCount,
+    requiresReviewCount: record.requiresReviewCount,
+    informationalCount: record.informationalCount,
+    unresolvedBlockerCount: record.unresolvedBlockerCount,
+    summary: `Read-only adapter simulator review ${record.outcome}; implementationApproved=false, processAdapterApproved=false.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      reviewId: record.id,
+      dryRunPlanId: record.dryRunId,
+      simulationId: record.simulationId,
+      outcome: record.outcome,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listReadOnlyAdapterSimulatorReviewSummaries(
+  records: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[],
+  query: Partial<CodexExecReadOnlyAdapterSimulatorReviewQuery> = {},
+): CodexExecReadOnlyAdapterSimulatorReviewSummary[] {
+  const limit = Math.min(200, Math.max(1, Math.trunc(query.limit ?? 50)));
+
+  return sortReadOnlyAdapterSimulatorReviewsNewestFirst(records)
+    .filter((record) => {
+      if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, limit)
+    .map((record) => summarizeReadOnlyAdapterSimulatorReview(record));
+}
+
+export function getLatestReadOnlyAdapterSimulatorReview(
+  records: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[],
+  dryRunId: string,
+): CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord | undefined {
+  return sortReadOnlyAdapterSimulatorReviewsNewestFirst(
+    records.filter((record) => record.dryRunId === dryRunId),
+  )[0];
+}
+
+export function createReadOnlyAdapterSimulatorReviewEvidenceRefs(
+  record: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.simulator_review',
+      label: 'codex.read_only_adapter.simulator_review',
+      summary: `Simulator review ${record.outcome}; implementation remains unapproved.`,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        dryRunPlanId: record.dryRunId,
+        simulationId: record.simulationId,
+        outcome: record.outcome,
+        hardGateCount: record.hardGateCount,
+        requiresReviewCount: record.requiresReviewCount,
+        unresolvedBlockerCount: record.unresolvedBlockerCount,
+        metadataOnly: true,
+        bodyStored: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: record.id,
+        dryRunId: record.dryRunId,
+        simulationId: record.simulationId,
+        outcome: record.outcome,
+        status: record.status,
+        checklist: record.checklistItems.map((item) => ({
+          code: item.code,
+          disposition: item.disposition,
+          status: item.status,
+        })),
+        findings: record.findings.map((finding) => ({
+          code: finding.code,
+          severity: finding.severity,
+          disposition: finding.disposition,
+        })),
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterSimulatorReviewAuditEvents(
+  record: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.simulator_review.recorded',
+      outcome: record.outcome,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        dryRunPlanId: record.dryRunId,
+        simulationId: record.simulationId,
+        outcome: record.outcome,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+      }),
+    },
+  ];
+}
+
+function getReadOnlyAdapterGateDisposition(
+  check: CodexExecReadOnlyAdapterPreflightSimulationCheck,
+): CodexExecReadOnlyAdapterGateDisposition {
+  if (READ_ONLY_ADAPTER_SIMULATOR_HARD_GATE_CODES.has(check.code)) {
+    return 'hard_gate';
+  }
+
+  if (check.status === 'warning') {
+    return 'requires_review';
+  }
+
+  return 'informational';
+}
+
+function createReadOnlyAdapterSimulatorReviewChecklistItem(input: {
+  code: string;
+  label: string;
+  checkCode?: string;
+  disposition: CodexExecReadOnlyAdapterGateDisposition;
+  status: 'passed' | 'failed' | 'requires_review';
+  required: boolean;
+  summary: string;
+}): CodexExecReadOnlyAdapterSimulatorReviewChecklistItem {
+  return {
+    id: foundationId('codex_read_only_adapter_simulator_review_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    checkCode: input.checkCode,
+    disposition: input.disposition,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      checkCode: input.checkCode,
+      disposition: input.disposition,
+      status: input.status,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function createReadOnlyAdapterSimulatorReviewFindings(
+  simulationResult: CodexExecReadOnlyAdapterPreflightSimulationResult,
+  checklistItems: CodexExecReadOnlyAdapterSimulatorReviewChecklistItem[],
+): CodexExecReadOnlyAdapterSimulatorReviewFinding[] {
+  const failedOrReviewItems = checklistItems.filter(
+    (item) => item.status === 'failed' || item.status === 'requires_review',
+  );
+
+  return failedOrReviewItems.map((item) => ({
+    id: foundationId('codex_read_only_adapter_simulator_review_finding'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: item.code,
+    severity:
+      item.disposition === 'hard_gate' && item.status === 'failed'
+        ? 'high'
+        : item.status === 'requires_review'
+          ? 'medium'
+          : 'low',
+    relatedCheckCode: item.checkCode,
+    disposition: item.disposition,
+    summary: item.summary,
+    recommendation:
+      item.disposition === 'hard_gate'
+        ? 'Resolve this hard gate before any future read-only adapter implementation can be considered.'
+        : 'Review this condition during Round 3R planning; it does not grant execution permission.',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: simulationResult.dryRunId,
+      simulationId: simulationResult.id,
+      code: item.code,
+      relatedCheckCode: item.checkCode,
+      disposition: item.disposition,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  }));
+}
+
+function sortReadOnlyAdapterSimulatorReviewsNewestFirst(
+  records: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[],
+): CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[] {
+  return [...records].sort((left, right) => {
+    const byReviewedAt = right.reviewedAt.localeCompare(left.reviewedAt);
+    return byReviewedAt !== 0 ? byReviewedAt : right.createdAt.localeCompare(left.createdAt);
+  });
+}
+
+function titleFromCode(code: string): string {
+  return code
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function normalizeReadOnlyAdapterChecklist(

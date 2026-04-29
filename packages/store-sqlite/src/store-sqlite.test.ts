@@ -7,6 +7,7 @@ import {
   type CodexExecLiveAdapterAdrDecisionRecord,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
+  type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
   type EvidenceRef,
@@ -159,6 +160,9 @@ describe('store-sqlite migration initialization', () => {
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
       createCodexExecLiveAdapterAdrDecisionFixture();
     await first.codexExecLiveAdapterAdrDecisions.saveDecision(adrDecision);
+    const simulatorReview: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord =
+      createReadOnlyAdapterSimulatorReviewFixture();
+    await first.codexExecReadOnlyAdapterSimulatorReviews.saveSimulatorReview(simulatorReview);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -201,6 +205,17 @@ describe('store-sqlite migration initialization', () => {
       await second.codexExecLiveAdapterAdrDecisions.getDecision(
         'codex_live_adapter_adr_decision_1',
       );
+    const simulatorReviews =
+      await second.codexExecReadOnlyAdapterSimulatorReviews.listSimulatorReviews({
+        dryRunId: 'codex_dry_run_1',
+        status: 'recorded',
+        outcome: 'go_to_implementation_planning',
+        limit: 10,
+      });
+    const simulatorReviewRecord =
+      await second.codexExecReadOnlyAdapterSimulatorReviews.getSimulatorReview(
+        'codex_read_only_adapter_simulator_review_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -242,6 +257,12 @@ describe('store-sqlite migration initialization', () => {
       'danger_full_access',
     ]);
     expect(JSON.stringify(adrDecisionRecord)).not.toContain('full command body');
+    expect(simulatorReviews).toHaveLength(1);
+    expect(simulatorReviewRecord?.implementationApproved).toBe(false);
+    expect(simulatorReviewRecord?.processAdapterApproved).toBe(false);
+    expect(simulatorReviewRecord?.recommendationGrantsExecution).toBe(false);
+    expect(simulatorReviewRecord?.hardGateCount).toBe(2);
+    expect(JSON.stringify(simulatorReviewRecord)).not.toContain('full command body');
   });
 });
 
@@ -530,5 +551,86 @@ function createCodexExecLiveAdapterAdrDecisionFixture(): CodexExecLiveAdapterAdr
     liveExecution: false,
     externalProcessStarted: false,
     executionDisabled: true,
+  };
+}
+
+function createReadOnlyAdapterSimulatorReviewFixture(): CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord {
+  const createdAt = '2026-04-28T00:00:07.000Z';
+
+  return {
+    id: 'codex_read_only_adapter_simulator_review_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    simulationId: 'codex_read_only_adapter_preflight_simulation_1',
+    simulationStatus: 'failed',
+    outcome: 'go_to_implementation_planning',
+    status: 'recorded',
+    reviewerLabel: 'local-operator',
+    rationaleSummary:
+      'Simulator review allows implementation planning only; implementation remains unapproved.',
+    reviewedAt: createdAt,
+    checklistItems: [
+      {
+        id: 'codex_read_only_adapter_simulator_review_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'sandbox_must_be_read_only',
+        label: 'Sandbox must be read only',
+        disposition: 'hard_gate',
+        status: 'passed',
+        required: true,
+        summary: 'Future adapter planning must keep sandbox read-only.',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+      },
+      {
+        id: 'codex_read_only_adapter_simulator_review_check_2',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'separate_future_adr_required',
+        label: 'Separate future ADR required',
+        disposition: 'hard_gate',
+        status: 'passed',
+        required: true,
+        summary: 'Round 3Q does not approve implementation.',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+      },
+    ],
+    findings: [],
+    simulatorBlockers: [],
+    hardGateCount: 2,
+    requiresReviewCount: 0,
+    informationalCount: 0,
+    unresolvedBlockerCount: 0,
+    evidenceRefs: [],
+    auditEventIds: ['audit_simulator_review_1'],
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
   };
 }

@@ -8,6 +8,8 @@ import type {
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
+  CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -22,6 +24,7 @@ import type {
   CodexExecLiveAdapterAdrDecisionRepository,
   CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
+  CodexExecReadOnlyAdapterSimulatorReviewRepository,
   CodexHubStore,
   CodexReplayRepository,
   CodexReportReviewRepository,
@@ -86,6 +89,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecApprovals: CodexExecApprovalRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
+  readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -107,6 +111,8 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions =
       new SqliteCodexExecLiveAdapterAdrDecisionRepository(database);
+    this.codexExecReadOnlyAdapterSimulatorReviews =
+      new SqliteCodexExecReadOnlyAdapterSimulatorReviewRepository(database);
   }
 
   async close(): Promise<void> {
@@ -430,6 +436,65 @@ class SqliteCodexExecLiveAdapterAdrDecisionRepository
   }
 }
 
+class SqliteCodexExecReadOnlyAdapterSimulatorReviewRepository
+  implements CodexExecReadOnlyAdapterSimulatorReviewRepository
+{
+  private readonly repository: JsonEntityRepository<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository =
+      new JsonEntityRepository<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord>(
+        database,
+        'codex_read_only_adapter_simulator_reviews',
+        (record) => record.createdAt,
+      );
+  }
+
+  async saveSimulatorReview(
+    record: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+  ): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord> {
+    return this.repository.create(record);
+  }
+
+  async getSimulatorReview(
+    id: string,
+  ): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listSimulatorReviews(
+    query: Partial<CodexExecReadOnlyAdapterSimulatorReviewQuery> = {},
+  ): Promise<CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_read_only_adapter_simulator_reviews ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) => JSON.parse(row.payload) as CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        if (query.outcome && record.outcome !== query.outcome) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -582,6 +647,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_live_adapter_adr_decisions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_read_only_adapter_simulator_reviews (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL
