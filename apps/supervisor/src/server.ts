@@ -21,7 +21,6 @@ import {
   evaluateCodexExecExecutionGate,
   evaluateCodexExecLiveCapability,
   evaluateCodexExecManualApprovalState,
-  type CodexExecReplaySummary,
   parseCodexExecLiveConfigFile,
   createCodexReplayRecord,
   getAuditDetail,
@@ -43,6 +42,7 @@ import type {
   CodexExecManualApprovalRecord,
   CodexExecSandboxMode,
   CodexExecTimelineFilter,
+  CodexReplaySummary,
   CodexReplayRecord,
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
@@ -1466,7 +1466,7 @@ function toWorkspacePath(path: string, workspaceRoot: string): string {
   return relative(workspaceRoot, path).split(sep).join('/');
 }
 
-function recordToSummary(record: CodexReplayRecord): CodexExecReplaySummary {
+function recordToSummary(record: CodexReplayRecord): CodexReplaySummary {
   return {
     id: record.id,
     schemaVersion: record.schemaVersion,

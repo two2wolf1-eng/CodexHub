@@ -24,7 +24,6 @@ import {
   evaluateCodexExecManualApprovalState,
   getAuditDetail,
   getEvidenceDetail,
-  type CodexExecReplaySummary,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -39,6 +38,7 @@ import type {
   CodexExecEvidenceQuery,
   CodexExecLiveRunRecord,
   CodexExecTimelineFilter,
+  CodexReplaySummary,
 } from '@codexhub/contracts';
 import {
   type MockDevelopmentOrchestrationResult,
@@ -349,7 +349,7 @@ export async function mockRunDevelopment(
   }
 }
 
-export async function replayCodexFixture(fixturePath: string): Promise<CodexExecReplaySummary> {
+export async function replayCodexFixture(fixturePath: string): Promise<CodexReplaySummary> {
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/replay-fixture`, {
       method: 'POST',
@@ -361,7 +361,7 @@ export async function replayCodexFixture(fixturePath: string): Promise<CodexExec
       throw new Error(`supervisor returned ${response.status}`);
     }
 
-    return (await response.json()) as CodexExecReplaySummary;
+    return (await response.json()) as CodexReplaySummary;
   } catch {
     const text = await readAllowedFixture(fixturePath);
     const result = await replayCodexExecFixture(text);

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import type { CodexExecReplaySummary } from '@codexhub/codex-kernel';
 import type {
   CodexExecControlPlaneTimeline,
   CodexExecControlPlaneDrilldownView,
@@ -8,6 +7,7 @@ import type {
   CodexExecLiveRunRecord,
   CodexExecConfigLoadResult,
   CodexExecManualApprovalRecord,
+  CodexReplaySummary,
   SourceHealth,
   WorkflowRun,
 } from '@codexhub/contracts';
@@ -19,7 +19,7 @@ interface OverviewState {
   runs: WorkflowRun[];
   sourceHealth: SourceHealth[];
   developmentRuns: MockDevelopmentOrchestrationResult[];
-  codexReplayRuns: CodexExecReplaySummary[];
+  codexReplayRuns: CodexReplaySummary[];
   codexExecDryRuns: CodexExecLiveRunRecord[];
   codexExecLiveConfig?: CodexExecLiveConfig;
   codexExecConfigLoadResult?: CodexExecConfigLoadResult;
@@ -65,7 +65,7 @@ export function App() {
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
           getJson<{ sourceHealth: SourceHealth[] }>('/api/observations'),
           getJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
-          getJson<{ runs: CodexExecReplaySummary[] }>('/api/codex/replay-fixtures'),
+          getJson<{ runs: CodexReplaySummary[] }>('/api/codex/replay-fixtures'),
           getJson<{ runs: CodexExecLiveRunRecord[]; liveConfig?: CodexExecLiveConfig }>(
             '/api/codex/exec/dry-runs',
           ),
