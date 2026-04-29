@@ -18,6 +18,7 @@ import {
   buildCodexExecControlPlaneReport,
   buildCodexExecAdrReadinessChecklist,
   buildCodexExecGovernanceReviewPackage,
+  buildCodexExecLiveAdapterAdrDraft,
   buildCodexExecNoLiveEvidenceSummary,
   buildCodexExecReportReviewHistory,
   buildCodexExecReviewerHandoffSummary,
@@ -47,7 +48,10 @@ import {
   searchEvidence,
   renderCodexExecControlPlaneReportJson,
   renderCodexExecControlPlaneReportMarkdown,
+  renderCodexExecLiveAdapterAdrDraftJson,
+  renderCodexExecLiveAdapterAdrDraftMarkdown,
   summarizeCodexExecGovernanceReviewPackage,
+  summarizeCodexExecLiveAdapterAdrDraft,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -1032,6 +1036,80 @@ describe('codex-kernel live control-plane skeleton', () => {
       }),
     ).toBe('medium');
     expect(JSON.stringify(noLiveEvidence)).not.toContain('Summarize repository structure and list');
+  });
+
+  it('builds and renders a read-only live adapter ADR draft', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const review = createCodexExecReportReviewRecord({
+      report,
+      status: 'reviewed',
+      recommendation: 'ready_for_adr',
+    });
+    const governancePackage = buildCodexExecGovernanceReviewPackage({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+      report,
+      reportReviews: [review],
+    });
+    const draft = buildCodexExecLiveAdapterAdrDraft({
+      dryRunId: record.dryRunPlanId,
+      governancePackage,
+      format: 'markdown',
+    });
+    const summary = summarizeCodexExecLiveAdapterAdrDraft(draft);
+    const markdown = renderCodexExecLiveAdapterAdrDraftMarkdown(draft);
+    const json = renderCodexExecLiveAdapterAdrDraftJson(draft);
+
+    expect(draft.status).toBe('ready_for_review');
+    expect(draft.sectionOrder).toEqual([
+      'title',
+      'status',
+      'context',
+      'governance_summary',
+      'no_live_boundary',
+      'adr_readiness',
+      'risk_assessment',
+      'unresolved_blockers',
+      'decision_options',
+      'recommended_decision',
+      'consequences',
+      'next_review_steps',
+    ]);
+    expect(draft.draftOnly).toBe(true);
+    expect(draft.recommendationGrantsExecution).toBe(false);
+    expect(summary.recommendationGrantsExecution).toBe(false);
+    expect(markdown.renderedContent).toContain('does not grant execution');
+    expect(markdown.renderedContent).not.toContain('execution approval');
+    expect(json.renderedContent).toContain('"draftOnly": true');
+    expect(markdown.liveExecution).toBe(false);
+    expect(json.externalProcessStarted).toBe(false);
+    expect(markdown.executionDisabled).toBe(true);
+    expect(JSON.stringify(draft)).not.toContain('Summarize repository structure and list');
+    expect(markdown.renderedContent).not.toContain('Summarize repository structure and list');
+  });
+
+  it('creates a safe not_found ADR draft from missing governance data', () => {
+    const draft = buildCodexExecLiveAdapterAdrDraft({
+      dryRunId: 'missing_dry_run',
+      format: 'json',
+    });
+    const markdown = renderCodexExecLiveAdapterAdrDraftMarkdown(draft);
+
+    expect(draft.status).toBe('not_found');
+    expect(draft.summary.recommendation).toBe('no_go');
+    expect(draft.summary.blockerCount).toBeGreaterThan(0);
+    expect(draft.recommendationGrantsExecution).toBe(false);
+    expect(draft.liveExecution).toBe(false);
+    expect(draft.externalProcessStarted).toBe(false);
+    expect(draft.executionDisabled).toBe(true);
+    expect(markdown.renderedContent).toContain('does not grant execution');
+    expect(markdown.renderedContent).not.toContain('full command body');
   });
 
   it('returns a safe not_found review draft when report is unavailable', () => {

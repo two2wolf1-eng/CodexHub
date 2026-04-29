@@ -18,6 +18,11 @@ import {
   CodexExecGovernanceReviewPackageQuerySchema,
   CodexExecGovernanceReviewPackageSchema,
   CodexExecGovernanceReviewPackageSummarySchema,
+  CodexExecLiveAdapterAdrDraftExportResultSchema,
+  CodexExecLiveAdapterAdrDraftQuerySchema,
+  CodexExecLiveAdapterAdrDraftSchema,
+  CodexExecLiveAdapterAdrDraftSectionSchema,
+  CodexExecLiveAdapterAdrDraftSummarySchema,
   CodexExecNoLiveEvidenceSummarySchema,
   CodexExecReportReviewComparisonSchema,
   CodexExecReportReviewComparisonItemSchema,
@@ -1252,6 +1257,111 @@ describe('contracts schemas', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    const adrDraftQuery = CodexExecLiveAdapterAdrDraftQuerySchema.parse({
+      id: 'codex_adr_draft_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      format: 'markdown',
+      includeEvidence: true,
+      includeAudit: true,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      draftOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const adrDraftSection = CodexExecLiveAdapterAdrDraftSectionSchema.parse({
+      id: 'codex_adr_draft_section_1',
+      schemaVersion,
+      createdAt,
+      kind: 'recommended_decision',
+      title: 'Recommended Decision',
+      status: 'blocked',
+      summary: 'Recommendation is ADR guidance only and does not grant execution.',
+      items: [
+        {
+          label: 'recommendation',
+          value: 'needs_changes',
+        },
+      ],
+      refIds: [governancePackage.id],
+      hashes: ['sha256:adr-draft-section'],
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      draftOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const adrDraftSummary = CodexExecLiveAdapterAdrDraftSummarySchema.parse({
+      id: 'codex_adr_draft_summary_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      status: 'blocked',
+      title: 'ADR Draft: Codex control-plane live adapter readiness',
+      sectionCount: 1,
+      governancePackageStatus: governancePackage.status,
+      riskClassification: governancePackage.riskClassification,
+      recommendation: governancePackage.recommendation,
+      recommendationGrantsExecution: false,
+      blockerCount: governancePackage.blockers.length,
+      readinessPassedCount: 1,
+      readinessFailedCount: 0,
+      metadataOnly: true,
+      bodyStored: false,
+      draftOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const adrDraft = CodexExecLiveAdapterAdrDraftSchema.parse({
+      id: 'codex_adr_draft_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      status: 'blocked',
+      format: 'markdown',
+      query: adrDraftQuery,
+      title: 'ADR Draft: Codex control-plane live adapter readiness',
+      summary: adrDraftSummary,
+      governancePackageSummary: governancePackage.summary,
+      governancePackage,
+      sections: [adrDraftSection],
+      sectionOrder: ['recommended_decision'],
+      recommendation: governancePackage.recommendation,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      draftOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const adrDraftExport = CodexExecLiveAdapterAdrDraftExportResultSchema.parse({
+      id: 'codex_adr_draft_export_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      format: 'markdown',
+      status: 'blocked',
+      draft: adrDraft,
+      renderedContent: '# ADR Draft\n\nThis is metadata-only guidance.',
+      renderedContentHash: 'sha256:adr-draft',
+      renderedContentLength: 40,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      sourceBodyStored: false,
+      draftOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
 
     expect(record.recommendationGrantsExecution).toBe(false);
     expect(summary.recommendation).toBe('ready_for_adr');
@@ -1260,9 +1370,13 @@ describe('contracts schemas', () => {
     expect(handoff.recommendationGrantsExecution).toBe(false);
     expect(governancePackage.recommendationGrantsExecution).toBe(false);
     expect(governancePackage.noLiveEvidence.noRealCodexExec).toBe(true);
+    expect(adrDraft.draftOnly).toBe(true);
+    expect(adrDraft.recommendationGrantsExecution).toBe(false);
+    expect(adrDraftExport.sourceBodyStored).toBe(false);
     expect(JSON.stringify(record)).not.toContain('full command body');
     expect(JSON.stringify(history)).not.toContain('full command body');
     expect(JSON.stringify(handoff)).not.toContain('full command body');
     expect(JSON.stringify(governancePackage)).not.toContain('full command body');
+    expect(JSON.stringify(adrDraft)).not.toContain('full command body');
   });
 });

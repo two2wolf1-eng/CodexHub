@@ -57,6 +57,14 @@ import type {
   CodexExecGovernanceReviewPackageStatus,
   CodexExecGovernanceReviewPackageSummary,
   CodexExecNoLiveEvidenceSummary,
+  CodexExecLiveAdapterAdrDraft,
+  CodexExecLiveAdapterAdrDraftExportResult,
+  CodexExecLiveAdapterAdrDraftFormat,
+  CodexExecLiveAdapterAdrDraftQuery,
+  CodexExecLiveAdapterAdrDraftSection,
+  CodexExecLiveAdapterAdrDraftSectionKind,
+  CodexExecLiveAdapterAdrDraftStatus,
+  CodexExecLiveAdapterAdrDraftSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -2595,6 +2603,555 @@ export function summarizeCodexExecGovernanceReviewPackage(
   };
 }
 
+export interface CodexExecLiveAdapterAdrDraftInput {
+  dryRunId: string;
+  governancePackage?: CodexExecGovernanceReviewPackage;
+  format?: CodexExecLiveAdapterAdrDraftFormat;
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
+  degraded?: boolean;
+  reason?: string;
+}
+
+const liveAdapterAdrDraftSectionOrder: CodexExecLiveAdapterAdrDraftSectionKind[] = [
+  'title',
+  'status',
+  'context',
+  'governance_summary',
+  'no_live_boundary',
+  'adr_readiness',
+  'risk_assessment',
+  'unresolved_blockers',
+  'decision_options',
+  'recommended_decision',
+  'consequences',
+  'next_review_steps',
+];
+
+export function buildCodexExecLiveAdapterAdrDraft(
+  input: CodexExecLiveAdapterAdrDraftInput,
+): CodexExecLiveAdapterAdrDraft {
+  const format = input.format ?? 'json';
+  const governancePackage =
+    input.governancePackage ??
+    buildCodexExecGovernanceReviewPackage({
+      dryRunId: input.dryRunId,
+      records: [],
+      reportReviews: [],
+      includeEvidence: input.includeEvidence ?? true,
+      includeAudit: input.includeAudit ?? true,
+      degraded: input.degraded,
+      reason: input.reason,
+    });
+  const dryRunId = governancePackage.dryRunId;
+  const status = statusForAdrDraft(governancePackage, input.degraded === true);
+  const title = `ADR Draft: Codex control-plane live adapter readiness for ${dryRunId}`;
+  const sections = createLiveAdapterAdrDraftSections({
+    dryRunId,
+    title,
+    status,
+    governancePackage,
+    degraded: input.degraded === true,
+    reason: input.reason,
+  });
+  const summary = createLiveAdapterAdrDraftSummary({
+    dryRunId,
+    title,
+    status,
+    governancePackage,
+    sections,
+  });
+
+  return {
+    id: foundationId('codex_live_adapter_adr_draft'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    status,
+    format,
+    query: createLiveAdapterAdrDraftQuery({
+      dryRunId,
+      format,
+      includeEvidence: input.includeEvidence ?? governancePackage.query.includeEvidence,
+      includeAudit: input.includeAudit ?? governancePackage.query.includeAudit,
+    }),
+    title,
+    summary,
+    governancePackageSummary: governancePackage.summary,
+    governancePackage,
+    sections,
+    sectionOrder: liveAdapterAdrDraftSectionOrder,
+    recommendation: governancePackage.recommendation,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    draftOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      governancePackageId: governancePackage.id,
+      status,
+      format,
+      recommendationGrantsExecution: false,
+      draftOnly: true,
+    }),
+  };
+}
+
+export function summarizeCodexExecLiveAdapterAdrDraft(
+  draft: CodexExecLiveAdapterAdrDraft,
+): CodexExecLiveAdapterAdrDraftSummary {
+  return {
+    ...draft.summary,
+    id: foundationId('codex_live_adapter_adr_draft_summary'),
+    createdAt: foundationTimestamp(),
+  };
+}
+
+export function renderCodexExecLiveAdapterAdrDraftJson(
+  draft: CodexExecLiveAdapterAdrDraft,
+): CodexExecLiveAdapterAdrDraftExportResult {
+  const renderedContent = JSON.stringify(draft, null, 2);
+
+  return createLiveAdapterAdrDraftExportResult(draft, 'json', renderedContent);
+}
+
+export function renderCodexExecLiveAdapterAdrDraftMarkdown(
+  draft: CodexExecLiveAdapterAdrDraft,
+): CodexExecLiveAdapterAdrDraftExportResult {
+  const renderedContent = [
+    `# ${escapeMarkdown(draft.title)}`,
+    '',
+    `dryRunId: ${escapeMarkdown(draft.dryRunId)}`,
+    `status: ${draft.status}`,
+    `recommendation: ${draft.recommendation} (does not grant execution)`,
+    `recommendationGrantsExecution=false`,
+    `liveExecution=false`,
+    `externalProcessStarted=false`,
+    `executionDisabled=true`,
+    `draftOnly=true`,
+    '',
+    ...draft.sections.flatMap((section) => [
+      `## ${escapeMarkdown(section.title)}`,
+      '',
+      escapeMarkdown(section.summary),
+      '',
+      ...section.items.map(
+        (item) => `- ${escapeMarkdown(item.label)}: ${escapeMarkdown(item.value)}`,
+      ),
+      section.refIds.length > 0 ? `- refs: ${section.refIds.map(escapeMarkdown).join(', ')}` : '',
+      section.hashes.length > 0 ? `- hashes: ${section.hashes.map(escapeMarkdown).join(', ')}` : '',
+      '',
+    ]),
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+
+  return createLiveAdapterAdrDraftExportResult(draft, 'markdown', renderedContent);
+}
+
+function createLiveAdapterAdrDraftQuery(input: {
+  dryRunId: string;
+  format: CodexExecLiveAdapterAdrDraftFormat;
+  includeEvidence: boolean;
+  includeAudit: boolean;
+}): CodexExecLiveAdapterAdrDraftQuery {
+  return {
+    id: foundationId('codex_live_adapter_adr_draft_query'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    format: input.format,
+    includeEvidence: input.includeEvidence,
+    includeAudit: input.includeAudit,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    draftOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      format: input.format,
+      includeEvidence: input.includeEvidence,
+      includeAudit: input.includeAudit,
+      recommendationGrantsExecution: false,
+      draftOnly: true,
+    }),
+  };
+}
+
+function createLiveAdapterAdrDraftSections(input: {
+  dryRunId: string;
+  title: string;
+  status: CodexExecLiveAdapterAdrDraftStatus;
+  governancePackage: CodexExecGovernanceReviewPackage;
+  degraded: boolean;
+  reason?: string;
+}): CodexExecLiveAdapterAdrDraftSection[] {
+  const governancePackage = input.governancePackage;
+  const noLiveEvidence = governancePackage.noLiveEvidence;
+  const readinessPassed = governancePackage.adrReadinessChecklist.filter(
+    (item) => item.status === 'passed',
+  ).length;
+  const readinessFailed = governancePackage.adrReadinessChecklist.filter(
+    (item) => item.status === 'failed',
+  ).length;
+  const blockerItems = governancePackage.blockers.map((blocker) =>
+    reportItem(
+      `${blocker.severity} ${blocker.code}`,
+      `${blocker.summary} Resolution: ${blocker.recommendedResolution}`,
+      blocker.id,
+    ),
+  );
+
+  return [
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'title',
+      title: 'Title',
+      status: 'ok',
+      summary: input.title,
+      items: [reportItem('adrType', 'Live Adapter ADR Draft'), reportItem('draftOnly', 'true')],
+      refIds: [governancePackage.id],
+      hashes: [prefixedHash(input.title)],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'status',
+      title: 'Status',
+      status:
+        input.status === 'degraded' ? 'degraded' : input.status === 'blocked' ? 'blocked' : 'ok',
+      summary: `ADR draft status is ${input.status}; this does not grant execution.`,
+      items: [
+        reportItem('draftStatus', input.status),
+        reportItem('governancePackageStatus', governancePackage.status),
+        reportItem('degraded', String(input.degraded)),
+        reportItem('reason', input.reason ?? 'none'),
+      ],
+      refIds: [governancePackage.summary.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'context',
+      title: 'Context',
+      status: governancePackage.report ? 'ok' : 'missing',
+      summary:
+        'CodexHub is preparing a separate human ADR before any live adapter process path can be considered.',
+      items: [
+        reportItem('dryRunId', input.dryRunId, input.dryRunId),
+        reportItem(
+          'reportId',
+          governancePackage.report?.id ?? 'missing',
+          governancePackage.report?.id,
+        ),
+        reportItem('latestReviewId', governancePackage.latestReview?.reviewId ?? 'missing'),
+        reportItem('handoffId', governancePackage.handoff.id, governancePackage.handoff.id),
+      ],
+      refIds: [
+        input.dryRunId,
+        governancePackage.report?.id,
+        governancePackage.latestReview?.reviewId,
+        governancePackage.handoff.id,
+      ].filter((value): value is string => Boolean(value)),
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'governance_summary',
+      title: 'Governance Summary',
+      status: governancePackage.status === 'not_found' ? 'missing' : 'ok',
+      summary: `Governance package is ${governancePackage.status} with ${governancePackage.summary.unresolvedBlockerCount} unresolved blockers.`,
+      items: [
+        reportItem('riskClassification', governancePackage.riskClassification),
+        reportItem('recommendation', governancePackage.recommendation),
+        reportItem('recommendationGrantsExecution', 'false'),
+        reportItem('evidenceRefCount', String(governancePackage.summary.evidenceRefCount)),
+        reportItem('auditEventCount', String(governancePackage.summary.auditEventCount)),
+      ],
+      refIds: [governancePackage.id, governancePackage.summary.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'no_live_boundary',
+      title: 'No-live Boundary',
+      status:
+        noLiveEvidence.noRealCodexExec &&
+        noLiveEvidence.noExternalProcessStarted &&
+        noLiveEvidence.noBrowserOrCdpAction &&
+        noLiveEvidence.noWorkspaceWrite
+          ? 'ok'
+          : 'blocked',
+      summary:
+        'No real Codex process, external process, browser/CDP action, or workspace write is represented by this draft.',
+      items: [
+        reportItem('noRealCodexExec', String(noLiveEvidence.noRealCodexExec)),
+        reportItem('noExternalProcessStarted', String(noLiveEvidence.noExternalProcessStarted)),
+        reportItem('noBrowserOrCdpAction', String(noLiveEvidence.noBrowserOrCdpAction)),
+        reportItem('noWorkspaceWrite', String(noLiveEvidence.noWorkspaceWrite)),
+        reportItem('noExecutionApprovalGranted', String(noLiveEvidence.noExecutionApprovalGranted)),
+      ],
+      refIds: [noLiveEvidence.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'adr_readiness',
+      title: 'ADR Readiness',
+      status: readinessFailed > 0 ? 'blocked' : 'ok',
+      summary: `${readinessPassed} readiness checks passed and ${readinessFailed} failed.`,
+      items: governancePackage.adrReadinessChecklist.map((item) =>
+        reportItem(`${item.status} ${item.code}`, item.summary, item.id),
+      ),
+      refIds: governancePackage.adrReadinessChecklist.map((item) => item.id),
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'risk_assessment',
+      title: 'Risk Assessment',
+      status:
+        governancePackage.riskClassification === 'critical' ||
+        governancePackage.riskClassification === 'high'
+          ? 'blocked'
+          : 'ok',
+      summary: `Current governance risk classification is ${governancePackage.riskClassification}.`,
+      items: [
+        reportItem('riskClassification', governancePackage.riskClassification),
+        reportItem('blockerCount', String(governancePackage.summary.blockerCount)),
+        reportItem('reviewFindingCount', String(governancePackage.handoff.findingCount)),
+        reportItem('failedChecklistCount', String(governancePackage.handoff.failedChecklistCount)),
+      ],
+      refIds: [governancePackage.handoff.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'unresolved_blockers',
+      title: 'Unresolved Blockers',
+      status: governancePackage.blockers.length > 0 ? 'blocked' : 'ok',
+      summary:
+        governancePackage.blockers.length > 0
+          ? `${governancePackage.blockers.length} blockers must be resolved before ADR approval.`
+          : 'No unresolved governance blockers are present.',
+      items: blockerItems.length > 0 ? blockerItems : [reportItem('blockers', 'none')],
+      refIds: governancePackage.blockers.map((blocker) => blocker.id),
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'decision_options',
+      title: 'Decision Options',
+      status: 'ok',
+      summary: 'These options are ADR review choices only and do not authorize execution.',
+      items: [
+        reportItem('no_go', 'Do not proceed; resolve blockers and repeat governance review.'),
+        reportItem('needs_changes', 'Request changes before a live adapter ADR can be reviewed.'),
+        reportItem(
+          'ready_for_adr',
+          'Move to a separate human ADR review without execution rights.',
+        ),
+        reportItem(
+          'ready_for_read_only_live_review',
+          'Prepare a later read-only live review only after ADR approval.',
+        ),
+      ],
+      refIds: [governancePackage.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'recommended_decision',
+      title: 'Recommended Decision',
+      status:
+        governancePackage.recommendation === 'no_go' ||
+        governancePackage.recommendation === 'needs_changes'
+          ? 'blocked'
+          : 'ok',
+      summary: `${governancePackage.recommendation} is a non-executing ADR recommendation.`,
+      items: [
+        reportItem('recommendation', governancePackage.recommendation),
+        reportItem('recommendationGrantsExecution', 'false'),
+        reportItem('requiresSeparateAdr', 'true'),
+      ],
+      refIds: [governancePackage.summary.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'consequences',
+      title: 'Consequences',
+      status: 'ok',
+      summary:
+        'Accepting this draft only moves the project toward human ADR review; live execution remains disabled.',
+      items: [
+        reportItem('liveExecution', 'false'),
+        reportItem('externalProcessStarted', 'false'),
+        reportItem('executionDisabled', 'true'),
+        reportItem('nextRound', 'Round 3N Live Adapter ADR / Go-No-Go Review'),
+      ],
+      refIds: [governancePackage.id],
+    }),
+    createLiveAdapterAdrDraftSection({
+      dryRunId: input.dryRunId,
+      kind: 'next_review_steps',
+      title: 'Next Review Steps',
+      status: governancePackage.blockers.length > 0 ? 'blocked' : 'ok',
+      summary: governancePackage.handoff.recommendedNextStep,
+      items: [
+        reportItem('resolveBlockers', String(governancePackage.blockers.length > 0)),
+        reportItem('reviewerHandoff', governancePackage.handoff.handoffSummary),
+        reportItem('separateAdrRequired', 'true'),
+      ],
+      refIds: [governancePackage.handoff.id],
+    }),
+  ];
+}
+
+function createLiveAdapterAdrDraftSection(input: {
+  dryRunId: string;
+  kind: CodexExecLiveAdapterAdrDraftSectionKind;
+  title: string;
+  status: CodexExecLiveAdapterAdrDraftSection['status'];
+  summary: string;
+  items?: CodexExecLiveAdapterAdrDraftSection['items'];
+  refIds?: string[];
+  hashes?: string[];
+}): CodexExecLiveAdapterAdrDraftSection {
+  return {
+    id: foundationId('codex_live_adapter_adr_draft_section'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    kind: input.kind,
+    title: input.title,
+    status: input.status,
+    summary: input.summary,
+    items: input.items ?? [],
+    refIds: input.refIds ?? [],
+    hashes: input.hashes ?? [],
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    draftOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      adrDraftSection: input.kind,
+      recommendationGrantsExecution: false,
+      draftOnly: true,
+    }),
+  };
+}
+
+function createLiveAdapterAdrDraftSummary(input: {
+  dryRunId: string;
+  title: string;
+  status: CodexExecLiveAdapterAdrDraftStatus;
+  governancePackage: CodexExecGovernanceReviewPackage;
+  sections: CodexExecLiveAdapterAdrDraftSection[];
+}): CodexExecLiveAdapterAdrDraftSummary {
+  return {
+    id: foundationId('codex_live_adapter_adr_draft_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    status: input.status,
+    title: input.title,
+    sectionCount: input.sections.length,
+    governancePackageStatus: input.governancePackage.status,
+    riskClassification: input.governancePackage.riskClassification,
+    recommendation: input.governancePackage.recommendation,
+    recommendationGrantsExecution: false,
+    blockerCount: input.governancePackage.blockers.length,
+    readinessPassedCount: input.governancePackage.adrReadinessChecklist.filter(
+      (item) => item.status === 'passed',
+    ).length,
+    readinessFailedCount: input.governancePackage.adrReadinessChecklist.filter(
+      (item) => item.status === 'failed',
+    ).length,
+    metadataOnly: true,
+    bodyStored: false,
+    draftOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      status: input.status,
+      governancePackageStatus: input.governancePackage.status,
+      recommendationGrantsExecution: false,
+      draftOnly: true,
+    }),
+  };
+}
+
+function createLiveAdapterAdrDraftExportResult(
+  draft: CodexExecLiveAdapterAdrDraft,
+  format: CodexExecLiveAdapterAdrDraftFormat,
+  renderedContent: string,
+): CodexExecLiveAdapterAdrDraftExportResult {
+  return {
+    id: foundationId('codex_live_adapter_adr_draft_export'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: draft.dryRunId,
+    format,
+    status: draft.status,
+    draft: {
+      ...draft,
+      format,
+    },
+    renderedContent,
+    renderedContentHash: prefixedHash(renderedContent),
+    renderedContentLength: renderedContent.length,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    sourceBodyStored: false,
+    draftOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: draft.dryRunId,
+      adrDraftId: draft.id,
+      format,
+      recommendationGrantsExecution: false,
+      draftOnly: true,
+    }),
+  };
+}
+
+function statusForAdrDraft(
+  governancePackage: CodexExecGovernanceReviewPackage,
+  degraded: boolean,
+): CodexExecLiveAdapterAdrDraftStatus {
+  if (governancePackage.status === 'not_found') {
+    return 'not_found';
+  }
+
+  if (degraded || governancePackage.status === 'degraded') {
+    return 'degraded';
+  }
+
+  if (
+    governancePackage.status === 'blocked' ||
+    governancePackage.status === 'no_go' ||
+    governancePackage.recommendation === 'no_go' ||
+    governancePackage.recommendation === 'needs_changes' ||
+    governancePackage.blockers.length > 0
+  ) {
+    return 'blocked';
+  }
+
+  if (
+    governancePackage.recommendation === 'ready_for_adr' ||
+    governancePackage.recommendation === 'ready_for_read_only_live_review'
+  ) {
+    return 'ready_for_review';
+  }
+
+  return 'found';
+}
+
 function createGovernanceReviewPackageQuery(input: {
   dryRunId: string;
   includeEvidence: boolean;
@@ -3266,7 +3823,7 @@ function recommendedNextStepForReportReview(record: CodexExecReportReviewRecord)
   }
 
   if (record.recommendation === 'ready_for_adr') {
-    return 'Prepare a separate ADR; this review recommendation is not execution approval.';
+    return 'Prepare a separate ADR; this review recommendation does not grant execution.';
   }
 
   return 'Continue read-only live-review preparation only after a separate ADR.';

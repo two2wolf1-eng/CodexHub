@@ -4,6 +4,7 @@ import type {
   CodexExecControlPlaneDrilldownView,
   CodexExecControlPlaneReport,
   CodexExecGovernanceReviewPackage,
+  CodexExecLiveAdapterAdrDraft,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -35,6 +36,7 @@ interface OverviewState {
   codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
   codexExecReports: CodexExecControlPlaneReport[];
   codexExecGovernancePackages: CodexExecGovernanceReviewPackage[];
+  codexExecAdrDrafts: CodexExecLiveAdapterAdrDraft[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -58,6 +60,7 @@ export function App() {
     codexExecDrilldowns: [],
     codexExecReports: [],
     codexExecGovernancePackages: [],
+    codexExecAdrDrafts: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -220,6 +223,24 @@ export function App() {
           (governancePackage): governancePackage is CodexExecGovernanceReviewPackage =>
             governancePackage !== undefined,
         );
+        const codexExecAdrDrafts = (
+          await Promise.all(
+            governanceDryRunIds.slice(0, 3).map(async (dryRunId) => {
+              try {
+                const response = await getJson<{
+                  adrDraft: CodexExecLiveAdapterAdrDraft;
+                }>(
+                  `/api/codex/exec/adr-draft/${encodeURIComponent(
+                    dryRunId,
+                  )}?format=markdown&includeEvidence=true&includeAudit=true`,
+                );
+                return response.adrDraft;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((adrDraft): adrDraft is CodexExecLiveAdapterAdrDraft => adrDraft !== undefined);
 
         if (!cancelled) {
           setOverview({
@@ -239,6 +260,7 @@ export function App() {
             codexExecDrilldowns,
             codexExecReports,
             codexExecGovernancePackages,
+            codexExecAdrDrafts,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -260,6 +282,7 @@ export function App() {
             codexExecDrilldowns: [],
             codexExecReports: [],
             codexExecGovernancePackages: [],
+            codexExecAdrDrafts: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -810,6 +833,62 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only governance review package is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Live Adapter ADR Draft Preview">
+          {overview.codexExecAdrDrafts.length > 0 ? (
+            <ul>
+              {overview.codexExecAdrDrafts.map((draft) => (
+                <li key={draft.id} className="stacked report-detail">
+                  <strong>{draft.title}</strong>
+                  <span>
+                    dryRunId {draft.dryRunId}, status {draft.status}, risk{' '}
+                    {draft.summary.riskClassification}
+                  </span>
+                  <span>
+                    recommendation {draft.recommendation}; grants execution{' '}
+                    {String(draft.recommendationGrantsExecution)}, draftOnly{' '}
+                    {String(draft.draftOnly)}
+                  </span>
+                  <span>
+                    liveExecution {String(draft.liveExecution)}, externalProcessStarted{' '}
+                    {String(draft.externalProcessStarted)}, executionDisabled{' '}
+                    {String(draft.executionDisabled)}
+                  </span>
+                  <span>
+                    sections {draft.summary.sectionCount}, blockers {draft.summary.blockerCount},
+                    readiness {draft.summary.readinessPassedCount} passed /{' '}
+                    {draft.summary.readinessFailedCount} failed
+                  </span>
+                  <div className="report-section-grid" aria-label="Read-only ADR draft sections">
+                    {draft.sections.slice(0, 6).map((section) => (
+                      <div key={section.id} className="report-section">
+                        <strong>{section.title}</strong>
+                        <span>
+                          {section.kind} / {section.status}
+                        </span>
+                        <p>{section.summary}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="report-section" aria-label="Safe ADR draft markdown preview">
+                    <strong>Markdown preview</strong>
+                    <p>{draft.sections.find((section) => section.kind === 'context')?.summary}</p>
+                    <p>
+                      Recommended decision:{' '}
+                      {draft.sections.find((section) => section.kind === 'recommended_decision')
+                        ?.summary ?? 'No recommendation section available.'}
+                    </p>
+                    <p>
+                      This preview is ADR preparation guidance only and does not grant execution.
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only Live Adapter ADR draft preview is available yet.</p>
           )}
         </Panel>
 

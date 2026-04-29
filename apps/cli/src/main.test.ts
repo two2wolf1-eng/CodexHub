@@ -299,6 +299,43 @@ describe('cli development mock-run fallback', () => {
     expect(() => resolveCodexExecReportOutputPath('docs/foo.md')).toThrow('reports/ or tmp/');
   });
 
+  it('creates a local ADR draft when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { formatCodexExecAdrDraftOutput, getCodexExecAdrDraft } = await import('./main');
+    const result = await getCodexExecAdrDraft('codex_dry_run_fixture', {
+      format: 'markdown',
+      includeEvidence: true,
+      includeAudit: true,
+    });
+    const output = formatCodexExecAdrDraftOutput(result);
+
+    expect(result).toMatchObject({
+      adrDraft: {
+        format: 'markdown',
+        recommendationGrantsExecution: false,
+        metadataOnly: true,
+        bodyStored: false,
+        draftOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      exportResult: {
+        format: 'markdown',
+        recommendationGrantsExecution: false,
+        draftOnly: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(output).toContain('# ADR Draft: Codex control\\-plane live adapter readiness');
+    expect(output).toContain('does not grant execution');
+    expect(output).toContain('draftOnly=true');
+    expect(output).not.toContain('execution approval');
+    expect(output).not.toContain('Local control-plane fallback for');
+  });
+
   it('creates local report review records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

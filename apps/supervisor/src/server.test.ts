@@ -281,6 +281,18 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/governance-package/missing_dry_run',
     });
+    const adrDraftJsonResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/adr-draft/${canonicalDryRunPlanId}?format=json&includeEvidence=true&includeAudit=false`,
+    });
+    const adrDraftMarkdownResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/adr-draft/${canonicalDryRunPlanId}?format=markdown&includeEvidence=false&includeAudit=false`,
+    });
+    const missingAdrDraftResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/adr-draft/missing_dry_run?format=markdown',
+    });
     const missingReportReviewResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/report-review/missing_review',
@@ -797,6 +809,85 @@ describe('supervisor mock development API', () => {
       executionDisabled: true,
     });
     expect(missingGovernancePackageResponse.body).not.toContain(process.cwd());
+    expect(adrDraftJsonResponse.statusCode).toBe(200);
+    expect(adrDraftJsonResponse.json()).toMatchObject({
+      adrDraft: {
+        dryRunId: canonicalDryRunPlanId,
+        format: 'json',
+        recommendationGrantsExecution: false,
+        metadataOnly: true,
+        bodyStored: false,
+        draftOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        query: {
+          includeEvidence: true,
+          includeAudit: false,
+        },
+      },
+      exportResult: {
+        format: 'json',
+        recommendationGrantsExecution: false,
+        draftOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(
+      adrDraftJsonResponse
+        .json()
+        .adrDraft.sections.map((section: { kind: string }) => section.kind),
+    ).toEqual([
+      'title',
+      'status',
+      'context',
+      'governance_summary',
+      'no_live_boundary',
+      'adr_readiness',
+      'risk_assessment',
+      'unresolved_blockers',
+      'decision_options',
+      'recommended_decision',
+      'consequences',
+      'next_review_steps',
+    ]);
+    expect(JSON.stringify(adrDraftJsonResponse.json())).not.toContain('list risk areas');
+    expect(adrDraftMarkdownResponse.statusCode).toBe(200);
+    expect(adrDraftMarkdownResponse.json()).toMatchObject({
+      adrDraft: {
+        format: 'markdown',
+        query: {
+          includeEvidence: false,
+          includeAudit: false,
+        },
+      },
+      exportResult: {
+        format: 'markdown',
+      },
+    });
+    expect(adrDraftMarkdownResponse.json().renderedContent).toContain(
+      '# ADR Draft: Codex control\\-plane live adapter readiness',
+    );
+    expect(adrDraftMarkdownResponse.json().renderedContent).toContain('does not grant execution');
+    expect(adrDraftMarkdownResponse.json().renderedContent).not.toContain('execution approval');
+    expect(missingAdrDraftResponse.statusCode).toBe(404);
+    expect(missingAdrDraftResponse.json()).toMatchObject({
+      adrDraft: {
+        status: 'not_found',
+        recommendation: 'no_go',
+        recommendationGrantsExecution: false,
+        draftOnly: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(missingAdrDraftResponse.body).not.toContain(process.cwd());
     expect(missingReportReviewResponse.statusCode).toBe(404);
     expect(missingReportReviewResponse.body).not.toContain(process.cwd());
     expect(missingReportReviewLatestResponse.statusCode).toBe(404);

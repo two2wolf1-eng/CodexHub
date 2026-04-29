@@ -1722,6 +1722,138 @@ export type CodexExecGovernanceReviewPackage = z.infer<
   typeof CodexExecGovernanceReviewPackageSchema
 >;
 
+export const CodexExecLiveAdapterAdrDraftFormatSchema = z.enum(['json', 'markdown']);
+export type CodexExecLiveAdapterAdrDraftFormat = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftFormatSchema
+>;
+
+export const CodexExecLiveAdapterAdrDraftStatusSchema = z.enum([
+  'found',
+  'not_found',
+  'degraded',
+  'blocked',
+  'ready_for_review',
+]);
+export type CodexExecLiveAdapterAdrDraftStatus = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftStatusSchema
+>;
+
+export const CodexExecLiveAdapterAdrDraftSectionKindSchema = z.enum([
+  'title',
+  'status',
+  'context',
+  'governance_summary',
+  'no_live_boundary',
+  'adr_readiness',
+  'risk_assessment',
+  'unresolved_blockers',
+  'decision_options',
+  'recommended_decision',
+  'consequences',
+  'next_review_steps',
+]);
+export type CodexExecLiveAdapterAdrDraftSectionKind = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftSectionKindSchema
+>;
+
+export const CodexExecLiveAdapterAdrDraftQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    format: CodexExecLiveAdapterAdrDraftFormatSchema.default('json'),
+    includeEvidence: z.boolean().default(true),
+    includeAudit: z.boolean().default(true),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    draftOnly: z.literal(true),
+  });
+export type CodexExecLiveAdapterAdrDraftQuery = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftQuerySchema
+>;
+
+export const CodexExecLiveAdapterAdrDraftSectionSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    kind: CodexExecLiveAdapterAdrDraftSectionKindSchema,
+    title: z.string().min(1),
+    status: z.enum(['ok', 'missing', 'blocked', 'degraded']),
+    summary: z.string().min(1),
+    items: z.array(CodexExecControlPlaneReportSectionItemSchema).default([]),
+    refIds: z.array(z.string()).default([]),
+    hashes: z.array(z.string()).default([]),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    draftOnly: z.literal(true),
+  });
+export type CodexExecLiveAdapterAdrDraftSection = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftSectionSchema
+>;
+
+export const CodexExecLiveAdapterAdrDraftSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecLiveAdapterAdrDraftStatusSchema,
+    title: z.string().min(1),
+    sectionCount: z.number().int().nonnegative(),
+    governancePackageStatus: CodexExecGovernanceReviewPackageStatusSchema,
+    riskClassification: CodexExecReportRiskClassificationSchema,
+    recommendation: CodexExecReportRecommendationSchema,
+    recommendationGrantsExecution: z.literal(false),
+    blockerCount: z.number().int().nonnegative(),
+    readinessPassedCount: z.number().int().nonnegative(),
+    readinessFailedCount: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    draftOnly: z.literal(true),
+  });
+export type CodexExecLiveAdapterAdrDraftSummary = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftSummarySchema
+>;
+
+export const CodexExecLiveAdapterAdrDraftSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecLiveAdapterAdrDraftStatusSchema,
+    format: CodexExecLiveAdapterAdrDraftFormatSchema,
+    query: CodexExecLiveAdapterAdrDraftQuerySchema,
+    title: z.string().min(1),
+    summary: CodexExecLiveAdapterAdrDraftSummarySchema,
+    governancePackageSummary: CodexExecGovernanceReviewPackageSummarySchema,
+    governancePackage: CodexExecGovernanceReviewPackageSchema.optional(),
+    sections: z.array(CodexExecLiveAdapterAdrDraftSectionSchema),
+    sectionOrder: z.array(CodexExecLiveAdapterAdrDraftSectionKindSchema),
+    recommendation: CodexExecReportRecommendationSchema,
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    draftOnly: z.literal(true),
+  });
+export type CodexExecLiveAdapterAdrDraft = z.infer<typeof CodexExecLiveAdapterAdrDraftSchema>;
+
+export const CodexExecLiveAdapterAdrDraftExportResultSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    format: CodexExecLiveAdapterAdrDraftFormatSchema,
+    status: CodexExecLiveAdapterAdrDraftStatusSchema,
+    draft: CodexExecLiveAdapterAdrDraftSchema,
+    renderedContent: z.string().min(1),
+    renderedContentHash: z.string().min(1),
+    renderedContentLength: z.number().int().nonnegative(),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+    sourceBodyStored: z.literal(false),
+    draftOnly: z.literal(true),
+  });
+export type CodexExecLiveAdapterAdrDraftExportResult = z.infer<
+  typeof CodexExecLiveAdapterAdrDraftExportResultSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

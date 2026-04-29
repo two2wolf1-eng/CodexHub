@@ -9,6 +9,7 @@ import {
   createCodexExecControlPlaneTimeline,
   buildCodexExecControlPlaneReport,
   buildCodexExecGovernanceReviewPackage,
+  buildCodexExecLiveAdapterAdrDraft,
   buildCodexExecReportReviewHistory,
   buildCodexExecReviewerHandoffSummary,
   compareCodexExecReportReviews,
@@ -37,6 +38,8 @@ import {
   searchEvidence,
   renderCodexExecControlPlaneReportJson,
   renderCodexExecControlPlaneReportMarkdown,
+  renderCodexExecLiveAdapterAdrDraftJson,
+  renderCodexExecLiveAdapterAdrDraftMarkdown,
   getLatestCodexExecReportReview,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
@@ -1464,6 +1467,81 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     return reply.code(governancePackage.status === 'not_found' ? 404 : 200).send({
       governancePackage,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    });
+  });
+
+  server.get('/api/codex/exec/adr-draft/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+    const queryResult = parseReportQuery(request.query);
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({
+        error: 'dryRunId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({
+        error: queryResult.reason,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const record = await resolveCodexExecLiveRunRecord(params.dryRunId, store);
+    const dryRunId = record?.dryRunPlanId ?? params.dryRunId;
+    const approvalRecords = await resolveCodexExecApprovalRecordsForDryRun(dryRunId, store);
+    const reportReviews = await listCodexReportReviewsForQuery(store, { dryRunId, limit: 200 });
+    const evidenceRefs =
+      store && queryResult.includeEvidence
+        ? await store.evidenceRefs.listEvidenceRefs({ dryRunId, limit: 100 })
+        : undefined;
+    const auditEvents =
+      store && queryResult.includeAudit
+        ? await store.auditEvents.listAuditEvents({ dryRunId, limit: 100 })
+        : undefined;
+    const governancePackage = buildCodexExecGovernanceReviewPackage({
+      dryRunId,
+      record,
+      records: record ? [record] : [],
+      approvalRecords,
+      evidenceRefs,
+      auditEvents,
+      reportReviews,
+      includeEvidence: queryResult.includeEvidence,
+      includeAudit: queryResult.includeAudit,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    });
+    const adrDraft = buildCodexExecLiveAdapterAdrDraft({
+      dryRunId,
+      governancePackage,
+      format: queryResult.format,
+      includeEvidence: queryResult.includeEvidence,
+      includeAudit: queryResult.includeAudit,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    });
+    const exportResult =
+      queryResult.format === 'markdown'
+        ? renderCodexExecLiveAdapterAdrDraftMarkdown(adrDraft)
+        : renderCodexExecLiveAdapterAdrDraftJson(adrDraft);
+
+    return reply.code(adrDraft.status === 'not_found' ? 404 : 200).send({
+      adrDraft,
+      exportResult,
+      renderedContent: exportResult.renderedContent,
       recommendationGrantsExecution: false,
       liveExecution: false,
       externalProcessStarted: false,

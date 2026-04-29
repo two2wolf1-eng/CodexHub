@@ -10,6 +10,7 @@ import {
   buildControlPlaneDrilldownView,
   buildCodexExecControlPlaneReport,
   buildCodexExecGovernanceReviewPackage,
+  buildCodexExecLiveAdapterAdrDraft,
   buildCodexExecReportReviewHistory,
   buildCodexExecReviewerHandoffSummary,
   compareCodexExecReportReviews,
@@ -39,6 +40,8 @@ import {
   searchEvidence,
   renderCodexExecControlPlaneReportJson,
   renderCodexExecControlPlaneReportMarkdown,
+  renderCodexExecLiveAdapterAdrDraftJson,
+  renderCodexExecLiveAdapterAdrDraftMarkdown,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -118,6 +121,13 @@ export interface CodexExecReportReviewHandoffCliOptions extends CodexExecJsonCli
 export interface CodexExecGovernancePackageCliOptions extends CodexExecJsonCliOptions {
   includeEvidence?: boolean;
   includeAudit?: boolean;
+}
+
+export interface CodexExecAdrDraftCliOptions {
+  format?: string;
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
+  out?: string;
 }
 
 export function buildProgram(): Command {
@@ -353,6 +363,27 @@ export function buildProgram(): Command {
     .action(async (dryRunId: string, options: CodexExecGovernancePackageCliOptions) => {
       const result = await getCodexExecGovernancePackage(dryRunId, options);
       console.log(formatCodexExecGovernancePackageOutput(result, options));
+    });
+
+  execCommand
+    .command('adr-draft')
+    .argument('<dryRunId>')
+    .option('--format <format>', 'json or markdown', 'json')
+    .option('--include-evidence', 'Include evidence summaries')
+    .option('--include-audit', 'Include audit summaries')
+    .option('--out <relativePath>', 'Write safe ADR draft text under reports/ or tmp/')
+    .description('Read a non-executing live adapter ADR draft')
+    .action(async (dryRunId: string, options: CodexExecAdrDraftCliOptions) => {
+      const result = await getCodexExecAdrDraft(dryRunId, options);
+      const output = formatCodexExecAdrDraftOutput(result);
+
+      if (options.out) {
+        const written = await writeCodexExecReportOutput(options.out, output);
+        console.log([output, '', `written: ${written.workspacePath}`].join('\n'));
+        return;
+      }
+
+      console.log(output);
     });
 
   const reportReviewCommand = execCommand
@@ -1135,6 +1166,66 @@ export async function getCodexExecGovernancePackage(
   }
 }
 
+export async function getCodexExecAdrDraft(
+  dryRunId: string,
+  options: CodexExecAdrDraftCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const format = normalizeReportFormat(options.format);
+  const query = createReportQueryString({
+    ...options,
+    format,
+  });
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/adr-draft/${encodeURIComponent(dryRunId)}${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const reviews = createLocalReportReviewRecords(record.dryRunPlanId);
+    const governancePackage = buildCodexExecGovernanceReviewPackage({
+      dryRunId: record.dryRunPlanId,
+      record,
+      reportReviews: reviews,
+      includeEvidence: options.includeEvidence ?? true,
+      includeAudit: options.includeAudit ?? true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    });
+    const adrDraft = buildCodexExecLiveAdapterAdrDraft({
+      dryRunId: record.dryRunPlanId,
+      governancePackage,
+      format,
+      includeEvidence: options.includeEvidence ?? true,
+      includeAudit: options.includeAudit ?? true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    });
+    const exportResult =
+      format === 'markdown'
+        ? renderCodexExecLiveAdapterAdrDraftMarkdown(adrDraft)
+        : renderCodexExecLiveAdapterAdrDraftJson(adrDraft);
+
+    return {
+      adrDraft,
+      exportResult,
+      renderedContent: exportResult.renderedContent,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -1678,6 +1769,54 @@ export function formatCodexExecGovernancePackageOutput(
     noLiveFlagsText(result),
     blockerLines.length > 0 ? 'unresolved blockers:' : 'unresolved blockers: none',
     ...blockerLines,
+  ].join('\n');
+}
+
+export function formatCodexExecAdrDraftOutput(result: Record<string, unknown>): string {
+  const exportResult = result.exportResult as
+    | {
+        renderedContent?: string;
+        format?: string;
+      }
+    | undefined;
+
+  if (exportResult?.renderedContent) {
+    return exportResult.renderedContent;
+  }
+
+  const adrDraft = result.adrDraft as
+    | {
+        dryRunId?: string;
+        status?: string;
+        title?: string;
+        recommendation?: string;
+        recommendationGrantsExecution?: boolean;
+        draftOnly?: boolean;
+        summary?: {
+          sectionCount?: number;
+          blockerCount?: number;
+          readinessPassedCount?: number;
+          readinessFailedCount?: number;
+          riskClassification?: string;
+        };
+      }
+    | undefined;
+
+  return [
+    'Codex live adapter ADR draft',
+    `dryRunId: ${adrDraft?.dryRunId ?? 'unknown'}`,
+    `title: ${adrDraft?.title ?? 'unknown'}`,
+    `status: ${adrDraft?.status ?? 'unknown'}`,
+    `risk: ${adrDraft?.summary?.riskClassification ?? 'unknown'}`,
+    `recommendation: ${adrDraft?.recommendation ?? 'unknown'} (does not grant execution)`,
+    `recommendationGrantsExecution=${String(adrDraft?.recommendationGrantsExecution ?? false)}`,
+    `draftOnly=${String(adrDraft?.draftOnly ?? true)}`,
+    `sections: ${adrDraft?.summary?.sectionCount ?? 0}`,
+    `readiness: ${adrDraft?.summary?.readinessPassedCount ?? 0} passed, ${
+      adrDraft?.summary?.readinessFailedCount ?? 0
+    } failed`,
+    `blockers: ${adrDraft?.summary?.blockerCount ?? 0}`,
+    noLiveFlagsText(result),
   ].join('\n');
 }
 
