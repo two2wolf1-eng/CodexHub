@@ -8,6 +8,8 @@ import {
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
   type CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  type CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  type CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
@@ -169,6 +171,12 @@ describe('store-sqlite migration initialization', () => {
     await first.codexExecReadOnlyAdapterImplementationPlanReviews.saveImplementationPlanReview(
       implementationPlanReview,
     );
+    const skeletonReview: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord =
+      createReadOnlyAdapterSkeletonReviewFixture();
+    await first.codexExecReadOnlyAdapterSkeletonReviews.saveSkeletonReview(skeletonReview);
+    const finalReadiness: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord =
+      createReadOnlyAdapterFinalReadinessFixture();
+    await first.codexExecReadOnlyAdapterFinalReadiness.saveFinalReadiness(finalReadiness);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -232,6 +240,27 @@ describe('store-sqlite migration initialization', () => {
       await second.codexExecReadOnlyAdapterImplementationPlanReviews.getImplementationPlanReview(
         'codex_read_only_adapter_implementation_plan_review_1',
       );
+    const skeletonReviews = await second.codexExecReadOnlyAdapterSkeletonReviews.listSkeletonReviews(
+      {
+        status: 'recorded',
+        outcome: 'skeleton_accepted_for_fixture_boundary_only',
+        limit: 10,
+      },
+    );
+    const skeletonReviewRecord =
+      await second.codexExecReadOnlyAdapterSkeletonReviews.getSkeletonReview(
+        'codex_read_only_adapter_skeleton_review_1',
+      );
+    const finalReadinessRecords =
+      await second.codexExecReadOnlyAdapterFinalReadiness.listFinalReadinessRecords({
+        status: 'recorded',
+        outcome: 'ready_for_separate_read_only_adapter_adr',
+        limit: 10,
+      });
+    const finalReadinessRecord =
+      await second.codexExecReadOnlyAdapterFinalReadiness.getFinalReadiness(
+        'codex_read_only_adapter_final_readiness_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -286,6 +315,17 @@ describe('store-sqlite migration initialization', () => {
     expect(implementationPlanReviewRecord?.workspaceWriteAllowed).toBe(false);
     expect(implementationPlanReviewRecord?.dangerFullAccessAllowed).toBe(false);
     expect(JSON.stringify(implementationPlanReviewRecord)).not.toContain('full command body');
+    expect(skeletonReviews).toHaveLength(1);
+    expect(skeletonReviewRecord?.fixtureBoundaryAllowed).toBe(true);
+    expect(skeletonReviewRecord?.processAdapterApproved).toBe(false);
+    expect(skeletonReviewRecord?.recommendationGrantsExecution).toBe(false);
+    expect(JSON.stringify(skeletonReviewRecord)).not.toContain('full command body');
+    expect(finalReadinessRecords).toHaveLength(1);
+    expect(finalReadinessRecord?.realAdapterRequiresSeparateAdr).toBe(true);
+    expect(finalReadinessRecord?.currentRoundApprovesProcessStart).toBe(false);
+    expect(finalReadinessRecord?.currentRoundApprovesCodexExecution).toBe(false);
+    expect(finalReadinessRecord?.currentRoundApprovesWorkspaceWrites).toBe(false);
+    expect(JSON.stringify(finalReadinessRecord)).not.toContain('full command body');
   });
 });
 
@@ -718,5 +758,103 @@ function createReadOnlyAdapterImplementationPlanReviewFixture(): CodexExecReadOn
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
     implementationApproved: false,
+  };
+}
+
+function createReadOnlyAdapterSkeletonReviewFixture(): CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord {
+  const createdAt = '2026-04-28T00:00:09.000Z';
+
+  return {
+    id: 'codex_read_only_adapter_skeleton_review_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    skeletonPreviewId: 'codex_read_only_adapter_skeleton_preview_1',
+    outcome: 'skeleton_accepted_for_fixture_boundary_only',
+    status: 'recorded',
+    reviewerLabel: 'local-operator',
+    rationaleSummary: 'Disabled skeleton accepted only for a fixture-backed replay boundary.',
+    reviewedAt: createdAt,
+    fixtureBoundaryAllowed: true,
+    checklistItems: [
+      {
+        id: 'codex_read_only_adapter_skeleton_review_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'skeleton_disabled',
+        label: 'Skeleton is disabled',
+        disposition: 'hard_gate',
+        status: 'passed',
+        required: true,
+        summary: 'Skeleton remains disabled and non-executing.',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+      },
+    ],
+    findings: [],
+    hardGateCount: 1,
+    requiresReviewCount: 0,
+    informationalCount: 0,
+    unresolvedFindingCount: 0,
+    evidenceRefs: [],
+    auditEventIds: ['audit_skeleton_review_1'],
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+  };
+}
+
+function createReadOnlyAdapterFinalReadinessFixture(): CodexExecReadOnlyAdapterFinalReadinessDecisionRecord {
+  const createdAt = '2026-04-28T00:00:10.000Z';
+
+  return {
+    id: 'codex_read_only_adapter_final_readiness_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    outcome: 'ready_for_separate_read_only_adapter_adr',
+    status: 'recorded',
+    reviewerLabel: 'local-operator',
+    rationaleSummary: 'Separate ADR is required before any real read-only adapter can be considered.',
+    reviewedAt: createdAt,
+    phaseAStatus: 'disabled',
+    phaseBOutcome: 'skeleton_accepted_for_fixture_boundary_only',
+    phaseCStatus: 'completed',
+    realAdapterRequiresSeparateAdr: true,
+    currentRoundApprovesProcessStart: false,
+    currentRoundApprovesCodexExecution: false,
+    currentRoundApprovesWorkspaceWrites: false,
+    evidenceRefs: [],
+    auditEventIds: ['audit_final_readiness_1'],
+    summary: 'Ready only for a separate real read-only adapter ADR.',
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
   };
 }

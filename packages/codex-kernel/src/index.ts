@@ -93,6 +93,27 @@ import type {
   CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
   CodexExecReadOnlyAdapterImplementationPlanReviewStatus,
   CodexExecReadOnlyAdapterImplementationPlanReviewSummary,
+  CodexExecReadOnlyAdapterDisabledReason,
+  CodexExecReadOnlyAdapterSkeletonConfig,
+  CodexExecReadOnlyAdapterSkeletonPreview,
+  CodexExecReadOnlyAdapterSkeletonRecord,
+  CodexExecReadOnlyAdapterSkeletonReviewChecklistItem,
+  CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSkeletonReviewFinding,
+  CodexExecReadOnlyAdapterSkeletonReviewOutcome,
+  CodexExecReadOnlyAdapterSkeletonReviewQuery,
+  CodexExecReadOnlyAdapterSkeletonReviewStatus,
+  CodexExecReadOnlyAdapterSkeletonReviewSummary,
+  CodexExecReadOnlyAdapterSkeletonStatus,
+  CodexExecReadOnlyAdapterFixtureBoundaryEvent,
+  CodexExecReadOnlyAdapterFixtureBoundaryInput,
+  CodexExecReadOnlyAdapterFixtureBoundaryResult,
+  CodexExecReadOnlyAdapterFixtureBoundarySummary,
+  CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+  CodexExecReadOnlyAdapterFinalReadinessOutcome,
+  CodexExecReadOnlyAdapterFinalReadinessQuery,
+  CodexExecReadOnlyAdapterFinalReadinessStatus,
+  CodexExecReadOnlyAdapterFinalReadinessSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -4141,6 +4162,1017 @@ export function createReadOnlyAdapterImplementationPlanReviewAuditEvents(
       }),
     },
   ];
+}
+
+export interface ReadOnlyAdapterSkeletonPreviewInput {
+  status?: CodexExecReadOnlyAdapterSkeletonStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export function createDefaultReadOnlyAdapterSkeletonConfig(
+  input: ReadOnlyAdapterSkeletonPreviewInput = {},
+): CodexExecReadOnlyAdapterSkeletonConfig {
+  const status = input.status ?? 'disabled';
+
+  return {
+    id: foundationId('codex_read_only_adapter_skeleton_config'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    status,
+    explicitEnableRequired: true,
+    configuredEnabled: false,
+    allowedSandboxModes: ['read_only'],
+    forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+    cliOnly: true,
+    noRunnableCommand: true,
+    commandPreviewStored: false,
+    argvStored: false,
+    executablePathStored: false,
+    shellSnippetStored: false,
+    envPlanStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      status,
+      noRunnableCommand: true,
+      commandPreviewStored: false,
+      argvStored: false,
+      executablePathStored: false,
+      shellSnippetStored: false,
+      envPlanStored: false,
+    }),
+  };
+}
+
+export function createReadOnlyAdapterSkeletonPreview(
+  input: ReadOnlyAdapterSkeletonPreviewInput = {},
+): CodexExecReadOnlyAdapterSkeletonPreview {
+  const status = input.status ?? 'disabled';
+  const config = createDefaultReadOnlyAdapterSkeletonConfig(input);
+  const disabledReasons = createReadOnlyAdapterDisabledReasons(status);
+
+  return {
+    id: foundationId('codex_read_only_adapter_skeleton_preview'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    status,
+    config,
+    disabledReasons,
+    summary:
+      'Read-only adapter skeleton is disabled by default and exposes no runnable command details.',
+    noRunnableCommand: true,
+    commandPreviewStored: false,
+    argvStored: false,
+    executablePathStored: false,
+    shellSnippetStored: false,
+    envPlanStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      status,
+      disabledReasonCount: disabledReasons.length,
+      noRunnableCommand: true,
+    }),
+  };
+}
+
+export function createReadOnlyAdapterSkeletonRecord(
+  input: ReadOnlyAdapterSkeletonPreviewInput = {},
+): CodexExecReadOnlyAdapterSkeletonRecord {
+  const preview = createReadOnlyAdapterSkeletonPreview(input);
+  const evidenceRefs = createReadOnlyAdapterSkeletonEvidenceRefs(preview);
+  const auditEvents = createReadOnlyAdapterSkeletonAuditEvents(preview, evidenceRefs);
+
+  return {
+    id: foundationId('codex_read_only_adapter_skeleton_record'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    preview,
+    status: preview.status,
+    evidenceRefs,
+    auditEventIds: auditEvents.map((event) => event.id),
+    summary: preview.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      previewId: preview.id,
+      status: preview.status,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function createReadOnlyAdapterSkeletonEvidenceRefs(
+  preview: CodexExecReadOnlyAdapterSkeletonPreview,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.skeleton_preview',
+      label: 'codex.read_only_adapter.skeleton_preview',
+      summary: `Read-only adapter skeleton preview ${preview.status}; no runnable command details are stored.`,
+      metadata: createControlPlaneMetadata({
+        previewId: preview.id,
+        status: preview.status,
+        disabledReasonCount: preview.disabledReasons.length,
+        noRunnableCommand: true,
+        commandPreviewStored: false,
+        argvStored: false,
+        executablePathStored: false,
+        shellSnippetStored: false,
+        envPlanStored: false,
+        metadataOnly: true,
+        bodyStored: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: preview.id,
+        status: preview.status,
+        disabledReasonCodes: preview.disabledReasons.map((reason) => reason.code),
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterSkeletonAuditEvents(
+  preview: CodexExecReadOnlyAdapterSkeletonPreview,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.skeleton_preview.created',
+      outcome: preview.status,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        previewId: preview.id,
+        status: preview.status,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+      }),
+    },
+  ];
+}
+
+export interface ReadOnlyAdapterSkeletonReviewDecisionInput {
+  preview: CodexExecReadOnlyAdapterSkeletonPreview;
+  outcome?: CodexExecReadOnlyAdapterSkeletonReviewOutcome;
+  status?: CodexExecReadOnlyAdapterSkeletonReviewStatus;
+  reviewerLabel?: string;
+  rationaleSummary?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export function createReadOnlyAdapterSkeletonReviewDecisionRecord(
+  input: ReadOnlyAdapterSkeletonReviewDecisionInput,
+): CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord {
+  const checklistItems = createDefaultReadOnlyAdapterSkeletonReviewChecklist(input.preview);
+  const findings = createReadOnlyAdapterSkeletonReviewFindings(checklistItems);
+  const outcome = input.outcome ?? 'skeleton_accepted_for_fixture_boundary_only';
+  const fixtureBoundaryAllowed = outcome === 'skeleton_accepted_for_fixture_boundary_only';
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('codex_read_only_adapter_skeleton_review'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    skeletonPreviewId: input.preview.id,
+    outcome,
+    status: input.status ?? 'recorded',
+    reviewerLabel: input.reviewerLabel ?? 'local-operator',
+    rationaleSummary:
+      input.rationaleSummary ??
+      'Skeleton review records disabled-only behavior; it does not approve a process adapter or execution.',
+    reviewedAt: now,
+    fixtureBoundaryAllowed,
+    checklistItems,
+    findings,
+    hardGateCount: checklistItems.filter((item) => item.disposition === 'hard_gate').length,
+    requiresReviewCount: checklistItems.filter((item) => item.disposition === 'requires_review')
+      .length,
+    informationalCount: checklistItems.filter((item) => item.disposition === 'informational')
+      .length,
+    unresolvedFindingCount: findings.length,
+    evidenceRefs: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      skeletonPreviewId: input.preview.id,
+      outcome,
+      fixtureBoundaryAllowed,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function summarizeReadOnlyAdapterSkeletonReview(
+  record: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+): CodexExecReadOnlyAdapterSkeletonReviewSummary {
+  return {
+    id: foundationId('codex_read_only_adapter_skeleton_review_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    reviewId: record.id,
+    skeletonPreviewId: record.skeletonPreviewId,
+    outcome: record.outcome,
+    status: record.status,
+    reviewerLabel: record.reviewerLabel,
+    reviewedAt: record.reviewedAt,
+    fixtureBoundaryAllowed: record.fixtureBoundaryAllowed,
+    hardGateCount: record.hardGateCount,
+    requiresReviewCount: record.requiresReviewCount,
+    informationalCount: record.informationalCount,
+    unresolvedFindingCount: record.unresolvedFindingCount,
+    summary: `Skeleton review ${record.outcome}; fixtureBoundaryAllowed=${record.fixtureBoundaryAllowed}; processAdapterApproved=false.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      reviewId: record.id,
+      skeletonPreviewId: record.skeletonPreviewId,
+      outcome: record.outcome,
+      fixtureBoundaryAllowed: record.fixtureBoundaryAllowed,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listReadOnlyAdapterSkeletonReviewSummaries(
+  records: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord[],
+  query: Partial<CodexExecReadOnlyAdapterSkeletonReviewQuery> = {},
+): CodexExecReadOnlyAdapterSkeletonReviewSummary[] {
+  const limit = Math.min(200, Math.max(1, Math.trunc(query.limit ?? 50)));
+
+  return sortReadOnlyAdapterSkeletonReviewsNewestFirst(records)
+    .filter((record) => {
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, limit)
+    .map((record) => summarizeReadOnlyAdapterSkeletonReview(record));
+}
+
+export function getLatestReadOnlyAdapterSkeletonReview(
+  records: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord[],
+): CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord | undefined {
+  return sortReadOnlyAdapterSkeletonReviewsNewestFirst(records)[0];
+}
+
+export function createReadOnlyAdapterSkeletonReviewEvidenceRefs(
+  record: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.skeleton_review',
+      label: 'codex.read_only_adapter.skeleton_review',
+      summary: `Skeleton review ${record.outcome}; execution remains disabled.`,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        skeletonPreviewId: record.skeletonPreviewId,
+        outcome: record.outcome,
+        fixtureBoundaryAllowed: record.fixtureBoundaryAllowed,
+        hardGateCount: record.hardGateCount,
+        requiresReviewCount: record.requiresReviewCount,
+        unresolvedFindingCount: record.unresolvedFindingCount,
+        metadataOnly: true,
+        bodyStored: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: record.id,
+        skeletonPreviewId: record.skeletonPreviewId,
+        outcome: record.outcome,
+        status: record.status,
+        checklist: record.checklistItems.map((item) => ({
+          code: item.code,
+          disposition: item.disposition,
+          status: item.status,
+        })),
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterSkeletonReviewAuditEvents(
+  record: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.skeleton_review.recorded',
+      outcome: record.outcome,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        skeletonPreviewId: record.skeletonPreviewId,
+        outcome: record.outcome,
+        fixtureBoundaryAllowed: record.fixtureBoundaryAllowed,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+      }),
+    },
+  ];
+}
+
+export interface ReadOnlyAdapterFixtureBoundaryInput {
+  fixturePath: string;
+  fixtureText: string;
+  dryRunId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export async function runReadOnlyAdapterFixtureBoundary(
+  input: ReadOnlyAdapterFixtureBoundaryInput,
+): Promise<CodexExecReadOnlyAdapterFixtureBoundaryResult> {
+  const boundaryInput: CodexExecReadOnlyAdapterFixtureBoundaryInput = {
+    id: foundationId('codex_read_only_adapter_fixture_boundary_input'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    fixturePath: input.fixturePath,
+    dryRunId: input.dryRunId,
+    fixtureOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      fixturePathHash: prefixedHash(input.fixturePath),
+      fixtureOnly: true,
+    }),
+  };
+  const replay = await replayCodexExecFixture(input.fixtureText);
+  const events = replay.events.map((event): CodexExecReadOnlyAdapterFixtureBoundaryEvent => ({
+    id: foundationId('codex_read_only_adapter_fixture_boundary_event'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    eventType: event.normalizedType,
+    itemType: event.item?.itemType,
+    status: event.normalizedType === 'parse_error' ? 'error' : 'summarized',
+    summary: event.summary,
+    eventHash: event.payloadHash,
+    length: event.payloadLength,
+    fixtureOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      eventType: event.normalizedType,
+      itemType: event.item?.itemType,
+      fixtureOnly: true,
+      eventHash: event.payloadHash,
+    }),
+  }));
+  const resultWithoutRefs: CodexExecReadOnlyAdapterFixtureBoundaryResult = {
+    id: foundationId('codex_read_only_adapter_fixture_boundary_result'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    input: boundaryInput,
+    status: replay.finalStatus === 'failed' ? 'failed' : 'completed',
+    fixturePath: input.fixturePath,
+    fixturePathHash: prefixedHash(input.fixturePath),
+    fixtureOnly: true,
+    eventCount: replay.eventCount,
+    itemCount: replay.itemCount,
+    errorCount: replay.errorCount,
+    finalStatus: replay.finalStatus,
+    events,
+    evidenceRefs: [],
+    auditEvents: [],
+    auditEventIds: [],
+    summary: `Fixture-backed replay boundary ${replay.finalStatus}; processAdapterStarted=false.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      fixturePathHash: prefixedHash(input.fixturePath),
+      fixtureOnly: true,
+      eventCount: replay.eventCount,
+      itemCount: replay.itemCount,
+      errorCount: replay.errorCount,
+      finalStatus: replay.finalStatus,
+    }),
+  };
+  const evidenceRefs = createReadOnlyAdapterFixtureBoundaryEvidenceRefs(resultWithoutRefs);
+  const auditEvents = createReadOnlyAdapterFixtureBoundaryAuditEvents(
+    resultWithoutRefs,
+    evidenceRefs,
+  );
+
+  return {
+    ...resultWithoutRefs,
+    evidenceRefs,
+    auditEvents,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+}
+
+export function summarizeReadOnlyAdapterFixtureBoundary(
+  result: CodexExecReadOnlyAdapterFixtureBoundaryResult,
+): CodexExecReadOnlyAdapterFixtureBoundarySummary {
+  return {
+    id: foundationId('codex_read_only_adapter_fixture_boundary_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    boundaryResultId: result.id,
+    status: result.status,
+    fixturePath: result.fixturePath,
+    fixturePathHash: result.fixturePathHash,
+    fixtureOnly: true,
+    eventCount: result.eventCount,
+    itemCount: result.itemCount,
+    errorCount: result.errorCount,
+    finalStatus: result.finalStatus,
+    summary: result.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      boundaryResultId: result.id,
+      status: result.status,
+      fixtureOnly: true,
+      processAdapterStarted: false,
+    }),
+  };
+}
+
+export function createReadOnlyAdapterFixtureBoundaryEvidenceRefs(
+  result: CodexExecReadOnlyAdapterFixtureBoundaryResult,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.fixture_boundary',
+      label: 'codex.read_only_adapter.fixture_boundary',
+      summary: `Fixture-backed replay boundary ${result.status}; ${result.eventCount} event summaries.`,
+      metadata: createControlPlaneMetadata({
+        boundaryResultId: result.id,
+        fixturePath: result.fixturePath,
+        fixturePathHash: result.fixturePathHash,
+        fixtureOnly: true,
+        eventCount: result.eventCount,
+        itemCount: result.itemCount,
+        errorCount: result.errorCount,
+        metadataOnly: true,
+        bodyStored: false,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: result.id,
+        fixturePathHash: result.fixturePathHash,
+        status: result.status,
+        eventCount: result.eventCount,
+        itemCount: result.itemCount,
+        errorCount: result.errorCount,
+        finalStatus: result.finalStatus,
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterFixtureBoundaryAuditEvents(
+  result: CodexExecReadOnlyAdapterFixtureBoundaryResult,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.fixture_boundary.replayed',
+      outcome: result.status,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        boundaryResultId: result.id,
+        fixturePathHash: result.fixturePathHash,
+        fixtureOnly: true,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+        externalProcessStarted: false,
+      }),
+    },
+  ];
+}
+
+export interface ReadOnlyAdapterFinalReadinessDecisionInput {
+  skeletonPreview: CodexExecReadOnlyAdapterSkeletonPreview;
+  skeletonReview: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord;
+  fixtureBoundary: CodexExecReadOnlyAdapterFixtureBoundaryResult;
+  outcome?: CodexExecReadOnlyAdapterFinalReadinessOutcome;
+  status?: CodexExecReadOnlyAdapterFinalReadinessStatus;
+  reviewerLabel?: string;
+  rationaleSummary?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export function createReadOnlyAdapterFinalReadinessDecisionRecord(
+  input: ReadOnlyAdapterFinalReadinessDecisionInput,
+): CodexExecReadOnlyAdapterFinalReadinessDecisionRecord {
+  const outcome = input.outcome ?? 'ready_for_separate_read_only_adapter_adr';
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('codex_read_only_adapter_final_readiness'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    outcome,
+    status: input.status ?? 'recorded',
+    reviewerLabel: input.reviewerLabel ?? 'local-operator',
+    rationaleSummary:
+      input.rationaleSummary ??
+      'Final readiness review allows only a future separate ADR; this round does not approve process start.',
+    reviewedAt: now,
+    phaseAStatus: input.skeletonPreview.status,
+    phaseBOutcome: input.skeletonReview.outcome,
+    phaseCStatus: input.fixtureBoundary.status,
+    realAdapterRequiresSeparateAdr: true,
+    currentRoundApprovesProcessStart: false,
+    currentRoundApprovesCodexExecution: false,
+    currentRoundApprovesWorkspaceWrites: false,
+    evidenceRefs: [],
+    auditEventIds: [],
+    summary: `Final readiness ${outcome}; process start and execution remain unapproved.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      outcome,
+      phaseAStatus: input.skeletonPreview.status,
+      phaseBOutcome: input.skeletonReview.outcome,
+      phaseCStatus: input.fixtureBoundary.status,
+      realAdapterRequiresSeparateAdr: true,
+      currentRoundApprovesProcessStart: false,
+      currentRoundApprovesCodexExecution: false,
+      currentRoundApprovesWorkspaceWrites: false,
+    }),
+  };
+}
+
+export function summarizeReadOnlyAdapterFinalReadiness(
+  record: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+): CodexExecReadOnlyAdapterFinalReadinessSummary {
+  return {
+    id: foundationId('codex_read_only_adapter_final_readiness_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    decisionId: record.id,
+    outcome: record.outcome,
+    status: record.status,
+    reviewerLabel: record.reviewerLabel,
+    reviewedAt: record.reviewedAt,
+    phaseAStatus: record.phaseAStatus,
+    phaseBOutcome: record.phaseBOutcome,
+    phaseCStatus: record.phaseCStatus,
+    realAdapterRequiresSeparateAdr: true,
+    summary: record.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      decisionId: record.id,
+      outcome: record.outcome,
+      realAdapterRequiresSeparateAdr: true,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listReadOnlyAdapterFinalReadinessSummaries(
+  records: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[],
+  query: Partial<CodexExecReadOnlyAdapterFinalReadinessQuery> = {},
+): CodexExecReadOnlyAdapterFinalReadinessSummary[] {
+  const limit = Math.min(200, Math.max(1, Math.trunc(query.limit ?? 50)));
+
+  return sortReadOnlyAdapterFinalReadinessNewestFirst(records)
+    .filter((record) => {
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, limit)
+    .map((record) => summarizeReadOnlyAdapterFinalReadiness(record));
+}
+
+export function getLatestReadOnlyAdapterFinalReadiness(
+  records: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[],
+): CodexExecReadOnlyAdapterFinalReadinessDecisionRecord | undefined {
+  return sortReadOnlyAdapterFinalReadinessNewestFirst(records)[0];
+}
+
+export function createReadOnlyAdapterFinalReadinessEvidenceRefs(
+  record: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.final_readiness',
+      label: 'codex.read_only_adapter.final_readiness',
+      summary: `Final readiness review ${record.outcome}; separate ADR remains required.`,
+      metadata: createControlPlaneMetadata({
+        decisionId: record.id,
+        outcome: record.outcome,
+        phaseAStatus: record.phaseAStatus,
+        phaseBOutcome: record.phaseBOutcome,
+        phaseCStatus: record.phaseCStatus,
+        realAdapterRequiresSeparateAdr: true,
+        currentRoundApprovesProcessStart: false,
+        currentRoundApprovesCodexExecution: false,
+        currentRoundApprovesWorkspaceWrites: false,
+        metadataOnly: true,
+        bodyStored: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: record.id,
+        outcome: record.outcome,
+        status: record.status,
+        phaseAStatus: record.phaseAStatus,
+        phaseBOutcome: record.phaseBOutcome,
+        phaseCStatus: record.phaseCStatus,
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterFinalReadinessAuditEvents(
+  record: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.final_readiness.recorded',
+      outcome: record.outcome,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        decisionId: record.id,
+        outcome: record.outcome,
+        realAdapterRequiresSeparateAdr: true,
+        currentRoundApprovesProcessStart: false,
+        currentRoundApprovesCodexExecution: false,
+        currentRoundApprovesWorkspaceWrites: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+    },
+  ];
+}
+
+function createReadOnlyAdapterDisabledReasons(
+  status: CodexExecReadOnlyAdapterSkeletonStatus,
+): CodexExecReadOnlyAdapterDisabledReason[] {
+  return [
+    {
+      id: foundationId('codex_read_only_adapter_disabled_reason'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      code: status === 'unavailable' ? 'skeleton_unavailable' : 'disabled_by_default',
+      severity: status === 'blocked' ? 'high' : 'medium',
+      summary:
+        status === 'unavailable'
+          ? 'Read-only adapter skeleton is unavailable in this control-plane state.'
+          : 'Read-only adapter skeleton is disabled by default and cannot start a process.',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      metadata: createControlPlaneMetadata({
+        status,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+      }),
+    },
+    {
+      id: foundationId('codex_read_only_adapter_disabled_reason'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      code: 'separate_adr_required',
+      severity: 'medium',
+      summary: 'A separate future ADR is required before any real read-only adapter can be considered.',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      metadata: createControlPlaneMetadata({
+        status,
+        realAdapterRequiresSeparateAdr: true,
+      }),
+    },
+  ];
+}
+
+function createDefaultReadOnlyAdapterSkeletonReviewChecklist(
+  preview: CodexExecReadOnlyAdapterSkeletonPreview,
+): CodexExecReadOnlyAdapterSkeletonReviewChecklistItem[] {
+  return [
+    createReadOnlyAdapterSkeletonReviewChecklistItem({
+      code: 'skeleton_disabled',
+      label: 'Skeleton remains disabled',
+      disposition: 'hard_gate',
+      status: preview.status === 'disabled' ? 'passed' : 'failed',
+      required: true,
+      summary: 'Skeleton preview must return disabled state by default.',
+    }),
+    createReadOnlyAdapterSkeletonReviewChecklistItem({
+      code: 'no_runnable_command_details',
+      label: 'No runnable command details',
+      disposition: 'hard_gate',
+      status:
+        preview.noRunnableCommand &&
+        !preview.commandPreviewStored &&
+        !preview.argvStored &&
+        !preview.executablePathStored &&
+        !preview.shellSnippetStored &&
+        !preview.envPlanStored
+          ? 'passed'
+          : 'failed',
+      required: true,
+      summary: 'Preview must not include runnable command strings, argv, executable paths, shell snippets, or env plans.',
+    }),
+    createReadOnlyAdapterSkeletonReviewChecklistItem({
+      code: 'dashboard_trigger_forbidden',
+      label: 'Dashboard trigger remains forbidden',
+      disposition: 'hard_gate',
+      status: preview.dashboardTriggerAllowed === false ? 'passed' : 'failed',
+      required: true,
+      summary: 'Dashboard may display skeleton status only.',
+    }),
+    createReadOnlyAdapterSkeletonReviewChecklistItem({
+      code: 'fixture_boundary_only',
+      label: 'Only fixture boundary may follow',
+      disposition: 'requires_review',
+      status: 'requires_review',
+      required: false,
+      summary: 'Accepted skeleton may only allow the fixture-backed replay boundary phase, not real process work.',
+    }),
+  ];
+}
+
+function createReadOnlyAdapterSkeletonReviewChecklistItem(input: {
+  code: string;
+  label: string;
+  disposition: CodexExecReadOnlyAdapterGateDisposition;
+  status: 'passed' | 'failed' | 'requires_review';
+  required: boolean;
+  summary: string;
+}): CodexExecReadOnlyAdapterSkeletonReviewChecklistItem {
+  return {
+    id: foundationId('codex_read_only_adapter_skeleton_review_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    disposition: input.disposition,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      disposition: input.disposition,
+      status: input.status,
+    }),
+  };
+}
+
+function createReadOnlyAdapterSkeletonReviewFindings(
+  checklistItems: CodexExecReadOnlyAdapterSkeletonReviewChecklistItem[],
+): CodexExecReadOnlyAdapterSkeletonReviewFinding[] {
+  return checklistItems
+    .filter((item) => item.status === 'failed' || item.status === 'requires_review')
+    .map((item) => ({
+      id: foundationId('codex_read_only_adapter_skeleton_review_finding'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      code: item.code,
+      severity:
+        item.disposition === 'hard_gate' && item.status === 'failed'
+          ? 'high'
+          : item.status === 'requires_review'
+            ? 'medium'
+            : 'low',
+      relatedChecklistCode: item.code,
+      disposition: item.disposition,
+      summary: item.summary,
+      recommendation:
+        item.disposition === 'hard_gate'
+          ? 'Keep the skeleton blocked until this hard gate passes.'
+          : 'Continue only to fixture-backed replay boundary; this does not approve execution.',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      metadata: createControlPlaneMetadata({
+        code: item.code,
+        disposition: item.disposition,
+        status: item.status,
+      }),
+    }));
+}
+
+function sortReadOnlyAdapterSkeletonReviewsNewestFirst(
+  records: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord[],
+): CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord[] {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((left, right) => {
+      const byReviewedAt =
+        Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+      if (byReviewedAt !== 0) {
+        return byReviewedAt;
+      }
+      return right.index - left.index;
+    })
+    .map(({ record }) => record);
+}
+
+function sortReadOnlyAdapterFinalReadinessNewestFirst(
+  records: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[],
+): CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[] {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((left, right) => {
+      const byReviewedAt =
+        Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+      if (byReviewedAt !== 0) {
+        return byReviewedAt;
+      }
+      return right.index - left.index;
+    })
+    .map(({ record }) => record);
 }
 
 function createReadOnlyAdapterImplementationPlanReviewChecklistItem(input: {

@@ -8,6 +8,10 @@ import type {
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
   CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
+  CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSkeletonReviewQuery,
+  CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+  CodexExecReadOnlyAdapterFinalReadinessQuery,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -124,6 +128,30 @@ export interface CodexExecReadOnlyAdapterImplementationPlanReviewRepository {
   ): Promise<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[]>;
 }
 
+export interface CodexExecReadOnlyAdapterSkeletonReviewRepository {
+  saveSkeletonReview(
+    record: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  ): Promise<CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord>;
+  getSkeletonReview(
+    id: string,
+  ): Promise<CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord | undefined>;
+  listSkeletonReviews(
+    query?: Partial<CodexExecReadOnlyAdapterSkeletonReviewQuery>,
+  ): Promise<CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord[]>;
+}
+
+export interface CodexExecReadOnlyAdapterFinalReadinessRepository {
+  saveFinalReadiness(
+    record: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+  ): Promise<CodexExecReadOnlyAdapterFinalReadinessDecisionRecord>;
+  getFinalReadiness(
+    id: string,
+  ): Promise<CodexExecReadOnlyAdapterFinalReadinessDecisionRecord | undefined>;
+  listFinalReadinessRecords(
+    query?: Partial<CodexExecReadOnlyAdapterFinalReadinessQuery>,
+  ): Promise<CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[]>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -137,6 +165,8 @@ export interface CodexHubStore {
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
   codexExecReadOnlyAdapterImplementationPlanReviews: CodexExecReadOnlyAdapterImplementationPlanReviewRepository;
+  codexExecReadOnlyAdapterSkeletonReviews: CodexExecReadOnlyAdapterSkeletonReviewRepository;
+  codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessRepository;
   close(): Promise<void>;
 }
 

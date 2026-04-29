@@ -9,6 +9,10 @@ import type {
   CodexExecReadOnlyAdapterPreflightSimulationResult,
   CodexExecReadOnlyAdapterSimulatorReviewSummary,
   CodexExecReadOnlyAdapterImplementationPlanReviewSummary,
+  CodexExecReadOnlyAdapterSkeletonPreview,
+  CodexExecReadOnlyAdapterSkeletonReviewSummary,
+  CodexExecReadOnlyAdapterFixtureBoundarySummary,
+  CodexExecReadOnlyAdapterFinalReadinessSummary,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -45,6 +49,10 @@ interface OverviewState {
   codexExecReadOnlyAdapterPreflightSimulations: CodexExecReadOnlyAdapterPreflightSimulationResult[];
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewSummary[];
   codexExecReadOnlyAdapterImplementationPlanReviews: CodexExecReadOnlyAdapterImplementationPlanReviewSummary[];
+  codexExecReadOnlyAdapterSkeletonPreview?: CodexExecReadOnlyAdapterSkeletonPreview;
+  codexExecReadOnlyAdapterSkeletonReviews: CodexExecReadOnlyAdapterSkeletonReviewSummary[];
+  codexExecReadOnlyAdapterFixtureBoundaries: CodexExecReadOnlyAdapterFixtureBoundarySummary[];
+  codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessSummary[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -73,6 +81,9 @@ export function App() {
     codexExecReadOnlyAdapterPreflightSimulations: [],
     codexExecReadOnlyAdapterSimulatorReviews: [],
     codexExecReadOnlyAdapterImplementationPlanReviews: [],
+    codexExecReadOnlyAdapterSkeletonReviews: [],
+    codexExecReadOnlyAdapterFixtureBoundaries: [],
+    codexExecReadOnlyAdapterFinalReadiness: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -96,6 +107,10 @@ export function App() {
           readOnlyAdapterPreflightSimulationsResponse,
           readOnlyAdapterSimulatorReviewsResponse,
           readOnlyAdapterImplementationPlanReviewsResponse,
+          readOnlyAdapterSkeletonPreviewResponse,
+          readOnlyAdapterSkeletonReviewsResponse,
+          readOnlyAdapterFixtureBoundariesResponse,
+          readOnlyAdapterFinalReadinessResponse,
           codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
@@ -120,6 +135,18 @@ export function App() {
           getJson<{
             reviews: CodexExecReadOnlyAdapterImplementationPlanReviewSummary[];
           }>('/api/codex/exec/read-only-adapter/implementation-plan-reviews?limit=5'),
+          getJson<{
+            preview: CodexExecReadOnlyAdapterSkeletonPreview;
+          }>('/api/codex/exec/read-only-adapter/skeleton-preview'),
+          getJson<{
+            reviews: CodexExecReadOnlyAdapterSkeletonReviewSummary[];
+          }>('/api/codex/exec/read-only-adapter/skeleton-reviews?limit=5'),
+          getJson<{
+            summaries: CodexExecReadOnlyAdapterFixtureBoundarySummary[];
+          }>('/api/codex/exec/read-only-adapter/fixture-boundaries'),
+          getJson<{
+            reviews: CodexExecReadOnlyAdapterFinalReadinessSummary[];
+          }>('/api/codex/exec/read-only-adapter/final-readiness?limit=5'),
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
@@ -312,6 +339,12 @@ export function App() {
               readOnlyAdapterSimulatorReviewsResponse.reviews,
             codexExecReadOnlyAdapterImplementationPlanReviews:
               readOnlyAdapterImplementationPlanReviewsResponse.reviews,
+            codexExecReadOnlyAdapterSkeletonPreview:
+              readOnlyAdapterSkeletonPreviewResponse.preview,
+            codexExecReadOnlyAdapterSkeletonReviews: readOnlyAdapterSkeletonReviewsResponse.reviews,
+            codexExecReadOnlyAdapterFixtureBoundaries:
+              readOnlyAdapterFixtureBoundariesResponse.summaries,
+            codexExecReadOnlyAdapterFinalReadiness: readOnlyAdapterFinalReadinessResponse.reviews,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -338,6 +371,9 @@ export function App() {
             codexExecReadOnlyAdapterPreflightSimulations: [],
             codexExecReadOnlyAdapterSimulatorReviews: [],
             codexExecReadOnlyAdapterImplementationPlanReviews: [],
+            codexExecReadOnlyAdapterSkeletonReviews: [],
+            codexExecReadOnlyAdapterFixtureBoundaries: [],
+            codexExecReadOnlyAdapterFinalReadiness: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -1145,6 +1181,165 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only implementation plan review has been recorded yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Disabled Read-only Adapter Skeleton">
+          {overview.codexExecReadOnlyAdapterSkeletonPreview ? (
+            <div className="stacked report-detail">
+              <strong>{overview.codexExecReadOnlyAdapterSkeletonPreview.status}</strong>
+              <span>
+                configured enabled{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.config.configuredEnabled)},
+                liveExecution {String(overview.codexExecReadOnlyAdapterSkeletonPreview.liveExecution)},
+                externalProcessStarted{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.externalProcessStarted)},
+                executionDisabled{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.executionDisabled)}
+              </span>
+              <span>
+                processAdapterStarted{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.processAdapterStarted)},
+                processAdapterApproved{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.processAdapterApproved)},
+                dashboardTriggerAllowed{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.dashboardTriggerAllowed)}
+              </span>
+              <span>
+                workspaceWriteAllowed{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.workspaceWriteAllowed)},
+                dangerFullAccessAllowed{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.dangerFullAccessAllowed)}
+              </span>
+              <div className="report-section-grid" aria-label="Disabled skeleton reasons">
+                {overview.codexExecReadOnlyAdapterSkeletonPreview.disabledReasons.map((reason) => (
+                  <div key={reason.id} className="report-section">
+                    <strong>{reason.code}</strong>
+                    <span>{reason.severity}</span>
+                    <p>{reason.summary}</p>
+                  </div>
+                ))}
+              </div>
+              <p>
+                Skeleton preview is disabled by default and contains no runnable command, argument
+                list, executable path, shell snippet, or environment plan.
+              </p>
+            </div>
+          ) : (
+            <p>No disabled read-only adapter skeleton preview is available.</p>
+          )}
+        </Panel>
+
+        <Panel title="Disabled Skeleton Review">
+          {overview.codexExecReadOnlyAdapterSkeletonReviews.length > 0 ? (
+            <ul>
+              {overview.codexExecReadOnlyAdapterSkeletonReviews.map((review) => (
+                <li key={review.id} className="stacked report-detail">
+                  <strong>{review.reviewId}</strong>
+                  <span>
+                    outcome {review.outcome}, status {review.status}, skeleton preview{' '}
+                    {review.skeletonPreviewId}
+                  </span>
+                  <span>
+                    fixture boundary allowed {String(review.fixtureBoundaryAllowed)}, hard gates{' '}
+                    {review.hardGateCount}, requires review {review.requiresReviewCount},
+                    informational {review.informationalCount}
+                  </span>
+                  <span>
+                    unresolved findings {review.unresolvedFindingCount}, liveExecution{' '}
+                    {String(review.liveExecution)}, externalProcessStarted{' '}
+                    {String(review.externalProcessStarted)}, executionDisabled{' '}
+                    {String(review.executionDisabled)}
+                  </span>
+                  <span>
+                    processAdapterApproved {String(review.processAdapterApproved)},
+                    recommendationGrantsExecution{' '}
+                    {String(review.recommendationGrantsExecution)}, dashboardTriggerAllowed{' '}
+                    {String(review.dashboardTriggerAllowed)}
+                  </span>
+                  <p>
+                    This review can only allow a fixture-backed replay boundary follow-up. It does
+                    not approve any process adapter or execution path.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No disabled skeleton review has been recorded yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Fixture-backed Replay Boundary">
+          {overview.codexExecReadOnlyAdapterFixtureBoundaries.length > 0 ? (
+            <ul>
+              {overview.codexExecReadOnlyAdapterFixtureBoundaries.map((boundary) => (
+                <li key={boundary.id} className="stacked report-detail">
+                  <strong>{boundary.boundaryResultId}</strong>
+                  <span>
+                    status {boundary.status}, final {boundary.finalStatus}, fixtureOnly{' '}
+                    {String(boundary.fixtureOnly)}
+                  </span>
+                  <span>
+                    events {boundary.eventCount}, items {boundary.itemCount}, errors{' '}
+                    {boundary.errorCount}, fixture path hash {boundary.fixturePathHash}
+                  </span>
+                  <span>
+                    liveExecution {String(boundary.liveExecution)}, externalProcessStarted{' '}
+                    {String(boundary.externalProcessStarted)}, executionDisabled{' '}
+                    {String(boundary.executionDisabled)}
+                  </span>
+                  <span>
+                    processAdapterStarted {String(boundary.processAdapterStarted)},
+                    processAdapterApproved {String(boundary.processAdapterApproved)},
+                    workspaceWriteAllowed {String(boundary.workspaceWriteAllowed)}
+                  </span>
+                  <p>
+                    Fixture-backed replay boundary uses synthetic local JSONL fixtures only and
+                    does not start a process.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No fixture-backed replay boundary summary is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Final Readiness Review">
+          {overview.codexExecReadOnlyAdapterFinalReadiness.length > 0 ? (
+            <ul>
+              {overview.codexExecReadOnlyAdapterFinalReadiness.map((review) => (
+                <li key={review.id} className="stacked report-detail">
+                  <strong>{review.decisionId}</strong>
+                  <span>
+                    outcome {review.outcome}, status {review.status}, reviewer{' '}
+                    {review.reviewerLabel}
+                  </span>
+                  <span>
+                    phase A {review.phaseAStatus}, phase B {review.phaseBOutcome}, phase C{' '}
+                    {review.phaseCStatus}
+                  </span>
+                  <span>
+                    separate ADR required {String(review.realAdapterRequiresSeparateAdr)},
+                    liveExecution {String(review.liveExecution)}, externalProcessStarted{' '}
+                    {String(review.externalProcessStarted)}, executionDisabled{' '}
+                    {String(review.executionDisabled)}
+                  </span>
+                  <span>
+                    processAdapterApproved {String(review.processAdapterApproved)},
+                    recommendationGrantsExecution{' '}
+                    {String(review.recommendationGrantsExecution)}, dashboardTriggerAllowed{' '}
+                    {String(review.dashboardTriggerAllowed)}
+                  </span>
+                  <p>
+                    Final readiness is a governance record only. Any real read-only adapter still
+                    requires a separate ADR and go/no-go review.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No final readiness review has been recorded yet.</p>
           )}
         </Panel>
 

@@ -185,6 +185,87 @@ describe('cli development mock-run fallback', () => {
     expect(listOutput).toContain('never grant execution');
   });
 
+  it('uses local disabled skeleton and fixture-boundary fallbacks without approval language', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      getReadOnlyAdapterSkeletonPreviewCommand,
+      createReadOnlyAdapterSkeletonReviewCommand,
+      runReadOnlyAdapterFixtureBoundaryCommand,
+      createReadOnlyAdapterFinalReadinessCommand,
+      formatReadOnlyAdapterGenericOutput,
+      formatReadOnlyAdapterSkeletonReviewOutput,
+      formatReadOnlyAdapterFinalReadinessOutput,
+    } = await import('./main');
+    const preview = await getReadOnlyAdapterSkeletonPreviewCommand();
+    const review = await createReadOnlyAdapterSkeletonReviewCommand({
+      outcome: 'skeleton_accepted_for_fixture_boundary_only',
+      reviewer: 'local-operator',
+      rationaleSummary: 'Fixture boundary only; execution remains unapproved.',
+    });
+    const fixtureBoundary = await runReadOnlyAdapterFixtureBoundaryCommand(
+      'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      {},
+    );
+    const finalReadiness = await createReadOnlyAdapterFinalReadinessCommand({
+      outcome: 'ready_for_separate_read_only_adapter_adr',
+      reviewer: 'local-operator',
+      rationaleSummary: 'Separate ADR remains required.',
+    });
+
+    expect(preview).toMatchObject({
+      preview: {
+        status: 'disabled',
+        noRunnableCommand: true,
+        commandPreviewStored: false,
+        argvStored: false,
+        executablePathStored: false,
+        shellSnippetStored: false,
+        envPlanStored: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(review).toMatchObject({
+      reviewRecord: {
+        outcome: 'skeleton_accepted_for_fixture_boundary_only',
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      degraded: true,
+    });
+    expect(fixtureBoundary).toMatchObject({
+      result: {
+        fixtureOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+      },
+      degraded: true,
+    });
+    expect(finalReadiness).toMatchObject({
+      decisionRecord: {
+        outcome: 'ready_for_separate_read_only_adapter_adr',
+        realAdapterRequiresSeparateAdr: true,
+        currentRoundApprovesProcessStart: false,
+        currentRoundApprovesCodexExecution: false,
+        currentRoundApprovesWorkspaceWrites: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      degraded: true,
+    });
+    expect(formatReadOnlyAdapterGenericOutput(fixtureBoundary)).toContain('executionDisabled=true');
+    expect(formatReadOnlyAdapterSkeletonReviewOutput(review)).toContain(
+      'processAdapterApproved=false',
+    );
+    expect(formatReadOnlyAdapterFinalReadinessOutput(finalReadiness)).toContain(
+      'realAdapterRequiresSeparateAdr=true',
+    );
+    expect(JSON.stringify(fixtureBoundary)).not.toContain('synthetic stdout body');
+  });
+
   it('creates local config and manual approval records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

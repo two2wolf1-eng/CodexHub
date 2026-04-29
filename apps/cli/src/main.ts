@@ -26,6 +26,15 @@ import {
   createReadOnlyAdapterImplementationPlanReviewAuditEvents,
   createReadOnlyAdapterImplementationPlanReviewDecisionRecord,
   createReadOnlyAdapterImplementationPlanReviewEvidenceRefs,
+  createReadOnlyAdapterSkeletonPreview,
+  createReadOnlyAdapterSkeletonReviewDecisionRecord,
+  createReadOnlyAdapterSkeletonReviewEvidenceRefs,
+  createReadOnlyAdapterSkeletonReviewAuditEvents,
+  createReadOnlyAdapterFinalReadinessDecisionRecord,
+  createReadOnlyAdapterFinalReadinessEvidenceRefs,
+  createReadOnlyAdapterFinalReadinessAuditEvents,
+  runReadOnlyAdapterFixtureBoundary,
+  summarizeReadOnlyAdapterFixtureBoundary,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -48,9 +57,12 @@ import {
   getLatestCodexExecLiveAdapterAdrDecision,
   getLatestReadOnlyAdapterSimulatorReview,
   getLatestReadOnlyAdapterImplementationPlanReview,
+  getLatestReadOnlyAdapterSkeletonReview,
   listCodexExecLiveAdapterAdrDecisionSummaries,
   listReadOnlyAdapterSimulatorReviewSummaries,
   listReadOnlyAdapterImplementationPlanReviewSummaries,
+  listReadOnlyAdapterSkeletonReviewSummaries,
+  listReadOnlyAdapterFinalReadinessSummaries,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -64,6 +76,8 @@ import {
   summarizeCodexExecLiveAdapterAdrDecision,
   summarizeReadOnlyAdapterSimulatorReview,
   summarizeReadOnlyAdapterImplementationPlanReview,
+  summarizeReadOnlyAdapterSkeletonReview,
+  summarizeReadOnlyAdapterFinalReadiness,
   summarizeReadOnlyAdapterPreflightSimulation,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -90,6 +104,14 @@ import type {
   CodexExecReadOnlyAdapterImplementationPlanReviewOutcome,
   CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
   CodexExecReadOnlyAdapterImplementationPlanReviewStatus,
+  CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  CodexExecReadOnlyAdapterSkeletonReviewOutcome,
+  CodexExecReadOnlyAdapterSkeletonReviewQuery,
+  CodexExecReadOnlyAdapterSkeletonReviewStatus,
+  CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+  CodexExecReadOnlyAdapterFinalReadinessOutcome,
+  CodexExecReadOnlyAdapterFinalReadinessQuery,
+  CodexExecReadOnlyAdapterFinalReadinessStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -211,6 +233,39 @@ export interface CodexExecReadOnlyAdapterImplementationPlanReviewCreateCliOption
 }
 
 export interface CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions
+  extends CodexExecJsonCliOptions {
+  status?: string;
+  outcome?: string;
+}
+
+export interface CodexExecReadOnlyAdapterSkeletonReviewCreateCliOptions
+  extends CodexExecJsonCliOptions {
+  reviewer?: string;
+  outcome?: string;
+  status?: string;
+  rationaleSummary?: string;
+}
+
+export interface CodexExecReadOnlyAdapterSkeletonReviewListCliOptions
+  extends CodexExecJsonCliOptions {
+  status?: string;
+  outcome?: string;
+}
+
+export interface CodexExecReadOnlyAdapterFixtureBoundaryCliOptions
+  extends CodexExecJsonCliOptions {
+  dryRun?: string;
+}
+
+export interface CodexExecReadOnlyAdapterFinalReadinessCreateCliOptions
+  extends CodexExecJsonCliOptions {
+  reviewer?: string;
+  outcome?: string;
+  status?: string;
+  rationaleSummary?: string;
+}
+
+export interface CodexExecReadOnlyAdapterFinalReadinessListCliOptions
   extends CodexExecJsonCliOptions {
   status?: string;
   outcome?: string;
@@ -760,6 +815,128 @@ export function buildProgram(): Command {
     .action(async (options: CodexExecJsonCliOptions) => {
       const result = await getLatestReadOnlyAdapterImplementationPlanReviewCommand();
       console.log(formatReadOnlyAdapterImplementationPlanReviewOutput(result, options));
+    });
+
+  readOnlyAdapterCommand
+    .command('skeleton-preview')
+    .option('--json', 'Print full JSON output')
+    .description('Read disabled read-only adapter skeleton preview')
+    .action(async (options: CodexExecJsonCliOptions) => {
+      const result = await getReadOnlyAdapterSkeletonPreviewCommand();
+      console.log(formatReadOnlyAdapterGenericOutput(result, options));
+    });
+
+  const skeletonReviewCommand = readOnlyAdapterCommand
+    .command('skeleton-review')
+    .description('Record and read disabled skeleton reviews without execution approval');
+
+  skeletonReviewCommand
+    .command('create')
+    .option(
+      '--outcome <outcome>',
+      'no_go or skeleton_accepted_for_fixture_boundary_only',
+      'skeleton_accepted_for_fixture_boundary_only',
+    )
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option('--status <status>', 'draft, recorded, or superseded', 'recorded')
+    .option(
+      '--rationale-summary <summary>',
+      'Review rationale summary',
+      'Skeleton review allows fixture-backed replay boundary only; execution remains disabled.',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Create a disabled skeleton review record')
+    .action(async (options: CodexExecReadOnlyAdapterSkeletonReviewCreateCliOptions) => {
+      const result = await createReadOnlyAdapterSkeletonReviewCommand(options);
+      console.log(formatReadOnlyAdapterSkeletonReviewOutput(result, options));
+    });
+
+  skeletonReviewCommand
+    .command('get')
+    .argument('<reviewId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one disabled skeleton review')
+    .action(async (reviewId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getReadOnlyAdapterSkeletonReviewCommand(reviewId);
+      console.log(formatReadOnlyAdapterSkeletonReviewOutput(result, options));
+    });
+
+  skeletonReviewCommand
+    .command('list')
+    .option('--status <status>', 'Filter by review status')
+    .option('--outcome <outcome>', 'Filter by review outcome')
+    .option('--json', 'Print full JSON output')
+    .description('List disabled skeleton reviews')
+    .action(async (options: CodexExecReadOnlyAdapterSkeletonReviewListCliOptions) => {
+      const result = await listReadOnlyAdapterSkeletonReviewsCommand(options);
+      console.log(formatReadOnlyAdapterSkeletonReviewListOutput(result, options));
+    });
+
+  skeletonReviewCommand
+    .command('latest')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest disabled skeleton review')
+    .action(async (options: CodexExecJsonCliOptions) => {
+      const result = await getLatestReadOnlyAdapterSkeletonReviewCommand();
+      console.log(formatReadOnlyAdapterSkeletonReviewOutput(result, options));
+    });
+
+  readOnlyAdapterCommand
+    .command('fixture-boundary')
+    .argument('<fixturePath>')
+    .option('--dry-run <dryRunId>', 'Associate a dry-run id with the replay boundary')
+    .option('--json', 'Print full JSON output')
+    .description('Replay a synthetic fixture through the read-only boundary simulator')
+    .action(
+      async (fixturePath: string, options: CodexExecReadOnlyAdapterFixtureBoundaryCliOptions) => {
+        const result = await runReadOnlyAdapterFixtureBoundaryCommand(fixturePath, options);
+        console.log(formatReadOnlyAdapterGenericOutput(result, options));
+      },
+    );
+
+  const finalReadinessCommand = readOnlyAdapterCommand
+    .command('final-readiness')
+    .description('Record and read final readiness reviews without execution approval');
+
+  finalReadinessCommand
+    .command('create')
+    .option(
+      '--outcome <outcome>',
+      'no_go, ready_for_separate_read_only_adapter_adr, or ready_for_separate_disabled_skeleton_followup',
+      'ready_for_separate_read_only_adapter_adr',
+    )
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option('--status <status>', 'draft, recorded, or superseded', 'recorded')
+    .option(
+      '--rationale-summary <summary>',
+      'Review rationale summary',
+      'Separate ADR remains required before any real read-only adapter can be considered.',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Create a final readiness review record')
+    .action(async (options: CodexExecReadOnlyAdapterFinalReadinessCreateCliOptions) => {
+      const result = await createReadOnlyAdapterFinalReadinessCommand(options);
+      console.log(formatReadOnlyAdapterFinalReadinessOutput(result, options));
+    });
+
+  finalReadinessCommand
+    .command('list')
+    .option('--status <status>', 'Filter by review status')
+    .option('--outcome <outcome>', 'Filter by review outcome')
+    .option('--json', 'Print full JSON output')
+    .description('List final readiness reviews')
+    .action(async (options: CodexExecReadOnlyAdapterFinalReadinessListCliOptions) => {
+      const result = await listReadOnlyAdapterFinalReadinessCommand(options);
+      console.log(formatReadOnlyAdapterFinalReadinessListOutput(result, options));
+    });
+
+  finalReadinessCommand
+    .command('latest')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest final readiness review')
+    .action(async (options: CodexExecJsonCliOptions) => {
+      const result = await getLatestReadOnlyAdapterFinalReadinessCommand();
+      console.log(formatReadOnlyAdapterFinalReadinessOutput(result, options));
     });
 
   return program;
@@ -2007,6 +2184,324 @@ export async function getLatestReadOnlyAdapterImplementationPlanReviewCommand():
 
     return createReadOnlyAdapterImplementationPlanReviewResponse(
       reviewRecord ?? createLocalReadOnlyAdapterImplementationPlanReviewRecord({ outcome: 'no_go' }),
+      true,
+    );
+  }
+}
+
+export async function getReadOnlyAdapterSkeletonPreviewCommand(): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/skeleton-preview`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const preview = createReadOnlyAdapterSkeletonPreview({
+      metadata: { cliFallback: true, persisted: false },
+    });
+
+    return {
+      preview,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      degraded: true,
+      reason: 'supervisor unavailable; local skeleton preview fallback used and was not persisted',
+    };
+  }
+}
+
+export async function createReadOnlyAdapterSkeletonReviewCommand(
+  options: CodexExecReadOnlyAdapterSkeletonReviewCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const outcome = normalizeReadOnlyAdapterSkeletonReviewOutcome(options.outcome);
+  const status = normalizeReadOnlyAdapterSkeletonReviewStatus(options.status);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/skeleton-review`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          reviewerLabel: options.reviewer ?? 'local-operator',
+          outcome,
+          status,
+          rationaleSummary:
+            options.rationaleSummary ??
+            'Skeleton review allows fixture-backed replay boundary only; execution remains disabled.',
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createReadOnlyAdapterSkeletonReviewResponse(
+      createLocalReadOnlyAdapterSkeletonReviewRecord({ ...options, outcome, status }),
+      true,
+    );
+  }
+}
+
+export async function getReadOnlyAdapterSkeletonReviewCommand(
+  reviewId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/skeleton-review/${encodeURIComponent(
+        reviewId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviewRecord = {
+      ...createLocalReadOnlyAdapterSkeletonReviewRecord({ outcome: 'no_go' }),
+      id: reviewId,
+    };
+    return createReadOnlyAdapterSkeletonReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function listReadOnlyAdapterSkeletonReviewsCommand(
+  options: CodexExecReadOnlyAdapterSkeletonReviewListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createReadOnlyAdapterSkeletonReviewQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/skeleton-reviews${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const queryObject = createReadOnlyAdapterSkeletonReviewQueryFromCliOptions(options);
+    const records = createLocalReadOnlyAdapterSkeletonReviewRecords().filter((record) => {
+      if (queryObject.status && record.status !== queryObject.status) {
+        return false;
+      }
+
+      if (queryObject.outcome && record.outcome !== queryObject.outcome) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return {
+      records,
+      reviews: listReadOnlyAdapterSkeletonReviewSummaries(records, queryObject),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      degraded: true,
+      reason: 'supervisor unavailable; local skeleton review fallback used and was not persisted',
+    };
+  }
+}
+
+export async function getLatestReadOnlyAdapterSkeletonReviewCommand(): Promise<
+  Record<string, unknown>
+> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/skeleton-review/latest`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const records = createLocalReadOnlyAdapterSkeletonReviewRecords();
+    const reviewRecord = getLatestReadOnlyAdapterSkeletonReview(records);
+    return createReadOnlyAdapterSkeletonReviewResponse(
+      reviewRecord ?? createLocalReadOnlyAdapterSkeletonReviewRecord({ outcome: 'no_go' }),
+      true,
+    );
+  }
+}
+
+export async function runReadOnlyAdapterFixtureBoundaryCommand(
+  fixturePath: string,
+  options: CodexExecReadOnlyAdapterFixtureBoundaryCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/fixture-boundary`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fixturePath, dryRunId: options.dryRun }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const fixtureText = await readAllowedFixture(fixturePath);
+    const result = await runReadOnlyAdapterFixtureBoundary({
+      fixturePath: toWorkspacePath(resolve(findWorkspaceRoot(process.cwd()), fixturePath)),
+      fixtureText,
+      dryRunId: options.dryRun,
+      metadata: { cliFallback: true, persisted: false },
+    });
+
+    return {
+      result,
+      summary: summarizeReadOnlyAdapterFixtureBoundary(result),
+      evidenceRefs: result.evidenceRefs,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      degraded: true,
+      reason: 'supervisor unavailable; local fixture boundary fallback used and was not persisted',
+    };
+  }
+}
+
+export async function createReadOnlyAdapterFinalReadinessCommand(
+  options: CodexExecReadOnlyAdapterFinalReadinessCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const outcome = normalizeReadOnlyAdapterFinalReadinessOutcome(options.outcome);
+  const status = normalizeReadOnlyAdapterFinalReadinessStatus(options.status);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/final-readiness`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          reviewerLabel: options.reviewer ?? 'local-operator',
+          outcome,
+          status,
+          rationaleSummary:
+            options.rationaleSummary ??
+            'Separate ADR remains required before any real read-only adapter can be considered.',
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createReadOnlyAdapterFinalReadinessResponse(
+      await createLocalReadOnlyAdapterFinalReadinessRecord({ ...options, outcome, status }),
+      true,
+    );
+  }
+}
+
+export async function listReadOnlyAdapterFinalReadinessCommand(
+  options: CodexExecReadOnlyAdapterFinalReadinessListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createReadOnlyAdapterFinalReadinessQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/final-readiness${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const queryObject = createReadOnlyAdapterFinalReadinessQueryFromCliOptions(options);
+    const records = [await createLocalReadOnlyAdapterFinalReadinessRecord({})].filter((record) => {
+      if (queryObject.status && record.status !== queryObject.status) {
+        return false;
+      }
+
+      if (queryObject.outcome && record.outcome !== queryObject.outcome) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return {
+      records,
+      reviews: listReadOnlyAdapterFinalReadinessSummaries(records, queryObject),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      degraded: true,
+      reason: 'supervisor unavailable; local final readiness fallback used and was not persisted',
+    };
+  }
+}
+
+export async function getLatestReadOnlyAdapterFinalReadinessCommand(): Promise<
+  Record<string, unknown>
+> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/final-readiness/latest`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createReadOnlyAdapterFinalReadinessResponse(
+      await createLocalReadOnlyAdapterFinalReadinessRecord({}),
       true,
     );
   }
@@ -3347,6 +3842,40 @@ function createReadOnlyAdapterImplementationPlanReviewQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createReadOnlyAdapterSkeletonReviewQueryString(
+  options: CodexExecReadOnlyAdapterSkeletonReviewListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.status) {
+    params.set('status', normalizeReadOnlyAdapterSkeletonReviewStatus(options.status));
+  }
+
+  if (options.outcome) {
+    params.set('outcome', normalizeReadOnlyAdapterSkeletonReviewOutcome(options.outcome));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function createReadOnlyAdapterFinalReadinessQueryString(
+  options: CodexExecReadOnlyAdapterFinalReadinessListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.status) {
+    params.set('status', normalizeReadOnlyAdapterFinalReadinessStatus(options.status));
+  }
+
+  if (options.outcome) {
+    params.set('outcome', normalizeReadOnlyAdapterFinalReadinessOutcome(options.outcome));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -3397,6 +3926,26 @@ function createReadOnlyAdapterImplementationPlanReviewQueryFromCliOptions(
     outcome: options.outcome
       ? normalizeReadOnlyAdapterImplementationPlanReviewOutcome(options.outcome)
       : undefined,
+    limit: 20,
+  };
+}
+
+function createReadOnlyAdapterSkeletonReviewQueryFromCliOptions(
+  options: CodexExecReadOnlyAdapterSkeletonReviewListCliOptions,
+): Partial<CodexExecReadOnlyAdapterSkeletonReviewQuery> {
+  return {
+    status: options.status ? normalizeReadOnlyAdapterSkeletonReviewStatus(options.status) : undefined,
+    outcome: options.outcome ? normalizeReadOnlyAdapterSkeletonReviewOutcome(options.outcome) : undefined,
+    limit: 20,
+  };
+}
+
+function createReadOnlyAdapterFinalReadinessQueryFromCliOptions(
+  options: CodexExecReadOnlyAdapterFinalReadinessListCliOptions,
+): Partial<CodexExecReadOnlyAdapterFinalReadinessQuery> {
+  return {
+    status: options.status ? normalizeReadOnlyAdapterFinalReadinessStatus(options.status) : undefined,
+    outcome: options.outcome ? normalizeReadOnlyAdapterFinalReadinessOutcome(options.outcome) : undefined,
     limit: 20,
   };
 }
@@ -3515,6 +4064,58 @@ function normalizeReadOnlyAdapterImplementationPlanReviewOutcome(
   }
 
   throw new Error('implementation plan review outcome is required and must be supported');
+}
+
+function normalizeReadOnlyAdapterSkeletonReviewOutcome(
+  outcome: string | undefined,
+): CodexExecReadOnlyAdapterSkeletonReviewOutcome {
+  const normalized = outcome ?? 'skeleton_accepted_for_fixture_boundary_only';
+
+  if (normalized === 'no_go' || normalized === 'skeleton_accepted_for_fixture_boundary_only') {
+    return normalized;
+  }
+
+  throw new Error('skeleton review outcome is unsupported');
+}
+
+function normalizeReadOnlyAdapterSkeletonReviewStatus(
+  status: string | undefined,
+): CodexExecReadOnlyAdapterSkeletonReviewStatus {
+  const normalized = status ?? 'recorded';
+
+  if (normalized === 'draft' || normalized === 'recorded' || normalized === 'superseded') {
+    return normalized;
+  }
+
+  throw new Error('skeleton review status is unsupported');
+}
+
+function normalizeReadOnlyAdapterFinalReadinessOutcome(
+  outcome: string | undefined,
+): CodexExecReadOnlyAdapterFinalReadinessOutcome {
+  const normalized = outcome ?? 'ready_for_separate_read_only_adapter_adr';
+
+  if (
+    normalized === 'no_go' ||
+    normalized === 'ready_for_separate_read_only_adapter_adr' ||
+    normalized === 'ready_for_separate_disabled_skeleton_followup'
+  ) {
+    return normalized;
+  }
+
+  throw new Error('final readiness outcome is unsupported');
+}
+
+function normalizeReadOnlyAdapterFinalReadinessStatus(
+  status: string | undefined,
+): CodexExecReadOnlyAdapterFinalReadinessStatus {
+  const normalized = status ?? 'recorded';
+
+  if (normalized === 'draft' || normalized === 'recorded' || normalized === 'superseded') {
+    return normalized;
+  }
+
+  throw new Error('final readiness status is unsupported');
 }
 
 function createEvidenceQueryFromCliOptions(
@@ -3647,6 +4248,72 @@ function createReadOnlyAdapterImplementationPlanReviewResponse(
     degraded,
     reason: degraded
       ? 'supervisor unavailable; local implementation plan review fallback used and was not persisted'
+      : undefined,
+  };
+}
+
+function createReadOnlyAdapterSkeletonReviewResponse(
+  reviewRecord: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
+  degraded: boolean,
+): Record<string, unknown> {
+  const evidenceRefs = reviewRecord.evidenceRefs;
+  const auditEvents = createReadOnlyAdapterSkeletonReviewAuditEvents(reviewRecord, evidenceRefs);
+  const responseRecord = {
+    ...reviewRecord,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+
+  return {
+    reviewRecord: responseRecord,
+    summary: summarizeReadOnlyAdapterSkeletonReview(responseRecord),
+    evidenceRefs,
+    auditEvents,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    degraded,
+    reason: degraded
+      ? 'supervisor unavailable; local skeleton review fallback used and was not persisted'
+      : undefined,
+  };
+}
+
+function createReadOnlyAdapterFinalReadinessResponse(
+  decisionRecord: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
+  degraded: boolean,
+): Record<string, unknown> {
+  const evidenceRefs = decisionRecord.evidenceRefs;
+  const auditEvents = createReadOnlyAdapterFinalReadinessAuditEvents(decisionRecord, evidenceRefs);
+  const responseRecord = {
+    ...decisionRecord,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+
+  return {
+    decisionRecord: responseRecord,
+    summary: summarizeReadOnlyAdapterFinalReadiness(responseRecord),
+    evidenceRefs,
+    auditEvents,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    degraded,
+    reason: degraded
+      ? 'supervisor unavailable; local final readiness fallback used and was not persisted'
       : undefined,
   };
 }
@@ -3837,6 +4504,112 @@ function createLocalReadOnlyAdapterImplementationPlanReviewRecords(): CodexExecR
   ];
 }
 
+function createLocalReadOnlyAdapterSkeletonReviewRecord(
+  options: {
+    reviewer?: string;
+    outcome: CodexExecReadOnlyAdapterSkeletonReviewOutcome;
+    status?: CodexExecReadOnlyAdapterSkeletonReviewStatus;
+    rationaleSummary?: string;
+  },
+): CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord {
+  const preview = createReadOnlyAdapterSkeletonPreview({
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const draftRecord = createReadOnlyAdapterSkeletonReviewDecisionRecord({
+    preview,
+    reviewerLabel: options.reviewer ?? 'cli-fallback',
+    outcome: options.outcome,
+    status: options.status,
+    rationaleSummary:
+      options.rationaleSummary ??
+      'Skeleton review fallback records disabled behavior only; execution remains unapproved.',
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const evidenceRefs = createReadOnlyAdapterSkeletonReviewEvidenceRefs(draftRecord);
+  const auditEvents = createReadOnlyAdapterSkeletonReviewAuditEvents(draftRecord, evidenceRefs);
+
+  return {
+    ...draftRecord,
+    evidenceRefs,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+}
+
+function createLocalReadOnlyAdapterSkeletonReviewRecords(): CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord[] {
+  const latest = createLocalReadOnlyAdapterSkeletonReviewRecord({
+    reviewer: 'cli-fallback-latest',
+    outcome: 'skeleton_accepted_for_fixture_boundary_only',
+    status: 'recorded',
+    rationaleSummary:
+      'Latest local fallback skeleton review allows fixture-backed replay boundary only; execution remains disabled.',
+  });
+  const older = createLocalReadOnlyAdapterSkeletonReviewRecord({
+    reviewer: 'cli-fallback-initial',
+    outcome: 'no_go',
+    status: 'superseded',
+    rationaleSummary: 'Initial local fallback skeleton review kept follow-up blocked.',
+  });
+
+  return [
+    {
+      ...latest,
+      id: 'codex_read_only_adapter_skeleton_review_cli_latest',
+      createdAt: '2026-04-29T06:00:00.000Z',
+      reviewedAt: '2026-04-29T06:00:00.000Z',
+    },
+    {
+      ...older,
+      id: 'codex_read_only_adapter_skeleton_review_cli_older',
+      createdAt: '2026-04-29T05:00:00.000Z',
+      reviewedAt: '2026-04-29T05:00:00.000Z',
+    },
+  ];
+}
+
+async function createLocalReadOnlyAdapterFinalReadinessRecord(
+  options: {
+    reviewer?: string;
+    outcome?: CodexExecReadOnlyAdapterFinalReadinessOutcome;
+    status?: CodexExecReadOnlyAdapterFinalReadinessStatus;
+    rationaleSummary?: string;
+  },
+): Promise<CodexExecReadOnlyAdapterFinalReadinessDecisionRecord> {
+  const skeletonPreview = createReadOnlyAdapterSkeletonPreview({
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const skeletonReview = createLocalReadOnlyAdapterSkeletonReviewRecord({
+    outcome: 'skeleton_accepted_for_fixture_boundary_only',
+  });
+  const fixtureText = await readAllowedFixture(
+    'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+  );
+  const fixtureBoundary = await runReadOnlyAdapterFixtureBoundary({
+    fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+    fixtureText,
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const draftRecord = createReadOnlyAdapterFinalReadinessDecisionRecord({
+    skeletonPreview,
+    skeletonReview,
+    fixtureBoundary,
+    outcome: options.outcome ?? 'ready_for_separate_read_only_adapter_adr',
+    status: options.status,
+    reviewerLabel: options.reviewer ?? 'cli-fallback',
+    rationaleSummary:
+      options.rationaleSummary ??
+      'Final readiness fallback requires a separate ADR before any real read-only adapter can be considered.',
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const evidenceRefs = createReadOnlyAdapterFinalReadinessEvidenceRefs(draftRecord);
+  const auditEvents = createReadOnlyAdapterFinalReadinessAuditEvents(draftRecord, evidenceRefs);
+
+  return {
+    ...draftRecord,
+    evidenceRefs,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+}
+
 async function createLocalReadOnlyAdapterSimulationResult(
   dryRunId: string,
 ): Promise<CodexExecReadOnlyAdapterPreflightSimulationResult> {
@@ -3897,6 +4670,137 @@ function createLocalReportReviewRecords(dryRunId: string): CodexExecReportReview
       createdAt: '2026-04-28T01:00:00.000Z',
     },
   ];
+}
+
+export function formatReadOnlyAdapterGenericOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const summary =
+    (result.summary as { summary?: string; status?: string } | undefined) ??
+    (result.preview as { summary?: string; status?: string } | undefined) ??
+    (result.result as { summary?: string; status?: string } | undefined);
+
+  return [
+    'Read-only adapter control-plane preview',
+    `status: ${summary?.status ?? 'disabled'}`,
+    `summary: ${summary?.summary ?? 'No live adapter execution is available.'}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatReadOnlyAdapterSkeletonReviewOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const review = result.reviewRecord as
+    | {
+        id?: string;
+        outcome?: string;
+        status?: string;
+        fixtureBoundaryAllowed?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+      }
+    | undefined;
+
+  return [
+    'Read-only adapter skeleton review',
+    `reviewId: ${review?.id ?? 'unknown'}`,
+    `outcome: ${review?.outcome ?? 'unknown'} (non-executing)`,
+    `status: ${review?.status ?? 'unknown'}`,
+    `fixtureBoundaryAllowed=${String(review?.fixtureBoundaryAllowed ?? false)}`,
+    `processAdapterApproved=${String(review?.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(review?.recommendationGrantsExecution ?? false)}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatReadOnlyAdapterSkeletonReviewListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReadOnlyAdapterSkeletonReviewListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const reviews =
+    result.reviews as Array<{ reviewId?: string; outcome?: string; status?: string }> | undefined;
+  const lines = (reviews ?? []).map(
+    (review) =>
+      `- ${review.reviewId ?? 'unknown'} ${review.status ?? 'unknown'} ${review.outcome ?? 'unknown'}`,
+  );
+
+  return [
+    'Read-only adapter skeleton review list',
+    `count: ${reviews?.length ?? 0}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
+export function formatReadOnlyAdapterFinalReadinessOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const decision = result.decisionRecord as
+    | {
+        id?: string;
+        outcome?: string;
+        status?: string;
+        realAdapterRequiresSeparateAdr?: boolean;
+        currentRoundApprovesProcessStart?: boolean;
+        currentRoundApprovesCodexExecution?: boolean;
+      }
+    | undefined;
+
+  return [
+    'Read-only adapter final readiness review',
+    `decisionId: ${decision?.id ?? 'unknown'}`,
+    `outcome: ${decision?.outcome ?? 'unknown'} (separate ADR guidance only)`,
+    `status: ${decision?.status ?? 'unknown'}`,
+    `realAdapterRequiresSeparateAdr=${String(decision?.realAdapterRequiresSeparateAdr ?? true)}`,
+    `currentRoundApprovesProcessStart=${String(decision?.currentRoundApprovesProcessStart ?? false)}`,
+    `currentRoundApprovesCodexExecution=${String(decision?.currentRoundApprovesCodexExecution ?? false)}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatReadOnlyAdapterFinalReadinessListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReadOnlyAdapterFinalReadinessListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const reviews =
+    result.reviews as Array<{ decisionId?: string; outcome?: string; status?: string }> | undefined;
+  const lines = (reviews ?? []).map(
+    (review) =>
+      `- ${review.decisionId ?? 'unknown'} ${review.status ?? 'unknown'} ${review.outcome ?? 'unknown'}`,
+  );
+
+  return [
+    'Read-only adapter final readiness list',
+    `count: ${reviews?.length ?? 0}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
 }
 
 function noLiveFlagsText(result: Record<string, unknown>): string {

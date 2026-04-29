@@ -1331,4 +1331,167 @@ describe('supervisor mock development API', () => {
     expect(invalidTimelineResponse.statusCode).toBe(400);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });
+
+  it('keeps disabled skeleton and fixture-backed replay boundary read-only', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-read-only-adapter-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const previewResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/skeleton-preview',
+    });
+    const reviewResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/skeleton-review',
+      payload: {
+        outcome: 'skeleton_accepted_for_fixture_boundary_only',
+        reviewerLabel: 'local-operator',
+        rationaleSummary: 'Fixture boundary only; execution remains unapproved.',
+      },
+    });
+    const reviewId = reviewResponse.json().reviewRecord.id as string;
+    const reviewGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/read-only-adapter/skeleton-review/${reviewId}`,
+    });
+    const reviewListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/skeleton-reviews?status=recorded&outcome=skeleton_accepted_for_fixture_boundary_only&limit=10',
+    });
+    const fixtureResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/fixture-boundary',
+      payload: {
+        fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      },
+    });
+    const rejectedFixtureResponses = await Promise.all(
+      [
+        '../codex-exec-basic.jsonl',
+        join(process.cwd(), 'packages', 'codex-kernel', 'fixtures', 'codex-exec-basic.jsonl'),
+        'packages/codex-kernel/fixtures/codex-exec-basic.txt',
+        'package.json',
+        'packages/codex-kernel/fixtures/missing.jsonl',
+      ].map((fixturePath) =>
+        server.inject({
+          method: 'POST',
+          url: '/api/codex/exec/read-only-adapter/fixture-boundary',
+          payload: { fixturePath },
+        }),
+      ),
+    );
+    const fixtureListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/fixture-boundaries',
+    });
+    const finalReadinessResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/final-readiness',
+      payload: {
+        outcome: 'ready_for_separate_read_only_adapter_adr',
+        reviewerLabel: 'local-operator',
+        rationaleSummary: 'Separate ADR remains required.',
+      },
+    });
+    const finalReadinessListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/final-readiness?status=recorded&outcome=ready_for_separate_read_only_adapter_adr&limit=10',
+    });
+    const finalReadinessLatestResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/final-readiness/latest',
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json()).toMatchObject({
+      preview: {
+        status: 'disabled',
+        noRunnableCommand: true,
+        commandPreviewStored: false,
+        argvStored: false,
+        executablePathStored: false,
+        shellSnippetStored: false,
+        envPlanStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reviewResponse.statusCode).toBe(200);
+    expect(reviewResponse.json()).toMatchObject({
+      reviewRecord: {
+        outcome: 'skeleton_accepted_for_fixture_boundary_only',
+        fixtureBoundaryAllowed: true,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reviewGetResponse.statusCode).toBe(200);
+    expect(reviewGetResponse.json().reviewRecord.id).toBe(reviewId);
+    expect(reviewListResponse.statusCode).toBe(200);
+    expect(reviewListResponse.json().records).toHaveLength(1);
+    expect(fixtureResponse.statusCode).toBe(200);
+    expect(fixtureResponse.json()).toMatchObject({
+      result: {
+        fixtureOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(fixtureResponse.json().evidenceRefs).toHaveLength(1);
+    expect(fixtureResponse.json().auditEvents).toHaveLength(1);
+    expect(fixtureResponse.json().result.auditEventIds).toEqual(
+      fixtureResponse.json().auditEvents.map((event: { id: string }) => event.id),
+    );
+    expect(rejectedFixtureResponses.map((response) => response.statusCode)).toEqual([
+      400, 400, 400, 400, 404,
+    ]);
+    expect(rejectedFixtureResponses.every((response) => !response.body.includes(process.cwd()))).toBe(
+      true,
+    );
+    expect(fixtureListResponse.statusCode).toBe(200);
+    expect(fixtureListResponse.json().summaries).toHaveLength(1);
+    expect(finalReadinessResponse.statusCode).toBe(200);
+    expect(finalReadinessResponse.json()).toMatchObject({
+      decisionRecord: {
+        outcome: 'ready_for_separate_read_only_adapter_adr',
+        realAdapterRequiresSeparateAdr: true,
+        currentRoundApprovesProcessStart: false,
+        currentRoundApprovesCodexExecution: false,
+        currentRoundApprovesWorkspaceWrites: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(finalReadinessListResponse.statusCode).toBe(200);
+    expect(finalReadinessListResponse.json().records).toHaveLength(1);
+    expect(finalReadinessLatestResponse.statusCode).toBe(200);
+    expect(finalReadinessLatestResponse.json().decisionRecord.realAdapterRequiresSeparateAdr).toBe(
+      true,
+    );
+    expect(JSON.stringify(fixtureResponse.json())).not.toContain('synthetic stdout body');
+    expect(JSON.stringify(finalReadinessResponse.json())).not.toContain('full command body');
+  });
 });

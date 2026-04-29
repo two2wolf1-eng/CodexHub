@@ -25,6 +25,13 @@ import {
   createReadOnlyAdapterImplementationPlanReviewAuditEvents,
   createReadOnlyAdapterImplementationPlanReviewDecisionRecord,
   createReadOnlyAdapterImplementationPlanReviewEvidenceRefs,
+  createReadOnlyAdapterSkeletonPreview,
+  createReadOnlyAdapterSkeletonReviewDecisionRecord,
+  summarizeReadOnlyAdapterSkeletonReview,
+  runReadOnlyAdapterFixtureBoundary,
+  summarizeReadOnlyAdapterFixtureBoundary,
+  createReadOnlyAdapterFinalReadinessDecisionRecord,
+  summarizeReadOnlyAdapterFinalReadiness,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -1599,6 +1606,57 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(review.liveExecution).toBe(false);
     expect(review.externalProcessStarted).toBe(false);
     expect(review.executionDisabled).toBe(true);
+  });
+
+  it('keeps disabled skeleton, fixture boundary, and final readiness non-executing', async () => {
+    const skeletonPreview = createReadOnlyAdapterSkeletonPreview();
+    const skeletonReview = createReadOnlyAdapterSkeletonReviewDecisionRecord({
+      preview: skeletonPreview,
+      outcome: 'skeleton_accepted_for_fixture_boundary_only',
+      reviewerLabel: 'local-operator',
+      rationaleSummary: 'Fixture-backed replay boundary only; process adapter remains unapproved.',
+    });
+    const skeletonSummary = summarizeReadOnlyAdapterSkeletonReview(skeletonReview);
+    const fixtureBoundary = await runReadOnlyAdapterFixtureBoundary({
+      fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      fixtureText: readFixture('codex-exec-basic.jsonl'),
+      metadata: { test: true },
+    });
+    const fixtureSummary = summarizeReadOnlyAdapterFixtureBoundary(fixtureBoundary);
+    const finalReadiness = createReadOnlyAdapterFinalReadinessDecisionRecord({
+      skeletonPreview,
+      skeletonReview,
+      fixtureBoundary,
+      outcome: 'ready_for_separate_read_only_adapter_adr',
+      reviewerLabel: 'local-operator',
+      rationaleSummary: 'Separate ADR remains required before any real adapter can be considered.',
+    });
+    const finalSummary = summarizeReadOnlyAdapterFinalReadiness(finalReadiness);
+
+    expect(skeletonPreview.status).toBe('disabled');
+    expect(skeletonPreview.noRunnableCommand).toBe(true);
+    expect(skeletonPreview.commandPreviewStored).toBe(false);
+    expect(skeletonReview.fixtureBoundaryAllowed).toBe(true);
+    expect(skeletonReview.processAdapterApproved).toBe(false);
+    expect(skeletonReview.recommendationGrantsExecution).toBe(false);
+    expect(skeletonSummary.fixtureBoundaryAllowed).toBe(true);
+    expect(fixtureBoundary.fixtureOnly).toBe(true);
+    expect(fixtureBoundary.liveExecution).toBe(false);
+    expect(fixtureBoundary.externalProcessStarted).toBe(false);
+    expect(fixtureBoundary.processAdapterStarted).toBe(false);
+    expect(fixtureBoundary.evidenceRefs).toHaveLength(1);
+    expect(fixtureBoundary.auditEvents).toHaveLength(1);
+    expect(fixtureBoundary.auditEventIds).toEqual(
+      fixtureBoundary.auditEvents.map((event) => event.id),
+    );
+    expect(fixtureSummary.fixtureOnly).toBe(true);
+    expect(finalReadiness.realAdapterRequiresSeparateAdr).toBe(true);
+    expect(finalReadiness.currentRoundApprovesProcessStart).toBe(false);
+    expect(finalReadiness.currentRoundApprovesCodexExecution).toBe(false);
+    expect(finalReadiness.currentRoundApprovesWorkspaceWrites).toBe(false);
+    expect(finalSummary.realAdapterRequiresSeparateAdr).toBe(true);
+    expect(JSON.stringify(fixtureBoundary)).not.toContain('synthetic stdout body');
+    expect(JSON.stringify(finalReadiness)).not.toContain('full command body');
   });
 });
 
