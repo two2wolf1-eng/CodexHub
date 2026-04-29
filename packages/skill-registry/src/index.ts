@@ -73,6 +73,35 @@ export class MockSkillRegistry implements SkillRegistry {
 export function createMockSkillDescriptors(): SkillDescriptor[] {
   return [
     descriptor({
+      id: 'gsd-spec-driver',
+      displayName: 'GSD Spec Driver',
+      description:
+        'Use when starting any CodexHub development round to turn the user request into Goal, Scope, Non-scope, Acceptance criteria, Hard boundaries, Affected apps/packages, and Risk level before editing.',
+      capabilityId: 'workflow.gsd_spec',
+      capabilityDescription: 'Drive bounded GSD specs before implementation.',
+      keywords: ['gsd', 'spec', 'goal', 'scope', 'acceptance', 'boundaries', 'risk'],
+    }),
+    descriptor({
+      id: 'gstack-delivery-workflow',
+      displayName: 'GStack Delivery Workflow',
+      description:
+        'Use when planning or executing any CodexHub development round to structure delivery as Plan, Build, Review, QA, Ship, and Retro.',
+      capabilityId: 'workflow.gstack_delivery',
+      capabilityDescription:
+        'Structure CodexHub rounds as plan, build, review, QA, ship, and retro.',
+      keywords: ['gstack', 'plan', 'build', 'review', 'qa', 'ship', 'retro'],
+    }),
+    descriptor({
+      id: 'superpowers-engineering-discipline',
+      displayName: 'Superpowers Engineering Discipline',
+      description:
+        'Use when working on any CodexHub development round to enforce small steps, tests where practical, YAGNI, DRY, evidence-over-claims, clean git state, no scope creep, and no unreviewed live automation.',
+      capabilityId: 'workflow.superpowers',
+      capabilityDescription:
+        'Enforce small steps, practical tests, YAGNI, DRY, evidence, clean git state, and scope control.',
+      keywords: ['superpowers', 'small', 'steps', 'tests', 'yagni', 'dry', 'evidence', 'scope'],
+    }),
+    descriptor({
       id: 'codexhub-architecture-planner',
       displayName: 'CodexHub Architecture Planner',
       description:

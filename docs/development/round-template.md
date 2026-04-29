@@ -30,11 +30,28 @@
 - No scope creep:
 - No unreviewed live automation:
 
-## CodexHub Skills Used
+## Workflow Skills Used
+
+- `gsd-spec-driver`:
+  - Why:
+  - Checks:
+- `gstack-delivery-workflow`:
+  - Why:
+  - Checks:
+- `superpowers-engineering-discipline`:
+  - Why:
+  - Checks:
+
+## Project Skills Used
 
 - Skill:
   - Why:
   - Checks:
+
+## Skills Not Used and Why
+
+- Skill:
+  - Why not:
 
 ## Implementation Notes
 

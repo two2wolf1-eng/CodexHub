@@ -64,7 +64,15 @@ Every CodexHub development round must explicitly document and follow this protoc
 
 ### D. CodexHub Custom Skills Declaration
 
-Every round must declare which project skills are used and why. If a listed skill is relevant, use it before editing the related area.
+Every round must read workflow skills first, then task-relevant project skills.
+
+Workflow skills are always required:
+
+- `gsd-spec-driver`: use when starting any CodexHub development round to write the GSD Spec before editing.
+- `gstack-delivery-workflow`: use when planning and executing the delivery flow for any CodexHub round.
+- `superpowers-engineering-discipline`: use when enforcing small steps, tests where practical, YAGNI, DRY, evidence-over-claims, clean git state, no scope creep, and no unreviewed live automation.
+
+After workflow skills are read, every round must declare which project skills are used and why. If a listed skill is relevant, use it before editing the related area.
 
 - `codexhub-architecture-planner`: use when planning architecture, package boundaries, or cross-plane changes.
 - `codexhub-contract-designer`: use when modifying contracts, schemas, DTOs, or shared inferred types.
@@ -74,5 +82,11 @@ Every round must declare which project skills are used and why. If a listed skil
 - `codexhub-browser-profile-observer`: use when modifying Browser Profile or Chrome Profile modules.
 - `codexhub-playwright-qa`: use when modifying Dashboard browser QA or smoke-test behavior.
 - `codexhub-release-auditor`: use during every round closeout, verification, commit, and release-note summary.
+
+Every round output must include:
+
+- Workflow Skills Used and Why.
+- Project Skills Used and Why.
+- Skills Not Used and Why.
 
 The custom skills live under `.agents/skills`. They are project process rules only; they must not contain executable scripts, real external automation, account operations, secrets, or workspace-specific private data.

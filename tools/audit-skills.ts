@@ -15,7 +15,12 @@ interface SkillFrontmatter {
 }
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const requiredSkills = [
+const workflowSkills = [
+  'gsd-spec-driver',
+  'gstack-delivery-workflow',
+  'superpowers-engineering-discipline',
+];
+const projectSkills = [
   'codexhub-architecture-planner',
   'codexhub-contract-designer',
   'codexhub-workflow-policy-reviewer',
@@ -25,6 +30,7 @@ const requiredSkills = [
   'codexhub-playwright-qa',
   'codexhub-release-auditor',
 ];
+const requiredSkills = [...workflowSkills, ...projectSkills];
 const triggerPhrases = ['use when', 'trigger', 'when modifying', 'when working on'];
 const violations: Violation[] = [];
 
@@ -43,7 +49,7 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `Skills audit passed: ${requiredSkills.length} project skills, AGENTS workflow protocol, docs, and registry descriptors verified.`,
+  `Skills audit passed: ${workflowSkills.length} workflow skills, ${projectSkills.length} project skills, AGENTS workflow protocol, docs, and registry descriptors verified.`,
 );
 
 function auditSkillFiles(): void {
@@ -100,6 +106,22 @@ function auditGovernanceDocs(): void {
     if (!text.includes('Development Workflow Protocol')) {
       addViolation(agentsPath, 'Development Workflow Protocol section is missing');
     }
+
+    for (const skillName of workflowSkills) {
+      if (!text.includes(skillName)) {
+        addViolation(agentsPath, `workflow skill ${skillName} is not referenced`);
+      }
+    }
+
+    for (const requiredSection of [
+      'Workflow Skills Used and Why',
+      'Project Skills Used and Why',
+      'Skills Not Used and Why',
+    ]) {
+      if (!text.includes(requiredSection)) {
+        addViolation(agentsPath, `${requiredSection} output requirement is missing`);
+      }
+    }
   }
 
   if (!existsSync(workflowPath)) {
@@ -108,6 +130,16 @@ function auditGovernanceDocs(): void {
 
   if (!existsSync(templatePath)) {
     addViolation(templatePath, 'round template documentation is missing');
+  } else {
+    const text = readFileSync(templatePath, 'utf8');
+
+    if (!text.includes('Skills Not Used and Why')) {
+      addViolation(templatePath, 'round template must include Skills Not Used and Why');
+    }
+
+    if (!text.includes('Superpowers Checklist')) {
+      addViolation(templatePath, 'round template must include Superpowers Checklist');
+    }
   }
 }
 
