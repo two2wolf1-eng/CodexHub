@@ -38,6 +38,11 @@ import {
   CodexExecReadOnlyAdapterSimulatorReviewFindingSchema,
   CodexExecReadOnlyAdapterSimulatorReviewQuerySchema,
   CodexExecReadOnlyAdapterSimulatorReviewSummarySchema,
+  CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItemSchema,
+  CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecordSchema,
+  CodexExecReadOnlyAdapterImplementationPlanReviewFindingSchema,
+  CodexExecReadOnlyAdapterImplementationPlanReviewQuerySchema,
+  CodexExecReadOnlyAdapterImplementationPlanReviewSummarySchema,
   CodexExecNoLiveEvidenceSummarySchema,
   CodexExecReportReviewComparisonSchema,
   CodexExecReportReviewComparisonItemSchema,
@@ -1827,5 +1832,159 @@ describe('contracts schemas', () => {
     expect(query.limit).toBe(10);
     expect(JSON.stringify(record)).not.toContain('full prompt body');
     expect(JSON.stringify(record)).not.toContain('full command body');
+  });
+
+  it('parses implementation plan review contracts without granting execution', () => {
+    const checklistItem =
+      CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItemSchema.parse({
+        id: 'codex_read_only_adapter_implementation_plan_review_check_1',
+        schemaVersion,
+        createdAt,
+        code: 'cli_only_trigger',
+        label: 'CLI-only trigger',
+        disposition: 'hard_gate',
+        status: 'passed',
+        required: true,
+        summary: 'Future skeleton remains CLI-only and disabled by default.',
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        dashboardTriggerAllowed: false,
+      });
+    const finding = CodexExecReadOnlyAdapterImplementationPlanReviewFindingSchema.parse({
+      id: 'codex_read_only_adapter_implementation_plan_review_finding_1',
+      schemaVersion,
+      createdAt,
+      code: 'skeleton_only_if_approved',
+      severity: 'medium',
+      relatedChecklistCode: 'skeleton_only_if_approved',
+      disposition: 'requires_review',
+      summary: 'Round 3T scope must remain disabled-by-default skeleton only.',
+      recommendation: 'Confirm this during Round 3S before allowing skeleton work.',
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const record = CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecordSchema.parse({
+      id: 'codex_read_only_adapter_implementation_plan_review_1',
+      schemaVersion,
+      createdAt,
+      planDocumentPath: 'docs/design/round-3r-read-only-adapter-implementation-plan.md',
+      planDocumentHash: 'sha256:implementation-plan',
+      outcome: 'conditional_go_to_disabled_skeleton',
+      status: 'recorded',
+      reviewerLabel: 'local-operator',
+      rationaleSummary:
+        'Conditional skeleton work may continue, but process adapter and execution remain unapproved.',
+      reviewedAt: createdAt,
+      disabledSkeletonApproved: true,
+      checklistItems: [checklistItem],
+      findings: [finding],
+      hardGateCount: 1,
+      requiresReviewCount: 1,
+      informationalCount: 0,
+      unresolvedFindingCount: 1,
+      evidenceRefs: [],
+      auditEventIds: ['audit_implementation_plan_review_1'],
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const summary = CodexExecReadOnlyAdapterImplementationPlanReviewSummarySchema.parse({
+      id: 'codex_read_only_adapter_implementation_plan_review_summary_1',
+      schemaVersion,
+      createdAt,
+      reviewId: record.id,
+      planDocumentPath: record.planDocumentPath,
+      planDocumentHash: record.planDocumentHash,
+      outcome: record.outcome,
+      status: record.status,
+      reviewerLabel: record.reviewerLabel,
+      reviewedAt: record.reviewedAt,
+      disabledSkeletonApproved: true,
+      hardGateCount: 1,
+      requiresReviewCount: 1,
+      informationalCount: 0,
+      unresolvedFindingCount: 1,
+      summary: 'Conditional skeleton approval is not execution approval.',
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+    const query = CodexExecReadOnlyAdapterImplementationPlanReviewQuerySchema.parse({
+      id: 'codex_read_only_adapter_implementation_plan_review_query_1',
+      schemaVersion,
+      createdAt,
+      status: 'recorded',
+      outcome: 'conditional_go_to_disabled_skeleton',
+      limit: 10,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    });
+
+    expect(record.disabledSkeletonApproved).toBe(true);
+    expect(record.implementationApproved).toBe(false);
+    expect(record.processAdapterApproved).toBe(false);
+    expect(record.recommendationGrantsExecution).toBe(false);
+    expect(record.workspaceWriteAllowed).toBe(false);
+    expect(record.dangerFullAccessAllowed).toBe(false);
+    expect(summary.executionDisabled).toBe(true);
+    expect(query.limit).toBe(10);
+    expect(JSON.stringify(record)).not.toContain('full prompt body');
+    expect(JSON.stringify(record)).not.toContain('full command body');
+
+    expect(() =>
+      CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecordSchema.parse({
+        ...record,
+        id: 'codex_read_only_adapter_implementation_plan_review_invalid',
+        outcome: 'no_go',
+        disabledSkeletonApproved: true,
+      }),
+    ).toThrow();
   });
 });

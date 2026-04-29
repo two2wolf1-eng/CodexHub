@@ -381,6 +381,46 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/read-only-adapter/simulator-review/latest/${canonicalDryRunPlanId}`,
     });
+    const implementationPlanReviewCreateResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
+      payload: {
+        outcome: 'conditional_go_to_disabled_skeleton',
+        reviewerLabel: 'local-operator',
+        rationaleSummary:
+          'Allows only Round 3T disabled-by-default skeleton; execution remains unapproved.',
+      },
+    });
+    const implementationPlanReviewId = implementationPlanReviewCreateResponse.json().reviewRecord
+      .id as string;
+    const implementationPlanReviewGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/read-only-adapter/implementation-plan-review/${implementationPlanReviewId}`,
+    });
+    const implementationPlanReviewListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-reviews?status=recorded&outcome=conditional_go_to_disabled_skeleton&limit=10',
+    });
+    const implementationPlanReviewLatestResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-review/latest',
+    });
+    const implementationPlanReviewMissingResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-review/missing_review',
+    });
+    const implementationPlanReviewInvalidOutcomeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
+      payload: {
+        outcome: 'execute_now',
+      },
+    });
+    const implementationPlanReviewMissingOutcomeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
+      payload: {},
+    });
     const missingReadOnlySimulatorReviewGetResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/read-only-adapter/simulator-review/missing_review',
@@ -1213,6 +1253,67 @@ describe('supervisor mock development API', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    expect(implementationPlanReviewCreateResponse.statusCode).toBe(200);
+    expect(implementationPlanReviewCreateResponse.json()).toMatchObject({
+      reviewRecord: {
+        outcome: 'conditional_go_to_disabled_skeleton',
+        status: 'recorded',
+        disabledSkeletonApproved: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      summary: {
+        disabledSkeletonApproved: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(implementationPlanReviewCreateResponse.json().evidenceRefs).toHaveLength(1);
+    expect(implementationPlanReviewCreateResponse.json().auditEvents).toHaveLength(1);
+    expect(JSON.stringify(implementationPlanReviewCreateResponse.json())).not.toContain(
+      'list risk areas',
+    );
+    expect(implementationPlanReviewGetResponse.statusCode).toBe(200);
+    expect(implementationPlanReviewGetResponse.json().reviewRecord.id).toBe(
+      implementationPlanReviewId,
+    );
+    expect(implementationPlanReviewListResponse.statusCode).toBe(200);
+    expect(implementationPlanReviewListResponse.json().records).toHaveLength(1);
+    expect(implementationPlanReviewListResponse.json().reviews[0]).toMatchObject({
+      reviewId: implementationPlanReviewId,
+      outcome: 'conditional_go_to_disabled_skeleton',
+      disabledSkeletonApproved: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(implementationPlanReviewLatestResponse.statusCode).toBe(200);
+    expect(implementationPlanReviewLatestResponse.json()).toMatchObject({
+      reviewRecord: {
+        id: implementationPlanReviewId,
+        disabledSkeletonApproved: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(implementationPlanReviewMissingResponse.statusCode).toBe(404);
+    expect(implementationPlanReviewMissingResponse.body).not.toContain(process.cwd());
+    expect(implementationPlanReviewInvalidOutcomeResponse.statusCode).toBe(400);
+    expect(implementationPlanReviewMissingOutcomeResponse.statusCode).toBe(400);
     expect(missingReadOnlySimulatorReviewGetResponse.statusCode).toBe(404);
     expect(missingReadOnlySimulatorReviewGetResponse.body).not.toContain(process.cwd());
     expect(invalidReadOnlySimulatorReviewQueryResponse.statusCode).toBe(400);

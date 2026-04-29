@@ -22,6 +22,9 @@ import {
   createReadOnlyAdapterSimulatorReviewAuditEvents,
   createReadOnlyAdapterSimulatorReviewDecisionRecord,
   createReadOnlyAdapterSimulatorReviewEvidenceRefs,
+  createReadOnlyAdapterImplementationPlanReviewAuditEvents,
+  createReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  createReadOnlyAdapterImplementationPlanReviewEvidenceRefs,
   createCodexExecTimelineDetailView,
   createCodexExecReportReviewRecord,
   createCodexExecDisabledLiveRunRecord,
@@ -52,12 +55,15 @@ import {
   getLatestCodexExecReportReview,
   getLatestCodexExecLiveAdapterAdrDecision,
   getLatestReadOnlyAdapterSimulatorReview,
+  getLatestReadOnlyAdapterImplementationPlanReview,
   listCodexExecLiveAdapterAdrDecisionSummaries,
   listReadOnlyAdapterSimulatorReviewSummaries,
+  listReadOnlyAdapterImplementationPlanReviewSummaries,
   simulateReadOnlyAdapterPreflight,
   summarizeReadOnlyAdapterPreflightSimulation,
   summarizeCodexExecLiveAdapterAdrDecision,
   summarizeReadOnlyAdapterSimulatorReview,
+  summarizeReadOnlyAdapterImplementationPlanReview,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -82,6 +88,10 @@ import type {
   CodexExecReadOnlyAdapterSimulatorReviewOutcome,
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReadOnlyAdapterSimulatorReviewStatus,
+  CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  CodexExecReadOnlyAdapterImplementationPlanReviewOutcome,
+  CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
+  CodexExecReadOnlyAdapterImplementationPlanReviewStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -125,6 +135,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const readOnlyAdapterPreflightSimulations: CodexExecReadOnlyAdapterPreflightSimulationResult[] =
     [];
   const readOnlyAdapterSimulatorReviewRecords: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[] =
+    [];
+  const readOnlyAdapterImplementationPlanReviewRecords: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[] =
     [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
@@ -1146,6 +1158,185 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       }
 
       return createReadOnlyAdapterSimulatorReviewResponse(reviewRecord);
+    },
+  );
+
+  server.post(
+    '/api/codex/exec/read-only-adapter/implementation-plan-review',
+    async (request, reply) => {
+      const body = request.body as
+        | {
+            reviewerLabel?: string;
+            outcome?: CodexExecReadOnlyAdapterImplementationPlanReviewOutcome;
+            status?: CodexExecReadOnlyAdapterImplementationPlanReviewStatus;
+            rationaleSummary?: string;
+          }
+        | undefined;
+
+      if (!body?.outcome) {
+        return reply.code(400).send({
+          error: 'outcome is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      if (!readOnlyAdapterImplementationPlanReviewOutcomes.has(body.outcome)) {
+        return reply.code(400).send({
+          error: 'unsupported implementation plan review outcome',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      if (body.status && !readOnlyAdapterImplementationPlanReviewStatuses.has(body.status)) {
+        return reply.code(400).send({
+          error: 'unsupported implementation plan review status',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      let reviewRecord = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+        outcome: body.outcome,
+        status: body.status,
+        reviewerLabel: body.reviewerLabel ?? 'local-operator',
+        rationaleSummary:
+          body.rationaleSummary ??
+          'Implementation plan review records governance only; process adapter and execution remain unapproved.',
+        metadata: {
+          requestedBy: 'supervisor-api',
+        },
+      });
+      const evidenceRefs = createReadOnlyAdapterImplementationPlanReviewEvidenceRefs(reviewRecord);
+      const auditEvents = createReadOnlyAdapterImplementationPlanReviewAuditEvents(
+        reviewRecord,
+        evidenceRefs,
+      );
+      reviewRecord = {
+        ...reviewRecord,
+        evidenceRefs,
+        auditEventIds: auditEvents.map((event) => event.id),
+      };
+
+      if (store) {
+        for (const evidenceRef of evidenceRefs) {
+          await store.evidenceRefs.create(evidenceRef);
+        }
+
+        for (const auditEvent of auditEvents) {
+          await store.auditEvents.append(auditEvent);
+        }
+      }
+
+      await persistReadOnlyAdapterImplementationPlanReviewRecord(reviewRecord, store);
+
+      return createReadOnlyAdapterImplementationPlanReviewResponse(
+        reviewRecord,
+        evidenceRefs,
+        auditEvents,
+      );
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/read-only-adapter/implementation-plan-reviews',
+    async (request, reply) => {
+      const queryResult = parseReadOnlyAdapterImplementationPlanReviewQuery(request.query);
+
+      if (!queryResult.allowed) {
+        return reply.code(400).send({
+          error: queryResult.reason,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const records = await listReadOnlyAdapterImplementationPlanReviewRecords(
+        store,
+        queryResult.query,
+      );
+
+      return {
+        records,
+        reviews: listReadOnlyAdapterImplementationPlanReviewSummaries(
+          records,
+          queryResult.query,
+        ),
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      };
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/read-only-adapter/implementation-plan-review/latest',
+    async (_request, reply) => {
+      const store = await getStore();
+      const records = await listReadOnlyAdapterImplementationPlanReviewRecords(store, {
+        limit: 50,
+      });
+      const reviewRecord = getLatestReadOnlyAdapterImplementationPlanReview(records);
+
+      if (!reviewRecord) {
+        return reply.code(404).send({
+          error: 'read-only adapter implementation plan review was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createReadOnlyAdapterImplementationPlanReviewResponse(reviewRecord);
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/read-only-adapter/implementation-plan-review/:reviewId',
+    async (request, reply) => {
+      const params = request.params as { reviewId?: string };
+
+      if (!params.reviewId) {
+        return reply.code(400).send({
+          error: 'reviewId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const reviewRecord = await resolveReadOnlyAdapterImplementationPlanReviewRecord(
+        params.reviewId,
+        store,
+      );
+
+      if (!reviewRecord) {
+        return reply.code(404).send({
+          error: 'read-only adapter implementation plan review was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createReadOnlyAdapterImplementationPlanReviewResponse(reviewRecord);
     },
   );
 
@@ -2367,6 +2558,78 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  async function resolveReadOnlyAdapterImplementationPlanReviewRecord(
+    reviewId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord | undefined> {
+    return store
+      ? await store.codexExecReadOnlyAdapterImplementationPlanReviews.getImplementationPlanReview(
+          reviewId,
+        )
+      : readOnlyAdapterImplementationPlanReviewRecords.find((record) => record.id === reviewId);
+  }
+
+  async function listReadOnlyAdapterImplementationPlanReviewRecords(
+    store: CodexHubStore | undefined,
+    query: Partial<CodexExecReadOnlyAdapterImplementationPlanReviewQuery>,
+  ): Promise<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[]> {
+    return store
+      ? await store.codexExecReadOnlyAdapterImplementationPlanReviews.listImplementationPlanReviews(
+          query,
+        )
+      : filterInMemoryReadOnlyAdapterImplementationPlanReviews(
+          readOnlyAdapterImplementationPlanReviewRecords,
+          query,
+        );
+  }
+
+  async function persistReadOnlyAdapterImplementationPlanReviewRecord(
+    record: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.codexExecReadOnlyAdapterImplementationPlanReviews.saveImplementationPlanReview(
+        record,
+      );
+      return;
+    }
+
+    const existingIndex = readOnlyAdapterImplementationPlanReviewRecords.findIndex(
+      (candidate) => candidate.id === record.id,
+    );
+
+    if (existingIndex >= 0) {
+      readOnlyAdapterImplementationPlanReviewRecords.splice(existingIndex, 1, record);
+    } else {
+      readOnlyAdapterImplementationPlanReviewRecords.unshift(record);
+    }
+  }
+
+  function createReadOnlyAdapterImplementationPlanReviewResponse(
+    reviewRecord: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+    evidenceRefs = reviewRecord.evidenceRefs,
+    auditEvents: ReturnType<typeof createReadOnlyAdapterImplementationPlanReviewAuditEvents> = [],
+  ) {
+    return {
+      reviewRecord,
+      summary: summarizeReadOnlyAdapterImplementationPlanReview(reviewRecord),
+      evidenceRefs,
+      auditEvents,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  }
+
   function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
@@ -2460,6 +2723,15 @@ const readOnlyAdapterSimulatorReviewOutcomes = new Set([
   'go_to_implementation_planning',
 ]);
 const readOnlyAdapterSimulatorReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
+const readOnlyAdapterImplementationPlanReviewOutcomes = new Set([
+  'no_go',
+  'conditional_go_to_disabled_skeleton',
+]);
+const readOnlyAdapterImplementationPlanReviewStatuses = new Set([
+  'draft',
+  'recorded',
+  'superseded',
+]);
 const codexExecSandboxModes = new Set(['read_only', 'workspace_write', 'danger_full_access']);
 
 function createReadOnlyAdapterOperatorChecklistFromBody(
@@ -2722,6 +2994,39 @@ function parseReadOnlyAdapterSimulatorReviewQuery(
   };
 }
 
+function parseReadOnlyAdapterImplementationPlanReviewQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecReadOnlyAdapterImplementationPlanReviewQuery> }
+  | { allowed: false; reason: string } {
+  const status = readQueryValue(query, 'status');
+  const outcome = readQueryValue(query, 'outcome');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !readOnlyAdapterImplementationPlanReviewStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported implementation plan review status' };
+  }
+
+  if (outcome && !readOnlyAdapterImplementationPlanReviewOutcomes.has(outcome)) {
+    return { allowed: false, reason: 'unsupported implementation plan review outcome' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      status: status as CodexExecReadOnlyAdapterImplementationPlanReviewStatus | undefined,
+      outcome: outcome as
+        | CodexExecReadOnlyAdapterImplementationPlanReviewOutcome
+        | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
 function filterInMemoryReportReviews(
   records: CodexExecReportReviewRecord[],
   query: Partial<CodexExecReportReviewQuery>,
@@ -2779,6 +3084,26 @@ function filterInMemoryReadOnlyAdapterSimulatorReviews(
         return false;
       }
 
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, query.limit ?? 20);
+}
+
+function filterInMemoryReadOnlyAdapterImplementationPlanReviews(
+  records: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[],
+  query: Partial<CodexExecReadOnlyAdapterImplementationPlanReviewQuery>,
+): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[] {
+  return records
+    .filter((record) => {
       if (query.status && record.status !== query.status) {
         return false;
       }

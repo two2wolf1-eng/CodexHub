@@ -8,6 +8,7 @@ import type {
   CodexExecLiveAdapterAdrDraft,
   CodexExecReadOnlyAdapterPreflightSimulationResult,
   CodexExecReadOnlyAdapterSimulatorReviewSummary,
+  CodexExecReadOnlyAdapterImplementationPlanReviewSummary,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -43,6 +44,7 @@ interface OverviewState {
   codexExecAdrDrafts: CodexExecLiveAdapterAdrDraft[];
   codexExecReadOnlyAdapterPreflightSimulations: CodexExecReadOnlyAdapterPreflightSimulationResult[];
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewSummary[];
+  codexExecReadOnlyAdapterImplementationPlanReviews: CodexExecReadOnlyAdapterImplementationPlanReviewSummary[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -70,6 +72,7 @@ export function App() {
     codexExecAdrDrafts: [],
     codexExecReadOnlyAdapterPreflightSimulations: [],
     codexExecReadOnlyAdapterSimulatorReviews: [],
+    codexExecReadOnlyAdapterImplementationPlanReviews: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -92,6 +95,7 @@ export function App() {
           codexExecApprovalsResponse,
           readOnlyAdapterPreflightSimulationsResponse,
           readOnlyAdapterSimulatorReviewsResponse,
+          readOnlyAdapterImplementationPlanReviewsResponse,
           codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
@@ -113,6 +117,9 @@ export function App() {
           getJson<{
             reviews: CodexExecReadOnlyAdapterSimulatorReviewSummary[];
           }>('/api/codex/exec/read-only-adapter/simulator-reviews?limit=5'),
+          getJson<{
+            reviews: CodexExecReadOnlyAdapterImplementationPlanReviewSummary[];
+          }>('/api/codex/exec/read-only-adapter/implementation-plan-reviews?limit=5'),
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
@@ -303,6 +310,8 @@ export function App() {
               readOnlyAdapterPreflightSimulationsResponse.simulations,
             codexExecReadOnlyAdapterSimulatorReviews:
               readOnlyAdapterSimulatorReviewsResponse.reviews,
+            codexExecReadOnlyAdapterImplementationPlanReviews:
+              readOnlyAdapterImplementationPlanReviewsResponse.reviews,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -328,6 +337,7 @@ export function App() {
             codexExecAdrDrafts: [],
             codexExecReadOnlyAdapterPreflightSimulations: [],
             codexExecReadOnlyAdapterSimulatorReviews: [],
+            codexExecReadOnlyAdapterImplementationPlanReviews: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -1091,6 +1101,50 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only simulator review has been recorded yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Implementation Plan Review / Go-No-Go">
+          {overview.codexExecReadOnlyAdapterImplementationPlanReviews.length > 0 ? (
+            <ul>
+              {overview.codexExecReadOnlyAdapterImplementationPlanReviews.map((review) => (
+                <li key={review.id} className="stacked report-detail">
+                  <strong>{review.reviewId}</strong>
+                  <span>
+                    outcome {review.outcome}, status {review.status}, disabled skeleton approved{' '}
+                    {String(review.disabledSkeletonApproved)}
+                  </span>
+                  <span>
+                    hard gates {review.hardGateCount}, requires review{' '}
+                    {review.requiresReviewCount}, informational {review.informationalCount},
+                    unresolved findings {review.unresolvedFindingCount}
+                  </span>
+                  <span>
+                    implementationApproved {String(review.implementationApproved)},
+                    processAdapterApproved {String(review.processAdapterApproved)},
+                    recommendationGrantsExecution{' '}
+                    {String(review.recommendationGrantsExecution)}
+                  </span>
+                  <span>
+                    workspaceWriteAllowed {String(review.workspaceWriteAllowed)},
+                    dangerFullAccessAllowed {String(review.dangerFullAccessAllowed)},
+                    dashboardTriggerAllowed {String(review.dashboardTriggerAllowed)}
+                  </span>
+                  <span>
+                    liveExecution {String(review.liveExecution)}, externalProcessStarted{' '}
+                    {String(review.externalProcessStarted)}, executionDisabled{' '}
+                    {String(review.executionDisabled)}
+                  </span>
+                  <p>
+                    Conditional skeleton approval only allows a future disabled-by-default
+                    skeleton. It does not approve process adapter work, Codex process launch, or
+                    Dashboard-triggered actions.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only implementation plan review has been recorded yet.</p>
           )}
         </Panel>
 

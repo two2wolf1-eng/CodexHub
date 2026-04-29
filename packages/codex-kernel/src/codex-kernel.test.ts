@@ -21,6 +21,10 @@ import {
   createReadOnlyAdapterSimulatorReviewAuditEvents,
   createReadOnlyAdapterSimulatorReviewDecisionRecord,
   createReadOnlyAdapterSimulatorReviewEvidenceRefs,
+  createDefaultReadOnlyAdapterImplementationPlanReviewChecklist,
+  createReadOnlyAdapterImplementationPlanReviewAuditEvents,
+  createReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  createReadOnlyAdapterImplementationPlanReviewEvidenceRefs,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -65,7 +69,10 @@ import {
   summarizeCodexExecGovernanceReviewPackage,
   summarizeCodexExecLiveAdapterAdrDraft,
   summarizeReadOnlyAdapterPreflightSimulation,
+  summarizeReadOnlyAdapterImplementationPlanReview,
   summarizeReadOnlyAdapterSimulatorReview,
+  getLatestReadOnlyAdapterImplementationPlanReview,
+  listReadOnlyAdapterImplementationPlanReviewSummaries,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -1489,6 +1496,92 @@ describe('codex-kernel live control-plane skeleton', () => {
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0]?.outcome).toBe('go_to_implementation_planning');
+    expect(latest?.reviewerLabel).toBe('second-reviewer');
+  });
+
+  it('creates read-only adapter implementation plan reviews without approving execution', () => {
+    const noGo = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'no_go',
+      reviewerLabel: 'reviewer-a',
+      rationaleSummary: 'Planning is not ready for even a disabled skeleton.',
+    });
+    const conditionalSkeleton =
+      createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+        outcome: 'conditional_go_to_disabled_skeleton',
+        reviewerLabel: 'reviewer-b',
+        rationaleSummary:
+          'Allows only Round 3T disabled-by-default skeleton work, not process launch.',
+      });
+    const summary = summarizeReadOnlyAdapterImplementationPlanReview(conditionalSkeleton);
+    const evidenceRefs =
+      createReadOnlyAdapterImplementationPlanReviewEvidenceRefs(conditionalSkeleton);
+    const auditEvents = createReadOnlyAdapterImplementationPlanReviewAuditEvents(
+      conditionalSkeleton,
+      evidenceRefs,
+    );
+
+    expect(noGo.disabledSkeletonApproved).toBe(false);
+    expect(conditionalSkeleton.disabledSkeletonApproved).toBe(true);
+    expect(summary).toMatchObject({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      disabledSkeletonApproved: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(
+      createDefaultReadOnlyAdapterImplementationPlanReviewChecklist().map((item) => item.code),
+    ).toEqual(
+      expect.arrayContaining([
+        'cli_only_trigger',
+        'read_only_only',
+        'config_gates_default_disabled',
+        'approval_hash_binding_required',
+        'isolated_worktree_required',
+        'dashboard_trigger_forbidden',
+      ]),
+    );
+    expect(evidenceRefs[0]?.kind).toBe(
+      'codex.exec.read_only_adapter.implementation_plan_review',
+    );
+    expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
+    expect(auditEvents[0]?.action).toBe(
+      'codex.exec.read_only_adapter.implementation_plan_review.recorded',
+    );
+    expect(auditEvents[0]?.metadata).toMatchObject({
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(JSON.stringify(conditionalSkeleton)).not.toContain('prompt body');
+    expect(JSON.stringify(conditionalSkeleton)).not.toContain('stdout');
+  });
+
+  it('lists and selects latest implementation plan review summaries', () => {
+    const first = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'no_go',
+      status: 'superseded',
+      reviewerLabel: 'first-reviewer',
+    });
+    const second = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      reviewerLabel: 'second-reviewer',
+    });
+    const records = [first, second];
+    const summaries = listReadOnlyAdapterImplementationPlanReviewSummaries(records, {
+      status: 'recorded',
+      outcome: 'conditional_go_to_disabled_skeleton',
+      limit: 10,
+    });
+    const latest = getLatestReadOnlyAdapterImplementationPlanReview(records);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.disabledSkeletonApproved).toBe(true);
     expect(latest?.reviewerLabel).toBe('second-reviewer');
   });
 

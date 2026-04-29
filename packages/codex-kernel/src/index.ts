@@ -86,6 +86,13 @@ import type {
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReadOnlyAdapterSimulatorReviewStatus,
   CodexExecReadOnlyAdapterSimulatorReviewSummary,
+  CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItem,
+  CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  CodexExecReadOnlyAdapterImplementationPlanReviewFinding,
+  CodexExecReadOnlyAdapterImplementationPlanReviewOutcome,
+  CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
+  CodexExecReadOnlyAdapterImplementationPlanReviewStatus,
+  CodexExecReadOnlyAdapterImplementationPlanReviewSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -3775,6 +3782,474 @@ export function createReadOnlyAdapterSimulatorReviewAuditEvents(
   ];
 }
 
+export interface ReadOnlyAdapterImplementationPlanReviewDecisionInput {
+  outcome: CodexExecReadOnlyAdapterImplementationPlanReviewOutcome;
+  status?: CodexExecReadOnlyAdapterImplementationPlanReviewStatus;
+  reviewerLabel?: string;
+  rationaleSummary?: string;
+  planDocumentPath?: string;
+  planDocumentHash?: string;
+  checklistItems?: CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItem[];
+  findings?: CodexExecReadOnlyAdapterImplementationPlanReviewFinding[];
+  metadata?: Record<string, unknown>;
+}
+
+const READ_ONLY_ADAPTER_IMPLEMENTATION_PLAN_DOCUMENT =
+  'docs/design/round-3r-read-only-adapter-implementation-plan.md';
+
+export function createDefaultReadOnlyAdapterImplementationPlanReviewChecklist(): CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItem[] {
+  return [
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'architecture_narrow_enough',
+      label: 'Architecture is narrow enough',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary:
+        'Round 3R limits any future work to resolver, gate evaluator, isolated process boundary, and metadata recorder layers.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'process_boundary_isolated',
+      label: 'Process boundary remains isolated',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary:
+        'The plan requires a separately reviewed, smallest-possible boundary and does not approve process launch.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'cli_only_trigger',
+      label: 'CLI-only trigger',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'The future trigger must be CLI-only and require an existing dry-run id.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'read_only_only',
+      label: 'Read-only only',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'The only future sandbox mode allowed by the plan is read_only.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'forbidden_modes_remain_forbidden',
+      label: 'Forbidden modes remain forbidden',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'workspace_write and danger_full_access remain forbidden in the plan.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'dashboard_trigger_forbidden',
+      label: 'Dashboard trigger forbidden',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'Dashboard may display read-only state only and must not trigger adapter activity.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'config_gates_default_disabled',
+      label: 'Config gates default disabled',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'The plan keeps live defaults disabled and requires explicit reviewed config enablement.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'approval_hash_binding_required',
+      label: 'Approval and hash binding required',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary:
+        'Approval must be valid, unused, single-use, and bound to dry-run and policy decision hashes.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'isolated_worktree_required',
+      label: 'Isolated worktree required',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'Even read-only future attempts require isolated worktree metadata.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'evidence_audit_required',
+      label: 'Evidence and audit required',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'Future work must generate metadata/hash-only evidence and audit throughout the path.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'failure_abort_semantics_safe',
+      label: 'Failure and abort semantics are safe',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'The plan blocks or aborts on ambiguity, mismatch, degraded state, or unexpected changes.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'post_run_verify_foundation_required',
+      label: 'Post-run foundation verification required',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'Any later approved attempt must run pnpm verify:foundation afterward.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'skeleton_only_if_approved',
+      label: 'Skeleton only if approved',
+      disposition: 'requires_review',
+      status: 'requires_review',
+      required: false,
+      summary:
+        'Round 3S may approve only a disabled-by-default skeleton for Round 3T, not a process adapter.',
+    }),
+    createReadOnlyAdapterImplementationPlanReviewChecklistItem({
+      code: 'no_execution_permission',
+      label: 'No execution permission',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary:
+        'The implementation plan, review outcome, and recommendation do not grant execution permission.',
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterImplementationPlanReviewDecisionRecord(
+  input: ReadOnlyAdapterImplementationPlanReviewDecisionInput,
+): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord {
+  const checklistItems =
+    input.checklistItems ?? createDefaultReadOnlyAdapterImplementationPlanReviewChecklist();
+  const findings =
+    input.findings ?? createReadOnlyAdapterImplementationPlanReviewFindings(checklistItems);
+  const hardGateCount = checklistItems.filter((item) => item.disposition === 'hard_gate').length;
+  const requiresReviewCount = checklistItems.filter(
+    (item) => item.disposition === 'requires_review',
+  ).length;
+  const informationalCount = checklistItems.filter(
+    (item) => item.disposition === 'informational',
+  ).length;
+  const disabledSkeletonApproved = input.outcome === 'conditional_go_to_disabled_skeleton';
+  const planDocumentPath = input.planDocumentPath ?? READ_ONLY_ADAPTER_IMPLEMENTATION_PLAN_DOCUMENT;
+  const planDocumentHash =
+    input.planDocumentHash ??
+    prefixedHash(
+      stableStringify({
+        planDocumentPath,
+        round: '3S',
+        purpose: 'read-only adapter implementation plan review',
+      }),
+    );
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('codex_read_only_adapter_implementation_plan_review'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    planDocumentPath,
+    planDocumentHash,
+    outcome: input.outcome,
+    status: input.status ?? 'recorded',
+    reviewerLabel: input.reviewerLabel ?? 'local-operator',
+    rationaleSummary:
+      input.rationaleSummary ??
+      'Implementation plan review records a governance decision only; process adapter and execution remain unapproved.',
+    reviewedAt: now,
+    disabledSkeletonApproved,
+    checklistItems,
+    findings,
+    hardGateCount,
+    requiresReviewCount,
+    informationalCount,
+    unresolvedFindingCount: findings.length,
+    evidenceRefs: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      planDocumentPath,
+      planDocumentHash,
+      outcome: input.outcome,
+      disabledSkeletonApproved,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      dashboardTriggerAllowed: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+    }),
+  };
+}
+
+export function summarizeReadOnlyAdapterImplementationPlanReview(
+  record: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+): CodexExecReadOnlyAdapterImplementationPlanReviewSummary {
+  return {
+    id: foundationId('codex_read_only_adapter_implementation_plan_review_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    reviewId: record.id,
+    planDocumentPath: record.planDocumentPath,
+    planDocumentHash: record.planDocumentHash,
+    outcome: record.outcome,
+    status: record.status,
+    reviewerLabel: record.reviewerLabel,
+    reviewedAt: record.reviewedAt,
+    disabledSkeletonApproved: record.disabledSkeletonApproved,
+    hardGateCount: record.hardGateCount,
+    requiresReviewCount: record.requiresReviewCount,
+    informationalCount: record.informationalCount,
+    unresolvedFindingCount: record.unresolvedFindingCount,
+    summary: `Read-only adapter implementation plan review ${record.outcome}; disabledSkeletonApproved=${record.disabledSkeletonApproved}; processAdapterApproved=false.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      reviewId: record.id,
+      planDocumentPath: record.planDocumentPath,
+      outcome: record.outcome,
+      disabledSkeletonApproved: record.disabledSkeletonApproved,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listReadOnlyAdapterImplementationPlanReviewSummaries(
+  records: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[],
+  query: Partial<CodexExecReadOnlyAdapterImplementationPlanReviewQuery> = {},
+): CodexExecReadOnlyAdapterImplementationPlanReviewSummary[] {
+  const limit = Math.min(200, Math.max(1, Math.trunc(query.limit ?? 50)));
+
+  return sortReadOnlyAdapterImplementationPlanReviewsNewestFirst(records)
+    .filter((record) => {
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, limit)
+    .map((record) => summarizeReadOnlyAdapterImplementationPlanReview(record));
+}
+
+export function getLatestReadOnlyAdapterImplementationPlanReview(
+  records: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[],
+): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord | undefined {
+  return sortReadOnlyAdapterImplementationPlanReviewsNewestFirst(records)[0];
+}
+
+export function createReadOnlyAdapterImplementationPlanReviewEvidenceRefs(
+  record: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.read_only_adapter.implementation_plan_review',
+      label: 'codex.read_only_adapter.implementation_plan_review',
+      summary: `Implementation plan review ${record.outcome}; process adapter remains unapproved.`,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        planDocumentPath: record.planDocumentPath,
+        planDocumentHash: record.planDocumentHash,
+        outcome: record.outcome,
+        disabledSkeletonApproved: record.disabledSkeletonApproved,
+        hardGateCount: record.hardGateCount,
+        requiresReviewCount: record.requiresReviewCount,
+        unresolvedFindingCount: record.unresolvedFindingCount,
+        metadataOnly: true,
+        bodyStored: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: record.id,
+        planDocumentPath: record.planDocumentPath,
+        planDocumentHash: record.planDocumentHash,
+        outcome: record.outcome,
+        status: record.status,
+        disabledSkeletonApproved: record.disabledSkeletonApproved,
+        checklist: record.checklistItems.map((item) => ({
+          code: item.code,
+          disposition: item.disposition,
+          status: item.status,
+        })),
+        findings: record.findings.map((finding) => ({
+          code: finding.code,
+          severity: finding.severity,
+          disposition: finding.disposition,
+        })),
+      }),
+    }),
+  ];
+}
+
+export function createReadOnlyAdapterImplementationPlanReviewAuditEvents(
+  record: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.read_only_adapter.implementation_plan_review.recorded',
+      outcome: record.outcome,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        planDocumentPath: record.planDocumentPath,
+        planDocumentHash: record.planDocumentHash,
+        outcome: record.outcome,
+        disabledSkeletonApproved: record.disabledSkeletonApproved,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        dashboardTriggerAllowed: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+      }),
+    },
+  ];
+}
+
+function createReadOnlyAdapterImplementationPlanReviewChecklistItem(input: {
+  code: string;
+  label: string;
+  disposition: CodexExecReadOnlyAdapterGateDisposition;
+  status: 'passed' | 'failed' | 'requires_review';
+  required: boolean;
+  summary: string;
+}): CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItem {
+  return {
+    id: foundationId('codex_read_only_adapter_implementation_plan_review_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    disposition: input.disposition,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      disposition: input.disposition,
+      status: input.status,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function createReadOnlyAdapterImplementationPlanReviewFindings(
+  checklistItems: CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItem[],
+): CodexExecReadOnlyAdapterImplementationPlanReviewFinding[] {
+  return checklistItems
+    .filter((item) => item.status === 'failed' || item.status === 'requires_review')
+    .map((item) => ({
+      id: foundationId('codex_read_only_adapter_implementation_plan_review_finding'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      code: item.code,
+      severity:
+        item.disposition === 'hard_gate' && item.status === 'failed'
+          ? 'high'
+          : item.status === 'requires_review'
+            ? 'medium'
+            : 'low',
+      relatedChecklistCode: item.code,
+      disposition: item.disposition,
+      summary: item.summary,
+      recommendation:
+        item.disposition === 'hard_gate'
+          ? 'Resolve this hard gate before any disabled-by-default skeleton can be considered.'
+          : 'Review this condition before Round 3T; it does not approve process adapter work.',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      metadata: createControlPlaneMetadata({
+        code: item.code,
+        disposition: item.disposition,
+        status: item.status,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+    }));
+}
+
+function sortReadOnlyAdapterImplementationPlanReviewsNewestFirst(
+  records: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[],
+): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[] {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((left, right) => {
+      const byReviewedAt =
+        Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+
+      if (byReviewedAt !== 0) {
+        return byReviewedAt;
+      }
+
+      const byCreatedAt =
+        Date.parse(right.record.createdAt) - Date.parse(left.record.createdAt);
+      return byCreatedAt !== 0 ? byCreatedAt : right.index - left.index;
+    })
+    .map(({ record }) => record);
+}
+
 function getReadOnlyAdapterGateDisposition(
   check: CodexExecReadOnlyAdapterPreflightSimulationCheck,
 ): CodexExecReadOnlyAdapterGateDisposition {
@@ -3883,10 +4358,18 @@ function createReadOnlyAdapterSimulatorReviewFindings(
 function sortReadOnlyAdapterSimulatorReviewsNewestFirst(
   records: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[],
 ): CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord[] {
-  return [...records].sort((left, right) => {
-    const byReviewedAt = right.reviewedAt.localeCompare(left.reviewedAt);
-    return byReviewedAt !== 0 ? byReviewedAt : right.createdAt.localeCompare(left.createdAt);
-  });
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((left, right) => {
+      const byReviewedAt = right.record.reviewedAt.localeCompare(left.record.reviewedAt);
+      if (byReviewedAt !== 0) {
+        return byReviewedAt;
+      }
+
+      const byCreatedAt = right.record.createdAt.localeCompare(left.record.createdAt);
+      return byCreatedAt !== 0 ? byCreatedAt : right.index - left.index;
+    })
+    .map(({ record }) => record);
 }
 
 function titleFromCode(code: string): string {

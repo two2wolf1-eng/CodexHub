@@ -7,6 +7,7 @@ import {
   type CodexExecLiveAdapterAdrDecisionRecord,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
+  type CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
@@ -163,6 +164,11 @@ describe('store-sqlite migration initialization', () => {
     const simulatorReview: CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord =
       createReadOnlyAdapterSimulatorReviewFixture();
     await first.codexExecReadOnlyAdapterSimulatorReviews.saveSimulatorReview(simulatorReview);
+    const implementationPlanReview: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord =
+      createReadOnlyAdapterImplementationPlanReviewFixture();
+    await first.codexExecReadOnlyAdapterImplementationPlanReviews.saveImplementationPlanReview(
+      implementationPlanReview,
+    );
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -216,6 +222,16 @@ describe('store-sqlite migration initialization', () => {
       await second.codexExecReadOnlyAdapterSimulatorReviews.getSimulatorReview(
         'codex_read_only_adapter_simulator_review_1',
       );
+    const implementationPlanReviews =
+      await second.codexExecReadOnlyAdapterImplementationPlanReviews.listImplementationPlanReviews({
+        status: 'recorded',
+        outcome: 'conditional_go_to_disabled_skeleton',
+        limit: 10,
+      });
+    const implementationPlanReviewRecord =
+      await second.codexExecReadOnlyAdapterImplementationPlanReviews.getImplementationPlanReview(
+        'codex_read_only_adapter_implementation_plan_review_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -263,6 +279,13 @@ describe('store-sqlite migration initialization', () => {
     expect(simulatorReviewRecord?.recommendationGrantsExecution).toBe(false);
     expect(simulatorReviewRecord?.hardGateCount).toBe(2);
     expect(JSON.stringify(simulatorReviewRecord)).not.toContain('full command body');
+    expect(implementationPlanReviews).toHaveLength(1);
+    expect(implementationPlanReviewRecord?.disabledSkeletonApproved).toBe(true);
+    expect(implementationPlanReviewRecord?.implementationApproved).toBe(false);
+    expect(implementationPlanReviewRecord?.processAdapterApproved).toBe(false);
+    expect(implementationPlanReviewRecord?.workspaceWriteAllowed).toBe(false);
+    expect(implementationPlanReviewRecord?.dangerFullAccessAllowed).toBe(false);
+    expect(JSON.stringify(implementationPlanReviewRecord)).not.toContain('full command body');
   });
 });
 
@@ -632,5 +655,68 @@ function createReadOnlyAdapterSimulatorReviewFixture(): CodexExecReadOnlyAdapter
     processAdapterApproved: false,
     dashboardTriggerAllowed: false,
     recommendationGrantsExecution: false,
+  };
+}
+
+function createReadOnlyAdapterImplementationPlanReviewFixture(): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord {
+  const createdAt = '2026-04-28T00:00:08.000Z';
+
+  return {
+    id: 'codex_read_only_adapter_implementation_plan_review_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    planDocumentPath: 'docs/design/round-3r-read-only-adapter-implementation-plan.md',
+    planDocumentHash: 'sha256:implementation-plan',
+    outcome: 'conditional_go_to_disabled_skeleton',
+    status: 'recorded',
+    reviewerLabel: 'local-operator',
+    rationaleSummary:
+      'Allows only a disabled-by-default skeleton; process adapter and execution remain unapproved.',
+    reviewedAt: createdAt,
+    disabledSkeletonApproved: true,
+    checklistItems: [
+      {
+        id: 'codex_read_only_adapter_implementation_plan_review_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'read_only_only',
+        label: 'Read-only only',
+        status: 'passed',
+        required: true,
+        disposition: 'hard_gate',
+        summary: 'The plan allows only read_only future scope.',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        dashboardTriggerAllowed: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+      },
+    ],
+    findings: [],
+    hardGateCount: 1,
+    requiresReviewCount: 0,
+    informationalCount: 0,
+    unresolvedFindingCount: 0,
+    evidenceRefs: [],
+    auditEventIds: ['audit_implementation_plan_review_1'],
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    implementationApproved: false,
   };
 }

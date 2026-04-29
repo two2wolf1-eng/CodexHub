@@ -115,6 +115,76 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('executionDisabled=true');
   });
 
+  it('creates local implementation plan review records without execution approval', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      createReadOnlyAdapterImplementationPlanReviewCommand,
+      getReadOnlyAdapterImplementationPlanReviewCommand,
+      getLatestReadOnlyAdapterImplementationPlanReviewCommand,
+      listReadOnlyAdapterImplementationPlanReviewsCommand,
+      formatReadOnlyAdapterImplementationPlanReviewOutput,
+      formatReadOnlyAdapterImplementationPlanReviewListOutput,
+    } = await import('./main');
+    const created = await createReadOnlyAdapterImplementationPlanReviewCommand({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      reviewer: 'local-operator',
+      rationaleSummary: 'Skeleton planning only; execution remains unapproved.',
+    });
+    const fetched = await getReadOnlyAdapterImplementationPlanReviewCommand('review_1');
+    const listed = await listReadOnlyAdapterImplementationPlanReviewsCommand({
+      outcome: 'conditional_go_to_disabled_skeleton',
+    });
+    const latest = await getLatestReadOnlyAdapterImplementationPlanReviewCommand();
+    const createdOutput = formatReadOnlyAdapterImplementationPlanReviewOutput(created);
+    const listOutput = formatReadOnlyAdapterImplementationPlanReviewListOutput(listed);
+
+    expect(created).toMatchObject({
+      reviewRecord: {
+        outcome: 'conditional_go_to_disabled_skeleton',
+        disabledSkeletonApproved: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+      },
+      degraded: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(fetched).toMatchObject({
+      reviewRecord: {
+        id: 'review_1',
+        implementationApproved: false,
+        processAdapterApproved: false,
+      },
+    });
+    expect(listed).toMatchObject({
+      reviews: [
+        {
+          outcome: 'conditional_go_to_disabled_skeleton',
+          disabledSkeletonApproved: true,
+        },
+      ],
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(latest).toMatchObject({
+      reviewRecord: {
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+    });
+    expect(createdOutput).toContain('implementationApproved=false');
+    expect(createdOutput).toContain('processAdapterApproved=false');
+    expect(createdOutput).toContain('recommendationGrantsExecution=false');
+    expect(createdOutput).toContain('does not approve process adapter work or execution');
+    expect(listOutput).toContain('never grant execution');
+  });
+
   it('creates local config and manual approval records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

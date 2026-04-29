@@ -10,6 +10,8 @@ import type {
   CodexExecManualApprovalRecord,
   CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
+  CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -25,6 +27,7 @@ import type {
   CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
   CodexExecReadOnlyAdapterSimulatorReviewRepository,
+  CodexExecReadOnlyAdapterImplementationPlanReviewRepository,
   CodexHubStore,
   CodexReplayRepository,
   CodexReportReviewRepository,
@@ -90,6 +93,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
+  readonly codexExecReadOnlyAdapterImplementationPlanReviews: CodexExecReadOnlyAdapterImplementationPlanReviewRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -113,6 +117,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteCodexExecLiveAdapterAdrDecisionRepository(database);
     this.codexExecReadOnlyAdapterSimulatorReviews =
       new SqliteCodexExecReadOnlyAdapterSimulatorReviewRepository(database);
+    this.codexExecReadOnlyAdapterImplementationPlanReviews =
+      new SqliteCodexExecReadOnlyAdapterImplementationPlanReviewRepository(database);
   }
 
   async close(): Promise<void> {
@@ -495,6 +501,62 @@ class SqliteCodexExecReadOnlyAdapterSimulatorReviewRepository
   }
 }
 
+class SqliteCodexExecReadOnlyAdapterImplementationPlanReviewRepository
+  implements CodexExecReadOnlyAdapterImplementationPlanReviewRepository
+{
+  private readonly repository: JsonEntityRepository<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository =
+      new JsonEntityRepository<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord>(
+        database,
+        'codex_read_only_adapter_implementation_plan_reviews',
+        (record) => record.createdAt,
+      );
+  }
+
+  async saveImplementationPlanReview(
+    record: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  ): Promise<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord> {
+    return this.repository.create(record);
+  }
+
+  async getImplementationPlanReview(
+    id: string,
+  ): Promise<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listImplementationPlanReviews(
+    query: Partial<CodexExecReadOnlyAdapterImplementationPlanReviewQuery> = {},
+  ): Promise<CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_read_only_adapter_implementation_plan_reviews ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) =>
+        JSON.parse(row.payload) as CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        if (query.outcome && record.outcome !== query.outcome) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -653,6 +715,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_read_only_adapter_simulator_reviews (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_read_only_adapter_implementation_plan_reviews (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

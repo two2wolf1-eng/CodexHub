@@ -23,6 +23,9 @@ import {
   createReadOnlyAdapterSimulatorReviewAuditEvents,
   createReadOnlyAdapterSimulatorReviewDecisionRecord,
   createReadOnlyAdapterSimulatorReviewEvidenceRefs,
+  createReadOnlyAdapterImplementationPlanReviewAuditEvents,
+  createReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  createReadOnlyAdapterImplementationPlanReviewEvidenceRefs,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -44,8 +47,10 @@ import {
   getLatestCodexExecReportReview,
   getLatestCodexExecLiveAdapterAdrDecision,
   getLatestReadOnlyAdapterSimulatorReview,
+  getLatestReadOnlyAdapterImplementationPlanReview,
   listCodexExecLiveAdapterAdrDecisionSummaries,
   listReadOnlyAdapterSimulatorReviewSummaries,
+  listReadOnlyAdapterImplementationPlanReviewSummaries,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -58,6 +63,7 @@ import {
   summarizeCodexExecReportReview,
   summarizeCodexExecLiveAdapterAdrDecision,
   summarizeReadOnlyAdapterSimulatorReview,
+  summarizeReadOnlyAdapterImplementationPlanReview,
   summarizeReadOnlyAdapterPreflightSimulation,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -80,6 +86,10 @@ import type {
   CodexExecReadOnlyAdapterSimulatorReviewOutcome,
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReadOnlyAdapterSimulatorReviewStatus,
+  CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  CodexExecReadOnlyAdapterImplementationPlanReviewOutcome,
+  CodexExecReadOnlyAdapterImplementationPlanReviewQuery,
+  CodexExecReadOnlyAdapterImplementationPlanReviewStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -188,6 +198,20 @@ export interface CodexExecReadOnlyAdapterSimulatorReviewCreateCliOptions
 export interface CodexExecReadOnlyAdapterSimulatorReviewListCliOptions
   extends CodexExecJsonCliOptions {
   dryRun?: string;
+  status?: string;
+  outcome?: string;
+}
+
+export interface CodexExecReadOnlyAdapterImplementationPlanReviewCreateCliOptions
+  extends CodexExecJsonCliOptions {
+  reviewer?: string;
+  outcome?: string;
+  status?: string;
+  rationaleSummary?: string;
+}
+
+export interface CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions
+  extends CodexExecJsonCliOptions {
   status?: string;
   outcome?: string;
 }
@@ -678,6 +702,64 @@ export function buildProgram(): Command {
     .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
       const result = await getLatestReadOnlyAdapterSimulatorReviewCommand(dryRunId);
       console.log(formatReadOnlyAdapterSimulatorReviewOutput(result, options));
+    });
+
+  const implementationPlanReviewCommand = readOnlyAdapterCommand
+    .command('implementation-plan-review')
+    .description('Record and read implementation plan go/no-go reviews without execution approval');
+
+  implementationPlanReviewCommand
+    .command('create')
+    .requiredOption(
+      '--outcome <outcome>',
+      'no_go or conditional_go_to_disabled_skeleton',
+    )
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option('--status <status>', 'draft, recorded, or superseded', 'recorded')
+    .option(
+      '--rationale-summary <summary>',
+      'Review rationale summary',
+      'Implementation plan review records governance only; process adapter and execution remain unapproved.',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Create an implementation plan review; it never grants execution')
+    .action(
+      async (options: CodexExecReadOnlyAdapterImplementationPlanReviewCreateCliOptions) => {
+        const result = await createReadOnlyAdapterImplementationPlanReviewCommand(options);
+        console.log(formatReadOnlyAdapterImplementationPlanReviewOutput(result, options));
+      },
+    );
+
+  implementationPlanReviewCommand
+    .command('get')
+    .argument('<reviewId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one implementation plan review record')
+    .action(async (reviewId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getReadOnlyAdapterImplementationPlanReviewCommand(reviewId);
+      console.log(formatReadOnlyAdapterImplementationPlanReviewOutput(result, options));
+    });
+
+  implementationPlanReviewCommand
+    .command('list')
+    .option('--status <status>', 'Filter by review status')
+    .option('--outcome <outcome>', 'Filter by review outcome')
+    .option('--json', 'Print full JSON output')
+    .description('List implementation plan review records')
+    .action(
+      async (options: CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions) => {
+        const result = await listReadOnlyAdapterImplementationPlanReviewsCommand(options);
+        console.log(formatReadOnlyAdapterImplementationPlanReviewListOutput(result, options));
+      },
+    );
+
+  implementationPlanReviewCommand
+    .command('latest')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest implementation plan review')
+    .action(async (options: CodexExecJsonCliOptions) => {
+      const result = await getLatestReadOnlyAdapterImplementationPlanReviewCommand();
+      console.log(formatReadOnlyAdapterImplementationPlanReviewOutput(result, options));
     });
 
   return program;
@@ -1784,6 +1866,152 @@ export async function getLatestReadOnlyAdapterSimulatorReviewCommand(
   }
 }
 
+export async function createReadOnlyAdapterImplementationPlanReviewCommand(
+  options: CodexExecReadOnlyAdapterImplementationPlanReviewCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  if (!options.outcome) {
+    throw new Error('implementation plan review outcome is required');
+  }
+
+  const outcome = normalizeReadOnlyAdapterImplementationPlanReviewOutcome(options.outcome);
+  const status = normalizeReadOnlyAdapterImplementationPlanReviewStatus(options.status);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/implementation-plan-review`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          reviewerLabel: options.reviewer ?? 'local-operator',
+          outcome,
+          status,
+          rationaleSummary:
+            options.rationaleSummary ??
+            'Implementation plan review records governance only; process adapter and execution remain unapproved.',
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviewRecord = createLocalReadOnlyAdapterImplementationPlanReviewRecord({
+      reviewer: options.reviewer,
+      outcome,
+      status,
+      rationaleSummary: options.rationaleSummary,
+    });
+
+    return createReadOnlyAdapterImplementationPlanReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function getReadOnlyAdapterImplementationPlanReviewCommand(
+  reviewId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/implementation-plan-review/${encodeURIComponent(
+        reviewId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviewRecord = {
+      ...createLocalReadOnlyAdapterImplementationPlanReviewRecord({
+        reviewer: 'cli-fallback',
+        outcome: 'no_go',
+        rationaleSummary: `Supervisor unavailable while reading implementation plan review ${reviewId}.`,
+      }),
+      id: reviewId,
+    };
+
+    return createReadOnlyAdapterImplementationPlanReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function listReadOnlyAdapterImplementationPlanReviewsCommand(
+  options: CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createReadOnlyAdapterImplementationPlanReviewQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/implementation-plan-reviews${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const queryObject = createReadOnlyAdapterImplementationPlanReviewQueryFromCliOptions(options);
+    const records = createLocalReadOnlyAdapterImplementationPlanReviewRecords().filter((record) => {
+      if (queryObject.status && record.status !== queryObject.status) {
+        return false;
+      }
+
+      if (queryObject.outcome && record.outcome !== queryObject.outcome) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return {
+      records,
+      reviews: listReadOnlyAdapterImplementationPlanReviewSummaries(records, queryObject),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      degraded: true,
+      reason:
+        'supervisor unavailable; local implementation plan review fallback used and was not persisted',
+    };
+  }
+}
+
+export async function getLatestReadOnlyAdapterImplementationPlanReviewCommand(): Promise<
+  Record<string, unknown>
+> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/read-only-adapter/implementation-plan-review/latest`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const records = createLocalReadOnlyAdapterImplementationPlanReviewRecords();
+    const reviewRecord = getLatestReadOnlyAdapterImplementationPlanReview(records);
+
+    return createReadOnlyAdapterImplementationPlanReviewResponse(
+      reviewRecord ?? createLocalReadOnlyAdapterImplementationPlanReviewRecord({ outcome: 'no_go' }),
+      true,
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -2627,6 +2855,98 @@ export function formatReadOnlyAdapterSimulatorReviewListOutput(
   ].join('\n');
 }
 
+export function formatReadOnlyAdapterImplementationPlanReviewOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const review = result.reviewRecord as
+    | {
+        id?: string;
+        outcome?: string;
+        status?: string;
+        reviewerLabel?: string;
+        disabledSkeletonApproved?: boolean;
+        hardGateCount?: number;
+        requiresReviewCount?: number;
+        unresolvedFindingCount?: number;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+        workspaceWriteAllowed?: boolean;
+        dangerFullAccessAllowed?: boolean;
+      }
+    | undefined;
+
+  return [
+    'Read-only adapter implementation plan review',
+    `reviewId: ${review?.id ?? 'unknown'}`,
+    `outcome: ${review?.outcome ?? 'unknown'} (governance guidance only)`,
+    `status: ${review?.status ?? 'unknown'}`,
+    `reviewer: ${review?.reviewerLabel ?? 'unknown'}`,
+    `disabledSkeletonApproved=${String(review?.disabledSkeletonApproved ?? false)}`,
+    `hardGates: ${review?.hardGateCount ?? 0}`,
+    `requiresReview: ${review?.requiresReviewCount ?? 0}`,
+    `unresolvedFindings: ${review?.unresolvedFindingCount ?? 0}`,
+    `implementationApproved=${String(review?.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(review?.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(review?.recommendationGrantsExecution ?? false)}`,
+    `workspaceWriteAllowed=${String(review?.workspaceWriteAllowed ?? false)}`,
+    `dangerFullAccessAllowed=${String(review?.dangerFullAccessAllowed ?? false)}`,
+    'Conditional skeleton approval only allows Round 3T disabled defaults; it does not approve process adapter work or execution.',
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatReadOnlyAdapterImplementationPlanReviewListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const reviews = result.reviews as
+    | Array<{
+        reviewId?: string;
+        status?: string;
+        outcome?: string;
+        disabledSkeletonApproved?: boolean;
+        hardGateCount?: number;
+        requiresReviewCount?: number;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+      }>
+    | undefined;
+  const lines = (reviews ?? []).slice(0, 8).map(
+    (review) =>
+      `- ${review.reviewId ?? 'unknown'} ${review.status ?? 'unknown'} ${
+        review.outcome ?? 'unknown'
+      } disabledSkeletonApproved=${String(
+        review.disabledSkeletonApproved ?? false,
+      )} hardGates=${review.hardGateCount ?? 0} requiresReview=${
+        review.requiresReviewCount ?? 0
+      } implementationApproved=${String(
+        review.implementationApproved ?? false,
+      )} processAdapterApproved=${String(
+        review.processAdapterApproved ?? false,
+      )} recommendationGrantsExecution=${String(review.recommendationGrantsExecution ?? false)}`,
+  );
+
+  return [
+    'Read-only adapter implementation plan review list',
+    `count: ${reviews?.length ?? 0}`,
+    noLiveFlagsText(result),
+    'Reviews are governance records only and never grant execution.',
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
 export function formatCodexExecReportReviewOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -3010,6 +3330,23 @@ function createReadOnlyAdapterSimulatorReviewQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createReadOnlyAdapterImplementationPlanReviewQueryString(
+  options: CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.status) {
+    params.set('status', normalizeReadOnlyAdapterImplementationPlanReviewStatus(options.status));
+  }
+
+  if (options.outcome) {
+    params.set('outcome', normalizeReadOnlyAdapterImplementationPlanReviewOutcome(options.outcome));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -3045,6 +3382,20 @@ function createReadOnlyAdapterSimulatorReviewQueryFromCliOptions(
     status: options.status ? normalizeReadOnlyAdapterSimulatorReviewStatus(options.status) : undefined,
     outcome: options.outcome
       ? normalizeReadOnlyAdapterSimulatorReviewOutcome(options.outcome)
+      : undefined,
+    limit: 20,
+  };
+}
+
+function createReadOnlyAdapterImplementationPlanReviewQueryFromCliOptions(
+  options: CodexExecReadOnlyAdapterImplementationPlanReviewListCliOptions,
+): Partial<CodexExecReadOnlyAdapterImplementationPlanReviewQuery> {
+  return {
+    status: options.status
+      ? normalizeReadOnlyAdapterImplementationPlanReviewStatus(options.status)
+      : undefined,
+    outcome: options.outcome
+      ? normalizeReadOnlyAdapterImplementationPlanReviewOutcome(options.outcome)
       : undefined,
     limit: 20,
   };
@@ -3141,6 +3492,31 @@ function normalizeReadOnlyAdapterSimulatorReviewOutcome(
   throw new Error('simulator review outcome is unsupported');
 }
 
+function normalizeReadOnlyAdapterImplementationPlanReviewStatus(
+  status: string | undefined,
+): CodexExecReadOnlyAdapterImplementationPlanReviewStatus {
+  const normalized = status ?? 'recorded';
+
+  if (normalized === 'draft' || normalized === 'recorded' || normalized === 'superseded') {
+    return normalized;
+  }
+
+  throw new Error('implementation plan review status is unsupported');
+}
+
+function normalizeReadOnlyAdapterImplementationPlanReviewOutcome(
+  outcome: string | undefined,
+): CodexExecReadOnlyAdapterImplementationPlanReviewOutcome {
+  if (
+    outcome === 'no_go' ||
+    outcome === 'conditional_go_to_disabled_skeleton'
+  ) {
+    return outcome;
+  }
+
+  throw new Error('implementation plan review outcome is required and must be supported');
+}
+
 function createEvidenceQueryFromCliOptions(
   options: CodexExecEvidenceListCliOptions,
   fallbackDryRunId: string,
@@ -3235,6 +3611,42 @@ function createReadOnlyAdapterSimulatorReviewResponse(
     degraded,
     reason: degraded
       ? 'supervisor unavailable; local simulator review fallback used and was not persisted'
+      : undefined,
+  };
+}
+
+function createReadOnlyAdapterImplementationPlanReviewResponse(
+  reviewRecord: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
+  degraded: boolean,
+): Record<string, unknown> {
+  const evidenceRefs = reviewRecord.evidenceRefs;
+  const auditEvents = createReadOnlyAdapterImplementationPlanReviewAuditEvents(
+    reviewRecord,
+    evidenceRefs,
+  );
+  const responseRecord = {
+    ...reviewRecord,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+
+  return {
+    reviewRecord: responseRecord,
+    summary: summarizeReadOnlyAdapterImplementationPlanReview(responseRecord),
+    evidenceRefs,
+    auditEvents,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    dashboardTriggerAllowed: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    degraded,
+    reason: degraded
+      ? 'supervisor unavailable; local implementation plan review fallback used and was not persisted'
       : undefined,
   };
 }
@@ -3360,6 +3772,67 @@ async function createLocalReadOnlyAdapterSimulatorReviewRecords(
       id: 'codex_read_only_adapter_simulator_review_cli_older',
       createdAt: '2026-04-28T04:00:00.000Z',
       reviewedAt: '2026-04-28T04:00:00.000Z',
+    },
+  ];
+}
+
+function createLocalReadOnlyAdapterImplementationPlanReviewRecord(
+  options: {
+    reviewer?: string;
+    outcome: CodexExecReadOnlyAdapterImplementationPlanReviewOutcome;
+    status?: CodexExecReadOnlyAdapterImplementationPlanReviewStatus;
+    rationaleSummary?: string;
+  },
+): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord {
+  const draftRecord = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+    reviewerLabel: options.reviewer ?? 'cli-fallback',
+    outcome: options.outcome,
+    status: options.status,
+    rationaleSummary:
+      options.rationaleSummary ??
+      'Implementation plan review fallback records governance only; process adapter and execution remain unapproved.',
+    metadata: { cliFallback: true, persisted: false },
+  });
+  const evidenceRefs = createReadOnlyAdapterImplementationPlanReviewEvidenceRefs(draftRecord);
+  const auditEvents = createReadOnlyAdapterImplementationPlanReviewAuditEvents(
+    draftRecord,
+    evidenceRefs,
+  );
+
+  return {
+    ...draftRecord,
+    evidenceRefs,
+    auditEventIds: auditEvents.map((event) => event.id),
+  };
+}
+
+function createLocalReadOnlyAdapterImplementationPlanReviewRecords(): CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord[] {
+  const older = createLocalReadOnlyAdapterImplementationPlanReviewRecord({
+    reviewer: 'cli-fallback-initial',
+    outcome: 'no_go',
+    status: 'superseded',
+    rationaleSummary: 'Initial local fallback implementation plan review kept skeleton work blocked.',
+  });
+  const latest = createLocalReadOnlyAdapterImplementationPlanReviewRecord({
+    reviewer: 'cli-fallback-latest',
+    outcome: 'conditional_go_to_disabled_skeleton',
+    status: 'recorded',
+    rationaleSummary:
+      'Latest local fallback implementation plan review allows disabled skeleton only; process adapter remains unapproved.',
+  });
+
+  return [
+    {
+      ...latest,
+      id: 'codex_read_only_adapter_implementation_plan_review_cli_latest',
+      createdAt: '2026-04-28T06:00:00.000Z',
+      reviewedAt: '2026-04-28T06:00:00.000Z',
+    },
+    {
+      ...older,
+      id: 'codex_read_only_adapter_implementation_plan_review_cli_older',
+      createdAt: '2026-04-28T05:00:00.000Z',
+      reviewedAt: '2026-04-28T05:00:00.000Z',
     },
   ];
 }
