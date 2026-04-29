@@ -3,6 +3,7 @@ import type {
   CodexExecControlPlaneTimeline,
   CodexExecControlPlaneDrilldownView,
   CodexExecControlPlaneReport,
+  CodexExecGovernanceReviewPackage,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -33,6 +34,7 @@ interface OverviewState {
   codexExecTimelineDetails: CodexExecTimelineDetailView[];
   codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
   codexExecReports: CodexExecControlPlaneReport[];
+  codexExecGovernancePackages: CodexExecGovernanceReviewPackage[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -55,6 +57,7 @@ export function App() {
     codexExecTimelineDetails: [],
     codexExecDrilldowns: [],
     codexExecReports: [],
+    codexExecGovernancePackages: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -192,6 +195,31 @@ export function App() {
           .filter(
             (comparison): comparison is CodexExecReportReviewComparison => comparison !== undefined,
           );
+        const governanceDryRunIds = uniqueGovernanceDryRunIds(
+          codexExecDryRunsResponse.runs,
+          codexExecReportReviewsResponse.reviews,
+        );
+        const codexExecGovernancePackages = (
+          await Promise.all(
+            governanceDryRunIds.slice(0, 3).map(async (dryRunId) => {
+              try {
+                const response = await getJson<{
+                  governancePackage: CodexExecGovernanceReviewPackage;
+                }>(
+                  `/api/codex/exec/governance-package/${encodeURIComponent(
+                    dryRunId,
+                  )}?includeEvidence=true&includeAudit=true`,
+                );
+                return response.governancePackage;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter(
+          (governancePackage): governancePackage is CodexExecGovernanceReviewPackage =>
+            governancePackage !== undefined,
+        );
 
         if (!cancelled) {
           setOverview({
@@ -210,6 +238,7 @@ export function App() {
             codexExecTimelineDetails,
             codexExecDrilldowns,
             codexExecReports,
+            codexExecGovernancePackages,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -230,6 +259,7 @@ export function App() {
             codexExecTimelineDetails: [],
             codexExecDrilldowns: [],
             codexExecReports: [],
+            codexExecGovernancePackages: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -720,6 +750,69 @@ export function App() {
           )}
         </Panel>
 
+        <Panel title="Governance Review Package">
+          {overview.codexExecGovernancePackages.length > 0 ? (
+            <ul>
+              {overview.codexExecGovernancePackages.map((governancePackage) => (
+                <li key={governancePackage.id} className="stacked report-detail">
+                  <strong>{governancePackage.dryRunId}</strong>
+                  <span>
+                    status {governancePackage.status}, risk {governancePackage.riskClassification},
+                    recommendation {governancePackage.recommendation}
+                  </span>
+                  <span>
+                    recommendation grants execution{' '}
+                    {String(governancePackage.recommendationGrantsExecution)}, liveExecution{' '}
+                    {String(governancePackage.liveExecution)}, externalProcessStarted{' '}
+                    {String(governancePackage.externalProcessStarted)}, executionDisabled{' '}
+                    {String(governancePackage.executionDisabled)}
+                  </span>
+                  <span>
+                    checklist {governancePackage.summary.checklistPassedCount} passed,{' '}
+                    {governancePackage.summary.checklistWarningCount} warnings,{' '}
+                    {governancePackage.summary.checklistFailedCount} failed; blockers{' '}
+                    {governancePackage.summary.unresolvedBlockerCount}
+                  </span>
+                  <span>
+                    no-live evidence: codex{' '}
+                    {String(governancePackage.noLiveEvidence.noRealCodexExec)}, process{' '}
+                    {String(governancePackage.noLiveEvidence.noExternalProcessStarted)}, browser/CDP{' '}
+                    {String(governancePackage.noLiveEvidence.noBrowserOrCdpAction)}, workspace write{' '}
+                    {String(governancePackage.noLiveEvidence.noWorkspaceWrite)}
+                  </span>
+                  <div className="report-section-grid" aria-label="Read-only ADR readiness">
+                    <div className="report-section">
+                      <strong>ADR Readiness</strong>
+                      {governancePackage.adrReadinessChecklist.slice(0, 6).map((item) => (
+                        <p key={item.id}>
+                          {item.code}: {item.status}
+                        </p>
+                      ))}
+                      {governancePackage.adrReadinessChecklist.length === 0 ? (
+                        <p>No ADR readiness checks.</p>
+                      ) : null}
+                    </div>
+                    <div className="report-section">
+                      <strong>Unresolved Blockers</strong>
+                      {governancePackage.blockers.slice(0, 6).map((blocker) => (
+                        <p key={blocker.id}>
+                          {blocker.severity} {blocker.code}: {blocker.summary}
+                        </p>
+                      ))}
+                      {governancePackage.blockers.length === 0 ? (
+                        <p>No unresolved blockers in the read-only package.</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p>Recommendation is ADR readiness guidance only and does not grant execution.</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only governance review package is available yet.</p>
+          )}
+        </Panel>
+
         <Panel title="Codex Reviewer Handoff">
           {overview.codexExecReviewerHandoffs.length > 0 ? (
             <ul>
@@ -776,6 +869,15 @@ function uniqueReviewDryRunIds(reviews: CodexExecReportReviewRecord[]): string[]
   return Array.from(new Set(reviews.map((review) => review.dryRunId))).filter(
     (dryRunId) => dryRunId.length > 0,
   );
+}
+
+function uniqueGovernanceDryRunIds(
+  runs: CodexExecLiveRunRecord[],
+  reviews: CodexExecReportReviewRecord[],
+): string[] {
+  return Array.from(
+    new Set([...runs.map((run) => run.dryRunPlanId), ...reviews.map((review) => review.dryRunId)]),
+  ).filter((dryRunId) => dryRunId.length > 0);
 }
 
 async function getJson<T>(path: string): Promise<T> {

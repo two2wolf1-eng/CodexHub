@@ -9,6 +9,7 @@ import {
   createCodexExecApprovalTransitionResult,
   buildControlPlaneDrilldownView,
   buildCodexExecControlPlaneReport,
+  buildCodexExecGovernanceReviewPackage,
   buildCodexExecReportReviewHistory,
   buildCodexExecReviewerHandoffSummary,
   compareCodexExecReportReviews,
@@ -112,6 +113,11 @@ export interface CodexExecReportReviewListCliOptions extends CodexExecJsonCliOpt
 export interface CodexExecReportReviewHandoffCliOptions extends CodexExecJsonCliOptions {
   from?: string;
   to?: string;
+}
+
+export interface CodexExecGovernancePackageCliOptions extends CodexExecJsonCliOptions {
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
 }
 
 export function buildProgram(): Command {
@@ -335,6 +341,18 @@ export function buildProgram(): Command {
       }
 
       console.log(output);
+    });
+
+  execCommand
+    .command('governance-package')
+    .argument('<dryRunId>')
+    .option('--include-evidence', 'Include evidence summaries')
+    .option('--include-audit', 'Include audit summaries')
+    .option('--json', 'Print full JSON output')
+    .description('Read ADR readiness governance package without granting execution')
+    .action(async (dryRunId: string, options: CodexExecGovernancePackageCliOptions) => {
+      const result = await getCodexExecGovernancePackage(dryRunId, options);
+      console.log(formatCodexExecGovernancePackageOutput(result, options));
     });
 
   const reportReviewCommand = execCommand
@@ -1076,6 +1094,47 @@ export async function getCodexExecReport(
   }
 }
 
+export async function getCodexExecGovernancePackage(
+  dryRunId: string,
+  options: CodexExecGovernancePackageCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createGovernancePackageQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/governance-package/${encodeURIComponent(dryRunId)}${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const reviews = createLocalReportReviewRecords(record.dryRunPlanId);
+    const governancePackage = buildCodexExecGovernanceReviewPackage({
+      dryRunId: record.dryRunPlanId,
+      record,
+      reportReviews: reviews,
+      includeEvidence: options.includeEvidence ?? true,
+      includeAudit: options.includeAudit ?? true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    });
+
+    return {
+      governancePackage,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -1552,6 +1611,76 @@ export function formatCodexExecReportOutput(result: Record<string, unknown>): st
   ].join('\n');
 }
 
+export function formatCodexExecGovernancePackageOutput(
+  result: Record<string, unknown>,
+  options: CodexExecGovernancePackageCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const governancePackage = result.governancePackage as
+    | {
+        dryRunId?: string;
+        status?: string;
+        recommendation?: string;
+        recommendationGrantsExecution?: boolean;
+        riskClassification?: string;
+        summary?: {
+          blockerCount?: number;
+          unresolvedBlockerCount?: number;
+          checklistPassedCount?: number;
+          checklistWarningCount?: number;
+          checklistFailedCount?: number;
+          evidenceRefCount?: number;
+          auditEventCount?: number;
+        };
+        noLiveEvidence?: {
+          noRealCodexExec?: boolean;
+          noExternalProcessStarted?: boolean;
+          noBrowserOrCdpAction?: boolean;
+          noWorkspaceWrite?: boolean;
+        };
+        blockers?: Array<{ code?: string; severity?: string; summary?: string }>;
+      }
+    | undefined;
+  const blockerLines = (governancePackage?.blockers ?? [])
+    .slice(0, 5)
+    .map(
+      (blocker) =>
+        `- ${blocker.severity ?? 'unknown'} ${blocker.code ?? 'unknown'}: ${
+          blocker.summary ?? 'no summary'
+        }`,
+    );
+
+  return [
+    'Codex governance review package',
+    `dryRunId: ${governancePackage?.dryRunId ?? 'unknown'}`,
+    `status: ${governancePackage?.status ?? 'unknown'}`,
+    `risk: ${governancePackage?.riskClassification ?? 'unknown'}`,
+    `recommendation: ${governancePackage?.recommendation ?? 'unknown'} (does not grant execution)`,
+    `recommendationGrantsExecution=${String(
+      governancePackage?.recommendationGrantsExecution ?? false,
+    )}`,
+    `checklist: ${governancePackage?.summary?.checklistPassedCount ?? 0} passed, ${
+      governancePackage?.summary?.checklistWarningCount ?? 0
+    } warnings, ${governancePackage?.summary?.checklistFailedCount ?? 0} failed`,
+    `blockers: ${governancePackage?.summary?.unresolvedBlockerCount ?? 0}`,
+    `evidence: ${governancePackage?.summary?.evidenceRefCount ?? 0}`,
+    `audit: ${governancePackage?.summary?.auditEventCount ?? 0}`,
+    `noLive: codex=${String(
+      governancePackage?.noLiveEvidence?.noRealCodexExec ?? true,
+    )}, process=${String(
+      governancePackage?.noLiveEvidence?.noExternalProcessStarted ?? true,
+    )}, browserCdp=${String(
+      governancePackage?.noLiveEvidence?.noBrowserOrCdpAction ?? true,
+    )}, workspaceWrite=${String(governancePackage?.noLiveEvidence?.noWorkspaceWrite ?? true)}`,
+    noLiveFlagsText(result),
+    blockerLines.length > 0 ? 'unresolved blockers:' : 'unresolved blockers: none',
+    ...blockerLines,
+  ].join('\n');
+}
+
 export function formatCodexExecReportReviewOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -1859,6 +1988,16 @@ function createReportQueryString(options: CodexExecReportCliOptions): string {
   const params = new URLSearchParams();
 
   params.set('format', normalizeReportFormat(options.format));
+  params.set('includeEvidence', String(options.includeEvidence ?? true));
+  params.set('includeAudit', String(options.includeAudit ?? true));
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function createGovernancePackageQueryString(options: CodexExecGovernancePackageCliOptions): string {
+  const params = new URLSearchParams();
+
   params.set('includeEvidence', String(options.includeEvidence ?? true));
   params.set('includeAudit', String(options.includeAudit ?? true));
 

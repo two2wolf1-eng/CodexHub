@@ -23,6 +23,7 @@ import type {
   CodexExecControlPlaneReportStatus,
   CodexExecControlPlaneReportSummary,
   CodexExecControlPlaneTimeline,
+  CodexExecAdrReadinessChecklistItem,
   CodexExecDryRunPlan,
   CodexExecEvidenceDetailView,
   CodexExecEvidenceQuery,
@@ -49,6 +50,13 @@ import type {
   CodexExecPreflightCheck,
   CodexExecPreflightResult,
   CodexExecReplayResult,
+  CodexExecGovernanceBlocker,
+  CodexExecGovernanceReviewPackage,
+  CodexExecGovernanceReviewPackageQuery,
+  CodexExecGovernanceReviewPackageSection,
+  CodexExecGovernanceReviewPackageStatus,
+  CodexExecGovernanceReviewPackageSummary,
+  CodexExecNoLiveEvidenceSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -2118,6 +2126,37 @@ export interface CodexExecReviewerHandoffOptions {
   toReviewer?: string;
 }
 
+export interface CodexExecGovernanceReviewPackageInput {
+  dryRunId: string;
+  record?: CodexExecLiveRunRecord;
+  records?: CodexExecLiveRunRecord[];
+  approvalRecords?: CodexExecManualApprovalRecord[];
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
+  report?: CodexExecControlPlaneReport;
+  reportReviews?: CodexExecReportReviewRecord[];
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
+  degraded?: boolean;
+  reason?: string;
+}
+
+const governanceReviewPackageSectionOrder: CodexExecGovernanceReviewPackageSection[] = [
+  'dry_run',
+  'timeline',
+  'evidence',
+  'audit',
+  'report',
+  'report_review',
+  'review_history',
+  'handoff',
+  'no_live_boundary',
+  'adr_readiness',
+  'risks',
+  'blockers',
+  'recommendation',
+];
+
 export function getLatestCodexExecReportReview(
   records: CodexExecReportReviewRecord[],
   dryRunId: string,
@@ -2267,6 +2306,577 @@ export function buildCodexExecReviewerHandoffSummary(
       latestReviewId: latest?.id,
       fromReviewer: options.fromReviewer,
       toReviewer: options.toReviewer,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function buildCodexExecAdrReadinessChecklist(input: {
+  dryRunId: string;
+  report?: CodexExecControlPlaneReport;
+  reviewHistory?: CodexExecReportReviewHistoryView;
+  handoff?: CodexExecReviewerHandoffSummary;
+  noLiveEvidence?: CodexExecNoLiveEvidenceSummary;
+}): CodexExecAdrReadinessChecklistItem[] {
+  const report = input.report;
+  const history = input.reviewHistory;
+  const handoff = input.handoff;
+  const noLiveEvidence = input.noLiveEvidence;
+
+  return [
+    createAdrReadinessChecklistItem({
+      code: 'dry_run_available',
+      label: 'Dry-run is available',
+      status: report?.status === 'found' ? 'passed' : 'failed',
+      summary:
+        report?.status === 'found'
+          ? 'Dry-run metadata is available as summary/hash-only data.'
+          : 'A dry-run record is required before ADR readiness review.',
+      sourceSection: 'dry_run',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'timeline_available',
+      label: 'Timeline is available',
+      status: report?.sections.some(
+        (section) => section.kind === 'timeline' && section.status === 'ok',
+      )
+        ? 'passed'
+        : 'warning',
+      summary: 'Control-plane timeline should be present before live-adapter ADR review.',
+      sourceSection: 'timeline',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'evidence_summary_available',
+      label: 'Evidence summary is available',
+      status: (noLiveEvidence?.evidenceRefCount ?? 0) > 0 ? 'passed' : 'warning',
+      summary: 'Evidence remains metadata/hash-only and should be present for ADR review.',
+      sourceSection: 'evidence',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'audit_summary_available',
+      label: 'Audit summary is available',
+      status: (noLiveEvidence?.auditEventCount ?? 0) > 0 ? 'passed' : 'warning',
+      summary: 'Audit events should be present and metadata-only for ADR review.',
+      sourceSection: 'audit',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'report_review_available',
+      label: 'Report review is available',
+      status: history?.latestReview ? 'passed' : 'failed',
+      summary: history?.latestReview
+        ? 'Latest report review is available and non-executing.'
+        : 'At least one report review is required before ADR readiness review.',
+      sourceSection: 'report_review',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'review_history_available',
+      label: 'Review history is available',
+      status: (history?.historyCount ?? 0) > 0 ? 'passed' : 'failed',
+      summary:
+        (history?.historyCount ?? 0) > 0
+          ? 'Review history is available for comparison.'
+          : 'Review history is missing for this dry-run.',
+      sourceSection: 'review_history',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'handoff_summary_available',
+      label: 'Reviewer handoff summary is available',
+      status: (handoff?.reviewCount ?? 0) > 0 ? 'passed' : 'warning',
+      summary:
+        (handoff?.reviewCount ?? 0) > 0
+          ? 'Reviewer handoff summary is available and does not grant execution.'
+          : 'Handoff summary has no review records to summarize.',
+      sourceSection: 'handoff',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'no_live_boundary_confirmed',
+      label: 'No-live boundary is confirmed',
+      status:
+        noLiveEvidence?.noRealCodexExec === true &&
+        noLiveEvidence.noExternalProcessStarted === true &&
+        noLiveEvidence.noBrowserOrCdpAction === true &&
+        noLiveEvidence.noWorkspaceWrite === true
+          ? 'passed'
+          : 'failed',
+      summary:
+        'No live execution, external process, browser/CDP action, or workspace write is allowed.',
+      sourceSection: 'no_live_boundary',
+    }),
+    createAdrReadinessChecklistItem({
+      code: 'live_adapter_requires_separate_adr',
+      label: 'Live adapter requires separate ADR',
+      status: 'passed',
+      summary: 'This package is only ADR readiness evidence and is not execution permission.',
+      sourceSection: 'adr_readiness',
+    }),
+  ];
+}
+
+export function buildCodexExecNoLiveEvidenceSummary(input: {
+  dryRunId: string;
+  drilldown?: CodexExecControlPlaneDrilldownView;
+  record?: CodexExecLiveRunRecord;
+}): CodexExecNoLiveEvidenceSummary {
+  const evidenceItems = input.drilldown?.evidenceSearch.items ?? [];
+  const auditItems = input.drilldown?.auditSearch.items ?? [];
+
+  return {
+    id: foundationId('codex_no_live_evidence'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    noRealCodexExec: true,
+    noExternalProcessStarted: true,
+    noBrowserOrCdpAction: true,
+    noWorkspaceWrite: true,
+    noExecutionApprovalGranted: true,
+    evidenceRefCount: input.drilldown?.evidenceCount ?? input.record?.evidenceRefs.length ?? 0,
+    auditEventCount: input.drilldown?.auditEventCount ?? input.record?.auditEvents.length ?? 0,
+    evidenceKinds: uniqueStrings(evidenceItems.map((item) => item.kind ?? 'unknown')),
+    auditActions: uniqueStrings(auditItems.map((item) => item.action ?? 'unknown')),
+    summary:
+      'No-live evidence confirms this governance package is read-only and does not grant execution.',
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      evidenceRefCount: input.drilldown?.evidenceCount ?? input.record?.evidenceRefs.length ?? 0,
+      auditEventCount: input.drilldown?.auditEventCount ?? input.record?.auditEvents.length ?? 0,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function classifyCodexExecGovernanceRisk(input: {
+  report?: CodexExecControlPlaneReport;
+  reviewHistory?: CodexExecReportReviewHistoryView;
+  blockers?: CodexExecGovernanceBlocker[];
+}): CodexExecReportRiskClassification {
+  const blockerRisk = (input.blockers ?? []).reduce<CodexExecReportRiskClassification | undefined>(
+    (current, blocker) => maxRisk(current, blocker.severity),
+    undefined,
+  );
+  const latestReviewRisk = input.reviewHistory?.latestReview?.riskClassification;
+  const reportRisk = input.report?.summary.riskLevel;
+  const risks = [blockerRisk, latestReviewRisk, reportRisk].filter(
+    (risk): risk is CodexExecReportRiskClassification => Boolean(risk),
+  );
+
+  return (
+    risks.reduce<CodexExecReportRiskClassification | undefined>(
+      (current, risk) => maxRisk(current, risk),
+      undefined,
+    ) ?? 'low'
+  );
+}
+
+export function buildCodexExecGovernanceReviewPackage(
+  input: CodexExecGovernanceReviewPackageInput,
+): CodexExecGovernanceReviewPackage {
+  const includeEvidence = input.includeEvidence ?? true;
+  const includeAudit = input.includeAudit ?? true;
+  const records = input.record ? [input.record] : (input.records ?? []);
+  const record =
+    input.record ??
+    records.find(
+      (candidate) => candidate.id === input.dryRunId || candidate.dryRunPlanId === input.dryRunId,
+    );
+  const dryRunId = record?.dryRunPlanId ?? input.dryRunId;
+  const approvalRecords = (input.approvalRecords ?? []).filter(
+    (approvalRecord) => approvalRecord.request.dryRunPlanId === dryRunId,
+  );
+  const report =
+    input.report ??
+    buildCodexExecControlPlaneReport({
+      dryRunId,
+      record,
+      records,
+      approvalRecords,
+      evidenceRefs: input.evidenceRefs,
+      auditEvents: input.auditEvents,
+      includeEvidence,
+      includeAudit,
+      degraded: input.degraded,
+      reason: input.reason,
+    });
+  const drilldown = buildControlPlaneDrilldownView({
+    dryRunId,
+    records: record ? [record] : records,
+    approvalRecords,
+    evidenceRefs: input.evidenceRefs,
+    auditEvents: input.auditEvents,
+  });
+  const reviewHistory = buildCodexExecReportReviewHistory(input.reportReviews ?? [], {
+    dryRunId,
+    limit: 20,
+  });
+  const handoff = buildCodexExecReviewerHandoffSummary(input.reportReviews ?? [], dryRunId);
+  const noLiveEvidence = buildCodexExecNoLiveEvidenceSummary({ dryRunId, drilldown, record });
+  const adrReadinessChecklist = buildCodexExecAdrReadinessChecklist({
+    dryRunId,
+    report,
+    reviewHistory,
+    handoff,
+    noLiveEvidence,
+  });
+  const blockers = createGovernanceBlockers({
+    dryRunId,
+    report,
+    reviewHistory,
+    adrReadinessChecklist,
+    degraded: input.degraded,
+    reason: input.reason,
+  });
+  const riskClassification = classifyCodexExecGovernanceRisk({
+    report,
+    reviewHistory,
+    blockers,
+  });
+  const recommendation = recommendationForGovernancePackage(riskClassification, blockers);
+  const status = statusForGovernancePackage(report, blockers, recommendation);
+  const summary = createGovernanceReviewPackageSummary({
+    dryRunId,
+    status,
+    riskClassification,
+    recommendation,
+    adrReadinessChecklist,
+    blockers,
+    noLiveEvidence,
+    reviewHistory,
+    report,
+    handoff,
+  });
+
+  return {
+    id: foundationId('codex_governance_package'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    status,
+    query: createGovernanceReviewPackageQuery({ dryRunId, includeEvidence, includeAudit }),
+    summary,
+    sectionOrder: governanceReviewPackageSectionOrder,
+    report,
+    reviewHistory,
+    latestReview: reviewHistory.latestReview,
+    handoff,
+    noLiveEvidence,
+    adrReadinessChecklist,
+    blockers,
+    riskClassification,
+    recommendation,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      reportId: report.id,
+      status,
+      recommendation,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function summarizeCodexExecGovernanceReviewPackage(
+  governancePackage: CodexExecGovernanceReviewPackage,
+): CodexExecGovernanceReviewPackageSummary {
+  return {
+    ...governancePackage.summary,
+    id: foundationId('codex_governance_package_summary'),
+    createdAt: foundationTimestamp(),
+  };
+}
+
+function createGovernanceReviewPackageQuery(input: {
+  dryRunId: string;
+  includeEvidence: boolean;
+  includeAudit: boolean;
+}): CodexExecGovernanceReviewPackageQuery {
+  return {
+    id: foundationId('codex_governance_package_query'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    includeEvidence: input.includeEvidence,
+    includeAudit: input.includeAudit,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      includeEvidence: input.includeEvidence,
+      includeAudit: input.includeAudit,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function createAdrReadinessChecklistItem(input: {
+  code: string;
+  label: string;
+  status: CodexExecAdrReadinessChecklistItem['status'];
+  summary: string;
+  sourceSection?: CodexExecGovernanceReviewPackageSection;
+  required?: boolean;
+}): CodexExecAdrReadinessChecklistItem {
+  return {
+    id: foundationId('codex_adr_readiness_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    status: input.status,
+    required: input.required ?? true,
+    summary: input.summary,
+    sourceSection: input.sourceSection,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      checklistCode: input.code,
+      sourceSection: input.sourceSection,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function createGovernanceBlockers(input: {
+  dryRunId: string;
+  report: CodexExecControlPlaneReport;
+  reviewHistory: CodexExecReportReviewHistoryView;
+  adrReadinessChecklist: CodexExecAdrReadinessChecklistItem[];
+  degraded?: boolean;
+  reason?: string;
+}): CodexExecGovernanceBlocker[] {
+  const blockers = input.adrReadinessChecklist
+    .filter((item) => item.status === 'failed')
+    .map((item) =>
+      createGovernanceBlocker({
+        dryRunId: input.dryRunId,
+        severity: severityForReadinessCheck(item.code),
+        code: item.code,
+        summary: item.summary,
+        sourceSection: item.sourceSection,
+        recommendedResolution: resolutionForReadinessCheck(item.code),
+      }),
+    );
+
+  if (input.report.status === 'not_found') {
+    blockers.push(
+      createGovernanceBlocker({
+        dryRunId: input.dryRunId,
+        severity: 'high',
+        code: 'governance_report_not_found',
+        summary: 'Governance package cannot be ADR-ready without a control-plane report.',
+        sourceSection: 'report',
+        recommendedResolution: 'Create a dry-run and read-only report before ADR readiness review.',
+      }),
+    );
+  }
+
+  if (input.degraded) {
+    blockers.push(
+      createGovernanceBlocker({
+        dryRunId: input.dryRunId,
+        severity: 'medium',
+        code: 'governance_package_degraded',
+        summary: input.reason ?? 'Governance package was built from degraded control-plane data.',
+        sourceSection: 'risks',
+        recommendedResolution: 'Resolve degraded state before using this package for ADR review.',
+      }),
+    );
+  }
+
+  if (!input.reviewHistory.latestReview) {
+    blockers.push(
+      createGovernanceBlocker({
+        dryRunId: input.dryRunId,
+        severity: 'medium',
+        code: 'governance_latest_review_missing',
+        summary: 'Latest report review is missing.',
+        sourceSection: 'report_review',
+        recommendedResolution: 'Create a non-executing report review record before ADR review.',
+      }),
+    );
+  }
+
+  return dedupeGovernanceBlockers(blockers);
+}
+
+function createGovernanceBlocker(input: {
+  dryRunId: string;
+  severity: CodexExecReportRiskClassification;
+  code: string;
+  summary: string;
+  sourceSection?: CodexExecGovernanceReviewPackageSection;
+  recommendedResolution: string;
+}): CodexExecGovernanceBlocker {
+  return {
+    id: foundationId('codex_governance_blocker'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    severity: input.severity,
+    code: input.code,
+    summary: input.summary,
+    sourceSection: input.sourceSection,
+    recommendedResolution: input.recommendedResolution,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      blockerCode: input.code,
+      sourceSection: input.sourceSection,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function dedupeGovernanceBlockers(
+  blockers: CodexExecGovernanceBlocker[],
+): CodexExecGovernanceBlocker[] {
+  const seen = new Set<string>();
+
+  return blockers.filter((blocker) => {
+    if (seen.has(blocker.code)) {
+      return false;
+    }
+
+    seen.add(blocker.code);
+    return true;
+  });
+}
+
+function severityForReadinessCheck(code: string): CodexExecReportRiskClassification {
+  if (code === 'dry_run_available' || code === 'no_live_boundary_confirmed') {
+    return 'high';
+  }
+
+  return 'medium';
+}
+
+function resolutionForReadinessCheck(code: string): string {
+  switch (code) {
+    case 'dry_run_available':
+      return 'Create a disabled dry-run record before ADR review.';
+    case 'report_review_available':
+      return 'Create a non-executing report review record.';
+    case 'review_history_available':
+      return 'Create report review history before comparing ADR readiness.';
+    case 'no_live_boundary_confirmed':
+      return 'Restore no-live flags before any ADR readiness review.';
+    default:
+      return 'Complete the missing read-only governance evidence.';
+  }
+}
+
+function recommendationForGovernancePackage(
+  riskClassification: CodexExecReportRiskClassification,
+  blockers: CodexExecGovernanceBlocker[],
+): CodexExecReportRecommendation {
+  if (
+    riskClassification === 'critical' ||
+    blockers.some((blocker) => blocker.severity === 'critical' || blocker.severity === 'high')
+  ) {
+    return 'no_go';
+  }
+
+  if (riskClassification === 'high' || blockers.length > 0) {
+    return 'needs_changes';
+  }
+
+  return 'ready_for_adr';
+}
+
+function statusForGovernancePackage(
+  report: CodexExecControlPlaneReport,
+  blockers: CodexExecGovernanceBlocker[],
+  recommendation: CodexExecReportRecommendation,
+): CodexExecGovernanceReviewPackageStatus {
+  if (report.status === 'not_found') {
+    return 'not_found';
+  }
+
+  if (blockers.some((blocker) => blocker.severity === 'critical' || blocker.severity === 'high')) {
+    return 'blocked';
+  }
+
+  if (recommendation === 'no_go') {
+    return 'no_go';
+  }
+
+  if (recommendation === 'needs_changes') {
+    return 'needs_changes';
+  }
+
+  if (recommendation === 'ready_for_adr') {
+    return 'ready_for_adr';
+  }
+
+  return 'degraded';
+}
+
+function createGovernanceReviewPackageSummary(input: {
+  dryRunId: string;
+  status: CodexExecGovernanceReviewPackageStatus;
+  riskClassification: CodexExecReportRiskClassification;
+  recommendation: CodexExecReportRecommendation;
+  adrReadinessChecklist: CodexExecAdrReadinessChecklistItem[];
+  blockers: CodexExecGovernanceBlocker[];
+  noLiveEvidence: CodexExecNoLiveEvidenceSummary;
+  reviewHistory: CodexExecReportReviewHistoryView;
+  report: CodexExecControlPlaneReport;
+  handoff: CodexExecReviewerHandoffSummary;
+}): CodexExecGovernanceReviewPackageSummary {
+  return {
+    id: foundationId('codex_governance_package_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    status: input.status,
+    riskClassification: input.riskClassification,
+    recommendation: input.recommendation,
+    recommendationGrantsExecution: false,
+    checklistPassedCount: input.adrReadinessChecklist.filter((item) => item.status === 'passed')
+      .length,
+    checklistWarningCount: input.adrReadinessChecklist.filter((item) => item.status === 'warning')
+      .length,
+    checklistFailedCount: input.adrReadinessChecklist.filter((item) => item.status === 'failed')
+      .length,
+    blockerCount: input.blockers.length,
+    unresolvedBlockerCount: input.blockers.length,
+    evidenceRefCount: input.noLiveEvidence.evidenceRefCount,
+    auditEventCount: input.noLiveEvidence.auditEventCount,
+    latestReviewId: input.reviewHistory.latestReview?.reviewId,
+    reportId: input.report.id,
+    handoffId: input.handoff.id,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: input.dryRunId,
+      status: input.status,
+      recommendation: input.recommendation,
+      blockerCount: input.blockers.length,
       recommendationGrantsExecution: false,
     }),
   };

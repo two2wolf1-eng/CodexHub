@@ -1575,6 +1575,153 @@ export const CodexExecReviewerHandoffSummarySchema = createdEntityBaseSchema
   });
 export type CodexExecReviewerHandoffSummary = z.infer<typeof CodexExecReviewerHandoffSummarySchema>;
 
+export const CodexExecGovernanceReviewPackageSectionSchema = z.enum([
+  'dry_run',
+  'timeline',
+  'evidence',
+  'audit',
+  'report',
+  'report_review',
+  'review_history',
+  'handoff',
+  'no_live_boundary',
+  'adr_readiness',
+  'risks',
+  'blockers',
+  'recommendation',
+]);
+export type CodexExecGovernanceReviewPackageSection = z.infer<
+  typeof CodexExecGovernanceReviewPackageSectionSchema
+>;
+
+export const CodexExecGovernanceReviewPackageStatusSchema = z.enum([
+  'found',
+  'not_found',
+  'degraded',
+  'blocked',
+  'ready_for_adr',
+  'needs_changes',
+  'no_go',
+]);
+export type CodexExecGovernanceReviewPackageStatus = z.infer<
+  typeof CodexExecGovernanceReviewPackageStatusSchema
+>;
+
+export const CodexExecGovernanceReviewPackageQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    includeEvidence: z.boolean().default(true),
+    includeAudit: z.boolean().default(true),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecGovernanceReviewPackageQuery = z.infer<
+  typeof CodexExecGovernanceReviewPackageQuerySchema
+>;
+
+export const CodexExecAdrReadinessChecklistItemSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    status: z.enum(['passed', 'failed', 'warning']),
+    required: z.boolean().default(true),
+    summary: z.string().min(1),
+    sourceSection: CodexExecGovernanceReviewPackageSectionSchema.optional(),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecAdrReadinessChecklistItem = z.infer<
+  typeof CodexExecAdrReadinessChecklistItemSchema
+>;
+
+export const CodexExecNoLiveEvidenceSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    noRealCodexExec: z.literal(true),
+    noExternalProcessStarted: z.literal(true),
+    noBrowserOrCdpAction: z.literal(true),
+    noWorkspaceWrite: z.literal(true),
+    noExecutionApprovalGranted: z.literal(true),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    evidenceKinds: z.array(z.string()).default([]),
+    auditActions: z.array(z.string()).default([]),
+    summary: z.string().min(1),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecNoLiveEvidenceSummary = z.infer<typeof CodexExecNoLiveEvidenceSummarySchema>;
+
+export const CodexExecGovernanceBlockerSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    severity: CodexExecReportRiskClassificationSchema,
+    code: z.string().min(1),
+    summary: z.string().min(1),
+    sourceSection: CodexExecGovernanceReviewPackageSectionSchema.optional(),
+    recommendedResolution: z.string().min(1),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecGovernanceBlocker = z.infer<typeof CodexExecGovernanceBlockerSchema>;
+
+export const CodexExecGovernanceReviewPackageSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecGovernanceReviewPackageStatusSchema,
+    riskClassification: CodexExecReportRiskClassificationSchema,
+    recommendation: CodexExecReportRecommendationSchema,
+    recommendationGrantsExecution: z.literal(false),
+    checklistPassedCount: z.number().int().nonnegative(),
+    checklistWarningCount: z.number().int().nonnegative(),
+    checklistFailedCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    unresolvedBlockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    latestReviewId: z.string().min(1).optional(),
+    reportId: z.string().min(1).optional(),
+    handoffId: z.string().min(1).optional(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecGovernanceReviewPackageSummary = z.infer<
+  typeof CodexExecGovernanceReviewPackageSummarySchema
+>;
+
+export const CodexExecGovernanceReviewPackageSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecGovernanceReviewPackageStatusSchema,
+    query: CodexExecGovernanceReviewPackageQuerySchema,
+    summary: CodexExecGovernanceReviewPackageSummarySchema,
+    sectionOrder: z.array(CodexExecGovernanceReviewPackageSectionSchema),
+    report: CodexExecControlPlaneReportSchema.optional(),
+    reviewHistory: CodexExecReportReviewHistoryViewSchema,
+    latestReview: CodexExecReportReviewSummarySchema.optional(),
+    handoff: CodexExecReviewerHandoffSummarySchema,
+    noLiveEvidence: CodexExecNoLiveEvidenceSummarySchema,
+    adrReadinessChecklist: z.array(CodexExecAdrReadinessChecklistItemSchema).default([]),
+    blockers: z.array(CodexExecGovernanceBlockerSchema).default([]),
+    riskClassification: CodexExecReportRiskClassificationSchema,
+    recommendation: CodexExecReportRecommendationSchema,
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecGovernanceReviewPackage = z.infer<
+  typeof CodexExecGovernanceReviewPackageSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

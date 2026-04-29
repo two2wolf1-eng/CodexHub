@@ -273,6 +273,14 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/report-reviews/handoff/${canonicalDryRunPlanId}?fromReviewer=local-operator&toReviewer=second-reviewer`,
     });
+    const governancePackageResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/governance-package/${canonicalDryRunPlanId}?includeEvidence=true&includeAudit=false`,
+    });
+    const missingGovernancePackageResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/governance-package/missing_dry_run',
+    });
     const missingReportReviewResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/report-review/missing_review',
@@ -743,6 +751,52 @@ describe('supervisor mock development API', () => {
     expect(reportReviewHandoffResponse.json().handoff.handoffSummary).toContain(
       'does not grant execution',
     );
+    expect(governancePackageResponse.statusCode).toBe(200);
+    expect(governancePackageResponse.json()).toMatchObject({
+      governancePackage: {
+        dryRunId: canonicalDryRunPlanId,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        query: {
+          includeEvidence: true,
+          includeAudit: false,
+        },
+        noLiveEvidence: {
+          noRealCodexExec: true,
+          noExternalProcessStarted: true,
+          noBrowserOrCdpAction: true,
+          noWorkspaceWrite: true,
+          noExecutionApprovalGranted: true,
+        },
+        summary: {
+          recommendationGrantsExecution: false,
+        },
+      },
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(
+      governancePackageResponse
+        .json()
+        .governancePackage.adrReadinessChecklist.map((item: { code: string }) => item.code),
+    ).toContain('live_adapter_requires_separate_adr');
+    expect(JSON.stringify(governancePackageResponse.json())).not.toContain('list risk areas');
+    expect(missingGovernancePackageResponse.statusCode).toBe(404);
+    expect(missingGovernancePackageResponse.json()).toMatchObject({
+      governancePackage: {
+        status: 'not_found',
+        recommendation: 'no_go',
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(missingGovernancePackageResponse.body).not.toContain(process.cwd());
     expect(missingReportReviewResponse.statusCode).toBe(404);
     expect(missingReportReviewResponse.body).not.toContain(process.cwd());
     expect(missingReportReviewLatestResponse.statusCode).toBe(404);

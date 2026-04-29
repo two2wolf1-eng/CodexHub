@@ -304,11 +304,13 @@ describe('cli development mock-run fallback', () => {
     const {
       createCodexExecReportReview,
       compareCodexExecReportReviewCommand,
+      formatCodexExecGovernancePackageOutput,
       formatCodexExecReportReviewOutput,
       formatCodexExecReportReviewComparisonOutput,
       formatCodexExecReportReviewHandoffOutput,
       formatCodexExecReportReviewHistoryOutput,
       formatCodexExecReportReviewListOutput,
+      getCodexExecGovernancePackage,
       getCodexExecReportReviewHandoff,
       getCodexExecReportReviewHistory,
       getCodexExecReportReview,
@@ -341,10 +343,15 @@ describe('cli development mock-run fallback', () => {
       from: 'local-operator',
       to: 'next-reviewer',
     });
+    const governancePackage = await getCodexExecGovernancePackage('codex_dry_run_fixture', {
+      includeEvidence: true,
+      includeAudit: true,
+    });
     const listOutput = formatCodexExecReportReviewListOutput(list);
     const historyOutput = formatCodexExecReportReviewHistoryOutput(history);
     const comparisonOutput = formatCodexExecReportReviewComparisonOutput(comparison);
     const handoffOutput = formatCodexExecReportReviewHandoffOutput(handoff);
+    const governanceOutput = formatCodexExecGovernancePackageOutput(governancePackage);
 
     expect(result).toMatchObject({
       reviewRecord: {
@@ -421,15 +428,33 @@ describe('cli development mock-run fallback', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    expect(governancePackage).toMatchObject({
+      governancePackage: {
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        noLiveEvidence: {
+          noRealCodexExec: true,
+          noExternalProcessStarted: true,
+        },
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
     expect(output).toContain('does not grant execution');
     expect(output).not.toContain('execution approval');
     expect(listOutput).toContain('grantsExecution=false');
     expect(historyOutput).toContain('recommendation grants execution: false');
     expect(comparisonOutput).toContain('recommendationGrantsExecution=false');
     expect(handoffOutput).toContain('does not grant execution');
+    expect(governanceOutput).toContain('does not grant execution');
+    expect(governanceOutput).not.toContain('execution approval');
     expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
     expect(JSON.stringify(history)).not.toContain('Local control-plane fallback for');
     expect(JSON.stringify(comparison)).not.toContain('Local control-plane fallback for');
     expect(JSON.stringify(handoff)).not.toContain('Local control-plane fallback for');
+    expect(JSON.stringify(governancePackage)).not.toContain('Local control-plane fallback for');
   });
 });
