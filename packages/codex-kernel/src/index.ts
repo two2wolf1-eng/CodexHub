@@ -50,13 +50,18 @@ import type {
   CodexExecPreflightResult,
   CodexExecReplayResult,
   CodexExecReportRecommendation,
+  CodexExecReportReviewComparison,
+  CodexExecReportReviewComparisonItem,
   CodexExecReportReviewChecklistItem,
   CodexExecReportReviewFinding,
+  CodexExecReportReviewHistoryQuery,
+  CodexExecReportReviewHistoryView,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexExecReportReviewStatus,
   CodexExecReportReviewSummary,
   CodexExecReportRiskClassification,
+  CodexExecReviewerHandoffSummary,
   CodexExecSandboxMode,
   CodexExecTimelineFilter,
   CodexExecTimelineEvent,
@@ -2108,6 +2113,165 @@ export function listCodexExecReportReviewSummaries(
     .map(summarizeCodexExecReportReview);
 }
 
+export interface CodexExecReviewerHandoffOptions {
+  fromReviewer?: string;
+  toReviewer?: string;
+}
+
+export function getLatestCodexExecReportReview(
+  records: CodexExecReportReviewRecord[],
+  dryRunId: string,
+): CodexExecReportReviewRecord | undefined {
+  return sortReportReviewsNewestFirst(records.filter((record) => record.dryRunId === dryRunId))[0];
+}
+
+export function buildCodexExecReportReviewHistory(
+  records: CodexExecReportReviewRecord[],
+  query: Partial<CodexExecReportReviewHistoryQuery> = {},
+): CodexExecReportReviewHistoryView {
+  const normalizedQuery = createReportReviewHistoryQuery(query);
+  const filtered = sortReportReviewsNewestFirst(
+    filterReportReviews(records, normalizedQuery),
+  ).slice(0, normalizedQuery.limit);
+  const latest = filtered[0];
+  const previous = filtered[1];
+
+  return {
+    id: foundationId('codex_report_review_history'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: normalizedQuery.dryRunId,
+    query: normalizedQuery,
+    latestReview: latest ? summarizeCodexExecReportReview(latest) : undefined,
+    summaries: filtered.map(summarizeCodexExecReportReview),
+    comparison: latest && previous ? compareCodexExecReportReviews(previous, latest) : undefined,
+    historyCount: filtered.length,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: normalizedQuery.dryRunId,
+      historyCount: filtered.length,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function compareCodexExecReportReviews(
+  left: CodexExecReportReviewRecord,
+  right: CodexExecReportReviewRecord,
+): CodexExecReportReviewComparison {
+  const comparable = left.dryRunId === right.dryRunId;
+  const items = [
+    createReportReviewComparisonItem('dryRunId', left.dryRunId, right.dryRunId),
+    createReportReviewComparisonItem('status', left.status, right.status),
+    createReportReviewComparisonItem(
+      'riskClassification',
+      left.riskClassification,
+      right.riskClassification,
+    ),
+    createReportReviewComparisonItem('recommendation', left.recommendation, right.recommendation),
+    createReportReviewComparisonItem('reportHash', left.reportHash, right.reportHash),
+    createReportReviewComparisonItem(
+      'reportSectionHashes',
+      summarizeHashList(left.reportSectionHashes),
+      summarizeHashList(right.reportSectionHashes),
+    ),
+    createReportReviewComparisonItem(
+      'checklistStatus',
+      summarizeChecklistStatuses(left.checklistItems),
+      summarizeChecklistStatuses(right.checklistItems),
+    ),
+    createReportReviewComparisonItem(
+      'findingCodes',
+      summarizeFindingCodes(left.findings),
+      summarizeFindingCodes(right.findings),
+    ),
+    createReportReviewComparisonItem('findingCount', left.findings.length, right.findings.length),
+    createReportReviewComparisonItem('reviewerLabel', left.reviewerLabel, right.reviewerLabel),
+    createReportReviewComparisonItem('reviewedAt', left.reviewedAt, right.reviewedAt),
+  ];
+  const changedItemCount = items.filter((item) => item.changed).length;
+
+  return {
+    id: foundationId('codex_report_review_comparison'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    leftReviewId: left.id,
+    rightReviewId: right.id,
+    dryRunId: comparable ? left.dryRunId : undefined,
+    comparable,
+    summary: comparable
+      ? `Review metadata changed across ${changedItemCount} fields.`
+      : 'Reviews belong to different dry-run records; comparison is metadata-only.',
+    changedItemCount,
+    items,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: comparable ? left.dryRunId : undefined,
+      leftReviewId: left.id,
+      rightReviewId: right.id,
+      changedItemCount,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function buildCodexExecReviewerHandoffSummary(
+  records: CodexExecReportReviewRecord[],
+  dryRunId: string,
+  options: CodexExecReviewerHandoffOptions = {},
+): CodexExecReviewerHandoffSummary {
+  const history = sortReportReviewsNewestFirst(
+    records.filter((record) => record.dryRunId === dryRunId),
+  );
+  const latest = history[0];
+  const findingCount = latest?.findings.length ?? 0;
+  const failedChecklistCount =
+    latest?.checklistItems.filter((item) => item.status === 'failed').length ?? 0;
+
+  return {
+    id: foundationId('codex_reviewer_handoff'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    fromReviewer: options.fromReviewer,
+    toReviewer: options.toReviewer,
+    latestReviewId: latest?.id,
+    latestStatus: latest?.status,
+    latestRecommendation: latest?.recommendation,
+    latestRiskClassification: latest?.riskClassification,
+    reviewCount: history.length,
+    findingCount,
+    failedChecklistCount,
+    handoffSummary: createReviewerHandoffSummary(history.length, options),
+    recommendedNextStep: latest
+      ? recommendedNextStepForReportReview(latest)
+      : 'Create a read-only report review record before handoff.',
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      latestReviewId: latest?.id,
+      fromReviewer: options.fromReviewer,
+      toReviewer: options.toReviewer,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
 function evaluateReportChecklistCode(
   code: string,
   report: CodexExecControlPlaneReport | undefined,
@@ -2365,6 +2529,137 @@ function dedupeReviewFindings(
   }
 
   return deduped;
+}
+
+function createReportReviewHistoryQuery(
+  query: Partial<CodexExecReportReviewHistoryQuery>,
+): CodexExecReportReviewHistoryQuery {
+  return {
+    id: foundationId('codex_report_review_history_query'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: query.dryRunId,
+    status: query.status,
+    recommendation: query.recommendation,
+    limit: query.limit ?? 20,
+    recommendationGrantsExecution: false,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: query.dryRunId,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+function filterReportReviews(
+  records: CodexExecReportReviewRecord[],
+  query: Partial<CodexExecReportReviewQuery>,
+): CodexExecReportReviewRecord[] {
+  return records.filter((record) => {
+    if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+      return false;
+    }
+
+    if (query.status && record.status !== query.status) {
+      return false;
+    }
+
+    if (query.recommendation && record.recommendation !== query.recommendation) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function sortReportReviewsNewestFirst(
+  records: CodexExecReportReviewRecord[],
+): CodexExecReportReviewRecord[] {
+  return [...records].sort((left, right) => {
+    const byReviewedAt = right.reviewedAt.localeCompare(left.reviewedAt);
+    return byReviewedAt !== 0 ? byReviewedAt : right.createdAt.localeCompare(left.createdAt);
+  });
+}
+
+function createReportReviewComparisonItem(
+  field: string,
+  leftValue: string | number,
+  rightValue: string | number,
+): CodexExecReportReviewComparisonItem {
+  const leftValueSummary = String(leftValue);
+  const rightValueSummary = String(rightValue);
+
+  return {
+    id: foundationId('codex_report_review_comparison_item'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    field,
+    leftValueSummary,
+    rightValueSummary,
+    changed: leftValueSummary !== rightValueSummary,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      comparisonField: field,
+      changed: leftValueSummary !== rightValueSummary,
+    }),
+  };
+}
+
+function summarizeHashList(values: string[]): string {
+  return values.length > 0
+    ? `${values.length} hashes ${prefixedHash(stableStringify(values))}`
+    : '0 hashes';
+}
+
+function summarizeChecklistStatuses(items: CodexExecReportReviewChecklistItem[]): string {
+  return items.length > 0
+    ? items
+        .map((item) => `${item.code}:${item.status}`)
+        .sort()
+        .join(', ')
+    : 'none';
+}
+
+function summarizeFindingCodes(findings: CodexExecReportReviewFinding[]): string {
+  return findings.length > 0
+    ? findings
+        .map((finding) => `${finding.code}:${finding.severity}`)
+        .sort()
+        .join(', ')
+    : 'none';
+}
+
+function createReviewerHandoffSummary(
+  reviewCount: number,
+  options: CodexExecReviewerHandoffOptions,
+): string {
+  const from = options.fromReviewer ?? 'current reviewer';
+  const to = options.toReviewer ?? 'next reviewer';
+  return `${from} can hand off ${reviewCount} metadata-only report review records to ${to}; this does not grant execution.`;
+}
+
+function recommendedNextStepForReportReview(record: CodexExecReportReviewRecord): string {
+  if (record.recommendation === 'no_go' || record.status === 'rejected') {
+    return 'Stop and resolve review findings before any later ADR review.';
+  }
+
+  if (record.recommendation === 'needs_changes' || record.status === 'changes_requested') {
+    return 'Apply review feedback and create a new read-only report review record.';
+  }
+
+  if (record.recommendation === 'ready_for_adr') {
+    return 'Prepare a separate ADR; this review recommendation is not execution approval.';
+  }
+
+  return 'Continue read-only live-review preparation only after a separate ADR.';
 }
 
 export function createDefaultCodexExecLiveConfig(): CodexExecLiveConfig {

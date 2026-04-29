@@ -1492,6 +1492,89 @@ export const CodexExecReportReviewSummarySchema = createdEntityBaseSchema
   });
 export type CodexExecReportReviewSummary = z.infer<typeof CodexExecReportReviewSummarySchema>;
 
+export const CodexExecReportReviewHistoryQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    status: CodexExecReportReviewStatusSchema.optional(),
+    recommendation: CodexExecReportRecommendationSchema.optional(),
+    limit: z.number().int().positive().max(200).default(20),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewHistoryQuery = z.infer<
+  typeof CodexExecReportReviewHistoryQuerySchema
+>;
+
+export const CodexExecReportReviewComparisonItemSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    field: z.string().min(1),
+    leftValueSummary: z.string().min(1),
+    rightValueSummary: z.string().min(1),
+    changed: z.boolean(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewComparisonItem = z.infer<
+  typeof CodexExecReportReviewComparisonItemSchema
+>;
+
+export const CodexExecReportReviewComparisonSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    leftReviewId: z.string().min(1),
+    rightReviewId: z.string().min(1),
+    dryRunId: z.string().min(1).optional(),
+    comparable: z.boolean(),
+    summary: z.string().min(1),
+    changedItemCount: z.number().int().nonnegative(),
+    items: z.array(CodexExecReportReviewComparisonItemSchema).default([]),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewComparison = z.infer<typeof CodexExecReportReviewComparisonSchema>;
+
+export const CodexExecReportReviewHistoryViewSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    query: CodexExecReportReviewHistoryQuerySchema,
+    latestReview: CodexExecReportReviewSummarySchema.optional(),
+    summaries: z.array(CodexExecReportReviewSummarySchema).default([]),
+    comparison: CodexExecReportReviewComparisonSchema.optional(),
+    historyCount: z.number().int().nonnegative(),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewHistoryView = z.infer<
+  typeof CodexExecReportReviewHistoryViewSchema
+>;
+
+export const CodexExecReviewerHandoffSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    fromReviewer: z.string().min(1).optional(),
+    toReviewer: z.string().min(1).optional(),
+    latestReviewId: z.string().min(1).optional(),
+    latestStatus: CodexExecReportReviewStatusSchema.optional(),
+    latestRecommendation: CodexExecReportRecommendationSchema.optional(),
+    latestRiskClassification: CodexExecReportRiskClassificationSchema.optional(),
+    reviewCount: z.number().int().nonnegative(),
+    findingCount: z.number().int().nonnegative(),
+    failedChecklistCount: z.number().int().nonnegative(),
+    handoffSummary: z.string().min(1),
+    recommendedNextStep: z.string().min(1),
+    recommendationGrantsExecution: z.literal(false),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReviewerHandoffSummary = z.infer<typeof CodexExecReviewerHandoffSummarySchema>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

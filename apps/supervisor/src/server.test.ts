@@ -237,6 +237,18 @@ describe('supervisor mock development API', () => {
     });
     const canonicalDryRunPlanId = dryRunResponse.json().liveRunRecord.dryRunPlanId as string;
     const reportReviewId = reportReviewResponse.json().reviewRecord.id as string;
+    const reportReviewSecondResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/report-review',
+      payload: {
+        dryRunId,
+        reviewerLabel: 'second-reviewer',
+        status: 'changes_requested',
+        recommendation: 'needs_changes',
+        notesSummary: 'Metadata-only follow-up review requested changes.',
+      },
+    });
+    const reportReviewSecondId = reportReviewSecondResponse.json().reviewRecord.id as string;
     const reportReviewGetResponse = await server.inject({
       method: 'GET',
       url: `/api/codex/exec/report-review/${reportReviewId}`,
@@ -245,9 +257,33 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/report-reviews?dryRunId=${canonicalDryRunPlanId}&status=reviewed&recommendation=ready_for_adr&limit=10`,
     });
+    const reportReviewLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-reviews/latest/${canonicalDryRunPlanId}`,
+    });
+    const reportReviewHistoryResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-reviews/history?dryRunId=${canonicalDryRunPlanId}&limit=10`,
+    });
+    const reportReviewCompareResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-reviews/compare?leftReviewId=${reportReviewId}&rightReviewId=${reportReviewSecondId}`,
+    });
+    const reportReviewHandoffResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-reviews/handoff/${canonicalDryRunPlanId}?fromReviewer=local-operator&toReviewer=second-reviewer`,
+    });
     const missingReportReviewResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/report-review/missing_review',
+    });
+    const missingReportReviewLatestResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/report-reviews/latest/missing_dry_run',
+    });
+    const invalidReportReviewHistoryResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-reviews/history?dryRunId=${canonicalDryRunPlanId}&status=unsupported`,
     });
     const invalidTimelineResponse = await server.inject({
       method: 'GET',
@@ -640,8 +676,78 @@ describe('supervisor mock development API', () => {
       reviewId: reportReviewId,
       recommendationGrantsExecution: false,
     });
+    expect(reportReviewSecondResponse.statusCode).toBe(200);
+    expect(reportReviewLatestResponse.statusCode).toBe(200);
+    expect(reportReviewLatestResponse.json()).toMatchObject({
+      reviewRecord: {
+        id: reportReviewSecondId,
+        dryRunId: canonicalDryRunPlanId,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reportReviewHistoryResponse.statusCode).toBe(200);
+    expect(reportReviewHistoryResponse.json()).toMatchObject({
+      history: {
+        dryRunId: canonicalDryRunPlanId,
+        historyCount: 2,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reportReviewHistoryResponse.json().history.comparison.changedItemCount).toBeGreaterThan(
+      0,
+    );
+    expect(reportReviewCompareResponse.statusCode).toBe(200);
+    expect(reportReviewCompareResponse.json()).toMatchObject({
+      comparison: {
+        leftReviewId: reportReviewId,
+        rightReviewId: reportReviewSecondId,
+        comparable: true,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reportReviewCompareResponse.json().comparison.changedItemCount).toBeGreaterThan(0);
+    expect(JSON.stringify(reportReviewCompareResponse.json())).not.toContain('list risk areas');
+    expect(reportReviewHandoffResponse.statusCode).toBe(200);
+    expect(reportReviewHandoffResponse.json()).toMatchObject({
+      handoff: {
+        dryRunId: canonicalDryRunPlanId,
+        fromReviewer: 'local-operator',
+        toReviewer: 'second-reviewer',
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(reportReviewHandoffResponse.json().handoff.handoffSummary).toContain(
+      'does not grant execution',
+    );
     expect(missingReportReviewResponse.statusCode).toBe(404);
     expect(missingReportReviewResponse.body).not.toContain(process.cwd());
+    expect(missingReportReviewLatestResponse.statusCode).toBe(404);
+    expect(missingReportReviewLatestResponse.body).not.toContain(process.cwd());
+    expect(invalidReportReviewHistoryResponse.statusCode).toBe(400);
     expect(invalidTimelineResponse.statusCode).toBe(400);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });

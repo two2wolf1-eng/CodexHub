@@ -8,6 +8,9 @@ import {
   buildControlPlaneDrilldownView,
   createCodexExecControlPlaneTimeline,
   buildCodexExecControlPlaneReport,
+  buildCodexExecReportReviewHistory,
+  buildCodexExecReviewerHandoffSummary,
+  compareCodexExecReportReviews,
   createCodexExecTimelineDetailView,
   createCodexExecReportReviewRecord,
   createCodexExecDisabledLiveRunRecord,
@@ -33,6 +36,7 @@ import {
   searchEvidence,
   renderCodexExecControlPlaneReportJson,
   renderCodexExecControlPlaneReportMarkdown,
+  getLatestCodexExecReportReview,
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
@@ -1275,6 +1279,139 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.get('/api/codex/exec/report-reviews/latest/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    const store = await getStore();
+    const reviews = await listCodexReportReviewsForQuery(store, {
+      dryRunId: params.dryRunId,
+      limit: 200,
+    });
+    const reviewRecord = getLatestCodexExecReportReview(reviews, params.dryRunId);
+
+    if (!reviewRecord) {
+      return reply.code(404).send({
+        error: 'latest report review was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
+    return {
+      reviewRecord,
+      summary: summarizeCodexExecReportReview(reviewRecord),
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/report-reviews/history', async (request, reply) => {
+    const queryResult = parseReportReviewQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({ error: queryResult.reason });
+    }
+
+    const store = await getStore();
+    const reviews = await listCodexReportReviewsForQuery(store, queryResult.query);
+    const history = buildCodexExecReportReviewHistory(reviews, queryResult.query);
+
+    return {
+      history,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/report-reviews/compare', async (request, reply) => {
+    const leftReviewId = readQueryValue(request.query, 'leftReviewId');
+    const rightReviewId = readQueryValue(request.query, 'rightReviewId');
+
+    if (!leftReviewId || !rightReviewId) {
+      return reply.code(400).send({ error: 'leftReviewId and rightReviewId are required' });
+    }
+
+    const store = await getStore();
+    const left = await resolveCodexReportReviewRecord(leftReviewId, store);
+    const right = await resolveCodexReportReviewRecord(rightReviewId, store);
+
+    if (!left || !right) {
+      return reply.code(404).send({
+        error: 'one or more report reviews were not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
+    return {
+      comparison: compareCodexExecReportReviews(left, right),
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get('/api/codex/exec/report-reviews/handoff/:dryRunId', async (request, reply) => {
+    const params = request.params as { dryRunId?: string };
+    const fromReviewer = readQueryValue(request.query, 'fromReviewer');
+    const toReviewer = readQueryValue(request.query, 'toReviewer');
+
+    if (!params.dryRunId) {
+      return reply.code(400).send({ error: 'dryRunId is required' });
+    }
+
+    const store = await getStore();
+    const reviews = await listCodexReportReviewsForQuery(store, {
+      dryRunId: params.dryRunId,
+      limit: 200,
+    });
+
+    if (reviews.length === 0) {
+      return reply.code(404).send({
+        error: 'report review history was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      });
+    }
+
+    return {
+      handoff: buildCodexExecReviewerHandoffSummary(reviews, params.dryRunId, {
+        fromReviewer,
+        toReviewer,
+      }),
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
   async function resolveCodexExecLiveRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -1399,6 +1536,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return store
       ? await store.codexReportReviews.getReportReview(reviewId)
       : codexReportReviewRecords.find((record) => record.id === reviewId);
+  }
+
+  async function listCodexReportReviewsForQuery(
+    store: CodexHubStore | undefined,
+    query: Partial<CodexExecReportReviewQuery>,
+  ): Promise<CodexExecReportReviewRecord[]> {
+    return store
+      ? await store.codexReportReviews.listReportReviews(query)
+      : filterInMemoryReportReviews(codexReportReviewRecords, query);
   }
 
   async function persistCodexReportReviewRecord(

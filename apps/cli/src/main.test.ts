@@ -303,9 +303,16 @@ describe('cli development mock-run fallback', () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {
       createCodexExecReportReview,
+      compareCodexExecReportReviewCommand,
       formatCodexExecReportReviewOutput,
+      formatCodexExecReportReviewComparisonOutput,
+      formatCodexExecReportReviewHandoffOutput,
+      formatCodexExecReportReviewHistoryOutput,
       formatCodexExecReportReviewListOutput,
+      getCodexExecReportReviewHandoff,
+      getCodexExecReportReviewHistory,
       getCodexExecReportReview,
+      getLatestCodexExecReportReviewCommand,
       listCodexExecReportReviews,
     } = await import('./main');
     const result = await createCodexExecReportReview('codex_dry_run_fixture', {
@@ -322,7 +329,22 @@ describe('cli development mock-run fallback', () => {
       status: 'reviewed',
       recommendation: 'ready_for_adr',
     });
+    const latest = await getLatestCodexExecReportReviewCommand('codex_dry_run_fixture');
+    const history = await getCodexExecReportReviewHistory({
+      dryRun: 'codex_dry_run_fixture',
+    });
+    const comparison = await compareCodexExecReportReviewCommand(
+      'codex_report_review_left',
+      'codex_report_review_right',
+    );
+    const handoff = await getCodexExecReportReviewHandoff('codex_dry_run_fixture', {
+      from: 'local-operator',
+      to: 'next-reviewer',
+    });
     const listOutput = formatCodexExecReportReviewListOutput(list);
+    const historyOutput = formatCodexExecReportReviewHistoryOutput(history);
+    const comparisonOutput = formatCodexExecReportReviewComparisonOutput(comparison);
+    const handoffOutput = formatCodexExecReportReviewHandoffOutput(handoff);
 
     expect(result).toMatchObject({
       reviewRecord: {
@@ -354,9 +376,60 @@ describe('cli development mock-run fallback', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    expect(latest).toMatchObject({
+      reviewRecord: {
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(history).toMatchObject({
+      history: {
+        historyCount: 2,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(comparison).toMatchObject({
+      comparison: {
+        comparable: true,
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(handoff).toMatchObject({
+      handoff: {
+        fromReviewer: 'local-operator',
+        toReviewer: 'next-reviewer',
+        recommendationGrantsExecution: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
     expect(output).toContain('does not grant execution');
     expect(output).not.toContain('execution approval');
     expect(listOutput).toContain('grantsExecution=false');
+    expect(historyOutput).toContain('recommendation grants execution: false');
+    expect(comparisonOutput).toContain('recommendationGrantsExecution=false');
+    expect(handoffOutput).toContain('does not grant execution');
     expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
+    expect(JSON.stringify(history)).not.toContain('Local control-plane fallback for');
+    expect(JSON.stringify(comparison)).not.toContain('Local control-plane fallback for');
+    expect(JSON.stringify(handoff)).not.toContain('Local control-plane fallback for');
   });
 });

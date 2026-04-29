@@ -13,8 +13,12 @@ import {
   CodexExecEvidenceSearchResultSchema,
   CodexExecControlPlaneReportExportResultSchema,
   CodexExecControlPlaneReportSchema,
+  CodexExecReportReviewComparisonSchema,
+  CodexExecReportReviewComparisonItemSchema,
+  CodexExecReportReviewHistoryViewSchema,
   CodexExecReportReviewRecordSchema,
   CodexExecReportReviewSummarySchema,
+  CodexExecReviewerHandoffSummarySchema,
   CodexExecTimelineFilterSchema,
   CodexExecTimelineQuerySchema,
   CodexExecManualApprovalRecordSchema,
@@ -1023,9 +1027,101 @@ describe('contracts schemas', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    const historyQuery = {
+      id: 'codex_report_review_history_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      status: 'reviewed',
+      recommendation: 'ready_for_adr',
+      limit: 20,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const comparisonItem = CodexExecReportReviewComparisonItemSchema.parse({
+      id: 'codex_report_review_comparison_item_1',
+      schemaVersion,
+      createdAt,
+      field: 'status',
+      leftValueSummary: 'reviewed',
+      rightValueSummary: 'changes_requested',
+      changed: true,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const comparison = CodexExecReportReviewComparisonSchema.parse({
+      id: 'codex_report_review_comparison_1',
+      schemaVersion,
+      createdAt,
+      leftReviewId: 'codex_report_review_1',
+      rightReviewId: 'codex_report_review_2',
+      dryRunId: record.dryRunId,
+      comparable: true,
+      summary: 'Review metadata changed across 1 fields.',
+      changedItemCount: 1,
+      items: [comparisonItem],
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const history = CodexExecReportReviewHistoryViewSchema.parse({
+      id: 'codex_report_review_history_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      query: historyQuery,
+      latestReview: summary,
+      summaries: [summary],
+      comparison,
+      historyCount: 1,
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const handoff = CodexExecReviewerHandoffSummarySchema.parse({
+      id: 'codex_reviewer_handoff_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      fromReviewer: 'local-operator',
+      toReviewer: 'next-reviewer',
+      latestReviewId: record.id,
+      latestStatus: record.status,
+      latestRecommendation: record.recommendation,
+      latestRiskClassification: record.riskClassification,
+      reviewCount: 1,
+      findingCount: record.findings.length,
+      failedChecklistCount: 0,
+      handoffSummary: 'Handoff summary is metadata-only and non-executing.',
+      recommendedNextStep: 'Continue read-only ADR preparation.',
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
 
     expect(record.recommendationGrantsExecution).toBe(false);
     expect(summary.recommendation).toBe('ready_for_adr');
+    expect(history.latestReview?.reviewId).toBe(record.id);
+    expect(comparison.recommendationGrantsExecution).toBe(false);
+    expect(handoff.recommendationGrantsExecution).toBe(false);
     expect(JSON.stringify(record)).not.toContain('full command body');
+    expect(JSON.stringify(history)).not.toContain('full command body');
+    expect(JSON.stringify(handoff)).not.toContain('full command body');
   });
 });

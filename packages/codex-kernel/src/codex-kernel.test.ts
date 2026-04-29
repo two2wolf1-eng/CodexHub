@@ -16,7 +16,10 @@ import {
   createDefaultCodexExecConfigLoadResult,
   buildControlPlaneDrilldownView,
   buildCodexExecControlPlaneReport,
+  buildCodexExecReportReviewHistory,
+  buildCodexExecReviewerHandoffSummary,
   classifyCodexExecReportRisk,
+  compareCodexExecReportReviews,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecManualApprovalDecision,
@@ -28,6 +31,7 @@ import {
   evaluateCodexExecManualApprovalState,
   getAuditDetail,
   getEvidenceDetail,
+  getLatestCodexExecReportReview,
   normalizeCodexExecEvent,
   parseCodexExecJsonl,
   parseCodexExecJsonlLine,
@@ -803,6 +807,108 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(recordReview.recommendationGrantsExecution).toBe(false);
     expect(summaries).toHaveLength(1);
     expect(summaries[0]?.bodyStored).toBe(false);
+  });
+
+  it('builds report review history and selects the latest review by dryRunId', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const olderReview = {
+      ...createCodexExecReportReviewRecord({
+        report,
+        reviewerLabel: 'first-reviewer',
+        status: 'changes_requested',
+        recommendation: 'needs_changes',
+      }),
+      id: 'codex_report_review_older',
+      reviewedAt: '2026-04-28T01:00:00.000Z',
+      createdAt: '2026-04-28T01:00:00.000Z',
+    };
+    const latestReview = {
+      ...createCodexExecReportReviewRecord({
+        report,
+        reviewerLabel: 'second-reviewer',
+        status: 'reviewed',
+        recommendation: 'ready_for_adr',
+      }),
+      id: 'codex_report_review_latest',
+      reviewedAt: '2026-04-28T02:00:00.000Z',
+      createdAt: '2026-04-28T02:00:00.000Z',
+    };
+    const unrelatedReview = {
+      ...olderReview,
+      id: 'codex_report_review_unrelated',
+      dryRunId: 'other_dry_run',
+    };
+    const reviews = [olderReview, latestReview, unrelatedReview];
+    const latest = getLatestCodexExecReportReview(reviews, record.dryRunPlanId);
+    const history = buildCodexExecReportReviewHistory(reviews, {
+      dryRunId: record.dryRunPlanId,
+      recommendation: 'ready_for_adr',
+      limit: 5,
+    });
+
+    expect(latest?.id).toBe(latestReview.id);
+    expect(history.latestReview?.reviewId).toBe(latestReview.id);
+    expect(history.summaries).toHaveLength(1);
+    expect(history.recommendationGrantsExecution).toBe(false);
+    expect(history.liveExecution).toBe(false);
+    expect(history.externalProcessStarted).toBe(false);
+    expect(history.executionDisabled).toBe(true);
+  });
+
+  it('compares reviews and creates a metadata-only reviewer handoff summary', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const leftReview = {
+      ...createCodexExecReportReviewRecord({
+        report,
+        reviewerLabel: 'first-reviewer',
+        status: 'changes_requested',
+        recommendation: 'needs_changes',
+      }),
+      id: 'codex_report_review_left',
+      reviewedAt: '2026-04-28T01:00:00.000Z',
+    };
+    const rightReview = {
+      ...createCodexExecReportReviewRecord({
+        report,
+        reviewerLabel: 'second-reviewer',
+        status: 'reviewed',
+        recommendation: 'ready_for_adr',
+      }),
+      id: 'codex_report_review_right',
+      reviewedAt: '2026-04-28T02:00:00.000Z',
+    };
+    const comparison = compareCodexExecReportReviews(leftReview, rightReview);
+    const handoff = buildCodexExecReviewerHandoffSummary(
+      [leftReview, rightReview],
+      record.dryRunPlanId,
+      {
+        fromReviewer: 'first-reviewer',
+        toReviewer: 'second-reviewer',
+      },
+    );
+
+    expect(comparison.comparable).toBe(true);
+    expect(comparison.changedItemCount).toBeGreaterThan(0);
+    expect(comparison.items.some((item) => item.field === 'status' && item.changed)).toBe(true);
+    expect(handoff.latestReviewId).toBe(rightReview.id);
+    expect(handoff.handoffSummary).toContain('does not grant execution');
+    expect(comparison.recommendationGrantsExecution).toBe(false);
+    expect(handoff.recommendationGrantsExecution).toBe(false);
+    expect(JSON.stringify(comparison)).not.toContain('Summarize repository structure and list');
+    expect(JSON.stringify(handoff)).not.toContain('Summarize repository structure and list');
+    expect(comparison.liveExecution).toBe(false);
+    expect(handoff.externalProcessStarted).toBe(false);
+    expect(handoff.executionDisabled).toBe(true);
   });
 
   it('returns a safe not_found review draft when report is unavailable', () => {

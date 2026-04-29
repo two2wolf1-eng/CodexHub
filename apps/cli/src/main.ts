@@ -9,6 +9,9 @@ import {
   createCodexExecApprovalTransitionResult,
   buildControlPlaneDrilldownView,
   buildCodexExecControlPlaneReport,
+  buildCodexExecReportReviewHistory,
+  buildCodexExecReviewerHandoffSummary,
+  compareCodexExecReportReviews,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -27,6 +30,7 @@ import {
   evaluateCodexExecManualApprovalState,
   getAuditDetail,
   getEvidenceDetail,
+  getLatestCodexExecReportReview,
   parseCodexExecLiveConfigFile,
   replayCodexExecFixture,
   runCodexExecPreflight,
@@ -47,6 +51,7 @@ import type {
   CodexExecLiveRunRecord,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
+  CodexExecReportReviewRecord,
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
@@ -102,6 +107,11 @@ export interface CodexExecReportReviewListCliOptions extends CodexExecJsonCliOpt
   dryRun?: string;
   status?: string;
   recommendation?: string;
+}
+
+export interface CodexExecReportReviewHandoffCliOptions extends CodexExecJsonCliOptions {
+  from?: string;
+  to?: string;
 }
 
 export function buildProgram(): Command {
@@ -373,6 +383,53 @@ export function buildProgram(): Command {
     .action(async (options: CodexExecReportReviewListCliOptions) => {
       const result = await listCodexExecReportReviews(options);
       console.log(formatCodexExecReportReviewListOutput(result, options));
+    });
+
+  reportReviewCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest report review record for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestCodexExecReportReviewCommand(dryRunId);
+      console.log(formatCodexExecReportReviewOutput(result, options));
+    });
+
+  reportReviewCommand
+    .command('history')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by review status')
+    .option('--recommendation <recommendation>', 'Filter by recommendation')
+    .option('--json', 'Print full JSON output')
+    .description('Read metadata-only report review history')
+    .action(async (options: CodexExecReportReviewListCliOptions) => {
+      const result = await getCodexExecReportReviewHistory(options);
+      console.log(formatCodexExecReportReviewHistoryOutput(result, options));
+    });
+
+  reportReviewCommand
+    .command('compare')
+    .argument('<leftReviewId>')
+    .argument('<rightReviewId>')
+    .option('--json', 'Print full JSON output')
+    .description('Compare two report reviews without exposing bodies')
+    .action(
+      async (leftReviewId: string, rightReviewId: string, options: CodexExecJsonCliOptions) => {
+        const result = await compareCodexExecReportReviewCommand(leftReviewId, rightReviewId);
+        console.log(formatCodexExecReportReviewComparisonOutput(result, options));
+      },
+    );
+
+  reportReviewCommand
+    .command('handoff')
+    .argument('<dryRunId>')
+    .option('--from <label>', 'Current reviewer label')
+    .option('--to <label>', 'Next reviewer label')
+    .option('--json', 'Print full JSON output')
+    .description('Read a non-executing reviewer handoff summary')
+    .action(async (dryRunId: string, options: CodexExecReportReviewHandoffCliOptions) => {
+      const result = await getCodexExecReportReviewHandoff(dryRunId, options);
+      console.log(formatCodexExecReportReviewHandoffOutput(result, options));
     });
 
   return program;
@@ -1153,6 +1210,150 @@ export async function listCodexExecReportReviews(
   }
 }
 
+export async function getLatestCodexExecReportReviewCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/report-reviews/latest/${encodeURIComponent(dryRunId)}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviews = createLocalReportReviewRecords(dryRunId);
+    const reviewRecord = getLatestCodexExecReportReview(reviews, reviews[0]?.dryRunId ?? dryRunId);
+
+    return reviewRecord
+      ? createReportReviewResponse(reviewRecord, true)
+      : createReportReviewResponse(
+          createCodexExecReportReviewDraft({
+            dryRunId,
+            reviewerLabel: 'cli-fallback',
+          }),
+          true,
+        );
+  }
+}
+
+export async function getCodexExecReportReviewHistory(
+  options: CodexExecReportReviewListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createReportReviewQueryString(options);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/report-reviews/history${query}`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviews = createLocalReportReviewRecords(options.dryRun ?? 'codex_dry_run_fixture');
+    const queryObject = createReportReviewQueryFromCliOptions(options, reviews[0]?.dryRunId ?? '');
+    const history = buildCodexExecReportReviewHistory(reviews, queryObject);
+
+    return {
+      history,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function compareCodexExecReportReviewCommand(
+  leftReviewId: string,
+  rightReviewId: string,
+): Promise<Record<string, unknown>> {
+  const query = new URLSearchParams({
+    leftReviewId,
+    rightReviewId,
+  }).toString();
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/report-reviews/compare?${query}`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviews = createLocalReportReviewRecords('codex_dry_run_fixture');
+    const left = { ...(reviews[1] ?? reviews[0]), id: leftReviewId };
+    const right = { ...(reviews[0] ?? reviews[1]), id: rightReviewId };
+
+    return {
+      comparison: compareCodexExecReportReviews(left, right),
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
+export async function getCodexExecReportReviewHandoff(
+  dryRunId: string,
+  options: CodexExecReportReviewHandoffCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams();
+
+  if (options.from) {
+    params.set('fromReviewer', options.from);
+  }
+
+  if (options.to) {
+    params.set('toReviewer', options.to);
+  }
+
+  const query = params.toString();
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/report-reviews/handoff/${encodeURIComponent(dryRunId)}${
+        query ? `?${query}` : ''
+      }`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviews = createLocalReportReviewRecords(dryRunId);
+    const handoff = buildCodexExecReviewerHandoffSummary(
+      reviews,
+      reviews[0]?.dryRunId ?? dryRunId,
+      {
+        fromReviewer: options.from,
+        toReviewer: options.to,
+      },
+    );
+
+    return {
+      handoff,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export function formatCodexExecTimelineOutput(
   result: Record<string, unknown>,
   options: CodexExecTimelineCliOptions = {},
@@ -1422,6 +1623,132 @@ export function formatCodexExecReportReviewListOutput(
   ].join('\n');
 }
 
+export function formatCodexExecReportReviewHistoryOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReportReviewListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const history = result.history as
+    | {
+        dryRunId?: string;
+        historyCount?: number;
+        latestReview?: { reviewId?: string; status?: string; recommendation?: string };
+        comparison?: { changedItemCount?: number };
+        summaries?: Array<{ reviewId?: string; status?: string; recommendation?: string }>;
+      }
+    | undefined;
+  const lines = (history?.summaries ?? [])
+    .slice(0, 8)
+    .map(
+      (summary) =>
+        `- ${summary.reviewId ?? 'unknown'} ${summary.status ?? 'unknown'} ${summary.recommendation ?? 'unknown'}`,
+    );
+
+  return [
+    'Codex report review history',
+    `dryRunId: ${history?.dryRunId ?? options.dryRun ?? 'all'}`,
+    `count: ${history?.historyCount ?? 0}`,
+    `latest: ${history?.latestReview?.reviewId ?? 'none'} ${history?.latestReview?.status ?? ''} ${history?.latestReview?.recommendation ?? ''}`.trim(),
+    `latestComparisonChanges: ${history?.comparison?.changedItemCount ?? 0}`,
+    'recommendation grants execution: false',
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
+export function formatCodexExecReportReviewComparisonOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const comparison = result.comparison as
+    | {
+        leftReviewId?: string;
+        rightReviewId?: string;
+        comparable?: boolean;
+        changedItemCount?: number;
+        summary?: string;
+        recommendationGrantsExecution?: boolean;
+        items?: Array<{
+          field?: string;
+          leftValueSummary?: string;
+          rightValueSummary?: string;
+          changed?: boolean;
+        }>;
+      }
+    | undefined;
+  const lines = (comparison?.items ?? [])
+    .filter((item) => item.changed)
+    .slice(0, 8)
+    .map(
+      (item) =>
+        `- ${item.field ?? 'unknown'}: ${item.leftValueSummary ?? 'unknown'} -> ${item.rightValueSummary ?? 'unknown'}`,
+    );
+
+  return [
+    'Codex report review comparison',
+    `leftReviewId: ${comparison?.leftReviewId ?? 'unknown'}`,
+    `rightReviewId: ${comparison?.rightReviewId ?? 'unknown'}`,
+    `comparable: ${String(comparison?.comparable ?? false)}`,
+    `changedItems: ${comparison?.changedItemCount ?? 0}`,
+    `summary: ${comparison?.summary ?? 'metadata-only comparison unavailable'}`,
+    `recommendationGrantsExecution=${String(comparison?.recommendationGrantsExecution ?? false)}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'changes:' : 'changes: none',
+    ...lines,
+  ].join('\n');
+}
+
+export function formatCodexExecReportReviewHandoffOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReportReviewHandoffCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const handoff = result.handoff as
+    | {
+        dryRunId?: string;
+        fromReviewer?: string;
+        toReviewer?: string;
+        latestReviewId?: string;
+        latestStatus?: string;
+        latestRecommendation?: string;
+        latestRiskClassification?: string;
+        reviewCount?: number;
+        findingCount?: number;
+        failedChecklistCount?: number;
+        handoffSummary?: string;
+        recommendedNextStep?: string;
+        recommendationGrantsExecution?: boolean;
+      }
+    | undefined;
+
+  return [
+    'Codex report review handoff',
+    `dryRunId: ${handoff?.dryRunId ?? 'unknown'}`,
+    `from: ${handoff?.fromReviewer ?? options.from ?? 'current reviewer'}`,
+    `to: ${handoff?.toReviewer ?? options.to ?? 'next reviewer'}`,
+    `latestReviewId: ${handoff?.latestReviewId ?? 'none'}`,
+    `latest: ${handoff?.latestStatus ?? 'none'} ${handoff?.latestRecommendation ?? ''} ${handoff?.latestRiskClassification ?? ''}`.trim(),
+    `reviews: ${handoff?.reviewCount ?? 0}`,
+    `findings: ${handoff?.findingCount ?? 0}`,
+    `failedChecklistItems: ${handoff?.failedChecklistCount ?? 0}`,
+    `summary: ${handoff?.handoffSummary ?? 'metadata-only handoff unavailable'}`,
+    `nextStep: ${handoff?.recommendedNextStep ?? 'continue read-only review'}`,
+    `recommendationGrantsExecution=${String(handoff?.recommendationGrantsExecution ?? false)}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
 export async function writeCodexExecReportOutput(
   outputPath: string,
   content: string,
@@ -1651,6 +1978,45 @@ function createReportReviewResponse(
     degraded,
     reason: degraded ? 'supervisor unavailable; local control-plane fallback used' : undefined,
   };
+}
+
+function createLocalReportReviewRecords(dryRunId: string): CodexExecReportReviewRecord[] {
+  const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+  const report = buildCodexExecControlPlaneReport({
+    dryRunId: record.dryRunPlanId,
+    record,
+    degraded: true,
+    reason: 'supervisor unavailable; local control-plane fallback used',
+  });
+  const olderReview = createCodexExecReportReviewRecord({
+    report,
+    reviewerLabel: 'cli-fallback-initial',
+    status: 'changes_requested',
+    recommendation: 'needs_changes',
+    notesSummary: 'Initial local fallback review requested metadata-only changes.',
+  });
+  const latestReview = createCodexExecReportReviewRecord({
+    report,
+    reviewerLabel: 'cli-fallback-latest',
+    status: 'reviewed',
+    recommendation: 'ready_for_adr',
+    notesSummary: 'Latest local fallback review keeps no-live boundary intact.',
+  });
+
+  return [
+    {
+      ...latestReview,
+      id: 'codex_report_review_cli_latest',
+      reviewedAt: '2026-04-28T02:00:00.000Z',
+      createdAt: '2026-04-28T02:00:00.000Z',
+    },
+    {
+      ...olderReview,
+      id: 'codex_report_review_cli_older',
+      reviewedAt: '2026-04-28T01:00:00.000Z',
+      createdAt: '2026-04-28T01:00:00.000Z',
+    },
+  ];
 }
 
 function noLiveFlagsText(result: Record<string, unknown>): string {

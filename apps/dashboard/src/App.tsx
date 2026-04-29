@@ -3,7 +3,10 @@ import type {
   CodexExecControlPlaneTimeline,
   CodexExecControlPlaneDrilldownView,
   CodexExecControlPlaneReport,
+  CodexExecReportReviewComparison,
+  CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
+  CodexExecReviewerHandoffSummary,
   CodexExecTimelineDetailView,
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
@@ -31,6 +34,9 @@ interface OverviewState {
   codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
   codexExecReports: CodexExecControlPlaneReport[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
+  codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
+  codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
+  codexExecReviewerHandoffs: CodexExecReviewerHandoffSummary[];
   message?: string;
 }
 
@@ -50,6 +56,9 @@ export function App() {
     codexExecDrilldowns: [],
     codexExecReports: [],
     codexExecReportReviews: [],
+    codexExecReportReviewHistories: [],
+    codexExecReportReviewComparisons: [],
+    codexExecReviewerHandoffs: [],
   });
 
   useEffect(() => {
@@ -147,6 +156,42 @@ export function App() {
             }),
           )
         ).filter((report): report is CodexExecControlPlaneReport => report !== undefined);
+        const reviewDryRunIds = uniqueReviewDryRunIds(codexExecReportReviewsResponse.reviews);
+        const codexExecReportReviewHistories = (
+          await Promise.all(
+            reviewDryRunIds.slice(0, 3).map(async (dryRunId) => {
+              try {
+                const response = await getJson<{ history: CodexExecReportReviewHistoryView }>(
+                  `/api/codex/exec/report-reviews/history?dryRunId=${encodeURIComponent(
+                    dryRunId,
+                  )}&limit=10`,
+                );
+                return response.history;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((history): history is CodexExecReportReviewHistoryView => history !== undefined);
+        const codexExecReviewerHandoffs = (
+          await Promise.all(
+            reviewDryRunIds.slice(0, 3).map(async (dryRunId) => {
+              try {
+                const response = await getJson<{ handoff: CodexExecReviewerHandoffSummary }>(
+                  `/api/codex/exec/report-reviews/handoff/${encodeURIComponent(dryRunId)}`,
+                );
+                return response.handoff;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((handoff): handoff is CodexExecReviewerHandoffSummary => handoff !== undefined);
+        const codexExecReportReviewComparisons = codexExecReportReviewHistories
+          .map((history) => history.comparison)
+          .filter(
+            (comparison): comparison is CodexExecReportReviewComparison => comparison !== undefined,
+          );
 
         if (!cancelled) {
           setOverview({
@@ -166,6 +211,9 @@ export function App() {
             codexExecDrilldowns,
             codexExecReports,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
+            codexExecReportReviewHistories,
+            codexExecReportReviewComparisons,
+            codexExecReviewerHandoffs,
           });
         }
       } catch (error) {
@@ -183,6 +231,9 @@ export function App() {
             codexExecDrilldowns: [],
             codexExecReports: [],
             codexExecReportReviews: [],
+            codexExecReportReviewHistories: [],
+            codexExecReportReviewComparisons: [],
+            codexExecReviewerHandoffs: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -612,6 +663,94 @@ export function App() {
             <p>No read-only report review records are available yet.</p>
           )}
         </Panel>
+
+        <Panel title="Codex Report Review History">
+          {overview.codexExecReportReviewHistories.length > 0 ? (
+            <ul>
+              {overview.codexExecReportReviewHistories.map((history) => (
+                <li key={history.id} className="stacked report-detail">
+                  <strong>{history.dryRunId ?? 'all dry-run records'}</strong>
+                  <span>
+                    reviews {history.historyCount}, latest{' '}
+                    {history.latestReview?.reviewId ?? 'none'}, status{' '}
+                    {history.latestReview?.status ?? 'none'}, recommendation{' '}
+                    {history.latestReview?.recommendation ?? 'none'}
+                  </span>
+                  <span>
+                    recommendation grants execution {String(history.recommendationGrantsExecution)},
+                    liveExecution {String(history.liveExecution)}, externalProcessStarted{' '}
+                    {String(history.externalProcessStarted)}, executionDisabled{' '}
+                    {String(history.executionDisabled)}
+                  </span>
+                  <div className="report-section-grid" aria-label="Read-only review history">
+                    <div className="report-section">
+                      <strong>History</strong>
+                      {history.summaries.slice(0, 6).map((summary) => (
+                        <p key={summary.id}>
+                          {summary.reviewId}: {summary.status} / {summary.recommendation}
+                        </p>
+                      ))}
+                      {history.summaries.length === 0 ? <p>No review history.</p> : null}
+                    </div>
+                    <div className="report-section">
+                      <strong>Latest Comparison</strong>
+                      {history.comparison ? (
+                        <>
+                          <p>{history.comparison.summary}</p>
+                          <p>changed fields {history.comparison.changedItemCount}</p>
+                          {history.comparison.items
+                            .filter((item) => item.changed)
+                            .slice(0, 5)
+                            .map((item) => (
+                              <p key={item.id}>
+                                {item.field}: {item.leftValueSummary} to {item.rightValueSummary}
+                              </p>
+                            ))}
+                        </>
+                      ) : (
+                        <p>At least two reviews are needed for comparison.</p>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only report review history is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Reviewer Handoff">
+          {overview.codexExecReviewerHandoffs.length > 0 ? (
+            <ul>
+              {overview.codexExecReviewerHandoffs.map((handoff) => (
+                <li key={handoff.id} className="stacked report-detail">
+                  <strong>{handoff.dryRunId}</strong>
+                  <span>
+                    latest {handoff.latestReviewId ?? 'none'}, status{' '}
+                    {handoff.latestStatus ?? 'none'}, recommendation{' '}
+                    {handoff.latestRecommendation ?? 'none'}, risk{' '}
+                    {handoff.latestRiskClassification ?? 'none'}
+                  </span>
+                  <span>
+                    reviews {handoff.reviewCount}, findings {handoff.findingCount}, failed checks{' '}
+                    {handoff.failedChecklistCount}
+                  </span>
+                  <span>
+                    recommendation grants execution {String(handoff.recommendationGrantsExecution)},
+                    liveExecution {String(handoff.liveExecution)}, externalProcessStarted{' '}
+                    {String(handoff.externalProcessStarted)}, executionDisabled{' '}
+                    {String(handoff.executionDisabled)}
+                  </span>
+                  <p>{handoff.handoffSummary}</p>
+                  <p>{handoff.recommendedNextStep}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only reviewer handoff summary is available yet.</p>
+          )}
+        </Panel>
       </section>
     </main>
   );
@@ -631,6 +770,12 @@ function formatSourceBreakdown(sourceBreakdown: Record<string, number>): string 
   return entries.length > 0
     ? entries.map(([source, count]) => `${source}:${count}`).join(', ')
     : 'none';
+}
+
+function uniqueReviewDryRunIds(reviews: CodexExecReportReviewRecord[]): string[] {
+  return Array.from(new Set(reviews.map((review) => review.dryRunId))).filter(
+    (dryRunId) => dryRunId.length > 0,
+  );
 }
 
 async function getJson<T>(path: string): Promise<T> {
