@@ -6,6 +6,7 @@ import {
   type AuditEvent,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
+  type CodexExecReportReviewRecord,
   type CodexReplayRecord,
   type EvidenceRef,
   type MockDevelopmentRun,
@@ -152,6 +153,8 @@ describe('store-sqlite migration initialization', () => {
     await first.auditEvents.append(auditEvent);
     const approvalRecord: CodexExecManualApprovalRecord = createCodexExecApprovalRecordFixture();
     await first.codexExecApprovals.saveCodexExecApprovalRecord(approvalRecord);
+    const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
+    await first.codexReportReviews.saveReportReview(reportReview);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -176,6 +179,14 @@ describe('store-sqlite migration initialization', () => {
     const codexExecApprovals = await second.codexExecApprovals.listCodexExecApprovalRecords(10);
     const codexExecApprovalRecord =
       await second.codexExecApprovals.getCodexExecApprovalRecord('codex_approval_record_1');
+    const reportReviews = await second.codexReportReviews.listReportReviews({
+      dryRunId: 'codex_dry_run_1',
+      status: 'reviewed',
+      recommendation: 'ready_for_adr',
+      limit: 10,
+    });
+    const reportReviewRecord =
+      await second.codexReportReviews.getReportReview('codex_report_review_1');
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -204,6 +215,9 @@ describe('store-sqlite migration initialization', () => {
     expect(codexExecApprovals[0]?.status).toBe('approved');
     expect(codexExecApprovalRecord?.request.reason).toContain('hash sha256:');
     expect(JSON.stringify(codexExecApprovalRecord)).not.toContain('manual private reason');
+    expect(reportReviews).toHaveLength(1);
+    expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
+    expect(JSON.stringify(reportReviewRecord)).not.toContain('full report markdown');
   });
 });
 
@@ -377,6 +391,52 @@ function createCodexExecApprovalRecordFixture(): CodexExecManualApprovalRecord {
     evidenceRefs: [],
     auditEventIds: [],
     summary: 'Manual approval record',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function createCodexReportReviewFixture(): CodexExecReportReviewRecord {
+  const createdAt = '2026-04-28T00:00:05.000Z';
+
+  return {
+    id: 'codex_report_review_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    reportId: 'codex_report_1',
+    reportHash: 'sha256:report',
+    reportSectionHashes: ['sha256:overview'],
+    sectionSummaryRefs: ['overview:codex_report_section_1'],
+    reviewedAt: createdAt,
+    reviewerLabel: 'local-operator',
+    status: 'reviewed',
+    recommendation: 'ready_for_adr',
+    recommendationGrantsExecution: false,
+    riskClassification: 'medium',
+    checklistItems: [
+      {
+        id: 'codex_report_review_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'no_live_flags_present',
+        label: 'No-live flags are present',
+        status: 'passed',
+        required: true,
+        summary: 'No-live flags are present.',
+        relatedSection: 'no_live_boundary',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    ],
+    findings: [],
+    notesSummary: 'No-live boundary intact; live adapter still requires ADR.',
+    metadataOnly: true,
+    bodyStored: false,
     liveExecution: false,
     externalProcessStarted: false,
     executionDisabled: true,

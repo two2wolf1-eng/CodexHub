@@ -6,6 +6,8 @@ import type {
   AuditEvent,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
+  CodexExecReportReviewQuery,
+  CodexExecReportReviewRecord,
   CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
@@ -19,6 +21,7 @@ import type {
   CodexExecLiveRunRepository,
   CodexHubStore,
   CodexReplayRepository,
+  CodexReportReviewRepository,
   DevelopmentRunRepository,
   EvidenceRefQuery,
   EvidenceRefRepository,
@@ -78,6 +81,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexReplays: CodexReplayRepository;
   readonly codexExecLiveRuns: CodexExecLiveRunRepository;
   readonly codexExecApprovals: CodexExecApprovalRepository;
+  readonly codexReportReviews: CodexReportReviewRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -96,6 +100,7 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.codexReplays = new SqliteCodexReplayRepository(database);
     this.codexExecLiveRuns = new SqliteCodexExecLiveRunRepository(database);
     this.codexExecApprovals = new SqliteCodexExecApprovalRepository(database);
+    this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
   }
 
   async close(): Promise<void> {
@@ -313,6 +318,56 @@ class SqliteCodexExecApprovalRepository implements CodexExecApprovalRepository {
   }
 }
 
+class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
+  private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecReportReviewRecord>(
+      database,
+      'codex_report_reviews',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveReportReview(
+    record: CodexExecReportReviewRecord,
+  ): Promise<CodexExecReportReviewRecord> {
+    return this.repository.create(record);
+  }
+
+  async getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listReportReviews(
+    query: Partial<CodexExecReportReviewQuery> = {},
+  ): Promise<CodexExecReportReviewRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare('SELECT payload FROM codex_report_reviews ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+    const records = rows.map((row) => JSON.parse(row.payload) as CodexExecReportReviewRecord);
+
+    return records
+      .filter((record) => {
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        if (query.recommendation && record.recommendation !== query.recommendation) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -453,6 +508,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_exec_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_report_reviews (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

@@ -2,6 +2,8 @@ import type {
   AuditEvent,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
+  CodexExecReportReviewQuery,
+  CodexExecReportReviewRecord,
   CodexReplayRecord,
   EvidenceRef,
   MockDevelopmentRun,
@@ -74,6 +76,14 @@ export interface CodexExecApprovalRepository {
   getCodexExecApprovalRecord(id: string): Promise<CodexExecManualApprovalRecord | undefined>;
 }
 
+export interface CodexReportReviewRepository {
+  saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
+  getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
+  listReportReviews(
+    query?: Partial<CodexExecReportReviewQuery>,
+  ): Promise<CodexExecReportReviewRecord[]>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -83,6 +93,7 @@ export interface CodexHubStore {
   codexReplays: CodexReplayRepository;
   codexExecLiveRuns: CodexExecLiveRunRepository;
   codexExecApprovals: CodexExecApprovalRepository;
+  codexReportReviews: CodexReportReviewRepository;
   close(): Promise<void>;
 }
 

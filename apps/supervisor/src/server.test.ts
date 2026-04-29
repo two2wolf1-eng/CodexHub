@@ -224,6 +224,31 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/report/${dryRunId}?format=txt`,
     });
+    const reportReviewResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/report-review',
+      payload: {
+        dryRunId,
+        reviewerLabel: 'local-operator',
+        status: 'reviewed',
+        recommendation: 'ready_for_adr',
+        notesSummary: 'No-live boundary intact; live adapter still requires ADR.',
+      },
+    });
+    const canonicalDryRunPlanId = dryRunResponse.json().liveRunRecord.dryRunPlanId as string;
+    const reportReviewId = reportReviewResponse.json().reviewRecord.id as string;
+    const reportReviewGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-review/${reportReviewId}`,
+    });
+    const reportReviewListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/report-reviews?dryRunId=${canonicalDryRunPlanId}&status=reviewed&recommendation=ready_for_adr&limit=10`,
+    });
+    const missingReportReviewResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/report-review/missing_review',
+    });
     const invalidTimelineResponse = await server.inject({
       method: 'GET',
       url: `/api/codex/exec/timeline/${dryRunId}?source=unsupported`,
@@ -585,6 +610,38 @@ describe('supervisor mock development API', () => {
     expect(missingReportResponse.statusCode).toBe(404);
     expect(missingReportResponse.body).not.toContain(process.cwd());
     expect(invalidReportResponse.statusCode).toBe(400);
+    expect(reportReviewResponse.statusCode).toBe(200);
+    expect(reportReviewResponse.json()).toMatchObject({
+      reviewRecord: {
+        dryRunId: canonicalDryRunPlanId,
+        status: 'reviewed',
+        recommendation: 'ready_for_adr',
+        recommendationGrantsExecution: false,
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      summary: {
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(reportReviewResponse.json())).not.toContain('manual private reason');
+    expect(JSON.stringify(reportReviewResponse.json())).not.toContain('list risk areas');
+    expect(reportReviewGetResponse.statusCode).toBe(200);
+    expect(reportReviewGetResponse.json().reviewRecord.id).toBe(reportReviewId);
+    expect(reportReviewListResponse.statusCode).toBe(200);
+    expect(reportReviewListResponse.json().reviews).toHaveLength(1);
+    expect(reportReviewListResponse.json().summaries[0]).toMatchObject({
+      reviewId: reportReviewId,
+      recommendationGrantsExecution: false,
+    });
+    expect(missingReportReviewResponse.statusCode).toBe(404);
+    expect(missingReportReviewResponse.body).not.toContain(process.cwd());
     expect(invalidTimelineResponse.statusCode).toBe(400);
     expect(rejectedCwdResponse.statusCode).toBe(400);
   });

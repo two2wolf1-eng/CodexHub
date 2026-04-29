@@ -3,6 +3,7 @@ import type {
   CodexExecControlPlaneTimeline,
   CodexExecControlPlaneDrilldownView,
   CodexExecControlPlaneReport,
+  CodexExecReportReviewRecord,
   CodexExecTimelineDetailView,
   CodexExecLiveConfig,
   CodexExecLiveRunRecord,
@@ -29,6 +30,7 @@ interface OverviewState {
   codexExecTimelineDetails: CodexExecTimelineDetailView[];
   codexExecDrilldowns: CodexExecControlPlaneDrilldownView[];
   codexExecReports: CodexExecControlPlaneReport[];
+  codexExecReportReviews: CodexExecReportReviewRecord[];
   message?: string;
 }
 
@@ -47,6 +49,7 @@ export function App() {
     codexExecTimelineDetails: [],
     codexExecDrilldowns: [],
     codexExecReports: [],
+    codexExecReportReviews: [],
   });
 
   useEffect(() => {
@@ -63,6 +66,7 @@ export function App() {
           codexExecDryRunsResponse,
           codexExecConfigResponse,
           codexExecApprovalsResponse,
+          codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
@@ -77,6 +81,9 @@ export function App() {
             liveConfig?: CodexExecLiveConfig;
           }>('/api/codex/exec/config'),
           getJson<{ approvals: CodexExecManualApprovalRecord[] }>('/api/codex/exec/approvals'),
+          getJson<{ reviews: CodexExecReportReviewRecord[] }>(
+            '/api/codex/exec/report-reviews?limit=10',
+          ),
         ]);
         const codexExecTimelines = (
           await Promise.all(
@@ -158,6 +165,7 @@ export function App() {
             codexExecTimelineDetails,
             codexExecDrilldowns,
             codexExecReports,
+            codexExecReportReviews: codexExecReportReviewsResponse.reviews,
           });
         }
       } catch (error) {
@@ -174,6 +182,7 @@ export function App() {
             codexExecTimelineDetails: [],
             codexExecDrilldowns: [],
             codexExecReports: [],
+            codexExecReportReviews: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -549,6 +558,58 @@ export function App() {
             </ul>
           ) : (
             <p>No read-only control-plane report preview is available yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Codex Report Review Workflow">
+          {overview.codexExecReportReviews.length > 0 ? (
+            <ul>
+              {overview.codexExecReportReviews.map((review) => (
+                <li key={review.id} className="stacked report-detail">
+                  <strong>{review.dryRunId}</strong>
+                  <span>
+                    status {review.status}, risk {review.riskClassification}, recommendation{' '}
+                    {review.recommendation}
+                  </span>
+                  <span>
+                    recommendation grants execution {String(review.recommendationGrantsExecution)},
+                    liveExecution {String(review.liveExecution)}, externalProcessStarted{' '}
+                    {String(review.externalProcessStarted)}, executionDisabled{' '}
+                    {String(review.executionDisabled)}
+                  </span>
+                  <span>
+                    reviewer {review.reviewerLabel}, reviewed{' '}
+                    {new Date(review.reviewedAt).toLocaleString()}
+                  </span>
+                  <div className="report-section-grid" aria-label="Read-only report review checks">
+                    <div className="report-section">
+                      <strong>Checklist</strong>
+                      {review.checklistItems.slice(0, 6).map((item) => (
+                        <p key={item.id}>
+                          {item.code}: {item.status}
+                        </p>
+                      ))}
+                      {review.checklistItems.length === 0 ? <p>No checklist items.</p> : null}
+                    </div>
+                    <div className="report-section">
+                      <strong>Findings</strong>
+                      {review.findings.slice(0, 6).map((finding) => (
+                        <p key={finding.id}>
+                          {finding.severity} {finding.code}: {finding.summary}
+                        </p>
+                      ))}
+                      {review.findings.length === 0 ? <p>No review findings.</p> : null}
+                    </div>
+                  </div>
+                  <p>
+                    {review.notesSummary ??
+                      'Review history is metadata-only and does not grant execution.'}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No read-only report review records are available yet.</p>
           )}
         </Panel>
       </section>

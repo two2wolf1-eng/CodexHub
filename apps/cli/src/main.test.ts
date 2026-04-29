@@ -298,4 +298,65 @@ describe('cli development mock-run fallback', () => {
     expect(() => resolveCodexExecReportOutputPath('../foo.md')).toThrow('traversal');
     expect(() => resolveCodexExecReportOutputPath('docs/foo.md')).toThrow('reports/ or tmp/');
   });
+
+  it('creates local report review records when supervisor is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      createCodexExecReportReview,
+      formatCodexExecReportReviewOutput,
+      formatCodexExecReportReviewListOutput,
+      getCodexExecReportReview,
+      listCodexExecReportReviews,
+    } = await import('./main');
+    const result = await createCodexExecReportReview('codex_dry_run_fixture', {
+      reviewer: 'local-operator',
+      status: 'reviewed',
+      recommendation: 'ready_for_adr',
+      notesSummary: 'No-live boundary intact; live adapter still requires ADR.',
+    });
+    const output = formatCodexExecReportReviewOutput(result);
+    const reviewId = (result.reviewRecord as { id: string }).id;
+    const detail = await getCodexExecReportReview(reviewId);
+    const list = await listCodexExecReportReviews({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'reviewed',
+      recommendation: 'ready_for_adr',
+    });
+    const listOutput = formatCodexExecReportReviewListOutput(list);
+
+    expect(result).toMatchObject({
+      reviewRecord: {
+        status: 'reviewed',
+        recommendation: 'ready_for_adr',
+        recommendationGrantsExecution: false,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(detail).toMatchObject({
+      reviewRecord: {
+        id: reviewId,
+        recommendationGrantsExecution: false,
+      },
+    });
+    expect(list).toMatchObject({
+      summaries: [
+        {
+          recommendationGrantsExecution: false,
+        },
+      ],
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(output).toContain('does not grant execution');
+    expect(output).not.toContain('execution approval');
+    expect(listOutput).toContain('grantsExecution=false');
+    expect(JSON.stringify(result)).not.toContain('Local control-plane fallback for');
+  });
 });

@@ -16,9 +16,13 @@ import {
   createDefaultCodexExecConfigLoadResult,
   buildControlPlaneDrilldownView,
   buildCodexExecControlPlaneReport,
+  classifyCodexExecReportRisk,
+  createCodexExecReportReviewDraft,
+  createCodexExecReportReviewRecord,
   createCodexExecManualApprovalDecision,
   createCodexExecManualApprovalRecord,
   createCodexExecManualApprovalRequest,
+  evaluateCodexExecReportReviewChecklist,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
   evaluateCodexExecManualApprovalState,
@@ -35,6 +39,8 @@ import {
   searchEvidence,
   renderCodexExecControlPlaneReportJson,
   renderCodexExecControlPlaneReportMarkdown,
+  summarizeCodexExecReportReview,
+  listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
 } from './index';
 
@@ -709,6 +715,110 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(report.liveExecution).toBe(false);
     expect(report.externalProcessStarted).toBe(false);
     expect(report.executionDisabled).toBe(true);
+  });
+
+  it('creates a report review draft without granting execution', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const draft = createCodexExecReportReviewDraft({
+      report,
+      reviewerLabel: 'local-operator',
+      notesSummary: 'No-live boundary intact; live adapter still requires ADR.',
+    });
+    const summary = summarizeCodexExecReportReview(draft);
+
+    expect(draft.status).toBe('draft');
+    expect(draft.dryRunId).toBe(record.dryRunPlanId);
+    expect(draft.reportHash).toMatch(/^sha256:/);
+    expect(draft.reportSectionHashes.length).toBe(report.sections.length);
+    expect(draft.recommendationGrantsExecution).toBe(false);
+    expect(summary.recommendationGrantsExecution).toBe(false);
+    expect(draft.liveExecution).toBe(false);
+    expect(draft.externalProcessStarted).toBe(false);
+    expect(draft.executionDisabled).toBe(true);
+    expect(JSON.stringify(draft)).not.toContain('Summarize repository structure and list');
+  });
+
+  it('evaluates review checklist and detects missing report sections', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const missingSectionReport = {
+      ...report,
+      sections: report.sections.filter((section) => section.kind !== 'gate'),
+    };
+    const checklist = evaluateCodexExecReportReviewChecklist(missingSectionReport);
+    const requiredSections = checklist.find((item) => item.code === 'report_has_required_sections');
+    const noLiveFlags = checklist.find((item) => item.code === 'no_live_flags_present');
+
+    expect(requiredSections?.status).toBe('failed');
+    expect(requiredSections?.summary).toContain('gate');
+    expect(noLiveFlags?.status).toBe('passed');
+  });
+
+  it('classifies report review risk from findings and keeps recommendation non-executing', () => {
+    const { record, approvalRecord } = createFullTimelineFixture();
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      approvalRecords: [approvalRecord],
+    });
+    const finding = {
+      id: 'codex_report_review_finding_test',
+      schemaVersion: '2026-04-28.foundation' as const,
+      createdAt: '2026-04-28T00:00:00.000Z',
+      severity: 'critical' as const,
+      code: 'no_live_boundary_missing',
+      summary: 'No-live boundary summary is missing.',
+      relatedSection: 'no_live_boundary' as const,
+      recommendation: 'Stop and repair the report before any later ADR review.',
+      metadataOnly: true as const,
+      bodyStored: false as const,
+      liveExecution: false as const,
+      externalProcessStarted: false as const,
+      executionDisabled: true as const,
+    };
+    const recordReview = createCodexExecReportReviewRecord({
+      report,
+      status: 'changes_requested',
+      recommendation: 'no_go',
+      findings: [finding],
+    });
+    const summaries = listCodexExecReportReviewSummaries([recordReview], {
+      dryRunId: record.dryRunPlanId,
+      recommendation: 'no_go',
+      limit: 5,
+    });
+
+    expect(classifyCodexExecReportRisk(report, [finding])).toBe('critical');
+    expect(recordReview.riskClassification).toBe('critical');
+    expect(recordReview.recommendation).toBe('no_go');
+    expect(recordReview.recommendationGrantsExecution).toBe(false);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.bodyStored).toBe(false);
+  });
+
+  it('returns a safe not_found review draft when report is unavailable', () => {
+    const review = createCodexExecReportReviewDraft({
+      dryRunId: 'missing_dry_run',
+      reviewerLabel: 'local-operator',
+    });
+
+    expect(review.dryRunId).toBe('missing_dry_run');
+    expect(review.recommendation).toBe('no_go');
+    expect(review.riskClassification).toBe('high');
+    expect(review.findings.length).toBeGreaterThan(0);
+    expect(review.bodyStored).toBe(false);
+    expect(review.liveExecution).toBe(false);
+    expect(review.externalProcessStarted).toBe(false);
+    expect(review.executionDisabled).toBe(true);
   });
 });
 

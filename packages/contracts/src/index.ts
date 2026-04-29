@@ -1384,6 +1384,114 @@ export type CodexExecControlPlaneReportExportResult = z.infer<
   typeof CodexExecControlPlaneReportExportResultSchema
 >;
 
+export const CodexExecReportReviewStatusSchema = z.enum([
+  'draft',
+  'reviewed',
+  'changes_requested',
+  'rejected',
+  'archived',
+]);
+export type CodexExecReportReviewStatus = z.infer<typeof CodexExecReportReviewStatusSchema>;
+
+export const CodexExecReportRiskClassificationSchema = z.enum([
+  'low',
+  'medium',
+  'high',
+  'critical',
+]);
+export type CodexExecReportRiskClassification = z.infer<
+  typeof CodexExecReportRiskClassificationSchema
+>;
+
+export const CodexExecReportRecommendationSchema = z.enum([
+  'no_go',
+  'needs_changes',
+  'ready_for_adr',
+  'ready_for_read_only_live_review',
+]);
+export type CodexExecReportRecommendation = z.infer<typeof CodexExecReportRecommendationSchema>;
+
+export const CodexExecReportReviewChecklistItemSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    status: z.enum(['passed', 'failed', 'warning']),
+    required: z.boolean().default(true),
+    summary: z.string().min(1),
+    relatedSection: CodexExecControlPlaneReportSectionKindSchema.optional(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewChecklistItem = z.infer<
+  typeof CodexExecReportReviewChecklistItemSchema
+>;
+
+export const CodexExecReportReviewFindingSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    severity: CodexExecReportRiskClassificationSchema,
+    code: z.string().min(1),
+    summary: z.string().min(1),
+    relatedSection: CodexExecControlPlaneReportSectionKindSchema.optional(),
+    recommendation: z.string().min(1),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewFinding = z.infer<typeof CodexExecReportReviewFindingSchema>;
+
+export const CodexExecReportReviewRecordSchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    reportId: z.string().min(1).optional(),
+    reportHash: z.string().min(1),
+    reportSectionHashes: z.array(z.string().min(1)).default([]),
+    sectionSummaryRefs: z.array(z.string().min(1)).default([]),
+    reviewedAt: IsoDateTimeSchema,
+    reviewerLabel: z.string().min(1),
+    status: CodexExecReportReviewStatusSchema,
+    recommendation: CodexExecReportRecommendationSchema,
+    recommendationGrantsExecution: z.literal(false),
+    riskClassification: CodexExecReportRiskClassificationSchema,
+    checklistItems: z.array(CodexExecReportReviewChecklistItemSchema).default([]),
+    findings: z.array(CodexExecReportReviewFindingSchema).default([]),
+    notesSummary: z.string().min(1).optional(),
+    reportSummary: CodexExecControlPlaneReportSummarySchema.optional(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewRecord = z.infer<typeof CodexExecReportReviewRecordSchema>;
+
+export const CodexExecReportReviewQuerySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1).optional(),
+    status: CodexExecReportReviewStatusSchema.optional(),
+    recommendation: CodexExecReportRecommendationSchema.optional(),
+    limit: z.number().int().positive().max(200).default(20),
+  });
+export type CodexExecReportReviewQuery = z.infer<typeof CodexExecReportReviewQuerySchema>;
+
+export const CodexExecReportReviewSummarySchema = createdEntityBaseSchema
+  .merge(codexExecControlPlaneSafetyFlagsSchema)
+  .extend({
+    reviewId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    reportHash: z.string().min(1),
+    status: CodexExecReportReviewStatusSchema,
+    recommendation: CodexExecReportRecommendationSchema,
+    recommendationGrantsExecution: z.literal(false),
+    riskClassification: CodexExecReportRiskClassificationSchema,
+    reviewerLabel: z.string().min(1),
+    reviewedAt: IsoDateTimeSchema,
+    findingCount: z.number().int().nonnegative(),
+    failedChecklistCount: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    bodyStored: z.literal(false),
+  });
+export type CodexExecReportReviewSummary = z.infer<typeof CodexExecReportReviewSummarySchema>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

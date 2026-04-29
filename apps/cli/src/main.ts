@@ -9,6 +9,8 @@ import {
   createCodexExecApprovalTransitionResult,
   buildControlPlaneDrilldownView,
   buildCodexExecControlPlaneReport,
+  createCodexExecReportReviewDraft,
+  createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
   createCodexExecControlPlaneEvidenceRefs,
   createCodexExecControlPlaneTimeline,
@@ -32,6 +34,8 @@ import {
   searchEvidence,
   renderCodexExecControlPlaneReportJson,
   renderCodexExecControlPlaneReportMarkdown,
+  summarizeCodexExecReportReview,
+  listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
 } from '@codexhub/codex-kernel';
 import type {
@@ -41,6 +45,9 @@ import type {
   CodexExecControlPlaneReportFormat,
   CodexExecEvidenceQuery,
   CodexExecLiveRunRecord,
+  CodexExecReportRecommendation,
+  CodexExecReportReviewQuery,
+  CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
 } from '@codexhub/contracts';
@@ -82,6 +89,19 @@ export interface CodexExecReportCliOptions {
   includeEvidence?: boolean;
   includeAudit?: boolean;
   out?: string;
+}
+
+export interface CodexExecReportReviewCreateCliOptions extends CodexExecJsonCliOptions {
+  reviewer?: string;
+  status?: string;
+  recommendation?: string;
+  notesSummary?: string;
+}
+
+export interface CodexExecReportReviewListCliOptions extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
+  recommendation?: string;
 }
 
 export function buildProgram(): Command {
@@ -305,6 +325,54 @@ export function buildProgram(): Command {
       }
 
       console.log(output);
+    });
+
+  const reportReviewCommand = execCommand
+    .command('report-review')
+    .description('Read and create non-executing report review records');
+
+  reportReviewCommand
+    .command('create')
+    .argument('<dryRunId>')
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option('--status <status>', 'reviewed, changes_requested, rejected, or archived', 'reviewed')
+    .option(
+      '--recommendation <recommendation>',
+      'no_go, needs_changes, ready_for_adr, or ready_for_read_only_live_review',
+      'ready_for_adr',
+    )
+    .option(
+      '--notes-summary <summary>',
+      'Review notes summary',
+      'No-live boundary intact; live adapter still requires ADR.',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Create a read-only report review record; recommendation never grants execution')
+    .action(async (dryRunId: string, options: CodexExecReportReviewCreateCliOptions) => {
+      const result = await createCodexExecReportReview(dryRunId, options);
+      console.log(formatCodexExecReportReviewOutput(result, options));
+    });
+
+  reportReviewCommand
+    .command('get')
+    .argument('<reviewId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one report review record')
+    .action(async (reviewId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getCodexExecReportReview(reviewId);
+      console.log(formatCodexExecReportReviewOutput(result, options));
+    });
+
+  reportReviewCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by review status')
+    .option('--recommendation <recommendation>', 'Filter by recommendation')
+    .option('--json', 'Print full JSON output')
+    .description('List report review records')
+    .action(async (options: CodexExecReportReviewListCliOptions) => {
+      const result = await listCodexExecReportReviews(options);
+      console.log(formatCodexExecReportReviewListOutput(result, options));
     });
 
   return program;
@@ -951,6 +1019,140 @@ export async function getCodexExecReport(
   }
 }
 
+export async function createCodexExecReportReview(
+  dryRunId: string,
+  options: CodexExecReportReviewCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const status = normalizeReportReviewStatus(options.status);
+  const recommendation = normalizeReportReviewRecommendation(options.recommendation);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/report-review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        dryRunId,
+        reviewerLabel: options.reviewer ?? 'local-operator',
+        status,
+        recommendation,
+        notesSummary:
+          options.notesSummary ?? 'No-live boundary intact; live adapter still requires ADR.',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(dryRunId);
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    });
+    const reviewRecord = createCodexExecReportReviewRecord({
+      report,
+      reviewerLabel: options.reviewer,
+      status,
+      recommendation,
+      notesSummary:
+        options.notesSummary ?? 'No-live boundary intact; live adapter still requires ADR.',
+    });
+
+    return createReportReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function getCodexExecReportReview(reviewId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/report-review/${encodeURIComponent(reviewId)}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const reviewRecord = {
+      ...createCodexExecReportReviewDraft({
+        dryRunId: 'codex_dry_run_fixture',
+        reviewerLabel: 'cli-fallback',
+        notesSummary: `Supervisor unavailable while reading review ${reviewId}.`,
+      }),
+      id: reviewId,
+    };
+
+    return createReportReviewResponse(reviewRecord, true);
+  }
+}
+
+export async function listCodexExecReportReviews(
+  options: CodexExecReportReviewListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createReportReviewQueryString(options);
+
+  try {
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/report-reviews${query}`);
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    const record = createLocalCodexExecControlPlaneRecord(
+      options.dryRun ?? 'codex_dry_run_fixture',
+    );
+    const report = buildCodexExecControlPlaneReport({
+      dryRunId: record.dryRunPlanId,
+      record,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    });
+    const reviewRecord = createCodexExecReportReviewRecord({
+      report,
+      reviewerLabel: 'cli-fallback',
+      status: normalizeReportReviewStatus(options.status ?? 'reviewed'),
+      recommendation: normalizeReportReviewRecommendation(
+        options.recommendation ?? 'ready_for_adr',
+      ),
+      notesSummary: 'Supervisor unavailable; local read-only review list fallback used.',
+    });
+    const queryObject = createReportReviewQueryFromCliOptions(options, record.dryRunPlanId);
+    const reviews = [reviewRecord].filter((candidate) => {
+      if (queryObject.dryRunId && candidate.dryRunId !== queryObject.dryRunId) {
+        return false;
+      }
+
+      if (queryObject.status && candidate.status !== queryObject.status) {
+        return false;
+      }
+
+      if (queryObject.recommendation && candidate.recommendation !== queryObject.recommendation) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return {
+      reviews,
+      summaries: listCodexExecReportReviewSummaries(reviews, queryObject),
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      degraded: true,
+      reason: 'supervisor unavailable; local control-plane fallback used',
+    };
+  }
+}
+
 export function formatCodexExecTimelineOutput(
   result: Record<string, unknown>,
   options: CodexExecTimelineCliOptions = {},
@@ -1149,6 +1351,77 @@ export function formatCodexExecReportOutput(result: Record<string, unknown>): st
   ].join('\n');
 }
 
+export function formatCodexExecReportReviewOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const review = result.reviewRecord as
+    | {
+        id?: string;
+        dryRunId?: string;
+        status?: string;
+        recommendation?: string;
+        riskClassification?: string;
+        recommendationGrantsExecution?: boolean;
+        checklistItems?: Array<{ status?: string }>;
+        findings?: unknown[];
+      }
+    | undefined;
+
+  return [
+    'Codex report review',
+    `reviewId: ${review?.id ?? 'unknown'}`,
+    `dryRunId: ${review?.dryRunId ?? 'unknown'}`,
+    `status: ${review?.status ?? 'unknown'}`,
+    `risk: ${review?.riskClassification ?? 'unknown'}`,
+    `recommendation: ${review?.recommendation ?? 'unknown'} (does not grant execution)`,
+    `recommendationGrantsExecution=${String(review?.recommendationGrantsExecution ?? false)}`,
+    `checklistFailures: ${
+      review?.checklistItems?.filter((item) => item.status === 'failed').length ?? 0
+    }`,
+    `findings: ${review?.findings?.length ?? 0}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatCodexExecReportReviewListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecReportReviewListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const summaries = result.summaries as
+    | Array<{
+        reviewId?: string;
+        dryRunId?: string;
+        status?: string;
+        recommendation?: string;
+        riskClassification?: string;
+        recommendationGrantsExecution?: boolean;
+      }>
+    | undefined;
+  const lines = (summaries ?? [])
+    .slice(0, 8)
+    .map(
+      (summary) =>
+        `- ${summary.reviewId ?? 'unknown'} ${summary.status ?? 'unknown'} ${summary.recommendation ?? 'unknown'} ${summary.riskClassification ?? 'unknown'} risk grantsExecution=${String(summary.recommendationGrantsExecution ?? false)}`,
+    );
+
+  return [
+    'Codex report review list',
+    `count: ${summaries?.length ?? 0}`,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
 export async function writeCodexExecReportOutput(
   outputPath: string,
   content: string,
@@ -1266,6 +1539,39 @@ function createReportQueryString(options: CodexExecReportCliOptions): string {
   return queryString ? `?${queryString}` : '';
 }
 
+function createReportReviewQueryString(options: CodexExecReportReviewListCliOptions): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeReportReviewStatus(options.status));
+  }
+
+  if (options.recommendation) {
+    params.set('recommendation', normalizeReportReviewRecommendation(options.recommendation));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function createReportReviewQueryFromCliOptions(
+  options: CodexExecReportReviewListCliOptions,
+  fallbackDryRunId: string,
+): Partial<CodexExecReportReviewQuery> {
+  return {
+    dryRunId: options.dryRun ?? fallbackDryRunId,
+    status: options.status ? normalizeReportReviewStatus(options.status) : undefined,
+    recommendation: options.recommendation
+      ? normalizeReportReviewRecommendation(options.recommendation)
+      : undefined,
+    limit: 20,
+  };
+}
+
 function normalizeReportFormat(format: string | undefined): CodexExecControlPlaneReportFormat {
   const normalized = format ?? 'json';
 
@@ -1274,6 +1580,39 @@ function normalizeReportFormat(format: string | undefined): CodexExecControlPlan
   }
 
   return normalized;
+}
+
+function normalizeReportReviewStatus(status: string | undefined): CodexExecReportReviewStatus {
+  const normalized = status ?? 'reviewed';
+
+  if (
+    normalized === 'draft' ||
+    normalized === 'reviewed' ||
+    normalized === 'changes_requested' ||
+    normalized === 'rejected' ||
+    normalized === 'archived'
+  ) {
+    return normalized;
+  }
+
+  throw new Error('report review status is unsupported');
+}
+
+function normalizeReportReviewRecommendation(
+  recommendation: string | undefined,
+): CodexExecReportRecommendation {
+  const normalized = recommendation ?? 'ready_for_adr';
+
+  if (
+    normalized === 'no_go' ||
+    normalized === 'needs_changes' ||
+    normalized === 'ready_for_adr' ||
+    normalized === 'ready_for_read_only_live_review'
+  ) {
+    return normalized;
+  }
+
+  throw new Error('report review recommendation is unsupported');
 }
 
 function createEvidenceQueryFromCliOptions(
@@ -1295,6 +1634,22 @@ function createAuditQueryFromCliOptions(
     dryRunId: options.dryRun ?? fallbackDryRunId,
     action: options.action,
     limit: 20,
+  };
+}
+
+function createReportReviewResponse(
+  reviewRecord: ReturnType<typeof createCodexExecReportReviewRecord>,
+  degraded: boolean,
+): Record<string, unknown> {
+  return {
+    reviewRecord,
+    summary: summarizeCodexExecReportReview(reviewRecord),
+    recommendationGrantsExecution: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    degraded,
+    reason: degraded ? 'supervisor unavailable; local control-plane fallback used' : undefined,
   };
 }
 

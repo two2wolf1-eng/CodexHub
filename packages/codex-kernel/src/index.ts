@@ -49,6 +49,14 @@ import type {
   CodexExecPreflightCheck,
   CodexExecPreflightResult,
   CodexExecReplayResult,
+  CodexExecReportRecommendation,
+  CodexExecReportReviewChecklistItem,
+  CodexExecReportReviewFinding,
+  CodexExecReportReviewQuery,
+  CodexExecReportReviewRecord,
+  CodexExecReportReviewStatus,
+  CodexExecReportReviewSummary,
+  CodexExecReportRiskClassification,
   CodexExecSandboxMode,
   CodexExecTimelineFilter,
   CodexExecTimelineEvent,
@@ -1886,6 +1894,477 @@ function uniqueStrings(values: string[]): string[] {
 
 function escapeMarkdown(value: string): string {
   return value.replace(/([\\`*_{}[\]()#+\-.!|>])/g, '\\$1');
+}
+
+export interface CodexExecReportReviewInput {
+  report?: CodexExecControlPlaneReport;
+  dryRunId?: string;
+  reviewerLabel?: string;
+  status?: CodexExecReportReviewStatus;
+  recommendation?: CodexExecReportRecommendation;
+  notesSummary?: string;
+  checklistItems?: CodexExecReportReviewChecklistItem[];
+  findings?: CodexExecReportReviewFinding[];
+}
+
+const reportReviewChecklistDefinitions: Array<{
+  code: string;
+  label: string;
+  relatedSection?: CodexExecControlPlaneReportSectionKind;
+}> = [
+  {
+    code: 'report_has_required_sections',
+    label: 'Report has required sections',
+  },
+  {
+    code: 'no_live_flags_present',
+    label: 'No-live flags are present',
+    relatedSection: 'no_live_boundary',
+  },
+  {
+    code: 'no_prompt_body_exposed',
+    label: 'Prompt body is not exposed',
+    relatedSection: 'dry_run',
+  },
+  {
+    code: 'no_command_body_exposed',
+    label: 'Command body is not exposed',
+    relatedSection: 'dry_run',
+  },
+  {
+    code: 'evidence_is_hash_only',
+    label: 'Evidence is hash-only',
+    relatedSection: 'evidence',
+  },
+  {
+    code: 'audit_is_metadata_only',
+    label: 'Audit is metadata-only',
+    relatedSection: 'audit',
+  },
+  {
+    code: 'approval_state_present',
+    label: 'Approval state is present',
+    relatedSection: 'approval',
+  },
+  {
+    code: 'gate_status_present',
+    label: 'Gate status is present',
+    relatedSection: 'gate',
+  },
+  {
+    code: 'no_dashboard_execution_affordance',
+    label: 'Dashboard has no execution affordance',
+  },
+  {
+    code: 'live_adapter_requires_separate_adr',
+    label: 'Live adapter requires a separate ADR',
+    relatedSection: 'recommendations',
+  },
+];
+
+export function createCodexExecReportReviewDraft(
+  input: CodexExecReportReviewInput,
+): CodexExecReportReviewRecord {
+  return createCodexExecReportReviewRecord({
+    ...input,
+    status: input.status ?? 'draft',
+  });
+}
+
+export function evaluateCodexExecReportReviewChecklist(
+  report?: CodexExecControlPlaneReport,
+): CodexExecReportReviewChecklistItem[] {
+  return reportReviewChecklistDefinitions.map((definition) =>
+    createReportReviewChecklistItem(
+      definition,
+      evaluateReportChecklistCode(definition.code, report),
+    ),
+  );
+}
+
+export function classifyCodexExecReportRisk(
+  report: CodexExecControlPlaneReport | undefined,
+  findings: CodexExecReportReviewFinding[],
+): CodexExecReportRiskClassification {
+  const failedSeverity = findings.reduce<CodexExecReportRiskClassification | undefined>(
+    (current, finding) => maxRisk(current, finding.severity),
+    undefined,
+  );
+
+  if (failedSeverity) {
+    return failedSeverity;
+  }
+
+  return report?.summary.riskLevel ?? 'low';
+}
+
+export function createCodexExecReportReviewRecord(
+  input: CodexExecReportReviewInput,
+): CodexExecReportReviewRecord {
+  const report = input.report;
+  const dryRunId = report?.dryRunId ?? input.dryRunId ?? 'unknown_dry_run';
+  const checklistItems = input.checklistItems ?? evaluateCodexExecReportReviewChecklist(report);
+  const findings = dedupeReviewFindings([
+    ...createChecklistFindings(checklistItems),
+    ...(input.findings ?? []),
+  ]);
+  const riskClassification = classifyCodexExecReportRisk(report, findings);
+  const recommendation =
+    input.recommendation ?? recommendationForReview(riskClassification, checklistItems, report);
+  const reportHash = report ? hashCodexExecControlPlaneReport(report) : prefixedHash(dryRunId);
+
+  return {
+    id: foundationId('codex_report_review'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId,
+    reportId: report?.id,
+    reportHash,
+    reportSectionHashes: report ? report.sections.map(hashCodexExecControlPlaneReportSection) : [],
+    sectionSummaryRefs: report
+      ? report.sections.map((section) => `${section.kind}:${section.id}`)
+      : [],
+    reviewedAt: foundationTimestamp(),
+    reviewerLabel: input.reviewerLabel ?? 'local-operator',
+    status: input.status ?? 'reviewed',
+    recommendation,
+    recommendationGrantsExecution: false,
+    riskClassification,
+    checklistItems,
+    findings,
+    notesSummary: input.notesSummary,
+    reportSummary: report?.summary,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: dryRunId,
+      reportId: report?.id,
+      reportHash,
+      recommendation,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function summarizeCodexExecReportReview(
+  record: CodexExecReportReviewRecord,
+): CodexExecReportReviewSummary {
+  return {
+    id: foundationId('codex_report_review_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    reviewId: record.id,
+    dryRunId: record.dryRunId,
+    reportHash: record.reportHash,
+    status: record.status,
+    recommendation: record.recommendation,
+    recommendationGrantsExecution: false,
+    riskClassification: record.riskClassification,
+    reviewerLabel: record.reviewerLabel,
+    reviewedAt: record.reviewedAt,
+    findingCount: record.findings.length,
+    failedChecklistCount: record.checklistItems.filter((item) => item.status === 'failed').length,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: record.dryRunId,
+      reviewId: record.id,
+      reportHash: record.reportHash,
+      recommendation: record.recommendation,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listCodexExecReportReviewSummaries(
+  records: CodexExecReportReviewRecord[],
+  query: Partial<CodexExecReportReviewQuery> = {},
+): CodexExecReportReviewSummary[] {
+  const limit = query.limit ?? 20;
+
+  return records
+    .filter((record) => {
+      if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.recommendation && record.recommendation !== query.recommendation) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, limit)
+    .map(summarizeCodexExecReportReview);
+}
+
+function evaluateReportChecklistCode(
+  code: string,
+  report: CodexExecControlPlaneReport | undefined,
+): { status: CodexExecReportReviewChecklistItem['status']; summary: string } {
+  if (!report) {
+    return {
+      status: 'failed',
+      summary: 'Report is not available for review.',
+    };
+  }
+
+  const sectionKinds = new Set(report.sections.map((section) => section.kind));
+  const reportJson = JSON.stringify(report).toLowerCase();
+
+  switch (code) {
+    case 'report_has_required_sections': {
+      const missing = reportSectionOrder.filter((kind) => !sectionKinds.has(kind));
+      return missing.length === 0
+        ? { status: 'passed', summary: 'All required report sections are present.' }
+        : { status: 'failed', summary: `Missing report sections: ${missing.join(', ')}` };
+    }
+    case 'no_live_flags_present':
+      return report.liveExecution === false &&
+        report.externalProcessStarted === false &&
+        report.executionDisabled === true &&
+        report.sections.every(
+          (section) =>
+            section.liveExecution === false &&
+            section.externalProcessStarted === false &&
+            section.executionDisabled === true,
+        )
+        ? { status: 'passed', summary: 'No-live flags are present across report sections.' }
+        : { status: 'failed', summary: 'One or more no-live flags are missing or unsafe.' };
+    case 'no_prompt_body_exposed': {
+      const dryRun = report.sections.find((section) => section.kind === 'dry_run');
+      const allowedPromptLabels = new Set([
+        'promptSummary',
+        'promptHash',
+        'promptLength',
+        'promptBodyStored',
+      ]);
+      const dryRunPromptFieldsAreSafe =
+        dryRun?.items
+          .filter((item) => item.label.toLowerCase().startsWith('prompt'))
+          .every((item) => allowedPromptLabels.has(item.label)) ?? false;
+
+      return report.bodyStored === false &&
+        report.sections.every((section) => section.bodyStored === false) &&
+        dryRunPromptFieldsAreSafe
+        ? { status: 'passed', summary: 'Prompt data is limited to summary, hash, and length.' }
+        : { status: 'failed', summary: 'Prompt body exposure risk detected.' };
+    }
+    case 'no_command_body_exposed':
+      return report.bodyStored === false &&
+        report.sections.every((section) => section.bodyStored === false) &&
+        !reportJson.includes('"commandbody"') &&
+        !reportJson.includes('"stdout"') &&
+        !reportJson.includes('"stderr"')
+        ? { status: 'passed', summary: 'Command data is limited to redacted summaries.' }
+        : { status: 'failed', summary: 'Command body exposure risk detected.' };
+    case 'evidence_is_hash_only': {
+      const evidence = report.sections.find((section) => section.kind === 'evidence');
+      return evidence?.bodyStored === false && evidence?.metadataOnly === true
+        ? { status: 'passed', summary: 'Evidence section is metadata/hash-only.' }
+        : { status: 'failed', summary: 'Evidence section is missing or not metadata-only.' };
+    }
+    case 'audit_is_metadata_only': {
+      const audit = report.sections.find((section) => section.kind === 'audit');
+      return audit?.bodyStored === false && audit?.metadataOnly === true
+        ? { status: 'passed', summary: 'Audit section is metadata-only.' }
+        : { status: 'failed', summary: 'Audit section is missing or not metadata-only.' };
+    }
+    case 'approval_state_present': {
+      const approval = report.sections.find((section) => section.kind === 'approval');
+      return approval?.status === 'ok'
+        ? { status: 'passed', summary: 'Approval state is present in the report.' }
+        : { status: 'warning', summary: 'Approval state is not present in the report.' };
+    }
+    case 'gate_status_present': {
+      const gate = report.sections.find((section) => section.kind === 'gate');
+      return gate?.status === 'ok'
+        ? { status: 'passed', summary: 'Gate status is present in the report.' }
+        : { status: 'warning', summary: 'Gate status has not been evaluated yet.' };
+    }
+    case 'no_dashboard_execution_affordance':
+      return {
+        status: 'passed',
+        summary: 'Dashboard review surface is expected to remain read-only.',
+      };
+    case 'live_adapter_requires_separate_adr': {
+      const recommendations = report.sections.find((section) => section.kind === 'recommendations');
+      const recommendationText = `${recommendations?.summary ?? ''} ${recommendations?.items
+        .map((item) => item.value)
+        .join(' ')}`;
+
+      return recommendationText.toLowerCase().includes('adr')
+        ? {
+            status: 'passed',
+            summary: 'Report recommends a separate ADR before live adapter work.',
+          }
+        : { status: 'failed', summary: 'ADR requirement is missing from recommendations.' };
+    }
+    default:
+      return { status: 'warning', summary: `Unknown checklist code ${code}.` };
+  }
+}
+
+function createReportReviewChecklistItem(
+  definition: {
+    code: string;
+    label: string;
+    relatedSection?: CodexExecControlPlaneReportSectionKind;
+  },
+  result: { status: CodexExecReportReviewChecklistItem['status']; summary: string },
+): CodexExecReportReviewChecklistItem {
+  return {
+    id: foundationId('codex_report_review_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: definition.code,
+    label: definition.label,
+    status: result.status,
+    required: true,
+    summary: result.summary,
+    relatedSection: definition.relatedSection,
+    metadataOnly: true,
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      checklistCode: definition.code,
+      relatedSection: definition.relatedSection,
+    }),
+  };
+}
+
+function createChecklistFindings(
+  checklistItems: CodexExecReportReviewChecklistItem[],
+): CodexExecReportReviewFinding[] {
+  return checklistItems
+    .filter((item) => item.status === 'failed')
+    .map((item) => ({
+      id: foundationId('codex_report_review_finding'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      severity: item.code === 'report_has_required_sections' ? 'high' : 'medium',
+      code: item.code,
+      summary: item.summary,
+      relatedSection: item.relatedSection,
+      recommendation: findingRecommendationForChecklistCode(item.code),
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      metadata: createControlPlaneMetadata({
+        checklistCode: item.code,
+        relatedSection: item.relatedSection,
+      }),
+    }));
+}
+
+function findingRecommendationForChecklistCode(code: string): string {
+  if (code === 'report_has_required_sections') {
+    return 'Regenerate the read-only report before continuing review.';
+  }
+
+  if (code === 'live_adapter_requires_separate_adr') {
+    return 'Document the live adapter ADR requirement before any execution-path discussion.';
+  }
+
+  return 'Review the report summary and request changes before any later ADR review.';
+}
+
+function recommendationForReview(
+  riskClassification: CodexExecReportRiskClassification,
+  checklistItems: CodexExecReportReviewChecklistItem[],
+  report: CodexExecControlPlaneReport | undefined,
+): CodexExecReportRecommendation {
+  if (!report || riskClassification === 'critical' || riskClassification === 'high') {
+    return 'no_go';
+  }
+
+  if (checklistItems.some((item) => item.status === 'failed')) {
+    return 'needs_changes';
+  }
+
+  if (checklistItems.some((item) => item.status === 'warning')) {
+    return 'ready_for_adr';
+  }
+
+  return 'ready_for_read_only_live_review';
+}
+
+function hashCodexExecControlPlaneReport(report: CodexExecControlPlaneReport): string {
+  return prefixedHash(
+    stableStringify({
+      id: report.id,
+      dryRunId: report.dryRunId,
+      status: report.status,
+      summary: report.summary,
+      sectionHashes: report.sections.map(hashCodexExecControlPlaneReportSection),
+      metadataOnly: report.metadataOnly,
+      bodyStored: report.bodyStored,
+      liveExecution: report.liveExecution,
+      externalProcessStarted: report.externalProcessStarted,
+      executionDisabled: report.executionDisabled,
+    }),
+  );
+}
+
+function hashCodexExecControlPlaneReportSection(
+  section: CodexExecControlPlaneReportSection,
+): string {
+  return prefixedHash(
+    stableStringify({
+      kind: section.kind,
+      status: section.status,
+      summary: section.summary,
+      refIds: section.refIds,
+      hashes: section.hashes,
+      metadataOnly: section.metadataOnly,
+      bodyStored: section.bodyStored,
+      liveExecution: section.liveExecution,
+      externalProcessStarted: section.externalProcessStarted,
+      executionDisabled: section.executionDisabled,
+    }),
+  );
+}
+
+function maxRisk(
+  left: CodexExecReportRiskClassification | undefined,
+  right: CodexExecReportRiskClassification,
+): CodexExecReportRiskClassification {
+  if (!left) {
+    return right;
+  }
+
+  const order: CodexExecReportRiskClassification[] = ['low', 'medium', 'high', 'critical'];
+  return order.indexOf(right) > order.indexOf(left) ? right : left;
+}
+
+function dedupeReviewFindings(
+  findings: CodexExecReportReviewFinding[],
+): CodexExecReportReviewFinding[] {
+  const seen = new Set<string>();
+  const deduped: CodexExecReportReviewFinding[] = [];
+
+  for (const finding of findings) {
+    if (!seen.has(finding.code)) {
+      seen.add(finding.code);
+      deduped.push(finding);
+    }
+  }
+
+  return deduped;
 }
 
 export function createDefaultCodexExecLiveConfig(): CodexExecLiveConfig {

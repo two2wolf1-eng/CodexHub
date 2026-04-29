@@ -13,6 +13,8 @@ import {
   CodexExecEvidenceSearchResultSchema,
   CodexExecControlPlaneReportExportResultSchema,
   CodexExecControlPlaneReportSchema,
+  CodexExecReportReviewRecordSchema,
+  CodexExecReportReviewSummarySchema,
   CodexExecTimelineFilterSchema,
   CodexExecTimelineQuerySchema,
   CodexExecManualApprovalRecordSchema,
@@ -942,5 +944,88 @@ describe('contracts schemas', () => {
     expect(report.sections[0]?.bodyStored).toBe(false);
     expect(exportResult.report.summary.sectionCount).toBe(10);
     expect(JSON.stringify(exportResult)).not.toContain('full stdout body');
+  });
+
+  it('parses codex report review workflow models', () => {
+    const checklistItem = {
+      id: 'codex_report_review_check_1',
+      schemaVersion,
+      createdAt,
+      code: 'no_live_flags_present',
+      label: 'No-live flags are present',
+      status: 'passed',
+      required: true,
+      summary: 'liveExecution=false, externalProcessStarted=false, executionDisabled=true',
+      relatedSection: 'no_live_boundary',
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const finding = {
+      id: 'codex_report_review_finding_1',
+      schemaVersion,
+      createdAt,
+      severity: 'medium',
+      code: 'approval_state_missing',
+      summary: 'Approval state is missing from the reviewed report summary.',
+      relatedSection: 'approval',
+      recommendation: 'Create a manual approval request before any later ADR review.',
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const record = CodexExecReportReviewRecordSchema.parse({
+      id: 'codex_report_review_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      reportId: 'codex_report_1',
+      reportHash: 'sha256:report',
+      reportSectionHashes: ['sha256:overview'],
+      sectionSummaryRefs: ['overview'],
+      reviewedAt: createdAt,
+      reviewerLabel: 'local-operator',
+      status: 'reviewed',
+      recommendation: 'ready_for_adr',
+      recommendationGrantsExecution: false,
+      riskClassification: 'medium',
+      checklistItems: [checklistItem],
+      findings: [finding],
+      notesSummary: 'No-live boundary intact; live adapter still requires ADR.',
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    const summary = CodexExecReportReviewSummarySchema.parse({
+      id: 'codex_report_review_summary_1',
+      schemaVersion,
+      createdAt,
+      reviewId: record.id,
+      dryRunId: record.dryRunId,
+      reportHash: record.reportHash,
+      status: record.status,
+      recommendation: record.recommendation,
+      recommendationGrantsExecution: false,
+      riskClassification: record.riskClassification,
+      reviewerLabel: record.reviewerLabel,
+      reviewedAt: record.reviewedAt,
+      findingCount: record.findings.length,
+      failedChecklistCount: 0,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(record.recommendationGrantsExecution).toBe(false);
+    expect(summary.recommendation).toBe('ready_for_adr');
+    expect(JSON.stringify(record)).not.toContain('full command body');
   });
 });
