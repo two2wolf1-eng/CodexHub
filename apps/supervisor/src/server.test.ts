@@ -511,10 +511,10 @@ describe('supervisor mock development API', () => {
         promptBodyStored: false,
       },
       policyDecision: {
-        outcome: 'deny',
+        outcome: 'approval_required',
       },
       liveRunRecord: {
-        status: 'blocked',
+        status: 'awaiting_approval',
         promptBodyStored: false,
       },
     });
@@ -528,13 +528,13 @@ describe('supervisor mock development API', () => {
       executionDisabled: true,
     });
     expect(listResponse.json().liveConfig).toMatchObject({
-      liveEnabled: false,
+      liveEnabled: true,
       allowedSandboxModes: ['read_only'],
     });
     expect(preflightResponse.statusCode).toBe(200);
     expect(preflightResponse.json()).toMatchObject({
       preflightResult: {
-        status: 'blocked',
+        status: 'passed',
         liveExecution: false,
         externalProcessStarted: false,
         executionDisabled: true,
@@ -545,7 +545,7 @@ describe('supervisor mock development API', () => {
       configLoadResult: {
         status: 'loaded',
         config: {
-          liveEnabled: false,
+          liveEnabled: true,
           configSource: 'file',
           configBodyStored: false,
         },
@@ -626,17 +626,17 @@ describe('supervisor mock development API', () => {
     expect(gateResponse.statusCode).toBe(200);
     expect(gateResponse.json()).toMatchObject({
       executionGateResult: {
-        status: 'blocked',
+        status: 'ready',
         liveExecution: false,
         externalProcessStarted: false,
         executionDisabled: true,
       },
     });
-    expect(gateResponse.json().executionGateResult.reasons.join(' ')).toContain('disabled');
+    expect(gateResponse.json().executionGateResult.reasons).toEqual([]);
     expect(timelineResponse.statusCode).toBe(200);
     expect(timelineResponse.json()).toMatchObject({
       timeline: {
-        status: 'gate_blocked',
+        status: 'gate_ready',
         liveExecution: false,
         externalProcessStarted: false,
         executionDisabled: true,
@@ -687,7 +687,7 @@ describe('supervisor mock development API', () => {
     expect(detailResponse.json()).toMatchObject({
       detail: {
         dryRunId: dryRunResponse.json().liveRunRecord.dryRunPlanId,
-        latestGateStatus: 'blocked',
+        latestGateStatus: 'ready',
         approvalStatus: 'approved',
         evidenceSummary: {
           metadataOnly: true,
@@ -1147,7 +1147,7 @@ describe('supervisor mock development API', () => {
     expect(readOnlyPreflightSimulationResponse.json()).toMatchObject({
       simulationResult: {
         dryRunId: canonicalDryRunPlanId,
-        status: 'failed',
+        status: 'passed',
         requestedSandboxMode: 'read_only',
         liveExecution: false,
         externalProcessStarted: false,
@@ -1179,7 +1179,7 @@ describe('supervisor mock development API', () => {
       readOnlyPreflightSimulationResponse
         .json()
         .simulationResult.blockers.map((blocker: { code: string }) => blocker.code),
-    ).toContain('config_explicit_enable_state');
+    ).not.toContain('config_explicit_enable_state');
     expect(JSON.stringify(readOnlyPreflightSimulationResponse.json())).not.toContain(
       'list risk areas',
     );
@@ -1996,13 +1996,36 @@ describe('supervisor mock development API', () => {
       },
     });
     const approvalArtifactId = approvalResponse.json().approvalArtifact.id as string;
-    const attemptResponse = await server.inject({
+    const sourcePreparationResponse = await server.inject({
       method: 'POST',
-      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: {
         dryRunId,
         approvalArtifactId,
-        isolatedWorktreeProvided: true,
+        worktreeLabel: 'isolated-clean-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: 'sha256:isolated-clean-worktree',
+      },
+    });
+    const sourcePreparationRecordId = sourcePreparationResponse.json().recordId as string;
+    const sourcePreparationGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources/${sourcePreparationRecordId}`,
+    });
+    const sourcePreparationListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources?dryRunId=${dryRunId}&status=prepared&limit=10`,
+    });
+    const sourcePreparationLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/pilot-prerequisite-source/latest/${dryRunId}`,
+    });
+    const sourcePreparationRawPathResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
+      payload: {
+        dryRunId,
+        worktreePath: 'C:/safe/worktree',
       },
     });
     const readyResponse = await server.inject({
@@ -2048,6 +2071,11 @@ describe('supervisor mock development API', () => {
       payload: {},
     });
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
+    const disabledStoreSourceResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
+      payload: { dryRunId },
+    });
     const disabledStoreResponse = await disabledStoreServer.inject({
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
@@ -2063,6 +2091,7 @@ describe('supervisor mock development API', () => {
       status: 'blocked',
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeSourcePreparationPresent: false,
       authoritativeAttemptEvidencePresent: false,
       fallbackUsedAsAuthority: false,
       pilotExecuted: false,
@@ -2070,8 +2099,34 @@ describe('supervisor mock development API', () => {
     });
     expect(approvalRequestResponse.statusCode).toBe(200);
     expect(approvalResponse.statusCode).toBe(200);
-    expect(attemptResponse.statusCode).toBe(200);
-    expect(attemptResponse.json().attemptRecord.processBoundaryInvoked).toBe(false);
+    expect(sourcePreparationResponse.statusCode).toBe(200);
+    expect(sourcePreparationResponse.json()).toMatchObject({
+      recordId: sourcePreparationRecordId,
+      dryRunId,
+      status: 'prepared',
+      degraded: false,
+      notPersisted: false,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      evidenceAuditReady: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(sourcePreparationResponse.json().evidenceRefs.length).toBeGreaterThan(0);
+    expect(sourcePreparationResponse.json().auditEvents.length).toBeGreaterThan(0);
+    expect(sourcePreparationGetResponse.statusCode).toBe(200);
+    expect(sourcePreparationGetResponse.json().recordId).toBe(sourcePreparationRecordId);
+    expect(sourcePreparationListResponse.statusCode).toBe(200);
+    expect(sourcePreparationListResponse.json().summaries).toHaveLength(1);
+    expect(sourcePreparationLatestResponse.statusCode).toBe(200);
+    expect(sourcePreparationLatestResponse.json().recordId).toBe(sourcePreparationRecordId);
+    expect(sourcePreparationRawPathResponse.statusCode).toBe(400);
+    expect(sourcePreparationRawPathResponse.body).not.toContain('C:/safe/worktree');
     expect(readyResponse.statusCode).toBe(200);
     expect(readyResponse.json()).toMatchObject({
       recordId,
@@ -2082,7 +2137,8 @@ describe('supervisor mock development API', () => {
       configExplicitlyEnabled: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
-      authoritativeAttemptEvidencePresent: true,
+      authoritativeSourcePreparationPresent: true,
+      authoritativeAttemptEvidencePresent: false,
       evidenceAuditReady: true,
       fallbackUsedAsAuthority: false,
       pilotExecuted: false,
@@ -2105,6 +2161,22 @@ describe('supervisor mock development API', () => {
     expect(rawPathResponse.body).not.toContain('C:/safe/worktree');
     expect(invalidQueryResponse.statusCode).toBe(400);
     expect(missingBodyResponse.statusCode).toBe(400);
+    expect(disabledStoreSourceResponse.statusCode).toBe(503);
+    expect(disabledStoreSourceResponse.json()).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      evidenceAuditReady: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
     expect(disabledStoreResponse.statusCode).toBe(503);
     expect(disabledStoreResponse.json()).toMatchObject({
       status: 'blocked',
@@ -2116,12 +2188,20 @@ describe('supervisor mock development API', () => {
       configExplicitlyEnabled: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeSourcePreparationPresent: false,
       authoritativeAttemptEvidencePresent: false,
       evidenceAuditReady: false,
       fallbackUsedAsAuthority: false,
       pilotExecuted: false,
       adapterAttemptInvoked: false,
     });
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('C:/safe/worktree');
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('raw prompt body');
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('raw command body');
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('raw stdout body');
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('raw stderr body');
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('"argv"');
+    expect(JSON.stringify(sourcePreparationResponse.json())).not.toContain('"executablePath":');
     expect(JSON.stringify(readyResponse.json())).not.toContain('C:/safe/worktree');
     expect(JSON.stringify(readyResponse.json())).not.toContain('raw prompt body');
     expect(JSON.stringify(readyResponse.json())).not.toContain('raw command body');

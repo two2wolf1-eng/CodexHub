@@ -1,13 +1,13 @@
 import type {
   AuditEvent,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteBlocker,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteChecklistItem,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteFinding,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteGate,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus,
-  CodexExecRealReadOnlyAdapterPilotPrerequisiteSummary,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationBlocker,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItem,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationFinding,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationGate,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationSummary,
   EvidenceRef,
   RiskLevel,
 } from '@codexhub/contracts';
@@ -16,7 +16,7 @@ import { createEvidenceRef, hashText } from '@codexhub/evidence-kernel';
 
 type JsonMetadata = Record<string, unknown>;
 
-export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteInput {
+export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationInput {
   dryRunId: string;
   authoritative?: boolean;
   supervisorBacked?: boolean;
@@ -26,21 +26,22 @@ export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteInput {
   dryRunRecordPresent?: boolean;
   configExplicitlyEnabled?: boolean;
   validUnusedApprovalPresent?: boolean;
+  approvalArtifactId?: string;
+  approvalArtifactHash?: string;
+  dryRunPlanHash?: string;
+  policyDecisionHash?: string;
   isolatedCleanWorktreeMetadataPresent?: boolean;
-  authoritativeSourcePreparationPresent?: boolean;
-  authoritativeAttemptEvidencePresent?: boolean;
-  evidenceAuditReady?: boolean;
-  fallbackUsedAsAuthority?: boolean;
-  handoffContextComplete?: boolean;
   worktreeLabel?: string;
   worktreeStatus?: 'clean' | 'dirty' | 'missing' | 'unknown';
   worktreePathHash?: string;
+  evidenceAuditReady?: boolean;
+  fallbackUsedAsAuthority?: boolean;
   evidenceRefs?: EvidenceRef[];
   auditEventIds?: string[];
   metadata?: JsonMetadata;
 }
 
-const pilotPrerequisiteFlags = {
+const pilotSourcePreparationFlags = {
   liveExecution: false,
   externalProcessStarted: false,
   executionDisabled: true,
@@ -61,9 +62,9 @@ const pilotPrerequisiteFlags = {
   reasoningBodyStored: false,
 } as const;
 
-export function buildRealReadOnlyAdapterPilotPrerequisiteRecord(
-  input: CodexExecRealReadOnlyAdapterPilotPrerequisiteInput,
-): CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord {
+export function buildRealReadOnlyAdapterPilotSourcePreparationRecord(
+  input: CodexExecRealReadOnlyAdapterPilotSourcePreparationInput,
+): CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord {
   const degraded = input.degraded === true;
   const notPersisted = input.notPersisted === true;
   const authoritative = input.authoritative === true;
@@ -75,13 +76,8 @@ export function buildRealReadOnlyAdapterPilotPrerequisiteRecord(
   const validUnusedApprovalPresent = input.validUnusedApprovalPresent === true;
   const isolatedCleanWorktreeMetadataPresent =
     input.isolatedCleanWorktreeMetadataPresent === true;
-  const authoritativeSourcePreparationPresent =
-    input.authoritativeSourcePreparationPresent === true;
-  const authoritativeAttemptEvidencePresent =
-    input.authoritativeAttemptEvidencePresent === true;
   const evidenceAuditReady = input.evidenceAuditReady === true;
-  const handoffContextComplete = input.handoffContextComplete !== false;
-  const gates = createPilotPrerequisiteGates({
+  const gates = createPilotSourcePreparationGates({
     dryRunId: input.dryRunId,
     authoritative,
     supervisorBacked,
@@ -93,23 +89,20 @@ export function buildRealReadOnlyAdapterPilotPrerequisiteRecord(
     configExplicitlyEnabled,
     validUnusedApprovalPresent,
     isolatedCleanWorktreeMetadataPresent,
-    authoritativeSourcePreparationPresent,
-    authoritativeAttemptEvidencePresent,
     evidenceAuditReady,
-    handoffContextComplete,
     metadata: input.metadata,
   });
   const hardGates = gates.filter((gate) => gate.required);
   const blockedHardGates = hardGates.filter((gate) => gate.status === 'blocked');
   const requiresReviewGates = gates.filter((gate) => gate.status === 'requires_review');
-  const status: CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus =
+  const status: CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus =
     blockedHardGates.length > 0
       ? 'blocked'
       : requiresReviewGates.length > 0
         ? 'requires_review'
-        : 'ready_for_pilot_retry';
+        : 'prepared';
   const blockers = blockedHardGates.map((gate) =>
-    createPilotPrerequisiteBlocker({
+    createPilotSourcePreparationBlocker({
       dryRunId: input.dryRunId,
       gate,
       severity: gate.code === 'source_persisted_authoritative' ? 'critical' : 'high',
@@ -117,44 +110,49 @@ export function buildRealReadOnlyAdapterPilotPrerequisiteRecord(
     }),
   );
   const findings = requiresReviewGates.map((gate) =>
-    createPilotPrerequisiteFinding({
+    createPilotSourcePreparationFinding({
       dryRunId: input.dryRunId,
       gate,
       metadata: input.metadata,
     }),
   );
-  const missingPrerequisites = blockedHardGates.map((gate) => gate.code);
+  const missingSources = blockedHardGates.map((gate) => gate.code);
   const evidenceRefs = input.evidenceRefs ?? [];
   const auditEventIds = input.auditEventIds ?? [];
 
   return {
-    id: foundationId('codex_real_read_only_adapter_pilot_prerequisite'),
+    id: foundationId('codex_real_read_only_adapter_pilot_source_preparation'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...pilotPrerequisiteFlags,
+    ...pilotSourcePreparationFlags,
     dryRunId: input.dryRunId,
     status,
     recommendation:
-      status === 'ready_for_pilot_retry'
-        ? 'Pilot retry prerequisites are present for a separate 4F.2 decision; this does not run a pilot.'
-        : 'Pilot retry remains blocked until missing prerequisite evidence is present.',
+      status === 'prepared'
+        ? 'Pilot retry source inputs are prepared for a separate prerequisite check; this does not run a pilot.'
+        : 'Pilot retry source preparation remains blocked until missing source evidence is present.',
     gates,
     blockers,
     findings,
-    checklistItems: gates.map((gate) => createPilotPrerequisiteChecklistItem(gate)),
+    checklistItems: gates.map((gate) => createPilotSourcePreparationChecklistItem(gate)),
     hardGateCount: hardGates.length,
     passedGateCount: gates.filter((gate) => gate.status === 'passed').length,
     blockedGateCount: blockedHardGates.length,
     requiresReviewFindingCount: findings.length,
-    missingPrerequisites,
+    missingSources,
     degraded,
     notPersisted,
     dryRunRecordPresent,
     configExplicitlyEnabled,
     validUnusedApprovalPresent,
+    approvalArtifactId: input.approvalArtifactId,
+    approvalArtifactHash: input.approvalArtifactHash,
+    dryRunPlanHash: input.dryRunPlanHash,
+    policyDecisionHash: input.policyDecisionHash,
     isolatedCleanWorktreeMetadataPresent,
-    authoritativeSourcePreparationPresent,
-    authoritativeAttemptEvidencePresent,
+    worktreeLabel: input.worktreeLabel,
+    worktreeStatus: input.worktreeStatus,
+    worktreePathHash: input.worktreePathHash,
     evidenceAuditReady,
     fallbackUsedAsAuthority: false,
     pilotExecuted: false,
@@ -162,37 +160,34 @@ export function buildRealReadOnlyAdapterPilotPrerequisiteRecord(
     authoritative,
     supervisorBacked,
     persisted,
-    worktreeLabel: input.worktreeLabel,
-    worktreeStatus: input.worktreeStatus,
-    worktreePathHash: input.worktreePathHash,
     evidenceRefs,
     auditEventIds,
     summary:
-      status === 'ready_for_pilot_retry'
-        ? 'Pilot prerequisite readiness is authoritative, persisted, and metadata-only.'
-        : 'Pilot prerequisite readiness records missing gates without executing an adapter attempt.',
-    metadata: createPilotPrerequisiteMetadata({
+      status === 'prepared'
+        ? 'Pilot prerequisite source preparation is authoritative, persisted, and metadata-only.'
+        : 'Pilot prerequisite source preparation records missing source gates without executing an adapter attempt.',
+    metadata: createPilotSourcePreparationMetadata({
       ...(input.metadata ?? {}),
       dryRunId: input.dryRunId,
       status,
-      missingPrerequisiteCount: missingPrerequisites.length,
+      missingSourceCount: missingSources.length,
       fallbackUsedAsAuthority: false,
       pilotExecuted: false,
       adapterAttemptInvoked: false,
       worktreePathStored: false,
-      source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-record',
+      source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-record',
     }),
   };
 }
 
-export function summarizeRealReadOnlyAdapterPilotPrerequisiteRecord(
-  record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
-): CodexExecRealReadOnlyAdapterPilotPrerequisiteSummary {
+export function summarizeRealReadOnlyAdapterPilotSourcePreparationRecord(
+  record: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
+): CodexExecRealReadOnlyAdapterPilotSourcePreparationSummary {
   return {
-    id: foundationId('codex_real_read_only_adapter_pilot_prerequisite_summary'),
+    id: foundationId('codex_real_read_only_adapter_pilot_source_preparation_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...pilotPrerequisiteFlags,
+    ...pilotSourcePreparationFlags,
     recordId: record.id,
     dryRunId: record.dryRunId,
     status: record.status,
@@ -200,106 +195,107 @@ export function summarizeRealReadOnlyAdapterPilotPrerequisiteRecord(
     passedGateCount: record.passedGateCount,
     blockedGateCount: record.blockedGateCount,
     requiresReviewFindingCount: record.requiresReviewFindingCount,
-    missingPrerequisites: record.missingPrerequisites,
+    missingSources: record.missingSources,
     degraded: record.degraded,
     notPersisted: record.notPersisted,
     dryRunRecordPresent: record.dryRunRecordPresent,
     configExplicitlyEnabled: record.configExplicitlyEnabled,
     validUnusedApprovalPresent: record.validUnusedApprovalPresent,
     isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
-    authoritativeSourcePreparationPresent: record.authoritativeSourcePreparationPresent,
-    authoritativeAttemptEvidencePresent: record.authoritativeAttemptEvidencePresent,
     evidenceAuditReady: record.evidenceAuditReady,
     fallbackUsedAsAuthority: false,
     pilotExecuted: false,
     adapterAttemptInvoked: false,
     recommendation: record.recommendation,
     summary: record.summary,
-    metadata: createPilotPrerequisiteMetadata({
+    metadata: createPilotSourcePreparationMetadata({
       recordId: record.id,
       dryRunId: record.dryRunId,
       status: record.status,
-      source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-summary',
+      source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-summary',
     }),
   };
 }
 
-export function listRealReadOnlyAdapterPilotPrerequisiteSummaries(
-  records: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[],
-  query: Partial<CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery> = {},
-): CodexExecRealReadOnlyAdapterPilotPrerequisiteSummary[] {
+export function listRealReadOnlyAdapterPilotSourcePreparationSummaries(
+  records: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord[],
+  query: Partial<CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery> = {},
+): CodexExecRealReadOnlyAdapterPilotSourcePreparationSummary[] {
   const limit = query.limit ?? 50;
   return records
     .filter((record) => (query.dryRunId === undefined ? true : record.dryRunId === query.dryRunId))
     .filter((record) => (query.status === undefined ? true : record.status === query.status))
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, limit)
-    .map((record) => summarizeRealReadOnlyAdapterPilotPrerequisiteRecord(record));
+    .map((record) => summarizeRealReadOnlyAdapterPilotSourcePreparationRecord(record));
 }
 
-export function getLatestRealReadOnlyAdapterPilotPrerequisite(
-  records: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[],
+export function getLatestRealReadOnlyAdapterPilotSourcePreparation(
+  records: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord[],
   dryRunId: string,
-): CodexExecRealReadOnlyAdapterPilotPrerequisiteSummary | undefined {
-  return listRealReadOnlyAdapterPilotPrerequisiteSummaries(records, { dryRunId, limit: 1 })[0];
+): CodexExecRealReadOnlyAdapterPilotSourcePreparationSummary | undefined {
+  return listRealReadOnlyAdapterPilotSourcePreparationSummaries(records, { dryRunId, limit: 1 })[0];
 }
 
-export function createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs(
-  record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+export function createRealReadOnlyAdapterPilotSourcePreparationEvidenceRefs(
+  record: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
 ): EvidenceRef[] {
   return [
     createEvidenceRef({
       kind: 'hash',
-      label: 'codex.real_read_only_adapter.pilot_prerequisite',
-      summary: `Pilot prerequisite readiness ${record.status}; metadata, hashes, counts, and refs only.`,
-      metadata: createPilotPrerequisiteMetadata({
+      label: 'codex.real_read_only_adapter.pilot_source_preparation',
+      summary: `Pilot prerequisite source preparation ${record.status}; metadata, hashes, counts, and refs only.`,
+      metadata: createPilotSourcePreparationMetadata({
         recordId: record.id,
         dryRunId: record.dryRunId,
         status: record.status,
         hardGateCount: record.hardGateCount,
         passedGateCount: record.passedGateCount,
         blockedGateCount: record.blockedGateCount,
-        source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-evidence',
+        source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-evidence',
       }),
       bodyForHashOnly: stableStringify({
         id: record.id,
         dryRunId: record.dryRunId,
         status: record.status,
-        gates: record.gates.map((gate) => `${gate.code}:${gate.status}`),
-        missingPrerequisites: record.missingPrerequisites,
-        degraded: record.degraded,
-        notPersisted: record.notPersisted,
+        missingSources: record.missingSources,
+        worktreeLabel: record.worktreeLabel,
+        worktreeStatus: record.worktreeStatus,
+        worktreePathHash: record.worktreePathHash,
       }),
     }),
   ];
 }
 
-export function createRealReadOnlyAdapterPilotPrerequisiteAuditEvents(
-  record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
-  evidenceRefs: EvidenceRef[],
+export function createRealReadOnlyAdapterPilotSourcePreparationAuditEvents(
+  record: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
+  evidenceRefs: EvidenceRef[] = record.evidenceRefs,
 ): AuditEvent[] {
   return [
     {
-      id: foundationId('audit_real_read_only_adapter_pilot_prerequisite'),
+      id: foundationId('audit_codex_real_read_only_adapter_pilot_source_preparation'),
       schemaVersion: SchemaVersionSchema.value,
       createdAt: foundationTimestamp(),
       actor: 'codex-kernel.real-read-only-adapter',
-      action: 'codex.exec.real_read_only_adapter.pilot_prerequisite_recorded',
+      action: 'codex.exec.real_read_only_adapter.pilot_source_preparation_recorded',
       outcome: record.status,
       evidenceRefs,
-      metadata: createPilotPrerequisiteMetadata({
+      metadata: createPilotSourcePreparationMetadata({
         recordId: record.id,
         dryRunId: record.dryRunId,
         status: record.status,
+        riskLevel: record.status === 'prepared' ? 'medium' : 'high',
+        liveExecution: false,
+        externalProcessStarted: false,
         pilotExecuted: false,
         adapterAttemptInvoked: false,
-        source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-audit',
+        source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-audit',
       }),
     },
   ];
 }
 
-function createPilotPrerequisiteGates(input: {
+function createPilotSourcePreparationGates(input: {
   dryRunId: string;
   authoritative: boolean;
   supervisorBacked: boolean;
@@ -311,12 +307,9 @@ function createPilotPrerequisiteGates(input: {
   configExplicitlyEnabled: boolean;
   validUnusedApprovalPresent: boolean;
   isolatedCleanWorktreeMetadataPresent: boolean;
-  authoritativeSourcePreparationPresent: boolean;
-  authoritativeAttemptEvidencePresent: boolean;
   evidenceAuditReady: boolean;
-  handoffContextComplete: boolean;
   metadata?: JsonMetadata;
-}): CodexExecRealReadOnlyAdapterPilotPrerequisiteGate[] {
+}): CodexExecRealReadOnlyAdapterPilotSourcePreparationGate[] {
   const persistedAuthority =
     input.authoritative &&
     input.supervisorBacked &&
@@ -327,12 +320,11 @@ function createPilotPrerequisiteGates(input: {
   const gateInputs: Array<{
     code: string;
     label: string;
-    category: CodexExecRealReadOnlyAdapterPilotPrerequisiteGate['category'];
+    category: CodexExecRealReadOnlyAdapterPilotSourcePreparationGate['category'];
     passed: boolean;
     required: boolean;
     blockedSummary: string;
     passedSummary: string;
-    requiresReview?: boolean;
   }> = [
     {
       code: 'source_persisted_authoritative',
@@ -341,16 +333,16 @@ function createPilotPrerequisiteGates(input: {
       passed: persistedAuthority,
       required: true,
       blockedSummary:
-        'A degraded fallback, local-only summary, or non-persisted object cannot authorize pilot retry.',
-      passedSummary: 'Supervisor-backed persisted prerequisite source is authoritative.',
+        'A degraded fallback, local-only summary, or non-persisted object cannot prepare pilot retry sources.',
+      passedSummary: 'Supervisor-backed persisted source preparation is authoritative.',
     },
     {
       code: 'dry_run_record_present',
       label: 'Existing dry-run record',
-      category: 'authority',
+      category: 'dry_run',
       passed: input.dryRunRecordPresent,
       required: true,
-      blockedSummary: 'A persisted dry-run record must exist before pilot retry can be considered.',
+      blockedSummary: 'A persisted dry-run record must exist before pilot source preparation.',
       passedSummary: 'Existing dry-run record metadata is present.',
     },
     {
@@ -359,7 +351,7 @@ function createPilotPrerequisiteGates(input: {
       category: 'config',
       passed: input.configExplicitlyEnabled,
       required: true,
-      blockedSummary: '4F.1 may inspect config enablement but must not change it.',
+      blockedSummary: 'Explicit read-only adapter config enablement is not present.',
       passedSummary: 'Explicit config enablement metadata is present.',
     },
     {
@@ -368,8 +360,7 @@ function createPilotPrerequisiteGates(input: {
       category: 'approval',
       passed: input.validUnusedApprovalPresent,
       required: true,
-      blockedSummary:
-        '4F.1 may verify approval metadata but must not create, renew, approve, revoke, or use approval artifacts.',
+      blockedSummary: 'A valid unused approval artifact is not present.',
       passedSummary: 'Valid unused approval artifact metadata is present.',
     },
     {
@@ -379,19 +370,8 @@ function createPilotPrerequisiteGates(input: {
       passed: input.isolatedCleanWorktreeMetadataPresent,
       required: true,
       blockedSummary:
-        'Isolated clean worktree metadata must be present without storing a raw absolute path.',
+        'Existing isolated clean worktree metadata must be present without storing a raw absolute path.',
       passedSummary: 'Isolated clean worktree metadata is present as label/hash/status only.',
-    },
-    {
-      code: 'authoritative_pilot_source_evidence',
-      label: 'Authoritative pilot source evidence',
-      category: 'authority',
-      passed:
-        input.authoritativeAttemptEvidencePresent || input.authoritativeSourcePreparationPresent,
-      required: true,
-      blockedSummary:
-        'Persisted Supervisor-backed attempt evidence or source-preparation evidence is required.',
-      passedSummary: 'Persisted authoritative pilot source evidence is present.',
     },
     {
       code: 'evidence_audit_ready',
@@ -402,34 +382,15 @@ function createPilotPrerequisiteGates(input: {
       blockedSummary: 'Evidence and audit readiness must be non-degraded.',
       passedSummary: 'Evidence and audit readiness metadata is non-degraded.',
     },
-    {
-      code: 'fallback_not_authority',
-      label: 'Fallback cannot be authority',
-      category: 'fallback',
-      passed: !input.fallbackUsedAsAuthority,
-      required: true,
-      blockedSummary: 'Fallback output must never be treated as authoritative pilot readiness.',
-      passedSummary: 'Fallback output is not treated as authoritative.',
-    },
-    {
-      code: 'handoff_context_complete',
-      label: 'Operator handoff context',
-      category: 'handoff',
-      passed: input.handoffContextComplete,
-      required: false,
-      blockedSummary: 'Operator handoff context is incomplete.',
-      passedSummary: 'Operator handoff context is complete.',
-      requiresReview: !input.handoffContextComplete,
-    },
   ];
 
   return gateInputs.map((gate) =>
-    createPilotPrerequisiteGate({
+    createPilotSourcePreparationGate({
       dryRunId: input.dryRunId,
       code: gate.code,
       label: gate.label,
       category: gate.category,
-      status: gate.requiresReview ? 'requires_review' : gate.passed ? 'passed' : 'blocked',
+      status: gate.passed ? 'passed' : 'blocked',
       required: gate.required,
       summary: gate.passed ? gate.passedSummary : gate.blockedSummary,
       metadata: input.metadata,
@@ -437,120 +398,109 @@ function createPilotPrerequisiteGates(input: {
   );
 }
 
-function createPilotPrerequisiteGate(input: {
+function createPilotSourcePreparationGate(input: {
   dryRunId: string;
   code: string;
   label: string;
-  category: CodexExecRealReadOnlyAdapterPilotPrerequisiteGate['category'];
-  status: CodexExecRealReadOnlyAdapterPilotPrerequisiteGate['status'];
+  category: CodexExecRealReadOnlyAdapterPilotSourcePreparationGate['category'];
+  status: CodexExecRealReadOnlyAdapterPilotSourcePreparationGate['status'];
   required: boolean;
   summary: string;
   metadata?: JsonMetadata;
-}): CodexExecRealReadOnlyAdapterPilotPrerequisiteGate {
+}): CodexExecRealReadOnlyAdapterPilotSourcePreparationGate {
   return {
-    id: foundationId('codex_real_read_only_adapter_pilot_prerequisite_gate'),
+    id: foundationId('codex_real_read_only_adapter_pilot_source_preparation_gate'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...pilotPrerequisiteFlags,
+    ...pilotSourcePreparationFlags,
     code: input.code,
     label: input.label,
     category: input.category,
     status: input.status,
     required: input.required,
     summary: input.summary,
-    metadata: createPilotPrerequisiteMetadata({
+    metadata: createPilotSourcePreparationMetadata({
       ...(input.metadata ?? {}),
       dryRunId: input.dryRunId,
       gateCode: input.code,
-      source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-gate',
+      source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-gate',
     }),
   };
 }
 
-function createPilotPrerequisiteBlocker(input: {
+function createPilotSourcePreparationBlocker(input: {
   dryRunId: string;
-  gate: CodexExecRealReadOnlyAdapterPilotPrerequisiteGate;
+  gate: CodexExecRealReadOnlyAdapterPilotSourcePreparationGate;
   severity: RiskLevel;
   metadata?: JsonMetadata;
-}): CodexExecRealReadOnlyAdapterPilotPrerequisiteBlocker {
+}): CodexExecRealReadOnlyAdapterPilotSourcePreparationBlocker {
   return {
-    id: foundationId('codex_real_read_only_adapter_pilot_prerequisite_blocker'),
+    id: foundationId('codex_real_read_only_adapter_pilot_source_preparation_blocker'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...pilotPrerequisiteFlags,
-    code: `missing_${input.gate.code}`,
+    ...pilotSourcePreparationFlags,
+    code: input.gate.code,
     severity: input.severity,
     relatedGateCode: input.gate.code,
     summary: input.gate.summary,
-    recommendation: 'Resolve this prerequisite in a separate round before 4F.2 is considered.',
-    metadata: createPilotPrerequisiteMetadata({
+    recommendation: 'Prepare the missing authoritative source before considering 4F.2.',
+    metadata: createPilotSourcePreparationMetadata({
       ...(input.metadata ?? {}),
       dryRunId: input.dryRunId,
-      relatedGateCode: input.gate.code,
-      source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-blocker',
+      gateCode: input.gate.code,
+      source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-blocker',
     }),
   };
 }
 
-function createPilotPrerequisiteFinding(input: {
+function createPilotSourcePreparationFinding(input: {
   dryRunId: string;
-  gate: CodexExecRealReadOnlyAdapterPilotPrerequisiteGate;
+  gate: CodexExecRealReadOnlyAdapterPilotSourcePreparationGate;
   metadata?: JsonMetadata;
-}): CodexExecRealReadOnlyAdapterPilotPrerequisiteFinding {
+}): CodexExecRealReadOnlyAdapterPilotSourcePreparationFinding {
   return {
-    id: foundationId('codex_real_read_only_adapter_pilot_prerequisite_finding'),
+    id: foundationId('codex_real_read_only_adapter_pilot_source_preparation_finding'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...pilotPrerequisiteFlags,
+    ...pilotSourcePreparationFlags,
     code: input.gate.code,
     severity: 'medium',
     status: 'requires_review',
     relatedGateCode: input.gate.code,
     summary: input.gate.summary,
-    recommendation: 'Resolve or explicitly acknowledge this finding before pilot retry.',
-    metadata: createPilotPrerequisiteMetadata({
+    recommendation: 'Review source-preparation metadata before considering 4F.2.',
+    metadata: createPilotSourcePreparationMetadata({
       ...(input.metadata ?? {}),
       dryRunId: input.dryRunId,
-      relatedGateCode: input.gate.code,
-      source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-finding',
+      gateCode: input.gate.code,
+      source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-finding',
     }),
   };
 }
 
-function createPilotPrerequisiteChecklistItem(
-  gate: CodexExecRealReadOnlyAdapterPilotPrerequisiteGate,
-): CodexExecRealReadOnlyAdapterPilotPrerequisiteChecklistItem {
+function createPilotSourcePreparationChecklistItem(
+  gate: CodexExecRealReadOnlyAdapterPilotSourcePreparationGate,
+): CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItem {
   return {
-    id: foundationId('codex_real_read_only_adapter_pilot_prerequisite_check'),
+    id: foundationId('codex_real_read_only_adapter_pilot_source_preparation_checklist'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...pilotPrerequisiteFlags,
+    ...pilotSourcePreparationFlags,
     code: gate.code,
     label: gate.label,
     status: gate.status,
     required: gate.required,
     summary: gate.summary,
-    metadata: createPilotPrerequisiteMetadata({
-      gateId: gate.id,
+    metadata: createPilotSourcePreparationMetadata({
       gateCode: gate.code,
-      source: 'codex-kernel.real-read-only-adapter.pilot-prerequisite-checklist',
+      source: 'codex-kernel.real-read-only-adapter.pilot-source-preparation-checklist',
     }),
   };
 }
 
-function createPilotPrerequisiteMetadata(extra: JsonMetadata): JsonMetadata {
+function createPilotSourcePreparationMetadata(extra: JsonMetadata): JsonMetadata {
   return {
     ...extra,
-    liveExecution: false,
-    externalProcessStarted: false,
-    executionDisabled: true,
-    processAdapterStarted: false,
-    processAdapterApproved: false,
-    implementationApproved: false,
-    recommendationGrantsExecution: false,
-    workspaceWriteAllowed: false,
-    dangerFullAccessAllowed: false,
-    dashboardTriggerAllowed: false,
     metadataOnly: true,
     bodyStored: false,
     promptBodyStored: false,
@@ -559,31 +509,32 @@ function createPilotPrerequisiteMetadata(extra: JsonMetadata): JsonMetadata {
     stderrBodyStored: false,
     agentMessageBodyStored: false,
     reasoningBodyStored: false,
+    worktreePathStored: false,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
   };
 }
 
 function stableStringify(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
 
-function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(sortJson);
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
   }
 
-  if (typeof value !== 'object' || value === null) {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nestedValue]) => [key, sortJson(nestedValue)]),
-  );
+  const objectValue = value as Record<string, unknown>;
+  return `{${Object.keys(objectValue)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(objectValue[key])}`)
+    .join(',')}}`;
 }
 
-export function createRealReadOnlyAdapterPilotPrerequisiteMetadataHash(
-  value: unknown,
-): string {
-  return `sha256:${hashText(stableStringify(value))}`;
+export function createRealReadOnlyAdapterPilotSourcePreparationMetadataHash(value: unknown): string {
+  return hashText(stableStringify(value));
 }

@@ -574,12 +574,36 @@ describe('cli development mock-run fallback', () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {
       checkRealReadOnlyAdapterPilotPrerequisitesCommand,
+      formatRealReadOnlyAdapterPilotSourcePreparationListOutput,
+      formatRealReadOnlyAdapterPilotSourcePreparationOutput,
       formatRealReadOnlyAdapterPilotPrerequisiteListOutput,
       formatRealReadOnlyAdapterPilotPrerequisiteOutput,
+      getLatestRealReadOnlyAdapterPilotSourceCommand,
       getLatestRealReadOnlyAdapterPilotPrerequisiteCommand,
+      getRealReadOnlyAdapterPilotSourceCommand,
       getRealReadOnlyAdapterPilotPrerequisiteCommand,
+      listRealReadOnlyAdapterPilotSourcesCommand,
       listRealReadOnlyAdapterPilotPrerequisitesCommand,
+      prepareRealReadOnlyAdapterPilotSourceCommand,
     } = await import('./main');
+    const preparedSource = await prepareRealReadOnlyAdapterPilotSourceCommand(
+      'codex_dry_run_fixture',
+      {
+        approval: 'codex_approval_fixture',
+        worktreeLabel: 'isolated-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: 'sha256:worktree',
+      },
+    );
+    const fetchedSource = await getRealReadOnlyAdapterPilotSourceCommand(
+      'codex_real_read_only_adapter_pilot_source_preparation_1',
+    );
+    const listedSources = await listRealReadOnlyAdapterPilotSourcesCommand({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'prepared',
+    });
+    const latestSource =
+      await getLatestRealReadOnlyAdapterPilotSourceCommand('codex_dry_run_fixture');
     const checked = await checkRealReadOnlyAdapterPilotPrerequisitesCommand(
       'codex_dry_run_fixture',
       {
@@ -598,10 +622,57 @@ describe('cli development mock-run fallback', () => {
     });
     const latest =
       await getLatestRealReadOnlyAdapterPilotPrerequisiteCommand('codex_dry_run_fixture');
+    const sourceOutput = formatRealReadOnlyAdapterPilotSourcePreparationOutput(preparedSource);
+    const sourceListOutput = formatRealReadOnlyAdapterPilotSourcePreparationListOutput(listedSources);
     const checkOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(checked);
     const listOutput = formatRealReadOnlyAdapterPilotPrerequisiteListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(latest);
 
+    expect(preparedSource).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      evidenceAuditReady: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(fetchedSource).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(listedSources).toMatchObject({
+      records: [],
+      summaries: [],
+      authoritative: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(latestSource).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
     expect(checked).toMatchObject({
       status: 'blocked',
       authoritative: false,
@@ -615,6 +686,7 @@ describe('cli development mock-run fallback', () => {
       configExplicitlyEnabled: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeSourcePreparationPresent: false,
       authoritativeAttemptEvidencePresent: false,
       evidenceAuditReady: false,
       workspaceWriteAllowed: false,
@@ -654,11 +726,18 @@ describe('cli development mock-run fallback', () => {
     expect(checkOutput).toContain('fallbackUsedAsAuthority=false');
     expect(checkOutput).toContain('pilotExecuted=false');
     expect(checkOutput).toContain('adapterAttemptInvoked=false');
+    expect(checkOutput).toContain('authoritativeSourcePreparationPresent=false');
     expect(checkOutput).toContain('workspaceWriteAllowed=false');
     expect(checkOutput).toContain('dangerFullAccessAllowed=false');
     expect(checkOutput).toContain('dashboardTriggerAllowed=false');
     expect(checkOutput).toContain('degraded or notPersisted output is never ready');
     expect(checkOutput).not.toContain('execution approval');
+    expect(sourceOutput).toContain('status: blocked');
+    expect(sourceOutput).toContain('notPersisted=true');
+    expect(sourceOutput).toContain('This source-preparation command does not invoke');
+    expect(sourceOutput).not.toContain('execution approval');
+    expect(sourceListOutput).toContain('records: none');
+    expect(sourceListOutput).toContain('Source-preparation records are metadata-only');
     expect(listOutput).toContain('Records are metadata-only');
     expect(listOutput).toContain('records: none');
     expect(latestOutput).toContain('notPersisted=true');
@@ -686,7 +765,7 @@ describe('cli development mock-run fallback', () => {
 
     expect(config).toMatchObject({
       liveConfig: {
-        liveEnabled: false,
+        liveEnabled: true,
         liveExecution: false,
         externalProcessStarted: false,
         executionDisabled: true,

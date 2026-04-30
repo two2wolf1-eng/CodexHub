@@ -40,6 +40,7 @@ import {
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterAttempt,
+  summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   summarizeRealReadOnlyAdapterReadinessPackage,
   runReadOnlyAdapterFixtureBoundary,
@@ -130,6 +131,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
+  CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus,
   CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
   CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus,
   CodexExecReportRecommendation,
@@ -327,6 +330,20 @@ export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions
 }
 
 export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions
+  extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions
+  extends CodexExecJsonCliOptions {
+  approval?: string;
+  worktreeLabel?: string;
+  worktreeStatus?: string;
+  worktreePathHash?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationListCliOptions
   extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
@@ -1103,6 +1120,70 @@ export function buildProgram(): Command {
         console.log(formatRealReadOnlyAdapterAttemptTimelineOutput(result, options));
       },
     );
+
+  const pilotSourcePreparationCommand = realReadOnlyAdapterCommand
+    .command('pilot-prerequisite-sources')
+    .description('Prepare/read pilot prerequisite source metadata without running a pilot')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Source-preparation rules:',
+        '  - records persisted Supervisor-backed metadata only',
+        '  - degraded or notPersisted fallback output is display-only and never prepared',
+        '  - this command does not invoke adapter attempts or run pilots',
+      ].join('\n'),
+    );
+
+  pilotSourcePreparationCommand
+    .command('prepare')
+    .argument('<dryRunId>')
+    .option('--approval <approvalArtifactId>', 'Existing approval artifact id to verify')
+    .option('--worktree-label <label>', 'Isolated worktree label, not a local path')
+    .option('--worktree-status <status>', 'Worktree metadata status: clean, dirty, missing, or unknown')
+    .option('--worktree-path-hash <hash>', 'Hash for the isolated worktree path')
+    .option('--json', 'Print full JSON output')
+    .description('Create persisted source-preparation metadata from existing inputs only')
+    .action(
+      async (
+        dryRunId: string,
+        options: CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions,
+      ) => {
+        const result = await prepareRealReadOnlyAdapterPilotSourceCommand(dryRunId, options);
+        console.log(formatRealReadOnlyAdapterPilotSourcePreparationOutput(result, options));
+      },
+    );
+
+  pilotSourcePreparationCommand
+    .command('get')
+    .argument('<recordId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one pilot source-preparation record')
+    .action(async (recordId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getRealReadOnlyAdapterPilotSourceCommand(recordId);
+      console.log(formatRealReadOnlyAdapterPilotSourcePreparationOutput(result, options));
+    });
+
+  pilotSourcePreparationCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by source-preparation status')
+    .option('--json', 'Print full JSON output')
+    .description('List pilot source-preparation records')
+    .action(async (options: CodexExecRealReadOnlyAdapterPilotSourcePreparationListCliOptions) => {
+      const result = await listRealReadOnlyAdapterPilotSourcesCommand(options);
+      console.log(formatRealReadOnlyAdapterPilotSourcePreparationListOutput(result, options));
+    });
+
+  pilotSourcePreparationCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest pilot source-preparation record for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestRealReadOnlyAdapterPilotSourceCommand(dryRunId);
+      console.log(formatRealReadOnlyAdapterPilotSourcePreparationOutput(result, options));
+    });
 
   const pilotPrerequisitesCommand = realReadOnlyAdapterCommand
     .command('pilot-prerequisites')
@@ -3230,6 +3311,107 @@ export async function getRealReadOnlyAdapterAttemptTimelineCommand(
   }
 }
 
+export async function prepareRealReadOnlyAdapterPilotSourceCommand(
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRunId,
+          approvalArtifactId: options.approval,
+          worktreeLabel: options.worktreeLabel,
+          worktreeStatus: options.worktreeStatus,
+          worktreePathHash: options.worktreePathHash,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
+      `supervisor unavailable or rejected source preparation for ${dryRunId}; fallback is display-only and cannot be prepared`,
+      dryRunId,
+    );
+  }
+}
+
+export async function getRealReadOnlyAdapterPilotSourceCommand(
+  recordId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources/${encodeURIComponent(
+        recordId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
+      `supervisor unavailable; source-preparation record ${recordId} was not read from an authoritative store`,
+    );
+  }
+}
+
+export async function listRealReadOnlyAdapterPilotSourcesCommand(
+  options: CodexExecRealReadOnlyAdapterPilotSourcePreparationListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterPilotSourcePreparationQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotSourcePreparationListFallback(
+      'supervisor unavailable; pilot source-preparation list fallback is display-only and not authoritative',
+      options.dryRun,
+    );
+  }
+}
+
+export async function getLatestRealReadOnlyAdapterPilotSourceCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite-source/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
+      `supervisor unavailable; latest source-preparation record for ${dryRunId} is display-only and not authoritative`,
+      dryRunId,
+    );
+  }
+}
+
 export async function checkRealReadOnlyAdapterPilotPrerequisitesCommand(
   dryRunId: string,
   options: CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions = {},
@@ -4821,6 +5003,23 @@ function createRealReadOnlyAdapterPilotPrerequisiteQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createRealReadOnlyAdapterPilotSourcePreparationQueryString(
+  options: CodexExecRealReadOnlyAdapterPilotSourcePreparationListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeRealReadOnlyAdapterPilotSourcePreparationStatus(options.status));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -5129,6 +5328,16 @@ function normalizeRealReadOnlyAdapterPilotPrerequisiteStatus(
 ): CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus {
   if (['ready_for_pilot_retry', 'blocked', 'requires_review'].includes(status)) {
     return status as CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus;
+  }
+
+  return 'blocked';
+}
+
+function normalizeRealReadOnlyAdapterPilotSourcePreparationStatus(
+  status: string,
+): CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus {
+  if (['prepared', 'blocked', 'requires_review'].includes(status)) {
+    return status as CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus;
   }
 
   return 'blocked';
@@ -5592,6 +5801,7 @@ function createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
     configExplicitlyEnabled: false,
     validUnusedApprovalPresent: false,
     isolatedCleanWorktreeMetadataPresent: false,
+    authoritativeSourcePreparationPresent: false,
     authoritativeAttemptEvidencePresent: false,
     evidenceAuditReady: false,
     fallbackUsedAsAuthority: false,
@@ -5608,6 +5818,64 @@ function createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
     dangerFullAccessAllowed: false,
     dashboardTriggerAllowed: false,
     reason,
+  };
+}
+
+function createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    record: undefined,
+    sourcePreparationRecord: undefined,
+    summary: undefined,
+    records: [],
+    sourcePreparationRecords: [],
+    summaries: [],
+    count: 0,
+    dryRunId,
+    status: 'blocked',
+    hardGateCount: 0,
+    passedGateCount: 0,
+    blockedGateCount: 1,
+    requiresReviewFindingCount: 0,
+    missingSources: ['authoritative_persisted_source_preparation_source'],
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
+    degraded: true,
+    notPersisted: true,
+    configExplicitlyEnabled: false,
+    validUnusedApprovalPresent: false,
+    isolatedCleanWorktreeMetadataPresent: false,
+    evidenceAuditReady: false,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    reason,
+  };
+}
+
+function createRealReadOnlyAdapterPilotSourcePreparationListFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    ...createRealReadOnlyAdapterPilotSourcePreparationReadFallback(reason, dryRunId),
+    records: [],
+    sourcePreparationRecords: [],
+    summaries: [],
+    count: 0,
   };
 }
 
@@ -6287,6 +6555,92 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
   ].join('\n');
 }
 
+export function formatRealReadOnlyAdapterPilotSourcePreparationOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = (result.record ?? result.sourcePreparationRecord) as
+    | CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord
+    | undefined;
+  const missingSources = Array.isArray(result.missingSources)
+    ? (result.missingSources as string[])
+    : (record?.missingSources ?? []);
+
+  return [
+    'Real read-only adapter pilot source preparation',
+    `recordId: ${record?.id ?? result.recordId ?? 'not-persisted'}`,
+    `dryRunId: ${record?.dryRunId ?? result.dryRunId ?? 'unknown'}`,
+    `status: ${record?.status ?? result.status ?? 'blocked'}`,
+    `hardGateCount=${String(record?.hardGateCount ?? result.hardGateCount ?? 0)}`,
+    `passedGateCount=${String(record?.passedGateCount ?? result.passedGateCount ?? 0)}`,
+    `blockedGateCount=${String(record?.blockedGateCount ?? result.blockedGateCount ?? 0)}`,
+    `requiresReviewFindingCount=${String(
+      record?.requiresReviewFindingCount ?? result.requiresReviewFindingCount ?? 0,
+    )}`,
+    `degraded=${String(record?.degraded ?? result.degraded ?? true)}`,
+    `notPersisted=${String(record?.notPersisted ?? result.notPersisted ?? true)}`,
+    `configExplicitlyEnabled=${String(
+      record?.configExplicitlyEnabled ?? result.configExplicitlyEnabled ?? false,
+    )}`,
+    `validUnusedApprovalPresent=${String(
+      record?.validUnusedApprovalPresent ?? result.validUnusedApprovalPresent ?? false,
+    )}`,
+    `isolatedCleanWorktreeMetadataPresent=${String(
+      record?.isolatedCleanWorktreeMetadataPresent ??
+        result.isolatedCleanWorktreeMetadataPresent ??
+        false,
+    )}`,
+    `evidenceAuditReady=${String(record?.evidenceAuditReady ?? result.evidenceAuditReady ?? false)}`,
+    `fallbackUsedAsAuthority=${String(
+      record?.fallbackUsedAsAuthority ?? result.fallbackUsedAsAuthority ?? false,
+    )}`,
+    `pilotExecuted=${String(record?.pilotExecuted ?? result.pilotExecuted ?? false)}`,
+    `adapterAttemptInvoked=${String(
+      record?.adapterAttemptInvoked ?? result.adapterAttemptInvoked ?? false,
+    )}`,
+    `dashboardTriggerAllowed=${String(result.dashboardTriggerAllowed ?? false)}`,
+    `workspaceWriteAllowed=${String(result.workspaceWriteAllowed ?? false)}`,
+    `dangerFullAccessAllowed=${String(result.dangerFullAccessAllowed ?? false)}`,
+    'prepared requires persisted Supervisor-backed source metadata; degraded or notPersisted output is never prepared.',
+    'This source-preparation command does not invoke the adapter attempt path or run a pilot.',
+    noLiveFlagsText(result),
+    missingSources.length > 0 ? 'missing sources:' : 'missing sources: none',
+    ...missingSources.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterPilotSourcePreparationListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = Array.isArray(result.records)
+    ? (result.records as CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord[])
+    : [];
+  const summaries = records.map((record) =>
+    summarizeRealReadOnlyAdapterPilotSourcePreparationRecord(record),
+  );
+
+  return [
+    'Real read-only adapter pilot source-preparation records',
+    `count=${String(result.count ?? records.length)}`,
+    `degraded=${String(result.degraded ?? true)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    `fallbackUsedAsAuthority=${String(result.fallbackUsedAsAuthority ?? false)}`,
+    'Source-preparation records are metadata-only and do not run pilots.',
+    noLiveFlagsText(result),
+    summaries.length > 0 ? 'records:' : 'records: none',
+    ...summaries.map((summary) => `- ${summary.recordId}: ${summary.status}`),
+  ].join('\n');
+}
+
 export function formatRealReadOnlyAdapterPilotPrerequisiteOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -6324,6 +6678,11 @@ export function formatRealReadOnlyAdapterPilotPrerequisiteOutput(
     `isolatedCleanWorktreeMetadataPresent=${String(
       record?.isolatedCleanWorktreeMetadataPresent ??
         result.isolatedCleanWorktreeMetadataPresent ??
+        false,
+    )}`,
+    `authoritativeSourcePreparationPresent=${String(
+      record?.authoritativeSourcePreparationPresent ??
+        result.authoritativeSourcePreparationPresent ??
         false,
     )}`,
     `authoritativeAttemptEvidencePresent=${String(

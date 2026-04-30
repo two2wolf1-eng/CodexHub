@@ -3348,6 +3348,177 @@ export type CodexExecRealReadOnlyAdapterAttemptTimelineQuery = z.infer<
   typeof CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema
 >;
 
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationStatusSchema = z.enum([
+  'prepared',
+  'blocked',
+  'requires_review',
+]);
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationStatusSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationGateSchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    category: z.enum(['authority', 'dry_run', 'config', 'approval', 'worktree', 'evidence_audit']),
+    status: z.enum(['passed', 'blocked', 'requires_review']),
+    required: z.boolean(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationGate = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationGateSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationBlockerSchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    code: z.string().min(1),
+    severity: RiskLevelSchema,
+    relatedGateCode: z.string().min(1).optional(),
+    summary: z.string().min(1),
+    recommendation: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationBlocker = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationBlockerSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationFindingSchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    code: z.string().min(1),
+    severity: RiskLevelSchema,
+    status: CodexExecRealReadOnlyAdapterPilotSourcePreparationStatusSchema,
+    relatedGateCode: z.string().min(1).optional(),
+    summary: z.string().min(1),
+    recommendation: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationFinding = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationFindingSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItemSchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    status: z.enum(['passed', 'blocked', 'requires_review']),
+    required: z.boolean(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItem = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItemSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationRecordSchema =
+  createdEntityBaseSchema
+    .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+    .extend({
+      dryRunId: z.string().min(1),
+      status: CodexExecRealReadOnlyAdapterPilotSourcePreparationStatusSchema,
+      recommendation: z.string().min(1),
+      gates: z.array(CodexExecRealReadOnlyAdapterPilotSourcePreparationGateSchema),
+      blockers: z
+        .array(CodexExecRealReadOnlyAdapterPilotSourcePreparationBlockerSchema)
+        .default([]),
+      findings: z
+        .array(CodexExecRealReadOnlyAdapterPilotSourcePreparationFindingSchema)
+        .default([]),
+      checklistItems: z
+        .array(CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItemSchema)
+        .default([]),
+      hardGateCount: z.number().int().nonnegative(),
+      passedGateCount: z.number().int().nonnegative(),
+      blockedGateCount: z.number().int().nonnegative(),
+      requiresReviewFindingCount: z.number().int().nonnegative(),
+      missingSources: z.array(z.string().min(1)).default([]),
+      degraded: z.boolean(),
+      notPersisted: z.boolean(),
+      dryRunRecordPresent: z.boolean(),
+      configExplicitlyEnabled: z.boolean(),
+      validUnusedApprovalPresent: z.boolean(),
+      approvalArtifactId: z.string().min(1).optional(),
+      approvalArtifactHash: z.string().min(1).optional(),
+      dryRunPlanHash: z.string().min(1).optional(),
+      policyDecisionHash: z.string().min(1).optional(),
+      isolatedCleanWorktreeMetadataPresent: z.boolean(),
+      worktreeLabel: z.string().min(1).optional(),
+      worktreeStatus: z.enum(['clean', 'dirty', 'missing', 'unknown']).optional(),
+      worktreePathHash: z.string().min(1).optional(),
+      evidenceAuditReady: z.boolean(),
+      fallbackUsedAsAuthority: z.literal(false),
+      pilotExecuted: z.literal(false),
+      adapterAttemptInvoked: z.literal(false),
+      authoritative: z.boolean(),
+      supervisorBacked: z.boolean(),
+      persisted: z.boolean(),
+      evidenceRefs: z.array(EvidenceRefSchema).default([]),
+      auditEventIds: z.array(z.string().min(1)).default([]),
+      summary: z.string().min(1),
+    })
+    .superRefine((record, context) => {
+      const allPrepared =
+        record.degraded === false &&
+        record.notPersisted === false &&
+        record.authoritative === true &&
+        record.supervisorBacked === true &&
+        record.persisted === true &&
+        record.dryRunRecordPresent === true &&
+        record.configExplicitlyEnabled === true &&
+        record.validUnusedApprovalPresent === true &&
+        record.isolatedCleanWorktreeMetadataPresent === true &&
+        record.evidenceAuditReady === true &&
+        record.adapterAttemptInvoked === false &&
+        record.pilotExecuted === false &&
+        record.fallbackUsedAsAuthority === false;
+
+      if (record.status === 'prepared' && !allPrepared) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'prepared requires non-degraded persisted authoritative source evidence and all hard source gates',
+          path: ['status'],
+        });
+      }
+    });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationRecordSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationSummarySchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    recordId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterPilotSourcePreparationStatusSchema,
+    hardGateCount: z.number().int().nonnegative(),
+    passedGateCount: z.number().int().nonnegative(),
+    blockedGateCount: z.number().int().nonnegative(),
+    requiresReviewFindingCount: z.number().int().nonnegative(),
+    missingSources: z.array(z.string().min(1)).default([]),
+    degraded: z.boolean(),
+    notPersisted: z.boolean(),
+    dryRunRecordPresent: z.boolean(),
+    configExplicitlyEnabled: z.boolean(),
+    validUnusedApprovalPresent: z.boolean(),
+    isolatedCleanWorktreeMetadataPresent: z.boolean(),
+    evidenceAuditReady: z.boolean(),
+    fallbackUsedAsAuthority: z.literal(false),
+    pilotExecuted: z.literal(false),
+    adapterAttemptInvoked: z.literal(false),
+    recommendation: z.string().min(1),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationSummary = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationSummarySchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPilotSourcePreparationQuerySchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    dryRunId: z.string().min(1).optional(),
+    status: CodexExecRealReadOnlyAdapterPilotSourcePreparationStatusSchema.optional(),
+    limit: z.number().int().positive().max(100).default(50),
+  });
+export type CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPilotSourcePreparationQuerySchema
+>;
+
 export const CodexExecRealReadOnlyAdapterPilotPrerequisiteStatusSchema = z.enum([
   'ready_for_pilot_retry',
   'blocked',
@@ -3440,6 +3611,7 @@ export const CodexExecRealReadOnlyAdapterPilotPrerequisiteRecordSchema =
       configExplicitlyEnabled: z.boolean(),
       validUnusedApprovalPresent: z.boolean(),
       isolatedCleanWorktreeMetadataPresent: z.boolean(),
+      authoritativeSourcePreparationPresent: z.boolean(),
       authoritativeAttemptEvidencePresent: z.boolean(),
       evidenceAuditReady: z.boolean(),
       fallbackUsedAsAuthority: z.literal(false),
@@ -3466,7 +3638,8 @@ export const CodexExecRealReadOnlyAdapterPilotPrerequisiteRecordSchema =
         record.configExplicitlyEnabled === true &&
         record.validUnusedApprovalPresent === true &&
         record.isolatedCleanWorktreeMetadataPresent === true &&
-        record.authoritativeAttemptEvidencePresent === true &&
+        (record.authoritativeAttemptEvidencePresent === true ||
+          record.authoritativeSourcePreparationPresent === true) &&
         record.evidenceAuditReady === true &&
         record.adapterAttemptInvoked === false &&
         record.pilotExecuted === false &&
@@ -3501,6 +3674,7 @@ export const CodexExecRealReadOnlyAdapterPilotPrerequisiteSummarySchema =
     configExplicitlyEnabled: z.boolean(),
     validUnusedApprovalPresent: z.boolean(),
     isolatedCleanWorktreeMetadataPresent: z.boolean(),
+    authoritativeSourcePreparationPresent: z.boolean(),
     authoritativeAttemptEvidencePresent: z.boolean(),
     evidenceAuditReady: z.boolean(),
     fallbackUsedAsAuthority: z.literal(false),

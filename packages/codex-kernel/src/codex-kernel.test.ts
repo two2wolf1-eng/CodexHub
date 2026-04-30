@@ -56,6 +56,12 @@ import {
   buildRealReadOnlyAdapterPilotPrerequisiteRecord,
   createRealReadOnlyAdapterPilotPrerequisiteAuditEvents,
   createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs,
+  buildRealReadOnlyAdapterPilotSourcePreparationRecord,
+  createRealReadOnlyAdapterPilotSourcePreparationAuditEvents,
+  createRealReadOnlyAdapterPilotSourcePreparationEvidenceRefs,
+  getLatestRealReadOnlyAdapterPilotSourcePreparation,
+  listRealReadOnlyAdapterPilotSourcePreparationSummaries,
+  summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
   getLatestRealReadOnlyAdapterPilotPrerequisite,
   listRealReadOnlyAdapterPilotPrerequisiteSummaries,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -2589,6 +2595,114 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('"executablePath":');
   });
 
+  it('classifies pilot source preparation without treating fallback as authority', () => {
+    const blocked = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
+      dryRunId: 'codex_dry_run_source_blocked',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: false,
+      evidenceAuditReady: true,
+      worktreeLabel: 'operator-isolated-worktree',
+      worktreeStatus: 'missing',
+      worktreePathHash: 'sha256:missing',
+    });
+    const fallbackBlocked = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
+      dryRunId: 'codex_dry_run_source_fallback',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      evidenceAuditReady: true,
+    });
+    const prepared = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
+      dryRunId: 'codex_dry_run_source_prepared',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      approvalArtifactId: 'codex_approval_artifact_source',
+      approvalArtifactHash: 'sha256:approval',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionHash: 'sha256:policy',
+      isolatedCleanWorktreeMetadataPresent: true,
+      worktreeLabel: 'operator-isolated-worktree',
+      worktreeStatus: 'clean',
+      worktreePathHash: 'sha256:clean-worktree',
+      evidenceAuditReady: true,
+    });
+    const evidenceRefs = createRealReadOnlyAdapterPilotSourcePreparationEvidenceRefs(prepared);
+    const auditEvents = createRealReadOnlyAdapterPilotSourcePreparationAuditEvents(
+      prepared,
+      evidenceRefs,
+    );
+    const preparedWithRefs = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
+      dryRunId: prepared.dryRunId,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      evidenceAuditReady: true,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    });
+    const summaries = listRealReadOnlyAdapterPilotSourcePreparationSummaries(
+      [blocked, fallbackBlocked, preparedWithRefs],
+      { limit: 10 },
+    );
+    const latest = getLatestRealReadOnlyAdapterPilotSourcePreparation(
+      [blocked, preparedWithRefs],
+      preparedWithRefs.dryRunId,
+    );
+    const preparedSummary =
+      summarizeRealReadOnlyAdapterPilotSourcePreparationRecord(preparedWithRefs);
+    const serialized = JSON.stringify({
+      blocked,
+      fallbackBlocked,
+      preparedWithRefs,
+      evidenceRefs,
+      auditEvents,
+      summaries,
+    });
+
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.missingSources).toContain('isolated_clean_worktree_metadata');
+    expect(fallbackBlocked.status).toBe('blocked');
+    expect(fallbackBlocked.fallbackUsedAsAuthority).toBe(false);
+    expect(fallbackBlocked.missingSources).toContain('source_persisted_authoritative');
+    expect(prepared.status).toBe('prepared');
+    expect(preparedWithRefs.status).toBe('prepared');
+    expect(preparedSummary.pilotExecuted).toBe(false);
+    expect(preparedSummary.adapterAttemptInvoked).toBe(false);
+    expect(latest?.recordId).toBe(preparedWithRefs.id);
+    expect(summaries).toHaveLength(3);
+    expect(evidenceRefs[0]?.summary).toContain('metadata, hashes, counts, and refs only');
+    expect(auditEvents[0]?.action).toBe(
+      'codex.exec.real_read_only_adapter.pilot_source_preparation_recorded',
+    );
+    expect(serialized).not.toContain('raw prompt body');
+    expect(serialized).not.toContain('raw command body');
+    expect(serialized).not.toContain('raw stdout body');
+    expect(serialized).not.toContain('raw stderr body');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+  });
+
   it('classifies pilot prerequisite readiness without treating fallback as authority', () => {
     const blocked = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
       dryRunId: 'codex_dry_run_pilot_blocked',
@@ -2599,6 +2713,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       configExplicitlyEnabled: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeSourcePreparationPresent: false,
       authoritativeAttemptEvidencePresent: false,
       evidenceAuditReady: false,
       worktreeLabel: 'operator-isolated-worktree',
@@ -2617,6 +2732,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       configExplicitlyEnabled: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeSourcePreparationPresent: true,
       authoritativeAttemptEvidencePresent: true,
       evidenceAuditReady: true,
     });
@@ -2629,6 +2745,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       configExplicitlyEnabled: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeSourcePreparationPresent: true,
       authoritativeAttemptEvidencePresent: true,
       evidenceAuditReady: true,
       handoffContextComplete: false,
@@ -2642,6 +2759,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       configExplicitlyEnabled: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeSourcePreparationPresent: true,
       authoritativeAttemptEvidencePresent: true,
       evidenceAuditReady: true,
       worktreeLabel: 'operator-isolated-worktree',
@@ -2659,6 +2777,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       configExplicitlyEnabled: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeSourcePreparationPresent: true,
       authoritativeAttemptEvidencePresent: true,
       evidenceAuditReady: true,
       evidenceRefs,
@@ -2689,7 +2808,7 @@ describe('codex-kernel live control-plane skeleton', () => {
         'config_explicitly_enabled',
         'valid_unused_approval',
         'isolated_clean_worktree_metadata',
-        'authoritative_attempt_evidence',
+        'authoritative_pilot_source_evidence',
         'evidence_audit_ready',
       ]),
     );

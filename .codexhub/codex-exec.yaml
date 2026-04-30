@@ -1,5 +1,5 @@
 version: 1
-liveEnabled: false
+liveEnabled: true
 allowedSandboxModes:
   - read_only
 forbiddenSandboxModes:

@@ -166,6 +166,7 @@ import {
 
 export * from './real-read-only-adapter';
 export * from './real-read-only-adapter-pilot-prerequisites';
+export * from './real-read-only-adapter-pilot-source-preparation';
 export * from './real-read-only-adapter-process';
 
 type JsonRecord = Record<string, unknown>;

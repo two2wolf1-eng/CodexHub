@@ -13,6 +13,7 @@ import {
   type CodexExecRealReadOnlyAdapterReadinessPackage,
   type CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
   type CodexExecRealReadOnlyAdapterAttemptRecord,
+  type CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
   type CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
@@ -199,6 +200,11 @@ describe('store-sqlite migration initialization', () => {
     await first.codexExecRealReadOnlyAdapterPilotPrerequisites.savePilotPrerequisite(
       realReadOnlyAdapterPilotPrerequisite,
     );
+    const realReadOnlyAdapterPilotSourcePreparation: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord =
+      createRealReadOnlyAdapterPilotSourcePreparationFixture();
+    await first.codexExecRealReadOnlyAdapterPilotSourcePreparations.savePilotSourcePreparation(
+      realReadOnlyAdapterPilotSourcePreparation,
+    );
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -333,6 +339,20 @@ describe('store-sqlite migration initialization', () => {
       await second.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
         'codex_dry_run_1',
       );
+    const realReadOnlyAdapterPilotSourcePreparations =
+      await second.codexExecRealReadOnlyAdapterPilotSourcePreparations.listPilotSourcePreparations({
+        dryRunId: 'codex_dry_run_1',
+        status: 'blocked',
+        limit: 10,
+      });
+    const realReadOnlyAdapterPilotSourcePreparationRecord =
+      await second.codexExecRealReadOnlyAdapterPilotSourcePreparations.getPilotSourcePreparation(
+        'codex_real_read_only_adapter_pilot_source_preparation_1',
+      );
+    const latestRealReadOnlyAdapterPilotSourcePreparationRecord =
+      await second.codexExecRealReadOnlyAdapterPilotSourcePreparations.latestPilotSourcePreparation(
+        'codex_dry_run_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -455,6 +475,20 @@ describe('store-sqlite migration initialization', () => {
       'C:/safe/worktree',
     );
     expect(JSON.stringify(realReadOnlyAdapterPilotPrerequisiteRecord)).not.toContain(
+      'raw prompt body',
+    );
+    expect(realReadOnlyAdapterPilotSourcePreparations).toHaveLength(1);
+    expect(realReadOnlyAdapterPilotSourcePreparationRecord?.status).toBe('blocked');
+    expect(realReadOnlyAdapterPilotSourcePreparationRecord?.pilotExecuted).toBe(false);
+    expect(realReadOnlyAdapterPilotSourcePreparationRecord?.adapterAttemptInvoked).toBe(false);
+    expect(realReadOnlyAdapterPilotSourcePreparationRecord?.fallbackUsedAsAuthority).toBe(false);
+    expect(latestRealReadOnlyAdapterPilotSourcePreparationRecord?.id).toBe(
+      'codex_real_read_only_adapter_pilot_source_preparation_1',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterPilotSourcePreparationRecord)).not.toContain(
+      'C:/safe/worktree',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterPilotSourcePreparationRecord)).not.toContain(
       'raw prompt body',
     );
   });
@@ -1290,6 +1324,7 @@ function createRealReadOnlyAdapterPilotPrerequisiteFixture(): CodexExecRealReadO
     configExplicitlyEnabled: false,
     validUnusedApprovalPresent: false,
     isolatedCleanWorktreeMetadataPresent: false,
+    authoritativeSourcePreparationPresent: false,
     authoritativeAttemptEvidencePresent: false,
     evidenceAuditReady: false,
     fallbackUsedAsAuthority: false,
@@ -1304,6 +1339,117 @@ function createRealReadOnlyAdapterPilotPrerequisiteFixture(): CodexExecRealReadO
     evidenceRefs: [],
     auditEventIds: ['audit_real_read_only_adapter_pilot_prerequisite_1'],
     summary: 'Pilot prerequisite record stores metadata only.',
+    metadata: {
+      source: 'store-sqlite-test',
+      worktreePathStored: false,
+      metadataOnly: true,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+    },
+    ...flags,
+  };
+}
+
+function createRealReadOnlyAdapterPilotSourcePreparationFixture(): CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord {
+  const createdAt = '2026-04-28T00:00:15.000Z';
+  const flags = {
+    metadataOnly: true as const,
+    bodyStored: false as const,
+    promptBodyStored: false as const,
+    commandBodyStored: false as const,
+    stdoutBodyStored: false as const,
+    stderrBodyStored: false as const,
+    agentMessageBodyStored: false as const,
+    reasoningBodyStored: false as const,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+    processAdapterStarted: false as const,
+    implementationApproved: false as const,
+    processAdapterApproved: false as const,
+    dashboardTriggerAllowed: false as const,
+    recommendationGrantsExecution: false as const,
+    workspaceWriteAllowed: false as const,
+    dangerFullAccessAllowed: false as const,
+  };
+  const gate = {
+    id: 'codex_real_read_only_adapter_pilot_source_preparation_gate_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    code: 'isolated_clean_worktree_metadata',
+    label: 'Isolated clean worktree metadata',
+    category: 'worktree' as const,
+    status: 'blocked' as const,
+    required: true,
+    summary: 'Existing isolated worktree metadata is required.',
+    ...flags,
+  };
+
+  return {
+    id: 'codex_real_read_only_adapter_pilot_source_preparation_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    status: 'blocked',
+    recommendation: 'Pilot source preparation remains blocked.',
+    gates: [gate],
+    blockers: [
+      {
+        id: 'codex_real_read_only_adapter_pilot_source_preparation_blocker_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: gate.code,
+        severity: 'high',
+        relatedGateCode: gate.code,
+        summary: gate.summary,
+        recommendation: 'Record isolated clean worktree metadata before 4F.2.',
+        ...flags,
+      },
+    ],
+    findings: [],
+    checklistItems: [
+      {
+        id: 'codex_real_read_only_adapter_pilot_source_preparation_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: gate.code,
+        label: gate.label,
+        status: gate.status,
+        required: gate.required,
+        summary: gate.summary,
+        ...flags,
+      },
+    ],
+    hardGateCount: 1,
+    passedGateCount: 0,
+    blockedGateCount: 1,
+    requiresReviewFindingCount: 0,
+    missingSources: ['isolated_clean_worktree_metadata'],
+    degraded: false,
+    notPersisted: false,
+    dryRunRecordPresent: true,
+    configExplicitlyEnabled: true,
+    validUnusedApprovalPresent: true,
+    approvalArtifactId: 'codex_approval_artifact_1',
+    approvalArtifactHash: 'sha256:approval',
+    dryRunPlanHash: 'sha256:dry-run',
+    policyDecisionHash: 'sha256:policy',
+    isolatedCleanWorktreeMetadataPresent: false,
+    worktreeLabel: 'operator-isolated-worktree',
+    worktreeStatus: 'missing',
+    worktreePathHash: 'sha256:worktree',
+    evidenceAuditReady: true,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    authoritative: true,
+    supervisorBacked: true,
+    persisted: true,
+    evidenceRefs: [],
+    auditEventIds: ['audit_real_read_only_adapter_pilot_source_preparation_1'],
+    summary: 'Pilot source preparation record stores metadata only.',
     metadata: {
       source: 'store-sqlite-test',
       worktreePathStored: false,
