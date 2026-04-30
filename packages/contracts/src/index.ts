@@ -2986,6 +2986,243 @@ export type CodexExecRealReadOnlyAdapterReadinessReviewQuery = z.infer<
   typeof CodexExecRealReadOnlyAdapterReadinessReviewQuerySchema
 >;
 
+const codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema =
+  codexExecReadOnlyAdapterImplementationPlanReviewFlagsSchema.extend({
+    promptBodyStored: z.literal(false),
+    commandBodyStored: z.literal(false),
+    stdoutBodyStored: z.literal(false),
+    stderrBodyStored: z.literal(false),
+    agentMessageBodyStored: z.literal(false),
+    reasoningBodyStored: z.literal(false),
+  });
+
+const codexExecRealReadOnlyAdapterNoRunnableBoundarySchema = z.object({
+  noRunnableCommand: z.literal(true),
+  commandPreviewStored: z.literal(false),
+  argvStored: z.literal(false),
+  executablePathStored: z.literal(false),
+  shellSnippetStored: z.literal(false),
+  envPlanStored: z.literal(false),
+});
+
+export const CodexExecRealReadOnlyAdapterConfigStatusSchema = z.enum([
+  'disabled',
+  'enabled',
+  'blocked',
+]);
+export type CodexExecRealReadOnlyAdapterConfigStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterConfigStatusSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPreflightStatusSchema = z.enum([
+  'blocked',
+  'failed',
+  'requires_review',
+  'passed',
+]);
+export type CodexExecRealReadOnlyAdapterPreflightStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPreflightStatusSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterResultStatusSchema = z.enum([
+  'not_started',
+  'blocked',
+  'aborted',
+  'failed',
+  'completed',
+]);
+export type CodexExecRealReadOnlyAdapterResultStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterResultStatusSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterErrorCodeSchema = z.enum([
+  'config_disabled',
+  'missing_dry_run',
+  'missing_approval',
+  'approval_invalid',
+  'dry_run_hash_mismatch',
+  'policy_hash_mismatch',
+  'sandbox_not_read_only',
+  'dashboard_trigger_forbidden',
+  'workspace_write_forbidden',
+  'danger_full_access_forbidden',
+  'worktree_not_isolated',
+  'worktree_dirty',
+  'store_degraded',
+  'preflight_failed',
+  'boundary_deferred',
+]);
+export type CodexExecRealReadOnlyAdapterErrorCode = z.infer<
+  typeof CodexExecRealReadOnlyAdapterErrorCodeSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterConfigSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .merge(codexExecRealReadOnlyAdapterNoRunnableBoundarySchema)
+  .extend({
+    status: CodexExecRealReadOnlyAdapterConfigStatusSchema,
+    defaultEnabled: z.literal(false),
+    configuredEnabled: z.boolean().default(false),
+    explicitEnableRequired: z.literal(true),
+    cliOnly: z.literal(true),
+    dashboardTriggerForbidden: z.literal(true),
+    allowedSandboxMode: z.literal('read_only'),
+    forbiddenSandboxModes: z
+      .array(z.enum(['workspace_write', 'danger_full_access']))
+      .default(['workspace_write', 'danger_full_access']),
+    existingDryRunRequired: z.literal(true),
+    approvalArtifactRequired: z.literal(true),
+    dryRunPlanHashRequired: z.literal(true),
+    policyDecisionHashRequired: z.literal(true),
+    isolatedWorktreeRequired: z.literal(true),
+    cleanWorktreeRequired: z.literal(true),
+    metadataEvidenceOnly: z.literal(true),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterConfig = z.infer<
+  typeof CodexExecRealReadOnlyAdapterConfigSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterRequestSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .merge(codexExecRealReadOnlyAdapterNoRunnableBoundarySchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    configId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    policyDecisionId: z.string().min(1).optional(),
+    requestedSandboxMode: z.literal('read_only'),
+    triggerKind: z.literal('cli'),
+    existingDryRunRequired: z.literal(true),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterRequest = z.infer<
+  typeof CodexExecRealReadOnlyAdapterRequestSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPreflightCheckSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    status: z.enum(['passed', 'failed', 'requires_review', 'blocked']),
+    required: z.boolean(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPreflightCheck = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPreflightCheckSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterBoundaryPlanSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .merge(codexExecRealReadOnlyAdapterNoRunnableBoundarySchema)
+  .extend({
+    requestId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    processBoundaryDeferred: z.literal(true),
+    adapterModuleRef: z.string().min(1).optional(),
+    dryRunPlanHash: z.string().min(1),
+    policyDecisionHash: z.string().min(1),
+    approvalArtifactHash: z.string().min(1).optional(),
+    evidencePlanSummary: z.string().min(1),
+    auditPlanSummary: z.string().min(1),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterBoundaryPlan = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryPlanSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterPreflightSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    requestId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    configId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterPreflightStatusSchema,
+    requestedSandboxMode: z.literal('read_only'),
+    boundaryPlan: CodexExecRealReadOnlyAdapterBoundaryPlanSchema.optional(),
+    checks: z.array(CodexExecRealReadOnlyAdapterPreflightCheckSchema),
+    hardGateCount: z.number().int().nonnegative(),
+    passedGateCount: z.number().int().nonnegative(),
+    failedGateCount: z.number().int().nonnegative(),
+    requiresReviewCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterPreflight = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPreflightSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterErrorSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    code: CodexExecRealReadOnlyAdapterErrorCodeSchema,
+    severity: RiskLevelSchema,
+    relatedCheckCode: z.string().min(1).optional(),
+    messageSummary: z.string().min(1),
+    remediationSummary: z.string().min(1),
+    absolutePathLeaked: z.literal(false),
+  });
+export type CodexExecRealReadOnlyAdapterError = z.infer<
+  typeof CodexExecRealReadOnlyAdapterErrorSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterEvidenceSummarySchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    requestId: z.string().min(1),
+    resultId: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    eventHashCount: z.number().int().nonnegative(),
+    outputHashCount: z.number().int().nonnegative(),
+    metadataHash: z.string().min(1),
+    redacted: z.literal(true),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterEvidenceSummary = z.infer<
+  typeof CodexExecRealReadOnlyAdapterEvidenceSummarySchema
+>;
+
+export const CodexExecRealReadOnlyAdapterAuditSummarySchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    requestId: z.string().min(1),
+    resultId: z.string().min(1).optional(),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    beforeStartRequired: z.literal(true),
+    afterFinishRequired: z.literal(true),
+    abortRequired: z.literal(true),
+    failureRequired: z.literal(true),
+    eventCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterAuditSummary = z.infer<
+  typeof CodexExecRealReadOnlyAdapterAuditSummarySchema
+>;
+
+export const CodexExecRealReadOnlyAdapterResultSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    requestId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    preflightId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterResultStatusSchema,
+    boundaryPlanId: z.string().min(1).optional(),
+    error: CodexExecRealReadOnlyAdapterErrorSchema.optional(),
+    evidenceSummary: CodexExecRealReadOnlyAdapterEvidenceSummarySchema.optional(),
+    auditSummary: CodexExecRealReadOnlyAdapterAuditSummarySchema.optional(),
+    postRunVerificationRequired: z.literal(true),
+    workspaceMutationAllowed: z.literal(false),
+    unexpectedWorkspaceDiffCritical: z.literal(true),
+    autoRevertAllowed: z.literal(false),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterResult = z.infer<
+  typeof CodexExecRealReadOnlyAdapterResultSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

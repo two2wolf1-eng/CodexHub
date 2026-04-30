@@ -63,6 +63,15 @@ import {
   CodexExecRealReadOnlyAdapterReadinessReviewQuerySchema,
   CodexExecRealReadOnlyAdapterReadinessReviewSummarySchema,
   CodexExecRealReadOnlyAdapterReadinessSummarySchema,
+  CodexExecRealReadOnlyAdapterAuditSummarySchema,
+  CodexExecRealReadOnlyAdapterBoundaryPlanSchema,
+  CodexExecRealReadOnlyAdapterConfigSchema,
+  CodexExecRealReadOnlyAdapterErrorSchema,
+  CodexExecRealReadOnlyAdapterEvidenceSummarySchema,
+  CodexExecRealReadOnlyAdapterPreflightCheckSchema,
+  CodexExecRealReadOnlyAdapterPreflightSchema,
+  CodexExecRealReadOnlyAdapterRequestSchema,
+  CodexExecRealReadOnlyAdapterResultSchema,
   CodexExecNoLiveEvidenceSummarySchema,
   CodexExecReportReviewComparisonSchema,
   CodexExecReportReviewComparisonItemSchema,
@@ -2441,6 +2450,228 @@ describe('contracts schemas', () => {
         id: 'codex_real_read_only_adapter_readiness_review_invalid',
         outcome: 'no_go_to_separate_adr_draft',
         separateAdrDraftAllowed: true,
+      }),
+    ).toThrow();
+  });
+
+  it('parses real read-only adapter contract models as metadata-only non-approval records', () => {
+    const flagFields = {
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      agentMessageBodyStored: false,
+      reasoningBodyStored: false,
+    } as const;
+    const noRunnableFields = {
+      noRunnableCommand: true,
+      commandPreviewStored: false,
+      argvStored: false,
+      executablePathStored: false,
+      shellSnippetStored: false,
+      envPlanStored: false,
+    } as const;
+    const config = CodexExecRealReadOnlyAdapterConfigSchema.parse({
+      id: 'codex_real_read_only_adapter_config_1',
+      schemaVersion,
+      createdAt,
+      status: 'disabled',
+      defaultEnabled: false,
+      configuredEnabled: false,
+      explicitEnableRequired: true,
+      cliOnly: true,
+      dashboardTriggerForbidden: true,
+      allowedSandboxMode: 'read_only',
+      forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+      existingDryRunRequired: true,
+      approvalArtifactRequired: true,
+      dryRunPlanHashRequired: true,
+      policyDecisionHashRequired: true,
+      isolatedWorktreeRequired: true,
+      cleanWorktreeRequired: true,
+      metadataEvidenceOnly: true,
+      summary: 'Read-only adapter config is disabled by default.',
+      ...flagFields,
+      ...noRunnableFields,
+    });
+    const request = CodexExecRealReadOnlyAdapterRequestSchema.parse({
+      id: 'codex_real_read_only_adapter_request_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      configId: config.id,
+      approvalArtifactId: 'codex_approval_artifact_1',
+      policyDecisionId: 'policy_1',
+      requestedSandboxMode: 'read_only',
+      triggerKind: 'cli',
+      existingDryRunRequired: true,
+      summary: 'Metadata-only request for a future read-only adapter attempt.',
+      ...flagFields,
+      ...noRunnableFields,
+    });
+    const boundaryPlan = CodexExecRealReadOnlyAdapterBoundaryPlanSchema.parse({
+      id: 'codex_real_read_only_adapter_boundary_plan_1',
+      schemaVersion,
+      createdAt,
+      requestId: request.id,
+      dryRunId: request.dryRunId,
+      processBoundaryDeferred: true,
+      adapterModuleRef: '@codexhub/codex-kernel/read-only-adapter',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionHash: 'sha256:policy',
+      approvalArtifactHash: 'sha256:approval',
+      evidencePlanSummary: 'Metadata and hashes only.',
+      auditPlanSummary: 'Audit before, after, abort, and failure.',
+      summary: 'Boundary planning metadata only; no runnable command is stored.',
+      ...flagFields,
+      ...noRunnableFields,
+    });
+    const check = CodexExecRealReadOnlyAdapterPreflightCheckSchema.parse({
+      id: 'codex_real_read_only_adapter_preflight_check_1',
+      schemaVersion,
+      createdAt,
+      code: 'config_default_disabled',
+      label: 'Config default disabled',
+      status: 'passed',
+      required: true,
+      summary: 'Default config remains disabled.',
+      ...flagFields,
+    });
+    const preflight = CodexExecRealReadOnlyAdapterPreflightSchema.parse({
+      id: 'codex_real_read_only_adapter_preflight_1',
+      schemaVersion,
+      createdAt,
+      requestId: request.id,
+      dryRunId: request.dryRunId,
+      configId: config.id,
+      status: 'passed',
+      requestedSandboxMode: 'read_only',
+      boundaryPlan,
+      checks: [check],
+      hardGateCount: 1,
+      passedGateCount: 1,
+      failedGateCount: 0,
+      requiresReviewCount: 0,
+      blockerCount: 0,
+      summary: 'Preflight contract is metadata only.',
+      ...flagFields,
+    });
+    const error = CodexExecRealReadOnlyAdapterErrorSchema.parse({
+      id: 'codex_real_read_only_adapter_error_1',
+      schemaVersion,
+      createdAt,
+      code: 'boundary_deferred',
+      severity: 'medium',
+      relatedCheckCode: check.code,
+      messageSummary: 'Boundary remains deferred in P1.',
+      remediationSummary: 'Proceed only after the next gated round.',
+      absolutePathLeaked: false,
+      ...flagFields,
+    });
+    const evidenceSummary = CodexExecRealReadOnlyAdapterEvidenceSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_evidence_summary_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      requestId: request.id,
+      evidenceRefIds: ['evidence_1'],
+      eventHashCount: 1,
+      outputHashCount: 0,
+      metadataHash: 'sha256:metadata',
+      redacted: true,
+      summary: 'Evidence summary is metadata-only.',
+      ...flagFields,
+    });
+    const auditSummary = CodexExecRealReadOnlyAdapterAuditSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_audit_summary_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      requestId: request.id,
+      auditEventIds: ['audit_1'],
+      beforeStartRequired: true,
+      afterFinishRequired: true,
+      abortRequired: true,
+      failureRequired: true,
+      eventCount: 1,
+      summary: 'Audit summary requires before, after, abort, and failure events.',
+      ...flagFields,
+    });
+    const result = CodexExecRealReadOnlyAdapterResultSchema.parse({
+      id: 'codex_real_read_only_adapter_result_1',
+      schemaVersion,
+      createdAt,
+      requestId: request.id,
+      dryRunId: request.dryRunId,
+      preflightId: preflight.id,
+      status: 'blocked',
+      boundaryPlanId: boundaryPlan.id,
+      error,
+      evidenceSummary,
+      auditSummary,
+      postRunVerificationRequired: true,
+      workspaceMutationAllowed: false,
+      unexpectedWorkspaceDiffCritical: true,
+      autoRevertAllowed: false,
+      summary: 'P1 result contract is non-executing metadata only.',
+      ...flagFields,
+    });
+
+    expect(config.defaultEnabled).toBe(false);
+    expect(request.dryRunId).toBe('codex_dry_run_1');
+    expect(preflight.requestedSandboxMode).toBe('read_only');
+    expect(result.executionDisabled).toBe(true);
+    expect(result.implementationApproved).toBe(false);
+    expect(result.processAdapterApproved).toBe(false);
+    expect(result.recommendationGrantsExecution).toBe(false);
+    expect(result.workspaceWriteAllowed).toBe(false);
+    expect(result.dangerFullAccessAllowed).toBe(false);
+    expect(result.dashboardTriggerAllowed).toBe(false);
+    expect(result.promptBodyStored).toBe(false);
+    expect(result.commandBodyStored).toBe(false);
+    expect(result.stdoutBodyStored).toBe(false);
+    expect(result.stderrBodyStored).toBe(false);
+    expect('command' in boundaryPlan).toBe(false);
+    expect('argv' in boundaryPlan).toBe(false);
+    expect('executablePath' in boundaryPlan).toBe(false);
+    expect('shellSnippet' in boundaryPlan).toBe(false);
+    expect('envPlan' in boundaryPlan).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('raw prompt body');
+    expect(JSON.stringify(result)).not.toContain('raw command body');
+    expect(JSON.stringify(result)).not.toContain('raw stdout body');
+    expect(JSON.stringify(result)).not.toContain('raw stderr body');
+
+    expect(() =>
+      CodexExecRealReadOnlyAdapterRequestSchema.parse({
+        ...request,
+        id: 'codex_real_read_only_adapter_request_invalid_sandbox',
+        requestedSandboxMode: 'workspace_write',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexExecRealReadOnlyAdapterConfigSchema.parse({
+        ...config,
+        id: 'codex_real_read_only_adapter_config_invalid_dashboard_trigger',
+        dashboardTriggerAllowed: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexExecRealReadOnlyAdapterRequestSchema.parse({
+        ...request,
+        id: 'codex_real_read_only_adapter_request_invalid_danger',
+        dangerFullAccessAllowed: true,
       }),
     ).toThrow();
   });
