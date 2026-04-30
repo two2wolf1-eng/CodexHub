@@ -39,6 +39,7 @@ import {
   createRealReadOnlyAdapterRequest,
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+  summarizeRealReadOnlyAdapterAttempt,
   summarizeRealReadOnlyAdapterReadinessPackage,
   runReadOnlyAdapterFixtureBoundary,
   summarizeReadOnlyAdapterFixtureBoundary,
@@ -124,6 +125,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
   CodexExecRealReadOnlyAdapterReadinessReviewStatus,
   CodexExecRealReadOnlyAdapterReadinessStatus,
+  CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -296,6 +299,11 @@ export interface CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions exten
 export interface CodexExecRealReadOnlyAdapterAttemptCliOptions extends CodexExecJsonCliOptions {
   approval?: string;
   worktree?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterAttemptListCliOptions extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
 }
 
 export function buildProgram(): Command {
@@ -978,6 +986,41 @@ export function buildProgram(): Command {
         console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
       },
     );
+
+  const attemptsCommand = realReadOnlyAdapterCommand
+    .command('attempts')
+    .description('Read authoritative real read-only adapter attempt records');
+
+  attemptsCommand
+    .command('get')
+    .argument('<attemptId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one attempt record')
+    .action(async (attemptId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getRealReadOnlyAdapterAttemptCommand(attemptId);
+      console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
+    });
+
+  attemptsCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by attempt status')
+    .option('--json', 'Print full JSON output')
+    .description('List attempt record summaries')
+    .action(async (options: CodexExecRealReadOnlyAdapterAttemptListCliOptions) => {
+      const result = await listRealReadOnlyAdapterAttemptsCommand(options);
+      console.log(formatRealReadOnlyAdapterAttemptListOutput(result, options));
+    });
+
+  attemptsCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest attempt record for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestRealReadOnlyAdapterAttemptCommand(dryRunId);
+      console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
+    });
 
   const readinessCommand = realReadOnlyAdapterCommand
     .command('readiness')
@@ -2924,6 +2967,92 @@ export async function attemptRealReadOnlyAdapterCommand(
   }
 }
 
+export async function getRealReadOnlyAdapterAttemptCommand(
+  attemptId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt/${encodeURIComponent(
+        attemptId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterAttemptReadFallback(
+      `supervisor unavailable; attempt ${attemptId} was not read from an authoritative store`,
+    );
+  }
+}
+
+export async function listRealReadOnlyAdapterAttemptsCommand(
+  options: CodexExecRealReadOnlyAdapterAttemptListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterAttemptQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempts${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return {
+      attempts: [],
+      attemptRecords: [],
+      summaries: [],
+      count: 0,
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      degraded: true,
+      notPersisted: true,
+      reason: 'supervisor unavailable; attempt list fallback is display-only and not authoritative',
+    };
+  }
+}
+
+export async function getLatestRealReadOnlyAdapterAttemptCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterAttemptReadFallback(
+      `supervisor unavailable; latest attempt for ${dryRunId} is display-only and not authoritative`,
+      dryRunId,
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -4341,6 +4470,23 @@ function createRealReadOnlyAdapterReadinessReviewQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createRealReadOnlyAdapterAttemptQueryString(
+  options: CodexExecRealReadOnlyAdapterAttemptListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeRealReadOnlyAdapterAttemptStatus(options.status));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -4632,6 +4778,16 @@ function normalizeRealReadOnlyAdapterReadinessReviewStatus(
   }
 
   throw new Error('real read-only adapter readiness review status is unsupported');
+}
+
+function normalizeRealReadOnlyAdapterAttemptStatus(
+  status: string,
+): CodexExecRealReadOnlyAdapterAttemptStatus {
+  if (['blocked', 'completed', 'failed', 'aborted'].includes(status)) {
+    return status as CodexExecRealReadOnlyAdapterAttemptStatus;
+  }
+
+  return 'blocked';
 }
 
 function createEvidenceQueryFromCliOptions(
@@ -4943,7 +5099,7 @@ function createRealReadOnlyAdapterAttemptRefusal(
     preflight,
     status: 'blocked',
     recommendation:
-      'CLI attempt is blocked before any process boundary. This does not grant implementation, process launch, Codex run, or workspace mutation permission.',
+      'CLI attempt is blocked before any process boundary. This does not grant implementation, process launch, external model invocation, or workspace mutation permission.',
     liveExecution: false,
     externalProcessStarted: false,
     executionDisabled: true,
@@ -4954,11 +5110,43 @@ function createRealReadOnlyAdapterAttemptRefusal(
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
     dashboardTriggerAllowed: false,
-    degraded: false,
+    degraded: true,
     notPersisted: true,
     fallbackRefused: true,
     reason:
       'supervisor attempt endpoint unavailable or rejected; CLI local fallback cannot create an actual adapter attempt',
+  };
+}
+
+function createRealReadOnlyAdapterAttemptReadFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    attempt: undefined,
+    attemptRecord: undefined,
+    summary: undefined,
+    attempts: [],
+    attemptRecords: [],
+    summaries: [],
+    count: 0,
+    dryRunId,
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    degraded: true,
+    notPersisted: true,
+    reason,
   };
 }
 
@@ -5516,12 +5704,58 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `workspaceWriteAllowed=${String(attempt?.workspaceWriteAllowed ?? false)}`,
     `dangerFullAccessAllowed=${String(attempt?.dangerFullAccessAllowed ?? false)}`,
     `dashboardTriggerAllowed=${String(attempt?.dashboardTriggerAllowed ?? false)}`,
-    'CLI-only attempt status. Does not grant implementation, process launch, Codex run, or workspace mutation permission.',
+    'CLI-only attempt status. Does not grant implementation, process launch, external model invocation, or workspace mutation permission.',
     `degraded=${String(result.degraded ?? false)}`,
     `notPersisted=${String(result.notPersisted ?? true)}`,
     noLiveFlagsText(result),
     checkLines.length > 0 ? 'non-passing checks:' : 'non-passing checks: none',
     ...checkLines,
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterAttemptListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecRealReadOnlyAdapterAttemptListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const attemptRecords = (Array.isArray(result.attempts)
+    ? result.attempts
+    : result.attemptRecords) as CodexExecRealReadOnlyAdapterAttemptRecord[] | undefined;
+  const summaries = Array.isArray(result.summaries)
+    ? (result.summaries as Array<{
+        id?: string;
+        attemptId?: string;
+        dryRunId?: string;
+        status?: string;
+        processBoundaryInvoked?: boolean;
+      }>)
+    : (attemptRecords ?? []).map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt));
+  const lines = summaries
+    .slice(0, 10)
+    .map(
+      (summary) =>
+        `- ${summary.status ?? 'unknown'} ${summary.attemptId ?? summary.id ?? 'unknown'} dryRunId=${
+          summary.dryRunId ?? 'unknown'
+        } processBoundaryInvoked=${String(summary.processBoundaryInvoked ?? false)}`,
+    );
+
+  return [
+    'Real read-only adapter attempt records',
+    `count: ${String(result.count ?? summaries.length)}`,
+    `authoritative=${String(result.authoritative ?? false)}`,
+    `supervisorBacked=${String(result.supervisorBacked ?? false)}`,
+    `degraded=${String(result.degraded ?? true)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    `implementationApproved=${String(result.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(result.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(result.recommendationGrantsExecution ?? false)}`,
+    'Records are metadata-only. They do not grant implementation, process launch, external model invocation, or workspace mutation permission.',
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'attempts:' : 'attempts: none',
+    ...lines,
   ].join('\n');
 }
 

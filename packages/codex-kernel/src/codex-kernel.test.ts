@@ -48,8 +48,12 @@ import {
   createDisabledRealReadOnlyAdapterResult,
   createRealReadOnlyAdapterAttemptAuditEvents,
   createRealReadOnlyAdapterAttemptEvidenceRefs,
+  createRealReadOnlyAdapterAttemptRecord,
   createRealReadOnlyAdapterAuditSummaryFromEvents,
+  createRealReadOnlyAdapterBlockedResult,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
+  listRealReadOnlyAdapterAttemptSummaries,
+  summarizeRealReadOnlyAdapterAttempt,
   createRealReadOnlyAdapterPostRunVerificationPlan,
   createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterGuardPreflight,
@@ -2365,6 +2369,189 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('failure detail must remain hashed');
     expect(serialized).not.toContain('abort output must remain hashed');
     expect(serialized).not.toContain('abort detail must remain hashed');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+  });
+
+  it('creates authoritative attempt records for blocked and injected boundary outcomes', async () => {
+    const { plan: dryRunPlan, policyDecision } = createControlPlaneFixture({
+      liveAdapterEnabled: true,
+    });
+    const approvalArtifact = createCodexExecApprovalArtifact(dryRunPlan, policyDecision, {
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    const config = {
+      ...createDefaultRealReadOnlyAdapterConfig(),
+      status: 'enabled' as const,
+      configuredEnabled: true,
+      summary: 'Enabled for attempt record tests only.',
+    };
+    const request = createRealReadOnlyAdapterRequest({
+      dryRunId: dryRunPlan.id,
+      config,
+      approvalArtifactId: approvalArtifact.id,
+      policyDecisionId: policyDecision.id,
+    });
+    const preflight = createRealReadOnlyAdapterGuardPreflight({
+      request,
+      config,
+      dryRunPlan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      now: '2026-04-30T00:00:00.000Z',
+    });
+    const blockedResult = createRealReadOnlyAdapterBlockedResult({
+      request,
+      preflight: createRealReadOnlyAdapterGuardPreflight({
+        request,
+        config,
+        dryRunPlan,
+        policyDecision,
+        approvalArtifact,
+        expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+        expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+        worktree: { isolated: true, status: 'dirty' },
+        evidenceStoreReady: true,
+        auditStoreReady: true,
+        now: '2026-04-30T00:00:00.000Z',
+      }),
+      config,
+    });
+    const processPlan = createRealReadOnlyAdapterProcessPlan({
+      dryRunId: dryRunPlan.id,
+      approvalArtifactId: approvalArtifact.id,
+      executablePath: 'codex',
+      worktreePath: 'C:/safe/worktree/attempt-record',
+      timeoutMs: 1_000,
+    });
+    const completedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: 'completed record body must remain hashed',
+          stderr: '',
+        }),
+      },
+    });
+    const failedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 2,
+          stdout: 'failed record body must remain hashed',
+          stderr: 'failed record detail must remain hashed',
+        }),
+      },
+    });
+    const abortedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: undefined,
+          stdout: 'aborted record body must remain hashed',
+          stderr: 'aborted record detail must remain hashed',
+          timedOut: true,
+        }),
+      },
+    });
+
+    const buildBoundaryRecord = (
+      boundaryResult:
+        | typeof completedBoundary
+        | typeof failedBoundary
+        | typeof abortedBoundary,
+      resultId: string,
+    ) => {
+      const telemetryInput = { request, preflight, boundaryResult, resultId };
+      const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs(telemetryInput);
+      const auditEvents = createRealReadOnlyAdapterAttemptAuditEvents(
+        telemetryInput,
+        evidenceRefs,
+      );
+      const evidenceSummary = createRealReadOnlyAdapterEvidenceSummaryFromRefs(
+        telemetryInput,
+        evidenceRefs,
+      );
+      const auditSummary = createRealReadOnlyAdapterAuditSummaryFromEvents(
+        telemetryInput,
+        auditEvents,
+      );
+      const baseResult = createRealReadOnlyAdapterBlockedResult({ request, preflight, config });
+      const result = {
+        ...baseResult,
+        id: resultId,
+        status: boundaryResult.status,
+        error: undefined,
+        evidenceSummary,
+        auditSummary,
+        summary: `Injected boundary ${boundaryResult.status} result stores summaries only.`,
+      };
+
+      return createRealReadOnlyAdapterAttemptRecord({
+        request,
+        preflight,
+        result,
+        boundaryResult,
+        evidenceRefs,
+        auditEvents,
+      });
+    };
+
+    const blockedRecord = createRealReadOnlyAdapterAttemptRecord({
+      request,
+      preflight,
+      result: blockedResult,
+      evidenceRefs: [],
+      auditEvents: [],
+    });
+    const completedRecord = buildBoundaryRecord(
+      completedBoundary,
+      'codex_real_read_only_adapter_result_attempt_completed',
+    );
+    const failedRecord = buildBoundaryRecord(
+      failedBoundary,
+      'codex_real_read_only_adapter_result_attempt_failed',
+    );
+    const abortedRecord = buildBoundaryRecord(
+      abortedBoundary,
+      'codex_real_read_only_adapter_result_attempt_aborted',
+    );
+    const summaries = listRealReadOnlyAdapterAttemptSummaries(
+      [blockedRecord, completedRecord, failedRecord, abortedRecord],
+      { dryRunId: dryRunPlan.id, limit: 10 },
+    );
+    const completedSummary = summarizeRealReadOnlyAdapterAttempt(completedRecord);
+    const serialized = JSON.stringify({
+      blockedRecord,
+      completedRecord,
+      failedRecord,
+      abortedRecord,
+    });
+
+    expect(blockedRecord.status).toBe('blocked');
+    expect(completedRecord.status).toBe('completed');
+    expect(failedRecord.status).toBe('failed');
+    expect(abortedRecord.status).toBe('aborted');
+    expect(completedRecord.processBoundaryInvoked).toBe(true);
+    expect(completedRecord.executionDisabled).toBe(true);
+    expect(completedRecord.implementationApproved).toBe(false);
+    expect(completedRecord.processAdapterApproved).toBe(false);
+    expect(completedRecord.recommendationGrantsExecution).toBe(false);
+    expect(completedRecord.workspaceWriteAllowed).toBe(false);
+    expect(completedRecord.dangerFullAccessAllowed).toBe(false);
+    expect(completedRecord.dashboardTriggerAllowed).toBe(false);
+    expect(completedRecord.promptBodyStored).toBe(false);
+    expect(completedRecord.stdoutBodyStored).toBe(false);
+    expect(completedSummary.evidenceRefCount).toBeGreaterThan(0);
+    expect(summaries).toHaveLength(4);
+    expect(serialized).not.toContain('completed record body must remain hashed');
+    expect(serialized).not.toContain('failed record body must remain hashed');
+    expect(serialized).not.toContain('failed record detail must remain hashed');
+    expect(serialized).not.toContain('aborted record body must remain hashed');
+    expect(serialized).not.toContain('aborted record detail must remain hashed');
     expect(serialized).not.toContain('"argv":');
     expect(serialized).not.toContain('"executablePath":');
   });

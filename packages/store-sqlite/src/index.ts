@@ -20,6 +20,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessQuery,
   CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
+  CodexExecRealReadOnlyAdapterAttemptQuery,
+  CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -40,6 +42,7 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessRepository,
   CodexExecRealReadOnlyAdapterReadinessRepository,
   CodexExecRealReadOnlyAdapterReadinessReviewRepository,
+  CodexExecRealReadOnlyAdapterAttemptRepository,
   CodexHubStore,
   CodexReplayRepository,
   CodexReportReviewRepository,
@@ -110,6 +113,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessRepository;
   readonly codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
   readonly codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
+  readonly codexExecRealReadOnlyAdapterAttempts: CodexExecRealReadOnlyAdapterAttemptRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -144,6 +148,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteCodexExecRealReadOnlyAdapterReadinessRepository(database);
     this.codexExecRealReadOnlyAdapterReadinessReviews =
       new SqliteCodexExecRealReadOnlyAdapterReadinessReviewRepository(database);
+    this.codexExecRealReadOnlyAdapterAttempts =
+      new SqliteCodexExecRealReadOnlyAdapterAttemptRepository(database);
   }
 
   async close(): Promise<void> {
@@ -807,6 +813,64 @@ class SqliteCodexExecRealReadOnlyAdapterReadinessReviewRepository implements Cod
   }
 }
 
+class SqliteCodexExecRealReadOnlyAdapterAttemptRepository
+  implements CodexExecRealReadOnlyAdapterAttemptRepository
+{
+  private readonly repository: JsonEntityRepository<CodexExecRealReadOnlyAdapterAttemptRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecRealReadOnlyAdapterAttemptRecord>(
+      database,
+      'codex_real_read_only_adapter_attempts',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveAttempt(
+    record: CodexExecRealReadOnlyAdapterAttemptRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterAttemptRecord> {
+    return this.repository.create(record);
+  }
+
+  async getAttempt(id: string): Promise<CodexExecRealReadOnlyAdapterAttemptRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listAttempts(
+    query: Partial<CodexExecRealReadOnlyAdapterAttemptQuery> = {},
+  ): Promise<CodexExecRealReadOnlyAdapterAttemptRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_real_read_only_adapter_attempts ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) => JSON.parse(row.payload) as CodexExecRealReadOnlyAdapterAttemptRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+
+  async latestAttempt(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterAttemptRecord | undefined> {
+    return (await this.listAttempts({ dryRunId, limit: 1 }))[0];
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -995,6 +1059,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_readiness_reviews (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_attempts (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

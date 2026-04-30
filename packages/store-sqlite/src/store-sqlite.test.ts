@@ -12,6 +12,7 @@ import {
   type CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
   type CodexExecRealReadOnlyAdapterReadinessPackage,
   type CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  type CodexExecRealReadOnlyAdapterAttemptRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
@@ -189,6 +190,9 @@ describe('store-sqlite migration initialization', () => {
     await first.codexExecRealReadOnlyAdapterReadinessReviews.saveReadinessReview(
       realReadOnlyAdapterReadinessReview,
     );
+    const realReadOnlyAdapterAttempt: CodexExecRealReadOnlyAdapterAttemptRecord =
+      createRealReadOnlyAdapterAttemptFixture();
+    await first.codexExecRealReadOnlyAdapterAttempts.saveAttempt(realReadOnlyAdapterAttempt);
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -297,6 +301,18 @@ describe('store-sqlite migration initialization', () => {
       await second.codexExecRealReadOnlyAdapterReadinessReviews.latestReadinessReview(
         'codex_dry_run_1',
       );
+    const realReadOnlyAdapterAttempts =
+      await second.codexExecRealReadOnlyAdapterAttempts.listAttempts({
+        dryRunId: 'codex_dry_run_1',
+        status: 'blocked',
+        limit: 10,
+      });
+    const realReadOnlyAdapterAttemptRecord =
+      await second.codexExecRealReadOnlyAdapterAttempts.getAttempt(
+        'codex_real_read_only_adapter_attempt_1',
+      );
+    const latestRealReadOnlyAdapterAttemptRecord =
+      await second.codexExecRealReadOnlyAdapterAttempts.latestAttempt('codex_dry_run_1');
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -389,6 +405,24 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify(realReadOnlyAdapterReadinessReviewRecord)).not.toContain(
       'full command body',
     );
+    expect(realReadOnlyAdapterAttempts).toHaveLength(1);
+    expect(realReadOnlyAdapterAttemptRecord?.status).toBe('blocked');
+    expect(realReadOnlyAdapterAttemptRecord?.authoritative).toBe(true);
+    expect(realReadOnlyAdapterAttemptRecord?.supervisorBacked).toBe(true);
+    expect(realReadOnlyAdapterAttemptRecord?.persisted).toBe(true);
+    expect(realReadOnlyAdapterAttemptRecord?.processBoundaryInvoked).toBe(false);
+    expect(realReadOnlyAdapterAttemptRecord?.implementationApproved).toBe(false);
+    expect(realReadOnlyAdapterAttemptRecord?.processAdapterApproved).toBe(false);
+    expect(realReadOnlyAdapterAttemptRecord?.recommendationGrantsExecution).toBe(false);
+    expect(latestRealReadOnlyAdapterAttemptRecord?.id).toBe(
+      'codex_real_read_only_adapter_attempt_1',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw prompt body');
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw command body');
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw stdout body');
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw stderr body');
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"argv"');
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"executablePath":');
   });
 });
 
@@ -1077,6 +1111,66 @@ function createRealReadOnlyAdapterReadinessReviewFixture(): CodexExecRealReadOnl
     auditEventIds: ['audit_real_readiness_review_1'],
     summary:
       'ADR drafting only. Does not grant implementation, process launch, or execution permission.',
+    ...flags,
+  };
+}
+
+function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapterAttemptRecord {
+  const createdAt = '2026-04-28T00:00:13.000Z';
+  const flags = {
+    metadataOnly: true as const,
+    bodyStored: false as const,
+    promptBodyStored: false as const,
+    commandBodyStored: false as const,
+    stdoutBodyStored: false as const,
+    stderrBodyStored: false as const,
+    agentMessageBodyStored: false as const,
+    reasoningBodyStored: false as const,
+    argvStored: false as const,
+    executablePathStored: false as const,
+    shellSnippetStored: false as const,
+    envPlanStored: false as const,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+    processAdapterStarted: false as const,
+    implementationApproved: false as const,
+    processAdapterApproved: false as const,
+    dashboardTriggerAllowed: false as const,
+    recommendationGrantsExecution: false as const,
+    workspaceWriteAllowed: false as const,
+    dangerFullAccessAllowed: false as const,
+  };
+
+  return {
+    id: 'codex_real_read_only_adapter_attempt_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    requestId: 'codex_real_read_only_adapter_request_1',
+    preflightId: 'codex_real_read_only_adapter_preflight_1',
+    resultId: 'codex_real_read_only_adapter_result_1',
+    status: 'blocked',
+    authoritative: true,
+    supervisorBacked: true,
+    persisted: true,
+    degraded: false,
+    notPersisted: false,
+    processBoundaryInvoked: false,
+    evidenceRefIds: ['evidence_real_read_only_adapter_attempt_1'],
+    auditEventIds: ['audit_real_read_only_adapter_attempt_1'],
+    outputHashCount: 0,
+    metadataHash: 'sha256:attempt_metadata',
+    summary: 'Default-disabled supervisor attempt was blocked before the process boundary.',
+    metadata: {
+      source: 'store-sqlite-test',
+      metadataOnly: true,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      worktreePathStored: false,
+    },
     ...flags,
   };
 }

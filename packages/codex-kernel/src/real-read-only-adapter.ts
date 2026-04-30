@@ -3,6 +3,10 @@ import type {
   CodexExecApprovalArtifact,
   CodexExecDryRunPlan,
   CodexExecRealReadOnlyAdapterAuditSummary,
+  CodexExecRealReadOnlyAdapterAttemptQuery,
+  CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterAttemptStatus,
+  CodexExecRealReadOnlyAdapterAttemptSummary,
   CodexExecRealReadOnlyAdapterBoundaryPlan,
   CodexExecRealReadOnlyAdapterConfig,
   CodexExecRealReadOnlyAdapterError,
@@ -70,6 +74,23 @@ export interface CodexExecRealReadOnlyAdapterAttemptTelemetryInput {
   resultId?: string;
   resultStatus?: CodexExecRealReadOnlyAdapterResult['status'];
   boundaryResult?: CodexExecRealReadOnlyAdapterProcessBoundaryResult;
+  metadata?: JsonMetadata;
+}
+
+export interface CodexExecRealReadOnlyAdapterBlockedResultInput {
+  request: CodexExecRealReadOnlyAdapterRequest;
+  preflight: CodexExecRealReadOnlyAdapterPreflight;
+  config: CodexExecRealReadOnlyAdapterConfig;
+  metadata?: JsonMetadata;
+}
+
+export interface CodexExecRealReadOnlyAdapterAttemptRecordInput {
+  request: CodexExecRealReadOnlyAdapterRequest;
+  preflight: CodexExecRealReadOnlyAdapterPreflight;
+  result: CodexExecRealReadOnlyAdapterResult;
+  boundaryResult?: CodexExecRealReadOnlyAdapterProcessBoundaryResult;
+  evidenceRefs?: EvidenceRef[];
+  auditEvents?: AuditEvent[];
   metadata?: JsonMetadata;
 }
 
@@ -474,6 +495,13 @@ export function createDisabledRealReadOnlyAdapterResult(
   const config = input.config ?? createDefaultRealReadOnlyAdapterConfig(input.metadata);
   const request = createRealReadOnlyAdapterRequest({ ...input, config });
   const preflight = createDisabledRealReadOnlyAdapterPreflight(request, config);
+  return createRealReadOnlyAdapterBlockedResult({ request, preflight, config, metadata: input.metadata });
+}
+
+export function createRealReadOnlyAdapterBlockedResult(
+  input: CodexExecRealReadOnlyAdapterBlockedResultInput,
+): CodexExecRealReadOnlyAdapterResult {
+  const { request, preflight, config } = input;
   const error = createRealReadOnlyAdapterError({
     code: config.configuredEnabled ? 'boundary_deferred' : 'config_disabled',
     relatedCheckCode: config.configuredEnabled ? undefined : 'config_explicit_enable',
@@ -505,6 +533,7 @@ export function createDisabledRealReadOnlyAdapterResult(
     summary:
       'Read-only adapter attempt stopped in disabled-default implementation; no process boundary started.',
     metadata: createRealReadOnlyAdapterMetadata({
+      ...(input.metadata ?? {}),
       configId: config.id,
       requestId: request.id,
       preflightId: preflight.id,
@@ -746,6 +775,127 @@ export function createRealReadOnlyAdapterAuditSummaryFromEvents(
   };
 }
 
+export function createRealReadOnlyAdapterAttemptRecord(
+  input: CodexExecRealReadOnlyAdapterAttemptRecordInput,
+): CodexExecRealReadOnlyAdapterAttemptRecord {
+  const evidenceRefIds =
+    input.evidenceRefs?.map((ref) => ref.id) ?? input.result.evidenceSummary?.evidenceRefIds ?? [];
+  const auditEventIds =
+    input.auditEvents?.map((event) => event.id) ?? input.result.auditSummary?.auditEventIds ?? [];
+  const status = attemptStatusFromResult(input.result.status);
+  const outputHashCount =
+    input.result.evidenceSummary?.outputHashCount ?? (input.boundaryResult ? 2 : 0);
+  const metadataHash = prefixedAdapterHash({
+    requestId: input.request.id,
+    preflightId: input.preflight.id,
+    resultId: input.result.id,
+    status,
+    evidenceRefIds,
+    auditEventIds,
+    outputHashCount,
+    processBoundaryInvoked: input.boundaryResult !== undefined,
+  });
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_attempt'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    dryRunId: input.request.dryRunId,
+    requestId: input.request.id,
+    preflightId: input.preflight.id,
+    resultId: input.result.id,
+    status,
+    authoritative: true,
+    supervisorBacked: true,
+    persisted: true,
+    degraded: false,
+    notPersisted: false,
+    processBoundaryInvoked: input.boundaryResult !== undefined,
+    processBoundaryModuleRef:
+      input.boundaryResult === undefined
+        ? undefined
+        : 'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+    evidenceSummary: input.result.evidenceSummary,
+    auditSummary: input.result.auditSummary,
+    evidenceRefIds,
+    auditEventIds,
+    outputHashCount,
+    metadataHash,
+    summary:
+      status === 'blocked'
+        ? 'Authoritative read-only adapter attempt record captured a blocked guard outcome.'
+        : `Authoritative read-only adapter attempt record captured ${status} metadata only.`,
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
+        ...(input.metadata ?? {}),
+        requestId: input.request.id,
+        preflightId: input.preflight.id,
+        resultId: input.result.id,
+        resultStatus: input.result.status,
+        attemptStatus: status,
+        evidenceRefCount: evidenceRefIds.length,
+        auditEventCount: auditEventIds.length,
+        processBoundaryInvoked: input.boundaryResult !== undefined,
+        outputBodyStored: false,
+        source: 'codex-kernel.real-read-only-adapter.attempt-record',
+      },
+      input.boundaryResult?.externalProcessStarted === true,
+    ),
+  };
+}
+
+export function summarizeRealReadOnlyAdapterAttempt(
+  record: CodexExecRealReadOnlyAdapterAttemptRecord,
+): CodexExecRealReadOnlyAdapterAttemptSummary {
+  return {
+    id: foundationId('codex_real_read_only_adapter_attempt_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    attemptId: record.id,
+    dryRunId: record.dryRunId,
+    status: record.status,
+    authoritative: record.authoritative,
+    supervisorBacked: record.supervisorBacked,
+    persisted: record.persisted,
+    degraded: record.degraded,
+    notPersisted: record.notPersisted,
+    processBoundaryInvoked: record.processBoundaryInvoked,
+    evidenceRefCount: record.evidenceRefIds.length,
+    auditEventCount: record.auditEventIds.length,
+    outputHashCount: record.outputHashCount,
+    metadataHash: record.metadataHash,
+    summary: record.summary,
+    metadata: createRealReadOnlyAdapterMetadata({
+      attemptId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      source: 'codex-kernel.real-read-only-adapter.attempt-summary',
+    }),
+  };
+}
+
+export function listRealReadOnlyAdapterAttemptSummaries(
+  records: CodexExecRealReadOnlyAdapterAttemptRecord[],
+  query: Partial<CodexExecRealReadOnlyAdapterAttemptQuery> = {},
+): CodexExecRealReadOnlyAdapterAttemptSummary[] {
+  const limit = query.limit ?? 50;
+  return records
+    .filter((record) => (query.dryRunId === undefined ? true : record.dryRunId === query.dryRunId))
+    .filter((record) => (query.status === undefined ? true : record.status === query.status))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit)
+    .map((record) => summarizeRealReadOnlyAdapterAttempt(record));
+}
+
+export function getLatestRealReadOnlyAdapterAttempt(
+  records: CodexExecRealReadOnlyAdapterAttemptRecord[],
+  dryRunId: string,
+): CodexExecRealReadOnlyAdapterAttemptSummary | undefined {
+  return listRealReadOnlyAdapterAttemptSummaries(records, { dryRunId, limit: 1 })[0];
+}
+
 function isApprovalArtifactValid(
   artifact: CodexExecApprovalArtifact | undefined,
   nowMs: number,
@@ -909,6 +1059,16 @@ function resultStatusFromTelemetry(
     : input.boundaryResult.status === 'failed'
       ? 'failed'
       : 'aborted';
+}
+
+function attemptStatusFromResult(
+  status: CodexExecRealReadOnlyAdapterResult['status'],
+): CodexExecRealReadOnlyAdapterAttemptStatus {
+  if (status === 'completed' || status === 'failed' || status === 'aborted') {
+    return status;
+  }
+
+  return 'blocked';
 }
 
 function createRealReadOnlyAdapterMetadata(extra: JsonMetadata): JsonMetadata {

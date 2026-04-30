@@ -1795,4 +1795,108 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(createResponse.json())).not.toContain('full report markdown');
     expect(createResponse.body).not.toContain(process.cwd());
   });
+
+  it('creates authoritative metadata-only real read-only adapter attempt records', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-real-attempt-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const createResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: {
+        dryRunId: 'codex_dry_run_attempt_fixture',
+        approvalArtifactId: 'codex_approval_attempt_fixture',
+        isolatedWorktreeProvided: true,
+      },
+    });
+    const attemptId = createResponse.json().attemptRecord.id as string;
+    const getResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/attempt/${attemptId}`,
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/real-read-only-adapter/attempts?dryRunId=codex_dry_run_attempt_fixture&status=blocked&limit=10',
+    });
+    const latestResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/real-read-only-adapter/attempt/latest/codex_dry_run_attempt_fixture',
+    });
+    const invalidQueryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/real-read-only-adapter/attempts?status=execution_approved',
+    });
+    const missingBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: {},
+    });
+    const disabledStoreServer = buildSupervisorServer({ disableStore: true });
+    const disabledStoreResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: { dryRunId: 'codex_dry_run_attempt_fixture' },
+    });
+
+    await disabledStoreServer.close();
+    await server.close();
+    await store.close();
+
+    expect(createResponse.statusCode).toBe(200);
+    expect(createResponse.json()).toMatchObject({
+      attemptRecord: {
+        id: attemptId,
+        dryRunId: 'codex_dry_run_attempt_fixture',
+        status: 'blocked',
+        authoritative: true,
+        supervisorBacked: true,
+        persisted: true,
+        degraded: false,
+        notPersisted: false,
+        processBoundaryInvoked: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      notPersisted: false,
+    });
+    expect(createResponse.json().evidenceRefs).toHaveLength(1);
+    expect(createResponse.json().auditEvents.length).toBeGreaterThan(0);
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json().attemptRecord.id).toBe(attemptId);
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().summaries).toHaveLength(1);
+    expect(latestResponse.statusCode).toBe(200);
+    expect(latestResponse.json().attemptRecord.id).toBe(attemptId);
+    expect(invalidQueryResponse.statusCode).toBe(400);
+    expect(missingBodyResponse.statusCode).toBe(400);
+    expect(disabledStoreResponse.statusCode).toBe(503);
+    expect(disabledStoreResponse.json()).toMatchObject({
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(JSON.stringify(createResponse.json())).not.toContain('raw prompt body');
+    expect(JSON.stringify(createResponse.json())).not.toContain('raw command body');
+    expect(JSON.stringify(createResponse.json())).not.toContain('raw stdout body');
+    expect(JSON.stringify(createResponse.json())).not.toContain('raw stderr body');
+    expect(JSON.stringify(createResponse.json())).not.toContain('"argv"');
+    expect(JSON.stringify(createResponse.json())).not.toContain('"executablePath":');
+    expect(createResponse.body).not.toContain(process.cwd());
+  });
 });

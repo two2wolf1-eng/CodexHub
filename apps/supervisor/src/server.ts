@@ -40,6 +40,16 @@ import {
   createRealReadOnlyAdapterReadinessReviewAuditEvents,
   createRealReadOnlyAdapterReadinessReviewDecisionRecord,
   createRealReadOnlyAdapterReadinessReviewEvidenceRefs,
+  createDefaultRealReadOnlyAdapterConfig,
+  createRealReadOnlyAdapterRequest,
+  createDisabledRealReadOnlyAdapterPreflight,
+  createRealReadOnlyAdapterBlockedResult,
+  createRealReadOnlyAdapterAttemptAuditEvents,
+  createRealReadOnlyAdapterAttemptEvidenceRefs,
+  createRealReadOnlyAdapterAttemptRecord,
+  createRealReadOnlyAdapterAuditSummaryFromEvents,
+  createRealReadOnlyAdapterEvidenceSummaryFromRefs,
+  summarizeRealReadOnlyAdapterAttempt,
   getLatestReadOnlyAdapterSkeletonReview,
   getLatestReadOnlyAdapterFinalReadiness,
   listReadOnlyAdapterSkeletonReviewSummaries,
@@ -136,6 +146,9 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecRealReadOnlyAdapterReadinessReviewStatus,
   CodexExecRealReadOnlyAdapterReadinessStatus,
+  CodexExecRealReadOnlyAdapterAttemptQuery,
+  CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -2278,6 +2291,211 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
+  server.post('/api/codex/exec/real-read-only-adapter/attempt', async (request, reply) => {
+    const body = request.body as
+      | {
+          dryRunId?: string;
+          approvalArtifactId?: string;
+          policyDecisionId?: string;
+          isolatedWorktreeProvided?: boolean;
+        }
+      | undefined;
+
+    if (!body?.dryRunId) {
+      return reply.code(400).send({
+        error: 'dryRunId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse(body.dryRunId));
+    }
+
+    const config = createDefaultRealReadOnlyAdapterConfig({
+      requestedBy: 'supervisor-api',
+      source: 'apps.supervisor.real-read-only-adapter.attempt',
+    });
+    const attemptRequest = createRealReadOnlyAdapterRequest({
+      dryRunId: body.dryRunId,
+      config,
+      approvalArtifactId: body.approvalArtifactId,
+      policyDecisionId: body.policyDecisionId,
+      metadata: {
+        requestedBy: 'supervisor-api',
+        isolatedWorktreeProvided: body.isolatedWorktreeProvided === true,
+        worktreePathStored: false,
+      },
+    });
+    const preflight = createDisabledRealReadOnlyAdapterPreflight(attemptRequest, config);
+    const initialResult = createRealReadOnlyAdapterBlockedResult({
+      request: attemptRequest,
+      preflight,
+      config,
+      metadata: {
+        requestedBy: 'supervisor-api',
+        authoritativeAttemptRecord: true,
+      },
+    });
+    const telemetryInput = {
+      request: attemptRequest,
+      preflight,
+      resultId: initialResult.id,
+      resultStatus: initialResult.status,
+      metadata: {
+        requestedBy: 'supervisor-api',
+        authoritativeAttemptRecord: true,
+      },
+    };
+    const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs(telemetryInput);
+    const auditEvents = createRealReadOnlyAdapterAttemptAuditEvents(telemetryInput, evidenceRefs);
+    const evidenceSummary = createRealReadOnlyAdapterEvidenceSummaryFromRefs(
+      telemetryInput,
+      evidenceRefs,
+    );
+    const auditSummary = createRealReadOnlyAdapterAuditSummaryFromEvents(
+      telemetryInput,
+      auditEvents,
+    );
+    const result = {
+      ...initialResult,
+      evidenceSummary,
+      auditSummary,
+    };
+    const attemptRecord = createRealReadOnlyAdapterAttemptRecord({
+      request: attemptRequest,
+      preflight,
+      result,
+      evidenceRefs,
+      auditEvents,
+      metadata: {
+        requestedBy: 'supervisor-api',
+      },
+    });
+
+    for (const ref of evidenceRefs) {
+      await store.evidenceRefs.create(ref);
+    }
+
+    for (const event of auditEvents) {
+      await store.auditEvents.append(event);
+    }
+
+    const persistedAttempt =
+      await store.codexExecRealReadOnlyAdapterAttempts.saveAttempt(attemptRecord);
+
+    return createRealReadOnlyAdapterAttemptResponse(persistedAttempt, {
+      request: attemptRequest,
+      preflight,
+      result,
+      evidenceRefs,
+      auditEvents,
+    });
+  });
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/attempt/:attemptId',
+    async (request, reply) => {
+      const params = request.params as { attemptId?: string };
+
+      if (!params.attemptId) {
+        return reply.code(400).send({
+          error: 'attemptId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse());
+      }
+
+      const attemptRecord = await store.codexExecRealReadOnlyAdapterAttempts.getAttempt(
+        params.attemptId,
+      );
+
+      if (!attemptRecord) {
+        return reply.code(404).send({
+          error: 'attempt record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterAttemptResponse(attemptRecord);
+    },
+  );
+
+  server.get('/api/codex/exec/real-read-only-adapter/attempts', async (request, reply) => {
+    const queryResult = parseRealReadOnlyAdapterAttemptQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({
+        error: queryResult.reason,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse());
+    }
+
+    const attempts = await store.codexExecRealReadOnlyAdapterAttempts.listAttempts(
+      queryResult.query,
+    );
+
+    return createRealReadOnlyAdapterAttemptListResponse(attempts);
+  });
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/attempt/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse(params.dryRunId));
+      }
+
+      const attemptRecord = await store.codexExecRealReadOnlyAdapterAttempts.latestAttempt(
+        params.dryRunId,
+      );
+
+      if (!attemptRecord) {
+        return reply.code(404).send({
+          error: 'attempt record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterAttemptResponse(attemptRecord);
+    },
+  );
+
   server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
     const params = request.params as { dryRunId?: string };
     const filterResult = parseTimelineFilter(request.query);
@@ -3853,6 +4071,67 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createRealReadOnlyAdapterAttemptResponse(
+    attemptRecord: CodexExecRealReadOnlyAdapterAttemptRecord,
+    details: {
+      request?: ReturnType<typeof createRealReadOnlyAdapterRequest>;
+      preflight?: ReturnType<typeof createDisabledRealReadOnlyAdapterPreflight>;
+      result?: ReturnType<typeof createRealReadOnlyAdapterBlockedResult>;
+      evidenceRefs?: ReturnType<typeof createRealReadOnlyAdapterAttemptEvidenceRefs>;
+      auditEvents?: ReturnType<typeof createRealReadOnlyAdapterAttemptAuditEvents>;
+    } = {},
+  ) {
+    return {
+      attempt: attemptRecord,
+      attemptRecord,
+      summary: summarizeRealReadOnlyAdapterAttempt(attemptRecord),
+      request: details.request,
+      preflight: details.preflight,
+      result: details.result,
+      evidenceRefs: details.evidenceRefs ?? [],
+      auditEvents: details.auditEvents ?? [],
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterAttemptListResponse(
+    attempts: CodexExecRealReadOnlyAdapterAttemptRecord[],
+  ) {
+    return {
+      attempts,
+      attemptRecords: attempts,
+      summaries: attempts.map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt)),
+      count: attempts.length,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterAttemptUnavailableResponse(dryRunId?: string) {
+    return {
+      error: 'real read-only adapter attempt store is unavailable',
+      dryRunId,
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason ?? 'store unavailable',
+    };
+  }
+
   function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
@@ -3979,6 +4258,19 @@ const realReadOnlyAdapterReadinessReviewOutcomes = new Set([
   'conditional_go_to_separate_adr_draft',
 ]);
 const realReadOnlyAdapterReadinessReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
+const realReadOnlyAdapterAttemptStatuses = new Set(['blocked', 'completed', 'failed', 'aborted']);
+const realReadOnlyAdapterAttemptSafetyFlags = {
+  liveExecution: false,
+  externalProcessStarted: false,
+  executionDisabled: true,
+  processAdapterStarted: false,
+  implementationApproved: false,
+  processAdapterApproved: false,
+  recommendationGrantsExecution: false,
+  workspaceWriteAllowed: false,
+  dangerFullAccessAllowed: false,
+  dashboardTriggerAllowed: false,
+} as const;
 const codexExecSandboxModes = new Set(['read_only', 'workspace_write', 'danger_full_access']);
 
 function createReadOnlyAdapterOperatorChecklistFromBody(
@@ -4391,6 +4683,33 @@ function parseRealReadOnlyAdapterReadinessReviewQuery(
       dryRunId,
       status: status as CodexExecRealReadOnlyAdapterReadinessReviewStatus | undefined,
       outcome: outcome as CodexExecRealReadOnlyAdapterReadinessReviewOutcome | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseRealReadOnlyAdapterAttemptQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterAttemptQuery> }
+  | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterAttemptStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported attempt status' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterAttemptStatus | undefined,
       limit: limitResult.limit,
     },
   };

@@ -450,7 +450,7 @@ describe('cli development mock-run fallback', () => {
       preflight: {
         status: 'failed',
       },
-      degraded: false,
+      degraded: true,
       notPersisted: true,
       fallbackRefused: true,
       liveExecution: false,
@@ -480,6 +480,64 @@ describe('cli development mock-run fallback', () => {
     expect(JSON.stringify(result)).not.toContain('C:/safe/isolated-worktree');
     expect(JSON.stringify(result)).not.toContain('"argv":');
     expect(JSON.stringify(result)).not.toContain('"executablePath":');
+  });
+
+  it('uses degraded read-only attempt query fallbacks without creating authoritative records', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      formatRealReadOnlyAdapterAttemptListOutput,
+      formatRealReadOnlyAdapterAttemptOutput,
+      getLatestRealReadOnlyAdapterAttemptCommand,
+      getRealReadOnlyAdapterAttemptCommand,
+      listRealReadOnlyAdapterAttemptsCommand,
+    } = await import('./main');
+    const fetched = await getRealReadOnlyAdapterAttemptCommand('attempt_1');
+    const listed = await listRealReadOnlyAdapterAttemptsCommand({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'completed',
+    });
+    const latest = await getLatestRealReadOnlyAdapterAttemptCommand('codex_dry_run_fixture');
+    const listOutput = formatRealReadOnlyAdapterAttemptListOutput(listed);
+    const latestOutput = formatRealReadOnlyAdapterAttemptOutput(latest);
+
+    expect(fetched).toMatchObject({
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(fetched.attemptRecord).toBeUndefined();
+    expect(listed).toMatchObject({
+      attempts: [],
+      summaries: [],
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+    });
+    expect(latest).toMatchObject({
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(listOutput).toContain('notPersisted=true');
+    expect(listOutput).toContain('Records are metadata-only');
+    expect(listOutput).not.toContain('execution approval');
+    expect(latestOutput).toContain('notPersisted=true');
+    expect(latestOutput).not.toContain('execution approval');
   });
 
   it('creates local config and manual approval records when supervisor is unavailable', async () => {

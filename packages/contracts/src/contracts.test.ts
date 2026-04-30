@@ -64,6 +64,9 @@ import {
   CodexExecRealReadOnlyAdapterReadinessReviewSummarySchema,
   CodexExecRealReadOnlyAdapterReadinessSummarySchema,
   CodexExecRealReadOnlyAdapterAuditSummarySchema,
+  CodexExecRealReadOnlyAdapterAttemptQuerySchema,
+  CodexExecRealReadOnlyAdapterAttemptRecordSchema,
+  CodexExecRealReadOnlyAdapterAttemptSummarySchema,
   CodexExecRealReadOnlyAdapterBoundaryPlanSchema,
   CodexExecRealReadOnlyAdapterConfigSchema,
   CodexExecRealReadOnlyAdapterErrorSchema,
@@ -2643,6 +2646,84 @@ describe('contracts schemas', () => {
     expect(result.commandBodyStored).toBe(false);
     expect(result.stdoutBodyStored).toBe(false);
     expect(result.stderrBodyStored).toBe(false);
+    const attemptRecord = CodexExecRealReadOnlyAdapterAttemptRecordSchema.parse({
+      id: 'codex_real_read_only_adapter_attempt_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      requestId: request.id,
+      preflightId: preflight.id,
+      resultId: result.id,
+      status: 'blocked',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      processBoundaryInvoked: false,
+      evidenceSummary,
+      auditSummary,
+      evidenceRefIds: ['evidence_1'],
+      auditEventIds: ['audit_1'],
+      outputHashCount: 0,
+      metadataHash: 'sha256:attempt',
+      summary: 'Authoritative blocked attempt record stores metadata only.',
+      ...flagFields,
+    });
+    const attemptSummary = CodexExecRealReadOnlyAdapterAttemptSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_attempt_summary_1',
+      schemaVersion,
+      createdAt,
+      attemptId: attemptRecord.id,
+      dryRunId: request.dryRunId,
+      status: attemptRecord.status,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      processBoundaryInvoked: false,
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      outputHashCount: 0,
+      metadataHash: attemptRecord.metadataHash,
+      summary: 'Attempt summary is metadata only.',
+      ...flagFields,
+    });
+    const attemptQuery = CodexExecRealReadOnlyAdapterAttemptQuerySchema.parse({
+      id: 'codex_real_read_only_adapter_attempt_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      status: 'blocked',
+      limit: 10,
+      ...flagFields,
+    });
+
+    expect(attemptRecord.status).toBe('blocked');
+    expect(attemptRecord.executionDisabled).toBe(true);
+    expect(attemptRecord.implementationApproved).toBe(false);
+    expect(attemptRecord.processAdapterApproved).toBe(false);
+    expect(attemptRecord.recommendationGrantsExecution).toBe(false);
+    expect(attemptRecord.workspaceWriteAllowed).toBe(false);
+    expect(attemptRecord.dangerFullAccessAllowed).toBe(false);
+    expect(attemptRecord.dashboardTriggerAllowed).toBe(false);
+    expect(attemptRecord.promptBodyStored).toBe(false);
+    expect(attemptRecord.commandBodyStored).toBe(false);
+    expect(attemptRecord.stdoutBodyStored).toBe(false);
+    expect(attemptRecord.stderrBodyStored).toBe(false);
+    expect(attemptRecord.degraded).toBe(false);
+    expect(attemptRecord.notPersisted).toBe(false);
+    expect(attemptSummary.attemptId).toBe(attemptRecord.id);
+    expect(attemptQuery.status).toBe('blocked');
+    expect(JSON.stringify(attemptRecord)).not.toContain('raw prompt body');
+    expect(JSON.stringify(attemptRecord)).not.toContain('raw command body');
+    expect(JSON.stringify(attemptRecord)).not.toContain('raw stdout body');
+    expect(JSON.stringify(attemptRecord)).not.toContain('raw stderr body');
+    expect(JSON.stringify(attemptRecord)).not.toContain('argv');
+    expect(JSON.stringify(attemptRecord)).not.toContain('executablePath');
+    expect(JSON.stringify(attemptRecord)).not.toContain('shellSnippet');
+    expect(JSON.stringify(attemptRecord)).not.toContain('envPlan');
     expect('command' in boundaryPlan).toBe(false);
     expect('argv' in boundaryPlan).toBe(false);
     expect('executablePath' in boundaryPlan).toBe(false);
