@@ -46,6 +46,7 @@ import {
   createDefaultRealReadOnlyAdapterConfig,
   createDisabledRealReadOnlyAdapter,
   createDisabledRealReadOnlyAdapterResult,
+  createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
@@ -1867,6 +1868,170 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('"envPlan":');
     expect(serialized).not.toContain('stdout body');
     expect(serialized).not.toContain('prompt body');
+  });
+
+  it('fails real read-only adapter hard gates before boundary planning', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({ liveAdapterEnabled: true });
+    const approvalArtifact = createCodexExecApprovalArtifact(plan, policyDecision);
+    const enabledConfig = {
+      ...createDefaultRealReadOnlyAdapterConfig(),
+      status: 'enabled' as const,
+      configuredEnabled: true,
+      summary: 'Enabled for pure guard test only.',
+    };
+    const missingApproval = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: plan,
+      policyDecision,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+    const hashMismatch = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: plan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: 'sha256:mismatch',
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+    const dirtyWorktree = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: plan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'dirty' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+
+    expect(missingApproval.status).toBe('failed');
+    expect(missingApproval.boundaryPlan).toBeUndefined();
+    expect(missingApproval.checks.find((check) => check.code === 'approval_artifact_exists')?.status).toBe(
+      'failed',
+    );
+    expect(hashMismatch.status).toBe('failed');
+    expect(hashMismatch.checks.find((check) => check.code === 'dry_run_hash_match')?.status).toBe(
+      'failed',
+    );
+    expect(dirtyWorktree.status).toBe('failed');
+    expect(
+      dirtyWorktree.checks.find((check) => check.code === 'isolated_worktree_clean')?.status,
+    ).toBe('failed');
+    expect(JSON.stringify({ missingApproval, hashMismatch, dirtyWorktree })).not.toContain(
+      '"argv":',
+    );
+  });
+
+  it('blocks forbidden real read-only adapter modes and dashboard trigger', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({ liveAdapterEnabled: true });
+    const approvalArtifact = createCodexExecApprovalArtifact(plan, policyDecision);
+    const enabledConfig = {
+      ...createDefaultRealReadOnlyAdapterConfig(),
+      status: 'enabled' as const,
+      configuredEnabled: true,
+      summary: 'Enabled for pure guard test only.',
+    };
+    const workspaceWrite = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: { ...plan, sandboxMode: 'workspace_write' },
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      requestedSandboxMode: 'workspace_write',
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+    const dangerFullAccess = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: { ...plan, sandboxMode: 'danger_full_access' },
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      requestedSandboxMode: 'danger_full_access',
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+    const dashboardTrigger = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: plan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      triggerKind: 'dashboard',
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+
+    expect(workspaceWrite.status).toBe('blocked');
+    expect(workspaceWrite.checks.find((check) => check.code === 'sandbox_read_only')?.status).toBe(
+      'blocked',
+    );
+    expect(dangerFullAccess.status).toBe('blocked');
+    expect(
+      dangerFullAccess.checks.find((check) => check.code === 'danger_full_access_forbidden')
+        ?.status,
+    ).toBe('blocked');
+    expect(dashboardTrigger.status).toBe('blocked');
+    expect(
+      dashboardTrigger.checks.find((check) => check.code === 'dashboard_trigger_forbidden')
+        ?.status,
+    ).toBe('blocked');
+  });
+
+  it('passes real read-only adapter hard gates with deferred metadata-only boundary plan', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({ liveAdapterEnabled: true });
+    const approvalArtifact = createCodexExecApprovalArtifact(plan, policyDecision, {
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    const enabledConfig = {
+      ...createDefaultRealReadOnlyAdapterConfig(),
+      status: 'enabled' as const,
+      configuredEnabled: true,
+      summary: 'Enabled for pure guard test only.',
+    };
+    const preflight = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: plan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      now: '2026-04-30T00:00:00.000Z',
+    });
+    const serialized = JSON.stringify(preflight);
+
+    expect(preflight.status).toBe('passed');
+    expect(preflight.boundaryPlan?.processBoundaryDeferred).toBe(true);
+    expect(preflight.boundaryPlan?.noRunnableCommand).toBe(true);
+    expect(preflight.boundaryPlan?.commandPreviewStored).toBe(false);
+    expect(preflight.boundaryPlan?.argvStored).toBe(false);
+    expect(preflight.boundaryPlan?.executablePathStored).toBe(false);
+    expect(preflight.boundaryPlan?.shellSnippetStored).toBe(false);
+    expect(preflight.boundaryPlan?.envPlanStored).toBe(false);
+    expect(preflight.liveExecution).toBe(false);
+    expect(preflight.externalProcessStarted).toBe(false);
+    expect(preflight.executionDisabled).toBe(true);
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+    expect(serialized).not.toContain('"shellSnippet":');
+    expect(serialized).not.toContain('"envPlan":');
   });
 
   it('rejects conditional readiness ADR draft review for blocked packages', () => {

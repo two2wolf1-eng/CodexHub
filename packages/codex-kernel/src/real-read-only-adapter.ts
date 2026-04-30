@@ -1,5 +1,8 @@
 import type {
+  CodexExecApprovalArtifact,
+  CodexExecDryRunPlan,
   CodexExecRealReadOnlyAdapterAuditSummary,
+  CodexExecRealReadOnlyAdapterBoundaryPlan,
   CodexExecRealReadOnlyAdapterConfig,
   CodexExecRealReadOnlyAdapterError,
   CodexExecRealReadOnlyAdapterEvidenceSummary,
@@ -7,6 +10,7 @@ import type {
   CodexExecRealReadOnlyAdapterPreflightCheck,
   CodexExecRealReadOnlyAdapterRequest,
   CodexExecRealReadOnlyAdapterResult,
+  PolicyDecision,
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
@@ -25,6 +29,36 @@ export interface CodexExecRealReadOnlyAdapterAttemptInput {
 
 export interface CodexExecRealReadOnlyAdapter {
   attempt(input: CodexExecRealReadOnlyAdapterAttemptInput): Promise<CodexExecRealReadOnlyAdapterResult>;
+}
+
+export type CodexExecRealReadOnlyAdapterInjectedWorktreeStatus =
+  | 'clean'
+  | 'dirty'
+  | 'missing'
+  | 'unknown';
+
+export interface CodexExecRealReadOnlyAdapterInjectedWorktreeState {
+  isolated: boolean;
+  status: CodexExecRealReadOnlyAdapterInjectedWorktreeStatus;
+  pathHash?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterGuardInput {
+  dryRunId?: string;
+  request?: CodexExecRealReadOnlyAdapterRequest;
+  config?: CodexExecRealReadOnlyAdapterConfig;
+  dryRunPlan?: CodexExecDryRunPlan;
+  policyDecision?: PolicyDecision;
+  approvalArtifact?: CodexExecApprovalArtifact;
+  expectedDryRunPlanHash?: string;
+  expectedPolicyDecisionHash?: string;
+  requestedSandboxMode?: 'read_only' | 'workspace_write' | 'danger_full_access';
+  triggerKind?: 'cli' | 'dashboard';
+  worktree?: CodexExecRealReadOnlyAdapterInjectedWorktreeState;
+  evidenceStoreReady?: boolean;
+  auditStoreReady?: boolean;
+  now?: string;
+  metadata?: JsonMetadata;
 }
 
 const realReadOnlyAdapterNoApprovalFlags = {
@@ -197,6 +231,231 @@ export function createDisabledRealReadOnlyAdapterPreflight(
   };
 }
 
+export function createRealReadOnlyAdapterGuardPreflight(
+  input: CodexExecRealReadOnlyAdapterGuardInput,
+): CodexExecRealReadOnlyAdapterPreflight {
+  const config = input.config ?? createDefaultRealReadOnlyAdapterConfig(input.metadata);
+  const dryRunId = input.request?.dryRunId ?? input.dryRunPlan?.id ?? input.dryRunId ?? 'missing_dry_run';
+  const request =
+    input.request ??
+    createRealReadOnlyAdapterRequest({
+      dryRunId,
+      config,
+      approvalArtifactId: input.approvalArtifact?.id,
+      policyDecisionId: input.policyDecision?.id,
+      requestedSandboxMode: 'read_only',
+      triggerKind: 'cli',
+      metadata: input.metadata,
+    });
+  const requestedSandboxMode = input.requestedSandboxMode ?? request.requestedSandboxMode;
+  const triggerKind = input.triggerKind ?? request.triggerKind;
+  const expectedDryRunPlanHash = input.expectedDryRunPlanHash;
+  const expectedPolicyDecisionHash = input.expectedPolicyDecisionHash;
+  const approvalArtifact = input.approvalArtifact;
+  const nowMs = Date.parse(input.now ?? foundationTimestamp());
+  const checks = [
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'config_explicit_enable',
+      label: 'Explicit config enablement',
+      status: config.configuredEnabled && config.status === 'enabled' ? 'passed' : 'failed',
+      required: true,
+      summary: config.configuredEnabled
+        ? 'Explicit read-only adapter config enablement is present.'
+        : 'Explicit read-only adapter config enablement is required.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'dry_run_exists',
+      label: 'Existing dry-run',
+      status: input.dryRunPlan && dryRunId !== 'missing_dry_run' ? 'passed' : 'failed',
+      required: true,
+      summary: input.dryRunPlan
+        ? 'Existing dry-run metadata is present.'
+        : 'Existing dry-run metadata is required.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'policy_decision_exists',
+      label: 'Policy decision',
+      status: input.policyDecision && input.policyDecision.outcome !== 'deny' ? 'passed' : 'failed',
+      required: true,
+      summary: input.policyDecision
+        ? `Policy decision outcome is ${input.policyDecision.outcome}.`
+        : 'Policy decision metadata is required.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'approval_artifact_exists',
+      label: 'Approval artifact',
+      status: approvalArtifact ? 'passed' : 'failed',
+      required: true,
+      summary: approvalArtifact
+        ? 'Approval artifact metadata is present.'
+        : 'Approval artifact metadata is required.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'approval_artifact_valid',
+      label: 'Approval artifact valid',
+      status: isApprovalArtifactValid(approvalArtifact, nowMs) ? 'passed' : 'failed',
+      required: true,
+      summary: isApprovalArtifactValid(approvalArtifact, nowMs)
+        ? 'Approval artifact is approved, unexpired, unrevoked, and unused.'
+        : 'Approval artifact must be approved, unexpired, unrevoked, and unused.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'dry_run_hash_match',
+      label: 'Dry-run hash match',
+      status:
+        approvalArtifact && expectedDryRunPlanHash && approvalArtifact.dryRunPlanHash === expectedDryRunPlanHash
+          ? 'passed'
+          : 'failed',
+      required: true,
+      summary: 'Approval artifact dryRunPlanHash must match the current dry-run record.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'policy_hash_match',
+      label: 'Policy hash match',
+      status:
+        approvalArtifact &&
+        expectedPolicyDecisionHash &&
+        approvalArtifact.policyDecisionHash === expectedPolicyDecisionHash
+          ? 'passed'
+          : 'failed',
+      required: true,
+      summary: 'Approval artifact policyDecisionHash must match the current policy record.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'sandbox_read_only',
+      label: 'Read-only sandbox',
+      status:
+        requestedSandboxMode === 'read_only' && input.dryRunPlan?.sandboxMode !== 'workspace_write'
+          ? 'passed'
+          : 'blocked',
+      required: true,
+      summary: 'Only read_only sandbox mode is allowed.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'danger_full_access_forbidden',
+      label: 'danger_full_access forbidden',
+      status:
+        requestedSandboxMode === 'danger_full_access' ||
+        input.dryRunPlan?.sandboxMode === 'danger_full_access'
+          ? 'blocked'
+          : 'passed',
+      required: true,
+      summary: 'danger_full_access remains forbidden for the read-only adapter.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'dashboard_trigger_forbidden',
+      label: 'Dashboard trigger forbidden',
+      status: triggerKind === 'cli' ? 'passed' : 'blocked',
+      required: true,
+      summary: 'Read-only adapter attempts must remain CLI-only.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'isolated_worktree_clean',
+      label: 'Isolated clean worktree',
+      status: input.worktree?.isolated && input.worktree.status === 'clean' ? 'passed' : 'failed',
+      required: true,
+      summary: 'An injected isolated clean worktree state is required before boundary planning.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'evidence_store_ready',
+      label: 'Evidence store ready',
+      status: input.evidenceStoreReady === true ? 'passed' : 'failed',
+      required: true,
+      summary: 'Evidence store readiness is required before boundary planning.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
+      code: 'audit_store_ready',
+      label: 'Audit store ready',
+      status: input.auditStoreReady === true ? 'passed' : 'failed',
+      required: true,
+      summary: 'Audit store readiness is required before boundary planning.',
+    }),
+  ];
+  const blockedChecks = checks.filter((check) => check.status === 'blocked');
+  const failedChecks = checks.filter((check) => check.status === 'failed');
+  const requiresReviewChecks = checks.filter((check) => check.status === 'requires_review');
+  const status: CodexExecRealReadOnlyAdapterPreflight['status'] =
+    blockedChecks.length > 0
+      ? 'blocked'
+      : failedChecks.length > 0
+        ? 'failed'
+        : requiresReviewChecks.length > 0
+          ? 'requires_review'
+          : 'passed';
+  const boundaryPlan =
+    status === 'passed'
+      ? createRealReadOnlyAdapterDeferredBoundaryPlan({
+          request,
+          dryRunPlanHash: expectedDryRunPlanHash ?? approvalArtifact?.dryRunPlanHash ?? 'missing_hash',
+          policyDecisionHash:
+            expectedPolicyDecisionHash ?? approvalArtifact?.policyDecisionHash ?? 'missing_hash',
+          approvalArtifact,
+        })
+      : undefined;
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_preflight'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    requestId: request.id,
+    dryRunId: request.dryRunId,
+    configId: request.configId,
+    status,
+    requestedSandboxMode: request.requestedSandboxMode,
+    boundaryPlan,
+    checks,
+    hardGateCount: checks.filter((check) => check.required).length,
+    passedGateCount: checks.filter((check) => check.status === 'passed').length,
+    failedGateCount: failedChecks.length,
+    requiresReviewCount: requiresReviewChecks.length,
+    blockerCount: blockedChecks.length,
+    summary:
+      status === 'passed'
+        ? 'Read-only adapter hard gates passed; boundary plan remains deferred metadata.'
+        : 'Read-only adapter hard gates failed before boundary planning.',
+    metadata: createRealReadOnlyAdapterMetadata({
+      source: 'codex-kernel.real-read-only-adapter.guard-preflight',
+    }),
+  };
+}
+
+export function createRealReadOnlyAdapterDeferredBoundaryPlan(input: {
+  request: CodexExecRealReadOnlyAdapterRequest;
+  dryRunPlanHash: string;
+  policyDecisionHash: string;
+  approvalArtifact?: CodexExecApprovalArtifact;
+}): CodexExecRealReadOnlyAdapterBoundaryPlan {
+  return {
+    id: foundationId('codex_real_read_only_adapter_boundary_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...realReadOnlyAdapterNoRunnableBoundaryFlags,
+    requestId: input.request.id,
+    dryRunId: input.request.dryRunId,
+    processBoundaryDeferred: true,
+    adapterModuleRef: 'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+    dryRunPlanHash: input.dryRunPlanHash,
+    policyDecisionHash: input.policyDecisionHash,
+    approvalArtifactHash: input.approvalArtifact
+      ? prefixedAdapterHash({
+          id: input.approvalArtifact.id,
+          dryRunPlanHash: input.approvalArtifact.dryRunPlanHash,
+          policyDecisionHash: input.approvalArtifact.policyDecisionHash,
+          status: input.approvalArtifact.status,
+        })
+      : undefined,
+    evidencePlanSummary: 'Evidence must remain metadata/hash-only; no raw bodies may be stored.',
+    auditPlanSummary: 'Audit must include before, after, abort, and failure events.',
+    summary: 'Boundary plan is metadata-only and deferred until the approved process-boundary phase.',
+    metadata: createRealReadOnlyAdapterMetadata({
+      requestId: input.request.id,
+      source: 'codex-kernel.real-read-only-adapter.boundary-plan',
+    }),
+  };
+}
+
 export function createDisabledRealReadOnlyAdapterResult(
   input: CodexExecRealReadOnlyAdapterAttemptInput,
 ): CodexExecRealReadOnlyAdapterResult {
@@ -247,6 +506,22 @@ export function createDisabledRealReadOnlyAdapter(): CodexExecRealReadOnlyAdapte
   return {
     attempt: async (input) => createDisabledRealReadOnlyAdapterResult(input),
   };
+}
+
+function isApprovalArtifactValid(
+  artifact: CodexExecApprovalArtifact | undefined,
+  nowMs: number,
+): boolean {
+  if (!artifact) {
+    return false;
+  }
+
+  return (
+    artifact.status === 'approved' &&
+    artifact.revoked === false &&
+    artifact.usedAt === undefined &&
+    Date.parse(artifact.expiresAt) > nowMs
+  );
 }
 
 function createRealReadOnlyAdapterPreflightCheck(input: {
