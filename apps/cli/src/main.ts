@@ -91,6 +91,7 @@ import {
   summarizeCodexExecReplay,
   simulateReadOnlyAdapterPreflight,
 } from '@codexhub/codex-kernel';
+import { SchemaVersionSchema } from '@codexhub/contracts';
 import type {
   CodexExecApprovalDecisionOutcome,
   CodexExecAuditQuery,
@@ -127,6 +128,7 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessStatus,
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
+  CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -304,6 +306,12 @@ export interface CodexExecRealReadOnlyAdapterAttemptCliOptions extends CodexExec
 export interface CodexExecRealReadOnlyAdapterAttemptListCliOptions extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions
+  extends CodexExecRealReadOnlyAdapterAttemptListCliOptions {
+  includeEvidence?: boolean;
+  includeAudit?: boolean;
 }
 
 export function buildProgram(): Command {
@@ -1021,6 +1029,24 @@ export function buildProgram(): Command {
       const result = await getLatestRealReadOnlyAdapterAttemptCommand(dryRunId);
       console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
     });
+
+  attemptsCommand
+    .command('timeline')
+    .argument('<dryRunId>')
+    .option('--status <status>', 'Filter by attempt status')
+    .option('--include-evidence', 'Include evidence reference ids')
+    .option('--include-audit', 'Include audit event ids')
+    .option('--json', 'Print full JSON output')
+    .description('Read metadata-only attempt timeline for a dry-run id')
+    .action(
+      async (
+        dryRunId: string,
+        options: CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions,
+      ) => {
+        const result = await getRealReadOnlyAdapterAttemptTimelineCommand(dryRunId, options);
+        console.log(formatRealReadOnlyAdapterAttemptTimelineOutput(result, options));
+      },
+    );
 
   const readinessCommand = realReadOnlyAdapterCommand
     .command('readiness')
@@ -3053,6 +3079,36 @@ export async function getLatestRealReadOnlyAdapterAttemptCommand(
   }
 }
 
+export async function getRealReadOnlyAdapterAttemptTimelineCommand(
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterAttemptQueryString({
+    ...options,
+    dryRun: undefined,
+  });
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt-timeline/${encodeURIComponent(
+        dryRunId,
+      )}${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterAttemptTimelineReadFallback(
+      `supervisor unavailable; attempt timeline for ${dryRunId} is display-only and not authoritative`,
+      dryRunId,
+      options,
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -4471,7 +4527,9 @@ function createRealReadOnlyAdapterReadinessReviewQueryString(
 }
 
 function createRealReadOnlyAdapterAttemptQueryString(
-  options: CodexExecRealReadOnlyAdapterAttemptListCliOptions,
+  options:
+    | CodexExecRealReadOnlyAdapterAttemptListCliOptions
+    | CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions,
 ): string {
   const params = new URLSearchParams();
 
@@ -4481,6 +4539,14 @@ function createRealReadOnlyAdapterAttemptQueryString(
 
   if (options.status) {
     params.set('status', normalizeRealReadOnlyAdapterAttemptStatus(options.status));
+  }
+
+  if ('includeEvidence' in options && options.includeEvidence === true) {
+    params.set('includeEvidence', 'true');
+  }
+
+  if ('includeAudit' in options && options.includeAudit === true) {
+    params.set('includeAudit', 'true');
   }
 
   const queryString = params.toString();
@@ -5150,6 +5216,77 @@ function createRealReadOnlyAdapterAttemptReadFallback(
   };
 }
 
+function createRealReadOnlyAdapterAttemptTimelineReadFallback(
+  reason: string,
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions = {},
+): Record<string, unknown> {
+  const timeline: CodexExecRealReadOnlyAdapterAttemptTimelineSummary = {
+    id: 'codex_real_read_only_adapter_attempt_timeline_degraded',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: new Date().toISOString(),
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    processAdapterApproved: false,
+    implementationApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    promptBodyStored: false,
+    commandBodyStored: false,
+    stdoutBodyStored: false,
+    stderrBodyStored: false,
+    agentMessageBodyStored: false,
+    reasoningBodyStored: false,
+    dryRunId,
+    status: 'empty',
+    entries: [],
+    eventCount: 0,
+    evidenceRefCount: 0,
+    auditEventCount: 0,
+    outputHashCount: 0,
+    processBoundaryInvokedCount: 0,
+    includeEvidence: options.includeEvidence === true,
+    includeAudit: options.includeAudit === true,
+    verificationSummary: 'No authoritative verification metadata was read.',
+    workspaceMutationSummary: 'No workspace mutation metadata was read.',
+    recommendation:
+      'Timeline fallback is metadata-only and does not grant broader use, workspace write, or Dashboard trigger permission.',
+    summary: 'No authoritative attempt timeline is available from the Supervisor.',
+    metadata: { degraded: true, notPersisted: true },
+  };
+
+  return {
+    timeline,
+    attempts: [],
+    attemptRecords: [],
+    summaries: [],
+    count: 0,
+    dryRunId,
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    degraded: true,
+    notPersisted: true,
+    reason,
+  };
+}
+
 function createReadinessReviewUnavailableResponse(reason: string): Record<string, unknown> {
   return {
     error: 'readiness review is unavailable',
@@ -5756,6 +5893,69 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
     noLiveFlagsText(result),
     lines.length > 0 ? 'attempts:' : 'attempts: none',
     ...lines,
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterAttemptTimelineOutput(
+  result: Record<string, unknown>,
+  options: CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const timeline = result.timeline as
+    | {
+        dryRunId?: string;
+        status?: string;
+        eventCount?: number;
+        evidenceRefCount?: number;
+        auditEventCount?: number;
+        outputHashCount?: number;
+        processBoundaryInvokedCount?: number;
+        recommendation?: string;
+        entries?: Array<{
+          attemptId?: string;
+          status?: string;
+          occurredAt?: string;
+          evidenceRefCount?: number;
+          auditEventCount?: number;
+          processBoundaryInvoked?: boolean;
+        }>;
+      }
+    | undefined;
+  const entryLines = (timeline?.entries ?? [])
+    .slice(0, 10)
+    .map(
+      (entry) =>
+        `- ${entry.status ?? 'unknown'} ${entry.attemptId ?? 'unknown'} at ${
+          entry.occurredAt ?? 'unknown'
+        } evidence=${String(entry.evidenceRefCount ?? 0)} audit=${String(
+          entry.auditEventCount ?? 0,
+        )} processBoundaryInvoked=${String(entry.processBoundaryInvoked ?? false)}`,
+    );
+
+  return [
+    'Real read-only adapter attempt timeline',
+    `dryRunId: ${timeline?.dryRunId ?? result.dryRunId ?? 'unknown'}`,
+    `status: ${timeline?.status ?? 'empty'}`,
+    `events=${String(timeline?.eventCount ?? 0)}`,
+    `evidenceRefs=${String(timeline?.evidenceRefCount ?? 0)}`,
+    `auditEvents=${String(timeline?.auditEventCount ?? 0)}`,
+    `outputHashes=${String(timeline?.outputHashCount ?? 0)}`,
+    `processBoundaryInvokedCount=${String(timeline?.processBoundaryInvokedCount ?? 0)}`,
+    `authoritative=${String(result.authoritative ?? false)}`,
+    `supervisorBacked=${String(result.supervisorBacked ?? false)}`,
+    `degraded=${String(result.degraded ?? true)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    `implementationApproved=${String(result.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(result.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(result.recommendationGrantsExecution ?? false)}`,
+    timeline?.recommendation ??
+      'Attempt timeline is metadata-only and does not grant broader use or workspace mutation permission.',
+    noLiveFlagsText(result),
+    entryLines.length > 0 ? 'timeline:' : 'timeline: none',
+    ...entryLines,
   ].join('\n');
 }
 

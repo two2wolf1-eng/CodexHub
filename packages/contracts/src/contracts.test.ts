@@ -67,6 +67,9 @@ import {
   CodexExecRealReadOnlyAdapterAttemptQuerySchema,
   CodexExecRealReadOnlyAdapterAttemptRecordSchema,
   CodexExecRealReadOnlyAdapterAttemptSummarySchema,
+  CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema,
+  CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema,
+  CodexExecRealReadOnlyAdapterAttemptTimelineSummarySchema,
   CodexExecRealReadOnlyAdapterBoundaryPlanSchema,
   CodexExecRealReadOnlyAdapterConfigSchema,
   CodexExecRealReadOnlyAdapterErrorSchema,
@@ -2699,6 +2702,55 @@ describe('contracts schemas', () => {
       limit: 10,
       ...flagFields,
     });
+    const attemptTimelineEntry = CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema.parse({
+      id: 'codex_real_read_only_adapter_attempt_timeline_entry_1',
+      schemaVersion,
+      createdAt,
+      attemptId: attemptRecord.id,
+      dryRunId: request.dryRunId,
+      status: attemptRecord.status,
+      occurredAt: createdAt,
+      processBoundaryInvoked: false,
+      evidenceRefIds: ['evidence_1'],
+      auditEventIds: ['audit_1'],
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      outputHashCount: 0,
+      metadataHash: attemptRecord.metadataHash,
+      summary: 'Timeline entry is read-only metadata only.',
+      ...flagFields,
+    });
+    const attemptTimelineSummary = CodexExecRealReadOnlyAdapterAttemptTimelineSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_attempt_timeline_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      status: 'blocked',
+      entries: [attemptTimelineEntry],
+      eventCount: 1,
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      outputHashCount: 0,
+      processBoundaryInvokedCount: 0,
+      includeEvidence: true,
+      includeAudit: true,
+      verificationSummary: 'Post-run verification is represented as metadata only.',
+      workspaceMutationSummary: 'Workspace mutation remains forbidden.',
+      recommendation: 'Timeline evidence is informational only.',
+      summary: 'Attempt timeline stores counts, refs, hashes, and status only.',
+      ...flagFields,
+    });
+    const attemptTimelineQuery = CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema.parse({
+      id: 'codex_real_read_only_adapter_attempt_timeline_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      status: 'blocked',
+      includeEvidence: true,
+      includeAudit: true,
+      limit: 10,
+      ...flagFields,
+    });
 
     expect(attemptRecord.status).toBe('blocked');
     expect(attemptRecord.executionDisabled).toBe(true);
@@ -2716,6 +2768,15 @@ describe('contracts schemas', () => {
     expect(attemptRecord.notPersisted).toBe(false);
     expect(attemptSummary.attemptId).toBe(attemptRecord.id);
     expect(attemptQuery.status).toBe('blocked');
+    expect(attemptTimelineEntry.attemptId).toBe(attemptRecord.id);
+    expect(attemptTimelineSummary.eventCount).toBe(1);
+    expect(attemptTimelineSummary.implementationApproved).toBe(false);
+    expect(attemptTimelineSummary.processAdapterApproved).toBe(false);
+    expect(attemptTimelineSummary.recommendationGrantsExecution).toBe(false);
+    expect(attemptTimelineSummary.workspaceWriteAllowed).toBe(false);
+    expect(attemptTimelineSummary.dangerFullAccessAllowed).toBe(false);
+    expect(attemptTimelineSummary.dashboardTriggerAllowed).toBe(false);
+    expect(attemptTimelineQuery.includeEvidence).toBe(true);
     expect(JSON.stringify(attemptRecord)).not.toContain('raw prompt body');
     expect(JSON.stringify(attemptRecord)).not.toContain('raw command body');
     expect(JSON.stringify(attemptRecord)).not.toContain('raw stdout body');
@@ -2724,6 +2785,14 @@ describe('contracts schemas', () => {
     expect(JSON.stringify(attemptRecord)).not.toContain('executablePath');
     expect(JSON.stringify(attemptRecord)).not.toContain('shellSnippet');
     expect(JSON.stringify(attemptRecord)).not.toContain('envPlan');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('raw prompt body');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('raw command body');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('raw stdout body');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('raw stderr body');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('argv');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('executablePath');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('shellSnippet');
+    expect(JSON.stringify(attemptTimelineSummary)).not.toContain('envPlan');
     expect('command' in boundaryPlan).toBe(false);
     expect('argv' in boundaryPlan).toBe(false);
     expect('executablePath' in boundaryPlan).toBe(false);

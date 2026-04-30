@@ -47,6 +47,7 @@ import {
   createRealReadOnlyAdapterAttemptAuditEvents,
   createRealReadOnlyAdapterAttemptEvidenceRefs,
   createRealReadOnlyAdapterAttemptRecord,
+  createRealReadOnlyAdapterAttemptTimeline,
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
   summarizeRealReadOnlyAdapterAttempt,
@@ -149,6 +150,7 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptQuery,
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
+  CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -2496,6 +2498,71 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/attempt-timeline/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const queryResult = parseRealReadOnlyAdapterAttemptTimelineQuery(
+        request.query,
+        params.dryRunId,
+      );
+
+      if (!queryResult.allowed) {
+        return reply.code(400).send({
+          error: queryResult.reason,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterAttemptUnavailableResponse(params.dryRunId));
+      }
+
+      const attempts = await store.codexExecRealReadOnlyAdapterAttempts.listAttempts(
+        queryResult.query,
+      );
+      const timeline = createRealReadOnlyAdapterAttemptTimeline({
+        dryRunId: params.dryRunId,
+        records: attempts,
+        query: queryResult.query,
+        metadata: {
+          requestedBy: 'supervisor-api',
+        },
+      });
+
+      return {
+        timeline,
+        attempts,
+        attemptRecords: attempts,
+        summaries: attempts.map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt)),
+        count: attempts.length,
+        authoritative: true,
+        supervisorBacked: true,
+        persisted: true,
+        degraded: false,
+        notPersisted: false,
+        ...realReadOnlyAdapterAttemptSafetyFlags,
+        reason: persistenceState.reason,
+      };
+    },
+  );
+
   server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
     const params = request.params as { dryRunId?: string };
     const filterResult = parseTimelineFilter(request.query);
@@ -4710,6 +4777,35 @@ function parseRealReadOnlyAdapterAttemptQuery(
     query: {
       dryRunId,
       status: status as CodexExecRealReadOnlyAdapterAttemptStatus | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseRealReadOnlyAdapterAttemptTimelineQuery(
+  query: unknown,
+  dryRunId: string,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterAttemptTimelineQuery> }
+  | { allowed: false; reason: string } {
+  const status = readQueryValue(query, 'status');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterAttemptStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported attempt timeline status' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterAttemptStatus | undefined,
+      includeEvidence: parseBooleanQueryValue(readQueryValue(query, 'includeEvidence') ?? '') === true,
+      includeAudit: parseBooleanQueryValue(readQueryValue(query, 'includeAudit') ?? '') === true,
       limit: limitResult.limit,
     },
   };

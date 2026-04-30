@@ -7,6 +7,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptSummary,
+  CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
+  CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
   CodexExecRealReadOnlyAdapterBoundaryPlan,
   CodexExecRealReadOnlyAdapterConfig,
   CodexExecRealReadOnlyAdapterError,
@@ -91,6 +93,13 @@ export interface CodexExecRealReadOnlyAdapterAttemptRecordInput {
   boundaryResult?: CodexExecRealReadOnlyAdapterProcessBoundaryResult;
   evidenceRefs?: EvidenceRef[];
   auditEvents?: AuditEvent[];
+  metadata?: JsonMetadata;
+}
+
+export interface CodexExecRealReadOnlyAdapterAttemptTimelineInput {
+  dryRunId: string;
+  records: CodexExecRealReadOnlyAdapterAttemptRecord[];
+  query?: Partial<CodexExecRealReadOnlyAdapterAttemptTimelineQuery>;
   metadata?: JsonMetadata;
 }
 
@@ -894,6 +903,94 @@ export function getLatestRealReadOnlyAdapterAttempt(
   dryRunId: string,
 ): CodexExecRealReadOnlyAdapterAttemptSummary | undefined {
   return listRealReadOnlyAdapterAttemptSummaries(records, { dryRunId, limit: 1 })[0];
+}
+
+export function createRealReadOnlyAdapterAttemptTimeline(
+  input: CodexExecRealReadOnlyAdapterAttemptTimelineInput,
+): CodexExecRealReadOnlyAdapterAttemptTimelineSummary {
+  const query = input.query ?? {};
+  const limit = query.limit ?? 50;
+  const includeEvidence = query.includeEvidence === true;
+  const includeAudit = query.includeAudit === true;
+  const records = input.records
+    .filter((record) => record.dryRunId === input.dryRunId)
+    .filter((record) => (query.status === undefined ? true : record.status === query.status))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit);
+  const entries = records.map((record) => ({
+    id: foundationId('codex_real_read_only_adapter_attempt_timeline_entry'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    attemptId: record.id,
+    dryRunId: record.dryRunId,
+    status: record.status,
+    occurredAt: record.createdAt,
+    processBoundaryInvoked: record.processBoundaryInvoked,
+    evidenceRefIds: includeEvidence ? record.evidenceRefIds : [],
+    auditEventIds: includeAudit ? record.auditEventIds : [],
+    evidenceRefCount: record.evidenceRefIds.length,
+    auditEventCount: record.auditEventIds.length,
+    outputHashCount: record.outputHashCount,
+    metadataHash: record.metadataHash,
+    summary: `Read-only adapter attempt ${record.status} timeline entry stores refs and counts only.`,
+    metadata: createRealReadOnlyAdapterMetadata({
+      ...(input.metadata ?? {}),
+      attemptId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      includeEvidence,
+      includeAudit,
+      source: 'codex-kernel.real-read-only-adapter.attempt-timeline-entry',
+    }),
+  }));
+  const evidenceRefCount = records.reduce((total, record) => total + record.evidenceRefIds.length, 0);
+  const auditEventCount = records.reduce((total, record) => total + record.auditEventIds.length, 0);
+  const outputHashCount = records.reduce((total, record) => total + record.outputHashCount, 0);
+  const processBoundaryInvokedCount = records.filter(
+    (record) => record.processBoundaryInvoked,
+  ).length;
+  const status = entries[0]?.status ?? 'empty';
+  const verificationSummary =
+    records.some((record) => record.status !== 'blocked')
+      ? 'Post-run verification status is represented by attempt metadata, audit refs, and evidence refs only.'
+      : 'No completed post-run verification metadata is available for the filtered attempts.';
+  const workspaceMutationSummary =
+    'Workspace mutation remains forbidden; any unexpected diff is critical and requires manual review.';
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_attempt_timeline'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    dryRunId: input.dryRunId,
+    status,
+    entries,
+    eventCount: entries.length,
+    evidenceRefCount,
+    auditEventCount,
+    outputHashCount,
+    processBoundaryInvokedCount,
+    includeEvidence,
+    includeAudit,
+    verificationSummary,
+    workspaceMutationSummary,
+    recommendation:
+      'Read-only adapter timeline is informational only and does not grant broader use, workspace write, or Dashboard trigger permission.',
+    summary:
+      entries.length === 0
+        ? 'No read-only adapter attempt records were found for the requested timeline.'
+        : 'Read-only adapter attempt timeline aggregates status, counts, hashes, and refs only.',
+    metadata: createRealReadOnlyAdapterMetadata({
+      ...(input.metadata ?? {}),
+      dryRunId: input.dryRunId,
+      status,
+      eventCount: entries.length,
+      includeEvidence,
+      includeAudit,
+      source: 'codex-kernel.real-read-only-adapter.attempt-timeline',
+    }),
+  };
 }
 
 function isApprovalArtifactValid(

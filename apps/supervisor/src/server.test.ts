@@ -1823,6 +1823,16 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/real-read-only-adapter/attempt/latest/codex_dry_run_attempt_fixture',
     });
+    const timelineResponse = await server.inject({
+      method: 'GET',
+      url:
+        '/api/codex/exec/real-read-only-adapter/attempt-timeline/codex_dry_run_attempt_fixture' +
+        '?status=blocked&includeEvidence=true&includeAudit=true&limit=10',
+    });
+    const invalidTimelineQueryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/real-read-only-adapter/attempt-timeline/codex_dry_run_attempt_fixture?status=execution_approved',
+    });
     const invalidQueryResponse = await server.inject({
       method: 'GET',
       url: '/api/codex/exec/real-read-only-adapter/attempts?status=execution_approved',
@@ -1875,6 +1885,31 @@ describe('supervisor mock development API', () => {
     expect(listResponse.json().summaries).toHaveLength(1);
     expect(latestResponse.statusCode).toBe(200);
     expect(latestResponse.json().attemptRecord.id).toBe(attemptId);
+    expect(timelineResponse.statusCode).toBe(200);
+    expect(timelineResponse.json()).toMatchObject({
+      timeline: {
+        dryRunId: 'codex_dry_run_attempt_fixture',
+        status: 'blocked',
+        eventCount: 1,
+        includeEvidence: true,
+        includeAudit: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+      },
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+    });
+    expect(timelineResponse.json().timeline.evidenceRefCount).toBeGreaterThan(0);
+    expect(timelineResponse.json().timeline.auditEventCount).toBeGreaterThan(0);
+    expect(timelineResponse.json().timeline.entries[0].attemptId).toBe(attemptId);
+    expect(invalidTimelineQueryResponse.statusCode).toBe(400);
     expect(invalidQueryResponse.statusCode).toBe(400);
     expect(missingBodyResponse.statusCode).toBe(400);
     expect(disabledStoreResponse.statusCode).toBe(503);
@@ -1895,8 +1930,12 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(createResponse.json())).not.toContain('raw command body');
     expect(JSON.stringify(createResponse.json())).not.toContain('raw stdout body');
     expect(JSON.stringify(createResponse.json())).not.toContain('raw stderr body');
+    expect(JSON.stringify(timelineResponse.json())).not.toContain('raw stdout body');
+    expect(JSON.stringify(timelineResponse.json())).not.toContain('raw stderr body');
     expect(JSON.stringify(createResponse.json())).not.toContain('"argv"');
+    expect(JSON.stringify(timelineResponse.json())).not.toContain('"argv"');
     expect(JSON.stringify(createResponse.json())).not.toContain('"executablePath":');
+    expect(JSON.stringify(timelineResponse.json())).not.toContain('"executablePath":');
     expect(createResponse.body).not.toContain(process.cwd());
   });
 });

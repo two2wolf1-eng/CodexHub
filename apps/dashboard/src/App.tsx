@@ -15,6 +15,7 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessSummary,
   CodexExecRealReadOnlyAdapterReadinessSummary,
   CodexExecRealReadOnlyAdapterReadinessReviewSummary,
+  CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -57,6 +58,7 @@ interface OverviewState {
   codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessSummary[];
   codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessSummary[];
   codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewSummary[];
+  codexExecRealReadOnlyAdapterAttemptTimelines: CodexExecRealReadOnlyAdapterAttemptTimelineSummary[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -90,6 +92,7 @@ export function App() {
     codexExecReadOnlyAdapterFinalReadiness: [],
     codexExecRealReadOnlyAdapterReadiness: [],
     codexExecRealReadOnlyAdapterReadinessReviews: [],
+    codexExecRealReadOnlyAdapterAttemptTimelines: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -326,6 +329,33 @@ export function App() {
         ).filter(
           (decision): decision is CodexExecLiveAdapterAdrDecisionSummary => decision !== undefined,
         );
+        const realAdapterTimelineDryRunIds = uniqueRealAdapterTimelineDryRunIds(
+          codexExecDryRunsResponse.runs,
+          realReadOnlyAdapterReadinessResponse.summaries,
+        );
+        const codexExecRealReadOnlyAdapterAttemptTimelines = (
+          await Promise.all(
+            realAdapterTimelineDryRunIds.slice(0, 3).map(async (dryRunId) => {
+              try {
+                const response = await getJson<{
+                  timeline: CodexExecRealReadOnlyAdapterAttemptTimelineSummary;
+                }>(
+                  `/api/codex/exec/real-read-only-adapter/attempt-timeline/${encodeURIComponent(
+                    dryRunId,
+                  )}?includeEvidence=true&includeAudit=true&limit=5`,
+                );
+                return response.timeline;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter(
+          (
+            timeline,
+          ): timeline is CodexExecRealReadOnlyAdapterAttemptTimelineSummary =>
+            timeline !== undefined,
+        );
 
         if (!cancelled) {
           setOverview({
@@ -361,6 +391,8 @@ export function App() {
             codexExecRealReadOnlyAdapterReadiness: realReadOnlyAdapterReadinessResponse.summaries,
             codexExecRealReadOnlyAdapterReadinessReviews:
               realReadOnlyAdapterReadinessReviewsResponse.summaries,
+            codexExecRealReadOnlyAdapterAttemptTimelines:
+              codexExecRealReadOnlyAdapterAttemptTimelines,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -392,6 +424,7 @@ export function App() {
             codexExecReadOnlyAdapterFinalReadiness: [],
             codexExecRealReadOnlyAdapterReadiness: [],
             codexExecRealReadOnlyAdapterReadinessReviews: [],
+            codexExecRealReadOnlyAdapterAttemptTimelines: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -1444,6 +1477,65 @@ export function App() {
           )}
         </Panel>
 
+        <Panel title="Read-only Adapter Attempt Timeline">
+          {overview.codexExecRealReadOnlyAdapterAttemptTimelines.length > 0 ? (
+            <ul>
+              {overview.codexExecRealReadOnlyAdapterAttemptTimelines.map((timeline) => (
+                <li key={timeline.id} className="stacked report-detail">
+                  <strong>{timeline.dryRunId}</strong>
+                  <span>
+                    status {timeline.status}, events {timeline.eventCount}, evidence refs{' '}
+                    {timeline.evidenceRefCount}, audit events {timeline.auditEventCount}
+                  </span>
+                  <span>
+                    output hashes {timeline.outputHashCount}, process boundary entries{' '}
+                    {timeline.processBoundaryInvokedCount}
+                  </span>
+                  <span>
+                    liveExecution {String(timeline.liveExecution)}, externalProcessStarted{' '}
+                    {String(timeline.externalProcessStarted)}, executionDisabled{' '}
+                    {String(timeline.executionDisabled)}
+                  </span>
+                  <span>
+                    implementationApproved {String(timeline.implementationApproved)},
+                    processAdapterApproved {String(timeline.processAdapterApproved)},
+                    recommendationGrantsExecution {String(timeline.recommendationGrantsExecution)}
+                  </span>
+                  <span>
+                    workspaceWriteAllowed {String(timeline.workspaceWriteAllowed)},
+                    dangerFullAccessAllowed {String(timeline.dangerFullAccessAllowed)},
+                    dashboardTriggerAllowed {String(timeline.dashboardTriggerAllowed)}
+                  </span>
+                  <p>{timeline.verificationSummary}</p>
+                  <p>{timeline.workspaceMutationSummary}</p>
+                  <p>{timeline.recommendation}</p>
+                  {timeline.entries.length > 0 ? (
+                    <ul className="timeline-list">
+                      {timeline.entries.slice(0, 5).map((entry) => (
+                        <li key={entry.id} className="timeline-event">
+                          <strong>{entry.status}</strong>
+                          <span>{entry.attemptId}</span>
+                          <span>
+                            evidence {entry.evidenceRefCount}, audit {entry.auditEventCount},
+                            process boundary {String(entry.processBoundaryInvoked)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No read-only adapter attempt entries are available for this dry-run.</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No read-only adapter attempt timeline is available. This panel is read-only and cannot
+              trigger adapter attempts.
+            </p>
+          )}
+        </Panel>
+
         <Panel title="Codex Reviewer Handoff">
           {overview.codexExecReviewerHandoffs.length > 0 ? (
             <ul>
@@ -1528,6 +1620,18 @@ function uniqueGovernanceDryRunIds(
 ): string[] {
   return Array.from(
     new Set([...runs.map((run) => run.dryRunPlanId), ...reviews.map((review) => review.dryRunId)]),
+  ).filter((dryRunId) => dryRunId.length > 0);
+}
+
+function uniqueRealAdapterTimelineDryRunIds(
+  runs: CodexExecLiveRunRecord[],
+  readiness: CodexExecRealReadOnlyAdapterReadinessSummary[],
+): string[] {
+  return Array.from(
+    new Set([
+      ...readiness.map((summary) => summary.dryRunId),
+      ...runs.map((run) => run.dryRunPlanId),
+    ]),
   ).filter((dryRunId) => dryRunId.length > 0);
 }
 

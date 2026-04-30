@@ -487,8 +487,10 @@ describe('cli development mock-run fallback', () => {
     const {
       formatRealReadOnlyAdapterAttemptListOutput,
       formatRealReadOnlyAdapterAttemptOutput,
+      formatRealReadOnlyAdapterAttemptTimelineOutput,
       getLatestRealReadOnlyAdapterAttemptCommand,
       getRealReadOnlyAdapterAttemptCommand,
+      getRealReadOnlyAdapterAttemptTimelineCommand,
       listRealReadOnlyAdapterAttemptsCommand,
     } = await import('./main');
     const fetched = await getRealReadOnlyAdapterAttemptCommand('attempt_1');
@@ -497,8 +499,13 @@ describe('cli development mock-run fallback', () => {
       status: 'completed',
     });
     const latest = await getLatestRealReadOnlyAdapterAttemptCommand('codex_dry_run_fixture');
+    const timeline = await getRealReadOnlyAdapterAttemptTimelineCommand('codex_dry_run_fixture', {
+      includeEvidence: true,
+      includeAudit: true,
+    });
     const listOutput = formatRealReadOnlyAdapterAttemptListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterAttemptOutput(latest);
+    const timelineOutput = formatRealReadOnlyAdapterAttemptTimelineOutput(timeline);
 
     expect(fetched).toMatchObject({
       authoritative: false,
@@ -533,11 +540,30 @@ describe('cli development mock-run fallback', () => {
       processAdapterApproved: false,
       recommendationGrantsExecution: false,
     });
+    expect(timeline).toMatchObject({
+      timeline: {
+        dryRunId: 'codex_dry_run_fixture',
+        status: 'empty',
+        eventCount: 0,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+    });
     expect(listOutput).toContain('notPersisted=true');
     expect(listOutput).toContain('Records are metadata-only');
     expect(listOutput).not.toContain('execution approval');
     expect(latestOutput).toContain('notPersisted=true');
     expect(latestOutput).not.toContain('execution approval');
+    expect(timelineOutput).toContain('Real read-only adapter attempt timeline');
+    expect(timelineOutput).toContain('notPersisted=true');
+    expect(timelineOutput).toContain('metadata-only');
+    expect(timelineOutput).not.toContain('execution approval');
   });
 
   it('creates local config and manual approval records when supervisor is unavailable', async () => {

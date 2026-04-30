@@ -3293,6 +3293,61 @@ export type CodexExecRealReadOnlyAdapterAttemptQuery = z.infer<
   typeof CodexExecRealReadOnlyAdapterAttemptQuerySchema
 >;
 
+export const CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    attemptId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterAttemptStatusSchema,
+    occurredAt: IsoDateTimeSchema,
+    processBoundaryInvoked: z.boolean(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    outputHashCount: z.number().int().nonnegative(),
+    metadataHash: z.string().min(1),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterAttemptTimelineEntry = z.infer<
+  typeof CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema
+>;
+
+export const CodexExecRealReadOnlyAdapterAttemptTimelineSummarySchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['empty', 'blocked', 'completed', 'failed', 'aborted']),
+    entries: z.array(CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema).default([]),
+    eventCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    outputHashCount: z.number().int().nonnegative(),
+    processBoundaryInvokedCount: z.number().int().nonnegative(),
+    includeEvidence: z.boolean().default(false),
+    includeAudit: z.boolean().default(false),
+    verificationSummary: z.string().min(1),
+    workspaceMutationSummary: z.string().min(1),
+    recommendation: z.string().min(1),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterAttemptTimelineSummary = z.infer<
+  typeof CodexExecRealReadOnlyAdapterAttemptTimelineSummarySchema
+>;
+
+export const CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterAttemptStatusSchema.optional(),
+    includeEvidence: z.boolean().default(false),
+    includeAudit: z.boolean().default(false),
+    limit: z.number().int().positive().max(100).default(50),
+  });
+export type CodexExecRealReadOnlyAdapterAttemptTimelineQuery = z.infer<
+  typeof CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

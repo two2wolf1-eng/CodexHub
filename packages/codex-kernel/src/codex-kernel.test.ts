@@ -49,6 +49,7 @@ import {
   createRealReadOnlyAdapterAttemptAuditEvents,
   createRealReadOnlyAdapterAttemptEvidenceRefs,
   createRealReadOnlyAdapterAttemptRecord,
+  createRealReadOnlyAdapterAttemptTimeline,
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterBlockedResult,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
@@ -2523,12 +2524,23 @@ describe('codex-kernel live control-plane skeleton', () => {
       [blockedRecord, completedRecord, failedRecord, abortedRecord],
       { dryRunId: dryRunPlan.id, limit: 10 },
     );
+    const timeline = createRealReadOnlyAdapterAttemptTimeline({
+      dryRunId: dryRunPlan.id,
+      records: [blockedRecord, completedRecord, failedRecord, abortedRecord],
+      query: {
+        dryRunId: dryRunPlan.id,
+        includeEvidence: true,
+        includeAudit: true,
+        limit: 10,
+      },
+    });
     const completedSummary = summarizeRealReadOnlyAdapterAttempt(completedRecord);
     const serialized = JSON.stringify({
       blockedRecord,
       completedRecord,
       failedRecord,
       abortedRecord,
+      timeline,
     });
 
     expect(blockedRecord.status).toBe('blocked');
@@ -2547,6 +2559,21 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(completedRecord.stdoutBodyStored).toBe(false);
     expect(completedSummary.evidenceRefCount).toBeGreaterThan(0);
     expect(summaries).toHaveLength(4);
+    expect(timeline.eventCount).toBe(4);
+    expect(timeline.evidenceRefCount).toBeGreaterThan(0);
+    expect(timeline.auditEventCount).toBeGreaterThan(0);
+    expect(timeline.entries.map((entry) => entry.status).sort()).toEqual([
+      'aborted',
+      'blocked',
+      'completed',
+      'failed',
+    ]);
+    expect(timeline.implementationApproved).toBe(false);
+    expect(timeline.processAdapterApproved).toBe(false);
+    expect(timeline.recommendationGrantsExecution).toBe(false);
+    expect(timeline.workspaceWriteAllowed).toBe(false);
+    expect(timeline.dangerFullAccessAllowed).toBe(false);
+    expect(timeline.dashboardTriggerAllowed).toBe(false);
     expect(serialized).not.toContain('completed record body must remain hashed');
     expect(serialized).not.toContain('failed record body must remain hashed');
     expect(serialized).not.toContain('failed record detail must remain hashed');
