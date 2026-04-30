@@ -35,7 +35,14 @@ import {
   buildRealReadOnlyAdapterReadinessPackage,
   createRealReadOnlyAdapterReadinessAuditEvents,
   createRealReadOnlyAdapterReadinessEvidenceRefs,
+  createRealReadOnlyAdapterReadinessReviewAuditEvents,
+  createRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  createRealReadOnlyAdapterReadinessReviewEvidenceRefs,
+  getLatestRealReadOnlyAdapterReadinessReview,
+  listRealReadOnlyAdapterReadinessReviewSummaries,
   summarizeRealReadOnlyAdapterReadinessPackage,
+  summarizeRealReadOnlyAdapterReadinessReview,
+  validateRealReadOnlyAdapterReadinessReviewDecision,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -1716,6 +1723,121 @@ describe('codex-kernel live control-plane skeleton', () => {
       'fixture_path_guard_symlink_escape',
     );
     expect(packageRecord.symlinkEscapeVerificationPending).toBe(true);
+  });
+
+  it('requires explicit unresolved finding acknowledgement for readiness ADR draft review', () => {
+    const governanceDecision = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      reviewerLabel: 'local-operator',
+    });
+    const skeletonPreview = createReadOnlyAdapterSkeletonPreview();
+    const skeletonReview = createReadOnlyAdapterSkeletonReviewDecisionRecord({
+      preview: skeletonPreview,
+      outcome: 'skeleton_accepted_for_fixture_boundary_only',
+      reviewerLabel: 'local-operator',
+    });
+    const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
+      dryRunId: 'codex_dry_run_readiness_review',
+      governanceDecision,
+      skeletonPreview,
+      skeletonReview,
+      documentedArtifactRefs: [
+        'docs/reviews/round-3w-disabled-skeleton-fixture-boundary-review.md',
+      ],
+      symlinkEscapeVerified: false,
+      approvalReadinessReady: true,
+      worktreeReadinessReady: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklistComplete: true,
+      postRunVerificationReady: true,
+    });
+    const invalid = validateRealReadOnlyAdapterReadinessReviewDecision({
+      packageRecord,
+      outcome: 'conditional_go_to_separate_adr_draft',
+      rationaleSummary: 'Looks acceptable for ADR drafting.',
+    });
+    const valid = validateRealReadOnlyAdapterReadinessReviewDecision({
+      packageRecord,
+      outcome: 'conditional_go_to_separate_adr_draft',
+      rationaleSummary:
+        'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+    });
+
+    expect(packageRecord.status).toBe('requires_review');
+    expect(invalid.valid).toBe(false);
+    expect(invalid.missingAcknowledgementCodes).toEqual(
+      expect.arrayContaining([
+        'symlink_escape_verification_pending',
+        'documented_only_3tw_evidence',
+      ]),
+    );
+    expect(valid.valid).toBe(true);
+
+    const reviewRecord = createRealReadOnlyAdapterReadinessReviewDecisionRecord({
+      packageRecord,
+      outcome: 'conditional_go_to_separate_adr_draft',
+      reviewerLabel: 'local-operator',
+      rationaleSummary:
+        'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+    });
+    const summary = summarizeRealReadOnlyAdapterReadinessReview(reviewRecord);
+    const evidenceRefs = createRealReadOnlyAdapterReadinessReviewEvidenceRefs(reviewRecord);
+    const auditEvents = createRealReadOnlyAdapterReadinessReviewAuditEvents(
+      reviewRecord,
+      evidenceRefs,
+    );
+    const listed = listRealReadOnlyAdapterReadinessReviewSummaries([reviewRecord], {
+      dryRunId: packageRecord.dryRunId,
+      outcome: 'conditional_go_to_separate_adr_draft',
+    });
+    const latest = getLatestRealReadOnlyAdapterReadinessReview(
+      [reviewRecord],
+      packageRecord.dryRunId,
+    );
+
+    expect(reviewRecord.separateAdrDraftAllowed).toBe(true);
+    expect(reviewRecord.acknowledgedFindingCodes).toEqual(
+      expect.arrayContaining([
+        'symlink_escape_verification_pending',
+        'documented_only_3tw_evidence',
+      ]),
+    );
+    expect(reviewRecord.unresolvedFindingCount).toBeGreaterThan(0);
+    expect(reviewRecord.implementationApproved).toBe(false);
+    expect(reviewRecord.processAdapterApproved).toBe(false);
+    expect(reviewRecord.recommendationGrantsExecution).toBe(false);
+    expect(summary.separateAdrDraftAllowed).toBe(true);
+    expect(listed).toHaveLength(1);
+    expect(latest?.id).toBe(reviewRecord.id);
+    expect(evidenceRefs[0]?.kind).toBe('codex.exec.real_read_only_adapter.readiness_review');
+    expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
+    expect(auditEvents[0]?.action).toBe(
+      'codex.exec.real_read_only_adapter.readiness_review.recorded',
+    );
+    expect(JSON.stringify(reviewRecord)).not.toContain('full report markdown');
+    expect(JSON.stringify(reviewRecord)).not.toContain('prompt body');
+    expect(JSON.stringify(reviewRecord)).not.toContain('stdout');
+  });
+
+  it('rejects conditional readiness ADR draft review for blocked packages', () => {
+    const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
+      dryRunId: 'codex_dry_run_blocked_review',
+      skeletonPreview: createReadOnlyAdapterSkeletonPreview(),
+      symlinkEscapeVerified: false,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+    const validation = validateRealReadOnlyAdapterReadinessReviewDecision({
+      packageRecord,
+      outcome: 'conditional_go_to_separate_adr_draft',
+      rationaleSummary:
+        'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+    });
+
+    expect(packageRecord.status).toBe('blocked');
+    expect(validation.valid).toBe(false);
+    expect(validation.reason).toContain('not allowed');
   });
 
   it('marks readiness ready only when hard gates pass and symlink verification is complete', async () => {

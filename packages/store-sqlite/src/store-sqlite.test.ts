@@ -11,6 +11,7 @@ import {
   type CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord,
   type CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
   type CodexExecRealReadOnlyAdapterReadinessPackage,
+  type CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
@@ -183,6 +184,11 @@ describe('store-sqlite migration initialization', () => {
     await first.codexExecRealReadOnlyAdapterReadiness.saveReadinessPackage(
       realReadOnlyAdapterReadiness,
     );
+    const realReadOnlyAdapterReadinessReview: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord =
+      createRealReadOnlyAdapterReadinessReviewFixture();
+    await first.codexExecRealReadOnlyAdapterReadinessReviews.saveReadinessReview(
+      realReadOnlyAdapterReadinessReview,
+    );
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -277,6 +283,20 @@ describe('store-sqlite migration initialization', () => {
       );
     const latestRealReadOnlyAdapterReadinessRecord =
       await second.codexExecRealReadOnlyAdapterReadiness.latestReadinessPackage('codex_dry_run_1');
+    const realReadOnlyAdapterReadinessReviewRecords =
+      await second.codexExecRealReadOnlyAdapterReadinessReviews.listReadinessReviews({
+        dryRunId: 'codex_dry_run_1',
+        outcome: 'conditional_go_to_separate_adr_draft',
+        limit: 10,
+      });
+    const realReadOnlyAdapterReadinessReviewRecord =
+      await second.codexExecRealReadOnlyAdapterReadinessReviews.getReadinessReview(
+        'codex_real_read_only_adapter_readiness_review_1',
+      );
+    const latestRealReadOnlyAdapterReadinessReviewRecord =
+      await second.codexExecRealReadOnlyAdapterReadinessReviews.latestReadinessReview(
+        'codex_dry_run_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -355,6 +375,20 @@ describe('store-sqlite migration initialization', () => {
       'full report markdown',
     );
     expect(JSON.stringify(realReadOnlyAdapterReadinessRecord)).not.toContain('full command body');
+    expect(realReadOnlyAdapterReadinessReviewRecords).toHaveLength(1);
+    expect(realReadOnlyAdapterReadinessReviewRecord?.separateAdrDraftAllowed).toBe(true);
+    expect(realReadOnlyAdapterReadinessReviewRecord?.implementationApproved).toBe(false);
+    expect(realReadOnlyAdapterReadinessReviewRecord?.processAdapterApproved).toBe(false);
+    expect(realReadOnlyAdapterReadinessReviewRecord?.recommendationGrantsExecution).toBe(false);
+    expect(latestRealReadOnlyAdapterReadinessReviewRecord?.id).toBe(
+      'codex_real_read_only_adapter_readiness_review_1',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterReadinessReviewRecord)).not.toContain(
+      'full report markdown',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterReadinessReviewRecord)).not.toContain(
+      'full command body',
+    );
   });
 });
 
@@ -970,6 +1004,79 @@ function createRealReadOnlyAdapterReadinessFixture(): CodexExecRealReadOnlyAdapt
     evidenceRefs: [],
     auditEventIds: ['audit_real_readiness_1'],
     summary: 'Readiness requires review before any separate ADR.',
+    ...flags,
+  };
+}
+
+function createRealReadOnlyAdapterReadinessReviewFixture(): CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord {
+  const createdAt = '2026-04-28T00:00:12.000Z';
+  const flags = {
+    metadataOnly: true as const,
+    bodyStored: false as const,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+    processAdapterStarted: false as const,
+    implementationApproved: false as const,
+    processAdapterApproved: false as const,
+    dashboardTriggerAllowed: false as const,
+    recommendationGrantsExecution: false as const,
+    workspaceWriteAllowed: false as const,
+    dangerFullAccessAllowed: false as const,
+  };
+
+  return {
+    id: 'codex_real_read_only_adapter_readiness_review_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    packageId: 'codex_real_read_only_adapter_readiness_package_1',
+    dryRunId: 'codex_dry_run_1',
+    packageStatus: 'requires_review',
+    outcome: 'conditional_go_to_separate_adr_draft',
+    status: 'recorded',
+    reviewerLabel: 'local-operator',
+    rationaleSummary:
+      'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+    reviewedAt: createdAt,
+    separateAdrDraftAllowed: true,
+    acknowledgedFindingCodes: [
+      'symlink_escape_verification_pending',
+      'documented_only_3tw_evidence',
+    ],
+    acknowledgedFindingIds: ['codex_real_read_only_adapter_readiness_finding_1'],
+    unresolvedFindingCount: 2,
+    checklistItems: [
+      {
+        id: 'codex_real_read_only_adapter_readiness_review_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'unresolved_findings_acknowledged',
+        label: 'Unresolved findings acknowledged',
+        status: 'passed',
+        required: true,
+        summary: 'Required finding codes were acknowledged.',
+        ...flags,
+      },
+    ],
+    findings: [
+      {
+        id: 'codex_real_read_only_adapter_readiness_review_finding_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'documented_only_3tw_evidence',
+        severity: 'medium',
+        status: 'requires_review',
+        relatedReadinessFindingId: 'codex_real_read_only_adapter_readiness_finding_1',
+        relatedReadinessFindingCode: 'documented_only_3tw_evidence',
+        summary: 'Round 3T-W evidence is documented-only.',
+        recommendation: 'Documented-only evidence must be explicitly acknowledged.',
+        ...flags,
+      },
+    ],
+    evidenceRefs: [],
+    auditEventIds: ['audit_real_readiness_review_1'],
+    summary:
+      'ADR drafting only. Does not grant implementation, process launch, or execution permission.',
     ...flags,
   };
 }

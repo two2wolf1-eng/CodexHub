@@ -1580,6 +1580,60 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: `/api/codex/exec/real-read-only-adapter/readiness-package/latest/${dryRunId}`,
     });
+    const missingReviewPackageResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-review',
+      payload: {
+        packageId: 'missing_readiness_package',
+        outcome: 'conditional_go_to_separate_adr_draft',
+        reviewerLabel: 'local-operator',
+        rationaleSummary:
+          'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+      },
+    });
+    const invalidReviewResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-review',
+      payload: {
+        packageId,
+        outcome: 'conditional_go_to_separate_adr_draft',
+        reviewerLabel: 'local-operator',
+        rationaleSummary: 'Looks acceptable for ADR drafting.',
+      },
+    });
+    const validReviewResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-review',
+      payload: {
+        packageId,
+        outcome: 'conditional_go_to_separate_adr_draft',
+        reviewerLabel: 'local-operator',
+        rationaleSummary:
+          'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+      },
+    });
+    const reviewId = validReviewResponse.json().reviewRecord.id as string;
+    const getReviewResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/readiness-review/${reviewId}`,
+    });
+    const listReviewsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/readiness-reviews?packageId=${packageId}&outcome=conditional_go_to_separate_adr_draft&limit=10`,
+    });
+    const latestReviewResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/readiness-review/latest/${dryRunId}`,
+    });
+    const invalidReviewQueryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-reviews?outcome=execution_approved',
+    });
+    const missingReviewBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-review',
+      payload: {},
+    });
     const missingDryRunResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
@@ -1595,6 +1649,16 @@ describe('supervisor mock development API', () => {
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
       payload: { dryRunId },
+    });
+    const disabledStoreReviewResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-review',
+      payload: {
+        packageId,
+        outcome: 'no_go_to_separate_adr_draft',
+        reviewerLabel: 'local-operator',
+        rationaleSummary: 'No persisted readiness package is available here.',
+      },
     });
 
     await disabledStoreServer.close();
@@ -1656,6 +1720,47 @@ describe('supervisor mock development API', () => {
     expect(listResponse.json().summaries).toHaveLength(1);
     expect(latestResponse.statusCode).toBe(200);
     expect(latestResponse.json().package.id).toBe(packageId);
+    expect(missingReviewPackageResponse.statusCode).toBe(404);
+    expect(missingReviewPackageResponse.body).not.toContain(process.cwd());
+    expect(invalidReviewResponse.statusCode).toBe(400);
+    expect(invalidReviewResponse.json().missingAcknowledgementCodes).toEqual(
+      expect.arrayContaining([
+        'symlink_escape_verification_pending',
+        'documented_only_3tw_evidence',
+      ]),
+    );
+    expect(validReviewResponse.statusCode).toBe(200);
+    expect(validReviewResponse.json()).toMatchObject({
+      reviewRecord: {
+        packageId,
+        dryRunId,
+        outcome: 'conditional_go_to_separate_adr_draft',
+        separateAdrDraftAllowed: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        acknowledgedFindingCodes: expect.arrayContaining([
+          'symlink_escape_verification_pending',
+          'documented_only_3tw_evidence',
+        ]),
+        unresolvedFindingCount: expect.any(Number),
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      notPersisted: false,
+    });
+    expect(validReviewResponse.json().recommendation).toContain(
+      'Does not grant implementation, process launch, or execution permission.',
+    );
+    expect(getReviewResponse.statusCode).toBe(200);
+    expect(getReviewResponse.json().reviewRecord.id).toBe(reviewId);
+    expect(listReviewsResponse.statusCode).toBe(200);
+    expect(listReviewsResponse.json().summaries).toHaveLength(1);
+    expect(latestReviewResponse.statusCode).toBe(200);
+    expect(latestReviewResponse.json().reviewRecord.id).toBe(reviewId);
+    expect(invalidReviewQueryResponse.statusCode).toBe(400);
+    expect(missingReviewBodyResponse.statusCode).toBe(400);
     expect(missingDryRunResponse.statusCode).toBe(404);
     expect(missingDryRunResponse.body).not.toContain(process.cwd());
     expect(missingIdResponse.statusCode).toBe(400);
@@ -1670,7 +1775,21 @@ describe('supervisor mock development API', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
+    expect(disabledStoreReviewResponse.statusCode).toBe(503);
+    expect(disabledStoreReviewResponse.json()).toMatchObject({
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
     expect(JSON.stringify(createResponse.json())).not.toContain(
+      'Summarize repository structure only',
+    );
+    expect(JSON.stringify(validReviewResponse.json())).not.toContain(
       'Summarize repository structure only',
     );
     expect(JSON.stringify(createResponse.json())).not.toContain('full report markdown');

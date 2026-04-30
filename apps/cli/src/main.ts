@@ -35,6 +35,7 @@ import {
   createReadOnlyAdapterFinalReadinessAuditEvents,
   buildRealReadOnlyAdapterReadinessPackage,
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
+  REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterReadinessPackage,
   runReadOnlyAdapterFixtureBoundary,
   summarizeReadOnlyAdapterFixtureBoundary,
@@ -116,6 +117,9 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessQuery,
   CodexExecReadOnlyAdapterFinalReadinessStatus,
   CodexExecRealReadOnlyAdapterReadinessPackage,
+  CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
+  CodexExecRealReadOnlyAdapterReadinessReviewStatus,
   CodexExecRealReadOnlyAdapterReadinessStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
@@ -270,6 +274,20 @@ export interface CodexExecReadOnlyAdapterFinalReadinessListCliOptions extends Co
 export interface CodexExecRealReadOnlyAdapterReadinessListCliOptions extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterReadinessReviewCreateCliOptions extends CodexExecJsonCliOptions {
+  outcome?: string;
+  reviewer?: string;
+  rationaleSummary?: string;
+  status?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions extends CodexExecJsonCliOptions {
+  packageId?: string;
+  dryRun?: string;
+  status?: string;
+  outcome?: string;
 }
 
 export function buildProgram(): Command {
@@ -982,6 +1000,65 @@ export function buildProgram(): Command {
     .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
       const result = await getLatestRealReadOnlyAdapterReadinessCommand(dryRunId);
       console.log(formatRealReadOnlyAdapterReadinessOutput(result, options));
+    });
+
+  const readinessReviewCommand = realReadOnlyAdapterCommand
+    .command('readiness-review')
+    .description('Record and read readiness package reviews without execution approval');
+
+  readinessReviewCommand
+    .command('create')
+    .argument('<packageId>')
+    .requiredOption(
+      '--outcome <outcome>',
+      'no_go_to_separate_adr_draft or conditional_go_to_separate_adr_draft',
+    )
+    .option('--reviewer <label>', 'Reviewer label', 'local-operator')
+    .option('--rationale-summary <summary>', 'Review rationale summary', 'Readiness reviewed.')
+    .option('--status <status>', 'draft, recorded, or superseded', 'recorded')
+    .option('--json', 'Print full JSON output')
+    .description('Create a readiness package review record from a persisted package')
+    .action(
+      async (
+        packageId: string,
+        options: CodexExecRealReadOnlyAdapterReadinessReviewCreateCliOptions,
+      ) => {
+        const result = await createRealReadOnlyAdapterReadinessReviewCommand(packageId, options);
+        console.log(formatRealReadOnlyAdapterReadinessReviewOutput(result, options));
+      },
+    );
+
+  readinessReviewCommand
+    .command('get')
+    .argument('<reviewId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one readiness package review')
+    .action(async (reviewId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getRealReadOnlyAdapterReadinessReviewCommand(reviewId);
+      console.log(formatRealReadOnlyAdapterReadinessReviewOutput(result, options));
+    });
+
+  readinessReviewCommand
+    .command('list')
+    .option('--package <packageId>', 'Filter by readiness package id')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by review status')
+    .option('--outcome <outcome>', 'Filter by review outcome')
+    .option('--json', 'Print full JSON output')
+    .description('List readiness package review summaries')
+    .action(async (options: CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions) => {
+      const result = await listRealReadOnlyAdapterReadinessReviewCommand(options);
+      console.log(formatRealReadOnlyAdapterReadinessReviewListOutput(result, options));
+    });
+
+  readinessReviewCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest readiness package review for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestRealReadOnlyAdapterReadinessReviewCommand(dryRunId);
+      console.log(formatRealReadOnlyAdapterReadinessReviewOutput(result, options));
     });
 
   return program;
@@ -2673,6 +2750,130 @@ export async function getLatestRealReadOnlyAdapterReadinessCommand(
   }
 }
 
+export async function createRealReadOnlyAdapterReadinessReviewCommand(
+  packageId: string,
+  options: CodexExecRealReadOnlyAdapterReadinessReviewCreateCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const outcome = normalizeRealReadOnlyAdapterReadinessReviewOutcome(options.outcome);
+  const status = normalizeRealReadOnlyAdapterReadinessReviewStatus(options.status);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/readiness-review`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          packageId,
+          outcome,
+          reviewerLabel: options.reviewer ?? 'local-operator',
+          rationaleSummary: options.rationaleSummary ?? 'Readiness reviewed.',
+          status,
+        }),
+      },
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      return {
+        ...createReadinessReviewUnavailableResponse(
+          `supervisor returned ${response.status}; readiness review was not created`,
+        ),
+        ...payload,
+        notPersisted: true,
+      };
+    }
+
+    return payload;
+  } catch {
+    return createReadinessReviewUnavailableResponse(
+      'supervisor unavailable; readiness review create fallback is display-only and was not persisted',
+    );
+  }
+}
+
+export async function getRealReadOnlyAdapterReadinessReviewCommand(
+  reviewId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/readiness-review/${encodeURIComponent(
+        reviewId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createReadinessReviewUnavailableResponse(
+      'supervisor unavailable; readiness review read fallback is display-only',
+    );
+  }
+}
+
+export async function listRealReadOnlyAdapterReadinessReviewCommand(
+  options: CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterReadinessReviewQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/readiness-reviews${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return {
+      reviews: [],
+      summaries: [],
+      recommendation: REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      degraded: true,
+      notPersisted: true,
+      reason: 'supervisor unavailable; no local reviewable package was generated',
+    };
+  }
+}
+
+export async function getLatestRealReadOnlyAdapterReadinessReviewCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/readiness-review/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createReadinessReviewUnavailableResponse(
+      'supervisor unavailable; latest readiness review fallback is display-only',
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -4065,6 +4266,31 @@ function createRealReadOnlyAdapterReadinessQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createRealReadOnlyAdapterReadinessReviewQueryString(
+  options: CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.packageId) {
+    params.set('packageId', options.packageId);
+  }
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeRealReadOnlyAdapterReadinessReviewStatus(options.status));
+  }
+
+  if (options.outcome) {
+    params.set('outcome', normalizeRealReadOnlyAdapterReadinessReviewOutcome(options.outcome));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -4331,6 +4557,33 @@ function normalizeRealReadOnlyAdapterReadinessStatus(
   throw new Error('real read-only adapter readiness status is unsupported');
 }
 
+function normalizeRealReadOnlyAdapterReadinessReviewOutcome(
+  outcome: string | undefined,
+): CodexExecRealReadOnlyAdapterReadinessReviewOutcome {
+  const normalized = outcome ?? 'no_go_to_separate_adr_draft';
+
+  if (
+    normalized === 'no_go_to_separate_adr_draft' ||
+    normalized === 'conditional_go_to_separate_adr_draft'
+  ) {
+    return normalized;
+  }
+
+  throw new Error('real read-only adapter readiness review outcome is unsupported');
+}
+
+function normalizeRealReadOnlyAdapterReadinessReviewStatus(
+  status: string | undefined,
+): CodexExecRealReadOnlyAdapterReadinessReviewStatus {
+  const normalized = status ?? 'recorded';
+
+  if (normalized === 'draft' || normalized === 'recorded' || normalized === 'superseded') {
+    return normalized;
+  }
+
+  throw new Error('real read-only adapter readiness review status is unsupported');
+}
+
 function createEvidenceQueryFromCliOptions(
   options: CodexExecEvidenceListCliOptions,
   fallbackDryRunId: string,
@@ -4562,6 +4815,28 @@ function createRealReadOnlyAdapterReadinessFallback(dryRunId: string): Record<st
     degraded: true,
     notPersisted: true,
     reason: 'supervisor unavailable; local readiness fallback used and was not persisted',
+  };
+}
+
+function createReadinessReviewUnavailableResponse(reason: string): Record<string, unknown> {
+  return {
+    error: 'readiness review is unavailable',
+    reviews: [],
+    summaries: [],
+    recommendation: REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    degraded: true,
+    notPersisted: true,
+    reason,
   };
 }
 
@@ -5146,6 +5421,90 @@ export function formatRealReadOnlyAdapterReadinessListOutput(
     'Real read-only adapter readiness package list',
     `count: ${summaries?.length ?? 0}`,
     REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'items:' : 'items: none',
+    ...lines,
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterReadinessReviewOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const review = result.reviewRecord as
+    | CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord
+    | undefined;
+  const summary = result.summary as
+    | {
+        reviewId?: string;
+        packageId?: string;
+        dryRunId?: string;
+        packageStatus?: string;
+        outcome?: string;
+        separateAdrDraftAllowed?: boolean;
+        unresolvedFindingCount?: number;
+      }
+    | undefined;
+
+  return [
+    'Real read-only adapter readiness review',
+    `reviewId: ${review?.id ?? summary?.reviewId ?? 'unknown'}`,
+    `packageId: ${review?.packageId ?? summary?.packageId ?? 'unknown'}`,
+    `dryRunId: ${review?.dryRunId ?? summary?.dryRunId ?? 'unknown'}`,
+    `packageStatus: ${review?.packageStatus ?? summary?.packageStatus ?? 'unknown'}`,
+    `outcome: ${review?.outcome ?? summary?.outcome ?? 'unknown'}`,
+    `separateAdrDraftAllowed=${String(
+      review?.separateAdrDraftAllowed ?? summary?.separateAdrDraftAllowed ?? false,
+    )}`,
+    `unresolvedFindingCount=${String(
+      review?.unresolvedFindingCount ?? summary?.unresolvedFindingCount ?? 0,
+    )}`,
+    REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+    `implementationApproved=${String(review?.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(review?.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(review?.recommendationGrantsExecution ?? false)}`,
+    `degraded=${String(result.degraded ?? false)}`,
+    `notPersisted=${String(result.notPersisted ?? false)}`,
+    noLiveFlagsText(result),
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterReadinessReviewListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const summaries = result.summaries as
+    | Array<{
+        reviewId?: string;
+        packageId?: string;
+        dryRunId?: string;
+        packageStatus?: string;
+        outcome?: string;
+        separateAdrDraftAllowed?: boolean;
+      }>
+    | undefined;
+  const lines = (summaries ?? []).map(
+    (summary) =>
+      `- ${summary.reviewId ?? 'unknown'} package=${summary.packageId ?? 'unknown'} dryRun=${summary.dryRunId ?? 'unknown'} packageStatus=${summary.packageStatus ?? 'unknown'} outcome=${summary.outcome ?? 'unknown'} separateAdrDraftAllowed=${String(summary.separateAdrDraftAllowed ?? false)}`,
+  );
+
+  return [
+    'Real read-only adapter readiness review list',
+    `count: ${summaries?.length ?? 0}`,
+    REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+    `implementationApproved=${String(result.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(result.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(result.recommendationGrantsExecution ?? false)}`,
+    `degraded=${String(result.degraded ?? false)}`,
+    `notPersisted=${String(result.notPersisted ?? false)}`,
     noLiveFlagsText(result),
     lines.length > 0 ? 'items:' : 'items: none',
     ...lines,

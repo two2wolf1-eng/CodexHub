@@ -14,6 +14,7 @@ import type {
   CodexExecReadOnlyAdapterFixtureBoundarySummary,
   CodexExecReadOnlyAdapterFinalReadinessSummary,
   CodexExecRealReadOnlyAdapterReadinessSummary,
+  CodexExecRealReadOnlyAdapterReadinessReviewSummary,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -55,6 +56,7 @@ interface OverviewState {
   codexExecReadOnlyAdapterFixtureBoundaries: CodexExecReadOnlyAdapterFixtureBoundarySummary[];
   codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessSummary[];
   codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessSummary[];
+  codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewSummary[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -87,6 +89,7 @@ export function App() {
     codexExecReadOnlyAdapterFixtureBoundaries: [],
     codexExecReadOnlyAdapterFinalReadiness: [],
     codexExecRealReadOnlyAdapterReadiness: [],
+    codexExecRealReadOnlyAdapterReadinessReviews: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -115,6 +118,7 @@ export function App() {
           readOnlyAdapterFixtureBoundariesResponse,
           readOnlyAdapterFinalReadinessResponse,
           realReadOnlyAdapterReadinessResponse,
+          realReadOnlyAdapterReadinessReviewsResponse,
           codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
@@ -154,6 +158,9 @@ export function App() {
           getJson<{
             summaries: CodexExecRealReadOnlyAdapterReadinessSummary[];
           }>('/api/codex/exec/real-read-only-adapter/readiness-packages?limit=5'),
+          getJson<{
+            summaries: CodexExecRealReadOnlyAdapterReadinessReviewSummary[];
+          }>('/api/codex/exec/real-read-only-adapter/readiness-reviews?limit=5'),
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
@@ -352,6 +359,8 @@ export function App() {
               readOnlyAdapterFixtureBoundariesResponse.summaries,
             codexExecReadOnlyAdapterFinalReadiness: readOnlyAdapterFinalReadinessResponse.reviews,
             codexExecRealReadOnlyAdapterReadiness: realReadOnlyAdapterReadinessResponse.summaries,
+            codexExecRealReadOnlyAdapterReadinessReviews:
+              realReadOnlyAdapterReadinessReviewsResponse.summaries,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -382,6 +391,7 @@ export function App() {
             codexExecReadOnlyAdapterFixtureBoundaries: [],
             codexExecReadOnlyAdapterFinalReadiness: [],
             codexExecRealReadOnlyAdapterReadiness: [],
+            codexExecRealReadOnlyAdapterReadinessReviews: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -1391,6 +1401,49 @@ export function App() {
           )}
         </Panel>
 
+        <Panel title="Readiness Review / Separate ADR Draft Go-No-Go">
+          {overview.codexExecRealReadOnlyAdapterReadinessReviews.length > 0 ? (
+            <ul>
+              {overview.codexExecRealReadOnlyAdapterReadinessReviews.map((review) => (
+                <li key={review.id} className="stacked report-detail">
+                  <strong>{review.reviewId}</strong>
+                  <span>
+                    dryRunId {review.dryRunId}, package {review.packageId}, package status{' '}
+                    {review.packageStatus}
+                  </span>
+                  <span>
+                    outcome {review.outcome}, review status {review.status}, reviewer{' '}
+                    {review.reviewerLabel}
+                  </span>
+                  <span>
+                    unresolved findings {review.unresolvedFindingCount}, acknowledged{' '}
+                    {review.acknowledgedFindingCodes.length}
+                  </span>
+                  <span>
+                    ADR draft conditionally allowed {String(review.separateAdrDraftAllowed)}
+                  </span>
+                  <span>
+                    liveExecution {String(review.liveExecution)}, externalProcessStarted{' '}
+                    {String(review.externalProcessStarted)}, executionDisabled{' '}
+                    {String(review.executionDisabled)}
+                  </span>
+                  <span>
+                    implementationApproved {String(review.implementationApproved)},
+                    processAdapterApproved {String(review.processAdapterApproved)},
+                    recommendationGrantsExecution {String(review.recommendationGrantsExecution)}
+                  </span>
+                  <p>{readinessReviewWording(review)}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No readiness review has been recorded. Separate ADR drafting remains unavailable until
+              a persisted readiness package is reviewed.
+            </p>
+          )}
+        </Panel>
+
         <Panel title="Codex Reviewer Handoff">
           {overview.codexExecReviewerHandoffs.length > 0 ? (
             <ul>
@@ -1441,6 +1494,26 @@ function formatSourceBreakdown(sourceBreakdown: Record<string, number>): string 
   return entries.length > 0
     ? entries.map(([source, count]) => `${source}:${count}`).join(', ')
     : 'none';
+}
+
+function readinessReviewWording(
+  review: CodexExecRealReadOnlyAdapterReadinessReviewSummary,
+): string {
+  if (review.packageStatus === 'blocked' || review.packageStatus === 'not_ready') {
+    return 'Not ready for separate ADR draft.';
+  }
+
+  if (review.packageStatus === 'requires_review') {
+    return review.outcome === 'conditional_go_to_separate_adr_draft'
+      ? 'ADR drafting only. Does not grant implementation, process launch, or execution permission.'
+      : 'Separate ADR draft may be considered only if reviewer explicitly acknowledges unresolved findings.';
+  }
+
+  if (review.outcome === 'conditional_go_to_separate_adr_draft') {
+    return 'ADR drafting only. Does not grant implementation, process launch, or execution permission.';
+  }
+
+  return 'Not ready for separate ADR draft.';
 }
 
 function uniqueReviewDryRunIds(reviews: CodexExecReportReviewRecord[]): string[] {

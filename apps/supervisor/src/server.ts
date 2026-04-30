@@ -37,14 +37,21 @@ import {
   buildRealReadOnlyAdapterReadinessPackage,
   createRealReadOnlyAdapterReadinessAuditEvents,
   createRealReadOnlyAdapterReadinessEvidenceRefs,
+  createRealReadOnlyAdapterReadinessReviewAuditEvents,
+  createRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  createRealReadOnlyAdapterReadinessReviewEvidenceRefs,
   getLatestReadOnlyAdapterSkeletonReview,
   getLatestReadOnlyAdapterFinalReadiness,
   listReadOnlyAdapterSkeletonReviewSummaries,
   listReadOnlyAdapterFinalReadinessSummaries,
+  listRealReadOnlyAdapterReadinessReviewSummaries,
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
+  REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   runReadOnlyAdapterFixtureBoundary,
   summarizeReadOnlyAdapterFixtureBoundary,
+  summarizeRealReadOnlyAdapterReadinessReview,
   summarizeRealReadOnlyAdapterReadinessPackage,
+  validateRealReadOnlyAdapterReadinessReviewDecision,
   createCodexExecTimelineDetailView,
   createCodexExecReportReviewRecord,
   createCodexExecDisabledLiveRunRecord,
@@ -124,6 +131,10 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessStatus,
   CodexExecRealReadOnlyAdapterReadinessPackage,
   CodexExecRealReadOnlyAdapterReadinessQuery,
+  CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
+  CodexExecRealReadOnlyAdapterReadinessReviewQuery,
+  CodexExecRealReadOnlyAdapterReadinessReviewStatus,
   CodexExecRealReadOnlyAdapterReadinessStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
@@ -179,6 +190,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const readOnlyAdapterFinalReadinessRecords: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[] =
     [];
   const realReadOnlyAdapterReadinessPackages: CodexExecRealReadOnlyAdapterReadinessPackage[] = [];
+  const realReadOnlyAdapterReadinessReviewRecords: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[] =
+    [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -2041,6 +2054,230 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
+  server.post('/api/codex/exec/real-read-only-adapter/readiness-review', async (request, reply) => {
+    const body = request.body as
+      | {
+          packageId?: string;
+          outcome?: string;
+          reviewerLabel?: string;
+          rationaleSummary?: string;
+          status?: string;
+        }
+      | undefined;
+
+    if (!body?.packageId) {
+      return reply.code(400).send({
+        error: 'packageId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    if (!body.outcome || !realReadOnlyAdapterReadinessReviewOutcomes.has(body.outcome)) {
+      return reply.code(400).send({
+        error: 'valid outcome is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    if (body.status && !realReadOnlyAdapterReadinessReviewStatuses.has(body.status)) {
+      return reply.code(400).send({
+        error: 'unsupported readiness review status',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send({
+        error: 'readiness review store is unavailable',
+        degraded: true,
+        notPersisted: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+        reason: persistenceState.reason ?? 'store unavailable',
+      });
+    }
+
+    const packageRecord = await resolveRealReadOnlyAdapterReadinessPackage(body.packageId, store);
+
+    if (!packageRecord) {
+      return reply.code(404).send({
+        error: 'readiness package was not found',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const validation = validateRealReadOnlyAdapterReadinessReviewDecision({
+      packageRecord,
+      outcome: body.outcome as CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
+      rationaleSummary: body.rationaleSummary ?? '',
+    });
+
+    if (!validation.valid) {
+      return reply.code(400).send({
+        error: validation.reason,
+        requiredAcknowledgementCodes: validation.requiredAcknowledgementCodes,
+        missingAcknowledgementCodes: validation.missingAcknowledgementCodes,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      });
+    }
+
+    const reviewRecord = createRealReadOnlyAdapterReadinessReviewDecisionRecord({
+      packageRecord,
+      outcome: body.outcome as CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
+      status:
+        (body.status as CodexExecRealReadOnlyAdapterReadinessReviewStatus | undefined) ??
+        'recorded',
+      reviewerLabel: body.reviewerLabel ?? 'local-operator',
+      rationaleSummary: body.rationaleSummary ?? 'Readiness package reviewed.',
+      metadata: {
+        requestedBy: 'supervisor-api',
+      },
+    });
+    const evidenceRefs = createRealReadOnlyAdapterReadinessReviewEvidenceRefs(reviewRecord);
+    const auditEvents = createRealReadOnlyAdapterReadinessReviewAuditEvents(
+      reviewRecord,
+      evidenceRefs,
+    );
+    const persistedReview = {
+      ...reviewRecord,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
+
+    for (const evidenceRef of evidenceRefs) {
+      await store.evidenceRefs.create(evidenceRef);
+    }
+
+    for (const auditEvent of auditEvents) {
+      await store.auditEvents.append(auditEvent);
+    }
+
+    await persistRealReadOnlyAdapterReadinessReview(persistedReview, store);
+
+    return createRealReadOnlyAdapterReadinessReviewResponse(
+      persistedReview,
+      evidenceRefs,
+      auditEvents,
+    );
+  });
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/readiness-review/:reviewId',
+    async (request, reply) => {
+      const params = request.params as { reviewId?: string };
+
+      if (!params.reviewId) {
+        return reply.code(400).send({
+          error: 'reviewId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const review = await resolveRealReadOnlyAdapterReadinessReview(params.reviewId, store);
+
+      if (!review) {
+        return reply.code(404).send({
+          error: 'readiness review was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterReadinessReviewResponse(review);
+    },
+  );
+
+  server.get('/api/codex/exec/real-read-only-adapter/readiness-reviews', async (request, reply) => {
+    const queryResult = parseRealReadOnlyAdapterReadinessReviewQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({
+        error: queryResult.reason,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+    const reviews = await listRealReadOnlyAdapterReadinessReviews(store, queryResult.query);
+
+    return {
+      reviews,
+      summaries: listRealReadOnlyAdapterReadinessReviewSummaries(reviews, queryResult.query),
+      recommendation: REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      degraded: persistenceState.status !== 'ok',
+      reason: persistenceState.reason,
+    };
+  });
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/readiness-review/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const review = await latestRealReadOnlyAdapterReadinessReview(params.dryRunId, store);
+
+      if (!review) {
+        return reply.code(404).send({
+          error: 'readiness review was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterReadinessReviewResponse(review);
+    },
+  );
+
   server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
     const params = request.params as { dryRunId?: string };
     const filterResult = parseTimelineFilter(request.query);
@@ -3533,6 +3770,89 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  async function resolveRealReadOnlyAdapterReadinessReview(
+    reviewId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord | undefined> {
+    return store
+      ? await store.codexExecRealReadOnlyAdapterReadinessReviews.getReadinessReview(reviewId)
+      : realReadOnlyAdapterReadinessReviewRecords.find((record) => record.id === reviewId);
+  }
+
+  async function listRealReadOnlyAdapterReadinessReviews(
+    store: CodexHubStore | undefined,
+    query: Partial<CodexExecRealReadOnlyAdapterReadinessReviewQuery>,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[]> {
+    return store
+      ? await store.codexExecRealReadOnlyAdapterReadinessReviews.listReadinessReviews(query)
+      : filterInMemoryRealReadOnlyAdapterReadinessReviews(
+          realReadOnlyAdapterReadinessReviewRecords,
+          query,
+        );
+  }
+
+  async function latestRealReadOnlyAdapterReadinessReview(
+    dryRunId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord | undefined> {
+    return store
+      ? await store.codexExecRealReadOnlyAdapterReadinessReviews.latestReadinessReview(dryRunId)
+      : filterInMemoryRealReadOnlyAdapterReadinessReviews(
+          realReadOnlyAdapterReadinessReviewRecords,
+          {
+            dryRunId,
+            limit: 1,
+          },
+        )[0];
+  }
+
+  async function persistRealReadOnlyAdapterReadinessReview(
+    reviewRecord: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.codexExecRealReadOnlyAdapterReadinessReviews.saveReadinessReview(reviewRecord);
+      return;
+    }
+
+    const existingIndex = realReadOnlyAdapterReadinessReviewRecords.findIndex(
+      (candidate) => candidate.id === reviewRecord.id,
+    );
+
+    if (existingIndex >= 0) {
+      realReadOnlyAdapterReadinessReviewRecords.splice(existingIndex, 1, reviewRecord);
+    } else {
+      realReadOnlyAdapterReadinessReviewRecords.unshift(reviewRecord);
+    }
+  }
+
+  function createRealReadOnlyAdapterReadinessReviewResponse(
+    reviewRecord: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+    evidenceRefs = reviewRecord.evidenceRefs,
+    auditEvents: ReturnType<typeof createRealReadOnlyAdapterReadinessReviewAuditEvents> = [],
+  ) {
+    return {
+      reviewRecord,
+      summary: summarizeRealReadOnlyAdapterReadinessReview(reviewRecord),
+      evidenceRefs,
+      auditEvents,
+      recommendation: REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: false,
+      reason: persistenceState.reason,
+    };
+  }
+
   function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
@@ -3654,6 +3974,11 @@ const realReadOnlyAdapterReadinessStatuses = new Set([
   'blocked',
   'requires_review',
 ]);
+const realReadOnlyAdapterReadinessReviewOutcomes = new Set([
+  'no_go_to_separate_adr_draft',
+  'conditional_go_to_separate_adr_draft',
+]);
+const realReadOnlyAdapterReadinessReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
 const codexExecSandboxModes = new Set(['read_only', 'workspace_write', 'danger_full_access']);
 
 function createReadOnlyAdapterOperatorChecklistFromBody(
@@ -4036,6 +4361,41 @@ function parseRealReadOnlyAdapterReadinessQuery(
   };
 }
 
+function parseRealReadOnlyAdapterReadinessReviewQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterReadinessReviewQuery> }
+  | { allowed: false; reason: string } {
+  const packageId = readQueryValue(query, 'packageId');
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const outcome = readQueryValue(query, 'outcome');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterReadinessReviewStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported readiness review status' };
+  }
+
+  if (outcome && !realReadOnlyAdapterReadinessReviewOutcomes.has(outcome)) {
+    return { allowed: false, reason: 'unsupported readiness review outcome' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      packageId,
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterReadinessReviewStatus | undefined,
+      outcome: outcome as CodexExecRealReadOnlyAdapterReadinessReviewOutcome | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
 function filterInMemoryReportReviews(
   records: CodexExecReportReviewRecord[],
   query: Partial<CodexExecReportReviewQuery>,
@@ -4178,6 +4538,34 @@ function filterInMemoryRealReadOnlyAdapterReadinessPackages(
       }
 
       if (query.status && packageRecord.status !== query.status) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, query.limit ?? 20);
+}
+
+function filterInMemoryRealReadOnlyAdapterReadinessReviews(
+  records: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[],
+  query: Partial<CodexExecRealReadOnlyAdapterReadinessReviewQuery>,
+): CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[] {
+  return records
+    .filter((record) => {
+      if (query.packageId && record.packageId !== query.packageId) {
+        return false;
+      }
+
+      if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
         return false;
       }
 

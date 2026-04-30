@@ -18,6 +18,8 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessQuery,
   CodexExecRealReadOnlyAdapterReadinessPackage,
   CodexExecRealReadOnlyAdapterReadinessQuery,
+  CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -37,6 +39,7 @@ import type {
   CodexExecReadOnlyAdapterSkeletonReviewRepository,
   CodexExecReadOnlyAdapterFinalReadinessRepository,
   CodexExecRealReadOnlyAdapterReadinessRepository,
+  CodexExecRealReadOnlyAdapterReadinessReviewRepository,
   CodexHubStore,
   CodexReplayRepository,
   CodexReportReviewRepository,
@@ -106,6 +109,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecReadOnlyAdapterSkeletonReviews: CodexExecReadOnlyAdapterSkeletonReviewRepository;
   readonly codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessRepository;
   readonly codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
+  readonly codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -138,6 +142,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteCodexExecReadOnlyAdapterFinalReadinessRepository(database);
     this.codexExecRealReadOnlyAdapterReadiness =
       new SqliteCodexExecRealReadOnlyAdapterReadinessRepository(database);
+    this.codexExecRealReadOnlyAdapterReadinessReviews =
+      new SqliteCodexExecRealReadOnlyAdapterReadinessReviewRepository(database);
   }
 
   async close(): Promise<void> {
@@ -734,6 +740,73 @@ class SqliteCodexExecRealReadOnlyAdapterReadinessRepository implements CodexExec
   }
 }
 
+class SqliteCodexExecRealReadOnlyAdapterReadinessReviewRepository implements CodexExecRealReadOnlyAdapterReadinessReviewRepository {
+  private readonly repository: JsonEntityRepository<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository =
+      new JsonEntityRepository<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord>(
+        database,
+        'codex_real_read_only_adapter_readiness_reviews',
+        (record) => record.createdAt,
+      );
+  }
+
+  async saveReadinessReview(
+    record: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord> {
+    return this.repository.create(record);
+  }
+
+  async getReadinessReview(
+    id: string,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listReadinessReviews(
+    query: Partial<CodexExecRealReadOnlyAdapterReadinessReviewQuery> = {},
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_real_read_only_adapter_readiness_reviews ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) => JSON.parse(row.payload) as CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.packageId && record.packageId !== query.packageId) {
+          return false;
+        }
+
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        if (query.outcome && record.outcome !== query.outcome) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+
+  async latestReadinessReview(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord | undefined> {
+    return (await this.listReadinessReviews({ dryRunId, limit: 1 }))[0];
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -916,6 +989,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_readiness_packages (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_readiness_reviews (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

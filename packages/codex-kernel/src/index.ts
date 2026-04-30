@@ -119,6 +119,13 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessFinding,
   CodexExecRealReadOnlyAdapterReadinessGate,
   CodexExecRealReadOnlyAdapterReadinessPackage,
+  CodexExecRealReadOnlyAdapterReadinessReviewChecklistItem,
+  CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  CodexExecRealReadOnlyAdapterReadinessReviewFinding,
+  CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
+  CodexExecRealReadOnlyAdapterReadinessReviewQuery,
+  CodexExecRealReadOnlyAdapterReadinessReviewStatus,
+  CodexExecRealReadOnlyAdapterReadinessReviewSummary,
   CodexExecRealReadOnlyAdapterReadinessStatus,
   CodexExecRealReadOnlyAdapterReadinessSummary,
   CodexExecReportRecommendation,
@@ -5348,6 +5355,508 @@ export function createRealReadOnlyAdapterReadinessAuditEvents(
       }),
     },
   ];
+}
+
+export const REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION =
+  'ADR drafting only. Does not grant implementation, process launch, or execution permission.';
+
+export interface RealReadOnlyAdapterReadinessReviewDecisionInput {
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage;
+  outcome: CodexExecRealReadOnlyAdapterReadinessReviewOutcome;
+  reviewerLabel: string;
+  rationaleSummary: string;
+  status?: CodexExecRealReadOnlyAdapterReadinessReviewStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RealReadOnlyAdapterReadinessReviewValidationResult {
+  valid: boolean;
+  reason?: string;
+  requiredAcknowledgementCodes: string[];
+  missingAcknowledgementCodes: string[];
+  acknowledgedFindingCodes: string[];
+  acknowledgedFindingIds: string[];
+  unresolvedFindingCount: number;
+}
+
+export function validateRealReadOnlyAdapterReadinessReviewDecision(
+  input: Pick<
+    RealReadOnlyAdapterReadinessReviewDecisionInput,
+    'packageRecord' | 'outcome' | 'rationaleSummary'
+  >,
+): RealReadOnlyAdapterReadinessReviewValidationResult {
+  const unresolvedFindings = getUnresolvedRealReadOnlyAdapterReadinessFindings(input.packageRecord);
+  const requiredAcknowledgementCodes = getRequiredRealReadOnlyAdapterReadinessAcknowledgementCodes(
+    input.packageRecord,
+  );
+  const rationale = input.rationaleSummary.toLowerCase();
+  const codeCandidates = [
+    ...unresolvedFindings.map((finding) => finding.code),
+    ...requiredAcknowledgementCodes,
+  ];
+  const acknowledgedFindingCodes = codeCandidates
+    .filter((code, index, codes) => codes.indexOf(code) === index)
+    .filter((code) => rationale.includes(code.toLowerCase()));
+  const acknowledgedFindingIds = unresolvedFindings
+    .filter((finding) => acknowledgedFindingCodes.includes(finding.code))
+    .map((finding) => finding.id);
+  const missingAcknowledgementCodes = requiredAcknowledgementCodes.filter(
+    (code) => !acknowledgedFindingCodes.includes(code),
+  );
+
+  if (
+    input.outcome === 'conditional_go_to_separate_adr_draft' &&
+    ['blocked', 'not_ready'].includes(input.packageRecord.status)
+  ) {
+    return {
+      valid: false,
+      reason:
+        'conditional_go_to_separate_adr_draft is not allowed for blocked or not_ready packages',
+      requiredAcknowledgementCodes,
+      missingAcknowledgementCodes,
+      acknowledgedFindingCodes,
+      acknowledgedFindingIds,
+      unresolvedFindingCount: unresolvedFindings.length + input.packageRecord.blockers.length,
+    };
+  }
+
+  if (
+    input.outcome === 'conditional_go_to_separate_adr_draft' &&
+    input.packageRecord.status === 'requires_review' &&
+    missingAcknowledgementCodes.length > 0
+  ) {
+    return {
+      valid: false,
+      reason: `conditional_go_to_separate_adr_draft requires rationale acknowledgement for: ${missingAcknowledgementCodes.join(', ')}`,
+      requiredAcknowledgementCodes,
+      missingAcknowledgementCodes,
+      acknowledgedFindingCodes,
+      acknowledgedFindingIds,
+      unresolvedFindingCount: unresolvedFindings.length + input.packageRecord.blockers.length,
+    };
+  }
+
+  return {
+    valid: true,
+    requiredAcknowledgementCodes,
+    missingAcknowledgementCodes: [],
+    acknowledgedFindingCodes:
+      input.outcome === 'conditional_go_to_separate_adr_draft' ? acknowledgedFindingCodes : [],
+    acknowledgedFindingIds:
+      input.outcome === 'conditional_go_to_separate_adr_draft' ? acknowledgedFindingIds : [],
+    unresolvedFindingCount: unresolvedFindings.length + input.packageRecord.blockers.length,
+  };
+}
+
+export function createRealReadOnlyAdapterReadinessReviewDecisionRecord(
+  input: RealReadOnlyAdapterReadinessReviewDecisionInput,
+): CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord {
+  const validation = validateRealReadOnlyAdapterReadinessReviewDecision(input);
+  if (!validation.valid) {
+    throw new Error(validation.reason ?? 'Invalid readiness review decision');
+  }
+
+  const now = foundationTimestamp();
+  const checklistItems = createRealReadOnlyAdapterReadinessReviewChecklistItems(
+    input.packageRecord,
+    input.outcome,
+    validation,
+  );
+  const findings = createRealReadOnlyAdapterReadinessReviewFindings(input.packageRecord);
+  const separateAdrDraftAllowed = input.outcome === 'conditional_go_to_separate_adr_draft';
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_review'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    packageId: input.packageRecord.id,
+    dryRunId: input.packageRecord.dryRunId,
+    packageStatus: input.packageRecord.status,
+    outcome: input.outcome,
+    status: input.status ?? 'recorded',
+    reviewerLabel: input.reviewerLabel,
+    rationaleSummary: input.rationaleSummary,
+    reviewedAt: now,
+    separateAdrDraftAllowed,
+    acknowledgedFindingCodes: validation.acknowledgedFindingCodes,
+    acknowledgedFindingIds: validation.acknowledgedFindingIds,
+    unresolvedFindingCount: validation.unresolvedFindingCount,
+    checklistItems,
+    findings,
+    evidenceRefs: [],
+    auditEventIds: [],
+    summary: separateAdrDraftAllowed
+      ? `${REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION} implementationApproved=false; processAdapterApproved=false.`
+      : 'Separate ADR draft is not approved by this review; implementationApproved=false; processAdapterApproved=false.',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      packageId: input.packageRecord.id,
+      dryRunId: input.packageRecord.dryRunId,
+      packageStatus: input.packageRecord.status,
+      outcome: input.outcome,
+      separateAdrDraftAllowed,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function summarizeRealReadOnlyAdapterReadinessReview(
+  record: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+): CodexExecRealReadOnlyAdapterReadinessReviewSummary {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_review_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    reviewId: record.id,
+    packageId: record.packageId,
+    dryRunId: record.dryRunId,
+    packageStatus: record.packageStatus,
+    outcome: record.outcome,
+    status: record.status,
+    reviewerLabel: record.reviewerLabel,
+    reviewedAt: record.reviewedAt,
+    separateAdrDraftAllowed: record.separateAdrDraftAllowed,
+    acknowledgedFindingCodes: record.acknowledgedFindingCodes,
+    acknowledgedFindingIds: record.acknowledgedFindingIds,
+    unresolvedFindingCount: record.unresolvedFindingCount,
+    summary: record.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      reviewId: record.id,
+      packageId: record.packageId,
+      dryRunId: record.dryRunId,
+      outcome: record.outcome,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function listRealReadOnlyAdapterReadinessReviewSummaries(
+  records: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[],
+  query: Partial<CodexExecRealReadOnlyAdapterReadinessReviewQuery> = {},
+): CodexExecRealReadOnlyAdapterReadinessReviewSummary[] {
+  const limit = Math.min(200, Math.max(1, Math.trunc(query.limit ?? 50)));
+
+  return sortRealReadOnlyAdapterReadinessReviewsNewestFirst(records)
+    .filter((record) => {
+      if (query.packageId && record.packageId !== query.packageId) {
+        return false;
+      }
+
+      if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      if (query.outcome && record.outcome !== query.outcome) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, limit)
+    .map(summarizeRealReadOnlyAdapterReadinessReview);
+}
+
+export function getLatestRealReadOnlyAdapterReadinessReview(
+  records: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[],
+  dryRunId: string,
+): CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord | undefined {
+  return sortRealReadOnlyAdapterReadinessReviewsNewestFirst(records).find(
+    (record) => record.dryRunId === dryRunId,
+  );
+}
+
+export function createRealReadOnlyAdapterReadinessReviewEvidenceRefs(
+  record: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.real_read_only_adapter.readiness_review',
+      label: 'codex.real_read_only_adapter.readiness_review',
+      summary: `Real read-only adapter readiness review ${record.outcome}; non-executing governance record.`,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        packageId: record.packageId,
+        dryRunId: record.dryRunId,
+        outcome: record.outcome,
+        packageStatus: record.packageStatus,
+        acknowledgedFindingCodes: record.acknowledgedFindingCodes,
+        unresolvedFindingCount: record.unresolvedFindingCount,
+        metadataOnly: true,
+        bodyStored: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: record.id,
+        packageId: record.packageId,
+        dryRunId: record.dryRunId,
+        outcome: record.outcome,
+        packageStatus: record.packageStatus,
+        acknowledgedFindingCodes: record.acknowledgedFindingCodes,
+        acknowledgedFindingIds: record.acknowledgedFindingIds,
+        unresolvedFindingCount: record.unresolvedFindingCount,
+      }),
+    }),
+  ];
+}
+
+export function createRealReadOnlyAdapterReadinessReviewAuditEvents(
+  record: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.real_read_only_adapter.readiness_review.recorded',
+      outcome: record.outcome,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        reviewId: record.id,
+        packageId: record.packageId,
+        dryRunId: record.dryRunId,
+        separateAdrDraftAllowed: record.separateAdrDraftAllowed,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+    },
+  ];
+}
+
+function getUnresolvedRealReadOnlyAdapterReadinessFindings(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+): CodexExecRealReadOnlyAdapterReadinessFinding[] {
+  return packageRecord.findings.filter((finding) =>
+    ['blocked', 'not_ready', 'requires_review'].includes(finding.status),
+  );
+}
+
+function getRequiredRealReadOnlyAdapterReadinessAcknowledgementCodes(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+): string[] {
+  const codes = new Set<string>();
+  if (packageRecord.status !== 'requires_review') {
+    return [];
+  }
+
+  if (packageRecord.symlinkEscapeVerificationPending) {
+    codes.add('symlink_escape_verification_pending');
+  }
+
+  if (packageRecord.documentedOnly3twEvidence) {
+    codes.add('documented_only_3tw_evidence');
+  }
+
+  return Array.from(codes);
+}
+
+function createRealReadOnlyAdapterReadinessReviewChecklistItems(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+  outcome: CodexExecRealReadOnlyAdapterReadinessReviewOutcome,
+  validation: RealReadOnlyAdapterReadinessReviewValidationResult,
+): CodexExecRealReadOnlyAdapterReadinessReviewChecklistItem[] {
+  return [
+    createRealReadOnlyAdapterReadinessReviewChecklistItem({
+      code: 'readiness_package_is_persisted_source',
+      label: 'Readiness package is the persisted source of truth',
+      status: 'passed',
+      required: true,
+      summary:
+        'Review is bound to a persisted readiness package and does not create a local reviewable fallback package.',
+    }),
+    createRealReadOnlyAdapterReadinessReviewChecklistItem({
+      code: 'readiness_status_allows_outcome',
+      label: 'Readiness status allows requested outcome',
+      status:
+        outcome === 'conditional_go_to_separate_adr_draft' &&
+        ['blocked', 'not_ready'].includes(packageRecord.status)
+          ? 'blocked'
+          : packageRecord.status === 'requires_review'
+            ? 'requires_review'
+            : 'passed',
+      required: true,
+      summary:
+        packageRecord.status === 'requires_review'
+          ? 'Conditional ADR drafting requires explicit acknowledgement of unresolved finding codes.'
+          : 'Readiness status was evaluated against the requested review outcome.',
+    }),
+    createRealReadOnlyAdapterReadinessReviewChecklistItem({
+      code: 'unresolved_findings_acknowledged',
+      label: 'Unresolved findings acknowledged when required',
+      status: validation.missingAcknowledgementCodes.length > 0 ? 'failed' : 'passed',
+      required: packageRecord.status === 'requires_review',
+      summary:
+        validation.missingAcknowledgementCodes.length > 0
+          ? `Missing acknowledgement for ${validation.missingAcknowledgementCodes.join(', ')}.`
+          : 'Required unresolved finding acknowledgements are present or not required.',
+    }),
+    createRealReadOnlyAdapterReadinessReviewChecklistItem({
+      code: 'review_remains_non_approving',
+      label: 'Review remains non-approving',
+      status: 'passed',
+      required: true,
+      summary:
+        'Readiness review does not grant implementation, process launch, or execution permission.',
+    }),
+  ];
+}
+
+function createRealReadOnlyAdapterReadinessReviewChecklistItem(input: {
+  code: string;
+  label: string;
+  status: CodexExecRealReadOnlyAdapterReadinessReviewChecklistItem['status'];
+  required: boolean;
+  summary: string;
+}): CodexExecRealReadOnlyAdapterReadinessReviewChecklistItem {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_review_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      status: input.status,
+    }),
+  };
+}
+
+function createRealReadOnlyAdapterReadinessReviewFindings(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+): CodexExecRealReadOnlyAdapterReadinessReviewFinding[] {
+  const findings = getUnresolvedRealReadOnlyAdapterReadinessFindings(packageRecord).map((finding) =>
+    createRealReadOnlyAdapterReadinessReviewFinding({
+      code: finding.code,
+      severity: finding.severity,
+      status: finding.status,
+      relatedReadinessFindingId: finding.id,
+      relatedReadinessFindingCode: finding.code,
+      summary: finding.summary,
+      recommendation: finding.recommendation,
+    }),
+  );
+
+  for (const blocker of packageRecord.blockers) {
+    findings.push(
+      createRealReadOnlyAdapterReadinessReviewFinding({
+        code: blocker.code,
+        severity: blocker.severity,
+        status: blocker.status,
+        relatedReadinessFindingCode: blocker.code,
+        summary: blocker.summary,
+        recommendation: blocker.recommendation,
+      }),
+    );
+  }
+
+  return findings;
+}
+
+function createRealReadOnlyAdapterReadinessReviewFinding(input: {
+  code: string;
+  severity: RiskLevel;
+  status: CodexExecRealReadOnlyAdapterReadinessStatus;
+  relatedReadinessFindingId?: string;
+  relatedReadinessFindingCode?: string;
+  summary: string;
+  recommendation: string;
+}): CodexExecRealReadOnlyAdapterReadinessReviewFinding {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_review_finding'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    severity: input.severity,
+    status: input.status,
+    relatedReadinessFindingId: input.relatedReadinessFindingId,
+    relatedReadinessFindingCode: input.relatedReadinessFindingCode,
+    summary: input.summary,
+    recommendation: input.recommendation,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      status: input.status,
+      relatedReadinessFindingCode: input.relatedReadinessFindingCode,
+    }),
+  };
+}
+
+function sortRealReadOnlyAdapterReadinessReviewsNewestFirst(
+  records: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[],
+): CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[] {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((left, right) => {
+      const byReviewedAt = Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+      if (byReviewedAt !== 0) {
+        return byReviewedAt;
+      }
+      const byCreatedAt = Date.parse(right.record.createdAt) - Date.parse(left.record.createdAt);
+      if (byCreatedAt !== 0) {
+        return byCreatedAt;
+      }
+      return right.index - left.index;
+    })
+    .map(({ record }) => record);
 }
 
 function createRealReadOnlyAdapterReadinessGate(input: {

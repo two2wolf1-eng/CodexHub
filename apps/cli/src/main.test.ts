@@ -348,6 +348,77 @@ describe('cli development mock-run fallback', () => {
     expect(JSON.stringify(created)).not.toContain('full command body');
   });
 
+  it('refuses local readiness review creation fallback without approval language', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      createRealReadOnlyAdapterReadinessReviewCommand,
+      formatRealReadOnlyAdapterReadinessReviewListOutput,
+      formatRealReadOnlyAdapterReadinessReviewOutput,
+      getLatestRealReadOnlyAdapterReadinessReviewCommand,
+      getRealReadOnlyAdapterReadinessReviewCommand,
+      listRealReadOnlyAdapterReadinessReviewCommand,
+    } = await import('./main');
+
+    const created = await createRealReadOnlyAdapterReadinessReviewCommand(
+      'codex_real_read_only_adapter_readiness_package_fixture',
+      {
+        outcome: 'conditional_go_to_separate_adr_draft',
+        reviewer: 'local-operator',
+        rationaleSummary:
+          'Acknowledges symlink_escape_verification_pending and documented_only_3tw_evidence.',
+      },
+    );
+    const fetched = await getRealReadOnlyAdapterReadinessReviewCommand('readiness_review_1');
+    const listed = await listRealReadOnlyAdapterReadinessReviewCommand({
+      dryRun: 'codex_dry_run_fixture',
+      outcome: 'conditional_go_to_separate_adr_draft',
+    });
+    const latest =
+      await getLatestRealReadOnlyAdapterReadinessReviewCommand('codex_dry_run_fixture');
+    const output = formatRealReadOnlyAdapterReadinessReviewOutput(created);
+    const listOutput = formatRealReadOnlyAdapterReadinessReviewListOutput(listed);
+
+    expect(created).toMatchObject({
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(created).not.toHaveProperty('reviewRecord');
+    expect(fetched).toMatchObject({
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(fetched).not.toHaveProperty('reviewRecord');
+    expect(listed).toMatchObject({
+      summaries: [],
+      degraded: true,
+      notPersisted: true,
+    });
+    expect(latest).toMatchObject({
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(latest).not.toHaveProperty('reviewRecord');
+    expect(output).toContain('notPersisted=true');
+    expect(output).toContain('implementationApproved=false');
+    expect(output).toContain('processAdapterApproved=false');
+    expect(output).toContain('recommendationGrantsExecution=false');
+    expect(output).not.toContain('execution approval');
+    expect(listOutput).toContain('notPersisted=true');
+    expect(listOutput).not.toContain('execution approval');
+  });
+
   it('creates local config and manual approval records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {
