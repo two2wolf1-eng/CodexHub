@@ -473,6 +473,8 @@ describe('cli development mock-run fallback', () => {
       ]),
     );
     expect(output).toContain('processBoundaryInvoked=false');
+    expect(output).toContain('operator prerequisites: explicit config');
+    expect(output).toContain('abort/failure semantics: missing or mismatched gates');
     expect(output).toContain('implementationApproved=false');
     expect(output).toContain('processAdapterApproved=false');
     expect(output).toContain('recommendationGrantsExecution=false');
@@ -556,12 +558,14 @@ describe('cli development mock-run fallback', () => {
       notPersisted: true,
     });
     expect(listOutput).toContain('notPersisted=true');
+    expect(listOutput).toContain('state guide: blocked means gate refused');
     expect(listOutput).toContain('Records are metadata-only');
     expect(listOutput).not.toContain('execution approval');
     expect(latestOutput).toContain('notPersisted=true');
     expect(latestOutput).not.toContain('execution approval');
     expect(timelineOutput).toContain('Real read-only adapter attempt timeline');
     expect(timelineOutput).toContain('notPersisted=true');
+    expect(timelineOutput).toContain('state guide: blocked means gate refused');
     expect(timelineOutput).toContain('metadata-only');
     expect(timelineOutput).not.toContain('execution approval');
   });

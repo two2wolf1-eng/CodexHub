@@ -1478,6 +1478,12 @@ export function App() {
         </Panel>
 
         <Panel title="Read-only Adapter Attempt Timeline">
+          <p>
+            Operator state guide: blocked means gate checks refused the attempt before authority
+            was claimed; completed, failed, and aborted records require operator review before any
+            next step. Degraded or not-persisted data is display-only. This panel cannot create,
+            approve, or trigger adapter attempts.
+          </p>
           {overview.codexExecRealReadOnlyAdapterAttemptTimelines.length > 0 ? (
             <ul>
               {overview.codexExecRealReadOnlyAdapterAttemptTimelines.map((timeline) => (

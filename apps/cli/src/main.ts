@@ -979,7 +979,18 @@ export function buildProgram(): Command {
 
   const realReadOnlyAdapterCommand = execCommand
     .command('real-read-only-adapter')
-    .description('Real read-only adapter readiness commands without execution approval');
+    .description('Real read-only adapter readiness commands without execution approval')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Operator boundary:',
+        '  These commands are CLI/Supervisor control-plane commands only.',
+        '  They require explicit configuration, existing dry-run evidence, approval evidence,',
+        '  isolated clean worktree metadata, and metadata-only evidence/audit stores.',
+        '  Dashboard triggering, workspace_write, and danger_full_access remain forbidden.',
+      ].join('\n'),
+    );
 
   realReadOnlyAdapterCommand
     .command('attempt')
@@ -988,6 +999,21 @@ export function buildProgram(): Command {
     .requiredOption('--worktree <path>', 'Existing isolated worktree path')
     .option('--json', 'Print full JSON output')
     .description('Attempt the gated CLI-only read-only adapter path')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Attempt prerequisites:',
+        '  - explicit adapter config enablement',
+        '  - existing dryRunId',
+        '  - valid approval artifact bound to dry-run and policy hashes',
+        '  - isolated clean worktree metadata',
+        '  - ready metadata-only evidence and audit stores',
+        'Abort/failure handling:',
+        '  Missing gates are blocked before authority is claimed.',
+        '  Degraded local fallback is display-only and cannot create an authoritative record.',
+      ].join('\n'),
+    )
     .action(
       async (dryRunId: string, options: CodexExecRealReadOnlyAdapterAttemptCliOptions) => {
         const result = await attemptRealReadOnlyAdapterCommand(dryRunId, options);
@@ -997,7 +1023,19 @@ export function buildProgram(): Command {
 
   const attemptsCommand = realReadOnlyAdapterCommand
     .command('attempts')
-    .description('Read authoritative real read-only adapter attempt records');
+    .description('Read authoritative real read-only adapter attempt records')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'State guide:',
+        '  blocked   Gate checks refused the attempt before authority was claimed.',
+        '  completed Metadata-only authoritative record exists and still requires operator review.',
+        '  failed    Attempt ended in a failure state and requires operator review.',
+        '  aborted   Attempt was cancelled or stopped and requires operator review.',
+        '  degraded/notPersisted output is display-only and not authoritative.',
+      ].join('\n'),
+    );
 
   attemptsCommand
     .command('get')
@@ -5831,6 +5869,8 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `attemptId: ${attempt?.id ?? 'unknown'}`,
     `dryRunId: ${attempt?.dryRunId ?? 'unknown'}`,
     `status: ${attempt?.status ?? result.status ?? 'blocked'}`,
+    'operator prerequisites: explicit config, existing dryRunId, valid approval, isolated clean worktree metadata, and ready evidence/audit stores',
+    'abort/failure semantics: missing or mismatched gates are blocked before authority is claimed; degraded fallback is display-only',
     `preflightStatus: ${preflight?.status ?? 'unknown'}`,
     `failedGates=${String(preflight?.failedGateCount ?? 0)}`,
     `blockers=${String(preflight?.blockerCount ?? 0)}`,
@@ -5889,6 +5929,7 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
     `implementationApproved=${String(result.implementationApproved ?? false)}`,
     `processAdapterApproved=${String(result.processAdapterApproved ?? false)}`,
     `recommendationGrantsExecution=${String(result.recommendationGrantsExecution ?? false)}`,
+    'state guide: blocked means gate refused; completed, failed, and aborted records require operator review before any next step',
     'Records are metadata-only. They do not grant implementation, process launch, external model invocation, or workspace mutation permission.',
     noLiveFlagsText(result),
     lines.length > 0 ? 'attempts:' : 'attempts: none',
@@ -5951,6 +5992,7 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
     `implementationApproved=${String(result.implementationApproved ?? false)}`,
     `processAdapterApproved=${String(result.processAdapterApproved ?? false)}`,
     `recommendationGrantsExecution=${String(result.recommendationGrantsExecution ?? false)}`,
+    'state guide: blocked means gate refused; completed, failed, and aborted timeline entries require operator review before any next step',
     timeline?.recommendation ??
       'Attempt timeline is metadata-only and does not grant broader use or workspace mutation permission.',
     noLiveFlagsText(result),
