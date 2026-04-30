@@ -46,6 +46,10 @@ import {
   createDefaultRealReadOnlyAdapterConfig,
   createDisabledRealReadOnlyAdapter,
   createDisabledRealReadOnlyAdapterResult,
+  createRealReadOnlyAdapterAttemptAuditEvents,
+  createRealReadOnlyAdapterAttemptEvidenceRefs,
+  createRealReadOnlyAdapterAuditSummaryFromEvents,
+  createRealReadOnlyAdapterEvidenceSummaryFromRefs,
   createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
@@ -2151,6 +2155,216 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('timeout detail should not persist');
     expect(serialized).not.toContain('cancel body should not persist');
     expect(serialized).not.toContain('cancel detail should not persist');
+  });
+
+  it('creates metadata-only evidence and audit for pre-boundary aborts', () => {
+    const { plan, policyDecision } = createControlPlaneFixture({ liveAdapterEnabled: true });
+    const approvalArtifact = createCodexExecApprovalArtifact(plan, policyDecision, {
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    const config = {
+      ...createDefaultRealReadOnlyAdapterConfig(),
+      status: 'enabled' as const,
+      configuredEnabled: true,
+      summary: 'Enabled for telemetry guard test only.',
+    };
+    const request = createRealReadOnlyAdapterRequest({
+      dryRunId: plan.id,
+      config,
+      approvalArtifactId: approvalArtifact.id,
+      policyDecisionId: policyDecision.id,
+    });
+    const preflight = createRealReadOnlyAdapterGuardPreflight({
+      request,
+      config,
+      dryRunPlan: plan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: false,
+      auditStoreReady: false,
+      now: '2026-04-30T00:00:00.000Z',
+    });
+    const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs({
+      request,
+      preflight,
+      resultId: 'codex_real_read_only_adapter_result_abort_before_boundary',
+    });
+    const auditEvents = createRealReadOnlyAdapterAttemptAuditEvents(
+      {
+        request,
+        preflight,
+        resultId: 'codex_real_read_only_adapter_result_abort_before_boundary',
+      },
+      evidenceRefs,
+    );
+    const evidenceSummary = createRealReadOnlyAdapterEvidenceSummaryFromRefs(
+      {
+        request,
+        preflight,
+        resultId: 'codex_real_read_only_adapter_result_abort_before_boundary',
+      },
+      evidenceRefs,
+    );
+    const auditSummary = createRealReadOnlyAdapterAuditSummaryFromEvents(
+      {
+        request,
+        preflight,
+        resultId: 'codex_real_read_only_adapter_result_abort_before_boundary',
+      },
+      auditEvents,
+    );
+    const serialized = JSON.stringify({ evidenceRefs, auditEvents, evidenceSummary, auditSummary });
+
+    expect(preflight.status).toBe('failed');
+    expect(preflight.boundaryPlan).toBeUndefined();
+    expect(evidenceRefs).toHaveLength(1);
+    expect(evidenceRefs[0]?.kind).toBe('hash');
+    expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
+    expect(auditEvents.map((event) => event.action)).toEqual([
+      'codex.exec.real_read_only_adapter.before_boundary',
+      'codex.exec.real_read_only_adapter.abort',
+    ]);
+    expect(auditEvents.every((event) => event.metadata?.externalProcessStarted === false)).toBe(
+      true,
+    );
+    expect(evidenceSummary.outputHashCount).toBe(0);
+    expect(auditSummary.eventCount).toBe(2);
+    expect(serialized).not.toContain('stdout body');
+    expect(serialized).not.toContain('stderr body');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+  });
+
+  it('creates after, failure, and abort audit telemetry from boundary summaries only', async () => {
+    const { plan: dryRunPlan, policyDecision } = createControlPlaneFixture({
+      liveAdapterEnabled: true,
+    });
+    const approvalArtifact = createCodexExecApprovalArtifact(dryRunPlan, policyDecision, {
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    const config = {
+      ...createDefaultRealReadOnlyAdapterConfig(),
+      status: 'enabled' as const,
+      configuredEnabled: true,
+      summary: 'Enabled for telemetry guard test only.',
+    };
+    const request = createRealReadOnlyAdapterRequest({
+      dryRunId: dryRunPlan.id,
+      config,
+      approvalArtifactId: approvalArtifact.id,
+      policyDecisionId: policyDecision.id,
+    });
+    const preflight = createRealReadOnlyAdapterGuardPreflight({
+      request,
+      config,
+      dryRunPlan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      now: '2026-04-30T00:00:00.000Z',
+    });
+    const processPlan = createRealReadOnlyAdapterProcessPlan({
+      dryRunId: dryRunPlan.id,
+      approvalArtifactId: approvalArtifact.id,
+      executablePath: 'codex',
+      worktreePath: 'C:/safe/worktree/telemetry',
+      timeoutMs: 1_000,
+    });
+    const completedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: 'completion body must remain hashed',
+          stderr: '',
+        }),
+      },
+    });
+    const failedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 2,
+          stdout: 'failure output must remain hashed',
+          stderr: 'failure detail must remain hashed',
+        }),
+      },
+    });
+    const abortedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: undefined,
+          stdout: 'abort output must remain hashed',
+          stderr: 'abort detail must remain hashed',
+          timedOut: true,
+        }),
+      },
+    });
+
+    const createTelemetry = (
+      boundaryResult:
+        | typeof completedBoundary
+        | typeof failedBoundary
+        | typeof abortedBoundary,
+      resultId: string,
+    ) => {
+      const input = { request, preflight, boundaryResult, resultId };
+      const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs(input);
+      const auditEvents = createRealReadOnlyAdapterAttemptAuditEvents(input, evidenceRefs);
+      const evidenceSummary = createRealReadOnlyAdapterEvidenceSummaryFromRefs(
+        input,
+        evidenceRefs,
+      );
+      const auditSummary = createRealReadOnlyAdapterAuditSummaryFromEvents(input, auditEvents);
+
+      return { evidenceRefs, auditEvents, evidenceSummary, auditSummary };
+    };
+
+    const completed = createTelemetry(
+      completedBoundary,
+      'codex_real_read_only_adapter_result_completed',
+    );
+    const failed = createTelemetry(failedBoundary, 'codex_real_read_only_adapter_result_failed');
+    const aborted = createTelemetry(
+      abortedBoundary,
+      'codex_real_read_only_adapter_result_aborted',
+    );
+    const serialized = JSON.stringify({ completed, failed, aborted });
+
+    expect(preflight.status).toBe('passed');
+    expect(completed.auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.real_read_only_adapter.after_finish',
+    );
+    expect(failed.auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.real_read_only_adapter.failure',
+    );
+    expect(aborted.auditEvents.map((event) => event.action)).toContain(
+      'codex.exec.real_read_only_adapter.abort',
+    );
+    expect(completed.evidenceSummary.outputHashCount).toBe(2);
+    expect(failed.evidenceSummary.outputHashCount).toBe(2);
+    expect(aborted.evidenceSummary.outputHashCount).toBe(2);
+    expect(completed.auditSummary.eventCount).toBe(2);
+    expect(
+      completed.auditEvents.some((event) => event.metadata?.externalProcessStarted === true),
+    ).toBe(true);
+    expect(
+      [completed, failed, aborted].every((telemetry) =>
+        telemetry.evidenceRefs.every((ref) => ref.metadata?.bodyStored === false),
+      ),
+    ).toBe(true);
+    expect(serialized).not.toContain('completion body must remain hashed');
+    expect(serialized).not.toContain('failure output must remain hashed');
+    expect(serialized).not.toContain('failure detail must remain hashed');
+    expect(serialized).not.toContain('abort output must remain hashed');
+    expect(serialized).not.toContain('abort detail must remain hashed');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
   });
 
   it('rejects conditional readiness ADR draft review for blocked packages', () => {
