@@ -21,6 +21,7 @@ interface AllowlistEntry {
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scanRoots = ['apps', 'packages', 'tools'];
+const approvedProcessBoundaryFile = 'packages/codex-kernel/src/real-read-only-adapter-process.ts';
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
 const executableTextTerms = [
@@ -114,29 +115,44 @@ function auditFile(file: string): void {
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
   for (const importPath of collectModuleSpecifiers(sourceFile, sourceText)) {
     if (externalProcessModules.includes(importPath)) {
+      if (workspacePath === approvedProcessBoundaryFile && importPath === 'node:child_process') {
+        continue;
+      }
+
       violations.push({
         file,
         line: 1,
         term: importPath,
-        reason: 'External process modules are not allowed in foundation mock code.',
+        reason:
+          'External process modules are allowed only in the audited read-only adapter boundary module.',
       });
     }
   }
 }
 
 function auditCallExpressions(file: string, sourceFile: ts.SourceFile): void {
+  const workspacePath = toWorkspacePath(file);
+
   function visit(node: ts.Node): void {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const callName = node.expression.text;
 
       if (callName === 'spawn' || callName === 'exec') {
+        if (workspacePath === approvedProcessBoundaryFile && callName === 'spawn') {
+          ts.forEachChild(node, visit);
+          return;
+        }
+
         violations.push({
           file,
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
           term: `${callName}(`,
-          reason: 'External process execution calls are not allowed in foundation mock code.',
+          reason:
+            'External process execution calls are allowed only in the audited read-only adapter boundary module.',
         });
       }
     }

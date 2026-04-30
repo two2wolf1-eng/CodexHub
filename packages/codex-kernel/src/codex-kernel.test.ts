@@ -46,8 +46,10 @@ import {
   createDefaultRealReadOnlyAdapterConfig,
   createDisabledRealReadOnlyAdapter,
   createDisabledRealReadOnlyAdapterResult,
+  createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
+  runRealReadOnlyAdapterProcessBoundary,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -2034,6 +2036,123 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('"envPlan":');
   });
 
+  it('builds a minimal real read-only adapter process plan without arbitrary arguments', () => {
+    const plan = createRealReadOnlyAdapterProcessPlan({
+      dryRunId: 'codex_dry_run_process_boundary',
+      approvalArtifactId: 'codex_approval_artifact_process_boundary',
+      executablePath: 'codex',
+      worktreePath: 'C:/safe/worktree/hash-only-in-tests',
+      timeoutMs: 1_000,
+      metadata: { ignoredArgv: ['--unsafe'] },
+    });
+
+    expect(plan.shell).toBe(false);
+    expect(plan.readOnly).toBe(true);
+    expect(plan.workspaceWriteAllowed).toBe(false);
+    expect(plan.dangerFullAccessAllowed).toBe(false);
+    expect(plan.dashboardTriggerAllowed).toBe(false);
+    expect(plan.argv).toEqual([
+      'exec',
+      '--jsonl',
+      '--sandbox',
+      'read_only',
+      '--dry-run-id',
+      'codex_dry_run_process_boundary',
+      '--approval-artifact-id',
+      'codex_approval_artifact_process_boundary',
+    ]);
+    expect(plan.argv).not.toContain('--unsafe');
+    expect(plan.commandBodyStored).toBe(false);
+    expect(plan.stdoutBodyStored).toBe(false);
+    expect(plan.stderrBodyStored).toBe(false);
+  });
+
+  it('summarizes process boundary output through an injected runner without storing raw streams', async () => {
+    const plan = createRealReadOnlyAdapterProcessPlan({
+      dryRunId: 'codex_dry_run_process_summary',
+      approvalArtifactId: 'codex_approval_artifact_process_summary',
+      executablePath: 'codex',
+      worktreePath: 'C:/safe/worktree/process-summary',
+      timeoutMs: 1_000,
+    });
+    const result = await runRealReadOnlyAdapterProcessBoundary(plan, {
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: 'synthetic process output body',
+          stderr: 'synthetic process warning body',
+        }),
+      },
+      now: fixedClock([
+        '2026-04-30T00:00:00.000Z',
+        '2026-04-30T00:00:01.250Z',
+      ]),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.shell).toBe(false);
+    expect(result.argvStored).toBe(false);
+    expect(result.executablePathStored).toBe(false);
+    expect(result.stdoutBodyStored).toBe(false);
+    expect(result.stderrBodyStored).toBe(false);
+    expect(result.stdoutSummary.contentHash).toMatch(/^sha256:/);
+    expect(result.stderrSummary.contentHash).toMatch(/^sha256:/);
+    expect(result.stdoutSummary.byteLength).toBeGreaterThan(0);
+    expect(result.stderrSummary.byteLength).toBeGreaterThan(0);
+    expect(result.durationMs).toBe(1_250);
+    expect(serialized).not.toContain('synthetic process output body');
+    expect(serialized).not.toContain('synthetic process warning body');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+  });
+
+  it('records timeout and cancel process boundary paths as aborted metadata only', async () => {
+    const plan = createRealReadOnlyAdapterProcessPlan({
+      dryRunId: 'codex_dry_run_process_abort',
+      approvalArtifactId: 'codex_approval_artifact_process_abort',
+      executablePath: 'codex',
+      worktreePath: 'C:/safe/worktree/process-abort',
+      timeoutMs: 1_000,
+    });
+    const timedOut = await runRealReadOnlyAdapterProcessBoundary(plan, {
+      runner: {
+        start: async () => ({
+          exitCode: undefined,
+          stdout: 'timeout body should not persist',
+          stderr: 'timeout detail should not persist',
+          timedOut: true,
+        }),
+      },
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const cancelled = await runRealReadOnlyAdapterProcessBoundary(plan, {
+      signal: controller.signal,
+      runner: {
+        start: async (_plan, options) => ({
+          exitCode: undefined,
+          stdout: 'cancel body should not persist',
+          stderr: 'cancel detail should not persist',
+          cancelled: options.signal?.aborted,
+        }),
+      },
+    });
+    const serialized = JSON.stringify({ timedOut, cancelled });
+
+    expect(timedOut.status).toBe('aborted');
+    expect(timedOut.timedOut).toBe(true);
+    expect(cancelled.status).toBe('aborted');
+    expect(cancelled.cancelled).toBe(true);
+    expect(timedOut.stdoutBodyStored).toBe(false);
+    expect(cancelled.stderrBodyStored).toBe(false);
+    expect(serialized).not.toContain('timeout body should not persist');
+    expect(serialized).not.toContain('timeout detail should not persist');
+    expect(serialized).not.toContain('cancel body should not persist');
+    expect(serialized).not.toContain('cancel detail should not persist');
+  });
+
   it('rejects conditional readiness ADR draft review for blocked packages', () => {
     const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
       dryRunId: 'codex_dry_run_blocked_review',
@@ -2194,4 +2313,10 @@ function createFullTimelineFixture() {
 
 function readFixture(name: string): string {
   return readFileSync(join('fixtures', name), 'utf8');
+}
+
+function fixedClock(values: string[]): () => string {
+  let index = 0;
+
+  return () => values[Math.min(index++, values.length - 1)] ?? values[values.length - 1] ?? '';
 }
