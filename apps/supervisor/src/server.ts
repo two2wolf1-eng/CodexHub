@@ -50,6 +50,11 @@ import {
   createRealReadOnlyAdapterAttemptTimeline,
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
+  buildRealReadOnlyAdapterPilotPrerequisiteRecord,
+  createRealReadOnlyAdapterPilotPrerequisiteAuditEvents,
+  createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs,
+  listRealReadOnlyAdapterPilotPrerequisiteSummaries,
+  summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   summarizeRealReadOnlyAdapterAttempt,
   getLatestReadOnlyAdapterSkeletonReview,
   getLatestReadOnlyAdapterFinalReadiness,
@@ -151,6 +156,9 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -174,6 +182,7 @@ import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow
 interface SupervisorServerOptions {
   store?: CodexHubStore;
   disableStore?: boolean;
+  configLoadResult?: CodexExecConfigLoadResult;
 }
 
 interface PersistenceState {
@@ -242,6 +251,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   }
 
   async function getLiveConfigLoadResult(): Promise<CodexExecConfigLoadResult> {
+    if (options.configLoadResult) {
+      return options.configLoadResult;
+    }
+
     configLoadPromise ??= loadCodexExecConfig();
     return configLoadPromise;
   }
@@ -2563,6 +2576,243 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
+  server.post(
+    '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+    async (request, reply) => {
+      const body = request.body as
+        | {
+            dryRunId?: string;
+            approvalArtifactId?: string;
+            worktreeLabel?: string;
+            worktreeStatus?: 'clean' | 'dirty' | 'missing' | 'unknown';
+            worktreePathHash?: string;
+            worktreePath?: string;
+            handoffContextComplete?: boolean;
+          }
+        | undefined;
+
+      if (!body?.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      if (body.worktreePath) {
+        return reply.code(400).send({
+          error: 'raw worktree paths are not accepted; provide worktreeLabel, worktreeStatus, and worktreePathHash',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          workspaceWriteAllowed: false,
+          dangerFullAccessAllowed: false,
+          dashboardTriggerAllowed: false,
+        });
+      }
+
+      if (body.worktreeStatus && !isPilotPrerequisiteWorktreeStatus(body.worktreeStatus)) {
+        return reply.code(400).send({
+          error: 'worktreeStatus must be clean, dirty, missing, or unknown',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse(body.dryRunId));
+      }
+
+      const configLoadResult = await getLiveConfigLoadResult();
+      const dryRunRecord = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+      const approvalRecords = dryRunRecord
+        ? await resolveCodexExecApprovalRecordsForDryRun(dryRunRecord.dryRunPlanId, store)
+        : [];
+      const latestAttempt = await store.codexExecRealReadOnlyAdapterAttempts.latestAttempt(
+        body.dryRunId,
+      );
+      const validUnusedApprovalPresent = approvalRecords.some((record) =>
+        isValidUnusedApprovalRecordForPilot(record, body.approvalArtifactId),
+      );
+      const authoritativeAttemptEvidencePresent =
+        latestAttempt?.authoritative === true &&
+        latestAttempt.supervisorBacked === true &&
+        latestAttempt.persisted === true &&
+        latestAttempt.degraded === false &&
+        latestAttempt.notPersisted === false;
+      const evidenceAuditReady =
+        authoritativeAttemptEvidencePresent &&
+        (latestAttempt?.evidenceRefIds.length ?? 0) > 0 &&
+        (latestAttempt?.auditEventIds.length ?? 0) > 0;
+      const record = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
+        dryRunId: body.dryRunId,
+        authoritative: true,
+        supervisorBacked: true,
+        persisted: true,
+        degraded: false,
+        notPersisted: false,
+        dryRunRecordPresent: dryRunRecord !== undefined,
+        configExplicitlyEnabled:
+          configLoadResult.status === 'loaded' && configLoadResult.config.liveEnabled === true,
+        validUnusedApprovalPresent,
+        isolatedCleanWorktreeMetadataPresent:
+          body.worktreeStatus === 'clean' && Boolean(body.worktreePathHash),
+        authoritativeAttemptEvidencePresent,
+        evidenceAuditReady,
+        fallbackUsedAsAuthority: false,
+        handoffContextComplete: body.handoffContextComplete,
+        worktreeLabel: body.worktreeLabel,
+        worktreeStatus: body.worktreeStatus,
+        worktreePathHash: body.worktreePathHash,
+        metadata: {
+          requestedBy: 'supervisor-api',
+          configLoadStatus: configLoadResult.status,
+          configSource: configLoadResult.source,
+          approvalArtifactIdProvided: Boolean(body.approvalArtifactId),
+          latestAttemptId: latestAttempt?.id,
+          worktreePathStored: false,
+        },
+      });
+      const evidenceRefs = createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs(record);
+      const auditEvents = createRealReadOnlyAdapterPilotPrerequisiteAuditEvents(
+        record,
+        evidenceRefs,
+      );
+      const recordWithRefs = {
+        ...record,
+        evidenceRefs,
+        auditEventIds: auditEvents.map((event) => event.id),
+      };
+
+      for (const evidenceRef of evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+
+      const persistedRecord =
+        await store.codexExecRealReadOnlyAdapterPilotPrerequisites.savePilotPrerequisite(
+          recordWithRefs,
+        );
+
+      return createRealReadOnlyAdapterPilotPrerequisiteResponse(persistedRecord, {
+        evidenceRefs,
+        auditEvents,
+      });
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/pilot-prerequisites/:recordId',
+    async (request, reply) => {
+      const params = request.params as { recordId?: string };
+
+      if (!params.recordId) {
+        return reply.code(400).send({
+          error: 'recordId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse());
+      }
+
+      const record = await store.codexExecRealReadOnlyAdapterPilotPrerequisites.getPilotPrerequisite(
+        params.recordId,
+      );
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'pilot prerequisite record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterPilotPrerequisiteResponse(record);
+    },
+  );
+
+  server.get('/api/codex/exec/real-read-only-adapter/pilot-prerequisites', async (request, reply) => {
+    const queryResult = parseRealReadOnlyAdapterPilotPrerequisiteQuery(request.query);
+
+    if (!queryResult.allowed) {
+      return reply.code(400).send({
+        error: queryResult.reason,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse());
+    }
+
+    const records =
+      await store.codexExecRealReadOnlyAdapterPilotPrerequisites.listPilotPrerequisites(
+        queryResult.query,
+      );
+
+    return createRealReadOnlyAdapterPilotPrerequisiteListResponse(records, queryResult.query);
+  });
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/pilot-prerequisite/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse(params.dryRunId));
+      }
+
+      const record =
+        await store.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
+          params.dryRunId,
+        );
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'pilot prerequisite record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterPilotPrerequisiteResponse(record);
+    },
+  );
+
   server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
     const params = request.params as { dryRunId?: string };
     const filterResult = parseTimelineFilter(request.query);
@@ -4199,6 +4449,120 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createRealReadOnlyAdapterPilotPrerequisiteResponse(
+    record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+    details: {
+      evidenceRefs?: ReturnType<typeof createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs>;
+      auditEvents?: ReturnType<typeof createRealReadOnlyAdapterPilotPrerequisiteAuditEvents>;
+    } = {},
+  ) {
+    return {
+      record,
+      prerequisiteRecord: record,
+      summary: summarizeRealReadOnlyAdapterPilotPrerequisiteRecord(record),
+      evidenceRefs: details.evidenceRefs ?? record.evidenceRefs,
+      auditEvents: details.auditEvents ?? [],
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      hardGateCount: record.hardGateCount,
+      passedGateCount: record.passedGateCount,
+      blockedGateCount: record.blockedGateCount,
+      requiresReviewFindingCount: record.requiresReviewFindingCount,
+      missingPrerequisites: record.missingPrerequisites,
+      degraded: false,
+      notPersisted: false,
+      configExplicitlyEnabled: record.configExplicitlyEnabled,
+      validUnusedApprovalPresent: record.validUnusedApprovalPresent,
+      isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
+      authoritativeAttemptEvidencePresent: record.authoritativeAttemptEvidencePresent,
+      evidenceAuditReady: record.evidenceAuditReady,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterPilotPrerequisiteListResponse(
+    records: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[],
+    query: Partial<CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery>,
+  ) {
+    return {
+      records,
+      prerequisiteRecords: records,
+      summaries: listRealReadOnlyAdapterPilotPrerequisiteSummaries(records, query),
+      count: records.length,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse(dryRunId?: string) {
+    return {
+      error: 'real read-only adapter pilot prerequisite store is unavailable',
+      dryRunId,
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      evidenceAuditReady: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason ?? 'store unavailable',
+    };
+  }
+
+  function isValidUnusedApprovalRecordForPilot(
+    record: CodexExecManualApprovalRecord,
+    approvalArtifactId?: string,
+  ): boolean {
+    const artifact = record.approvalArtifact;
+
+    if (!artifact) {
+      return false;
+    }
+
+    if (approvalArtifactId && artifact.id !== approvalArtifactId) {
+      return false;
+    }
+
+    return (
+      artifact.status === 'approved' &&
+      artifact.revoked === false &&
+      artifact.usedAt === undefined &&
+      artifact.dryRunPlanHash === record.request.dryRunPlanHash &&
+      artifact.policyDecisionHash === record.request.policyDecisionHash &&
+      Date.parse(artifact.expiresAt) > Date.now()
+    );
+  }
+
+  function isPilotPrerequisiteWorktreeStatus(
+    status: string,
+  ): status is 'clean' | 'dirty' | 'missing' | 'unknown' {
+    return ['clean', 'dirty', 'missing', 'unknown'].includes(status);
+  }
+
   function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
@@ -4326,6 +4690,11 @@ const realReadOnlyAdapterReadinessReviewOutcomes = new Set([
 ]);
 const realReadOnlyAdapterReadinessReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
 const realReadOnlyAdapterAttemptStatuses = new Set(['blocked', 'completed', 'failed', 'aborted']);
+const realReadOnlyAdapterPilotPrerequisiteStatuses = new Set([
+  'ready_for_pilot_retry',
+  'blocked',
+  'requires_review',
+]);
 const realReadOnlyAdapterAttemptSafetyFlags = {
   liveExecution: false,
   externalProcessStarted: false,
@@ -4806,6 +5175,33 @@ function parseRealReadOnlyAdapterAttemptTimelineQuery(
       status: status as CodexExecRealReadOnlyAdapterAttemptStatus | undefined,
       includeEvidence: parseBooleanQueryValue(readQueryValue(query, 'includeEvidence') ?? '') === true,
       includeAudit: parseBooleanQueryValue(readQueryValue(query, 'includeAudit') ?? '') === true,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseRealReadOnlyAdapterPilotPrerequisiteQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery> }
+  | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterPilotPrerequisiteStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported pilot prerequisite status' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus | undefined,
       limit: limitResult.limit,
     },
   };

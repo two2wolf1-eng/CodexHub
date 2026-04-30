@@ -165,6 +165,7 @@ import {
 } from '@codexhub/evidence-kernel';
 
 export * from './real-read-only-adapter';
+export * from './real-read-only-adapter-pilot-prerequisites';
 export * from './real-read-only-adapter-process';
 
 type JsonRecord = Record<string, unknown>;

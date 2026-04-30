@@ -22,6 +22,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecRealReadOnlyAdapterAttemptQuery,
   CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -43,6 +45,7 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessRepository,
   CodexExecRealReadOnlyAdapterReadinessReviewRepository,
   CodexExecRealReadOnlyAdapterAttemptRepository,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository,
   CodexHubStore,
   CodexReplayRepository,
   CodexReportReviewRepository,
@@ -114,6 +117,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
   readonly codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
   readonly codexExecRealReadOnlyAdapterAttempts: CodexExecRealReadOnlyAdapterAttemptRepository;
+  readonly codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -150,6 +154,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteCodexExecRealReadOnlyAdapterReadinessReviewRepository(database);
     this.codexExecRealReadOnlyAdapterAttempts =
       new SqliteCodexExecRealReadOnlyAdapterAttemptRepository(database);
+    this.codexExecRealReadOnlyAdapterPilotPrerequisites =
+      new SqliteCodexExecRealReadOnlyAdapterPilotPrerequisiteRepository(database);
   }
 
   async close(): Promise<void> {
@@ -871,6 +877,66 @@ class SqliteCodexExecRealReadOnlyAdapterAttemptRepository
   }
 }
 
+class SqliteCodexExecRealReadOnlyAdapterPilotPrerequisiteRepository
+  implements CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository
+{
+  private readonly repository: JsonEntityRepository<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord>(
+      database,
+      'codex_real_read_only_adapter_pilot_prerequisites',
+      (record) => record.createdAt,
+    );
+  }
+
+  async savePilotPrerequisite(
+    record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord> {
+    return this.repository.create(record);
+  }
+
+  async getPilotPrerequisite(
+    id: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listPilotPrerequisites(
+    query: Partial<CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery> = {},
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_real_read_only_adapter_pilot_prerequisites ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) => JSON.parse(row.payload) as CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+
+  async latestPilotPrerequisite(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord | undefined> {
+    return (await this.listPilotPrerequisites({ dryRunId, limit: 1 }))[0];
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -1065,6 +1131,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_attempts (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_pilot_prerequisites (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

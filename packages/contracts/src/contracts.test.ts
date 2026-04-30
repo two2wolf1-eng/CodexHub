@@ -74,6 +74,13 @@ import {
   CodexExecRealReadOnlyAdapterConfigSchema,
   CodexExecRealReadOnlyAdapterErrorSchema,
   CodexExecRealReadOnlyAdapterEvidenceSummarySchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteBlockerSchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteChecklistItemSchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteFindingSchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteGateSchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteQuerySchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteRecordSchema,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteSummarySchema,
   CodexExecRealReadOnlyAdapterPreflightCheckSchema,
   CodexExecRealReadOnlyAdapterPreflightSchema,
   CodexExecRealReadOnlyAdapterRequestSchema,
@@ -2822,6 +2829,170 @@ describe('contracts schemas', () => {
         ...request,
         id: 'codex_real_read_only_adapter_request_invalid_danger',
         dangerFullAccessAllowed: true,
+      }),
+    ).toThrow();
+  });
+
+  it('parses pilot prerequisite readiness models and blocks degraded ready states', () => {
+    const flagFields = {
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      agentMessageBodyStored: false,
+      reasoningBodyStored: false,
+    } as const;
+    const gate = CodexExecRealReadOnlyAdapterPilotPrerequisiteGateSchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_gate_1',
+      schemaVersion,
+      createdAt,
+      code: 'authoritative_attempt_evidence',
+      label: 'Authoritative attempt evidence',
+      category: 'authority',
+      status: 'blocked',
+      required: true,
+      summary: 'Persisted Supervisor-backed attempt evidence is required.',
+      ...flagFields,
+    });
+    const blocker = CodexExecRealReadOnlyAdapterPilotPrerequisiteBlockerSchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_blocker_1',
+      schemaVersion,
+      createdAt,
+      code: 'missing_authoritative_attempt_evidence',
+      severity: 'high',
+      relatedGateCode: gate.code,
+      summary: 'No persisted authoritative attempt evidence is available.',
+      recommendation: 'Create authoritative attempt evidence before pilot retry.',
+      ...flagFields,
+    });
+    const finding = CodexExecRealReadOnlyAdapterPilotPrerequisiteFindingSchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_finding_1',
+      schemaVersion,
+      createdAt,
+      code: 'handoff_context_incomplete',
+      severity: 'medium',
+      status: 'requires_review',
+      summary: 'Handoff context is incomplete.',
+      recommendation: 'Record operator handoff context before pilot retry.',
+      ...flagFields,
+    });
+    const checklistItem = CodexExecRealReadOnlyAdapterPilotPrerequisiteChecklistItemSchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_check_1',
+      schemaVersion,
+      createdAt,
+      code: 'config_explicitly_enabled',
+      label: 'Config explicitly enabled',
+      status: 'blocked',
+      required: true,
+      summary: 'Config is inspected only and remains disabled.',
+      ...flagFields,
+    });
+    const record = CodexExecRealReadOnlyAdapterPilotPrerequisiteRecordSchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      status: 'blocked',
+      recommendation: 'Pilot retry remains blocked until hard prerequisites are present.',
+      gates: [gate],
+      blockers: [blocker],
+      findings: [finding],
+      checklistItems: [checklistItem],
+      hardGateCount: 1,
+      passedGateCount: 0,
+      blockedGateCount: 1,
+      requiresReviewFindingCount: 1,
+      missingPrerequisites: ['authoritative_attempt_evidence'],
+      degraded: false,
+      notPersisted: false,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      evidenceAuditReady: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      worktreeLabel: 'operator-provided-isolated-worktree',
+      worktreeStatus: 'missing',
+      worktreePathHash: 'sha256:worktree-path',
+      evidenceRefs: [],
+      auditEventIds: ['audit_pilot_prerequisite_1'],
+      summary: 'Pilot prerequisite record stores status, counts, hashes, and refs only.',
+      ...flagFields,
+    });
+    const summary = CodexExecRealReadOnlyAdapterPilotPrerequisiteSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_summary_1',
+      schemaVersion,
+      createdAt,
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      hardGateCount: record.hardGateCount,
+      passedGateCount: record.passedGateCount,
+      blockedGateCount: record.blockedGateCount,
+      requiresReviewFindingCount: record.requiresReviewFindingCount,
+      missingPrerequisites: record.missingPrerequisites,
+      degraded: record.degraded,
+      notPersisted: record.notPersisted,
+      dryRunRecordPresent: record.dryRunRecordPresent,
+      configExplicitlyEnabled: record.configExplicitlyEnabled,
+      validUnusedApprovalPresent: record.validUnusedApprovalPresent,
+      isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
+      authoritativeAttemptEvidencePresent: record.authoritativeAttemptEvidencePresent,
+      evidenceAuditReady: record.evidenceAuditReady,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      recommendation: record.recommendation,
+      summary: 'Pilot prerequisite summary stores metadata only.',
+      ...flagFields,
+    });
+    const query = CodexExecRealReadOnlyAdapterPilotPrerequisiteQuerySchema.parse({
+      id: 'codex_real_read_only_adapter_pilot_prerequisite_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      status: 'blocked',
+      limit: 10,
+      ...flagFields,
+    });
+
+    expect(record.status).toBe('blocked');
+    expect(record.pilotExecuted).toBe(false);
+    expect(record.adapterAttemptInvoked).toBe(false);
+    expect(record.fallbackUsedAsAuthority).toBe(false);
+    expect(summary.status).toBe('blocked');
+    expect(query.status).toBe('blocked');
+    expect(JSON.stringify(record)).not.toContain('C:/');
+    expect(JSON.stringify(record)).not.toContain('raw prompt body');
+    expect(JSON.stringify(record)).not.toContain('raw command body');
+    expect(JSON.stringify(record)).not.toContain('raw stdout body');
+    expect(JSON.stringify(record)).not.toContain('raw stderr body');
+    expect(JSON.stringify(record)).not.toContain('"argv"');
+    expect(JSON.stringify(record)).not.toContain('"executablePath":');
+    expect(() =>
+      CodexExecRealReadOnlyAdapterPilotPrerequisiteRecordSchema.parse({
+        ...record,
+        id: 'codex_real_read_only_adapter_pilot_prerequisite_invalid_ready',
+        status: 'ready_for_pilot_retry',
+        degraded: true,
       }),
     ).toThrow();
   });

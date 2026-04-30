@@ -570,6 +570,100 @@ describe('cli development mock-run fallback', () => {
     expect(timelineOutput).not.toContain('execution approval');
   });
 
+  it('uses degraded pilot prerequisite fallbacks without creating authoritative readiness', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const {
+      checkRealReadOnlyAdapterPilotPrerequisitesCommand,
+      formatRealReadOnlyAdapterPilotPrerequisiteListOutput,
+      formatRealReadOnlyAdapterPilotPrerequisiteOutput,
+      getLatestRealReadOnlyAdapterPilotPrerequisiteCommand,
+      getRealReadOnlyAdapterPilotPrerequisiteCommand,
+      listRealReadOnlyAdapterPilotPrerequisitesCommand,
+    } = await import('./main');
+    const checked = await checkRealReadOnlyAdapterPilotPrerequisitesCommand(
+      'codex_dry_run_fixture',
+      {
+        approval: 'codex_approval_fixture',
+        worktreeLabel: 'isolated-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: 'sha256:worktree',
+      },
+    );
+    const fetched = await getRealReadOnlyAdapterPilotPrerequisiteCommand(
+      'codex_real_read_only_adapter_pilot_prerequisite_1',
+    );
+    const listed = await listRealReadOnlyAdapterPilotPrerequisitesCommand({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'ready_for_pilot_retry',
+    });
+    const latest =
+      await getLatestRealReadOnlyAdapterPilotPrerequisiteCommand('codex_dry_run_fixture');
+    const checkOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(checked);
+    const listOutput = formatRealReadOnlyAdapterPilotPrerequisiteListOutput(listed);
+    const latestOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(latest);
+
+    expect(checked).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      evidenceAuditReady: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(fetched).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(listed).toMatchObject({
+      records: [],
+      summaries: [],
+      authoritative: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(latest).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(checkOutput).toContain('status: blocked');
+    expect(checkOutput).toContain('degraded=true');
+    expect(checkOutput).toContain('notPersisted=true');
+    expect(checkOutput).toContain('fallbackUsedAsAuthority=false');
+    expect(checkOutput).toContain('pilotExecuted=false');
+    expect(checkOutput).toContain('adapterAttemptInvoked=false');
+    expect(checkOutput).toContain('workspaceWriteAllowed=false');
+    expect(checkOutput).toContain('dangerFullAccessAllowed=false');
+    expect(checkOutput).toContain('dashboardTriggerAllowed=false');
+    expect(checkOutput).toContain('degraded or notPersisted output is never ready');
+    expect(checkOutput).not.toContain('execution approval');
+    expect(listOutput).toContain('Records are metadata-only');
+    expect(listOutput).toContain('records: none');
+    expect(latestOutput).toContain('notPersisted=true');
+  });
+
   it('creates local config and manual approval records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

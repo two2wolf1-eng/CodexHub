@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createDefaultCodexExecConfigLoadResult } from '@codexhub/codex-kernel';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
 
@@ -1937,5 +1938,197 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(createResponse.json())).not.toContain('"executablePath":');
     expect(JSON.stringify(timelineResponse.json())).not.toContain('"executablePath":');
     expect(createResponse.body).not.toContain(process.cwd());
+  });
+
+  it('records pilot prerequisite readiness without running a pilot or storing raw worktree paths', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-pilot-prereq-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const defaultConfigLoadResult = createDefaultCodexExecConfigLoadResult();
+    const server = buildSupervisorServer({
+      store,
+      configLoadResult: {
+        ...defaultConfigLoadResult,
+        source: 'file',
+        status: 'loaded',
+        summary: 'Loaded explicit test config for pilot prerequisite inspection',
+        config: {
+          ...defaultConfigLoadResult.config,
+          liveEnabled: true,
+          configSource: 'file',
+        },
+      },
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/dry-run',
+      payload: {
+        title: 'Pilot prerequisite dry-run fixture',
+        prompt: 'Summarize repository structure',
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+      },
+    });
+    const dryRunId = dryRunResponse.json().liveRunRecord.id as string;
+    const blockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+      payload: { dryRunId },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/approval-request',
+      payload: {
+        dryRunId,
+        requestedBy: 'local-operator',
+        reason: 'Pilot prerequisite verification fixture',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/manual-approval',
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequest.id,
+        outcome: 'approved',
+        reason: 'Pilot prerequisite verification fixture',
+      },
+    });
+    const approvalArtifactId = approvalResponse.json().approvalArtifact.id as string;
+    const attemptResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: {
+        dryRunId,
+        approvalArtifactId,
+        isolatedWorktreeProvided: true,
+      },
+    });
+    const readyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+      payload: {
+        dryRunId,
+        approvalArtifactId,
+        worktreeLabel: 'isolated-clean-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: 'sha256:isolated-clean-worktree',
+        handoffContextComplete: true,
+      },
+    });
+    const recordId = readyResponse.json().recordId as string;
+    const getResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/pilot-prerequisites/${recordId}`,
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/pilot-prerequisites?dryRunId=${dryRunId}&status=ready_for_pilot_retry&limit=10`,
+    });
+    const latestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/pilot-prerequisite/latest/${dryRunId}`,
+    });
+    const rawPathResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+      payload: {
+        dryRunId,
+        worktreePath: 'C:/safe/worktree',
+      },
+    });
+    const invalidQueryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites?status=pilot_passed',
+    });
+    const missingBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+      payload: {},
+    });
+    const disabledStoreServer = buildSupervisorServer({ disableStore: true });
+    const disabledStoreResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+      payload: { dryRunId },
+    });
+
+    await disabledStoreServer.close();
+    await server.close();
+    await store.close();
+
+    expect(blockedResponse.statusCode).toBe(200);
+    expect(blockedResponse.json()).toMatchObject({
+      status: 'blocked',
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(attemptResponse.statusCode).toBe(200);
+    expect(attemptResponse.json().attemptRecord.processBoundaryInvoked).toBe(false);
+    expect(readyResponse.statusCode).toBe(200);
+    expect(readyResponse.json()).toMatchObject({
+      recordId,
+      dryRunId,
+      status: 'ready_for_pilot_retry',
+      degraded: false,
+      notPersisted: false,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeAttemptEvidencePresent: true,
+      evidenceAuditReady: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(readyResponse.json().hardGateCount).toBeGreaterThan(0);
+    expect(readyResponse.json().blockedGateCount).toBe(0);
+    expect(readyResponse.json().evidenceRefs.length).toBeGreaterThan(0);
+    expect(readyResponse.json().auditEvents.length).toBeGreaterThan(0);
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json().recordId).toBe(recordId);
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().summaries).toHaveLength(1);
+    expect(latestResponse.statusCode).toBe(200);
+    expect(latestResponse.json().recordId).toBe(recordId);
+    expect(rawPathResponse.statusCode).toBe(400);
+    expect(rawPathResponse.body).not.toContain('C:/safe/worktree');
+    expect(invalidQueryResponse.statusCode).toBe(400);
+    expect(missingBodyResponse.statusCode).toBe(400);
+    expect(disabledStoreResponse.statusCode).toBe(503);
+    expect(disabledStoreResponse.json()).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      evidenceAuditReady: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(JSON.stringify(readyResponse.json())).not.toContain('C:/safe/worktree');
+    expect(JSON.stringify(readyResponse.json())).not.toContain('raw prompt body');
+    expect(JSON.stringify(readyResponse.json())).not.toContain('raw command body');
+    expect(JSON.stringify(readyResponse.json())).not.toContain('raw stdout body');
+    expect(JSON.stringify(readyResponse.json())).not.toContain('raw stderr body');
+    expect(JSON.stringify(readyResponse.json())).not.toContain('"argv"');
+    expect(JSON.stringify(readyResponse.json())).not.toContain('"executablePath":');
+    expect(readyResponse.body).not.toContain(process.cwd());
   });
 });

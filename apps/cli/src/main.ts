@@ -40,6 +40,7 @@ import {
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterAttempt,
+  summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   summarizeRealReadOnlyAdapterReadinessPackage,
   runReadOnlyAdapterFixtureBoundary,
   summarizeReadOnlyAdapterFixtureBoundary,
@@ -129,6 +130,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -312,6 +315,21 @@ export interface CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions
   extends CodexExecRealReadOnlyAdapterAttemptListCliOptions {
   includeEvidence?: boolean;
   includeAudit?: boolean;
+}
+
+export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions
+  extends CodexExecJsonCliOptions {
+  approval?: string;
+  worktreeLabel?: string;
+  worktreeStatus?: string;
+  worktreePathHash?: string;
+  handoffContextComplete?: boolean;
+}
+
+export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions
+  extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
 }
 
 export function buildProgram(): Command {
@@ -1085,6 +1103,71 @@ export function buildProgram(): Command {
         console.log(formatRealReadOnlyAdapterAttemptTimelineOutput(result, options));
       },
     );
+
+  const pilotPrerequisitesCommand = realReadOnlyAdapterCommand
+    .command('pilot-prerequisites')
+    .description('Read pilot retry prerequisite readiness without running a pilot')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Readiness rules:',
+        '  - readiness requires persisted Supervisor-backed evidence',
+        '  - degraded or notPersisted fallback output is display-only and never ready',
+        '  - this command does not create approvals, enable config, invoke attempts, or run pilots',
+      ].join('\n'),
+    );
+
+  pilotPrerequisitesCommand
+    .command('check')
+    .argument('<dryRunId>')
+    .option('--approval <approvalArtifactId>', 'Existing approval artifact id to verify')
+    .option('--worktree-label <label>', 'Isolated worktree label, not a local path')
+    .option('--worktree-status <status>', 'Worktree metadata status: clean, dirty, missing, or unknown')
+    .option('--worktree-path-hash <hash>', 'Hash for the isolated worktree path')
+    .option('--handoff-context-complete', 'Mark operator handoff context metadata as complete')
+    .option('--json', 'Print full JSON output')
+    .description('Create a persisted prerequisite readiness record from existing metadata only')
+    .action(
+      async (
+        dryRunId: string,
+        options: CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions,
+      ) => {
+        const result = await checkRealReadOnlyAdapterPilotPrerequisitesCommand(dryRunId, options);
+        console.log(formatRealReadOnlyAdapterPilotPrerequisiteOutput(result, options));
+      },
+    );
+
+  pilotPrerequisitesCommand
+    .command('get')
+    .argument('<recordId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one pilot prerequisite readiness record')
+    .action(async (recordId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getRealReadOnlyAdapterPilotPrerequisiteCommand(recordId);
+      console.log(formatRealReadOnlyAdapterPilotPrerequisiteOutput(result, options));
+    });
+
+  pilotPrerequisitesCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by prerequisite status')
+    .option('--json', 'Print full JSON output')
+    .description('List pilot prerequisite readiness records')
+    .action(async (options: CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions) => {
+      const result = await listRealReadOnlyAdapterPilotPrerequisitesCommand(options);
+      console.log(formatRealReadOnlyAdapterPilotPrerequisiteListOutput(result, options));
+    });
+
+  pilotPrerequisitesCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest pilot prerequisite readiness record for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestRealReadOnlyAdapterPilotPrerequisiteCommand(dryRunId);
+      console.log(formatRealReadOnlyAdapterPilotPrerequisiteOutput(result, options));
+    });
 
   const readinessCommand = realReadOnlyAdapterCommand
     .command('readiness')
@@ -3147,6 +3230,136 @@ export async function getRealReadOnlyAdapterAttemptTimelineCommand(
   }
 }
 
+export async function checkRealReadOnlyAdapterPilotPrerequisitesCommand(
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisites`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRunId,
+          approvalArtifactId: options.approval,
+          worktreeLabel: options.worktreeLabel,
+          worktreeStatus: options.worktreeStatus,
+          worktreePathHash: options.worktreePathHash,
+          handoffContextComplete: options.handoffContextComplete === true,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
+      `supervisor unavailable or rejected the prerequisite check for ${dryRunId}; fallback is display-only and cannot be ready`,
+      dryRunId,
+    );
+  }
+}
+
+export async function getRealReadOnlyAdapterPilotPrerequisiteCommand(
+  recordId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisites/${encodeURIComponent(
+        recordId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
+      `supervisor unavailable; prerequisite record ${recordId} was not read from an authoritative store`,
+    );
+  }
+}
+
+export async function listRealReadOnlyAdapterPilotPrerequisitesCommand(
+  options: CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterPilotPrerequisiteQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisites${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return {
+      records: [],
+      prerequisiteRecords: [],
+      summaries: [],
+      count: 0,
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      status: 'blocked',
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      evidenceAuditReady: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      reason:
+        'supervisor unavailable; pilot prerequisite list fallback is display-only and not authoritative',
+    };
+  }
+}
+
+export async function getLatestRealReadOnlyAdapterPilotPrerequisiteCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
+      `supervisor unavailable; latest prerequisite readiness for ${dryRunId} is display-only and not authoritative`,
+      dryRunId,
+    );
+  }
+}
+
 export async function createCodexExecReportReview(
   dryRunId: string,
   options: CodexExecReportReviewCreateCliOptions = {},
@@ -4591,6 +4804,23 @@ function createRealReadOnlyAdapterAttemptQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createRealReadOnlyAdapterPilotPrerequisiteQueryString(
+  options: CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeRealReadOnlyAdapterPilotPrerequisiteStatus(options.status));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createReportReviewQueryFromCliOptions(
   options: CodexExecReportReviewListCliOptions,
   fallbackDryRunId: string,
@@ -4889,6 +5119,16 @@ function normalizeRealReadOnlyAdapterAttemptStatus(
 ): CodexExecRealReadOnlyAdapterAttemptStatus {
   if (['blocked', 'completed', 'failed', 'aborted'].includes(status)) {
     return status as CodexExecRealReadOnlyAdapterAttemptStatus;
+  }
+
+  return 'blocked';
+}
+
+function normalizeRealReadOnlyAdapterPilotPrerequisiteStatus(
+  status: string,
+): CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus {
+  if (['ready_for_pilot_retry', 'blocked', 'requires_review'].includes(status)) {
+    return status as CodexExecRealReadOnlyAdapterPilotPrerequisiteStatus;
   }
 
   return 'blocked';
@@ -5321,6 +5561,52 @@ function createRealReadOnlyAdapterAttemptTimelineReadFallback(
     dashboardTriggerAllowed: false,
     degraded: true,
     notPersisted: true,
+    reason,
+  };
+}
+
+function createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    record: undefined,
+    prerequisiteRecord: undefined,
+    summary: undefined,
+    records: [],
+    prerequisiteRecords: [],
+    summaries: [],
+    count: 0,
+    dryRunId,
+    status: 'blocked',
+    hardGateCount: 0,
+    passedGateCount: 0,
+    blockedGateCount: 1,
+    requiresReviewFindingCount: 0,
+    missingPrerequisites: ['authoritative_persisted_prerequisite_source'],
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
+    degraded: true,
+    notPersisted: true,
+    configExplicitlyEnabled: false,
+    validUnusedApprovalPresent: false,
+    isolatedCleanWorktreeMetadataPresent: false,
+    authoritativeAttemptEvidencePresent: false,
+    evidenceAuditReady: false,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
     reason,
   };
 }
@@ -5998,6 +6284,117 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
     noLiveFlagsText(result),
     entryLines.length > 0 ? 'timeline:' : 'timeline: none',
     ...entryLines,
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterPilotPrerequisiteOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = (result.record ?? result.prerequisiteRecord) as
+    | CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord
+    | undefined;
+  const missingPrerequisites = Array.isArray(result.missingPrerequisites)
+    ? (result.missingPrerequisites as string[])
+    : (record?.missingPrerequisites ?? []);
+
+  return [
+    'Real read-only adapter pilot prerequisite readiness',
+    `recordId: ${record?.id ?? result.recordId ?? 'not-persisted'}`,
+    `dryRunId: ${record?.dryRunId ?? result.dryRunId ?? 'unknown'}`,
+    `status: ${record?.status ?? result.status ?? 'blocked'}`,
+    `hardGateCount=${String(record?.hardGateCount ?? result.hardGateCount ?? 0)}`,
+    `passedGateCount=${String(record?.passedGateCount ?? result.passedGateCount ?? 0)}`,
+    `blockedGateCount=${String(record?.blockedGateCount ?? result.blockedGateCount ?? 0)}`,
+    `requiresReviewFindingCount=${String(
+      record?.requiresReviewFindingCount ?? result.requiresReviewFindingCount ?? 0,
+    )}`,
+    `degraded=${String(record?.degraded ?? result.degraded ?? true)}`,
+    `notPersisted=${String(record?.notPersisted ?? result.notPersisted ?? true)}`,
+    `configExplicitlyEnabled=${String(
+      record?.configExplicitlyEnabled ?? result.configExplicitlyEnabled ?? false,
+    )}`,
+    `validUnusedApprovalPresent=${String(
+      record?.validUnusedApprovalPresent ?? result.validUnusedApprovalPresent ?? false,
+    )}`,
+    `isolatedCleanWorktreeMetadataPresent=${String(
+      record?.isolatedCleanWorktreeMetadataPresent ??
+        result.isolatedCleanWorktreeMetadataPresent ??
+        false,
+    )}`,
+    `authoritativeAttemptEvidencePresent=${String(
+      record?.authoritativeAttemptEvidencePresent ??
+        result.authoritativeAttemptEvidencePresent ??
+        false,
+    )}`,
+    `evidenceAuditReady=${String(record?.evidenceAuditReady ?? result.evidenceAuditReady ?? false)}`,
+    `fallbackUsedAsAuthority=${String(
+      record?.fallbackUsedAsAuthority ?? result.fallbackUsedAsAuthority ?? false,
+    )}`,
+    `pilotExecuted=${String(record?.pilotExecuted ?? result.pilotExecuted ?? false)}`,
+    `adapterAttemptInvoked=${String(
+      record?.adapterAttemptInvoked ?? result.adapterAttemptInvoked ?? false,
+    )}`,
+    `dashboardTriggerAllowed=${String(result.dashboardTriggerAllowed ?? false)}`,
+    `workspaceWriteAllowed=${String(result.workspaceWriteAllowed ?? false)}`,
+    `dangerFullAccessAllowed=${String(result.dangerFullAccessAllowed ?? false)}`,
+    'ready_for_pilot_retry requires persisted Supervisor-backed evidence; degraded or notPersisted output is never ready.',
+    '4F.1 does not create approvals, enable config, invoke the adapter attempt path, or run a pilot.',
+    noLiveFlagsText(result),
+    missingPrerequisites.length > 0 ? 'missing prerequisites:' : 'missing prerequisites: none',
+    ...missingPrerequisites.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterPilotPrerequisiteListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (Array.isArray(result.records)
+    ? result.records
+    : result.prerequisiteRecords) as
+    | CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[]
+    | undefined;
+  const summaries = Array.isArray(result.summaries)
+    ? (result.summaries as Array<{
+        recordId?: string;
+        id?: string;
+        dryRunId?: string;
+        status?: string;
+        blockedGateCount?: number;
+      }>)
+    : (records ?? []).map((record) => summarizeRealReadOnlyAdapterPilotPrerequisiteRecord(record));
+  const lines = summaries
+    .slice(0, 10)
+    .map(
+      (summary) =>
+        `- ${summary.status ?? 'unknown'} ${summary.recordId ?? summary.id ?? 'unknown'} dryRunId=${
+          summary.dryRunId ?? 'unknown'
+        } blockedGates=${String(summary.blockedGateCount ?? 0)}`,
+    );
+
+  return [
+    'Real read-only adapter pilot prerequisite records',
+    `count: ${String(result.count ?? summaries.length)}`,
+    `authoritative=${String(result.authoritative ?? false)}`,
+    `supervisorBacked=${String(result.supervisorBacked ?? false)}`,
+    `degraded=${String(result.degraded ?? true)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    `fallbackUsedAsAuthority=${String(result.fallbackUsedAsAuthority ?? false)}`,
+    `pilotExecuted=${String(result.pilotExecuted ?? false)}`,
+    `adapterAttemptInvoked=${String(result.adapterAttemptInvoked ?? false)}`,
+    'Records are metadata-only. They do not run a pilot or grant broader use.',
+    noLiveFlagsText(result),
+    lines.length > 0 ? 'records:' : 'records: none',
+    ...lines,
   ].join('\n');
 }
 

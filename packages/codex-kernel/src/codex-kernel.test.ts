@@ -53,6 +53,12 @@ import {
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterBlockedResult,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
+  buildRealReadOnlyAdapterPilotPrerequisiteRecord,
+  createRealReadOnlyAdapterPilotPrerequisiteAuditEvents,
+  createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs,
+  getLatestRealReadOnlyAdapterPilotPrerequisite,
+  listRealReadOnlyAdapterPilotPrerequisiteSummaries,
+  summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   listRealReadOnlyAdapterAttemptSummaries,
   summarizeRealReadOnlyAdapterAttempt,
   createRealReadOnlyAdapterPostRunVerificationPlan,
@@ -2579,6 +2585,138 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('failed record detail must remain hashed');
     expect(serialized).not.toContain('aborted record body must remain hashed');
     expect(serialized).not.toContain('aborted record detail must remain hashed');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+  });
+
+  it('classifies pilot prerequisite readiness without treating fallback as authority', () => {
+    const blocked = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
+      dryRunId: 'codex_dry_run_pilot_blocked',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: false,
+      validUnusedApprovalPresent: false,
+      isolatedCleanWorktreeMetadataPresent: false,
+      authoritativeAttemptEvidencePresent: false,
+      evidenceAuditReady: false,
+      worktreeLabel: 'operator-isolated-worktree',
+      worktreeStatus: 'missing',
+      worktreePathHash: 'sha256:missing',
+    });
+    const fallbackBlocked = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
+      dryRunId: 'codex_dry_run_pilot_fallback',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeAttemptEvidencePresent: true,
+      evidenceAuditReady: true,
+    });
+    const requiresReview = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
+      dryRunId: 'codex_dry_run_pilot_review',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeAttemptEvidencePresent: true,
+      evidenceAuditReady: true,
+      handoffContextComplete: false,
+    });
+    const ready = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
+      dryRunId: 'codex_dry_run_pilot_ready',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeAttemptEvidencePresent: true,
+      evidenceAuditReady: true,
+      worktreeLabel: 'operator-isolated-worktree',
+      worktreeStatus: 'clean',
+      worktreePathHash: 'sha256:clean-worktree',
+    });
+    const evidenceRefs = createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs(ready);
+    const auditEvents = createRealReadOnlyAdapterPilotPrerequisiteAuditEvents(ready, evidenceRefs);
+    const readyWithRefs = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
+      dryRunId: ready.dryRunId,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      validUnusedApprovalPresent: true,
+      isolatedCleanWorktreeMetadataPresent: true,
+      authoritativeAttemptEvidencePresent: true,
+      evidenceAuditReady: true,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    });
+    const summaries = listRealReadOnlyAdapterPilotPrerequisiteSummaries(
+      [blocked, fallbackBlocked, requiresReview, readyWithRefs],
+      { limit: 10 },
+    );
+    const latest = getLatestRealReadOnlyAdapterPilotPrerequisite(
+      [blocked, readyWithRefs],
+      readyWithRefs.dryRunId,
+    );
+    const readySummary = summarizeRealReadOnlyAdapterPilotPrerequisiteRecord(readyWithRefs);
+    const serialized = JSON.stringify({
+      blocked,
+      fallbackBlocked,
+      requiresReview,
+      readyWithRefs,
+      evidenceRefs,
+      auditEvents,
+      summaries,
+    });
+
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.missingPrerequisites).toEqual(
+      expect.arrayContaining([
+        'config_explicitly_enabled',
+        'valid_unused_approval',
+        'isolated_clean_worktree_metadata',
+        'authoritative_attempt_evidence',
+        'evidence_audit_ready',
+      ]),
+    );
+    expect(fallbackBlocked.status).toBe('blocked');
+    expect(fallbackBlocked.degraded).toBe(true);
+    expect(fallbackBlocked.notPersisted).toBe(true);
+    expect(fallbackBlocked.fallbackUsedAsAuthority).toBe(false);
+    expect(fallbackBlocked.missingPrerequisites).toContain('source_persisted_authoritative');
+    expect(requiresReview.status).toBe('requires_review');
+    expect(requiresReview.requiresReviewFindingCount).toBe(1);
+    expect(ready.status).toBe('ready_for_pilot_retry');
+    expect(readyWithRefs.status).toBe('ready_for_pilot_retry');
+    expect(readyWithRefs.evidenceRefs).toHaveLength(1);
+    expect(readyWithRefs.auditEventIds).toHaveLength(1);
+    expect(readySummary.pilotExecuted).toBe(false);
+    expect(readySummary.adapterAttemptInvoked).toBe(false);
+    expect(latest?.recordId).toBe(readyWithRefs.id);
+    expect(summaries).toHaveLength(4);
+    expect(evidenceRefs[0]?.summary).toContain('metadata, hashes, counts, and refs only');
+    expect(auditEvents[0]?.action).toBe(
+      'codex.exec.real_read_only_adapter.pilot_prerequisite_recorded',
+    );
+    expect(serialized).not.toContain('raw prompt body');
+    expect(serialized).not.toContain('raw command body');
+    expect(serialized).not.toContain('raw stdout body');
+    expect(serialized).not.toContain('raw stderr body');
+    expect(serialized).not.toContain('C:/');
     expect(serialized).not.toContain('"argv":');
     expect(serialized).not.toContain('"executablePath":');
   });

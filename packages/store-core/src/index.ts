@@ -18,6 +18,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecRealReadOnlyAdapterAttemptQuery,
   CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery,
+  CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -199,6 +201,21 @@ export interface CodexExecRealReadOnlyAdapterAttemptRepository {
   latestAttempt(dryRunId: string): Promise<CodexExecRealReadOnlyAdapterAttemptRecord | undefined>;
 }
 
+export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository {
+  savePilotPrerequisite(
+    record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord>;
+  getPilotPrerequisite(
+    id: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord | undefined>;
+  listPilotPrerequisites(
+    query?: Partial<CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery>,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[]>;
+  latestPilotPrerequisite(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord | undefined>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -217,6 +234,7 @@ export interface CodexHubStore {
   codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
   codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
   codexExecRealReadOnlyAdapterAttempts: CodexExecRealReadOnlyAdapterAttemptRepository;
+  codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
   close(): Promise<void>;
 }
 

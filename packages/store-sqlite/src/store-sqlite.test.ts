@@ -13,6 +13,7 @@ import {
   type CodexExecRealReadOnlyAdapterReadinessPackage,
   type CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
   type CodexExecRealReadOnlyAdapterAttemptRecord,
+  type CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
@@ -193,6 +194,11 @@ describe('store-sqlite migration initialization', () => {
     const realReadOnlyAdapterAttempt: CodexExecRealReadOnlyAdapterAttemptRecord =
       createRealReadOnlyAdapterAttemptFixture();
     await first.codexExecRealReadOnlyAdapterAttempts.saveAttempt(realReadOnlyAdapterAttempt);
+    const realReadOnlyAdapterPilotPrerequisite: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord =
+      createRealReadOnlyAdapterPilotPrerequisiteFixture();
+    await first.codexExecRealReadOnlyAdapterPilotPrerequisites.savePilotPrerequisite(
+      realReadOnlyAdapterPilotPrerequisite,
+    );
     await first.close();
 
     const second = await createSqliteStore({ dbPath });
@@ -313,6 +319,20 @@ describe('store-sqlite migration initialization', () => {
       );
     const latestRealReadOnlyAdapterAttemptRecord =
       await second.codexExecRealReadOnlyAdapterAttempts.latestAttempt('codex_dry_run_1');
+    const realReadOnlyAdapterPilotPrerequisites =
+      await second.codexExecRealReadOnlyAdapterPilotPrerequisites.listPilotPrerequisites({
+        dryRunId: 'codex_dry_run_1',
+        status: 'blocked',
+        limit: 10,
+      });
+    const realReadOnlyAdapterPilotPrerequisiteRecord =
+      await second.codexExecRealReadOnlyAdapterPilotPrerequisites.getPilotPrerequisite(
+        'codex_real_read_only_adapter_pilot_prerequisite_1',
+      );
+    const latestRealReadOnlyAdapterPilotPrerequisiteRecord =
+      await second.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
+        'codex_dry_run_1',
+      );
     await second.close();
 
     expect(resolveCodexHubDbPath({ dbPath })).toBe(dbPath);
@@ -423,6 +443,20 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw stderr body');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"argv"');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"executablePath":');
+    expect(realReadOnlyAdapterPilotPrerequisites).toHaveLength(1);
+    expect(realReadOnlyAdapterPilotPrerequisiteRecord?.status).toBe('blocked');
+    expect(realReadOnlyAdapterPilotPrerequisiteRecord?.pilotExecuted).toBe(false);
+    expect(realReadOnlyAdapterPilotPrerequisiteRecord?.adapterAttemptInvoked).toBe(false);
+    expect(realReadOnlyAdapterPilotPrerequisiteRecord?.fallbackUsedAsAuthority).toBe(false);
+    expect(latestRealReadOnlyAdapterPilotPrerequisiteRecord?.id).toBe(
+      'codex_real_read_only_adapter_pilot_prerequisite_1',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterPilotPrerequisiteRecord)).not.toContain(
+      'C:/safe/worktree',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterPilotPrerequisiteRecord)).not.toContain(
+      'raw prompt body',
+    );
   });
 });
 
@@ -1170,6 +1204,114 @@ function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapter
       stdoutBodyStored: false,
       stderrBodyStored: false,
       worktreePathStored: false,
+    },
+    ...flags,
+  };
+}
+
+function createRealReadOnlyAdapterPilotPrerequisiteFixture(): CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord {
+  const createdAt = '2026-04-28T00:00:14.000Z';
+  const flags = {
+    metadataOnly: true as const,
+    bodyStored: false as const,
+    promptBodyStored: false as const,
+    commandBodyStored: false as const,
+    stdoutBodyStored: false as const,
+    stderrBodyStored: false as const,
+    agentMessageBodyStored: false as const,
+    reasoningBodyStored: false as const,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+    processAdapterStarted: false as const,
+    implementationApproved: false as const,
+    processAdapterApproved: false as const,
+    dashboardTriggerAllowed: false as const,
+    recommendationGrantsExecution: false as const,
+    workspaceWriteAllowed: false as const,
+    dangerFullAccessAllowed: false as const,
+  };
+  const gate = {
+    id: 'codex_real_read_only_adapter_pilot_prerequisite_gate_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    code: 'config_explicitly_enabled',
+    label: 'Config explicitly enabled',
+    category: 'config' as const,
+    status: 'blocked' as const,
+    required: true,
+    summary: 'Config is inspected only and remains disabled.',
+    ...flags,
+  };
+
+  return {
+    id: 'codex_real_read_only_adapter_pilot_prerequisite_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    status: 'blocked',
+    recommendation: 'Pilot retry remains blocked until prerequisites are present.',
+    gates: [gate],
+    blockers: [
+      {
+        id: 'codex_real_read_only_adapter_pilot_prerequisite_blocker_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: 'missing_config_explicitly_enabled',
+        severity: 'high',
+        relatedGateCode: gate.code,
+        summary: gate.summary,
+        recommendation: 'Record explicit config enablement before pilot retry.',
+        ...flags,
+      },
+    ],
+    findings: [],
+    checklistItems: [
+      {
+        id: 'codex_real_read_only_adapter_pilot_prerequisite_check_1',
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt,
+        code: gate.code,
+        label: gate.label,
+        status: gate.status,
+        required: gate.required,
+        summary: gate.summary,
+        ...flags,
+      },
+    ],
+    hardGateCount: 1,
+    passedGateCount: 0,
+    blockedGateCount: 1,
+    requiresReviewFindingCount: 0,
+    missingPrerequisites: ['config_explicitly_enabled'],
+    degraded: false,
+    notPersisted: false,
+    dryRunRecordPresent: true,
+    configExplicitlyEnabled: false,
+    validUnusedApprovalPresent: false,
+    isolatedCleanWorktreeMetadataPresent: false,
+    authoritativeAttemptEvidencePresent: false,
+    evidenceAuditReady: false,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    authoritative: true,
+    supervisorBacked: true,
+    persisted: true,
+    worktreeLabel: 'operator-isolated-worktree',
+    worktreeStatus: 'missing',
+    worktreePathHash: 'sha256:worktree',
+    evidenceRefs: [],
+    auditEventIds: ['audit_real_read_only_adapter_pilot_prerequisite_1'],
+    summary: 'Pilot prerequisite record stores metadata only.',
+    metadata: {
+      source: 'store-sqlite-test',
+      worktreePathStored: false,
+      metadataOnly: true,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
     },
     ...flags,
   };
