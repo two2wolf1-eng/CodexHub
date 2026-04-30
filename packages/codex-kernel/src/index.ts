@@ -164,6 +164,8 @@ import {
   hashText,
 } from '@codexhub/evidence-kernel';
 
+export * from './real-read-only-adapter';
+
 type JsonRecord = Record<string, unknown>;
 
 export interface CodexExecEvent {

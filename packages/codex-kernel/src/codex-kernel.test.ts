@@ -43,6 +43,10 @@ import {
   summarizeRealReadOnlyAdapterReadinessPackage,
   summarizeRealReadOnlyAdapterReadinessReview,
   validateRealReadOnlyAdapterReadinessReviewDecision,
+  createDefaultRealReadOnlyAdapterConfig,
+  createDisabledRealReadOnlyAdapter,
+  createDisabledRealReadOnlyAdapterResult,
+  createRealReadOnlyAdapterRequest,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -1818,6 +1822,51 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(JSON.stringify(reviewRecord)).not.toContain('full report markdown');
     expect(JSON.stringify(reviewRecord)).not.toContain('prompt body');
     expect(JSON.stringify(reviewRecord)).not.toContain('stdout');
+  });
+
+  it('keeps the real read-only adapter disabled by default without runnable boundary data', async () => {
+    const config = createDefaultRealReadOnlyAdapterConfig();
+    const request = createRealReadOnlyAdapterRequest({
+      dryRunId: 'codex_dry_run_disabled_default',
+      config,
+    });
+    const adapter = createDisabledRealReadOnlyAdapter();
+    const result = await adapter.attempt({
+      dryRunId: 'codex_dry_run_disabled_default',
+      config,
+    });
+    const directResult = createDisabledRealReadOnlyAdapterResult({
+      dryRunId: 'codex_dry_run_disabled_default',
+      config,
+    });
+    const serialized = JSON.stringify({ config, request, result, directResult });
+
+    expect(config.status).toBe('disabled');
+    expect(config.defaultEnabled).toBe(false);
+    expect(config.configuredEnabled).toBe(false);
+    expect(config.executionDisabled).toBe(true);
+    expect(config.workspaceWriteAllowed).toBe(false);
+    expect(config.dangerFullAccessAllowed).toBe(false);
+    expect(config.dashboardTriggerAllowed).toBe(false);
+    expect(config.noRunnableCommand).toBe(true);
+    expect(request.triggerKind).toBe('cli');
+    expect(request.requestedSandboxMode).toBe('read_only');
+    expect(result.status).toBe('blocked');
+    expect(result.error?.code).toBe('config_disabled');
+    expect(result.executionDisabled).toBe(true);
+    expect(result.processAdapterStarted).toBe(false);
+    expect(result.implementationApproved).toBe(false);
+    expect(result.processAdapterApproved).toBe(false);
+    expect(result.recommendationGrantsExecution).toBe(false);
+    expect(result.evidenceSummary?.eventHashCount).toBe(0);
+    expect(result.auditSummary?.eventCount).toBe(0);
+    expect(directResult.error?.absolutePathLeaked).toBe(false);
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+    expect(serialized).not.toContain('"shellSnippet":');
+    expect(serialized).not.toContain('"envPlan":');
+    expect(serialized).not.toContain('stdout body');
+    expect(serialized).not.toContain('prompt body');
   });
 
   it('rejects conditional readiness ADR draft review for blocked packages', () => {
