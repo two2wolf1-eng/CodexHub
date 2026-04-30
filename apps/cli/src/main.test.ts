@@ -419,6 +419,69 @@ describe('cli development mock-run fallback', () => {
     expect(listOutput).not.toContain('execution approval');
   });
 
+  it('blocks real read-only adapter CLI attempts when supervisor attempt path is unavailable', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const { attemptRealReadOnlyAdapterCommand, formatRealReadOnlyAdapterAttemptOutput } =
+      await import('./main');
+    const result = await attemptRealReadOnlyAdapterCommand('codex_dry_run_fixture', {
+      approval: 'codex_approval_fixture',
+      worktree: 'C:/safe/isolated-worktree',
+    });
+    const output = formatRealReadOnlyAdapterAttemptOutput(result);
+
+    expect(result).toMatchObject({
+      status: 'blocked',
+      attempt: {
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+        argvStored: false,
+        executablePathStored: false,
+      },
+      preflight: {
+        status: 'failed',
+      },
+      degraded: false,
+      notPersisted: true,
+      fallbackRefused: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(
+      (result.preflight as { checks: Array<{ code: string; status: string }> }).checks.map(
+        (check) => check.code,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'config_explicit_enable',
+        'approval_artifact_exists',
+        'dry_run_hash_match',
+        'policy_hash_match',
+        'isolated_worktree_clean',
+        'evidence_store_ready',
+        'audit_store_ready',
+      ]),
+    );
+    expect(output).toContain('processBoundaryInvoked=false');
+    expect(output).toContain('implementationApproved=false');
+    expect(output).toContain('processAdapterApproved=false');
+    expect(output).toContain('recommendationGrantsExecution=false');
+    expect(output).not.toContain('execution approval');
+    expect(JSON.stringify(result)).not.toContain('C:/safe/isolated-worktree');
+    expect(JSON.stringify(result)).not.toContain('"argv":');
+    expect(JSON.stringify(result)).not.toContain('"executablePath":');
+  });
+
   it('creates local config and manual approval records when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

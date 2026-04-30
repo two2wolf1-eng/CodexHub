@@ -34,6 +34,9 @@ import {
   createReadOnlyAdapterFinalReadinessEvidenceRefs,
   createReadOnlyAdapterFinalReadinessAuditEvents,
   buildRealReadOnlyAdapterReadinessPackage,
+  createDefaultRealReadOnlyAdapterConfig,
+  createRealReadOnlyAdapterGuardPreflight,
+  createRealReadOnlyAdapterRequest,
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterReadinessPackage,
@@ -288,6 +291,11 @@ export interface CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions exten
   dryRun?: string;
   status?: string;
   outcome?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterAttemptCliOptions extends CodexExecJsonCliOptions {
+  approval?: string;
+  worktree?: string;
 }
 
 export function buildProgram(): Command {
@@ -956,6 +964,20 @@ export function buildProgram(): Command {
   const realReadOnlyAdapterCommand = execCommand
     .command('real-read-only-adapter')
     .description('Real read-only adapter readiness commands without execution approval');
+
+  realReadOnlyAdapterCommand
+    .command('attempt')
+    .argument('<dryRunId>')
+    .requiredOption('--approval <approvalArtifactId>', 'Existing approval artifact id')
+    .requiredOption('--worktree <path>', 'Existing isolated worktree path')
+    .option('--json', 'Print full JSON output')
+    .description('Attempt the gated CLI-only read-only adapter path')
+    .action(
+      async (dryRunId: string, options: CodexExecRealReadOnlyAdapterAttemptCliOptions) => {
+        const result = await attemptRealReadOnlyAdapterCommand(dryRunId, options);
+        console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
+      },
+    );
 
   const readinessCommand = realReadOnlyAdapterCommand
     .command('readiness')
@@ -2871,6 +2893,34 @@ export async function getLatestRealReadOnlyAdapterReadinessReviewCommand(
     return createReadinessReviewUnavailableResponse(
       'supervisor unavailable; latest readiness review fallback is display-only',
     );
+  }
+}
+
+export async function attemptRealReadOnlyAdapterCommand(
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterAttemptCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRunId,
+          approvalArtifactId: options.approval,
+          isolatedWorktreeProvided: options.worktree !== undefined,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterAttemptRefusal(dryRunId, options);
   }
 }
 
@@ -4818,6 +4868,100 @@ function createRealReadOnlyAdapterReadinessFallback(dryRunId: string): Record<st
   };
 }
 
+function createRealReadOnlyAdapterAttemptRefusal(
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterAttemptCliOptions,
+): Record<string, unknown> {
+  const config = createDefaultRealReadOnlyAdapterConfig({
+    cliAttempt: true,
+    supervisorFallbackRefused: true,
+  });
+  const request = createRealReadOnlyAdapterRequest({
+    dryRunId,
+    config,
+    approvalArtifactId: options.approval,
+    metadata: {
+      approvalArtifactIdProvided: options.approval !== undefined,
+      worktreePathProvided: options.worktree !== undefined,
+      worktreePathStored: false,
+    },
+  });
+  const preflight = createRealReadOnlyAdapterGuardPreflight({
+    dryRunId,
+    request,
+    config,
+    requestedSandboxMode: 'read_only',
+    triggerKind: 'cli',
+    worktree: {
+      isolated: options.worktree !== undefined,
+      status: options.worktree !== undefined ? 'unknown' : 'missing',
+      pathHash: options.worktree !== undefined ? 'provided_not_stored' : undefined,
+    },
+    evidenceStoreReady: false,
+    auditStoreReady: false,
+    metadata: {
+      cliAttempt: true,
+      supervisorFallbackRefused: true,
+      worktreePathStored: false,
+    },
+  });
+  const attempt = {
+    id: `codex_real_read_only_adapter_attempt_${request.id}`,
+    dryRunId,
+    requestId: request.id,
+    preflightId: preflight.id,
+    status: 'blocked',
+    processBoundaryInvoked: false,
+    summary:
+      'CLI-only adapter attempt stopped before process boundary planning; authoritative supervisor attempt endpoint is unavailable and local fallback is refused.',
+    errorCode: config.configuredEnabled ? 'preflight_failed' : 'config_disabled',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    promptBodyStored: false,
+    commandBodyStored: false,
+    stdoutBodyStored: false,
+    stderrBodyStored: false,
+    argvStored: false,
+    executablePathStored: false,
+    shellSnippetStored: false,
+    envPlanStored: false,
+  };
+
+  return {
+    attempt,
+    request,
+    preflight,
+    status: 'blocked',
+    recommendation:
+      'CLI attempt is blocked before any process boundary. This does not grant implementation, process launch, Codex run, or workspace mutation permission.',
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    degraded: false,
+    notPersisted: true,
+    fallbackRefused: true,
+    reason:
+      'supervisor attempt endpoint unavailable or rejected; CLI local fallback cannot create an actual adapter attempt',
+  };
+}
+
 function createReadinessReviewUnavailableResponse(reason: string): Record<string, unknown> {
   return {
     error: 'readiness review is unavailable',
@@ -5319,6 +5463,65 @@ export function formatReadOnlyAdapterFinalReadinessListOutput(
     noLiveFlagsText(result),
     lines.length > 0 ? 'items:' : 'items: none',
     ...lines,
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterAttemptOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const attempt = result.attempt as
+    | {
+        id?: string;
+        dryRunId?: string;
+        status?: string;
+        processBoundaryInvoked?: boolean;
+        implementationApproved?: boolean;
+        processAdapterApproved?: boolean;
+        recommendationGrantsExecution?: boolean;
+        workspaceWriteAllowed?: boolean;
+        dangerFullAccessAllowed?: boolean;
+        dashboardTriggerAllowed?: boolean;
+      }
+    | undefined;
+  const preflight = result.preflight as
+    | {
+        status?: string;
+        blockerCount?: number;
+        failedGateCount?: number;
+        checks?: Array<{ code?: string; status?: string }>;
+      }
+    | undefined;
+  const checkLines = (preflight?.checks ?? [])
+    .filter((check) => check.status !== 'passed')
+    .slice(0, 8)
+    .map((check) => `- ${check.status ?? 'unknown'} ${check.code ?? 'unknown'}`);
+
+  return [
+    'Real read-only adapter CLI attempt',
+    `attemptId: ${attempt?.id ?? 'unknown'}`,
+    `dryRunId: ${attempt?.dryRunId ?? 'unknown'}`,
+    `status: ${attempt?.status ?? result.status ?? 'blocked'}`,
+    `preflightStatus: ${preflight?.status ?? 'unknown'}`,
+    `failedGates=${String(preflight?.failedGateCount ?? 0)}`,
+    `blockers=${String(preflight?.blockerCount ?? 0)}`,
+    `processBoundaryInvoked=${String(attempt?.processBoundaryInvoked ?? false)}`,
+    `implementationApproved=${String(attempt?.implementationApproved ?? false)}`,
+    `processAdapterApproved=${String(attempt?.processAdapterApproved ?? false)}`,
+    `recommendationGrantsExecution=${String(attempt?.recommendationGrantsExecution ?? false)}`,
+    `workspaceWriteAllowed=${String(attempt?.workspaceWriteAllowed ?? false)}`,
+    `dangerFullAccessAllowed=${String(attempt?.dangerFullAccessAllowed ?? false)}`,
+    `dashboardTriggerAllowed=${String(attempt?.dashboardTriggerAllowed ?? false)}`,
+    'CLI-only attempt status. Does not grant implementation, process launch, Codex run, or workspace mutation permission.',
+    `degraded=${String(result.degraded ?? false)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    noLiveFlagsText(result),
+    checkLines.length > 0 ? 'non-passing checks:' : 'non-passing checks: none',
+    ...checkLines,
   ].join('\n');
 }
 
