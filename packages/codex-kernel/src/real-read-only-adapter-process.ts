@@ -81,9 +81,80 @@ export interface CodexExecRealReadOnlyAdapterProcessBoundaryResult {
   metadata?: JsonMetadata;
 }
 
+export interface CodexExecRealReadOnlyAdapterPostRunVerificationPlanInput {
+  dryRunId: string;
+  executablePath?: string;
+  worktreePath: string;
+  timeoutMs: number;
+  metadata?: JsonMetadata;
+}
+
+export interface CodexExecRealReadOnlyAdapterPostRunVerificationPlan {
+  dryRunId: string;
+  executablePath: string;
+  argv: readonly ['verify:foundation'];
+  cwd: string;
+  env: Record<string, string>;
+  shell: false;
+  timeoutMs: number;
+  postRunVerification: true;
+  metadataOnly: true;
+  commandBodyStored: false;
+  stdoutBodyStored: false;
+  stderrBodyStored: false;
+  agentMessageBodyStored: false;
+  reasoningBodyStored: false;
+  dashboardTriggerAllowed: false;
+  workspaceWriteAllowed: false;
+  dangerFullAccessAllowed: false;
+  metadata?: JsonMetadata;
+}
+
+export interface CodexExecRealReadOnlyAdapterPostRunWorktreeState {
+  beforeStatus: 'clean';
+  afterStatus: 'clean' | 'dirty' | 'unknown';
+  unexpectedDiff: boolean;
+  statusHash?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterPostRunVerificationResult {
+  status: 'passed' | 'failed' | 'aborted' | 'critical';
+  dryRunId: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  exitCode?: number;
+  signal?: string;
+  timedOut: boolean;
+  cancelled: boolean;
+  skippedBeforeStart: boolean;
+  skipReason?: 'attempt_not_completed';
+  stdoutSummary: CodexExecRealReadOnlyAdapterProcessOutputSummary;
+  stderrSummary: CodexExecRealReadOnlyAdapterProcessOutputSummary;
+  shell: false;
+  commandBodyStored: false;
+  argvStored: false;
+  executablePathStored: false;
+  envPlanStored: false;
+  stdoutBodyStored: false;
+  stderrBodyStored: false;
+  metadataOnly: true;
+  externalProcessStarted: boolean;
+  workspaceMutationDetected: boolean;
+  unexpectedWorkspaceDiffCritical: true;
+  autoRevertAttempted: false;
+  operatorReviewRequired: true;
+  workspaceWriteAllowed: false;
+  dangerFullAccessAllowed: false;
+  dashboardTriggerAllowed: false;
+  metadata?: JsonMetadata;
+}
+
 export interface CodexExecRealReadOnlyAdapterProcessRunner {
   start(
-    plan: CodexExecRealReadOnlyAdapterProcessPlan,
+    plan:
+      | CodexExecRealReadOnlyAdapterProcessPlan
+      | CodexExecRealReadOnlyAdapterPostRunVerificationPlan,
     options: { signal?: AbortSignal },
   ): Promise<CodexExecRealReadOnlyAdapterProcessRunnerResult>;
 }
@@ -151,6 +222,49 @@ export function createRealReadOnlyAdapterProcessPlan(
   };
 }
 
+export function createRealReadOnlyAdapterPostRunVerificationPlan(
+  input: CodexExecRealReadOnlyAdapterPostRunVerificationPlanInput,
+): CodexExecRealReadOnlyAdapterPostRunVerificationPlan {
+  if (input.dryRunId.trim().length === 0) {
+    throw new Error('dryRunId is required before post-run verification planning');
+  }
+
+  if (input.worktreePath.trim().length === 0) {
+    throw new Error('worktreePath is required before post-run verification planning');
+  }
+
+  if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600_000) {
+    throw new Error('timeoutMs must be between 1 and 600000 milliseconds');
+  }
+
+  return {
+    dryRunId: input.dryRunId,
+    executablePath: input.executablePath ?? 'pnpm',
+    argv: ['verify:foundation'],
+    cwd: input.worktreePath,
+    env: {},
+    shell: false,
+    timeoutMs: input.timeoutMs,
+    postRunVerification: true,
+    metadataOnly: true,
+    commandBodyStored: false,
+    stdoutBodyStored: false,
+    stderrBodyStored: false,
+    agentMessageBodyStored: false,
+    reasoningBodyStored: false,
+    dashboardTriggerAllowed: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadata: {
+      ...(input.metadata ?? {}),
+      source: 'codex-kernel.real-read-only-adapter.post-run-verification-plan',
+      shell: false,
+      postRunVerification: true,
+      operatorReviewRequired: true,
+    },
+  };
+}
+
 export async function runRealReadOnlyAdapterProcessBoundary(
   plan: CodexExecRealReadOnlyAdapterProcessPlan,
   options: {
@@ -207,6 +321,126 @@ export async function runRealReadOnlyAdapterProcessBoundary(
       readOnly: true,
       shell: false,
       outputBodyStored: false,
+    },
+  };
+}
+
+export async function runRealReadOnlyAdapterPostRunVerification(
+  plan: CodexExecRealReadOnlyAdapterPostRunVerificationPlan,
+  options: {
+    attemptStatus: 'completed' | 'failed' | 'aborted' | 'blocked' | 'not_started';
+    worktreeState: CodexExecRealReadOnlyAdapterPostRunWorktreeState;
+    runner?: CodexExecRealReadOnlyAdapterProcessRunner;
+    signal?: AbortSignal;
+    now?: () => string;
+  },
+): Promise<CodexExecRealReadOnlyAdapterPostRunVerificationResult> {
+  const now = options.now ?? (() => new Date().toISOString());
+  const startedAt = now();
+  const startedMs = Date.parse(startedAt);
+
+  if (options.attemptStatus !== 'completed') {
+    const completedAt = now();
+    const completedMs = Date.parse(completedAt);
+
+    return {
+      status: 'aborted',
+      dryRunId: plan.dryRunId,
+      startedAt,
+      completedAt,
+      durationMs:
+        Number.isFinite(startedMs) && Number.isFinite(completedMs)
+          ? Math.max(0, completedMs - startedMs)
+          : 0,
+      timedOut: false,
+      cancelled: false,
+      skippedBeforeStart: true,
+      skipReason: 'attempt_not_completed',
+      stdoutSummary: summarizeProcessOutput('stdout', ''),
+      stderrSummary: summarizeProcessOutput('stderr', ''),
+      shell: false,
+      commandBodyStored: false,
+      argvStored: false,
+      executablePathStored: false,
+      envPlanStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      metadataOnly: true,
+      externalProcessStarted: false,
+      workspaceMutationDetected: false,
+      unexpectedWorkspaceDiffCritical: true,
+      autoRevertAttempted: false,
+      operatorReviewRequired: true,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      metadata: {
+        source: 'codex-kernel.real-read-only-adapter.post-run-verification',
+        skippedBeforeStart: true,
+        skipReason: 'attempt_not_completed',
+        outputBodyStored: false,
+      },
+    };
+  }
+
+  const runner = options.runner ?? nodeRealReadOnlyAdapterProcessRunner;
+  const runnerResult = await runner.start(plan, { signal: options.signal });
+  const completedAt = now();
+  const completedMs = Date.parse(completedAt);
+  const timedOut = runnerResult.timedOut === true;
+  const cancelled = runnerResult.cancelled === true || options.signal?.aborted === true;
+  const workspaceMutationDetected =
+    options.worktreeState.afterStatus !== 'clean' || options.worktreeState.unexpectedDiff;
+  const status =
+    workspaceMutationDetected
+      ? 'critical'
+      : timedOut || cancelled
+        ? 'aborted'
+        : runnerResult.exitCode === 0
+          ? 'passed'
+          : 'failed';
+
+  return {
+    status,
+    dryRunId: plan.dryRunId,
+    startedAt,
+    completedAt,
+    durationMs:
+      Number.isFinite(startedMs) && Number.isFinite(completedMs)
+        ? Math.max(0, completedMs - startedMs)
+        : 0,
+    exitCode: runnerResult.exitCode,
+    signal: runnerResult.signal,
+    timedOut,
+    cancelled,
+    skippedBeforeStart: false,
+    stdoutSummary: summarizeProcessOutput('stdout', runnerResult.stdout ?? ''),
+    stderrSummary: summarizeProcessOutput('stderr', runnerResult.stderr ?? ''),
+    shell: false,
+    commandBodyStored: false,
+    argvStored: false,
+    executablePathStored: false,
+    envPlanStored: false,
+    stdoutBodyStored: false,
+    stderrBodyStored: false,
+    metadataOnly: true,
+    externalProcessStarted: true,
+    workspaceMutationDetected,
+    unexpectedWorkspaceDiffCritical: true,
+    autoRevertAttempted: false,
+    operatorReviewRequired: true,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    metadata: {
+      source: 'codex-kernel.real-read-only-adapter.post-run-verification',
+      outputBodyStored: false,
+      workspaceBeforeStatus: options.worktreeState.beforeStatus,
+      workspaceAfterStatus: options.worktreeState.afterStatus,
+      unexpectedDiff: options.worktreeState.unexpectedDiff,
+      statusHash: options.worktreeState.statusHash,
+      operatorReviewRequired: true,
+      autoRevertAttempted: false,
     },
   };
 }

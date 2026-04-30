@@ -50,9 +50,11 @@ import {
   createRealReadOnlyAdapterAttemptEvidenceRefs,
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
+  createRealReadOnlyAdapterPostRunVerificationPlan,
   createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
+  runRealReadOnlyAdapterPostRunVerification,
   runRealReadOnlyAdapterProcessBoundary,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
@@ -2365,6 +2367,140 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('abort detail must remain hashed');
     expect(serialized).not.toContain('"argv":');
     expect(serialized).not.toContain('"executablePath":');
+  });
+
+  it('runs post-run verification through the approved boundary with metadata-only output', async () => {
+    const plan = createRealReadOnlyAdapterPostRunVerificationPlan({
+      dryRunId: 'codex_dry_run_post_verify',
+      executablePath: 'pnpm',
+      worktreePath: 'C:/safe/worktree/post-verify',
+      timeoutMs: 120_000,
+    });
+    const result = await runRealReadOnlyAdapterPostRunVerification(plan, {
+      attemptStatus: 'completed',
+      worktreeState: {
+        beforeStatus: 'clean',
+        afterStatus: 'clean',
+        unexpectedDiff: false,
+        statusHash: 'sha256:clean',
+      },
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: 'foundation verification body must not persist',
+          stderr: '',
+        }),
+      },
+      now: fixedClock([
+        '2026-04-30T00:00:00.000Z',
+        '2026-04-30T00:00:05.000Z',
+      ]),
+    });
+    const serialized = JSON.stringify({ plan, result });
+
+    expect(plan.argv).toEqual(['verify:foundation']);
+    expect(plan.shell).toBe(false);
+    expect(plan.env).toEqual({});
+    expect(plan.commandBodyStored).toBe(false);
+    expect(plan.workspaceWriteAllowed).toBe(false);
+    expect(plan.dashboardTriggerAllowed).toBe(false);
+    expect(result.status).toBe('passed');
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.workspaceMutationDetected).toBe(false);
+    expect(result.autoRevertAttempted).toBe(false);
+    expect(result.operatorReviewRequired).toBe(true);
+    expect(result.durationMs).toBe(5_000);
+    expect(result.stdoutSummary.contentHash).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('foundation verification body must not persist');
+    expect(serialized).not.toContain('"shell":true');
+  });
+
+  it('records post-run verification failure, abort, and unexpected diff as metadata only', async () => {
+    const plan = createRealReadOnlyAdapterPostRunVerificationPlan({
+      dryRunId: 'codex_dry_run_post_verify_failure',
+      worktreePath: 'C:/safe/worktree/post-verify-failure',
+      timeoutMs: 120_000,
+    });
+    const skipped = await runRealReadOnlyAdapterPostRunVerification(plan, {
+      attemptStatus: 'failed',
+      worktreeState: {
+        beforeStatus: 'clean',
+        afterStatus: 'clean',
+        unexpectedDiff: false,
+      },
+      runner: {
+        start: async () => {
+          throw new Error('runner must not start when attempt is not completed');
+        },
+      },
+    });
+    const failed = await runRealReadOnlyAdapterPostRunVerification(plan, {
+      attemptStatus: 'completed',
+      worktreeState: {
+        beforeStatus: 'clean',
+        afterStatus: 'clean',
+        unexpectedDiff: false,
+      },
+      runner: {
+        start: async () => ({
+          exitCode: 1,
+          stdout: 'verify failure output must not persist',
+          stderr: 'verify failure detail must not persist',
+        }),
+      },
+    });
+    const aborted = await runRealReadOnlyAdapterPostRunVerification(plan, {
+      attemptStatus: 'completed',
+      worktreeState: {
+        beforeStatus: 'clean',
+        afterStatus: 'clean',
+        unexpectedDiff: false,
+      },
+      runner: {
+        start: async () => ({
+          exitCode: undefined,
+          stdout: 'verify abort output must not persist',
+          stderr: 'verify abort detail must not persist',
+          timedOut: true,
+        }),
+      },
+    });
+    const critical = await runRealReadOnlyAdapterPostRunVerification(plan, {
+      attemptStatus: 'completed',
+      worktreeState: {
+        beforeStatus: 'clean',
+        afterStatus: 'dirty',
+        unexpectedDiff: true,
+        statusHash: 'sha256:dirty',
+      },
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: 'verify success with unexpected diff must not persist',
+          stderr: '',
+        }),
+      },
+    });
+    const serialized = JSON.stringify({ skipped, failed, aborted, critical });
+
+    expect(skipped.status).toBe('aborted');
+    expect(skipped.skippedBeforeStart).toBe(true);
+    expect(skipped.externalProcessStarted).toBe(false);
+    expect(failed.status).toBe('failed');
+    expect(aborted.status).toBe('aborted');
+    expect(aborted.timedOut).toBe(true);
+    expect(critical.status).toBe('critical');
+    expect(critical.workspaceMutationDetected).toBe(true);
+    expect(critical.unexpectedWorkspaceDiffCritical).toBe(true);
+    expect(critical.autoRevertAttempted).toBe(false);
+    expect([skipped, failed, aborted, critical].every((item) => item.stdoutBodyStored === false)).toBe(
+      true,
+    );
+    expect(serialized).not.toContain('verify failure output must not persist');
+    expect(serialized).not.toContain('verify failure detail must not persist');
+    expect(serialized).not.toContain('verify abort output must not persist');
+    expect(serialized).not.toContain('verify abort detail must not persist');
+    expect(serialized).not.toContain('verify success with unexpected diff must not persist');
   });
 
   it('rejects conditional readiness ADR draft review for blocked packages', () => {
