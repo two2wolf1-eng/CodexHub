@@ -1200,9 +1200,9 @@ describe('supervisor mock development API', () => {
         ),
     ).toBe(true);
     expect(readOnlyPreflightSimulationListResponse.statusCode).toBe(200);
-    expect(readOnlyPreflightSimulationListResponse.json().simulations.length).toBeGreaterThanOrEqual(
-      2,
-    );
+    expect(
+      readOnlyPreflightSimulationListResponse.json().simulations.length,
+    ).toBeGreaterThanOrEqual(2);
     expect(readOnlySimulatorReviewCreateResponse.statusCode).toBe(200);
     expect(readOnlySimulatorReviewCreateResponse.json()).toMatchObject({
       reviewRecord: {
@@ -1489,9 +1489,9 @@ describe('supervisor mock development API', () => {
     expect(rejectedFixtureResponses.map((response) => response.statusCode)).toEqual(
       symlinkEscapeAvailable ? [400, 400, 400, 400, 404, 400] : [400, 400, 400, 400, 404],
     );
-    expect(rejectedFixtureResponses.every((response) => !response.body.includes(process.cwd()))).toBe(
-      true,
-    );
+    expect(
+      rejectedFixtureResponses.every((response) => !response.body.includes(process.cwd())),
+    ).toBe(true);
     expect(fixtureListResponse.statusCode).toBe(200);
     expect(fixtureListResponse.json().summaries).toHaveLength(1);
     expect(finalReadinessResponse.statusCode).toBe(200);
@@ -1517,5 +1517,163 @@ describe('supervisor mock development API', () => {
     );
     expect(JSON.stringify(fixtureResponse.json())).not.toContain('synthetic stdout body');
     expect(JSON.stringify(finalReadinessResponse.json())).not.toContain('full command body');
+  });
+
+  it('creates real read-only adapter readiness packages only with explicit 3S evidence', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-real-readiness-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/dry-run',
+      payload: {
+        title: 'Summarize repository structure',
+        prompt: 'Summarize repository structure only',
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+      },
+    });
+    const dryRunId = dryRunResponse.json().liveRunRecord.dryRunPlanId as string;
+    const missingDecisionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-package',
+      payload: { dryRunId },
+    });
+
+    await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
+      payload: {
+        outcome: 'conditional_go_to_disabled_skeleton',
+        reviewerLabel: 'local-operator',
+        rationaleSummary:
+          'Allows only disabled skeleton scope; process adapter remains unapproved.',
+      },
+    });
+    await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/read-only-adapter/skeleton-review',
+      payload: {
+        outcome: 'skeleton_accepted_for_fixture_boundary_only',
+        reviewerLabel: 'local-operator',
+        rationaleSummary: 'Fixture boundary only; process adapter remains unapproved.',
+      },
+    });
+
+    const createResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-package',
+      payload: { dryRunId },
+    });
+    const packageId = createResponse.json().package.id as string;
+    const getResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/readiness-package/${packageId}`,
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/readiness-packages?dryRunId=${dryRunId}&status=requires_review&limit=10`,
+    });
+    const latestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/readiness-package/latest/${dryRunId}`,
+    });
+    const missingDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-package',
+      payload: { dryRunId: 'missing_dry_run' },
+    });
+    const missingIdResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-package',
+      payload: {},
+    });
+    const disabledStoreServer = buildSupervisorServer({ disableStore: true });
+    const disabledStoreResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/readiness-package',
+      payload: { dryRunId },
+    });
+
+    await disabledStoreServer.close();
+    await server.close();
+    await store.close();
+
+    expect(missingDecisionResponse.statusCode).toBe(409);
+    expect(missingDecisionResponse.json()).toMatchObject({
+      notPersisted: true,
+      package: {
+        status: 'blocked',
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(
+      missingDecisionResponse
+        .json()
+        .package.blockers.map((blocker: { code: string }) => blocker.code),
+    ).toContain('round_3s_conditional_decision_exists');
+    expect(createResponse.statusCode).toBe(200);
+    expect(createResponse.json()).toMatchObject({
+      package: {
+        dryRunId,
+        status: 'requires_review',
+        documentedOnly3twEvidence: true,
+        symlinkEscapeVerificationPending: true,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      summary: {
+        status: 'requires_review',
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      },
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      notPersisted: false,
+    });
+    expect(
+      createResponse.json().package.findings.map((finding: { code: string }) => finding.code),
+    ).toContain('documented_only_3tw_evidence');
+    expect(
+      createResponse.json().package.findings.map((finding: { code: string }) => finding.code),
+    ).toContain('fixture_path_guard_symlink_escape');
+    expect(createResponse.json().recommendation).toContain(
+      'Does not grant implementation, process launch, or execution permission.',
+    );
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json().package.id).toBe(packageId);
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().summaries).toHaveLength(1);
+    expect(latestResponse.statusCode).toBe(200);
+    expect(latestResponse.json().package.id).toBe(packageId);
+    expect(missingDryRunResponse.statusCode).toBe(404);
+    expect(missingDryRunResponse.body).not.toContain(process.cwd());
+    expect(missingIdResponse.statusCode).toBe(400);
+    expect(disabledStoreResponse.statusCode).toBe(503);
+    expect(disabledStoreResponse.json()).toMatchObject({
+      degraded: true,
+      notPersisted: true,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(JSON.stringify(createResponse.json())).not.toContain(
+      'Summarize repository structure only',
+    );
+    expect(JSON.stringify(createResponse.json())).not.toContain('full report markdown');
+    expect(createResponse.body).not.toContain(process.cwd());
   });
 });

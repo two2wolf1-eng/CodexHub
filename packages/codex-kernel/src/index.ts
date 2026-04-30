@@ -114,6 +114,13 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessQuery,
   CodexExecReadOnlyAdapterFinalReadinessStatus,
   CodexExecReadOnlyAdapterFinalReadinessSummary,
+  CodexExecRealReadOnlyAdapterReadinessBlocker,
+  CodexExecRealReadOnlyAdapterReadinessChecklistItem,
+  CodexExecRealReadOnlyAdapterReadinessFinding,
+  CodexExecRealReadOnlyAdapterReadinessGate,
+  CodexExecRealReadOnlyAdapterReadinessPackage,
+  CodexExecRealReadOnlyAdapterReadinessStatus,
+  CodexExecRealReadOnlyAdapterReadinessSummary,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -3135,8 +3142,7 @@ export function simulateReadOnlyAdapterPreflight(
     approvalArtifact.usedAt === undefined &&
     Date.parse(approvalArtifact.expiresAt) > now;
   const dryRunPlanHashMatched =
-    Boolean(expectedDryRunPlanHash) &&
-    approvalArtifact?.dryRunPlanHash === expectedDryRunPlanHash;
+    Boolean(expectedDryRunPlanHash) && approvalArtifact?.dryRunPlanHash === expectedDryRunPlanHash;
   const policyDecisionHashMatched =
     Boolean(expectedPolicyDecisionHash) &&
     approvalArtifact?.policyDecisionHash === expectedPolicyDecisionHash;
@@ -3876,7 +3882,8 @@ export function createDefaultReadOnlyAdapterImplementationPlanReviewChecklist():
       disposition: 'hard_gate',
       status: 'passed',
       required: true,
-      summary: 'The plan keeps live defaults disabled and requires explicit reviewed config enablement.',
+      summary:
+        'The plan keeps live defaults disabled and requires explicit reviewed config enablement.',
     }),
     createReadOnlyAdapterImplementationPlanReviewChecklistItem({
       code: 'approval_hash_binding_required',
@@ -3901,7 +3908,8 @@ export function createDefaultReadOnlyAdapterImplementationPlanReviewChecklist():
       disposition: 'hard_gate',
       status: 'passed',
       required: true,
-      summary: 'Future work must generate metadata/hash-only evidence and audit throughout the path.',
+      summary:
+        'Future work must generate metadata/hash-only evidence and audit throughout the path.',
     }),
     createReadOnlyAdapterImplementationPlanReviewChecklistItem({
       code: 'failure_abort_semantics_safe',
@@ -3909,7 +3917,8 @@ export function createDefaultReadOnlyAdapterImplementationPlanReviewChecklist():
       disposition: 'hard_gate',
       status: 'passed',
       required: true,
-      summary: 'The plan blocks or aborts on ambiguity, mismatch, degraded state, or unexpected changes.',
+      summary:
+        'The plan blocks or aborts on ambiguity, mismatch, degraded state, or unexpected changes.',
     }),
     createReadOnlyAdapterImplementationPlanReviewChecklistItem({
       code: 'post_run_verify_foundation_required',
@@ -4585,36 +4594,38 @@ export async function runReadOnlyAdapterFixtureBoundary(
     }),
   };
   const replay = await replayCodexExecFixture(input.fixtureText);
-  const events = replay.events.map((event): CodexExecReadOnlyAdapterFixtureBoundaryEvent => ({
-    id: foundationId('codex_read_only_adapter_fixture_boundary_event'),
-    schemaVersion: SchemaVersionSchema.value,
-    createdAt: foundationTimestamp(),
-    eventType: event.normalizedType,
-    itemType: event.item?.itemType,
-    status: event.normalizedType === 'parse_error' ? 'error' : 'summarized',
-    summary: event.summary,
-    eventHash: event.payloadHash,
-    length: event.payloadLength,
-    fixtureOnly: true,
-    liveExecution: false,
-    externalProcessStarted: false,
-    executionDisabled: true,
-    processAdapterStarted: false,
-    implementationApproved: false,
-    dashboardTriggerAllowed: false,
-    processAdapterApproved: false,
-    recommendationGrantsExecution: false,
-    workspaceWriteAllowed: false,
-    dangerFullAccessAllowed: false,
-    metadataOnly: true,
-    bodyStored: false,
-    metadata: createControlPlaneMetadata({
+  const events = replay.events.map(
+    (event): CodexExecReadOnlyAdapterFixtureBoundaryEvent => ({
+      id: foundationId('codex_read_only_adapter_fixture_boundary_event'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
       eventType: event.normalizedType,
       itemType: event.item?.itemType,
-      fixtureOnly: true,
+      status: event.normalizedType === 'parse_error' ? 'error' : 'summarized',
+      summary: event.summary,
       eventHash: event.payloadHash,
+      length: event.payloadLength,
+      fixtureOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      metadata: createControlPlaneMetadata({
+        eventType: event.normalizedType,
+        itemType: event.item?.itemType,
+        fixtureOnly: true,
+        eventHash: event.payloadHash,
+      }),
     }),
-  }));
+  );
   const resultWithoutRefs: CodexExecReadOnlyAdapterFixtureBoundaryResult = {
     id: foundationId('codex_read_only_adapter_fixture_boundary_result'),
     schemaVersion: SchemaVersionSchema.value,
@@ -4956,6 +4967,627 @@ export function createReadOnlyAdapterFinalReadinessAuditEvents(
   ];
 }
 
+export const REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION =
+  'Ready for separate ADR review only. Does not grant implementation, process launch, or execution permission.';
+
+export interface RealReadOnlyAdapterReadinessPackageInput {
+  dryRunId: string;
+  governanceDecision?: CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord;
+  skeletonPreview?: CodexExecReadOnlyAdapterSkeletonPreview;
+  skeletonReview?: CodexExecReadOnlyAdapterSkeletonReviewDecisionRecord;
+  fixtureBoundary?: CodexExecReadOnlyAdapterFixtureBoundaryResult;
+  finalReadiness?: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord;
+  documentedArtifactRefs?: string[];
+  symlinkEscapeVerified?: boolean;
+  approvalReadinessReady?: boolean;
+  worktreeReadinessReady?: boolean;
+  evidenceStoreReady?: boolean;
+  auditStoreReady?: boolean;
+  operatorChecklistComplete?: boolean;
+  postRunVerificationReady?: boolean;
+  forbiddenCapabilityDetected?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export function classifyRealReadOnlyAdapterReadinessGates(
+  input: RealReadOnlyAdapterReadinessPackageInput,
+): CodexExecRealReadOnlyAdapterReadinessGate[] {
+  const documentedArtifactRefs = input.documentedArtifactRefs ?? [];
+  const docsOnly3twEvidence =
+    documentedArtifactRefs.length > 0 && (!input.fixtureBoundary || !input.finalReadiness);
+  const symlinkVerified = input.symlinkEscapeVerified === true;
+
+  return [
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'round_3s_conditional_decision_exists',
+      label: 'Round 3S conditional skeleton decision exists',
+      category: 'governance',
+      disposition: 'hard_gate',
+      status:
+        input.governanceDecision?.outcome === 'conditional_go_to_disabled_skeleton'
+          ? 'passed'
+          : 'blocked',
+      required: true,
+      summary:
+        'A persisted Round 3S conditional skeleton decision is required before package persistence.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'round_3tw_final_readiness_evidence',
+      label: 'Round 3T-W final readiness evidence exists',
+      category: 'governance',
+      disposition: input.finalReadiness || docsOnly3twEvidence ? 'requires_review' : 'hard_gate',
+      status: input.finalReadiness ? 'passed' : docsOnly3twEvidence ? 'requires_review' : 'failed',
+      required: true,
+      summary: docsOnly3twEvidence
+        ? 'Round 3T-W final readiness is represented by documented artifacts rather than persisted records.'
+        : 'Round 3T-W final readiness must exist as a persisted record or documented artifact.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'disabled_skeleton_exists',
+      label: 'Disabled skeleton exists',
+      category: 'skeleton',
+      disposition: 'hard_gate',
+      status:
+        input.skeletonPreview &&
+        ['disabled', 'blocked', 'unavailable'].includes(input.skeletonPreview.status) &&
+        input.skeletonPreview.noRunnableCommand &&
+        !input.skeletonPreview.commandPreviewStored &&
+        !input.skeletonPreview.argvStored &&
+        !input.skeletonPreview.executablePathStored &&
+        !input.skeletonPreview.shellSnippetStored &&
+        !input.skeletonPreview.envPlanStored
+          ? 'passed'
+          : 'failed',
+      required: true,
+      summary:
+        'Skeleton preview must remain disabled and must not store command, argv, executable path, shell snippet, or env plan details.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'skeleton_review_exists',
+      label: 'Skeleton review exists',
+      category: 'skeleton',
+      disposition: 'hard_gate',
+      status: input.skeletonReview ? 'passed' : 'failed',
+      required: true,
+      summary: 'A disabled skeleton review must exist and must remain non-approving.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'fixture_boundary_evidence',
+      label: 'Fixture-backed replay boundary evidence exists',
+      category: 'fixture_boundary',
+      disposition: input.fixtureBoundary || docsOnly3twEvidence ? 'requires_review' : 'hard_gate',
+      status: input.fixtureBoundary ? 'passed' : docsOnly3twEvidence ? 'requires_review' : 'failed',
+      required: true,
+      summary: docsOnly3twEvidence
+        ? 'Fixture boundary evidence is documented-only and requires review before any separate ADR.'
+        : 'Fixture boundary evidence must be persisted or explicitly documented.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'fixture_path_guard_symlink_escape',
+      label: 'Fixture path guard symlink escape verified',
+      category: 'fixture_boundary',
+      disposition: 'requires_review',
+      status: symlinkVerified ? 'passed' : 'requires_review',
+      required: false,
+      summary: symlinkVerified
+        ? 'Symlink escape verification is complete.'
+        : 'Symlink escape verification remains pending and blocks ready_for_separate_adr.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'config_default_disabled',
+      label: 'Config remains disabled by default',
+      category: 'config',
+      disposition: 'hard_gate',
+      status: 'passed',
+      required: true,
+      summary: 'Future work must require explicit config enablement and default disabled behavior.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'forbidden_modes_remain_forbidden',
+      label: 'Forbidden modes remain forbidden',
+      category: 'config',
+      disposition: 'hard_gate',
+      status: input.forbiddenCapabilityDetected ? 'blocked' : 'passed',
+      required: true,
+      summary:
+        'workspace_write, danger_full_access, Dashboard trigger, and process adapter approval remain forbidden.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'approval_hash_binding_required',
+      label: 'Approval and hash binding required',
+      category: 'approval',
+      disposition: 'requires_review',
+      status: input.approvalReadinessReady ? 'passed' : 'requires_review',
+      required: false,
+      summary:
+        'Future work must require valid approval artifact, dry-run hash match, policy hash match, and single-use behavior.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'isolated_worktree_required',
+      label: 'Isolated worktree required',
+      category: 'worktree',
+      disposition: 'requires_review',
+      status: input.worktreeReadinessReady ? 'passed' : 'requires_review',
+      required: false,
+      summary:
+        'Future work must require an isolated worktree and manual review for unexpected workspace changes.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'evidence_audit_store_ready',
+      label: 'Evidence and audit store readiness',
+      category: 'evidence_audit',
+      disposition: 'hard_gate',
+      status:
+        input.evidenceStoreReady === false || input.auditStoreReady === false ? 'failed' : 'passed',
+      required: true,
+      summary: 'Evidence and audit stores must be ready and metadata/hash-only.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'operator_checklist_complete',
+      label: 'Operator checklist readiness',
+      category: 'failure_abort',
+      disposition: 'requires_review',
+      status: input.operatorChecklistComplete ? 'passed' : 'requires_review',
+      required: false,
+      summary:
+        'Future work must define ambiguity, degraded-store, approval, hash mismatch, worktree, timeout, and operator cancel behavior.',
+    }),
+    createRealReadOnlyAdapterReadinessGate({
+      code: 'post_run_verification_required',
+      label: 'Post-run verification required',
+      category: 'post_run_verification',
+      disposition: 'requires_review',
+      status: input.postRunVerificationReady ? 'passed' : 'requires_review',
+      required: false,
+      summary:
+        'Future work must verify no workspace mutation, run foundation verification, generate a report, and require operator review.',
+    }),
+  ];
+}
+
+export function createRealReadOnlyAdapterReadinessBlockers(
+  input: RealReadOnlyAdapterReadinessPackageInput,
+): CodexExecRealReadOnlyAdapterReadinessBlocker[] {
+  return classifyRealReadOnlyAdapterReadinessGates(input)
+    .filter(
+      (gate) =>
+        gate.status === 'blocked' || (gate.disposition === 'hard_gate' && gate.status === 'failed'),
+    )
+    .map((gate) =>
+      createRealReadOnlyAdapterReadinessBlocker({
+        code: gate.code,
+        severity: gate.status === 'blocked' ? 'critical' : 'high',
+        relatedGateCode: gate.code,
+        status: gate.status === 'blocked' ? 'blocked' : 'not_ready',
+        summary: gate.summary,
+        recommendation:
+          gate.code === 'round_3s_conditional_decision_exists'
+            ? 'Create an explicit persisted Round 3S conditional skeleton governance decision before retrying; do not create default approval.'
+            : 'Resolve this hard gate before considering a separate ADR review.',
+      }),
+    );
+}
+
+export function buildRealReadOnlyAdapterReadinessPackage(
+  input: RealReadOnlyAdapterReadinessPackageInput,
+): CodexExecRealReadOnlyAdapterReadinessPackage {
+  const gates = classifyRealReadOnlyAdapterReadinessGates(input);
+  const blockers = createRealReadOnlyAdapterReadinessBlockers(input);
+  const documentedArtifactRefs = input.documentedArtifactRefs ?? [];
+  const documentedOnly3twEvidence =
+    documentedArtifactRefs.length > 0 && (!input.fixtureBoundary || !input.finalReadiness);
+  const symlinkEscapeVerificationPending = input.symlinkEscapeVerified !== true;
+  const findings = createRealReadOnlyAdapterReadinessFindings({
+    gates,
+    documentedOnly3twEvidence,
+    symlinkEscapeVerificationPending,
+  });
+  const status = determineRealReadOnlyAdapterReadinessStatus({
+    gates,
+    blockers,
+    findings,
+    symlinkEscapeVerificationPending,
+  });
+  const checklistItems = gates.map((gate) =>
+    createRealReadOnlyAdapterReadinessChecklistItem({
+      code: gate.code,
+      label: gate.label,
+      status: gate.status,
+      required: gate.required,
+      summary: gate.summary,
+    }),
+  );
+  const now = foundationTimestamp();
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_package'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    dryRunId: input.dryRunId,
+    status,
+    recommendation: REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
+    governanceDecisionId: input.governanceDecision?.id,
+    skeletonPreviewId: input.skeletonPreview?.id,
+    skeletonReviewId: input.skeletonReview?.id,
+    fixtureBoundaryId: input.fixtureBoundary?.id,
+    finalReadinessId: input.finalReadiness?.id,
+    documentedArtifactRefs,
+    gates,
+    blockers,
+    findings,
+    checklistItems,
+    hardGateCount: gates.filter((gate) => gate.disposition === 'hard_gate').length,
+    passedGateCount: gates.filter((gate) => gate.status === 'passed').length,
+    requiresReviewCount:
+      gates.filter((gate) => gate.status === 'requires_review').length +
+      findings.filter((finding) => finding.status === 'requires_review').length,
+    blockerCount: blockers.length,
+    findingCount: findings.length,
+    documentedOnly3twEvidence,
+    symlinkEscapeVerificationPending,
+    evidenceRefs: [],
+    auditEventIds: [],
+    summary: `Real read-only adapter readiness ${status}; implementationApproved=false; processAdapterApproved=false.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      ...(input.metadata ?? {}),
+      dryRunId: input.dryRunId,
+      status,
+      documentedOnly3twEvidence,
+      symlinkEscapeVerificationPending,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    }),
+  };
+}
+
+export function summarizeRealReadOnlyAdapterReadinessPackage(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+): CodexExecRealReadOnlyAdapterReadinessSummary {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    packageId: packageRecord.id,
+    dryRunId: packageRecord.dryRunId,
+    status: packageRecord.status,
+    recommendation: packageRecord.recommendation,
+    hardGateCount: packageRecord.hardGateCount,
+    passedGateCount: packageRecord.passedGateCount,
+    requiresReviewCount: packageRecord.requiresReviewCount,
+    blockerCount: packageRecord.blockerCount,
+    findingCount: packageRecord.findingCount,
+    documentedOnly3twEvidence: packageRecord.documentedOnly3twEvidence,
+    symlinkEscapeVerificationPending: packageRecord.symlinkEscapeVerificationPending,
+    summary: packageRecord.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      packageId: packageRecord.id,
+      dryRunId: packageRecord.dryRunId,
+      status: packageRecord.status,
+      implementationApproved: false,
+      processAdapterApproved: false,
+    }),
+  };
+}
+
+export function createRealReadOnlyAdapterReadinessEvidenceRefs(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+): EvidenceRef[] {
+  return [
+    createEvidenceRef({
+      kind: 'codex.exec.real_read_only_adapter.readiness_package',
+      label: 'codex.real_read_only_adapter.readiness_package',
+      summary: `Real read-only adapter readiness package ${packageRecord.status}; separate ADR only.`,
+      metadata: createControlPlaneMetadata({
+        packageId: packageRecord.id,
+        dryRunId: packageRecord.dryRunId,
+        status: packageRecord.status,
+        blockerCount: packageRecord.blockerCount,
+        findingCount: packageRecord.findingCount,
+        documentedOnly3twEvidence: packageRecord.documentedOnly3twEvidence,
+        symlinkEscapeVerificationPending: packageRecord.symlinkEscapeVerificationPending,
+        metadataOnly: true,
+        bodyStored: false,
+      }),
+      bodyForHashOnly: stableStringify({
+        id: packageRecord.id,
+        dryRunId: packageRecord.dryRunId,
+        status: packageRecord.status,
+        gateCodes: packageRecord.gates.map((gate) => `${gate.code}:${gate.status}`),
+        blockerCodes: packageRecord.blockers.map((blocker) => blocker.code),
+        findingCodes: packageRecord.findings.map((finding) => finding.code),
+      }),
+    }),
+  ];
+}
+
+export function createRealReadOnlyAdapterReadinessAuditEvents(
+  packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codex-kernel.control-plane',
+      action: 'codex.exec.real_read_only_adapter.readiness_package.created',
+      outcome: packageRecord.status,
+      evidenceRefs,
+      metadata: createControlPlaneMetadata({
+        packageId: packageRecord.id,
+        dryRunId: packageRecord.dryRunId,
+        status: packageRecord.status,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+      }),
+    },
+  ];
+}
+
+function createRealReadOnlyAdapterReadinessGate(input: {
+  code: string;
+  label: string;
+  category: CodexExecRealReadOnlyAdapterReadinessGate['category'];
+  disposition: CodexExecReadOnlyAdapterGateDisposition;
+  status: CodexExecRealReadOnlyAdapterReadinessGate['status'];
+  required: boolean;
+  summary: string;
+}): CodexExecRealReadOnlyAdapterReadinessGate {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_gate'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    category: input.category,
+    disposition: input.disposition,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      category: input.category,
+      disposition: input.disposition,
+      status: input.status,
+    }),
+  };
+}
+
+function createRealReadOnlyAdapterReadinessBlocker(input: {
+  code: string;
+  severity: RiskLevel;
+  relatedGateCode?: string;
+  status: CodexExecRealReadOnlyAdapterReadinessStatus;
+  summary: string;
+  recommendation: string;
+}): CodexExecRealReadOnlyAdapterReadinessBlocker {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_blocker'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    severity: input.severity,
+    relatedGateCode: input.relatedGateCode,
+    status: input.status,
+    summary: input.summary,
+    recommendation: input.recommendation,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      status: input.status,
+      relatedGateCode: input.relatedGateCode,
+    }),
+  };
+}
+
+function createRealReadOnlyAdapterReadinessFinding(input: {
+  code: string;
+  severity: RiskLevel;
+  status: CodexExecRealReadOnlyAdapterReadinessStatus;
+  relatedGateCode?: string;
+  summary: string;
+  recommendation: string;
+}): CodexExecRealReadOnlyAdapterReadinessFinding {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_finding'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    severity: input.severity,
+    status: input.status,
+    relatedGateCode: input.relatedGateCode,
+    summary: input.summary,
+    recommendation: input.recommendation,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      status: input.status,
+      relatedGateCode: input.relatedGateCode,
+    }),
+  };
+}
+
+function createRealReadOnlyAdapterReadinessFindings(input: {
+  gates: CodexExecRealReadOnlyAdapterReadinessGate[];
+  documentedOnly3twEvidence: boolean;
+  symlinkEscapeVerificationPending: boolean;
+}): CodexExecRealReadOnlyAdapterReadinessFinding[] {
+  const findings = input.gates
+    .filter((gate) => gate.status === 'requires_review')
+    .map((gate) =>
+      createRealReadOnlyAdapterReadinessFinding({
+        code: gate.code,
+        severity: 'medium',
+        status: 'requires_review',
+        relatedGateCode: gate.code,
+        summary: gate.summary,
+        recommendation:
+          gate.code === 'fixture_path_guard_symlink_escape'
+            ? 'Verify symlink escape behavior before any real process boundary ADR.'
+            : 'Review this readiness condition before any separate ADR.',
+      }),
+    );
+
+  if (input.documentedOnly3twEvidence) {
+    findings.push(
+      createRealReadOnlyAdapterReadinessFinding({
+        code: 'documented_only_3tw_evidence',
+        severity: 'medium',
+        status: 'requires_review',
+        summary:
+          'Round 3T-W final readiness or fixture boundary evidence is documented-only rather than persisted.',
+        recommendation:
+          'Treat this package as requires_review until persisted 3T-W evidence exists or the documented artifact path is explicitly accepted.',
+      }),
+    );
+  }
+
+  if (
+    input.symlinkEscapeVerificationPending &&
+    !findings.some((finding) => finding.code === 'fixture_path_guard_symlink_escape')
+  ) {
+    findings.push(
+      createRealReadOnlyAdapterReadinessFinding({
+        code: 'symlink_escape_verification_pending',
+        severity: 'medium',
+        status: 'requires_review',
+        relatedGateCode: 'fixture_path_guard_symlink_escape',
+        summary: 'Symlink escape verification is pending before any real process boundary.',
+        recommendation:
+          'Complete platform or CI symlink escape verification before any separate real adapter ADR can be ready.',
+      }),
+    );
+  }
+
+  return findings;
+}
+
+function createRealReadOnlyAdapterReadinessChecklistItem(input: {
+  code: string;
+  label: string;
+  status: CodexExecRealReadOnlyAdapterReadinessChecklistItem['status'];
+  required: boolean;
+  summary: string;
+}): CodexExecRealReadOnlyAdapterReadinessChecklistItem {
+  return {
+    id: foundationId('codex_real_read_only_adapter_readiness_check'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    code: input.code,
+    label: input.label,
+    status: input.status,
+    required: input.required,
+    summary: input.summary,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    dashboardTriggerAllowed: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    metadataOnly: true,
+    bodyStored: false,
+    metadata: createControlPlaneMetadata({
+      code: input.code,
+      status: input.status,
+    }),
+  };
+}
+
+function determineRealReadOnlyAdapterReadinessStatus(input: {
+  gates: CodexExecRealReadOnlyAdapterReadinessGate[];
+  blockers: CodexExecRealReadOnlyAdapterReadinessBlocker[];
+  findings: CodexExecRealReadOnlyAdapterReadinessFinding[];
+  symlinkEscapeVerificationPending: boolean;
+}): CodexExecRealReadOnlyAdapterReadinessStatus {
+  if (
+    input.blockers.some((blocker) => blocker.status === 'blocked') ||
+    input.gates.some((gate) => gate.status === 'blocked')
+  ) {
+    return 'blocked';
+  }
+
+  if (
+    input.blockers.length > 0 ||
+    input.gates.some((gate) => gate.disposition === 'hard_gate' && gate.status === 'failed')
+  ) {
+    return 'not_ready';
+  }
+
+  if (
+    input.symlinkEscapeVerificationPending ||
+    input.findings.length > 0 ||
+    input.gates.some((gate) => gate.status === 'requires_review')
+  ) {
+    return 'requires_review';
+  }
+
+  return 'ready_for_separate_adr';
+}
+
 function createReadOnlyAdapterDisabledReasons(
   status: CodexExecReadOnlyAdapterSkeletonStatus,
 ): CodexExecReadOnlyAdapterDisabledReason[] {
@@ -4994,7 +5626,8 @@ function createReadOnlyAdapterDisabledReasons(
       createdAt: foundationTimestamp(),
       code: 'separate_adr_required',
       severity: 'medium',
-      summary: 'A separate future ADR is required before any real read-only adapter can be considered.',
+      summary:
+        'A separate future ADR is required before any real read-only adapter can be considered.',
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -5041,7 +5674,8 @@ function createDefaultReadOnlyAdapterSkeletonReviewChecklist(
           ? 'passed'
           : 'failed',
       required: true,
-      summary: 'Preview must not include runnable command strings, argv, executable paths, shell snippets, or env plans.',
+      summary:
+        'Preview must not include runnable command strings, argv, executable paths, shell snippets, or env plans.',
     }),
     createReadOnlyAdapterSkeletonReviewChecklistItem({
       code: 'dashboard_trigger_forbidden',
@@ -5057,7 +5691,8 @@ function createDefaultReadOnlyAdapterSkeletonReviewChecklist(
       disposition: 'requires_review',
       status: 'requires_review',
       required: false,
-      summary: 'Accepted skeleton may only allow the fixture-backed replay boundary phase, not real process work.',
+      summary:
+        'Accepted skeleton may only allow the fixture-backed replay boundary phase, not real process work.',
     }),
   ];
 }
@@ -5149,8 +5784,7 @@ function sortReadOnlyAdapterSkeletonReviewsNewestFirst(
   return records
     .map((record, index) => ({ record, index }))
     .sort((left, right) => {
-      const byReviewedAt =
-        Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+      const byReviewedAt = Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
       if (byReviewedAt !== 0) {
         return byReviewedAt;
       }
@@ -5165,8 +5799,7 @@ function sortReadOnlyAdapterFinalReadinessNewestFirst(
   return records
     .map((record, index) => ({ record, index }))
     .sort((left, right) => {
-      const byReviewedAt =
-        Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+      const byReviewedAt = Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
       if (byReviewedAt !== 0) {
         return byReviewedAt;
       }
@@ -5268,15 +5901,13 @@ function sortReadOnlyAdapterImplementationPlanReviewsNewestFirst(
   return records
     .map((record, index) => ({ record, index }))
     .sort((left, right) => {
-      const byReviewedAt =
-        Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
+      const byReviewedAt = Date.parse(right.record.reviewedAt) - Date.parse(left.record.reviewedAt);
 
       if (byReviewedAt !== 0) {
         return byReviewedAt;
       }
 
-      const byCreatedAt =
-        Date.parse(right.record.createdAt) - Date.parse(left.record.createdAt);
+      const byCreatedAt = Date.parse(right.record.createdAt) - Date.parse(left.record.createdAt);
       return byCreatedAt !== 0 ? byCreatedAt : right.index - left.index;
     })
     .map(({ record }) => record);

@@ -12,6 +12,8 @@ import type {
   CodexExecReadOnlyAdapterSkeletonReviewQuery,
   CodexExecReadOnlyAdapterFinalReadinessDecisionRecord,
   CodexExecReadOnlyAdapterFinalReadinessQuery,
+  CodexExecRealReadOnlyAdapterReadinessPackage,
+  CodexExecRealReadOnlyAdapterReadinessQuery,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
@@ -152,6 +154,21 @@ export interface CodexExecReadOnlyAdapterFinalReadinessRepository {
   ): Promise<CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[]>;
 }
 
+export interface CodexExecRealReadOnlyAdapterReadinessRepository {
+  saveReadinessPackage(
+    record: CodexExecRealReadOnlyAdapterReadinessPackage,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage>;
+  getReadinessPackage(
+    id: string,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage | undefined>;
+  listReadinessPackages(
+    query?: Partial<CodexExecRealReadOnlyAdapterReadinessQuery>,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage[]>;
+  latestReadinessPackage(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage | undefined>;
+}
+
 export interface CodexHubStore {
   workflowRuns: WorkflowRunRepository;
   auditEvents: AuditEventRepository;
@@ -167,6 +184,7 @@ export interface CodexHubStore {
   codexExecReadOnlyAdapterImplementationPlanReviews: CodexExecReadOnlyAdapterImplementationPlanReviewRepository;
   codexExecReadOnlyAdapterSkeletonReviews: CodexExecReadOnlyAdapterSkeletonReviewRepository;
   codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessRepository;
+  codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
   close(): Promise<void>;
 }
 

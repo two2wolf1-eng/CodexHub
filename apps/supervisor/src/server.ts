@@ -34,12 +34,17 @@ import {
   createReadOnlyAdapterFinalReadinessAuditEvents,
   createReadOnlyAdapterFinalReadinessDecisionRecord,
   createReadOnlyAdapterFinalReadinessEvidenceRefs,
+  buildRealReadOnlyAdapterReadinessPackage,
+  createRealReadOnlyAdapterReadinessAuditEvents,
+  createRealReadOnlyAdapterReadinessEvidenceRefs,
   getLatestReadOnlyAdapterSkeletonReview,
   getLatestReadOnlyAdapterFinalReadiness,
   listReadOnlyAdapterSkeletonReviewSummaries,
   listReadOnlyAdapterFinalReadinessSummaries,
+  REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   runReadOnlyAdapterFixtureBoundary,
   summarizeReadOnlyAdapterFixtureBoundary,
+  summarizeRealReadOnlyAdapterReadinessPackage,
   createCodexExecTimelineDetailView,
   createCodexExecReportReviewRecord,
   createCodexExecDisabledLiveRunRecord,
@@ -117,6 +122,9 @@ import type {
   CodexExecReadOnlyAdapterFinalReadinessOutcome,
   CodexExecReadOnlyAdapterFinalReadinessQuery,
   CodexExecReadOnlyAdapterFinalReadinessStatus,
+  CodexExecRealReadOnlyAdapterReadinessPackage,
+  CodexExecRealReadOnlyAdapterReadinessQuery,
+  CodexExecRealReadOnlyAdapterReadinessStatus,
   CodexExecReportRecommendation,
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
@@ -170,6 +178,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   >[] = [];
   const readOnlyAdapterFinalReadinessRecords: CodexExecReadOnlyAdapterFinalReadinessDecisionRecord[] =
     [];
+  const realReadOnlyAdapterReadinessPackages: CodexExecRealReadOnlyAdapterReadinessPackage[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -916,10 +925,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       dryRunId: record.dryRunPlanId,
       limit: 50,
     });
-    const adrDecision = getLatestCodexExecLiveAdapterAdrDecision(
-      adrDecisions,
-      record.dryRunPlanId,
-    );
+    const adrDecision = getLatestCodexExecLiveAdapterAdrDecision(adrDecisions, record.dryRunPlanId);
     const operatorChecklist = createReadOnlyAdapterOperatorChecklistFromBody(body);
     const simulationResult = simulateReadOnlyAdapterPreflight({
       dryRunId: record.dryRunPlanId,
@@ -1297,10 +1303,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
       return {
         records,
-        reviews: listReadOnlyAdapterImplementationPlanReviewSummaries(
-          records,
-          queryResult.query,
-        ),
+        reviews: listReadOnlyAdapterImplementationPlanReviewSummaries(records, queryResult.query),
         liveExecution: false,
         externalProcessStarted: false,
         executionDisabled: true,
@@ -1503,22 +1506,25 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
-  server.get('/api/codex/exec/read-only-adapter/skeleton-review/latest', async (_request, reply) => {
-    const store = await getStore();
-    const records = await listReadOnlyAdapterSkeletonReviewRecords(store, { limit: 50 });
-    const reviewRecord = getLatestReadOnlyAdapterSkeletonReview(records);
+  server.get(
+    '/api/codex/exec/read-only-adapter/skeleton-review/latest',
+    async (_request, reply) => {
+      const store = await getStore();
+      const records = await listReadOnlyAdapterSkeletonReviewRecords(store, { limit: 50 });
+      const reviewRecord = getLatestReadOnlyAdapterSkeletonReview(records);
 
-    if (!reviewRecord) {
-      return reply.code(404).send({
-        error: 'read-only adapter skeleton review was not found',
-        liveExecution: false,
-        externalProcessStarted: false,
-        executionDisabled: true,
-      });
-    }
+      if (!reviewRecord) {
+        return reply.code(404).send({
+          error: 'read-only adapter skeleton review was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
 
-    return createReadOnlyAdapterSkeletonReviewResponse(reviewRecord);
-  });
+      return createReadOnlyAdapterSkeletonReviewResponse(reviewRecord);
+    },
+  );
 
   server.get(
     '/api/codex/exec/read-only-adapter/skeleton-review/:reviewId',
@@ -1535,10 +1541,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       }
 
       const store = await getStore();
-      const reviewRecord = await resolveReadOnlyAdapterSkeletonReviewRecord(
-        params.reviewId,
-        store,
-      );
+      const reviewRecord = await resolveReadOnlyAdapterSkeletonReviewRecord(params.reviewId, store);
 
       if (!reviewRecord) {
         return reply.code(404).send({
@@ -1715,7 +1718,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       },
     });
     const evidenceRefs = createReadOnlyAdapterFinalReadinessEvidenceRefs(decisionRecord);
-    const auditEvents = createReadOnlyAdapterFinalReadinessAuditEvents(decisionRecord, evidenceRefs);
+    const auditEvents = createReadOnlyAdapterFinalReadinessAuditEvents(
+      decisionRecord,
+      evidenceRefs,
+    );
     decisionRecord = {
       ...decisionRecord,
       evidenceRefs,
@@ -1770,22 +1776,270 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
-  server.get('/api/codex/exec/read-only-adapter/final-readiness/latest', async (_request, reply) => {
-    const store = await getStore();
-    const records = await listReadOnlyAdapterFinalReadinessRecords(store, { limit: 50 });
-    const decisionRecord = getLatestReadOnlyAdapterFinalReadiness(records);
+  server.get(
+    '/api/codex/exec/read-only-adapter/final-readiness/latest',
+    async (_request, reply) => {
+      const store = await getStore();
+      const records = await listReadOnlyAdapterFinalReadinessRecords(store, { limit: 50 });
+      const decisionRecord = getLatestReadOnlyAdapterFinalReadiness(records);
 
-    if (!decisionRecord) {
-      return reply.code(404).send({
-        error: 'read-only adapter final readiness review was not found',
+      if (!decisionRecord) {
+        return reply.code(404).send({
+          error: 'read-only adapter final readiness review was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createReadOnlyAdapterFinalReadinessResponse(decisionRecord);
+    },
+  );
+
+  server.post(
+    '/api/codex/exec/real-read-only-adapter/readiness-package',
+    async (request, reply) => {
+      const body = request.body as
+        | {
+            dryRunId?: string;
+            symlinkEscapeVerified?: boolean;
+            approvalReadinessReady?: boolean;
+            worktreeReadinessReady?: boolean;
+            operatorChecklistComplete?: boolean;
+            postRunVerificationReady?: boolean;
+          }
+        | undefined;
+
+      if (!body?.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send({
+          error: 'readiness package store is unavailable',
+          degraded: true,
+          notPersisted: true,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          processAdapterStarted: false,
+          implementationApproved: false,
+          processAdapterApproved: false,
+          recommendationGrantsExecution: false,
+          workspaceWriteAllowed: false,
+          dangerFullAccessAllowed: false,
+          dashboardTriggerAllowed: false,
+          reason: persistenceState.reason ?? 'store unavailable',
+        });
+      }
+
+      const record = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'dry-run record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const governanceReviews = await listReadOnlyAdapterImplementationPlanReviewRecords(store, {
+        outcome: 'conditional_go_to_disabled_skeleton',
+        limit: 50,
+      });
+      const governanceDecision =
+        getLatestReadOnlyAdapterImplementationPlanReview(governanceReviews);
+      const skeletonReviews = await listReadOnlyAdapterSkeletonReviewRecords(store, { limit: 50 });
+      const skeletonReview = getLatestReadOnlyAdapterSkeletonReview(skeletonReviews);
+      const finalReadinessRecords = await listReadOnlyAdapterFinalReadinessRecords(store, {
+        limit: 50,
+      });
+      const finalReadiness = getLatestReadOnlyAdapterFinalReadiness(finalReadinessRecords);
+      const fixtureBoundary = readOnlyAdapterFixtureBoundaryResults.find(
+        (candidate) => candidate.input.dryRunId === record.dryRunPlanId,
+      );
+      const documentedArtifactRefs = existingReadinessDocumentRefs();
+      const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
+        dryRunId: record.dryRunPlanId,
+        governanceDecision,
+        skeletonPreview: createReadOnlyAdapterSkeletonPreview(),
+        skeletonReview,
+        fixtureBoundary,
+        finalReadiness,
+        documentedArtifactRefs,
+        symlinkEscapeVerified: body.symlinkEscapeVerified === true,
+        approvalReadinessReady: body.approvalReadinessReady === true,
+        worktreeReadinessReady: body.worktreeReadinessReady === true,
+        evidenceStoreReady: true,
+        auditStoreReady: true,
+        operatorChecklistComplete: body.operatorChecklistComplete === true,
+        postRunVerificationReady: body.postRunVerificationReady === true,
+        metadata: {
+          requestedBy: 'supervisor-api',
+          liveRunRecordId: record.id,
+          persisted3SDecisionRequired: true,
+        },
+      });
+
+      if (!governanceDecision) {
+        return reply.code(409).send({
+          package: packageRecord,
+          summary: summarizeRealReadOnlyAdapterReadinessPackage(packageRecord),
+          recommendation: REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
+          error: 'required Round 3S conditional skeleton governance decision was not found',
+          degraded: false,
+          notPersisted: true,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          processAdapterStarted: false,
+          implementationApproved: false,
+          processAdapterApproved: false,
+          recommendationGrantsExecution: false,
+          workspaceWriteAllowed: false,
+          dangerFullAccessAllowed: false,
+          dashboardTriggerAllowed: false,
+        });
+      }
+
+      const evidenceRefs = createRealReadOnlyAdapterReadinessEvidenceRefs(packageRecord);
+      const auditEvents = createRealReadOnlyAdapterReadinessAuditEvents(
+        packageRecord,
+        evidenceRefs,
+      );
+      const persistedPackage = {
+        ...packageRecord,
+        evidenceRefs,
+        auditEventIds: auditEvents.map((event) => event.id),
+      };
+
+      for (const evidenceRef of evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+
+      await persistRealReadOnlyAdapterReadinessPackage(persistedPackage, store);
+
+      return createRealReadOnlyAdapterReadinessResponse(
+        persistedPackage,
+        evidenceRefs,
+        auditEvents,
+      );
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/readiness-package/:packageId',
+    async (request, reply) => {
+      const params = request.params as { packageId?: string };
+
+      if (!params.packageId) {
+        return reply.code(400).send({
+          error: 'packageId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const packageRecord = await resolveRealReadOnlyAdapterReadinessPackage(
+        params.packageId,
+        store,
+      );
+
+      if (!packageRecord) {
+        return reply.code(404).send({
+          error: 'readiness package was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterReadinessResponse(packageRecord);
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/readiness-packages',
+    async (request, reply) => {
+      const queryResult = parseRealReadOnlyAdapterReadinessQuery(request.query);
+
+      if (!queryResult.allowed) {
+        return reply.code(400).send({
+          error: queryResult.reason,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const packages = await listRealReadOnlyAdapterReadinessPackages(store, queryResult.query);
+
+      return {
+        packages,
+        summaries: packages.map((packageRecord) =>
+          summarizeRealReadOnlyAdapterReadinessPackage(packageRecord),
+        ),
+        recommendation: REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
         liveExecution: false,
         externalProcessStarted: false,
         executionDisabled: true,
-      });
-    }
+        processAdapterStarted: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+        degraded: persistenceState.status !== 'ok',
+        reason: persistenceState.reason,
+      };
+    },
+  );
 
-    return createReadOnlyAdapterFinalReadinessResponse(decisionRecord);
-  });
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/readiness-package/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const packageRecord = await latestRealReadOnlyAdapterReadinessPackage(params.dryRunId, store);
+
+      if (!packageRecord) {
+        return reply.code(404).send({
+          error: 'readiness package was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterReadinessResponse(packageRecord);
+    },
+  );
 
   server.get('/api/codex/exec/timeline/:dryRunId', async (request, reply) => {
     const params = request.params as { dryRunId?: string };
@@ -2703,36 +2957,39 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
-  server.get('/api/codex/exec/live-adapter-adr-decision/latest/:dryRunId', async (request, reply) => {
-    const params = request.params as { dryRunId?: string };
+  server.get(
+    '/api/codex/exec/live-adapter-adr-decision/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
 
-    if (!params.dryRunId) {
-      return reply.code(400).send({
-        error: 'dryRunId is required',
-        liveExecution: false,
-        externalProcessStarted: false,
-        executionDisabled: true,
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+      const records = await listCodexExecLiveAdapterAdrDecisionRecords(store, {
+        dryRunId: params.dryRunId,
+        limit: 50,
       });
-    }
+      const latest = getLatestCodexExecLiveAdapterAdrDecision(records, params.dryRunId);
 
-    const store = await getStore();
-    const records = await listCodexExecLiveAdapterAdrDecisionRecords(store, {
-      dryRunId: params.dryRunId,
-      limit: 50,
-    });
-    const latest = getLatestCodexExecLiveAdapterAdrDecision(records, params.dryRunId);
+      if (!latest) {
+        return reply.code(404).send({
+          error: 'ADR decision record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
 
-    if (!latest) {
-      return reply.code(404).send({
-        error: 'ADR decision record was not found',
-        liveExecution: false,
-        externalProcessStarted: false,
-        executionDisabled: true,
-      });
-    }
-
-    return createCodexExecLiveAdapterAdrDecisionResponse(latest);
-  });
+      return createCodexExecLiveAdapterAdrDecisionResponse(latest);
+    },
+  );
 
   async function resolveCodexExecLiveRunRecord(
     dryRunId: string | undefined,
@@ -3194,6 +3451,88 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  async function resolveRealReadOnlyAdapterReadinessPackage(
+    packageId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage | undefined> {
+    return store
+      ? await store.codexExecRealReadOnlyAdapterReadiness.getReadinessPackage(packageId)
+      : realReadOnlyAdapterReadinessPackages.find(
+          (packageRecord) => packageRecord.id === packageId,
+        );
+  }
+
+  async function listRealReadOnlyAdapterReadinessPackages(
+    store: CodexHubStore | undefined,
+    query: Partial<CodexExecRealReadOnlyAdapterReadinessQuery>,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage[]> {
+    return store
+      ? await store.codexExecRealReadOnlyAdapterReadiness.listReadinessPackages(query)
+      : filterInMemoryRealReadOnlyAdapterReadinessPackages(
+          realReadOnlyAdapterReadinessPackages,
+          query,
+        );
+  }
+
+  async function latestRealReadOnlyAdapterReadinessPackage(
+    dryRunId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CodexExecRealReadOnlyAdapterReadinessPackage | undefined> {
+    return store
+      ? await store.codexExecRealReadOnlyAdapterReadiness.latestReadinessPackage(dryRunId)
+      : filterInMemoryRealReadOnlyAdapterReadinessPackages(realReadOnlyAdapterReadinessPackages, {
+          dryRunId,
+          limit: 1,
+        })[0];
+  }
+
+  async function persistRealReadOnlyAdapterReadinessPackage(
+    packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.codexExecRealReadOnlyAdapterReadiness.saveReadinessPackage(packageRecord);
+      return;
+    }
+
+    const existingIndex = realReadOnlyAdapterReadinessPackages.findIndex(
+      (candidate) => candidate.id === packageRecord.id,
+    );
+
+    if (existingIndex >= 0) {
+      realReadOnlyAdapterReadinessPackages.splice(existingIndex, 1, packageRecord);
+    } else {
+      realReadOnlyAdapterReadinessPackages.unshift(packageRecord);
+    }
+  }
+
+  function createRealReadOnlyAdapterReadinessResponse(
+    packageRecord: CodexExecRealReadOnlyAdapterReadinessPackage,
+    evidenceRefs = packageRecord.evidenceRefs,
+    auditEvents: ReturnType<typeof createRealReadOnlyAdapterReadinessAuditEvents> = [],
+  ) {
+    return {
+      package: packageRecord,
+      summary: summarizeRealReadOnlyAdapterReadinessPackage(packageRecord),
+      evidenceRefs,
+      auditEvents,
+      recommendation: REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: false,
+      reason: persistenceState.reason,
+    };
+  }
+
   function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
@@ -3270,6 +3609,7 @@ const evidenceKinds = new Set([
   'codex.exec.read_only_adapter.skeleton_review',
   'codex.exec.read_only_adapter.fixture_boundary',
   'codex.exec.read_only_adapter.final_readiness',
+  'codex.exec.real_read_only_adapter.readiness_package',
 ]);
 const reportReviewStatuses = new Set([
   'draft',
@@ -3286,10 +3626,7 @@ const reportReviewRecommendations = new Set([
 ]);
 const liveAdapterAdrDecisionOutcomes = new Set(['no_go', 'conditional_read_only_go']);
 const liveAdapterAdrDecisionStatuses = new Set(['draft', 'recorded', 'superseded']);
-const readOnlyAdapterSimulatorReviewOutcomes = new Set([
-  'no_go',
-  'go_to_implementation_planning',
-]);
+const readOnlyAdapterSimulatorReviewOutcomes = new Set(['no_go', 'go_to_implementation_planning']);
 const readOnlyAdapterSimulatorReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
 const readOnlyAdapterImplementationPlanReviewOutcomes = new Set([
   'no_go',
@@ -3311,6 +3648,12 @@ const readOnlyAdapterFinalReadinessOutcomes = new Set([
   'ready_for_separate_disabled_skeleton_followup',
 ]);
 const readOnlyAdapterFinalReadinessStatuses = new Set(['draft', 'recorded', 'superseded']);
+const realReadOnlyAdapterReadinessStatuses = new Set([
+  'not_ready',
+  'ready_for_separate_adr',
+  'blocked',
+  'requires_review',
+]);
 const codexExecSandboxModes = new Set(['read_only', 'workspace_write', 'danger_full_access']);
 
 function createReadOnlyAdapterOperatorChecklistFromBody(
@@ -3598,9 +3941,7 @@ function parseReadOnlyAdapterImplementationPlanReviewQuery(
     allowed: true,
     query: {
       status: status as CodexExecReadOnlyAdapterImplementationPlanReviewStatus | undefined,
-      outcome: outcome as
-        | CodexExecReadOnlyAdapterImplementationPlanReviewOutcome
-        | undefined,
+      outcome: outcome as CodexExecReadOnlyAdapterImplementationPlanReviewOutcome | undefined,
       limit: limitResult.limit,
     },
   };
@@ -3663,6 +4004,33 @@ function parseReadOnlyAdapterFinalReadinessQuery(
     query: {
       status: status as CodexExecReadOnlyAdapterFinalReadinessStatus | undefined,
       outcome: outcome as CodexExecReadOnlyAdapterFinalReadinessOutcome | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseRealReadOnlyAdapterReadinessQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterReadinessQuery> }
+  | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterReadinessStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported readiness status' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterReadinessStatus | undefined,
       limit: limitResult.limit,
     },
   };
@@ -3799,6 +4167,37 @@ function filterInMemoryReadOnlyAdapterFinalReadiness(
     .slice(0, query.limit ?? 20);
 }
 
+function filterInMemoryRealReadOnlyAdapterReadinessPackages(
+  records: CodexExecRealReadOnlyAdapterReadinessPackage[],
+  query: Partial<CodexExecRealReadOnlyAdapterReadinessQuery>,
+): CodexExecRealReadOnlyAdapterReadinessPackage[] {
+  return records
+    .filter((packageRecord) => {
+      if (query.dryRunId && packageRecord.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && packageRecord.status !== query.status) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, query.limit ?? 20);
+}
+
+function existingReadinessDocumentRefs(): string[] {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const candidateRefs = [
+    'docs/reviews/round-3tw-additional-rules-audit.md',
+    'docs/reviews/round-3w-disabled-skeleton-fixture-boundary-review.md',
+    'docs/adr/round-3w-read-only-adapter-final-readiness-review.md',
+  ];
+
+  return candidateRefs.filter((candidateRef) => existsSync(resolve(workspaceRoot, candidateRef)));
+}
+
 function parseLimitQueryValue(
   value: string | undefined,
 ): { allowed: true; limit: number | undefined } | { allowed: false; reason: string } {
@@ -3868,7 +4267,10 @@ function resolveAllowedFixture(
     const fixturesRootRealPath = realpathSync(fixturesRoot);
     const requestedRealPath = realpathSync(requestedPath);
 
-    if (!isPathInside(requestedRealPath, fixturesRootRealPath) || extname(requestedRealPath) !== '.jsonl') {
+    if (
+      !isPathInside(requestedRealPath, fixturesRootRealPath) ||
+      extname(requestedRealPath) !== '.jsonl'
+    ) {
       return {
         allowed: false,
         reason: 'fixturePath must resolve inside packages/codex-kernel/fixtures/*.jsonl',

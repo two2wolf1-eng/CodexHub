@@ -51,6 +51,13 @@ import {
   CodexExecReadOnlyAdapterFixtureBoundarySummarySchema,
   CodexExecReadOnlyAdapterFinalReadinessDecisionRecordSchema,
   CodexExecReadOnlyAdapterFinalReadinessSummarySchema,
+  CodexExecRealReadOnlyAdapterReadinessBlockerSchema,
+  CodexExecRealReadOnlyAdapterReadinessChecklistItemSchema,
+  CodexExecRealReadOnlyAdapterReadinessFindingSchema,
+  CodexExecRealReadOnlyAdapterReadinessGateSchema,
+  CodexExecRealReadOnlyAdapterReadinessPackageSchema,
+  CodexExecRealReadOnlyAdapterReadinessQuerySchema,
+  CodexExecRealReadOnlyAdapterReadinessSummarySchema,
   CodexExecNoLiveEvidenceSummarySchema,
   CodexExecReportReviewComparisonSchema,
   CodexExecReportReviewComparisonItemSchema,
@@ -1454,7 +1461,8 @@ describe('contracts schemas', () => {
       decision: 'conditional_read_only_go',
       status: 'recorded',
       reviewerLabel: 'local-operator',
-      rationaleSummary: 'Conditional read-only design can continue; implementation is not approved.',
+      rationaleSummary:
+        'Conditional read-only design can continue; implementation is not approved.',
       recordedAt: createdAt,
       gatePolicy,
       allowedSandboxModes: ['read_only'],
@@ -1843,8 +1851,8 @@ describe('contracts schemas', () => {
   });
 
   it('parses implementation plan review contracts without granting execution', () => {
-    const checklistItem =
-      CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItemSchema.parse({
+    const checklistItem = CodexExecReadOnlyAdapterImplementationPlanReviewChecklistItemSchema.parse(
+      {
         id: 'codex_read_only_adapter_implementation_plan_review_check_1',
         schemaVersion,
         createdAt,
@@ -1866,7 +1874,8 @@ describe('contracts schemas', () => {
         processAdapterStarted: false,
         implementationApproved: false,
         dashboardTriggerAllowed: false,
-      });
+      },
+    );
     const finding = CodexExecReadOnlyAdapterImplementationPlanReviewFindingSchema.parse({
       id: 'codex_read_only_adapter_implementation_plan_review_finding_1',
       schemaVersion,
@@ -2174,5 +2183,133 @@ describe('contracts schemas', () => {
     expect(finalReadiness.currentRoundApprovesCodexExecution).toBe(false);
     expect(finalReadiness.currentRoundApprovesWorkspaceWrites).toBe(false);
     expect(JSON.stringify(fixtureBoundary)).not.toContain('synthetic stdout body');
+  });
+
+  it('parses real read-only adapter readiness contracts without approval semantics', () => {
+    const flagFields = {
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      dashboardTriggerAllowed: false,
+    } as const;
+    const gate = CodexExecRealReadOnlyAdapterReadinessGateSchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_gate_1',
+      schemaVersion,
+      createdAt,
+      code: 'fixture_path_guard_symlink_escape',
+      label: 'Fixture path guard symlink escape',
+      category: 'fixture_boundary',
+      disposition: 'requires_review',
+      status: 'requires_review',
+      required: true,
+      summary: 'Symlink escape verification remains pending.',
+      ...flagFields,
+    });
+    const blocker = CodexExecRealReadOnlyAdapterReadinessBlockerSchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_blocker_1',
+      schemaVersion,
+      createdAt,
+      code: 'round_3s_conditional_decision_exists',
+      severity: 'critical',
+      relatedGateCode: 'round_3s_conditional_decision_exists',
+      status: 'blocked',
+      summary: 'Round 3S conditional decision is missing.',
+      recommendation: 'Create an explicit local governance decision before readiness persistence.',
+      ...flagFields,
+    });
+    const finding = CodexExecRealReadOnlyAdapterReadinessFindingSchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_finding_1',
+      schemaVersion,
+      createdAt,
+      code: 'documented_only_3tw_evidence',
+      severity: 'medium',
+      status: 'requires_review',
+      summary: 'Round 3T-W evidence is documented-only.',
+      recommendation: 'Treat this package as requires_review until persisted evidence exists.',
+      ...flagFields,
+    });
+    const checklistItem = CodexExecRealReadOnlyAdapterReadinessChecklistItemSchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_check_1',
+      schemaVersion,
+      createdAt,
+      code: 'separate_adr_required',
+      label: 'Separate ADR required',
+      status: 'passed',
+      required: true,
+      summary: 'A separate ADR is required before any implementation can be considered.',
+      ...flagFields,
+    });
+    const packageRecord = CodexExecRealReadOnlyAdapterReadinessPackageSchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_package_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      status: 'ready_for_separate_adr',
+      recommendation:
+        'Ready for separate ADR review only. Does not grant implementation, process launch, or execution permission.',
+      governanceDecisionId: 'codex_read_only_adapter_implementation_plan_review_1',
+      documentedArtifactRefs: ['docs/reviews/round-3tw-additional-rules-audit.md'],
+      gates: [gate],
+      blockers: [],
+      findings: [finding],
+      checklistItems: [checklistItem],
+      hardGateCount: 1,
+      passedGateCount: 1,
+      requiresReviewCount: 0,
+      blockerCount: 0,
+      findingCount: 1,
+      documentedOnly3twEvidence: false,
+      symlinkEscapeVerificationPending: false,
+      evidenceRefs: [],
+      auditEventIds: ['audit_readiness_1'],
+      summary: 'Ready only for a separate ADR review.',
+      ...flagFields,
+    });
+    const summary = CodexExecRealReadOnlyAdapterReadinessSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_summary_1',
+      schemaVersion,
+      createdAt,
+      packageId: packageRecord.id,
+      dryRunId: packageRecord.dryRunId,
+      status: packageRecord.status,
+      recommendation: packageRecord.recommendation,
+      hardGateCount: 1,
+      passedGateCount: 1,
+      requiresReviewCount: 0,
+      blockerCount: 0,
+      findingCount: 1,
+      documentedOnly3twEvidence: false,
+      symlinkEscapeVerificationPending: false,
+      summary: packageRecord.summary,
+      ...flagFields,
+    });
+    const query = CodexExecRealReadOnlyAdapterReadinessQuerySchema.parse({
+      id: 'codex_real_read_only_adapter_readiness_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: packageRecord.dryRunId,
+      status: 'ready_for_separate_adr',
+      limit: 10,
+      ...flagFields,
+    });
+
+    expect(blocker.status).toBe('blocked');
+    expect(packageRecord.status).toBe('ready_for_separate_adr');
+    expect(packageRecord.implementationApproved).toBe(false);
+    expect(packageRecord.processAdapterApproved).toBe(false);
+    expect(packageRecord.recommendationGrantsExecution).toBe(false);
+    expect(summary.executionDisabled).toBe(true);
+    expect(query.limit).toBe(10);
+    expect(JSON.stringify(packageRecord)).not.toContain('full report markdown');
+    expect(JSON.stringify(packageRecord)).not.toContain('prompt body');
+    expect(JSON.stringify(packageRecord)).not.toContain('stdout');
   });
 });

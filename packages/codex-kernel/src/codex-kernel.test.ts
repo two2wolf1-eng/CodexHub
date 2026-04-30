@@ -32,6 +32,10 @@ import {
   summarizeReadOnlyAdapterFixtureBoundary,
   createReadOnlyAdapterFinalReadinessDecisionRecord,
   summarizeReadOnlyAdapterFinalReadiness,
+  buildRealReadOnlyAdapterReadinessPackage,
+  createRealReadOnlyAdapterReadinessAuditEvents,
+  createRealReadOnlyAdapterReadinessEvidenceRefs,
+  summarizeRealReadOnlyAdapterReadinessPackage,
   createCodexExecTimelineDetailView,
   createDefaultCodexExecLiveConfig,
   createDefaultCodexExecConfigLoadResult,
@@ -1148,7 +1152,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     const record = createCodexExecLiveAdapterAdrDecisionRecord({
       dryRunId: 'codex_dry_run_1',
       reviewerLabel: 'local-operator',
-      rationaleSummary: 'Conditional read-only design can continue; implementation is not approved.',
+      rationaleSummary:
+        'Conditional read-only design can continue; implementation is not approved.',
     });
     const evidenceRefs = createCodexExecLiveAdapterAdrDecisionEvidenceRefs(record);
     const auditEvents = createCodexExecLiveAdapterAdrDecisionAuditEvents(record, evidenceRefs);
@@ -1512,13 +1517,12 @@ describe('codex-kernel live control-plane skeleton', () => {
       reviewerLabel: 'reviewer-a',
       rationaleSummary: 'Planning is not ready for even a disabled skeleton.',
     });
-    const conditionalSkeleton =
-      createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
-        outcome: 'conditional_go_to_disabled_skeleton',
-        reviewerLabel: 'reviewer-b',
-        rationaleSummary:
-          'Allows only Round 3T disabled-by-default skeleton work, not process launch.',
-      });
+    const conditionalSkeleton = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      reviewerLabel: 'reviewer-b',
+      rationaleSummary:
+        'Allows only Round 3T disabled-by-default skeleton work, not process launch.',
+    });
     const summary = summarizeReadOnlyAdapterImplementationPlanReview(conditionalSkeleton);
     const evidenceRefs =
       createReadOnlyAdapterImplementationPlanReviewEvidenceRefs(conditionalSkeleton);
@@ -1553,9 +1557,7 @@ describe('codex-kernel live control-plane skeleton', () => {
         'dashboard_trigger_forbidden',
       ]),
     );
-    expect(evidenceRefs[0]?.kind).toBe(
-      'codex.exec.read_only_adapter.implementation_plan_review',
-    );
+    expect(evidenceRefs[0]?.kind).toBe('codex.exec.read_only_adapter.implementation_plan_review');
     expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
     expect(auditEvents[0]?.action).toBe(
       'codex.exec.read_only_adapter.implementation_plan_review.recorded',
@@ -1657,6 +1659,128 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(finalSummary.realAdapterRequiresSeparateAdr).toBe(true);
     expect(JSON.stringify(fixtureBoundary)).not.toContain('synthetic stdout body');
     expect(JSON.stringify(finalReadiness)).not.toContain('full command body');
+  });
+
+  it('blocks readiness package persistence when the 3S conditional decision is missing', () => {
+    const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
+      dryRunId: 'codex_dry_run_missing_3s',
+      skeletonPreview: createReadOnlyAdapterSkeletonPreview(),
+      documentedArtifactRefs: ['docs/reviews/round-3tw-additional-rules-audit.md'],
+      symlinkEscapeVerified: false,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+
+    expect(packageRecord.status).toBe('blocked');
+    expect(packageRecord.blockers.map((blocker) => blocker.code)).toContain(
+      'round_3s_conditional_decision_exists',
+    );
+    expect(packageRecord.implementationApproved).toBe(false);
+    expect(packageRecord.processAdapterApproved).toBe(false);
+    expect(packageRecord.recommendationGrantsExecution).toBe(false);
+  });
+
+  it('requires review when 3T-W evidence is documented-only or symlink verification is pending', () => {
+    const governanceDecision = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      reviewerLabel: 'local-operator',
+    });
+    const skeletonPreview = createReadOnlyAdapterSkeletonPreview();
+    const skeletonReview = createReadOnlyAdapterSkeletonReviewDecisionRecord({
+      preview: skeletonPreview,
+      outcome: 'skeleton_accepted_for_fixture_boundary_only',
+      reviewerLabel: 'local-operator',
+    });
+    const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
+      dryRunId: 'codex_dry_run_docs_only',
+      governanceDecision,
+      skeletonPreview,
+      skeletonReview,
+      documentedArtifactRefs: [
+        'docs/reviews/round-3w-disabled-skeleton-fixture-boundary-review.md',
+      ],
+      symlinkEscapeVerified: false,
+      approvalReadinessReady: true,
+      worktreeReadinessReady: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklistComplete: true,
+      postRunVerificationReady: true,
+    });
+
+    expect(packageRecord.status).toBe('requires_review');
+    expect(packageRecord.findings.map((finding) => finding.code)).toContain(
+      'documented_only_3tw_evidence',
+    );
+    expect(packageRecord.findings.map((finding) => finding.code)).toContain(
+      'fixture_path_guard_symlink_escape',
+    );
+    expect(packageRecord.symlinkEscapeVerificationPending).toBe(true);
+  });
+
+  it('marks readiness ready only when hard gates pass and symlink verification is complete', async () => {
+    const governanceDecision = createReadOnlyAdapterImplementationPlanReviewDecisionRecord({
+      outcome: 'conditional_go_to_disabled_skeleton',
+      reviewerLabel: 'local-operator',
+    });
+    const skeletonPreview = createReadOnlyAdapterSkeletonPreview();
+    const skeletonReview = createReadOnlyAdapterSkeletonReviewDecisionRecord({
+      preview: skeletonPreview,
+      outcome: 'skeleton_accepted_for_fixture_boundary_only',
+      reviewerLabel: 'local-operator',
+    });
+    const fixtureBoundary = await runReadOnlyAdapterFixtureBoundary({
+      fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
+      fixtureText: readFixture('codex-exec-basic.jsonl'),
+      dryRunId: 'codex_dry_run_ready',
+    });
+    const finalReadiness = createReadOnlyAdapterFinalReadinessDecisionRecord({
+      skeletonPreview,
+      skeletonReview,
+      fixtureBoundary,
+      outcome: 'ready_for_separate_read_only_adapter_adr',
+      reviewerLabel: 'local-operator',
+    });
+    const packageRecord = buildRealReadOnlyAdapterReadinessPackage({
+      dryRunId: 'codex_dry_run_ready',
+      governanceDecision,
+      skeletonPreview,
+      skeletonReview,
+      fixtureBoundary,
+      finalReadiness,
+      symlinkEscapeVerified: true,
+      approvalReadinessReady: true,
+      worktreeReadinessReady: true,
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+      operatorChecklistComplete: true,
+      postRunVerificationReady: true,
+    });
+    const summary = summarizeRealReadOnlyAdapterReadinessPackage(packageRecord);
+    const evidenceRefs = createRealReadOnlyAdapterReadinessEvidenceRefs(packageRecord);
+    const auditEvents = createRealReadOnlyAdapterReadinessAuditEvents(packageRecord, evidenceRefs);
+
+    expect(packageRecord.status).toBe('ready_for_separate_adr');
+    expect(packageRecord.blockers).toHaveLength(0);
+    expect(packageRecord.findings).toHaveLength(0);
+    expect(packageRecord.implementationApproved).toBe(false);
+    expect(packageRecord.processAdapterApproved).toBe(false);
+    expect(packageRecord.recommendationGrantsExecution).toBe(false);
+    expect(summary.status).toBe('ready_for_separate_adr');
+    expect(summary.implementationApproved).toBe(false);
+    expect(evidenceRefs[0]?.kind).toBe('codex.exec.real_read_only_adapter.readiness_package');
+    expect(evidenceRefs[0]?.metadata?.bodyStored).toBe(false);
+    expect(auditEvents[0]?.action).toBe(
+      'codex.exec.real_read_only_adapter.readiness_package.created',
+    );
+    expect(auditEvents[0]?.metadata).toMatchObject({
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    expect(JSON.stringify(packageRecord)).not.toContain('full report markdown');
+    expect(JSON.stringify(packageRecord)).not.toContain('synthetic stdout body');
+    expect(JSON.stringify(packageRecord)).not.toContain('full command body');
   });
 });
 

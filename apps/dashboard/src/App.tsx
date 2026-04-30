@@ -13,6 +13,7 @@ import type {
   CodexExecReadOnlyAdapterSkeletonReviewSummary,
   CodexExecReadOnlyAdapterFixtureBoundarySummary,
   CodexExecReadOnlyAdapterFinalReadinessSummary,
+  CodexExecRealReadOnlyAdapterReadinessSummary,
   CodexExecReportReviewComparison,
   CodexExecReportReviewHistoryView,
   CodexExecReportReviewRecord,
@@ -53,6 +54,7 @@ interface OverviewState {
   codexExecReadOnlyAdapterSkeletonReviews: CodexExecReadOnlyAdapterSkeletonReviewSummary[];
   codexExecReadOnlyAdapterFixtureBoundaries: CodexExecReadOnlyAdapterFixtureBoundarySummary[];
   codexExecReadOnlyAdapterFinalReadiness: CodexExecReadOnlyAdapterFinalReadinessSummary[];
+  codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessSummary[];
   codexExecReportReviews: CodexExecReportReviewRecord[];
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
@@ -84,6 +86,7 @@ export function App() {
     codexExecReadOnlyAdapterSkeletonReviews: [],
     codexExecReadOnlyAdapterFixtureBoundaries: [],
     codexExecReadOnlyAdapterFinalReadiness: [],
+    codexExecRealReadOnlyAdapterReadiness: [],
     codexExecReportReviews: [],
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
@@ -111,6 +114,7 @@ export function App() {
           readOnlyAdapterSkeletonReviewsResponse,
           readOnlyAdapterFixtureBoundariesResponse,
           readOnlyAdapterFinalReadinessResponse,
+          realReadOnlyAdapterReadinessResponse,
           codexExecReportReviewsResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
@@ -147,6 +151,9 @@ export function App() {
           getJson<{
             reviews: CodexExecReadOnlyAdapterFinalReadinessSummary[];
           }>('/api/codex/exec/read-only-adapter/final-readiness?limit=5'),
+          getJson<{
+            summaries: CodexExecRealReadOnlyAdapterReadinessSummary[];
+          }>('/api/codex/exec/real-read-only-adapter/readiness-packages?limit=5'),
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
@@ -339,12 +346,12 @@ export function App() {
               readOnlyAdapterSimulatorReviewsResponse.reviews,
             codexExecReadOnlyAdapterImplementationPlanReviews:
               readOnlyAdapterImplementationPlanReviewsResponse.reviews,
-            codexExecReadOnlyAdapterSkeletonPreview:
-              readOnlyAdapterSkeletonPreviewResponse.preview,
+            codexExecReadOnlyAdapterSkeletonPreview: readOnlyAdapterSkeletonPreviewResponse.preview,
             codexExecReadOnlyAdapterSkeletonReviews: readOnlyAdapterSkeletonReviewsResponse.reviews,
             codexExecReadOnlyAdapterFixtureBoundaries:
               readOnlyAdapterFixtureBoundariesResponse.summaries,
             codexExecReadOnlyAdapterFinalReadiness: readOnlyAdapterFinalReadinessResponse.reviews,
+            codexExecRealReadOnlyAdapterReadiness: realReadOnlyAdapterReadinessResponse.summaries,
             codexExecReportReviews: codexExecReportReviewsResponse.reviews,
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
@@ -374,6 +381,7 @@ export function App() {
             codexExecReadOnlyAdapterSkeletonReviews: [],
             codexExecReadOnlyAdapterFixtureBoundaries: [],
             codexExecReadOnlyAdapterFinalReadiness: [],
+            codexExecRealReadOnlyAdapterReadiness: [],
             codexExecReportReviews: [],
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
@@ -1013,8 +1021,7 @@ export function App() {
                   <span>
                     implementationApproved {String(decision.implementationApproved)},
                     processAdapterApproved {String(decision.processAdapterApproved)},
-                    recommendationGrantsExecution{' '}
-                    {String(decision.recommendationGrantsExecution)}
+                    recommendationGrantsExecution {String(decision.recommendationGrantsExecution)}
                   </span>
                   <span>
                     evidence {decision.evidenceCount}, audit {decision.auditEventCount},
@@ -1113,15 +1120,14 @@ export function App() {
                     {review.simulationStatus}
                   </span>
                   <span>
-                    hard gates {review.hardGateCount}, requires review{' '}
-                    {review.requiresReviewCount}, informational {review.informationalCount},
-                    unresolved {review.unresolvedBlockerCount}
+                    hard gates {review.hardGateCount}, requires review {review.requiresReviewCount},
+                    informational {review.informationalCount}, unresolved{' '}
+                    {review.unresolvedBlockerCount}
                   </span>
                   <span>
                     implementationApproved {String(review.implementationApproved)},
                     processAdapterApproved {String(review.processAdapterApproved)},
-                    recommendationGrantsExecution{' '}
-                    {String(review.recommendationGrantsExecution)}
+                    recommendationGrantsExecution {String(review.recommendationGrantsExecution)}
                   </span>
                   <span>
                     liveExecution {String(review.liveExecution)}, externalProcessStarted{' '}
@@ -1151,15 +1157,14 @@ export function App() {
                     {String(review.disabledSkeletonApproved)}
                   </span>
                   <span>
-                    hard gates {review.hardGateCount}, requires review{' '}
-                    {review.requiresReviewCount}, informational {review.informationalCount},
-                    unresolved findings {review.unresolvedFindingCount}
+                    hard gates {review.hardGateCount}, requires review {review.requiresReviewCount},
+                    informational {review.informationalCount}, unresolved findings{' '}
+                    {review.unresolvedFindingCount}
                   </span>
                   <span>
                     implementationApproved {String(review.implementationApproved)},
                     processAdapterApproved {String(review.processAdapterApproved)},
-                    recommendationGrantsExecution{' '}
-                    {String(review.recommendationGrantsExecution)}
+                    recommendationGrantsExecution {String(review.recommendationGrantsExecution)}
                   </span>
                   <span>
                     workspaceWriteAllowed {String(review.workspaceWriteAllowed)},
@@ -1172,8 +1177,8 @@ export function App() {
                     {String(review.executionDisabled)}
                   </span>
                   <p>
-                    Conditional skeleton approval only allows a future disabled-by-default
-                    skeleton. It does not approve process adapter work, Codex process launch, or
+                    Conditional skeleton approval only allows a future disabled-by-default skeleton.
+                    It does not approve process adapter work, Codex process launch, or
                     Dashboard-triggered actions.
                   </p>
                 </li>
@@ -1191,7 +1196,8 @@ export function App() {
               <span>
                 configured enabled{' '}
                 {String(overview.codexExecReadOnlyAdapterSkeletonPreview.config.configuredEnabled)},
-                liveExecution {String(overview.codexExecReadOnlyAdapterSkeletonPreview.liveExecution)},
+                liveExecution{' '}
+                {String(overview.codexExecReadOnlyAdapterSkeletonPreview.liveExecution)},
                 externalProcessStarted{' '}
                 {String(overview.codexExecReadOnlyAdapterSkeletonPreview.externalProcessStarted)},
                 executionDisabled{' '}
@@ -1253,9 +1259,8 @@ export function App() {
                   </span>
                   <span>
                     processAdapterApproved {String(review.processAdapterApproved)},
-                    recommendationGrantsExecution{' '}
-                    {String(review.recommendationGrantsExecution)}, dashboardTriggerAllowed{' '}
-                    {String(review.dashboardTriggerAllowed)}
+                    recommendationGrantsExecution {String(review.recommendationGrantsExecution)},
+                    dashboardTriggerAllowed {String(review.dashboardTriggerAllowed)}
                   </span>
                   <p>
                     This review can only allow a fixture-backed replay boundary follow-up. It does
@@ -1294,8 +1299,8 @@ export function App() {
                     workspaceWriteAllowed {String(boundary.workspaceWriteAllowed)}
                   </span>
                   <p>
-                    Fixture-backed replay boundary uses synthetic local JSONL fixtures only and
-                    does not start a process.
+                    Fixture-backed replay boundary uses synthetic local JSONL fixtures only and does
+                    not start a process.
                   </p>
                 </li>
               ))}
@@ -1327,9 +1332,8 @@ export function App() {
                   </span>
                   <span>
                     processAdapterApproved {String(review.processAdapterApproved)},
-                    recommendationGrantsExecution{' '}
-                    {String(review.recommendationGrantsExecution)}, dashboardTriggerAllowed{' '}
-                    {String(review.dashboardTriggerAllowed)}
+                    recommendationGrantsExecution {String(review.recommendationGrantsExecution)},
+                    dashboardTriggerAllowed {String(review.dashboardTriggerAllowed)}
                   </span>
                   <p>
                     Final readiness is a governance record only. Any real read-only adapter still
@@ -1340,6 +1344,50 @@ export function App() {
             </ul>
           ) : (
             <p>No final readiness review has been recorded yet.</p>
+          )}
+        </Panel>
+
+        <Panel title="Real Read-only Adapter Readiness">
+          {overview.codexExecRealReadOnlyAdapterReadiness.length > 0 ? (
+            <ul>
+              {overview.codexExecRealReadOnlyAdapterReadiness.map((readiness) => (
+                <li key={readiness.id} className="stacked report-detail">
+                  <strong>{readiness.packageId}</strong>
+                  <span>
+                    dryRunId {readiness.dryRunId}, status {readiness.status}
+                  </span>
+                  <span>
+                    hard gates {readiness.passedGateCount}/{readiness.hardGateCount}, requires
+                    review {readiness.requiresReviewCount}, blockers {readiness.blockerCount},
+                    findings {readiness.findingCount}
+                  </span>
+                  <span>
+                    documented-only 3T-W evidence {String(readiness.documentedOnly3twEvidence)},
+                    symlink pending {String(readiness.symlinkEscapeVerificationPending)}
+                  </span>
+                  <span>
+                    liveExecution {String(readiness.liveExecution)}, externalProcessStarted{' '}
+                    {String(readiness.externalProcessStarted)}, executionDisabled{' '}
+                    {String(readiness.executionDisabled)}
+                  </span>
+                  <span>
+                    implementationApproved {String(readiness.implementationApproved)},
+                    processAdapterApproved {String(readiness.processAdapterApproved)},
+                    recommendationGrantsExecution {String(readiness.recommendationGrantsExecution)}
+                  </span>
+                  <p>{readiness.recommendation}</p>
+                  <p>
+                    Ready for separate ADR review only. Does not grant implementation, process
+                    launch, or execution permission.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No real read-only adapter readiness package is available. Readiness remains
+              non-approving until a separate ADR review exists.
+            </p>
           )}
         </Panel>
 
