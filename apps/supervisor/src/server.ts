@@ -42,6 +42,7 @@ import {
   createRealReadOnlyAdapterReadinessReviewDecisionRecord,
   createRealReadOnlyAdapterReadinessReviewEvidenceRefs,
   createDefaultRealReadOnlyAdapterConfig,
+  createRealReadOnlyAdapterConfigFromLiveConfig,
   createRealReadOnlyAdapterRequest,
   createDisabledRealReadOnlyAdapterPreflight,
   createRealReadOnlyAdapterBlockedResult,
@@ -2340,10 +2341,24 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse(body.dryRunId));
     }
 
-    const config = createDefaultRealReadOnlyAdapterConfig({
-      requestedBy: 'supervisor-api',
-      source: 'apps.supervisor.real-read-only-adapter.attempt',
-    });
+    const configLoadResult = await getLiveConfigLoadResult();
+    const config =
+      configLoadResult.status === 'loaded'
+        ? createRealReadOnlyAdapterConfigFromLiveConfig({
+            liveConfig: configLoadResult.config,
+            metadata: {
+              requestedBy: 'supervisor-api',
+              configLoadStatus: configLoadResult.status,
+              configSource: configLoadResult.source,
+              source: 'apps.supervisor.real-read-only-adapter.attempt',
+            },
+          })
+        : createDefaultRealReadOnlyAdapterConfig({
+            requestedBy: 'supervisor-api',
+            configLoadStatus: configLoadResult.status,
+            configSource: configLoadResult.source,
+            source: 'apps.supervisor.real-read-only-adapter.attempt',
+          });
     const attemptRequest = createRealReadOnlyAdapterRequest({
       dryRunId: body.dryRunId,
       config,
@@ -2352,6 +2367,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       metadata: {
         requestedBy: 'supervisor-api',
         isolatedWorktreeProvided: body.isolatedWorktreeProvided === true,
+        configLoadStatus: configLoadResult.status,
+        configSource: configLoadResult.source,
         worktreePathStored: false,
       },
     });
@@ -2363,6 +2380,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       metadata: {
         requestedBy: 'supervisor-api',
         authoritativeAttemptRecord: true,
+        configLoadStatus: configLoadResult.status,
       },
     });
     const telemetryInput = {
@@ -2373,6 +2391,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       metadata: {
         requestedBy: 'supervisor-api',
         authoritativeAttemptRecord: true,
+        configLoadStatus: configLoadResult.status,
       },
     };
     const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs(telemetryInput);

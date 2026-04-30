@@ -1800,7 +1800,23 @@ describe('supervisor mock development API', () => {
   it('creates authoritative metadata-only real read-only adapter attempt records', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-real-attempt-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
-    const server = buildSupervisorServer({ store });
+    const defaultConfigLoadResult = createDefaultCodexExecConfigLoadResult();
+    const server = buildSupervisorServer({
+      store,
+      configLoadResult: {
+        ...defaultConfigLoadResult,
+        source: 'file',
+        status: 'loaded',
+        summary: 'Loaded explicit enabled config for attempt authority test',
+        config: {
+          ...defaultConfigLoadResult.config,
+          liveEnabled: true,
+          allowedSandboxModes: ['read_only'],
+          forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+          configSource: 'file',
+        },
+      },
+    });
 
     const createResponse = await server.inject({
       method: 'POST',
@@ -1849,7 +1865,36 @@ describe('supervisor mock development API', () => {
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: { dryRunId: 'codex_dry_run_attempt_fixture' },
     });
+    const disabledConfigDir = mkdtempSync(
+      join(tmpdir(), 'codexhub-supervisor-real-attempt-disabled-config-'),
+    );
+    const disabledConfigStore = await createSqliteStore({
+      dbPath: join(disabledConfigDir, 'codexhub.sqlite'),
+    });
+    const disabledConfigServer = buildSupervisorServer({
+      store: disabledConfigStore,
+      configLoadResult: {
+        ...defaultConfigLoadResult,
+        source: 'file',
+        status: 'loaded',
+        summary: 'Loaded disabled config for attempt authority test',
+        config: {
+          ...defaultConfigLoadResult.config,
+          liveEnabled: false,
+          allowedSandboxModes: ['read_only'],
+          forbiddenSandboxModes: ['workspace_write', 'danger_full_access'],
+          configSource: 'file',
+        },
+      },
+    });
+    const disabledConfigResponse = await disabledConfigServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: { dryRunId: 'codex_dry_run_attempt_fixture' },
+    });
 
+    await disabledConfigServer.close();
+    await disabledConfigStore.close();
     await disabledStoreServer.close();
     await server.close();
     await store.close();
@@ -1878,6 +1923,15 @@ describe('supervisor mock development API', () => {
       executionDisabled: true,
       notPersisted: false,
     });
+    expect(createResponse.json().request.metadata.configuredEnabled).toBe(true);
+    expect(
+      createResponse
+        .json()
+        .preflight.checks.find((check: { code: string }) => check.code === 'config_explicit_enable')
+        ?.status,
+    ).toBe('passed');
+    expect(createResponse.json().result.error.code).toBe('boundary_deferred');
+    expect(JSON.stringify(createResponse.json())).not.toContain('config_disabled');
     expect(createResponse.json().evidenceRefs).toHaveLength(1);
     expect(createResponse.json().auditEvents.length).toBeGreaterThan(0);
     expect(getResponse.statusCode).toBe(200);
@@ -1927,6 +1981,14 @@ describe('supervisor mock development API', () => {
       processAdapterApproved: false,
       recommendationGrantsExecution: false,
     });
+    expect(disabledConfigResponse.statusCode).toBe(200);
+    expect(disabledConfigResponse.json().result.error.code).toBe('config_disabled');
+    expect(
+      disabledConfigResponse
+        .json()
+        .preflight.checks.find((check: { code: string }) => check.code === 'config_explicit_enable')
+        ?.status,
+    ).toBe('blocked');
     expect(JSON.stringify(createResponse.json())).not.toContain('raw prompt body');
     expect(JSON.stringify(createResponse.json())).not.toContain('raw command body');
     expect(JSON.stringify(createResponse.json())).not.toContain('raw stdout body');

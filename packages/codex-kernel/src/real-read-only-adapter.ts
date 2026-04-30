@@ -17,6 +17,7 @@ import type {
   CodexExecRealReadOnlyAdapterPreflightCheck,
   CodexExecRealReadOnlyAdapterRequest,
   CodexExecRealReadOnlyAdapterResult,
+  CodexExecLiveConfig,
   EvidenceRef,
   PolicyDecision,
 } from '@codexhub/contracts';
@@ -165,6 +166,47 @@ export function createDefaultRealReadOnlyAdapterConfig(
     metadata: createRealReadOnlyAdapterMetadata({
       ...metadata,
       source: 'codex-kernel.real-read-only-adapter.config',
+    }),
+  };
+}
+
+export function createRealReadOnlyAdapterConfigFromLiveConfig(input: {
+  liveConfig: CodexExecLiveConfig;
+  metadata?: JsonMetadata;
+}): CodexExecRealReadOnlyAdapterConfig {
+  const allowedSandboxModes = new Set(input.liveConfig.allowedSandboxModes);
+  const forbiddenSandboxModes = new Set(input.liveConfig.forbiddenSandboxModes);
+  const readOnlyOnly =
+    allowedSandboxModes.size === 1 &&
+    allowedSandboxModes.has('read_only') &&
+    !forbiddenSandboxModes.has('read_only');
+  const forbiddenModesCovered =
+    forbiddenSandboxModes.has('workspace_write') && forbiddenSandboxModes.has('danger_full_access');
+  const configuredEnabled =
+    input.liveConfig.liveEnabled === true && readOnlyOnly && forbiddenModesCovered;
+  const baseConfig = createDefaultRealReadOnlyAdapterConfig({
+    ...(input.metadata ?? {}),
+    liveConfigId: input.liveConfig.id,
+    liveConfigSource: input.liveConfig.configSource,
+    liveConfigEnabled: input.liveConfig.liveEnabled,
+    source: 'codex-kernel.real-read-only-adapter.config-authority',
+  });
+
+  return {
+    ...baseConfig,
+    status: configuredEnabled ? 'enabled' : 'disabled',
+    configuredEnabled,
+    summary: configuredEnabled
+      ? 'Real read-only adapter config is explicitly enabled for CLI-only read_only attempts; execution remains gated.'
+      : 'Real read-only adapter config is disabled or not restricted to the approved read_only-only policy.',
+    metadata: createRealReadOnlyAdapterMetadata({
+      ...(input.metadata ?? {}),
+      liveConfigId: input.liveConfig.id,
+      liveConfigSource: input.liveConfig.configSource,
+      liveConfigEnabled: input.liveConfig.liveEnabled,
+      readOnlyOnly,
+      forbiddenModesCovered,
+      source: 'codex-kernel.real-read-only-adapter.config-authority',
     }),
   };
 }

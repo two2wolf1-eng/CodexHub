@@ -45,7 +45,9 @@ import {
   validateRealReadOnlyAdapterReadinessReviewDecision,
   createDefaultRealReadOnlyAdapterConfig,
   createDisabledRealReadOnlyAdapter,
+  createDisabledRealReadOnlyAdapterPreflight,
   createDisabledRealReadOnlyAdapterResult,
+  createRealReadOnlyAdapterConfigFromLiveConfig,
   createRealReadOnlyAdapterAttemptAuditEvents,
   createRealReadOnlyAdapterAttemptEvidenceRefs,
   createRealReadOnlyAdapterAttemptRecord,
@@ -1893,6 +1895,48 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('"envPlan":');
     expect(serialized).not.toContain('stdout body');
     expect(serialized).not.toContain('prompt body');
+  });
+
+  it('maps live config authority into read-only adapter config without widening scope', () => {
+    const enabledLiveConfig = {
+      ...createDefaultCodexExecLiveConfig(),
+      liveEnabled: true,
+      allowedSandboxModes: ['read_only' as const],
+      forbiddenSandboxModes: ['workspace_write' as const, 'danger_full_access' as const],
+      configSource: 'file' as const,
+    };
+    const enabledConfig = createRealReadOnlyAdapterConfigFromLiveConfig({
+      liveConfig: enabledLiveConfig,
+      metadata: { requestedBy: 'kernel-test' },
+    });
+    const request = createRealReadOnlyAdapterRequest({
+      dryRunId: 'codex_dry_run_config_authority',
+      config: enabledConfig,
+    });
+    const preflight = createDisabledRealReadOnlyAdapterPreflight(request, enabledConfig);
+    const result = createRealReadOnlyAdapterBlockedResult({ request, preflight, config: enabledConfig });
+    const unsafeConfig = createRealReadOnlyAdapterConfigFromLiveConfig({
+      liveConfig: {
+        ...enabledLiveConfig,
+        allowedSandboxModes: ['read_only' as const, 'workspace_write' as const],
+      },
+    });
+
+    expect(enabledConfig.status).toBe('enabled');
+    expect(enabledConfig.configuredEnabled).toBe(true);
+    expect(enabledConfig.defaultEnabled).toBe(false);
+    expect(enabledConfig.executionDisabled).toBe(true);
+    expect(enabledConfig.workspaceWriteAllowed).toBe(false);
+    expect(enabledConfig.dangerFullAccessAllowed).toBe(false);
+    expect(enabledConfig.dashboardTriggerAllowed).toBe(false);
+    expect(preflight.checks.find((check) => check.code === 'config_explicit_enable')?.status).toBe(
+      'passed',
+    );
+    expect(result.error?.code).toBe('boundary_deferred');
+    expect(JSON.stringify({ enabledConfig, result })).not.toContain('"argv"');
+    expect(JSON.stringify({ enabledConfig, result })).not.toContain('"executablePath":');
+    expect(unsafeConfig.status).toBe('disabled');
+    expect(unsafeConfig.configuredEnabled).toBe(false);
   });
 
   it('fails real read-only adapter hard gates before boundary planning', () => {
