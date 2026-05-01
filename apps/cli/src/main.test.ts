@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 describe('cli development mock-run fallback', () => {
   it('falls back to local mock orchestration when supervisor is unavailable', async () => {
@@ -482,6 +482,76 @@ describe('cli development mock-run fallback', () => {
     expect(JSON.stringify(result)).not.toContain('C:/safe/isolated-worktree');
     expect(JSON.stringify(result)).not.toContain('"argv":');
     expect(JSON.stringify(result)).not.toContain('"executablePath":');
+  });
+
+  it('sends runtime worktree input only to the supervisor attempt path', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const rawWorktreePath = 'C:/safe/isolated-worktree-runtime';
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          status: 'blocked',
+          attempt: {
+            status: 'blocked',
+            processBoundaryInvoked: false,
+            liveExecution: false,
+            externalProcessStarted: false,
+            executionDisabled: true,
+            processAdapterStarted: false,
+            implementationApproved: false,
+            processAdapterApproved: false,
+            recommendationGrantsExecution: false,
+            workspaceWriteAllowed: false,
+            dangerFullAccessAllowed: false,
+            dashboardTriggerAllowed: false,
+            argvStored: false,
+            executablePathStored: false,
+          },
+          preflight: { status: 'failed', checks: [] },
+          degraded: false,
+          notPersisted: false,
+          fallbackRefused: false,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          persisted: true,
+          authoritative: true,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    try {
+      const { attemptRealReadOnlyAdapterCommand, formatRealReadOnlyAdapterAttemptOutput } =
+        await import('./main');
+      const result = await attemptRealReadOnlyAdapterCommand('codex_dry_run_fixture', {
+        approval: 'codex_approval_fixture',
+        worktree: rawWorktreePath,
+      });
+      const output = formatRealReadOnlyAdapterAttemptOutput(result);
+      const requestBody = JSON.parse(String(fetchCalls[0]?.init?.body));
+
+      expect(fetchCalls[0]?.url).toContain(
+        '/api/codex/exec/real-read-only-adapter/attempt',
+      );
+      expect(requestBody).toMatchObject({
+        dryRunId: 'codex_dry_run_fixture',
+        approvalArtifactId: 'codex_approval_fixture',
+        isolatedWorktreeProvided: true,
+        worktreePath: rawWorktreePath,
+      });
+      expect(result).toMatchObject({
+        authoritative: true,
+        degraded: false,
+        notPersisted: false,
+      });
+      expect(JSON.stringify(result)).not.toContain(rawWorktreePath);
+      expect(output).not.toContain(rawWorktreePath);
+      expect(output).not.toContain('execution approval');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('uses degraded read-only attempt query fallbacks without creating authoritative records', async () => {

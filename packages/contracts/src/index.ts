@@ -3045,6 +3045,18 @@ export type CodexExecRealReadOnlyAdapterAttemptStatus = z.infer<
   typeof CodexExecRealReadOnlyAdapterAttemptStatusSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema = z.enum([
+  'not_required',
+  'skipped',
+  'passed',
+  'failed',
+  'aborted',
+  'critical',
+]);
+export type CodexExecRealReadOnlyAdapterPostRunVerificationStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema
+>;
+
 export const CodexExecRealReadOnlyAdapterErrorCodeSchema = z.enum([
   'config_disabled',
   'missing_dry_run',
@@ -3248,6 +3260,15 @@ export const CodexExecRealReadOnlyAdapterAttemptRecordSchema = createdEntityBase
     notPersisted: z.literal(false),
     processBoundaryInvoked: z.boolean(),
     processBoundaryModuleRef: z.string().min(1).optional(),
+    preflightStatus: CodexExecRealReadOnlyAdapterPreflightStatusSchema,
+    resultStatus: CodexExecRealReadOnlyAdapterResultStatusSchema,
+    resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
+    failedCheckCodes: z.array(z.string().min(1)).default([]),
+    blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
+      'not_required',
+    ),
+    workspaceMutationDetected: z.boolean().optional(),
     evidenceSummary: CodexExecRealReadOnlyAdapterEvidenceSummarySchema.optional(),
     auditSummary: CodexExecRealReadOnlyAdapterAuditSummarySchema.optional(),
     evidenceRefIds: z.array(z.string().min(1)).default([]),
@@ -3272,6 +3293,15 @@ export const CodexExecRealReadOnlyAdapterAttemptSummarySchema = createdEntityBas
     degraded: z.boolean(),
     notPersisted: z.boolean(),
     processBoundaryInvoked: z.boolean(),
+    preflightStatus: CodexExecRealReadOnlyAdapterPreflightStatusSchema,
+    resultStatus: CodexExecRealReadOnlyAdapterResultStatusSchema,
+    resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
+    failedCheckCodes: z.array(z.string().min(1)).default([]),
+    blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
+      'not_required',
+    ),
+    workspaceMutationDetected: z.boolean().optional(),
     evidenceRefCount: z.number().int().nonnegative(),
     auditEventCount: z.number().int().nonnegative(),
     outputHashCount: z.number().int().nonnegative(),
@@ -3301,6 +3331,15 @@ export const CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema = createdEnt
     status: CodexExecRealReadOnlyAdapterAttemptStatusSchema,
     occurredAt: IsoDateTimeSchema,
     processBoundaryInvoked: z.boolean(),
+    preflightStatus: CodexExecRealReadOnlyAdapterPreflightStatusSchema,
+    resultStatus: CodexExecRealReadOnlyAdapterResultStatusSchema,
+    resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
+    failedCheckCodes: z.array(z.string().min(1)).default([]),
+    blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
+      'not_required',
+    ),
+    workspaceMutationDetected: z.boolean().optional(),
     evidenceRefIds: z.array(z.string().min(1)).default([]),
     auditEventIds: z.array(z.string().min(1)).default([]),
     evidenceRefCount: z.number().int().nonnegative(),

@@ -2678,6 +2678,13 @@ describe('contracts schemas', () => {
       degraded: false,
       notPersisted: false,
       processBoundaryInvoked: false,
+      preflightStatus: preflight.status,
+      resultStatus: result.status,
+      resultErrorCode: error.code,
+      failedCheckCodes: [],
+      blockedCheckCodes: [],
+      postRunVerificationStatus: 'not_required',
+      workspaceMutationDetected: false,
       evidenceSummary,
       auditSummary,
       evidenceRefIds: ['evidence_1'],
@@ -2700,6 +2707,13 @@ describe('contracts schemas', () => {
       degraded: false,
       notPersisted: false,
       processBoundaryInvoked: false,
+      preflightStatus: attemptRecord.preflightStatus,
+      resultStatus: attemptRecord.resultStatus,
+      resultErrorCode: attemptRecord.resultErrorCode,
+      failedCheckCodes: attemptRecord.failedCheckCodes,
+      blockedCheckCodes: attemptRecord.blockedCheckCodes,
+      postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
+      workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
       evidenceRefCount: 1,
       auditEventCount: 1,
       outputHashCount: 0,
@@ -2725,6 +2739,13 @@ describe('contracts schemas', () => {
       status: attemptRecord.status,
       occurredAt: createdAt,
       processBoundaryInvoked: false,
+      preflightStatus: attemptRecord.preflightStatus,
+      resultStatus: attemptRecord.resultStatus,
+      resultErrorCode: attemptRecord.resultErrorCode,
+      failedCheckCodes: attemptRecord.failedCheckCodes,
+      blockedCheckCodes: attemptRecord.blockedCheckCodes,
+      postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
+      workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
       evidenceRefIds: ['evidence_1'],
       auditEventIds: ['audit_1'],
       evidenceRefCount: 1,
@@ -2774,6 +2795,12 @@ describe('contracts schemas', () => {
     expect(attemptRecord.workspaceWriteAllowed).toBe(false);
     expect(attemptRecord.dangerFullAccessAllowed).toBe(false);
     expect(attemptRecord.dashboardTriggerAllowed).toBe(false);
+    expect(attemptRecord.preflightStatus).toBe('passed');
+    expect(attemptRecord.resultStatus).toBe('blocked');
+    expect(attemptRecord.resultErrorCode).toBe('boundary_deferred');
+    expect(attemptRecord.failedCheckCodes).toHaveLength(0);
+    expect(attemptRecord.postRunVerificationStatus).toBe('not_required');
+    expect(attemptRecord.workspaceMutationDetected).toBe(false);
     expect(attemptRecord.promptBodyStored).toBe(false);
     expect(attemptRecord.commandBodyStored).toBe(false);
     expect(attemptRecord.stdoutBodyStored).toBe(false);

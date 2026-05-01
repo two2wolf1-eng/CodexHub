@@ -3181,6 +3181,7 @@ export async function attemptRealReadOnlyAdapterCommand(
           dryRunId,
           approvalArtifactId: options.approval,
           isolatedWorktreeProvided: options.worktree !== undefined,
+          worktreePath: options.worktree,
         }),
       },
     );

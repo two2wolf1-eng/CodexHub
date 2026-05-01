@@ -23,7 +23,10 @@ import type {
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { createEvidenceRef, hashText } from '@codexhub/evidence-kernel';
-import type { CodexExecRealReadOnlyAdapterProcessBoundaryResult } from './real-read-only-adapter-process';
+import type {
+  CodexExecRealReadOnlyAdapterPostRunVerificationResult,
+  CodexExecRealReadOnlyAdapterProcessBoundaryResult,
+} from './real-read-only-adapter-process';
 
 type JsonMetadata = Record<string, unknown>;
 
@@ -92,6 +95,7 @@ export interface CodexExecRealReadOnlyAdapterAttemptRecordInput {
   preflight: CodexExecRealReadOnlyAdapterPreflight;
   result: CodexExecRealReadOnlyAdapterResult;
   boundaryResult?: CodexExecRealReadOnlyAdapterProcessBoundaryResult;
+  postRunVerificationResult?: CodexExecRealReadOnlyAdapterPostRunVerificationResult;
   evidenceRefs?: EvidenceRef[];
   auditEvents?: AuditEvent[];
   metadata?: JsonMetadata;
@@ -553,15 +557,21 @@ export function createRealReadOnlyAdapterBlockedResult(
   input: CodexExecRealReadOnlyAdapterBlockedResultInput,
 ): CodexExecRealReadOnlyAdapterResult {
   const { request, preflight, config } = input;
+  const firstBlockingCheck = preflight.checks.find(
+    (check) => check.status === 'blocked' || check.status === 'failed',
+  );
+  const errorCode = realReadOnlyAdapterErrorCodeForCheck(config, firstBlockingCheck?.code);
   const error = createRealReadOnlyAdapterError({
-    code: config.configuredEnabled ? 'boundary_deferred' : 'config_disabled',
-    relatedCheckCode: config.configuredEnabled ? undefined : 'config_explicit_enable',
-    messageSummary: config.configuredEnabled
-      ? 'Adapter boundary is not available in the disabled-default implementation.'
-      : 'Adapter config is disabled by default.',
-    remediationSummary: config.configuredEnabled
-      ? 'Complete the later process-boundary phase before any attempt can proceed.'
-      : 'Use an explicitly reviewed config only after all hard gates are implemented.',
+    code: errorCode,
+    relatedCheckCode: firstBlockingCheck?.code,
+    messageSummary:
+      errorCode === 'boundary_deferred'
+        ? 'Adapter boundary was not invoked because no guarded boundary result is available.'
+        : firstBlockingCheck?.summary ?? 'Read-only adapter hard gate failed before boundary planning.',
+    remediationSummary:
+      errorCode === 'config_disabled'
+        ? 'Use an explicitly reviewed config only after all hard gates are implemented.'
+        : 'Resolve the failed hard gate before retrying the CLI-only read-only attempt.',
   });
   const resultId = foundationId('codex_real_read_only_adapter_result');
 
@@ -581,8 +591,7 @@ export function createRealReadOnlyAdapterBlockedResult(
     workspaceMutationAllowed: false,
     unexpectedWorkspaceDiffCritical: true,
     autoRevertAllowed: false,
-    summary:
-      'Read-only adapter attempt stopped in disabled-default implementation; no process boundary started.',
+    summary: 'Read-only adapter attempt stopped before process boundary start; no raw process data stored.',
     metadata: createRealReadOnlyAdapterMetadata({
       ...(input.metadata ?? {}),
       configId: config.id,
@@ -591,6 +600,46 @@ export function createRealReadOnlyAdapterBlockedResult(
       errorCode: error.code,
       source: 'codex-kernel.real-read-only-adapter.result',
     }),
+  };
+}
+
+export function createRealReadOnlyAdapterResultFromBoundary(input: {
+  request: CodexExecRealReadOnlyAdapterRequest;
+  preflight: CodexExecRealReadOnlyAdapterPreflight;
+  boundaryResult: CodexExecRealReadOnlyAdapterProcessBoundaryResult;
+  metadata?: JsonMetadata;
+}): CodexExecRealReadOnlyAdapterResult {
+  const resultId = foundationId('codex_real_read_only_adapter_result');
+
+  return {
+    id: resultId,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    requestId: input.request.id,
+    dryRunId: input.request.dryRunId,
+    preflightId: input.preflight.id,
+    status: input.boundaryResult.status,
+    boundaryPlanId: input.preflight.boundaryPlan?.id,
+    evidenceSummary: createRealReadOnlyAdapterEvidenceSummary(input.request, resultId),
+    auditSummary: createRealReadOnlyAdapterAuditSummary(input.request, resultId),
+    postRunVerificationRequired: true,
+    workspaceMutationAllowed: false,
+    unexpectedWorkspaceDiffCritical: true,
+    autoRevertAllowed: false,
+    summary: `Read-only adapter boundary produced ${input.boundaryResult.status} metadata only.`,
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
+        ...(input.metadata ?? {}),
+        requestId: input.request.id,
+        preflightId: input.preflight.id,
+        boundaryStatus: input.boundaryResult.status,
+        boundaryPlanId: input.preflight.boundaryPlan?.id,
+        outputBodyStored: false,
+        source: 'codex-kernel.real-read-only-adapter.boundary-result',
+      },
+      input.boundaryResult.externalProcessStarted === true,
+    ),
   };
 }
 
@@ -836,11 +885,31 @@ export function createRealReadOnlyAdapterAttemptRecord(
   const status = attemptStatusFromResult(input.result.status);
   const outputHashCount =
     input.result.evidenceSummary?.outputHashCount ?? (input.boundaryResult ? 2 : 0);
+  const failedCheckCodes = input.preflight.checks
+    .filter((check) => check.status === 'failed')
+    .map((check) => check.code);
+  const blockedCheckCodes = input.preflight.checks
+    .filter((check) => check.status === 'blocked')
+    .map((check) => check.code);
+  const postRunVerificationStatus =
+    input.postRunVerificationResult === undefined
+      ? 'not_required'
+      : input.postRunVerificationResult.skippedBeforeStart
+        ? 'skipped'
+        : input.postRunVerificationResult.status;
+  const workspaceMutationDetected = input.postRunVerificationResult?.workspaceMutationDetected;
   const metadataHash = prefixedAdapterHash({
     requestId: input.request.id,
     preflightId: input.preflight.id,
     resultId: input.result.id,
     status,
+    preflightStatus: input.preflight.status,
+    resultStatus: input.result.status,
+    resultErrorCode: input.result.error?.code,
+    failedCheckCodes,
+    blockedCheckCodes,
+    postRunVerificationStatus,
+    workspaceMutationDetected,
     evidenceRefIds,
     auditEventIds,
     outputHashCount,
@@ -867,6 +936,13 @@ export function createRealReadOnlyAdapterAttemptRecord(
       input.boundaryResult === undefined
         ? undefined
         : 'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+    preflightStatus: input.preflight.status,
+    resultStatus: input.result.status,
+    resultErrorCode: input.result.error?.code,
+    failedCheckCodes,
+    blockedCheckCodes,
+    postRunVerificationStatus,
+    workspaceMutationDetected,
     evidenceSummary: input.result.evidenceSummary,
     auditSummary: input.result.auditSummary,
     evidenceRefIds,
@@ -884,7 +960,12 @@ export function createRealReadOnlyAdapterAttemptRecord(
         preflightId: input.preflight.id,
         resultId: input.result.id,
         resultStatus: input.result.status,
+        resultErrorCode: input.result.error?.code,
         attemptStatus: status,
+        failedCheckCodes,
+        blockedCheckCodes,
+        postRunVerificationStatus,
+        workspaceMutationDetected,
         evidenceRefCount: evidenceRefIds.length,
         auditEventCount: auditEventIds.length,
         processBoundaryInvoked: input.boundaryResult !== undefined,
@@ -913,6 +994,13 @@ export function summarizeRealReadOnlyAdapterAttempt(
     degraded: record.degraded,
     notPersisted: record.notPersisted,
     processBoundaryInvoked: record.processBoundaryInvoked,
+    preflightStatus: record.preflightStatus,
+    resultStatus: record.resultStatus,
+    resultErrorCode: record.resultErrorCode,
+    failedCheckCodes: record.failedCheckCodes,
+    blockedCheckCodes: record.blockedCheckCodes,
+    postRunVerificationStatus: record.postRunVerificationStatus,
+    workspaceMutationDetected: record.workspaceMutationDetected,
     evidenceRefCount: record.evidenceRefIds.length,
     auditEventCount: record.auditEventIds.length,
     outputHashCount: record.outputHashCount,
@@ -922,6 +1010,11 @@ export function summarizeRealReadOnlyAdapterAttempt(
       attemptId: record.id,
       dryRunId: record.dryRunId,
       status: record.status,
+      preflightStatus: record.preflightStatus,
+      resultStatus: record.resultStatus,
+      resultErrorCode: record.resultErrorCode,
+      postRunVerificationStatus: record.postRunVerificationStatus,
+      workspaceMutationDetected: record.workspaceMutationDetected,
       source: 'codex-kernel.real-read-only-adapter.attempt-summary',
     }),
   };
@@ -969,6 +1062,13 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     status: record.status,
     occurredAt: record.createdAt,
     processBoundaryInvoked: record.processBoundaryInvoked,
+    preflightStatus: record.preflightStatus,
+    resultStatus: record.resultStatus,
+    resultErrorCode: record.resultErrorCode,
+    failedCheckCodes: record.failedCheckCodes,
+    blockedCheckCodes: record.blockedCheckCodes,
+    postRunVerificationStatus: record.postRunVerificationStatus,
+    workspaceMutationDetected: record.workspaceMutationDetected,
     evidenceRefIds: includeEvidence ? record.evidenceRefIds : [],
     auditEventIds: includeAudit ? record.auditEventIds : [],
     evidenceRefCount: record.evidenceRefIds.length,
@@ -981,6 +1081,11 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       attemptId: record.id,
       dryRunId: record.dryRunId,
       status: record.status,
+      preflightStatus: record.preflightStatus,
+      resultStatus: record.resultStatus,
+      resultErrorCode: record.resultErrorCode,
+      postRunVerificationStatus: record.postRunVerificationStatus,
+      workspaceMutationDetected: record.workspaceMutationDetected,
       includeEvidence,
       includeAudit,
       source: 'codex-kernel.real-read-only-adapter.attempt-timeline-entry',
@@ -1208,6 +1313,41 @@ function attemptStatusFromResult(
   }
 
   return 'blocked';
+}
+
+function realReadOnlyAdapterErrorCodeForCheck(
+  config: CodexExecRealReadOnlyAdapterConfig,
+  checkCode: string | undefined,
+): CodexExecRealReadOnlyAdapterError['code'] {
+  if (!config.configuredEnabled || checkCode === 'config_explicit_enable') {
+    return 'config_disabled';
+  }
+
+  switch (checkCode) {
+    case 'dry_run_exists':
+      return 'missing_dry_run';
+    case 'approval_artifact_exists':
+      return 'missing_approval';
+    case 'approval_artifact_valid':
+      return 'approval_invalid';
+    case 'dry_run_hash_match':
+      return 'dry_run_hash_mismatch';
+    case 'policy_hash_match':
+      return 'policy_hash_mismatch';
+    case 'sandbox_read_only':
+      return 'sandbox_not_read_only';
+    case 'danger_full_access_forbidden':
+      return 'danger_full_access_forbidden';
+    case 'dashboard_trigger_forbidden':
+      return 'dashboard_trigger_forbidden';
+    case 'isolated_worktree_clean':
+      return 'worktree_not_isolated';
+    case 'evidence_store_ready':
+    case 'audit_store_ready':
+      return 'store_degraded';
+    default:
+      return checkCode === undefined ? 'boundary_deferred' : 'preflight_failed';
+  }
 }
 
 function createRealReadOnlyAdapterMetadata(extra: JsonMetadata): JsonMetadata {

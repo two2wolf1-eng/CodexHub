@@ -44,14 +44,19 @@ import {
   createDefaultRealReadOnlyAdapterConfig,
   createRealReadOnlyAdapterConfigFromLiveConfig,
   createRealReadOnlyAdapterRequest,
-  createDisabledRealReadOnlyAdapterPreflight,
+  createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterBlockedResult,
+  createRealReadOnlyAdapterResultFromBoundary,
   createRealReadOnlyAdapterAttemptAuditEvents,
   createRealReadOnlyAdapterAttemptEvidenceRefs,
   createRealReadOnlyAdapterAttemptRecord,
   createRealReadOnlyAdapterAttemptTimeline,
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
+  createRealReadOnlyAdapterProcessPlan,
+  createRealReadOnlyAdapterPostRunVerificationPlan,
+  runRealReadOnlyAdapterPostRunVerification,
+  runRealReadOnlyAdapterProcessBoundary,
   buildRealReadOnlyAdapterPilotPrerequisiteRecord,
   createRealReadOnlyAdapterPilotPrerequisiteAuditEvents,
   createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs,
@@ -119,6 +124,10 @@ import {
   summarizeCodexExecReportReview,
   listCodexExecReportReviewSummaries,
   summarizeCodexExecReplay,
+} from '@codexhub/codex-kernel';
+import type {
+  CodexExecRealReadOnlyAdapterPostRunWorktreeState,
+  CodexExecRealReadOnlyAdapterProcessRunner,
 } from '@codexhub/codex-kernel';
 import type {
   CodexExecApprovalArtifact,
@@ -193,6 +202,9 @@ interface SupervisorServerOptions {
   store?: CodexHubStore;
   disableStore?: boolean;
   configLoadResult?: CodexExecConfigLoadResult;
+  realReadOnlyAdapterProcessRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
+  realReadOnlyAdapterPostRunVerificationRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
+  realReadOnlyAdapterPostRunWorktreeState?: CodexExecRealReadOnlyAdapterPostRunWorktreeState;
 }
 
 interface PersistenceState {
@@ -2323,6 +2335,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           approvalArtifactId?: string;
           policyDecisionId?: string;
           isolatedWorktreeProvided?: boolean;
+          worktreePath?: string;
         }
       | undefined;
 
@@ -2359,39 +2372,193 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
             configSource: configLoadResult.source,
             source: 'apps.supervisor.real-read-only-adapter.attempt',
           });
+    const dryRunRecord = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+    const approvalRecords = dryRunRecord
+      ? await resolveCodexExecApprovalRecordsForDryRun(dryRunRecord.dryRunPlanId, store)
+      : [];
+    const validApprovalRecord = approvalRecords.find((record) =>
+      isValidUnusedApprovalRecordForPilot(record, body.approvalArtifactId),
+    );
+    const approvalArtifact = validApprovalRecord?.approvalArtifact;
+    const latestSourcePreparation =
+      await store.codexExecRealReadOnlyAdapterPilotSourcePreparations.latestPilotSourcePreparation(
+        body.dryRunId,
+      );
+    const latestPrerequisite =
+      await store.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
+        body.dryRunId,
+      );
+    const authoritativeSourcePreparationPresent =
+      latestSourcePreparation?.status === 'prepared' &&
+      latestSourcePreparation.authoritative === true &&
+      latestSourcePreparation.supervisorBacked === true &&
+      latestSourcePreparation.persisted === true &&
+      latestSourcePreparation.degraded === false &&
+      latestSourcePreparation.notPersisted === false;
+    const authoritativePrerequisiteReady =
+      latestPrerequisite?.status === 'ready_for_pilot_retry' &&
+      latestPrerequisite.authoritative === true &&
+      latestPrerequisite.supervisorBacked === true &&
+      latestPrerequisite.persisted === true &&
+      latestPrerequisite.degraded === false &&
+      latestPrerequisite.notPersisted === false &&
+      latestPrerequisite.fallbackUsedAsAuthority === false;
+    const evidenceAuditReady =
+      persistenceState.status === 'ok' &&
+      ((authoritativeSourcePreparationPresent &&
+        (latestSourcePreparation?.evidenceRefs.length ?? 0) > 0 &&
+        (latestSourcePreparation?.auditEventIds.length ?? 0) > 0) ||
+        (authoritativePrerequisiteReady &&
+          (latestPrerequisite?.evidenceRefs.length ?? 0) > 0 &&
+          (latestPrerequisite?.auditEventIds.length ?? 0) > 0));
+    const expectedWorktreePathHash =
+      latestSourcePreparation?.worktreePathHash ?? latestPrerequisite?.worktreePathHash;
+    const runtimeWorktreePathHash =
+      body.worktreePath && body.worktreePath.trim().length > 0
+        ? hashRuntimeWorktreePath(body.worktreePath)
+        : undefined;
+    const worktreePathHashMatched =
+      expectedWorktreePathHash !== undefined && runtimeWorktreePathHash === expectedWorktreePathHash;
+    const isolatedCleanWorktreeMetadataPresent =
+      latestSourcePreparation?.isolatedCleanWorktreeMetadataPresent === true ||
+      latestPrerequisite?.isolatedCleanWorktreeMetadataPresent === true;
     const attemptRequest = createRealReadOnlyAdapterRequest({
       dryRunId: body.dryRunId,
       config,
       approvalArtifactId: body.approvalArtifactId,
-      policyDecisionId: body.policyDecisionId,
+      policyDecisionId: body.policyDecisionId ?? dryRunRecord?.policyDecision.id,
       metadata: {
         requestedBy: 'supervisor-api',
-        isolatedWorktreeProvided: body.isolatedWorktreeProvided === true,
+        isolatedWorktreeProvided:
+          body.isolatedWorktreeProvided === true || body.worktreePath !== undefined,
         configLoadStatus: configLoadResult.status,
         configSource: configLoadResult.source,
+        dryRunRecordPresent: dryRunRecord !== undefined,
+        approvalArtifactPresent: approvalArtifact !== undefined,
+        latestSourcePreparationId: latestSourcePreparation?.id,
+        latestPrerequisiteId: latestPrerequisite?.id,
+        runtimeWorktreePathHashMatched: worktreePathHashMatched,
         worktreePathStored: false,
       },
     });
-    const preflight = createDisabledRealReadOnlyAdapterPreflight(attemptRequest, config);
-    const initialResult = createRealReadOnlyAdapterBlockedResult({
+    const preflight = createRealReadOnlyAdapterGuardPreflight({
+      dryRunId: body.dryRunId,
       request: attemptRequest,
-      preflight,
       config,
+      dryRunPlan: dryRunRecord?.dryRunPlan,
+      policyDecision: dryRunRecord?.policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash:
+        latestSourcePreparation?.dryRunPlanHash ?? approvalArtifact?.dryRunPlanHash,
+      expectedPolicyDecisionHash:
+        latestSourcePreparation?.policyDecisionHash ?? approvalArtifact?.policyDecisionHash,
+      requestedSandboxMode: 'read_only',
+      triggerKind: 'cli',
+      worktree: {
+        isolated:
+          isolatedCleanWorktreeMetadataPresent &&
+          authoritativeSourcePreparationPresent &&
+          authoritativePrerequisiteReady &&
+          worktreePathHashMatched,
+        status:
+          isolatedCleanWorktreeMetadataPresent && worktreePathHashMatched ? 'clean' : 'missing',
+        pathHash: worktreePathHashMatched ? runtimeWorktreePathHash : undefined,
+      },
+      evidenceStoreReady: evidenceAuditReady,
+      auditStoreReady: evidenceAuditReady,
       metadata: {
         requestedBy: 'supervisor-api',
         authoritativeAttemptRecord: true,
-        configLoadStatus: configLoadResult.status,
+        sourcePreparationReady: authoritativeSourcePreparationPresent,
+        prerequisiteReady: authoritativePrerequisiteReady,
+        worktreePathStored: false,
       },
     });
+    const boundaryResult =
+      preflight.status === 'passed' && body.worktreePath && body.approvalArtifactId
+        ? await runRealReadOnlyAdapterProcessBoundary(
+            createRealReadOnlyAdapterProcessPlan({
+              dryRunId: body.dryRunId,
+              approvalArtifactId: body.approvalArtifactId,
+              executablePath: 'codex',
+              worktreePath: body.worktreePath,
+              timeoutMs: 60_000,
+              metadata: {
+                executablePolicyLabel: 'codex_cli',
+                executablePathStored: false,
+                argvStored: false,
+                worktreePathStored: false,
+                source: 'apps.supervisor.real-read-only-adapter.attempt-process-plan',
+              },
+            }),
+            { runner: options.realReadOnlyAdapterProcessRunner },
+          )
+        : undefined;
+    const initialResult =
+      boundaryResult === undefined
+        ? createRealReadOnlyAdapterBlockedResult({
+            request: attemptRequest,
+            preflight,
+            config,
+            metadata: {
+              requestedBy: 'supervisor-api',
+              authoritativeAttemptRecord: true,
+              configLoadStatus: configLoadResult.status,
+              sourcePreparationReady: authoritativeSourcePreparationPresent,
+              prerequisiteReady: authoritativePrerequisiteReady,
+              worktreePathHashMatched,
+            },
+          })
+        : createRealReadOnlyAdapterResultFromBoundary({
+            request: attemptRequest,
+            preflight,
+            boundaryResult,
+            metadata: {
+              requestedBy: 'supervisor-api',
+              authoritativeAttemptRecord: true,
+              configLoadStatus: configLoadResult.status,
+              executablePolicyLabel: 'codex_cli',
+              worktreePathStored: false,
+            },
+          });
+    const postRunVerificationResult =
+      boundaryResult === undefined
+        ? undefined
+        : await runRealReadOnlyAdapterPostRunVerification(
+            createRealReadOnlyAdapterPostRunVerificationPlan({
+              dryRunId: body.dryRunId,
+              worktreePath: body.worktreePath ?? '.',
+              timeoutMs: 60_000,
+              metadata: {
+                requestedBy: 'supervisor-api',
+                executablePolicyLabel: 'pnpm_verify_foundation',
+                worktreePathStored: false,
+              },
+            }),
+            {
+              attemptStatus: boundaryResult.status,
+              worktreeState:
+                options.realReadOnlyAdapterPostRunWorktreeState ?? {
+                  beforeStatus: 'clean',
+                  afterStatus: 'unknown',
+                  unexpectedDiff: true,
+                  statusHash: expectedWorktreePathHash,
+                },
+              runner: options.realReadOnlyAdapterPostRunVerificationRunner,
+            },
+          );
     const telemetryInput = {
       request: attemptRequest,
       preflight,
       resultId: initialResult.id,
       resultStatus: initialResult.status,
+      boundaryResult,
       metadata: {
         requestedBy: 'supervisor-api',
         authoritativeAttemptRecord: true,
         configLoadStatus: configLoadResult.status,
+        postRunVerificationStatus: postRunVerificationResult?.status,
+        worktreePathStored: false,
       },
     };
     const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs(telemetryInput);
@@ -2413,10 +2580,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       request: attemptRequest,
       preflight,
       result,
+      boundaryResult,
+      postRunVerificationResult,
       evidenceRefs,
       auditEvents,
       metadata: {
         requestedBy: 'supervisor-api',
+        postRunVerificationStatus: postRunVerificationResult?.status,
       },
     });
 
@@ -4673,8 +4843,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     attemptRecord: CodexExecRealReadOnlyAdapterAttemptRecord,
     details: {
       request?: ReturnType<typeof createRealReadOnlyAdapterRequest>;
-      preflight?: ReturnType<typeof createDisabledRealReadOnlyAdapterPreflight>;
-      result?: ReturnType<typeof createRealReadOnlyAdapterBlockedResult>;
+      preflight?: ReturnType<typeof createRealReadOnlyAdapterGuardPreflight>;
+      result?:
+        | ReturnType<typeof createRealReadOnlyAdapterBlockedResult>
+        | ReturnType<typeof createRealReadOnlyAdapterResultFromBoundary>;
       evidenceRefs?: ReturnType<typeof createRealReadOnlyAdapterAttemptEvidenceRefs>;
       auditEvents?: ReturnType<typeof createRealReadOnlyAdapterAttemptAuditEvents>;
     } = {},
@@ -4930,6 +5102,11 @@ function isPilotPrerequisiteWorktreeStatus(
 
 function hashLocalMetadata(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function hashRuntimeWorktreePath(worktreePath: string): string {
+  const normalizedAbsolutePath = resolve(worktreePath).replace(/\\/g, '/');
+  return `sha256:${createHash('sha256').update(normalizedAbsolutePath).digest('hex')}`;
 }
 
 function approvalActionForOutcome(
