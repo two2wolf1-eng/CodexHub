@@ -3073,9 +3073,50 @@ export const CodexExecRealReadOnlyAdapterErrorCodeSchema = z.enum([
   'store_degraded',
   'preflight_failed',
   'boundary_deferred',
+  'boundary_failed',
+  'boundary_aborted',
 ]);
 export type CodexExecRealReadOnlyAdapterErrorCode = z.infer<
   typeof CodexExecRealReadOnlyAdapterErrorCodeSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterBoundaryFailureCodeSchema = z.enum([
+  'none',
+  'process_exit_nonzero',
+  'process_start_failed',
+  'process_timed_out',
+  'process_cancelled',
+  'process_signaled',
+  'boundary_failed_unknown',
+  'boundary_aborted_unknown',
+]);
+export type CodexExecRealReadOnlyAdapterBoundaryFailureCode = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryFailureCodeSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEntityBaseSchema
+  .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
+  .extend({
+    status: z.enum(['completed', 'failed', 'aborted']),
+    failureCode: CodexExecRealReadOnlyAdapterBoundaryFailureCodeSchema,
+    exitCode: z.number().int().optional(),
+    signal: z.string().min(1).optional(),
+    timedOut: z.boolean(),
+    cancelled: z.boolean(),
+    durationMs: z.number().int().nonnegative(),
+    stdoutHash: z.string().min(1),
+    stderrHash: z.string().min(1),
+    stdoutByteLength: z.number().int().nonnegative(),
+    stderrByteLength: z.number().int().nonnegative(),
+    stdoutLineCount: z.number().int().nonnegative(),
+    stderrLineCount: z.number().int().nonnegative(),
+    stdoutTruncated: z.boolean(),
+    stderrTruncated: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterBoundaryDiagnostics = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema
 >;
 
 export const CodexExecRealReadOnlyAdapterConfigSchema = createdEntityBaseSchema
@@ -3265,6 +3306,7 @@ export const CodexExecRealReadOnlyAdapterAttemptRecordSchema = createdEntityBase
     resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
@@ -3298,6 +3340,7 @@ export const CodexExecRealReadOnlyAdapterAttemptSummarySchema = createdEntityBas
     resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
@@ -3336,6 +3379,7 @@ export const CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema = createdEnt
     resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),

@@ -2015,12 +2015,13 @@ describe('supervisor mock development API', () => {
     const defaultConfigLoadResult = createDefaultCodexExecConfigLoadResult();
     const pilotWorktreePath = join(dir, 'pilot-worktree');
     const pilotWorktreeHash = hashTestWorktreePath(pilotWorktreePath);
+    let fakeRunnerResult = {
+      exitCode: 0 as number | undefined,
+      stdout: '{"type":"result","status":"ok"}\n',
+      stderr: '',
+    };
     const fakeRunner = {
-      start: async () => ({
-        exitCode: 0,
-        stdout: '{"type":"result","status":"ok"}\n',
-        stderr: '',
-      }),
+      start: async () => fakeRunnerResult,
     };
     const server = buildSupervisorServer({
       store,
@@ -2119,6 +2120,20 @@ describe('supervisor mock development API', () => {
       },
     });
     const attemptBodyText = attemptResponse.body;
+    fakeRunnerResult = {
+      exitCode: 2,
+      stdout: 'supervisor failed stdout must remain hashed',
+      stderr: 'supervisor failed stderr must remain hashed',
+    };
+    const failedAttemptResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: {
+        dryRunId,
+        approvalArtifactId,
+        worktreePath: pilotWorktreePath,
+      },
+    });
     const mismatchResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/attempt',
@@ -2182,6 +2197,46 @@ describe('supervisor mock development API', () => {
     expect(attemptResponse.json().result.error).toBeUndefined();
     expect(attemptResponse.json().evidenceRefs.length).toBeGreaterThan(0);
     expect(attemptResponse.json().auditEvents.length).toBeGreaterThan(0);
+    expect(failedAttemptResponse.statusCode).toBe(200);
+    expect(failedAttemptResponse.json()).toMatchObject({
+      attemptRecord: {
+        dryRunId,
+        status: 'failed',
+        processBoundaryInvoked: true,
+        preflightStatus: 'passed',
+        resultStatus: 'failed',
+        resultErrorCode: 'boundary_failed',
+        boundaryDiagnostics: {
+          failureCode: 'process_exit_nonzero',
+          exitCode: 2,
+          timedOut: false,
+          cancelled: false,
+          stdoutHash: expect.stringMatching(/^sha256:/),
+          stderrHash: expect.stringMatching(/^sha256:/),
+          stdoutByteLength: expect.any(Number),
+          stderrByteLength: expect.any(Number),
+        },
+        postRunVerificationStatus: 'skipped',
+        workspaceMutationDetected: false,
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+      },
+      summary: {
+        boundaryDiagnostics: {
+          failureCode: 'process_exit_nonzero',
+          exitCode: 2,
+        },
+      },
+    });
+    expect(failedAttemptResponse.body).not.toContain('supervisor failed stdout must remain hashed');
+    expect(failedAttemptResponse.body).not.toContain('supervisor failed stderr must remain hashed');
+    expect(failedAttemptResponse.body).not.toContain(pilotWorktreePath);
+    expect(failedAttemptResponse.body).not.toContain('"argv"');
+    expect(failedAttemptResponse.body).not.toContain('"executablePath":');
     expect(attemptBodyText).not.toContain(pilotWorktreePath);
     expect(attemptBodyText).not.toContain('"argv"');
     expect(attemptBodyText).not.toContain('"executablePath":');

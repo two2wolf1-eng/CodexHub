@@ -10,6 +10,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptSummary,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
+  CodexExecRealReadOnlyAdapterBoundaryDiagnostics,
+  CodexExecRealReadOnlyAdapterBoundaryFailureCode,
   CodexExecRealReadOnlyAdapterBoundaryPlan,
   CodexExecRealReadOnlyAdapterConfig,
   CodexExecRealReadOnlyAdapterError,
@@ -616,6 +618,17 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
   metadata?: JsonMetadata;
 }): CodexExecRealReadOnlyAdapterResult {
   const resultId = foundationId('codex_real_read_only_adapter_result');
+  const boundaryDiagnostics = createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult);
+  const error =
+    input.boundaryResult.status === 'completed'
+      ? undefined
+      : createRealReadOnlyAdapterError({
+          code:
+            input.boundaryResult.status === 'aborted' ? 'boundary_aborted' : 'boundary_failed',
+          messageSummary: `Read-only adapter boundary ${input.boundaryResult.status}; metadata-only diagnostics classify ${boundaryDiagnostics.failureCode}.`,
+          remediationSummary:
+            'Review boundary diagnostics, evidence refs, and audit refs before any retry; raw output and paths remain unavailable by design.',
+        });
 
   return {
     id: resultId,
@@ -627,6 +640,7 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
     preflightId: input.preflight.id,
     status: input.boundaryResult.status,
     boundaryPlanId: input.preflight.boundaryPlan?.id,
+    error,
     evidenceSummary: createRealReadOnlyAdapterEvidenceSummary(input.request, resultId),
     auditSummary: createRealReadOnlyAdapterAuditSummary(input.request, resultId),
     postRunVerificationRequired: true,
@@ -640,11 +654,59 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
         requestId: input.request.id,
         preflightId: input.preflight.id,
         boundaryStatus: input.boundaryResult.status,
+        boundaryFailureCode: boundaryDiagnostics.failureCode,
+        boundaryExitCode: boundaryDiagnostics.exitCode,
+        boundarySignal: boundaryDiagnostics.signal,
+        boundaryTimedOut: boundaryDiagnostics.timedOut,
+        boundaryCancelled: boundaryDiagnostics.cancelled,
+        boundaryDurationMs: boundaryDiagnostics.durationMs,
         boundaryPlanId: input.preflight.boundaryPlan?.id,
         outputBodyStored: false,
         source: 'codex-kernel.real-read-only-adapter.boundary-result',
       },
       input.boundaryResult.externalProcessStarted === true,
+    ),
+  };
+}
+
+export function createRealReadOnlyAdapterBoundaryDiagnostics(
+  boundaryResult: CodexExecRealReadOnlyAdapterProcessBoundaryResult,
+): CodexExecRealReadOnlyAdapterBoundaryDiagnostics {
+  const failureCode = classifyRealReadOnlyAdapterBoundaryFailure(boundaryResult);
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_boundary_diagnostics'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    status: boundaryResult.status,
+    failureCode,
+    exitCode: boundaryResult.exitCode,
+    signal: boundaryResult.signal,
+    timedOut: boundaryResult.timedOut,
+    cancelled: boundaryResult.cancelled,
+    durationMs: boundaryResult.durationMs,
+    stdoutHash: boundaryResult.stdoutSummary.contentHash,
+    stderrHash: boundaryResult.stderrSummary.contentHash,
+    stdoutByteLength: boundaryResult.stdoutSummary.byteLength,
+    stderrByteLength: boundaryResult.stderrSummary.byteLength,
+    stdoutLineCount: boundaryResult.stdoutSummary.lineCount,
+    stderrLineCount: boundaryResult.stderrSummary.lineCount,
+    stdoutTruncated: boundaryResult.stdoutSummary.truncated,
+    stderrTruncated: boundaryResult.stderrSummary.truncated,
+    externalProcessStarted: boundaryResult.externalProcessStarted,
+    summary:
+      failureCode === 'none'
+        ? 'Boundary completed; diagnostics contain output hashes and counts only.'
+        : `Boundary ended as ${boundaryResult.status}; diagnostics classify ${failureCode} using hashes and counts only.`,
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
+        boundaryStatus: boundaryResult.status,
+        boundaryFailureCode: failureCode,
+        outputBodyStored: false,
+        source: 'codex-kernel.real-read-only-adapter.boundary-diagnostics',
+      },
+      boundaryResult.externalProcessStarted,
     ),
   };
 }
@@ -686,6 +748,7 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
   ];
 
   if (boundaryResult) {
+    const boundaryDiagnostics = createRealReadOnlyAdapterBoundaryDiagnostics(boundaryResult);
     refs.push(
       createEvidenceRef({
         kind: 'hash',
@@ -701,8 +764,16 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           signal: boundaryResult.signal,
           timedOut: boundaryResult.timedOut,
           cancelled: boundaryResult.cancelled,
+          boundaryFailureCode: boundaryDiagnostics.failureCode,
+          durationMs: boundaryDiagnostics.durationMs,
           stdoutHash: boundaryResult.stdoutSummary.contentHash,
           stderrHash: boundaryResult.stderrSummary.contentHash,
+          stdoutByteLength: boundaryDiagnostics.stdoutByteLength,
+          stderrByteLength: boundaryDiagnostics.stderrByteLength,
+          stdoutLineCount: boundaryDiagnostics.stdoutLineCount,
+          stderrLineCount: boundaryDiagnostics.stderrLineCount,
+          stdoutTruncated: boundaryDiagnostics.stdoutTruncated,
+          stderrTruncated: boundaryDiagnostics.stderrTruncated,
           outputBodyStored: false,
           source: 'codex-kernel.real-read-only-adapter.attempt-evidence.boundary-summary',
         }, boundaryResult.externalProcessStarted),
@@ -715,6 +786,7 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           signal: boundaryResult.signal,
           timedOut: boundaryResult.timedOut,
           cancelled: boundaryResult.cancelled,
+          boundaryFailureCode: boundaryDiagnostics.failureCode,
           stdoutSummary: boundaryResult.stdoutSummary,
           stderrSummary: boundaryResult.stderrSummary,
           durationMs: boundaryResult.durationMs,
@@ -788,6 +860,8 @@ export function createRealReadOnlyAdapterAttemptAuditEvents(
         signal: input.boundaryResult.signal,
         timedOut: input.boundaryResult.timedOut,
         cancelled: input.boundaryResult.cancelled,
+        boundaryFailureCode: createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult)
+          .failureCode,
         outputBodyStored: false,
       },
     }),
@@ -801,6 +875,9 @@ export function createRealReadOnlyAdapterEvidenceSummaryFromRefs(
   evidenceRefs: EvidenceRef[],
 ): CodexExecRealReadOnlyAdapterEvidenceSummary {
   const boundaryResult = input.boundaryResult;
+  const boundaryDiagnostics = boundaryResult
+    ? createRealReadOnlyAdapterBoundaryDiagnostics(boundaryResult)
+    : undefined;
   const outputHashCount = boundaryResult ? 2 : 0;
   const eventHashCount = input.preflight.checks.length + outputHashCount;
   const resultId = input.resultId ?? 'pending_result';
@@ -823,6 +900,7 @@ export function createRealReadOnlyAdapterEvidenceSummaryFromRefs(
       evidenceRefIds: evidenceRefs.map((ref) => ref.id),
       preflightStatus: input.preflight.status,
       boundaryStatus: boundaryResult?.status,
+      boundaryFailureCode: boundaryDiagnostics?.failureCode,
       outputHashes: boundaryResult
         ? [
             boundaryResult.stdoutSummary.contentHash,
@@ -841,6 +919,7 @@ export function createRealReadOnlyAdapterEvidenceSummaryFromRefs(
         resultId,
         evidenceRefCount: evidenceRefs.length,
         outputHashCount,
+        boundaryFailureCode: boundaryDiagnostics?.failureCode,
         source: 'codex-kernel.real-read-only-adapter.evidence-summary',
       },
       boundaryResult?.externalProcessStarted === true,
@@ -904,6 +983,9 @@ export function createRealReadOnlyAdapterAttemptRecord(
         ? 'skipped'
         : input.postRunVerificationResult.status;
   const workspaceMutationDetected = input.postRunVerificationResult?.workspaceMutationDetected;
+  const boundaryDiagnostics = input.boundaryResult
+    ? createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult)
+    : undefined;
   const metadataHash = prefixedAdapterHash({
     requestId: input.request.id,
     preflightId: input.preflight.id,
@@ -920,6 +1002,11 @@ export function createRealReadOnlyAdapterAttemptRecord(
     auditEventIds,
     outputHashCount,
     processBoundaryInvoked: input.boundaryResult !== undefined,
+    boundaryFailureCode: boundaryDiagnostics?.failureCode,
+    boundaryExitCode: boundaryDiagnostics?.exitCode,
+    boundarySignal: boundaryDiagnostics?.signal,
+    boundaryTimedOut: boundaryDiagnostics?.timedOut,
+    boundaryCancelled: boundaryDiagnostics?.cancelled,
   });
 
   return {
@@ -947,6 +1034,7 @@ export function createRealReadOnlyAdapterAttemptRecord(
     resultErrorCode: input.result.error?.code,
     failedCheckCodes,
     blockedCheckCodes,
+    boundaryDiagnostics,
     postRunVerificationStatus,
     workspaceMutationDetected,
     evidenceSummary: input.result.evidenceSummary,
@@ -970,6 +1058,11 @@ export function createRealReadOnlyAdapterAttemptRecord(
         attemptStatus: status,
         failedCheckCodes,
         blockedCheckCodes,
+        boundaryFailureCode: boundaryDiagnostics?.failureCode,
+        boundaryExitCode: boundaryDiagnostics?.exitCode,
+        boundarySignal: boundaryDiagnostics?.signal,
+        boundaryTimedOut: boundaryDiagnostics?.timedOut,
+        boundaryCancelled: boundaryDiagnostics?.cancelled,
         postRunVerificationStatus,
         workspaceMutationDetected,
         evidenceRefCount: evidenceRefIds.length,
@@ -1005,6 +1098,7 @@ export function summarizeRealReadOnlyAdapterAttempt(
     resultErrorCode: record.resultErrorCode,
     failedCheckCodes: record.failedCheckCodes,
     blockedCheckCodes: record.blockedCheckCodes,
+    boundaryDiagnostics: record.boundaryDiagnostics,
     postRunVerificationStatus: record.postRunVerificationStatus,
     workspaceMutationDetected: record.workspaceMutationDetected,
     evidenceRefCount: record.evidenceRefIds.length,
@@ -1019,6 +1113,7 @@ export function summarizeRealReadOnlyAdapterAttempt(
       preflightStatus: record.preflightStatus,
       resultStatus: record.resultStatus,
       resultErrorCode: record.resultErrorCode,
+      boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
       postRunVerificationStatus: record.postRunVerificationStatus,
       workspaceMutationDetected: record.workspaceMutationDetected,
       source: 'codex-kernel.real-read-only-adapter.attempt-summary',
@@ -1073,6 +1168,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     resultErrorCode: record.resultErrorCode,
     failedCheckCodes: record.failedCheckCodes,
     blockedCheckCodes: record.blockedCheckCodes,
+    boundaryDiagnostics: record.boundaryDiagnostics,
     postRunVerificationStatus: record.postRunVerificationStatus,
     workspaceMutationDetected: record.workspaceMutationDetected,
     evidenceRefIds: includeEvidence ? record.evidenceRefIds : [],
@@ -1090,6 +1186,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       preflightStatus: record.preflightStatus,
       resultStatus: record.resultStatus,
       resultErrorCode: record.resultErrorCode,
+      boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
       postRunVerificationStatus: record.postRunVerificationStatus,
       workspaceMutationDetected: record.workspaceMutationDetected,
       includeEvidence,
@@ -1309,6 +1406,42 @@ function resultStatusFromTelemetry(
     : input.boundaryResult.status === 'failed'
       ? 'failed'
       : 'aborted';
+}
+
+function classifyRealReadOnlyAdapterBoundaryFailure(
+  boundaryResult: CodexExecRealReadOnlyAdapterProcessBoundaryResult,
+): CodexExecRealReadOnlyAdapterBoundaryFailureCode {
+  if (boundaryResult.status === 'completed') {
+    return 'none';
+  }
+
+  if (boundaryResult.timedOut) {
+    return 'process_timed_out';
+  }
+
+  if (boundaryResult.cancelled) {
+    return 'process_cancelled';
+  }
+
+  if (boundaryResult.signal) {
+    return 'process_signaled';
+  }
+
+  if (boundaryResult.exitCode !== undefined && boundaryResult.exitCode !== 0) {
+    return 'process_exit_nonzero';
+  }
+
+  if (
+    boundaryResult.status === 'failed' &&
+    boundaryResult.exitCode === undefined &&
+    (boundaryResult.stderrSummary.byteLength > 0 || boundaryResult.stdoutSummary.byteLength > 0)
+  ) {
+    return 'process_start_failed';
+  }
+
+  return boundaryResult.status === 'aborted'
+    ? 'boundary_aborted_unknown'
+    : 'boundary_failed_unknown';
 }
 
 function attemptStatusFromResult(

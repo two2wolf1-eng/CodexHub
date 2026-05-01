@@ -70,6 +70,7 @@ import {
   CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummarySchema,
+  CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema,
   CodexExecRealReadOnlyAdapterBoundaryPlanSchema,
   CodexExecRealReadOnlyAdapterConfigSchema,
   CodexExecRealReadOnlyAdapterErrorSchema,
@@ -2655,6 +2656,28 @@ describe('contracts schemas', () => {
       summary: 'P1 result contract is non-executing metadata only.',
       ...flagFields,
     });
+    const boundaryDiagnostics = CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.parse({
+      id: 'codex_real_read_only_adapter_boundary_diagnostics_1',
+      schemaVersion,
+      createdAt,
+      ...flagFields,
+      status: 'failed',
+      failureCode: 'process_exit_nonzero',
+      exitCode: 2,
+      timedOut: false,
+      cancelled: false,
+      durationMs: 35,
+      stdoutHash: 'sha256:stdout',
+      stderrHash: 'sha256:stderr',
+      stdoutByteLength: 12,
+      stderrByteLength: 14,
+      stdoutLineCount: 1,
+      stderrLineCount: 1,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      externalProcessStarted: true,
+      summary: 'Boundary diagnostics stores hashes and counts only.',
+    });
 
     expect(config.defaultEnabled).toBe(false);
     expect(request.dryRunId).toBe('codex_dry_run_1');
@@ -2690,6 +2713,7 @@ describe('contracts schemas', () => {
       resultErrorCode: error.code,
       failedCheckCodes: [],
       blockedCheckCodes: [],
+      boundaryDiagnostics,
       postRunVerificationStatus: 'not_required',
       workspaceMutationDetected: false,
       evidenceSummary,
@@ -2719,6 +2743,7 @@ describe('contracts schemas', () => {
       resultErrorCode: attemptRecord.resultErrorCode,
       failedCheckCodes: attemptRecord.failedCheckCodes,
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
+      boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
       postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
       workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
       evidenceRefCount: 1,
@@ -2751,6 +2776,7 @@ describe('contracts schemas', () => {
       resultErrorCode: attemptRecord.resultErrorCode,
       failedCheckCodes: attemptRecord.failedCheckCodes,
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
+      boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
       postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
       workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
       evidenceRefIds: ['evidence_1'],
@@ -2806,6 +2832,9 @@ describe('contracts schemas', () => {
     expect(attemptRecord.resultStatus).toBe('blocked');
     expect(attemptRecord.resultErrorCode).toBe('boundary_deferred');
     expect(attemptRecord.failedCheckCodes).toHaveLength(0);
+    expect(attemptRecord.boundaryDiagnostics?.failureCode).toBe('process_exit_nonzero');
+    expect(attemptRecord.boundaryDiagnostics?.stdoutHash).toBe('sha256:stdout');
+    expect(attemptRecord.boundaryDiagnostics?.stderrHash).toBe('sha256:stderr');
     expect(attemptRecord.postRunVerificationStatus).toBe('not_required');
     expect(attemptRecord.workspaceMutationDetected).toBe(false);
     expect(attemptRecord.promptBodyStored).toBe(false);
@@ -2829,6 +2858,8 @@ describe('contracts schemas', () => {
     expect(JSON.stringify(attemptRecord)).not.toContain('raw command body');
     expect(JSON.stringify(attemptRecord)).not.toContain('raw stdout body');
     expect(JSON.stringify(attemptRecord)).not.toContain('raw stderr body');
+    expect(JSON.stringify(attemptRecord)).not.toContain('diagnostic stdout body');
+    expect(JSON.stringify(attemptRecord)).not.toContain('diagnostic stderr body');
     expect(JSON.stringify(attemptRecord)).not.toContain('argv');
     expect(JSON.stringify(attemptRecord)).not.toContain('executablePath');
     expect(JSON.stringify(attemptRecord)).not.toContain('shellSnippet');

@@ -77,6 +77,8 @@ import {
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   listRealReadOnlyAdapterAttemptSummaries,
   summarizeRealReadOnlyAdapterAttempt,
+  createRealReadOnlyAdapterBoundaryDiagnostics,
+  createRealReadOnlyAdapterResultFromBoundary,
   createRealReadOnlyAdapterPostRunVerificationPlan,
   createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterGuardPreflight,
@@ -2448,6 +2450,99 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('"executablePath":');
   });
 
+  it('classifies boundary diagnostics without exposing raw output or process inputs', async () => {
+    const { plan: dryRunPlan, policyDecision } = createControlPlaneFixture({
+      liveAdapterEnabled: true,
+    });
+    const approvalArtifact = createCodexExecApprovalArtifact(dryRunPlan, policyDecision, {
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    const processPlan = createRealReadOnlyAdapterProcessPlan({
+      dryRunId: dryRunPlan.id,
+      approvalArtifactId: approvalArtifact.id,
+      executablePath: 'codex',
+      worktreePath: 'C:/safe/worktree/diagnostics',
+      timeoutMs: 1_000,
+    });
+    const nonzero = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 2,
+          stdout: 'nonzero output must stay hashed',
+          stderr: 'nonzero detail must stay hashed',
+        }),
+      },
+    });
+    const startFailure = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          stderr: 'start failure detail must stay hashed',
+        }),
+      },
+    });
+    const timeout = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          timedOut: true,
+          stderr: 'timeout detail must stay hashed',
+        }),
+      },
+    });
+    const cancelled = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          cancelled: true,
+          stderr: 'cancel detail must stay hashed',
+        }),
+      },
+    });
+    const malformedButCompleted = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: '{malformed jsonl still only hashed',
+          stderr: '',
+        }),
+      },
+    });
+    const emptyCompleted = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
+      runner: {
+        start: async () => ({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        }),
+      },
+    });
+    const diagnostics = {
+      nonzero: createRealReadOnlyAdapterBoundaryDiagnostics(nonzero),
+      startFailure: createRealReadOnlyAdapterBoundaryDiagnostics(startFailure),
+      timeout: createRealReadOnlyAdapterBoundaryDiagnostics(timeout),
+      cancelled: createRealReadOnlyAdapterBoundaryDiagnostics(cancelled),
+      malformedButCompleted: createRealReadOnlyAdapterBoundaryDiagnostics(malformedButCompleted),
+      emptyCompleted: createRealReadOnlyAdapterBoundaryDiagnostics(emptyCompleted),
+    };
+    const serialized = JSON.stringify(diagnostics);
+
+    expect(diagnostics.nonzero.failureCode).toBe('process_exit_nonzero');
+    expect(diagnostics.startFailure.failureCode).toBe('process_start_failed');
+    expect(diagnostics.timeout.failureCode).toBe('process_timed_out');
+    expect(diagnostics.cancelled.failureCode).toBe('process_cancelled');
+    expect(diagnostics.malformedButCompleted.failureCode).toBe('none');
+    expect(diagnostics.emptyCompleted.failureCode).toBe('none');
+    expect(diagnostics.nonzero.stdoutHash).toMatch(/^sha256:/);
+    expect(diagnostics.startFailure.stderrByteLength).toBeGreaterThan(0);
+    expect(serialized).not.toContain('nonzero output must stay hashed');
+    expect(serialized).not.toContain('nonzero detail must stay hashed');
+    expect(serialized).not.toContain('start failure detail must stay hashed');
+    expect(serialized).not.toContain('timeout detail must stay hashed');
+    expect(serialized).not.toContain('cancel detail must stay hashed');
+    expect(serialized).not.toContain('malformed jsonl');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+    expect(serialized).not.toContain('C:/safe/worktree/diagnostics');
+  });
+
   it('creates authoritative attempt records for blocked and injected boundary outcomes', async () => {
     const { plan: dryRunPlan, policyDecision } = createControlPlaneFixture({
       liveAdapterEnabled: true,
@@ -2554,12 +2649,14 @@ describe('codex-kernel live control-plane skeleton', () => {
         telemetryInput,
         auditEvents,
       );
-      const baseResult = createRealReadOnlyAdapterBlockedResult({ request, preflight, config });
+      const baseResult = createRealReadOnlyAdapterResultFromBoundary({
+        request,
+        preflight,
+        boundaryResult,
+      });
       const result = {
         ...baseResult,
         id: resultId,
-        status: boundaryResult.status,
-        error: undefined,
         evidenceSummary,
         auditSummary,
         summary: `Injected boundary ${boundaryResult.status} result stores summaries only.`,
@@ -2621,6 +2718,14 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(completedRecord.status).toBe('completed');
     expect(failedRecord.status).toBe('failed');
     expect(abortedRecord.status).toBe('aborted');
+    expect(completedRecord.boundaryDiagnostics?.failureCode).toBe('none');
+    expect(failedRecord.resultErrorCode).toBe('boundary_failed');
+    expect(failedRecord.boundaryDiagnostics?.failureCode).toBe('process_exit_nonzero');
+    expect(failedRecord.boundaryDiagnostics?.exitCode).toBe(2);
+    expect(failedRecord.boundaryDiagnostics?.stdoutByteLength).toBeGreaterThan(0);
+    expect(failedRecord.boundaryDiagnostics?.stderrByteLength).toBeGreaterThan(0);
+    expect(abortedRecord.resultErrorCode).toBe('boundary_aborted');
+    expect(abortedRecord.boundaryDiagnostics?.failureCode).toBe('process_timed_out');
     expect(completedRecord.processBoundaryInvoked).toBe(true);
     expect(completedRecord.executionDisabled).toBe(true);
     expect(completedRecord.implementationApproved).toBe(false);
@@ -2642,6 +2747,10 @@ describe('codex-kernel live control-plane skeleton', () => {
       'completed',
       'failed',
     ]);
+    expect(
+      timeline.entries.find((entry) => entry.status === 'failed')?.boundaryDiagnostics
+        ?.failureCode,
+    ).toBe('process_exit_nonzero');
     expect(timeline.implementationApproved).toBe(false);
     expect(timeline.processAdapterApproved).toBe(false);
     expect(timeline.recommendationGrantsExecution).toBe(false);

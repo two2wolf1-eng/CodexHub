@@ -6683,6 +6683,22 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         workspaceWriteAllowed?: boolean;
         dangerFullAccessAllowed?: boolean;
         dashboardTriggerAllowed?: boolean;
+        boundaryDiagnostics?: {
+          failureCode?: string;
+          exitCode?: number;
+          signal?: string;
+          timedOut?: boolean;
+          cancelled?: boolean;
+          durationMs?: number;
+          stdoutHash?: string;
+          stderrHash?: string;
+          stdoutByteLength?: number;
+          stderrByteLength?: number;
+          stdoutLineCount?: number;
+          stderrLineCount?: number;
+          stdoutTruncated?: boolean;
+          stderrTruncated?: boolean;
+        };
       }
     | undefined;
   const preflight = result.preflight as
@@ -6709,6 +6725,13 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `failedGates=${String(preflight?.failedGateCount ?? 0)}`,
     `blockers=${String(preflight?.blockerCount ?? 0)}`,
     `processBoundaryInvoked=${String(attempt?.processBoundaryInvoked ?? false)}`,
+    `boundaryFailureCode=${attempt?.boundaryDiagnostics?.failureCode ?? 'none'}`,
+    `boundaryExitCode=${String(attempt?.boundaryDiagnostics?.exitCode ?? 'not-recorded')}`,
+    `boundaryTimedOut=${String(attempt?.boundaryDiagnostics?.timedOut ?? false)}`,
+    `boundaryCancelled=${String(attempt?.boundaryDiagnostics?.cancelled ?? false)}`,
+    `boundaryDurationMs=${String(attempt?.boundaryDiagnostics?.durationMs ?? 0)}`,
+    `boundaryStdoutHash=${attempt?.boundaryDiagnostics?.stdoutHash ?? 'not-recorded'}`,
+    `boundaryStderrHash=${attempt?.boundaryDiagnostics?.stderrHash ?? 'not-recorded'}`,
     `implementationApproved=${String(attempt?.implementationApproved ?? false)}`,
     `processAdapterApproved=${String(attempt?.processAdapterApproved ?? false)}`,
     `recommendationGrantsExecution=${String(attempt?.recommendationGrantsExecution ?? false)}`,
@@ -6742,6 +6765,7 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
         dryRunId?: string;
         status?: string;
         processBoundaryInvoked?: boolean;
+        boundaryDiagnostics?: { failureCode?: string };
       }>)
     : (attemptRecords ?? []).map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt));
   const lines = summaries
@@ -6750,7 +6774,9 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
       (summary) =>
         `- ${summary.status ?? 'unknown'} ${summary.attemptId ?? summary.id ?? 'unknown'} dryRunId=${
           summary.dryRunId ?? 'unknown'
-        } processBoundaryInvoked=${String(summary.processBoundaryInvoked ?? false)}`,
+        } processBoundaryInvoked=${String(summary.processBoundaryInvoked ?? false)} boundaryFailureCode=${
+          summary.boundaryDiagnostics?.failureCode ?? 'none'
+        }`,
     );
 
   return [
@@ -6796,6 +6822,7 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           evidenceRefCount?: number;
           auditEventCount?: number;
           processBoundaryInvoked?: boolean;
+          boundaryDiagnostics?: { failureCode?: string };
         }>;
       }
     | undefined;
@@ -6807,7 +6834,9 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           entry.occurredAt ?? 'unknown'
         } evidence=${String(entry.evidenceRefCount ?? 0)} audit=${String(
           entry.auditEventCount ?? 0,
-        )} processBoundaryInvoked=${String(entry.processBoundaryInvoked ?? false)}`,
+        )} processBoundaryInvoked=${String(
+          entry.processBoundaryInvoked ?? false,
+        )} boundaryFailureCode=${entry.boundaryDiagnostics?.failureCode ?? 'none'}`,
     );
 
   return [

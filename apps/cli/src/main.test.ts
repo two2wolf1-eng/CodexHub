@@ -663,6 +663,34 @@ describe('cli development mock-run fallback', () => {
       includeEvidence: true,
       includeAudit: true,
     });
+    const diagnosticOutput = formatRealReadOnlyAdapterAttemptOutput({
+      attempt: {
+        id: 'codex_real_read_only_adapter_attempt_diag',
+        dryRunId: 'codex_dry_run_fixture',
+        status: 'failed',
+        processBoundaryInvoked: true,
+        boundaryDiagnostics: {
+          failureCode: 'process_exit_nonzero',
+          exitCode: 2,
+          timedOut: false,
+          cancelled: false,
+          durationMs: 42,
+          stdoutHash: 'sha256:safe-stdout-hash',
+          stderrHash: 'sha256:safe-stderr-hash',
+          stdoutByteLength: 12,
+          stderrByteLength: 20,
+        },
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+      },
+      preflight: { status: 'passed', blockerCount: 0, failedGateCount: 0, checks: [] },
+      degraded: false,
+      notPersisted: false,
+    });
     const listOutput = formatRealReadOnlyAdapterAttemptListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterAttemptOutput(latest);
     const timelineOutput = formatRealReadOnlyAdapterAttemptTimelineOutput(timeline);
@@ -726,6 +754,13 @@ describe('cli development mock-run fallback', () => {
     expect(timelineOutput).toContain('state guide: blocked means gate refused');
     expect(timelineOutput).toContain('metadata-only');
     expect(timelineOutput).not.toContain('execution approval');
+    expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
+    expect(diagnosticOutput).toContain('boundaryExitCode=2');
+    expect(diagnosticOutput).toContain('boundaryStdoutHash=sha256:safe-stdout-hash');
+    expect(diagnosticOutput).not.toContain('raw stdout body');
+    expect(diagnosticOutput).not.toContain('raw stderr body');
+    expect(diagnosticOutput).not.toContain('"argv":');
+    expect(diagnosticOutput).not.toContain('"executablePath":');
   });
 
   it('uses degraded pilot prerequisite fallbacks without creating authoritative readiness', async () => {
