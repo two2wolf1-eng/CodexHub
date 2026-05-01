@@ -674,7 +674,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     if (
       requestedPolicySource &&
-      (requestedPolicySource.dryRunId !== record.id ||
+      (![record.id, record.dryRunPlanId].includes(requestedPolicySource.dryRunId) ||
         requestedPolicySource.status !== 'aligned' ||
         requestedPolicySource.degraded ||
         requestedPolicySource.notPersisted ||

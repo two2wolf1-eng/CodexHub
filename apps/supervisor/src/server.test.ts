@@ -2510,4 +2510,71 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(readyResponse.json())).not.toContain('"executablePath":');
     expect(readyResponse.body).not.toContain(process.cwd());
   });
+
+  it('binds approval requests to policy sources prepared with a dry-run plan id', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-policy-source-plan-id-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const defaultConfigLoadResult = createDefaultCodexExecConfigLoadResult();
+    const server = buildSupervisorServer({
+      store,
+      configLoadResult: {
+        ...defaultConfigLoadResult,
+        source: 'file',
+        status: 'loaded',
+        summary: 'Loaded explicit test config for policy source approval binding',
+        config: {
+          ...defaultConfigLoadResult.config,
+          liveEnabled: true,
+          configSource: 'file',
+        },
+      },
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/dry-run',
+      payload: {
+        title: 'Policy source approval binding fixture',
+        prompt: 'Summarize repository structure',
+        cwd: '.',
+        sandboxMode: 'read_only',
+        approvalMode: 'required',
+      },
+    });
+    const dryRunPlanId = dryRunResponse.json().liveRunRecord.dryRunPlanId as string;
+    const policySourceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/policy-sources',
+      payload: { dryRunId: dryRunPlanId },
+    });
+    const policySourceRecordId = policySourceResponse.json().recordId as string;
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/approval-request',
+      payload: {
+        dryRunId: dryRunPlanId,
+        policySourceId: policySourceRecordId,
+        requestedBy: 'local-operator',
+        reason: 'Policy source approval binding fixture',
+      },
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(policySourceResponse.statusCode).toBe(200);
+    expect(policySourceResponse.json()).toMatchObject({
+      dryRunId: dryRunPlanId,
+      status: 'aligned',
+      degraded: false,
+      notPersisted: false,
+      fallbackUsedAsAuthority: false,
+    });
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(approvalRequestResponse.json().approvalRequest).toMatchObject({
+      dryRunPlanId,
+      policyDecisionHash: policySourceResponse.json().policyDecisionHash,
+    });
+    expect(approvalRequestResponse.body).not.toContain('policy source is not aligned');
+  });
 });
