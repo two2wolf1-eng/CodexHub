@@ -18,6 +18,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecRealReadOnlyAdapterAttemptQuery,
   CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterPolicySourceQuery,
+  CodexExecRealReadOnlyAdapterPolicySourceRecord,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
   CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery,
@@ -203,6 +205,19 @@ export interface CodexExecRealReadOnlyAdapterAttemptRepository {
   latestAttempt(dryRunId: string): Promise<CodexExecRealReadOnlyAdapterAttemptRecord | undefined>;
 }
 
+export interface CodexExecRealReadOnlyAdapterPolicySourceRepository {
+  savePolicySource(
+    record: CodexExecRealReadOnlyAdapterPolicySourceRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord>;
+  getPolicySource(id: string): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord | undefined>;
+  listPolicySources(
+    query?: Partial<CodexExecRealReadOnlyAdapterPolicySourceQuery>,
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord[]>;
+  latestPolicySource(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord | undefined>;
+}
+
 export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository {
   savePilotPrerequisite(
     record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -251,6 +266,7 @@ export interface CodexHubStore {
   codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
   codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
   codexExecRealReadOnlyAdapterAttempts: CodexExecRealReadOnlyAdapterAttemptRepository;
+  codexExecRealReadOnlyAdapterPolicySources: CodexExecRealReadOnlyAdapterPolicySourceRepository;
   codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
   codexExecRealReadOnlyAdapterPilotSourcePreparations: CodexExecRealReadOnlyAdapterPilotSourcePreparationRepository;
   close(): Promise<void>;

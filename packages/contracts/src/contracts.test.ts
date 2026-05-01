@@ -74,6 +74,13 @@ import {
   CodexExecRealReadOnlyAdapterConfigSchema,
   CodexExecRealReadOnlyAdapterErrorSchema,
   CodexExecRealReadOnlyAdapterEvidenceSummarySchema,
+  CodexExecRealReadOnlyAdapterPolicySourceBlockerSchema,
+  CodexExecRealReadOnlyAdapterPolicySourceChecklistItemSchema,
+  CodexExecRealReadOnlyAdapterPolicySourceFindingSchema,
+  CodexExecRealReadOnlyAdapterPolicySourceGateSchema,
+  CodexExecRealReadOnlyAdapterPolicySourceQuerySchema,
+  CodexExecRealReadOnlyAdapterPolicySourceRecordSchema,
+  CodexExecRealReadOnlyAdapterPolicySourceSummarySchema,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationBlockerSchema,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationChecklistItemSchema,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationFindingSchema,
@@ -2867,6 +2874,172 @@ describe('contracts schemas', () => {
     ).toThrow();
   });
 
+  it('parses real read-only adapter policy source models and blocks degraded aligned states', () => {
+    const createdAt = '2026-04-30T00:00:00.000Z';
+    const flagFields = {
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      processAdapterApproved: false,
+      implementationApproved: false,
+      recommendationGrantsExecution: false,
+      dashboardTriggerAllowed: false,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      agentMessageBodyStored: false,
+      reasoningBodyStored: false,
+    } as const;
+    const gate = CodexExecRealReadOnlyAdapterPolicySourceGateSchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_gate_1',
+      schemaVersion,
+      createdAt,
+      code: 'policy_decision_allows_pilot',
+      label: 'Policy decision allows guarded pilot route',
+      category: 'policy',
+      status: 'passed',
+      required: true,
+      summary: 'Current policy decision is non-deny.',
+      ...flagFields,
+    });
+    const blocker = CodexExecRealReadOnlyAdapterPolicySourceBlockerSchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_blocker_1',
+      schemaVersion,
+      createdAt,
+      code: 'policy_source_persisted_authoritative',
+      severity: 'critical',
+      relatedGateCode: 'policy_source_persisted_authoritative',
+      summary: 'Policy source must be persisted.',
+      recommendation: 'Prepare a Supervisor-backed policy source.',
+      ...flagFields,
+    });
+    const finding = CodexExecRealReadOnlyAdapterPolicySourceFindingSchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_finding_1',
+      schemaVersion,
+      createdAt,
+      code: 'policy_review_note',
+      severity: 'medium',
+      status: 'requires_review',
+      summary: 'Policy source needs operator review.',
+      recommendation: 'Review before pilot retry.',
+      ...flagFields,
+    });
+    const checklistItem = CodexExecRealReadOnlyAdapterPolicySourceChecklistItemSchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_check_1',
+      schemaVersion,
+      createdAt,
+      code: gate.code,
+      label: gate.label,
+      status: gate.status,
+      required: true,
+      summary: gate.summary,
+      ...flagFields,
+    });
+    const record = CodexExecRealReadOnlyAdapterPolicySourceRecordSchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      status: 'aligned',
+      recommendation: 'Policy source is aligned for future approval binding only.',
+      gates: [gate],
+      blockers: [],
+      findings: [finding],
+      checklistItems: [checklistItem],
+      hardGateCount: 1,
+      passedGateCount: 1,
+      blockedGateCount: 0,
+      requiresReviewFindingCount: 1,
+      missingSources: [],
+      degraded: false,
+      notPersisted: false,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecisionPresent: true,
+      policyDecisionAllowsPilot: true,
+      policyDecisionId: 'policy_decision_1',
+      policyDecisionHash: 'sha256:policy',
+      policyDecisionOutcome: 'approval_required',
+      policyDecisionReasonCount: 1,
+      dryRunPlanHash: 'sha256:dry-run',
+      evidenceAuditReady: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      evidenceRefs: [],
+      auditEventIds: ['audit_policy_source_1'],
+      summary: 'Policy source stores ids, hashes, counts, and refs only.',
+      ...flagFields,
+    });
+    const summary = CodexExecRealReadOnlyAdapterPolicySourceSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_summary_1',
+      schemaVersion,
+      createdAt,
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      hardGateCount: record.hardGateCount,
+      passedGateCount: record.passedGateCount,
+      blockedGateCount: record.blockedGateCount,
+      requiresReviewFindingCount: record.requiresReviewFindingCount,
+      missingSources: record.missingSources,
+      degraded: record.degraded,
+      notPersisted: record.notPersisted,
+      dryRunRecordPresent: record.dryRunRecordPresent,
+      configExplicitlyEnabled: record.configExplicitlyEnabled,
+      readOnlyOnly: record.readOnlyOnly,
+      policyDecisionPresent: record.policyDecisionPresent,
+      policyDecisionAllowsPilot: record.policyDecisionAllowsPilot,
+      policyDecisionId: record.policyDecisionId,
+      policyDecisionHash: record.policyDecisionHash,
+      policyDecisionOutcome: record.policyDecisionOutcome,
+      dryRunPlanHash: record.dryRunPlanHash,
+      evidenceAuditReady: record.evidenceAuditReady,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      recommendation: record.recommendation,
+      summary: 'Policy source summary stores metadata only.',
+      ...flagFields,
+    });
+    const query = CodexExecRealReadOnlyAdapterPolicySourceQuerySchema.parse({
+      id: 'codex_real_read_only_adapter_policy_source_query_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: record.dryRunId,
+      status: 'aligned',
+      limit: 10,
+      ...flagFields,
+    });
+
+    expect(record.status).toBe('aligned');
+    expect(summary.status).toBe('aligned');
+    expect(query.status).toBe('aligned');
+    expect(blocker.code).toBe('policy_source_persisted_authoritative');
+    expect(JSON.stringify(record)).not.toContain('raw prompt body');
+    expect(JSON.stringify(record)).not.toContain('raw command body');
+    expect(JSON.stringify(record)).not.toContain('"argv"');
+    expect(JSON.stringify(record)).not.toContain('"executablePath":');
+    expect(() =>
+      CodexExecRealReadOnlyAdapterPolicySourceRecordSchema.parse({
+        ...record,
+        id: 'codex_real_read_only_adapter_policy_source_invalid_aligned',
+        status: 'aligned',
+        degraded: true,
+      }),
+    ).toThrow();
+  });
+
   it('parses pilot prerequisite readiness models and blocks degraded ready states', () => {
     const flagFields = {
       processAdapterApproved: false,
@@ -2953,6 +3126,7 @@ describe('contracts schemas', () => {
       notPersisted: false,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: false,
+      authoritativePolicySourcePresent: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       authoritativeSourcePreparationPresent: false,
@@ -2988,6 +3162,7 @@ describe('contracts schemas', () => {
       notPersisted: record.notPersisted,
       dryRunRecordPresent: record.dryRunRecordPresent,
       configExplicitlyEnabled: record.configExplicitlyEnabled,
+      authoritativePolicySourcePresent: record.authoritativePolicySourcePresent,
       validUnusedApprovalPresent: record.validUnusedApprovalPresent,
       isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
       authoritativeSourcePreparationPresent: record.authoritativeSourcePreparationPresent,
@@ -3121,6 +3296,7 @@ describe('contracts schemas', () => {
       notPersisted: false,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       approvalArtifactId: 'codex_approval_artifact_1',
       approvalArtifactHash: 'sha256:approval',
@@ -3158,6 +3334,7 @@ describe('contracts schemas', () => {
       notPersisted: record.notPersisted,
       dryRunRecordPresent: record.dryRunRecordPresent,
       configExplicitlyEnabled: record.configExplicitlyEnabled,
+      authoritativePolicySourcePresent: record.authoritativePolicySourcePresent,
       validUnusedApprovalPresent: record.validUnusedApprovalPresent,
       isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
       evidenceAuditReady: record.evidenceAuditReady,

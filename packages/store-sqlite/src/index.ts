@@ -22,6 +22,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecRealReadOnlyAdapterAttemptQuery,
   CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterPolicySourceQuery,
+  CodexExecRealReadOnlyAdapterPolicySourceRecord,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
   CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery,
@@ -47,6 +49,7 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessRepository,
   CodexExecRealReadOnlyAdapterReadinessReviewRepository,
   CodexExecRealReadOnlyAdapterAttemptRepository,
+  CodexExecRealReadOnlyAdapterPolicySourceRepository,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationRepository,
   CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository,
   CodexHubStore,
@@ -120,6 +123,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecRealReadOnlyAdapterReadiness: CodexExecRealReadOnlyAdapterReadinessRepository;
   readonly codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
   readonly codexExecRealReadOnlyAdapterAttempts: CodexExecRealReadOnlyAdapterAttemptRepository;
+  readonly codexExecRealReadOnlyAdapterPolicySources: CodexExecRealReadOnlyAdapterPolicySourceRepository;
   readonly codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
   readonly codexExecRealReadOnlyAdapterPilotSourcePreparations: CodexExecRealReadOnlyAdapterPilotSourcePreparationRepository;
 
@@ -158,6 +162,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteCodexExecRealReadOnlyAdapterReadinessReviewRepository(database);
     this.codexExecRealReadOnlyAdapterAttempts =
       new SqliteCodexExecRealReadOnlyAdapterAttemptRepository(database);
+    this.codexExecRealReadOnlyAdapterPolicySources =
+      new SqliteCodexExecRealReadOnlyAdapterPolicySourceRepository(database);
     this.codexExecRealReadOnlyAdapterPilotPrerequisites =
       new SqliteCodexExecRealReadOnlyAdapterPilotPrerequisiteRepository(database);
     this.codexExecRealReadOnlyAdapterPilotSourcePreparations =
@@ -883,6 +889,66 @@ class SqliteCodexExecRealReadOnlyAdapterAttemptRepository
   }
 }
 
+class SqliteCodexExecRealReadOnlyAdapterPolicySourceRepository
+  implements CodexExecRealReadOnlyAdapterPolicySourceRepository
+{
+  private readonly repository: JsonEntityRepository<CodexExecRealReadOnlyAdapterPolicySourceRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexExecRealReadOnlyAdapterPolicySourceRecord>(
+      database,
+      'codex_real_read_only_adapter_policy_sources',
+      (record) => record.createdAt,
+    );
+  }
+
+  async savePolicySource(
+    record: CodexExecRealReadOnlyAdapterPolicySourceRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord> {
+    return this.repository.create(record);
+  }
+
+  async getPolicySource(
+    id: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listPolicySources(
+    query: Partial<CodexExecRealReadOnlyAdapterPolicySourceQuery> = {},
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord[]> {
+    const safeLimit = normalizeLimit(query.limit);
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM codex_real_read_only_adapter_policy_sources ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+    const records = rows.map(
+      (row) => JSON.parse(row.payload) as CodexExecRealReadOnlyAdapterPolicySourceRecord,
+    );
+
+    return records
+      .filter((record) => {
+        if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+          return false;
+        }
+
+        if (query.status && record.status !== query.status) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, safeLimit);
+  }
+
+  async latestPolicySource(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord | undefined> {
+    return (await this.listPolicySources({ dryRunId, limit: 1 }))[0];
+  }
+}
+
 class SqliteCodexExecRealReadOnlyAdapterPilotPrerequisiteRepository
   implements CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository
 {
@@ -1199,6 +1265,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_attempts (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_real_read_only_adapter_policy_sources (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

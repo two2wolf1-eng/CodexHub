@@ -2057,11 +2057,18 @@ describe('supervisor mock development API', () => {
       },
     });
     const dryRunId = dryRunResponse.json().liveRunRecord.id as string;
+    const policySourceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/policy-sources',
+      payload: { dryRunId },
+    });
+    const policySourceRecordId = policySourceResponse.json().recordId as string;
     const approvalRequestResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/approval-request',
       payload: {
         dryRunId,
+        policySourceId: policySourceRecordId,
         requestedBy: 'local-operator',
         reason: 'Guarded read-only adapter attempt fixture',
       },
@@ -2123,6 +2130,21 @@ describe('supervisor mock development API', () => {
     await server.close();
     await store.close();
 
+    expect(policySourceResponse.statusCode).toBe(200);
+    expect(policySourceResponse.json()).toMatchObject({
+      recordId: policySourceRecordId,
+      dryRunId,
+      status: 'aligned',
+      degraded: false,
+      notPersisted: false,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecisionAllowsPilot: true,
+      evidenceAuditReady: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
     expect(sourcePreparationResponse.statusCode).toBe(200);
     expect(sourcePreparationResponse.json().status).toBe('prepared');
     expect(prerequisiteResponse.statusCode).toBe(200);
@@ -2206,11 +2228,30 @@ describe('supervisor mock development API', () => {
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: { dryRunId },
     });
+    const policySourceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/policy-sources',
+      payload: { dryRunId },
+    });
+    const policySourceRecordId = policySourceResponse.json().recordId as string;
+    const policySourceGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/policy-sources/${policySourceRecordId}`,
+    });
+    const policySourceListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/policy-sources?dryRunId=${dryRunId}&status=aligned&limit=10`,
+    });
+    const policySourceLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/policy-source/latest/${dryRunId}`,
+    });
     const approvalRequestResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/approval-request',
       payload: {
         dryRunId,
+        policySourceId: policySourceRecordId,
         requestedBy: 'local-operator',
         reason: 'Pilot prerequisite verification fixture',
       },
@@ -2321,12 +2362,37 @@ describe('supervisor mock development API', () => {
       status: 'blocked',
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
+      authoritativePolicySourcePresent: false,
       authoritativeSourcePreparationPresent: false,
       authoritativeAttemptEvidencePresent: false,
       fallbackUsedAsAuthority: false,
       pilotExecuted: false,
       adapterAttemptInvoked: false,
     });
+    expect(policySourceResponse.statusCode).toBe(200);
+    expect(policySourceResponse.json()).toMatchObject({
+      recordId: policySourceRecordId,
+      dryRunId,
+      status: 'aligned',
+      degraded: false,
+      notPersisted: false,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecisionAllowsPilot: true,
+      evidenceAuditReady: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(policySourceGetResponse.statusCode).toBe(200);
+    expect(policySourceGetResponse.json().recordId).toBe(policySourceRecordId);
+    expect(policySourceListResponse.statusCode).toBe(200);
+    expect(policySourceListResponse.json().summaries).toHaveLength(1);
+    expect(policySourceLatestResponse.statusCode).toBe(200);
+    expect(policySourceLatestResponse.json().recordId).toBe(policySourceRecordId);
     expect(approvalRequestResponse.statusCode).toBe(200);
     expect(approvalResponse.statusCode).toBe(200);
     expect(sourcePreparationResponse.statusCode).toBe(200);
@@ -2337,6 +2403,7 @@ describe('supervisor mock development API', () => {
       degraded: false,
       notPersisted: false,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       evidenceAuditReady: true,
@@ -2365,6 +2432,7 @@ describe('supervisor mock development API', () => {
       degraded: false,
       notPersisted: false,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       authoritativeSourcePreparationPresent: true,
@@ -2400,6 +2468,7 @@ describe('supervisor mock development API', () => {
       degraded: true,
       notPersisted: true,
       configExplicitlyEnabled: false,
+      authoritativePolicySourcePresent: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       evidenceAuditReady: false,

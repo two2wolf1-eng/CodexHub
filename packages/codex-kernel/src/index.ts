@@ -128,6 +128,7 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewSummary,
   CodexExecRealReadOnlyAdapterReadinessStatus,
   CodexExecRealReadOnlyAdapterReadinessSummary,
+  CodexExecRealReadOnlyAdapterPolicySourceRecord,
   CodexExecReportRecommendation,
   CodexExecReportReviewComparison,
   CodexExecReportReviewComparisonItem,
@@ -167,6 +168,7 @@ import {
 export * from './real-read-only-adapter';
 export * from './real-read-only-adapter-pilot-prerequisites';
 export * from './real-read-only-adapter-pilot-source-preparation';
+export * from './real-read-only-adapter-policy-source';
 export * from './real-read-only-adapter-process';
 
 type JsonRecord = Record<string, unknown>;
@@ -7995,6 +7997,47 @@ export function createCodexExecManualApprovalRequest(
   };
 }
 
+export function createCodexExecManualApprovalRequestForPolicySource(
+  plan: CodexExecDryRunPlan,
+  policySource: CodexExecRealReadOnlyAdapterPolicySourceRecord,
+  config: CodexExecLiveConfig = createDefaultCodexExecLiveConfig(),
+  input: CodexExecManualApprovalRequestInput = {},
+): CodexExecManualApprovalRequest {
+  const expiresAt =
+    input.expiresAt ?? new Date(Date.now() + config.approvalTtlMinutes * 60 * 1000).toISOString();
+
+  return {
+    id: foundationId('codex_approval_request'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    dryRunPlanHash: policySource.dryRunPlanHash ?? hashCodexExecDryRunPlan(plan),
+    policyDecisionId: policySource.policyDecisionId ?? policySource.id,
+    policyDecisionHash:
+      policySource.policyDecisionHash ??
+      prefixedHash(stableStringify({ id: policySource.id, status: policySource.status })),
+    scope: approvalScopeForSandboxMode(plan.sandboxMode),
+    status: 'pending',
+    riskLevel: plan.riskLevel,
+    requestedBy: input.requestedBy ?? 'local-human',
+    reason: summarizeReason(input.reason ?? `Review ${plan.title}`, 'approval request reason'),
+    expiresAt,
+    singleUse: config.singleUseApprovals,
+    summary: `Manual approval requested for ${plan.title}`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadata: createControlPlaneMetadata({
+      dryRunPlanId: plan.id,
+      policySourceId: policySource.id,
+      policySourceStatus: policySource.status,
+      policyDecisionId: policySource.policyDecisionId,
+      configId: config.id,
+      source: 'codex-kernel.control-plane.policy-source-approval-request',
+    }),
+  };
+}
+
 export function createCodexExecManualApprovalDecision(
   request: CodexExecManualApprovalRequest,
   input: CodexExecManualApprovalDecisionInput,
@@ -8174,7 +8217,7 @@ export function createCodexExecApprovalArtifactFromDecision(
     return undefined;
   }
 
-  return createCodexExecApprovalArtifact(plan, policyDecision, {
+  const artifact = createCodexExecApprovalArtifact(plan, policyDecision, {
     expiresAt: request.expiresAt,
     singleUse: request.singleUse,
     summary: `Manual approval artifact for ${plan.title}`,
@@ -8184,6 +8227,20 @@ export function createCodexExecApprovalArtifactFromDecision(
       decisionHash: decision.decisionHash,
     },
   });
+
+  return {
+    ...artifact,
+    dryRunPlanHash: request.dryRunPlanHash,
+    policyDecisionId: request.policyDecisionId,
+    policyDecisionHash: request.policyDecisionHash,
+    metadata: {
+      ...(artifact.metadata ?? {}),
+      approvalRequestId: request.id,
+      approvalDecisionId: decision.id,
+      decisionHash: decision.decisionHash,
+      requestBoundPolicyHash: true,
+    },
+  };
 }
 
 export function createCodexExecManualApprovalRecord(input: {

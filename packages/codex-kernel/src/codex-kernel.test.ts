@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { PolicyDecision } from '@codexhub/contracts';
 import {
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
@@ -64,6 +65,13 @@ import {
   getLatestRealReadOnlyAdapterPilotSourcePreparation,
   listRealReadOnlyAdapterPilotSourcePreparationSummaries,
   summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
+  buildRealReadOnlyAdapterPolicySourceRecord,
+  createPolicyDecisionFromRealReadOnlyAdapterPolicySource,
+  createRealReadOnlyAdapterPolicySourceAuditEvents,
+  createRealReadOnlyAdapterPolicySourceEvidenceRefs,
+  getLatestRealReadOnlyAdapterPolicySource,
+  listRealReadOnlyAdapterPolicySourceSummaries,
+  summarizeRealReadOnlyAdapterPolicySourceRecord,
   getLatestRealReadOnlyAdapterPilotPrerequisite,
   listRealReadOnlyAdapterPilotPrerequisiteSummaries,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -2675,6 +2683,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       persisted: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       approvalArtifactId: 'codex_approval_artifact_source',
       approvalArtifactHash: 'sha256:approval',
@@ -2698,6 +2707,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       persisted: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       evidenceAuditReady: true,
@@ -2747,6 +2757,139 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(serialized).not.toContain('"executablePath":');
   });
 
+  it('classifies real read-only adapter policy sources without mutating dry-run policy', () => {
+    const dryRunPlan = createCodexExecDryRunPlan(
+      createCodexExecExecutionIntent({
+        title: 'Read-only pilot policy source',
+        prompt: 'Synthetic prompt body must be hashed only',
+        sandboxMode: 'read_only',
+      }),
+    );
+    const alignedPolicyDecision: PolicyDecision = {
+      id: 'policy_source_allow',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: '2026-04-28T00:00:00.000Z',
+      actionId: dryRunPlan.id,
+      actionType: 'codex.exec.real_read_only_adapter.pilot_policy_source',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      outcome: 'allow',
+      reasons: ['read-only pilot policy source aligned'],
+      requiresDryRun: true,
+      requiresApproval: true,
+      metadata: { metadataOnly: true },
+    };
+    const deniedPolicyDecision: PolicyDecision = {
+      ...alignedPolicyDecision,
+      id: 'policy_source_deny',
+      outcome: 'deny',
+      reasons: ['historical dry-run policy remains denied'],
+    };
+    const blocked = buildRealReadOnlyAdapterPolicySourceRecord({
+      dryRunId: 'codex_dry_run_policy_blocked',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecision: deniedPolicyDecision,
+      dryRunPlan,
+      evidenceAuditReady: true,
+    });
+    const fallbackBlocked = buildRealReadOnlyAdapterPolicySourceRecord({
+      dryRunId: 'codex_dry_run_policy_fallback',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecision: alignedPolicyDecision,
+      dryRunPlan,
+      evidenceAuditReady: true,
+    });
+    const aligned = buildRealReadOnlyAdapterPolicySourceRecord({
+      dryRunId: 'codex_dry_run_policy_aligned',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecision: alignedPolicyDecision,
+      dryRunPlan,
+      evidenceAuditReady: true,
+    });
+    const evidenceRefs = createRealReadOnlyAdapterPolicySourceEvidenceRefs(aligned);
+    const auditEvents = createRealReadOnlyAdapterPolicySourceAuditEvents(aligned, evidenceRefs);
+    const alignedWithRefs = buildRealReadOnlyAdapterPolicySourceRecord({
+      dryRunId: aligned.dryRunId,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      dryRunRecordPresent: true,
+      configExplicitlyEnabled: true,
+      readOnlyOnly: true,
+      policyDecision: alignedPolicyDecision,
+      dryRunPlan,
+      evidenceAuditReady: true,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    });
+    const summaries = listRealReadOnlyAdapterPolicySourceSummaries(
+      [blocked, fallbackBlocked, alignedWithRefs],
+      { limit: 10 },
+    );
+    const latest = getLatestRealReadOnlyAdapterPolicySource(
+      [blocked, alignedWithRefs],
+      alignedWithRefs.dryRunId,
+    );
+    const alignedSummary = summarizeRealReadOnlyAdapterPolicySourceRecord(alignedWithRefs);
+    const policyDecisionView = createPolicyDecisionFromRealReadOnlyAdapterPolicySource(alignedWithRefs);
+    const serialized = JSON.stringify({
+      blocked,
+      fallbackBlocked,
+      alignedWithRefs,
+      evidenceRefs,
+      auditEvents,
+      summaries,
+      policyDecisionView,
+    });
+
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.missingSources).toContain('policy_decision_allows_pilot');
+    expect(fallbackBlocked.status).toBe('blocked');
+    expect(fallbackBlocked.degraded).toBe(true);
+    expect(fallbackBlocked.notPersisted).toBe(true);
+    expect(fallbackBlocked.fallbackUsedAsAuthority).toBe(false);
+    expect(aligned.status).toBe('aligned');
+    expect(alignedWithRefs.status).toBe('aligned');
+    expect(alignedSummary.pilotExecuted).toBe(false);
+    expect(alignedSummary.adapterAttemptInvoked).toBe(false);
+    expect(latest?.recordId).toBe(alignedWithRefs.id);
+    expect(summaries).toHaveLength(3);
+    expect(policyDecisionView.outcome).not.toBe('deny');
+    expect(policyDecisionView.actionType).toBe(
+      'codex.exec.real_read_only_adapter.pilot_policy_source',
+    );
+    expect(evidenceRefs[0]?.summary).toContain('ids, hashes, counts, and refs only');
+    expect(auditEvents[0]?.action).toBe(
+      'codex.exec.real_read_only_adapter.policy_source_recorded',
+    );
+    expect(serialized).not.toContain('Synthetic prompt body must be hashed only');
+    expect(serialized).not.toContain('raw prompt body');
+    expect(serialized).not.toContain('raw command body');
+    expect(serialized).not.toContain('raw stdout body');
+    expect(serialized).not.toContain('raw stderr body');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('"argv":');
+    expect(serialized).not.toContain('"executablePath":');
+  });
+
   it('classifies pilot prerequisite readiness without treating fallback as authority', () => {
     const blocked = buildRealReadOnlyAdapterPilotPrerequisiteRecord({
       dryRunId: 'codex_dry_run_pilot_blocked',
@@ -2755,6 +2898,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       persisted: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: false,
+      authoritativePolicySourcePresent: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       authoritativeSourcePreparationPresent: false,
@@ -2774,6 +2918,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       fallbackUsedAsAuthority: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       authoritativeSourcePreparationPresent: true,
@@ -2787,6 +2932,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       persisted: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       authoritativeSourcePreparationPresent: true,
@@ -2801,6 +2947,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       persisted: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       authoritativeSourcePreparationPresent: true,
@@ -2819,6 +2966,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       persisted: true,
       dryRunRecordPresent: true,
       configExplicitlyEnabled: true,
+      authoritativePolicySourcePresent: true,
       validUnusedApprovalPresent: true,
       isolatedCleanWorktreeMetadataPresent: true,
       authoritativeSourcePreparationPresent: true,
@@ -2850,6 +2998,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(blocked.missingPrerequisites).toEqual(
       expect.arrayContaining([
         'config_explicitly_enabled',
+        'authoritative_policy_source',
         'valid_unused_approval',
         'isolated_clean_worktree_metadata',
         'authoritative_pilot_source_evidence',

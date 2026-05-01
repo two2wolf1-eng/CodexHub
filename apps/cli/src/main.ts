@@ -40,6 +40,7 @@ import {
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterAttempt,
+  summarizeRealReadOnlyAdapterPolicySourceRecord,
   summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   summarizeRealReadOnlyAdapterReadinessPackage,
@@ -131,6 +132,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
+  CodexExecRealReadOnlyAdapterPolicySourceRecord,
+  CodexExecRealReadOnlyAdapterPolicySourceStatus,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus,
   CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -320,6 +323,15 @@ export interface CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions
   includeAudit?: boolean;
 }
 
+export type CodexExecRealReadOnlyAdapterPolicySourcePrepareCliOptions =
+  CodexExecJsonCliOptions;
+
+export interface CodexExecRealReadOnlyAdapterPolicySourceListCliOptions
+  extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
+}
+
 export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions
   extends CodexExecJsonCliOptions {
   approval?: string;
@@ -425,9 +437,10 @@ export function buildProgram(): Command {
     .command('approval-request')
     .argument('<dryRunId>')
     .option('-r, --reason <reason>', 'Approval request reason', 'Review disabled control-plane run')
+    .option('--policy-source <policySourceId>', 'Bind approval to an aligned read-only adapter policy source')
     .description('Create a manual approval request for a dry-run record')
-    .action(async (dryRunId: string, options: { reason: string }) => {
-      const result = await requestCodexExecApproval(dryRunId, options.reason);
+    .action(async (dryRunId: string, options: { reason: string; policySource?: string }) => {
+      const result = await requestCodexExecApproval(dryRunId, options.reason, options.policySource);
       console.log(JSON.stringify(result, null, 2));
     });
 
@@ -1121,6 +1134,66 @@ export function buildProgram(): Command {
       },
     );
 
+  const policySourceCommand = realReadOnlyAdapterCommand
+    .command('policy-sources')
+    .description('Prepare/read read-only adapter pilot policy source metadata')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Policy-source rules:',
+        '  - records persisted Supervisor-backed metadata only',
+        '  - degraded or notPersisted fallback output is display-only and never aligned',
+        '  - this command does not mutate historical dry-run policy or run a pilot',
+      ].join('\n'),
+    );
+
+  policySourceCommand
+    .command('prepare')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Create persisted policy source metadata from current read-only pilot gates')
+    .action(
+      async (
+        dryRunId: string,
+        options: CodexExecRealReadOnlyAdapterPolicySourcePrepareCliOptions,
+      ) => {
+        const result = await prepareRealReadOnlyAdapterPolicySourceCommand(dryRunId);
+        console.log(formatRealReadOnlyAdapterPolicySourceOutput(result, options));
+      },
+    );
+
+  policySourceCommand
+    .command('get')
+    .argument('<recordId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one policy source record')
+    .action(async (recordId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getRealReadOnlyAdapterPolicySourceCommand(recordId);
+      console.log(formatRealReadOnlyAdapterPolicySourceOutput(result, options));
+    });
+
+  policySourceCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by policy source status')
+    .option('--json', 'Print full JSON output')
+    .description('List policy source records')
+    .action(async (options: CodexExecRealReadOnlyAdapterPolicySourceListCliOptions) => {
+      const result = await listRealReadOnlyAdapterPolicySourcesCommand(options);
+      console.log(formatRealReadOnlyAdapterPolicySourceListOutput(result, options));
+    });
+
+  policySourceCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest policy source record for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestRealReadOnlyAdapterPolicySourceCommand(dryRunId);
+      console.log(formatRealReadOnlyAdapterPolicySourceOutput(result, options));
+    });
+
   const pilotSourcePreparationCommand = realReadOnlyAdapterCommand
     .command('pilot-prerequisite-sources')
     .description('Prepare/read pilot prerequisite source metadata without running a pilot')
@@ -1519,12 +1592,13 @@ export async function dryRunCodexExec(
 export async function requestCodexExecApproval(
   dryRunId: string,
   reason: string,
+  policySourceId?: string,
 ): Promise<Record<string, unknown>> {
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/approval-request`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRunId, reason }),
+      body: JSON.stringify({ dryRunId, reason, policySourceId }),
     });
 
     if (!response.ok) {
@@ -3312,6 +3386,100 @@ export async function getRealReadOnlyAdapterAttemptTimelineCommand(
   }
 }
 
+export async function prepareRealReadOnlyAdapterPolicySourceCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/policy-sources`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRunId }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPolicySourceReadFallback(
+      `supervisor unavailable or rejected policy source preparation for ${dryRunId}; fallback is display-only and cannot be aligned`,
+      dryRunId,
+    );
+  }
+}
+
+export async function getRealReadOnlyAdapterPolicySourceCommand(
+  recordId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/policy-sources/${encodeURIComponent(
+        recordId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPolicySourceReadFallback(
+      `supervisor unavailable; policy source record ${recordId} was not read from an authoritative store`,
+    );
+  }
+}
+
+export async function listRealReadOnlyAdapterPolicySourcesCommand(
+  options: CodexExecRealReadOnlyAdapterPolicySourceListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterPolicySourceQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/policy-sources${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPolicySourceListFallback(
+      'supervisor unavailable; policy source list fallback is display-only and not authoritative',
+      options.dryRun,
+    );
+  }
+}
+
+export async function getLatestRealReadOnlyAdapterPolicySourceCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/policy-source/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterPolicySourceReadFallback(
+      `supervisor unavailable; latest policy source for ${dryRunId} is display-only and not authoritative`,
+      dryRunId,
+    );
+  }
+}
+
 export async function prepareRealReadOnlyAdapterPilotSourceCommand(
   dryRunId: string,
   options: CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions = {},
@@ -4987,6 +5155,23 @@ function createRealReadOnlyAdapterAttemptQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createRealReadOnlyAdapterPolicySourceQueryString(
+  options: CodexExecRealReadOnlyAdapterPolicySourceListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeRealReadOnlyAdapterPolicySourceStatus(options.status));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createRealReadOnlyAdapterPilotPrerequisiteQueryString(
   options: CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions,
 ): string {
@@ -5319,6 +5504,16 @@ function normalizeRealReadOnlyAdapterAttemptStatus(
 ): CodexExecRealReadOnlyAdapterAttemptStatus {
   if (['blocked', 'completed', 'failed', 'aborted'].includes(status)) {
     return status as CodexExecRealReadOnlyAdapterAttemptStatus;
+  }
+
+  return 'blocked';
+}
+
+function normalizeRealReadOnlyAdapterPolicySourceStatus(
+  status: string,
+): CodexExecRealReadOnlyAdapterPolicySourceStatus {
+  if (['aligned', 'blocked', 'requires_review'].includes(status)) {
+    return status as CodexExecRealReadOnlyAdapterPolicySourceStatus;
   }
 
   return 'blocked';
@@ -5802,6 +5997,7 @@ function createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
     configExplicitlyEnabled: false,
     validUnusedApprovalPresent: false,
     isolatedCleanWorktreeMetadataPresent: false,
+    authoritativePolicySourcePresent: false,
     authoritativeSourcePreparationPresent: false,
     authoritativeAttemptEvidencePresent: false,
     evidenceAuditReady: false,
@@ -5819,6 +6015,65 @@ function createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
     dangerFullAccessAllowed: false,
     dashboardTriggerAllowed: false,
     reason,
+  };
+}
+
+function createRealReadOnlyAdapterPolicySourceReadFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    record: undefined,
+    policySourceRecord: undefined,
+    summary: undefined,
+    records: [],
+    policySourceRecords: [],
+    summaries: [],
+    count: 0,
+    dryRunId,
+    status: 'blocked',
+    hardGateCount: 0,
+    passedGateCount: 0,
+    blockedGateCount: 1,
+    requiresReviewFindingCount: 0,
+    missingSources: ['policy_source_persisted_authoritative'],
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
+    degraded: true,
+    notPersisted: true,
+    configExplicitlyEnabled: false,
+    readOnlyOnly: false,
+    policyDecisionPresent: false,
+    policyDecisionAllowsPilot: false,
+    evidenceAuditReady: false,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    reason,
+  };
+}
+
+function createRealReadOnlyAdapterPolicySourceListFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    ...createRealReadOnlyAdapterPolicySourceReadFallback(reason, dryRunId),
+    records: [],
+    policySourceRecords: [],
+    summaries: [],
+    count: 0,
   };
 }
 
@@ -5847,6 +6102,7 @@ function createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
     degraded: true,
     notPersisted: true,
     configExplicitlyEnabled: false,
+    authoritativePolicySourcePresent: false,
     validUnusedApprovalPresent: false,
     isolatedCleanWorktreeMetadataPresent: false,
     evidenceAuditReady: false,
@@ -6556,6 +6812,92 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
   ].join('\n');
 }
 
+export function formatRealReadOnlyAdapterPolicySourceOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = (result.record ?? result.policySourceRecord) as
+    | CodexExecRealReadOnlyAdapterPolicySourceRecord
+    | undefined;
+  const missingSources = Array.isArray(result.missingSources)
+    ? (result.missingSources as string[])
+    : (record?.missingSources ?? []);
+
+  return [
+    'Real read-only adapter policy source',
+    `recordId: ${record?.id ?? result.recordId ?? 'not-persisted'}`,
+    `dryRunId: ${record?.dryRunId ?? result.dryRunId ?? 'unknown'}`,
+    `status: ${record?.status ?? result.status ?? 'blocked'}`,
+    `hardGateCount=${String(record?.hardGateCount ?? result.hardGateCount ?? 0)}`,
+    `passedGateCount=${String(record?.passedGateCount ?? result.passedGateCount ?? 0)}`,
+    `blockedGateCount=${String(record?.blockedGateCount ?? result.blockedGateCount ?? 0)}`,
+    `requiresReviewFindingCount=${String(
+      record?.requiresReviewFindingCount ?? result.requiresReviewFindingCount ?? 0,
+    )}`,
+    `degraded=${String(record?.degraded ?? result.degraded ?? true)}`,
+    `notPersisted=${String(record?.notPersisted ?? result.notPersisted ?? true)}`,
+    `configExplicitlyEnabled=${String(
+      record?.configExplicitlyEnabled ?? result.configExplicitlyEnabled ?? false,
+    )}`,
+    `readOnlyOnly=${String(record?.readOnlyOnly ?? result.readOnlyOnly ?? false)}`,
+    `policyDecisionPresent=${String(
+      record?.policyDecisionPresent ?? result.policyDecisionPresent ?? false,
+    )}`,
+    `policyDecisionAllowsPilot=${String(
+      record?.policyDecisionAllowsPilot ?? result.policyDecisionAllowsPilot ?? false,
+    )}`,
+    `policyDecisionOutcome=${String(
+      record?.policyDecisionOutcome ?? result.policyDecisionOutcome ?? 'unknown',
+    )}`,
+    `evidenceAuditReady=${String(record?.evidenceAuditReady ?? result.evidenceAuditReady ?? false)}`,
+    `fallbackUsedAsAuthority=${String(
+      record?.fallbackUsedAsAuthority ?? result.fallbackUsedAsAuthority ?? false,
+    )}`,
+    `pilotExecuted=${String(record?.pilotExecuted ?? result.pilotExecuted ?? false)}`,
+    `adapterAttemptInvoked=${String(
+      record?.adapterAttemptInvoked ?? result.adapterAttemptInvoked ?? false,
+    )}`,
+    `dashboardTriggerAllowed=${String(result.dashboardTriggerAllowed ?? false)}`,
+    `workspaceWriteAllowed=${String(result.workspaceWriteAllowed ?? false)}`,
+    `dangerFullAccessAllowed=${String(result.dangerFullAccessAllowed ?? false)}`,
+    'aligned requires persisted Supervisor-backed non-deny policy metadata; fallback output is never aligned.',
+    'This policy-source command does not mutate historical dry-run policy, invoke attempts, or run a pilot.',
+    noLiveFlagsText(result),
+    missingSources.length > 0 ? 'missing sources:' : 'missing sources: none',
+    ...missingSources.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterPolicySourceListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = Array.isArray(result.records)
+    ? (result.records as CodexExecRealReadOnlyAdapterPolicySourceRecord[])
+    : [];
+  const summaries = records.map((record) => summarizeRealReadOnlyAdapterPolicySourceRecord(record));
+
+  return [
+    'Real read-only adapter policy source records',
+    `count=${String(result.count ?? records.length)}`,
+    `degraded=${String(result.degraded ?? true)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    `fallbackUsedAsAuthority=${String(result.fallbackUsedAsAuthority ?? false)}`,
+    'Policy-source records are metadata-only and do not run pilots.',
+    noLiveFlagsText(result),
+    summaries.length > 0 ? 'records:' : 'records: none',
+    ...summaries.map((summary) => `- ${summary.recordId}: ${summary.status}`),
+  ].join('\n');
+}
+
 export function formatRealReadOnlyAdapterPilotSourcePreparationOutput(
   result: Record<string, unknown>,
   options: CodexExecJsonCliOptions = {},
@@ -6586,6 +6928,11 @@ export function formatRealReadOnlyAdapterPilotSourcePreparationOutput(
     `notPersisted=${String(record?.notPersisted ?? result.notPersisted ?? true)}`,
     `configExplicitlyEnabled=${String(
       record?.configExplicitlyEnabled ?? result.configExplicitlyEnabled ?? false,
+    )}`,
+    `authoritativePolicySourcePresent=${String(
+      record?.authoritativePolicySourcePresent ??
+        result.authoritativePolicySourcePresent ??
+        false,
     )}`,
     `validUnusedApprovalPresent=${String(
       record?.validUnusedApprovalPresent ?? result.validUnusedApprovalPresent ?? false,
@@ -6679,6 +7026,11 @@ export function formatRealReadOnlyAdapterPilotPrerequisiteOutput(
     `isolatedCleanWorktreeMetadataPresent=${String(
       record?.isolatedCleanWorktreeMetadataPresent ??
         result.isolatedCleanWorktreeMetadataPresent ??
+        false,
+    )}`,
+    `authoritativePolicySourcePresent=${String(
+      record?.authoritativePolicySourcePresent ??
+        result.authoritativePolicySourcePresent ??
         false,
     )}`,
     `authoritativeSourcePreparationPresent=${String(

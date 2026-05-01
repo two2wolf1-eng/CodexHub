@@ -25,6 +25,7 @@ export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationInput {
   notPersisted?: boolean;
   dryRunRecordPresent?: boolean;
   configExplicitlyEnabled?: boolean;
+  authoritativePolicySourcePresent?: boolean;
   validUnusedApprovalPresent?: boolean;
   approvalArtifactId?: string;
   approvalArtifactHash?: string;
@@ -73,6 +74,7 @@ export function buildRealReadOnlyAdapterPilotSourcePreparationRecord(
   const fallbackUsedAsAuthority = input.fallbackUsedAsAuthority === true;
   const dryRunRecordPresent = input.dryRunRecordPresent === true;
   const configExplicitlyEnabled = input.configExplicitlyEnabled === true;
+  const authoritativePolicySourcePresent = input.authoritativePolicySourcePresent === true;
   const validUnusedApprovalPresent = input.validUnusedApprovalPresent === true;
   const isolatedCleanWorktreeMetadataPresent =
     input.isolatedCleanWorktreeMetadataPresent === true;
@@ -87,6 +89,7 @@ export function buildRealReadOnlyAdapterPilotSourcePreparationRecord(
     fallbackUsedAsAuthority,
     dryRunRecordPresent,
     configExplicitlyEnabled,
+    authoritativePolicySourcePresent,
     validUnusedApprovalPresent,
     isolatedCleanWorktreeMetadataPresent,
     evidenceAuditReady,
@@ -144,6 +147,7 @@ export function buildRealReadOnlyAdapterPilotSourcePreparationRecord(
     notPersisted,
     dryRunRecordPresent,
     configExplicitlyEnabled,
+    authoritativePolicySourcePresent,
     validUnusedApprovalPresent,
     approvalArtifactId: input.approvalArtifactId,
     approvalArtifactHash: input.approvalArtifactHash,
@@ -200,6 +204,7 @@ export function summarizeRealReadOnlyAdapterPilotSourcePreparationRecord(
     notPersisted: record.notPersisted,
     dryRunRecordPresent: record.dryRunRecordPresent,
     configExplicitlyEnabled: record.configExplicitlyEnabled,
+    authoritativePolicySourcePresent: record.authoritativePolicySourcePresent,
     validUnusedApprovalPresent: record.validUnusedApprovalPresent,
     isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
     evidenceAuditReady: record.evidenceAuditReady,
@@ -305,6 +310,7 @@ function createPilotSourcePreparationGates(input: {
   fallbackUsedAsAuthority: boolean;
   dryRunRecordPresent: boolean;
   configExplicitlyEnabled: boolean;
+  authoritativePolicySourcePresent: boolean;
   validUnusedApprovalPresent: boolean;
   isolatedCleanWorktreeMetadataPresent: boolean;
   evidenceAuditReady: boolean;
@@ -353,6 +359,16 @@ function createPilotSourcePreparationGates(input: {
       required: true,
       blockedSummary: 'Explicit read-only adapter config enablement is not present.',
       passedSummary: 'Explicit config enablement metadata is present.',
+    },
+    {
+      code: 'authoritative_policy_source',
+      label: 'Authoritative policy source',
+      category: 'policy',
+      passed: input.authoritativePolicySourcePresent,
+      required: true,
+      blockedSummary:
+        'Latest persisted read-only adapter policy source must be aligned before source preparation.',
+      passedSummary: 'Latest persisted read-only adapter policy source is aligned.',
     },
     {
       code: 'valid_unused_approval',

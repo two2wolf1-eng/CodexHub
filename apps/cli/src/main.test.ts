@@ -644,18 +644,35 @@ describe('cli development mock-run fallback', () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {
       checkRealReadOnlyAdapterPilotPrerequisitesCommand,
+      formatRealReadOnlyAdapterPolicySourceListOutput,
+      formatRealReadOnlyAdapterPolicySourceOutput,
       formatRealReadOnlyAdapterPilotSourcePreparationListOutput,
       formatRealReadOnlyAdapterPilotSourcePreparationOutput,
       formatRealReadOnlyAdapterPilotPrerequisiteListOutput,
       formatRealReadOnlyAdapterPilotPrerequisiteOutput,
+      getLatestRealReadOnlyAdapterPolicySourceCommand,
       getLatestRealReadOnlyAdapterPilotSourceCommand,
       getLatestRealReadOnlyAdapterPilotPrerequisiteCommand,
+      getRealReadOnlyAdapterPolicySourceCommand,
       getRealReadOnlyAdapterPilotSourceCommand,
       getRealReadOnlyAdapterPilotPrerequisiteCommand,
+      listRealReadOnlyAdapterPolicySourcesCommand,
       listRealReadOnlyAdapterPilotSourcesCommand,
       listRealReadOnlyAdapterPilotPrerequisitesCommand,
+      prepareRealReadOnlyAdapterPolicySourceCommand,
       prepareRealReadOnlyAdapterPilotSourceCommand,
     } = await import('./main');
+    const preparedPolicySource =
+      await prepareRealReadOnlyAdapterPolicySourceCommand('codex_dry_run_fixture');
+    const fetchedPolicySource = await getRealReadOnlyAdapterPolicySourceCommand(
+      'codex_real_read_only_adapter_policy_source_1',
+    );
+    const listedPolicySources = await listRealReadOnlyAdapterPolicySourcesCommand({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'aligned',
+    });
+    const latestPolicySource =
+      await getLatestRealReadOnlyAdapterPolicySourceCommand('codex_dry_run_fixture');
     const preparedSource = await prepareRealReadOnlyAdapterPilotSourceCommand(
       'codex_dry_run_fixture',
       {
@@ -694,10 +711,58 @@ describe('cli development mock-run fallback', () => {
       await getLatestRealReadOnlyAdapterPilotPrerequisiteCommand('codex_dry_run_fixture');
     const sourceOutput = formatRealReadOnlyAdapterPilotSourcePreparationOutput(preparedSource);
     const sourceListOutput = formatRealReadOnlyAdapterPilotSourcePreparationListOutput(listedSources);
+    const policySourceOutput = formatRealReadOnlyAdapterPolicySourceOutput(preparedPolicySource);
+    const policySourceListOutput =
+      formatRealReadOnlyAdapterPolicySourceListOutput(listedPolicySources);
     const checkOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(checked);
     const listOutput = formatRealReadOnlyAdapterPilotPrerequisiteListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(latest);
 
+    expect(preparedPolicySource).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      configExplicitlyEnabled: false,
+      readOnlyOnly: false,
+      policyDecisionAllowsPilot: false,
+      evidenceAuditReady: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(fetchedPolicySource).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(listedPolicySources).toMatchObject({
+      records: [],
+      summaries: [],
+      authoritative: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(latestPolicySource).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
     expect(preparedSource).toMatchObject({
       status: 'blocked',
       authoritative: false,
@@ -709,6 +774,7 @@ describe('cli development mock-run fallback', () => {
       pilotExecuted: false,
       adapterAttemptInvoked: false,
       configExplicitlyEnabled: false,
+      authoritativePolicySourcePresent: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       evidenceAuditReady: false,
@@ -754,6 +820,7 @@ describe('cli development mock-run fallback', () => {
       pilotExecuted: false,
       adapterAttemptInvoked: false,
       configExplicitlyEnabled: false,
+      authoritativePolicySourcePresent: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       authoritativeSourcePreparationPresent: false,
@@ -804,8 +871,16 @@ describe('cli development mock-run fallback', () => {
     expect(checkOutput).not.toContain('execution approval');
     expect(sourceOutput).toContain('status: blocked');
     expect(sourceOutput).toContain('notPersisted=true');
+    expect(sourceOutput).toContain('authoritativePolicySourcePresent=false');
     expect(sourceOutput).toContain('This source-preparation command does not invoke');
     expect(sourceOutput).not.toContain('execution approval');
+    expect(policySourceOutput).toContain('status: blocked');
+    expect(policySourceOutput).toContain('notPersisted=true');
+    expect(policySourceOutput).toContain('fallbackUsedAsAuthority=false');
+    expect(policySourceOutput).toContain('fallback output is never aligned');
+    expect(policySourceOutput).not.toContain('execution approval');
+    expect(policySourceListOutput).toContain('records: none');
+    expect(policySourceListOutput).toContain('Policy-source records are metadata-only');
     expect(sourceListOutput).toContain('records: none');
     expect(sourceListOutput).toContain('Source-preparation records are metadata-only');
     expect(listOutput).toContain('Records are metadata-only');

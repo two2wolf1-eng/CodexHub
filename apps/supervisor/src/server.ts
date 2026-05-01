@@ -63,8 +63,14 @@ import {
   buildRealReadOnlyAdapterPilotSourcePreparationRecord,
   createRealReadOnlyAdapterPilotSourcePreparationAuditEvents,
   createRealReadOnlyAdapterPilotSourcePreparationEvidenceRefs,
+  buildRealReadOnlyAdapterPolicySourceRecord,
+  createPolicyDecisionFromRealReadOnlyAdapterPolicySource,
+  createRealReadOnlyAdapterPolicySourceAuditEvents,
+  createRealReadOnlyAdapterPolicySourceEvidenceRefs,
   listRealReadOnlyAdapterPilotSourcePreparationSummaries,
+  listRealReadOnlyAdapterPolicySourceSummaries,
   summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
+  summarizeRealReadOnlyAdapterPolicySourceRecord,
   listRealReadOnlyAdapterPilotPrerequisiteSummaries,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   summarizeRealReadOnlyAdapterAttempt,
@@ -90,6 +96,7 @@ import {
   createCodexExecManualApprovalDecision,
   createCodexExecManualApprovalRecord,
   createCodexExecManualApprovalRequest,
+  createCodexExecManualApprovalRequestForPolicySource,
   createDefaultCodexExecConfigLoadResult,
   evaluateCodexExecDryRunPolicy,
   evaluateCodexExecExecutionGate,
@@ -172,6 +179,9 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
+  CodexExecRealReadOnlyAdapterPolicySourceQuery,
+  CodexExecRealReadOnlyAdapterPolicySourceRecord,
+  CodexExecRealReadOnlyAdapterPolicySourceStatus,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationStatus,
@@ -642,6 +652,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           dryRunId?: string;
           requestedBy?: string;
           reason?: string;
+          policySourceId?: string;
         }
       | undefined;
     const store = await getStore();
@@ -653,15 +664,45 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply.code(404).send({ error: 'dry-run record was not found' });
     }
 
-    const approvalRequest = createCodexExecManualApprovalRequest(
-      record.dryRunPlan,
-      record.policyDecision,
-      liveConfig,
-      {
-        requestedBy: body?.requestedBy,
-        reason: body?.reason,
-      },
-    );
+    const requestedPolicySource = body?.policySourceId
+      ? await store?.codexExecRealReadOnlyAdapterPolicySources.getPolicySource(body.policySourceId)
+      : undefined;
+
+    if (body?.policySourceId && !requestedPolicySource) {
+      return reply.code(404).send({ error: 'policy source record was not found' });
+    }
+
+    if (
+      requestedPolicySource &&
+      (requestedPolicySource.dryRunId !== record.id ||
+        requestedPolicySource.status !== 'aligned' ||
+        requestedPolicySource.degraded ||
+        requestedPolicySource.notPersisted ||
+        requestedPolicySource.fallbackUsedAsAuthority)
+    ) {
+      return reply.code(409).send({
+        error: 'policy source is not aligned for approval binding',
+        policySourceRecord: requestedPolicySource,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const approvalRequest = requestedPolicySource
+      ? createCodexExecManualApprovalRequestForPolicySource(
+          record.dryRunPlan,
+          requestedPolicySource,
+          liveConfig,
+          {
+            requestedBy: body?.requestedBy,
+            reason: body?.reason,
+          },
+        )
+      : createCodexExecManualApprovalRequest(record.dryRunPlan, record.policyDecision, liveConfig, {
+          requestedBy: body?.requestedBy,
+          reason: body?.reason,
+        });
     let approvalRecord = createCodexExecManualApprovalRecord({
       request: approvalRequest,
     });
@@ -2328,6 +2369,200 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
+  server.post(
+    '/api/codex/exec/real-read-only-adapter/policy-sources',
+    async (request, reply) => {
+      const body = request.body as { dryRunId?: string } | undefined;
+
+      if (!body?.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterPolicySourceUnavailableResponse(body.dryRunId));
+      }
+
+      const configLoadResult = await getLiveConfigLoadResult();
+      const dryRunRecord = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+      const readOnlyOnly =
+        configLoadResult.status === 'loaded' &&
+        configLoadResult.config.allowedSandboxModes.length === 1 &&
+        configLoadResult.config.allowedSandboxModes[0] === 'read_only' &&
+        configLoadResult.config.forbiddenSandboxModes.includes('workspace_write') &&
+        configLoadResult.config.forbiddenSandboxModes.includes('danger_full_access');
+      const alignedPolicyDecision = dryRunRecord
+        ? evaluateCodexExecDryRunPolicy(
+            {
+              ...dryRunRecord.dryRunPlan,
+              liveAdapterEnabled: configLoadResult.config.liveEnabled,
+            },
+            policyEngine,
+          )
+        : undefined;
+      const record = buildRealReadOnlyAdapterPolicySourceRecord({
+        dryRunId: body.dryRunId,
+        authoritative: true,
+        supervisorBacked: true,
+        persisted: true,
+        degraded: false,
+        notPersisted: false,
+        dryRunRecordPresent: dryRunRecord !== undefined,
+        configExplicitlyEnabled:
+          configLoadResult.status === 'loaded' && configLoadResult.config.liveEnabled === true,
+        readOnlyOnly,
+        policyDecision: alignedPolicyDecision,
+        dryRunPlan: dryRunRecord?.dryRunPlan,
+        evidenceAuditReady: persistenceState.status === 'ok',
+        fallbackUsedAsAuthority: false,
+        metadata: {
+          requestedBy: 'supervisor-api',
+          configLoadStatus: configLoadResult.status,
+          configSource: configLoadResult.source,
+          historicalPolicyDecisionId: dryRunRecord?.policyDecision.id,
+          historicalPolicyDecisionOutcome: dryRunRecord?.policyDecision.outcome,
+          historicalPolicyMutated: false,
+          source: 'apps.supervisor.real-read-only-adapter.policy-source',
+        },
+      });
+      const evidenceRefs = createRealReadOnlyAdapterPolicySourceEvidenceRefs(record);
+      const auditEvents = createRealReadOnlyAdapterPolicySourceAuditEvents(record, evidenceRefs);
+      const recordWithRefs = {
+        ...record,
+        evidenceRefs,
+        auditEventIds: auditEvents.map((event) => event.id),
+      };
+
+      for (const evidenceRef of evidenceRefs) {
+        await store.evidenceRefs.create(evidenceRef);
+      }
+
+      for (const auditEvent of auditEvents) {
+        await store.auditEvents.append(auditEvent);
+      }
+
+      const persistedRecord =
+        await store.codexExecRealReadOnlyAdapterPolicySources.savePolicySource(recordWithRefs);
+
+      return createRealReadOnlyAdapterPolicySourceResponse(persistedRecord, {
+        evidenceRefs,
+        auditEvents,
+      });
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/policy-sources/:recordId',
+    async (request, reply) => {
+      const params = request.params as { recordId?: string };
+
+      if (!params.recordId) {
+        return reply.code(400).send({
+          error: 'recordId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterPolicySourceUnavailableResponse());
+      }
+
+      const record = await store.codexExecRealReadOnlyAdapterPolicySources.getPolicySource(
+        params.recordId,
+      );
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'policy source record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterPolicySourceResponse(record);
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/policy-sources',
+    async (request, reply) => {
+      const queryResult = parseRealReadOnlyAdapterPolicySourceQuery(request.query);
+
+      if (!queryResult.allowed) {
+        return reply.code(400).send({
+          error: queryResult.reason,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterPolicySourceUnavailableResponse());
+      }
+
+      const records = await store.codexExecRealReadOnlyAdapterPolicySources.listPolicySources(
+        queryResult.query,
+      );
+
+      return createRealReadOnlyAdapterPolicySourceListResponse(records, queryResult.query);
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/policy-source/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterPolicySourceUnavailableResponse(params.dryRunId));
+      }
+
+      const record = await store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(
+        params.dryRunId,
+      );
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'policy source record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterPolicySourceResponse(record);
+    },
+  );
+
   server.post('/api/codex/exec/real-read-only-adapter/attempt', async (request, reply) => {
     const body = request.body as
       | {
@@ -2388,6 +2623,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       await store.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
         body.dryRunId,
       );
+    const latestPolicySource = await store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(
+      body.dryRunId,
+    );
+    const authoritativePolicySourcePresent =
+      latestPolicySource?.status === 'aligned' &&
+      latestPolicySource.authoritative === true &&
+      latestPolicySource.supervisorBacked === true &&
+      latestPolicySource.persisted === true &&
+      latestPolicySource.degraded === false &&
+      latestPolicySource.notPersisted === false &&
+      latestPolicySource.fallbackUsedAsAuthority === false &&
+      latestPolicySource.policyDecisionOutcome !== 'deny';
+    const policyDecisionForAttempt = authoritativePolicySourcePresent
+      ? createPolicyDecisionFromRealReadOnlyAdapterPolicySource(latestPolicySource)
+      : undefined;
     const authoritativeSourcePreparationPresent =
       latestSourcePreparation?.status === 'prepared' &&
       latestSourcePreparation.authoritative === true &&
@@ -2426,7 +2676,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       dryRunId: body.dryRunId,
       config,
       approvalArtifactId: body.approvalArtifactId,
-      policyDecisionId: body.policyDecisionId ?? dryRunRecord?.policyDecision.id,
+      policyDecisionId:
+        body.policyDecisionId ?? policyDecisionForAttempt?.id ?? dryRunRecord?.policyDecision.id,
       metadata: {
         requestedBy: 'supervisor-api',
         isolatedWorktreeProvided:
@@ -2435,6 +2686,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         configSource: configLoadResult.source,
         dryRunRecordPresent: dryRunRecord !== undefined,
         approvalArtifactPresent: approvalArtifact !== undefined,
+        latestPolicySourceId: latestPolicySource?.id,
+        policySourceReady: authoritativePolicySourcePresent,
         latestSourcePreparationId: latestSourcePreparation?.id,
         latestPrerequisiteId: latestPrerequisite?.id,
         runtimeWorktreePathHashMatched: worktreePathHashMatched,
@@ -2446,12 +2699,16 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       request: attemptRequest,
       config,
       dryRunPlan: dryRunRecord?.dryRunPlan,
-      policyDecision: dryRunRecord?.policyDecision,
+      policyDecision: policyDecisionForAttempt,
       approvalArtifact,
       expectedDryRunPlanHash:
-        latestSourcePreparation?.dryRunPlanHash ?? approvalArtifact?.dryRunPlanHash,
+        latestPolicySource?.dryRunPlanHash ??
+        latestSourcePreparation?.dryRunPlanHash ??
+        approvalArtifact?.dryRunPlanHash,
       expectedPolicyDecisionHash:
-        latestSourcePreparation?.policyDecisionHash ?? approvalArtifact?.policyDecisionHash,
+        latestPolicySource?.policyDecisionHash ??
+        latestSourcePreparation?.policyDecisionHash ??
+        approvalArtifact?.policyDecisionHash,
       requestedSandboxMode: 'read_only',
       triggerKind: 'cli',
       worktree: {
@@ -2469,6 +2726,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       metadata: {
         requestedBy: 'supervisor-api',
         authoritativeAttemptRecord: true,
+        policySourceReady: authoritativePolicySourcePresent,
+        latestPolicySourceId: latestPolicySource?.id,
         sourcePreparationReady: authoritativeSourcePreparationPresent,
         prerequisiteReady: authoritativePrerequisiteReady,
         worktreePathStored: false,
@@ -2832,8 +3091,20 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const approvalRecords = dryRunRecord
         ? await resolveCodexExecApprovalRecordsForDryRun(dryRunRecord.dryRunPlanId, store)
         : [];
+      const latestPolicySource =
+        await store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(body.dryRunId);
+      const authoritativePolicySourcePresent =
+        latestPolicySource?.status === 'aligned' &&
+        latestPolicySource.authoritative === true &&
+        latestPolicySource.supervisorBacked === true &&
+        latestPolicySource.persisted === true &&
+        latestPolicySource.degraded === false &&
+        latestPolicySource.notPersisted === false &&
+        latestPolicySource.fallbackUsedAsAuthority === false;
       const validApprovalRecord = approvalRecords.find((record) =>
-        isValidUnusedApprovalRecordForPilot(record, body.approvalArtifactId),
+        isValidUnusedApprovalRecordForPilot(record, body.approvalArtifactId) &&
+        (!authoritativePolicySourcePresent ||
+          record.approvalArtifact?.policyDecisionHash === latestPolicySource.policyDecisionHash),
       );
       const approvalArtifact = validApprovalRecord?.approvalArtifact;
       const record = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
@@ -2846,11 +3117,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         dryRunRecordPresent: dryRunRecord !== undefined,
         configExplicitlyEnabled:
           configLoadResult.status === 'loaded' && configLoadResult.config.liveEnabled === true,
+        authoritativePolicySourcePresent,
         validUnusedApprovalPresent: approvalArtifact !== undefined,
         approvalArtifactId: approvalArtifact?.id,
         approvalArtifactHash: approvalArtifact ? hashLocalMetadata(approvalArtifact) : undefined,
-        dryRunPlanHash: approvalArtifact?.dryRunPlanHash,
-        policyDecisionHash: approvalArtifact?.policyDecisionHash,
+        dryRunPlanHash: latestPolicySource?.dryRunPlanHash ?? approvalArtifact?.dryRunPlanHash,
+        policyDecisionHash:
+          latestPolicySource?.policyDecisionHash ?? approvalArtifact?.policyDecisionHash,
         isolatedCleanWorktreeMetadataPresent:
           body.worktreeStatus === 'clean' && Boolean(body.worktreePathHash),
         worktreeLabel: body.worktreeLabel,
@@ -2863,6 +3136,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           configLoadStatus: configLoadResult.status,
           configSource: configLoadResult.source,
           approvalArtifactIdProvided: Boolean(body.approvalArtifactId),
+          latestPolicySourceId: latestPolicySource?.id,
+          policySourceReady: authoritativePolicySourcePresent,
           worktreePathStored: false,
         },
       });
@@ -3076,8 +3351,20 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         await store.codexExecRealReadOnlyAdapterPilotSourcePreparations.latestPilotSourcePreparation(
           body.dryRunId,
         );
+      const latestPolicySource =
+        await store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(body.dryRunId);
+      const authoritativePolicySourcePresent =
+        latestPolicySource?.status === 'aligned' &&
+        latestPolicySource.authoritative === true &&
+        latestPolicySource.supervisorBacked === true &&
+        latestPolicySource.persisted === true &&
+        latestPolicySource.degraded === false &&
+        latestPolicySource.notPersisted === false &&
+        latestPolicySource.fallbackUsedAsAuthority === false;
       const validUnusedApprovalPresent = approvalRecords.some((record) =>
-        isValidUnusedApprovalRecordForPilot(record, body.approvalArtifactId),
+        isValidUnusedApprovalRecordForPilot(record, body.approvalArtifactId) &&
+        (!authoritativePolicySourcePresent ||
+          record.approvalArtifact?.policyDecisionHash === latestPolicySource?.policyDecisionHash),
       );
       const authoritativeAttemptEvidencePresent =
         latestAttempt?.authoritative === true &&
@@ -3112,6 +3399,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         validUnusedApprovalPresent,
         isolatedCleanWorktreeMetadataPresent:
           body.worktreeStatus === 'clean' && Boolean(body.worktreePathHash),
+        authoritativePolicySourcePresent,
         authoritativeSourcePreparationPresent,
         authoritativeAttemptEvidencePresent,
         evidenceAuditReady,
@@ -3125,6 +3413,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           configLoadStatus: configLoadResult.status,
           configSource: configLoadResult.source,
           approvalArtifactIdProvided: Boolean(body.approvalArtifactId),
+          latestPolicySourceId: latestPolicySource?.id,
+          policySourceReady: authoritativePolicySourcePresent,
           latestAttemptId: latestAttempt?.id,
           latestSourcePreparationId: latestSourcePreparation?.id,
           worktreePathStored: false,
@@ -4902,6 +5192,94 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createRealReadOnlyAdapterPolicySourceResponse(
+    record: CodexExecRealReadOnlyAdapterPolicySourceRecord,
+    details: {
+      evidenceRefs?: ReturnType<typeof createRealReadOnlyAdapterPolicySourceEvidenceRefs>;
+      auditEvents?: ReturnType<typeof createRealReadOnlyAdapterPolicySourceAuditEvents>;
+    } = {},
+  ) {
+    return {
+      record,
+      policySourceRecord: record,
+      summary: summarizeRealReadOnlyAdapterPolicySourceRecord(record),
+      evidenceRefs: details.evidenceRefs ?? record.evidenceRefs,
+      auditEvents: details.auditEvents ?? [],
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      hardGateCount: record.hardGateCount,
+      passedGateCount: record.passedGateCount,
+      blockedGateCount: record.blockedGateCount,
+      requiresReviewFindingCount: record.requiresReviewFindingCount,
+      missingSources: record.missingSources,
+      degraded: false,
+      notPersisted: false,
+      configExplicitlyEnabled: record.configExplicitlyEnabled,
+      readOnlyOnly: record.readOnlyOnly,
+      policyDecisionPresent: record.policyDecisionPresent,
+      policyDecisionAllowsPilot: record.policyDecisionAllowsPilot,
+      policyDecisionId: record.policyDecisionId,
+      policyDecisionHash: record.policyDecisionHash,
+      policyDecisionOutcome: record.policyDecisionOutcome,
+      dryRunPlanHash: record.dryRunPlanHash,
+      evidenceAuditReady: record.evidenceAuditReady,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterPolicySourceListResponse(
+    records: CodexExecRealReadOnlyAdapterPolicySourceRecord[],
+    query: Partial<CodexExecRealReadOnlyAdapterPolicySourceQuery>,
+  ) {
+    return {
+      records,
+      policySourceRecords: records,
+      summaries: listRealReadOnlyAdapterPolicySourceSummaries(records, query),
+      count: records.length,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterPolicySourceUnavailableResponse(dryRunId?: string) {
+    return {
+      error: 'real read-only adapter policy source store is unavailable',
+      dryRunId,
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      configExplicitlyEnabled: false,
+      readOnlyOnly: false,
+      policyDecisionPresent: false,
+      policyDecisionAllowsPilot: false,
+      evidenceAuditReady: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason ?? 'store unavailable',
+    };
+  }
+
   function createRealReadOnlyAdapterPilotSourcePreparationResponse(
     record: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
     details: {
@@ -4926,6 +5304,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       degraded: false,
       notPersisted: false,
       configExplicitlyEnabled: record.configExplicitlyEnabled,
+      authoritativePolicySourcePresent: record.authoritativePolicySourcePresent,
       validUnusedApprovalPresent: record.validUnusedApprovalPresent,
       isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
       evidenceAuditReady: record.evidenceAuditReady,
@@ -4976,6 +5355,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       pilotExecuted: false,
       adapterAttemptInvoked: false,
       configExplicitlyEnabled: false,
+      authoritativePolicySourcePresent: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       evidenceAuditReady: false,
@@ -5010,6 +5390,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       configExplicitlyEnabled: record.configExplicitlyEnabled,
       validUnusedApprovalPresent: record.validUnusedApprovalPresent,
       isolatedCleanWorktreeMetadataPresent: record.isolatedCleanWorktreeMetadataPresent,
+      authoritativePolicySourcePresent: record.authoritativePolicySourcePresent,
       authoritativeSourcePreparationPresent: record.authoritativeSourcePreparationPresent,
       authoritativeAttemptEvidencePresent: record.authoritativeAttemptEvidencePresent,
       evidenceAuditReady: record.evidenceAuditReady,
@@ -5062,6 +5443,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       configExplicitlyEnabled: false,
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
+      authoritativePolicySourcePresent: false,
       authoritativeSourcePreparationPresent: false,
       authoritativeAttemptEvidencePresent: false,
       evidenceAuditReady: false,
@@ -5236,6 +5618,11 @@ const realReadOnlyAdapterReadinessReviewOutcomes = new Set([
 ]);
 const realReadOnlyAdapterReadinessReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
 const realReadOnlyAdapterAttemptStatuses = new Set(['blocked', 'completed', 'failed', 'aborted']);
+const realReadOnlyAdapterPolicySourceStatuses = new Set([
+  'aligned',
+  'blocked',
+  'requires_review',
+]);
 const realReadOnlyAdapterPilotPrerequisiteStatuses = new Set([
   'ready_for_pilot_retry',
   'blocked',
@@ -5726,6 +6113,33 @@ function parseRealReadOnlyAdapterAttemptTimelineQuery(
       status: status as CodexExecRealReadOnlyAdapterAttemptStatus | undefined,
       includeEvidence: parseBooleanQueryValue(readQueryValue(query, 'includeEvidence') ?? '') === true,
       includeAudit: parseBooleanQueryValue(readQueryValue(query, 'includeAudit') ?? '') === true,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseRealReadOnlyAdapterPolicySourceQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterPolicySourceQuery> }
+  | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterPolicySourceStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported policy source status' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterPolicySourceStatus | undefined,
       limit: limitResult.limit,
     },
   };
