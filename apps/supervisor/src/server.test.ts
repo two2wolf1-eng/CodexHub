@@ -2087,6 +2087,62 @@ describe('supervisor mock development API', () => {
       },
     });
     const approvalArtifactId = approvalResponse.json().approvalArtifact.id as string;
+    let unrelatedApprovalArtifactId: string | undefined;
+
+    for (let index = 0; index < 55; index += 1) {
+      const unrelatedDryRunResponse = await server.inject({
+        method: 'POST',
+        url: '/api/codex/exec/dry-run',
+        payload: {
+          title: `Unrelated approval authority fixture ${index}`,
+          prompt: 'Summarize repository structure',
+          cwd: '.',
+          sandboxMode: 'read_only',
+          approvalMode: 'required',
+        },
+      });
+      const unrelatedDryRunId = unrelatedDryRunResponse.json().liveRunRecord.id as string;
+      const unrelatedPolicySourceResponse = await server.inject({
+        method: 'POST',
+        url: '/api/codex/exec/real-read-only-adapter/policy-sources',
+        payload: { dryRunId: unrelatedDryRunId },
+      });
+      const unrelatedApprovalRequestResponse = await server.inject({
+        method: 'POST',
+        url: '/api/codex/exec/approval-request',
+        payload: {
+          dryRunId: unrelatedDryRunId,
+          policySourceId: unrelatedPolicySourceResponse.json().recordId,
+          requestedBy: 'local-operator',
+          reason: `Unrelated approval authority fixture ${index}`,
+        },
+      });
+      const unrelatedManualApprovalResponse = await server.inject({
+        method: 'POST',
+        url: '/api/codex/exec/manual-approval',
+        payload: {
+          dryRunId: unrelatedDryRunId,
+          approvalRequestId: unrelatedApprovalRequestResponse.json().approvalRequest.id,
+          outcome: 'approved',
+          reason: `Unrelated approval authority fixture ${index}`,
+        },
+      });
+      unrelatedApprovalArtifactId ??= unrelatedManualApprovalResponse.json().approvalArtifact.id as
+        | string
+        | undefined;
+    }
+
+    const mismatchedApprovalSourceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
+      payload: {
+        dryRunId,
+        approvalArtifactId: unrelatedApprovalArtifactId,
+        worktreeLabel: 'isolated-clean-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: pilotWorktreeHash,
+      },
+    });
     const sourcePreparationResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
@@ -2162,10 +2218,29 @@ describe('supervisor mock development API', () => {
       pilotExecuted: false,
       adapterAttemptInvoked: false,
     });
+    expect(mismatchedApprovalSourceResponse.statusCode).toBe(200);
+    expect(mismatchedApprovalSourceResponse.json().status).toBe('blocked');
+    expect(mismatchedApprovalSourceResponse.json().sourcePreparationRecord.metadata).toMatchObject({
+      approvalAuthorityStatus: expect.stringMatching(/mismatch|invalid/),
+      approvalDryRunHashMatched: false,
+      approvalPolicyHashMatched: false,
+    });
     expect(sourcePreparationResponse.statusCode).toBe(200);
     expect(sourcePreparationResponse.json().status).toBe('prepared');
+    expect(sourcePreparationResponse.json().sourcePreparationRecord.metadata).toMatchObject({
+      approvalAuthorityStatus: 'resolved',
+      approvalRecordId: expect.any(String),
+      approvalDryRunHashMatched: true,
+      approvalPolicyHashMatched: true,
+    });
     expect(prerequisiteResponse.statusCode).toBe(200);
     expect(prerequisiteResponse.json().status).toBe('ready_for_pilot_retry');
+    expect(prerequisiteResponse.json().prerequisiteRecord.metadata).toMatchObject({
+      approvalAuthorityStatus: 'resolved',
+      approvalRecordId: expect.any(String),
+      approvalDryRunHashMatched: true,
+      approvalPolicyHashMatched: true,
+    });
     expect(attemptResponse.statusCode).toBe(200);
     expect(attemptResponse.json()).toMatchObject({
       attemptRecord: {
@@ -2194,6 +2269,12 @@ describe('supervisor mock development API', () => {
     expect(attemptResponse.json().preflight.checks.every((check: { status: string }) => check.status === 'passed')).toBe(
       true,
     );
+    expect(attemptResponse.json().attemptRecord.metadata).toMatchObject({
+      approvalAuthorityStatus: 'resolved',
+      approvalArtifactId,
+      approvalDryRunHashMatched: true,
+      approvalPolicyHashMatched: true,
+    });
     expect(attemptResponse.json().result.error).toBeUndefined();
     expect(attemptResponse.json().evidenceRefs.length).toBeGreaterThan(0);
     expect(attemptResponse.json().auditEvents.length).toBeGreaterThan(0);

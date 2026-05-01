@@ -96,6 +96,13 @@ export interface CodexExecApprovalRepository {
   ): Promise<CodexExecManualApprovalRecord>;
   listCodexExecApprovalRecords(limit?: number): Promise<CodexExecManualApprovalRecord[]>;
   getCodexExecApprovalRecord(id: string): Promise<CodexExecManualApprovalRecord | undefined>;
+  getCodexExecApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<CodexExecManualApprovalRecord | undefined>;
+  listCodexExecApprovalRecordsForDryRun(
+    dryRunPlanId: string,
+    limit?: number,
+  ): Promise<CodexExecManualApprovalRecord[]>;
 }
 
 export interface CodexReportReviewRepository {

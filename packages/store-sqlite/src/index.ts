@@ -383,6 +383,31 @@ class SqliteCodexExecApprovalRepository implements CodexExecApprovalRepository {
   async getCodexExecApprovalRecord(id: string): Promise<CodexExecManualApprovalRecord | undefined> {
     return this.repository.getById(id);
   }
+
+  async getCodexExecApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<CodexExecManualApprovalRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM codex_exec_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+    return rows
+      .map((row) => JSON.parse(row.payload) as CodexExecManualApprovalRecord)
+      .find((record) => record.approvalArtifact?.id === approvalArtifactId);
+  }
+
+  async listCodexExecApprovalRecordsForDryRun(
+    dryRunPlanId: string,
+    limit = 100,
+  ): Promise<CodexExecManualApprovalRecord[]> {
+    const safeLimit = Math.max(0, Math.trunc(limit));
+    const rows = this.database
+      .prepare('SELECT payload FROM codex_exec_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+    return rows
+      .map((row) => JSON.parse(row.payload) as CodexExecManualApprovalRecord)
+      .filter((record) => record.request.dryRunPlanId === dryRunPlanId)
+      .slice(0, safeLimit);
+  }
 }
 
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {

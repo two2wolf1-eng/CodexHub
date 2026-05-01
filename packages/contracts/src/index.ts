@@ -3045,6 +3045,43 @@ export type CodexExecRealReadOnlyAdapterAttemptStatus = z.infer<
   typeof CodexExecRealReadOnlyAdapterAttemptStatusSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterApprovalAuthorityStatusSchema = z.enum([
+  'resolved',
+  'missing',
+  'invalid',
+  'expired',
+  'revoked',
+  'used',
+  'dry_run_hash_mismatch',
+  'policy_hash_mismatch',
+  'artifact_id_mismatch',
+]);
+export type CodexExecRealReadOnlyAdapterApprovalAuthorityStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterApprovalAuthorityStatusSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterApprovalAuthorityStatusSchema,
+    approvalRecordId: z.string().min(1).optional(),
+    approvalArtifactId: z.string().min(1).optional(),
+    approvalArtifactHash: z.string().min(1).optional(),
+    dryRunPlanHash: z.string().min(1).optional(),
+    policyDecisionHash: z.string().min(1).optional(),
+    expectedDryRunPlanHash: z.string().min(1).optional(),
+    expectedPolicyDecisionHash: z.string().min(1).optional(),
+    dryRunHashMatched: z.boolean(),
+    policyHashMatched: z.boolean(),
+    checkedAt: IsoDateTimeSchema,
+    expiresAt: IsoDateTimeSchema.optional(),
+    reasonCodes: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterApprovalAuthoritySummary = z.infer<
+  typeof CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema
+>;
+
 export const CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema = z.enum([
   'not_required',
   'skipped',

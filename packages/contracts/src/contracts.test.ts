@@ -64,6 +64,7 @@ import {
   CodexExecRealReadOnlyAdapterReadinessReviewSummarySchema,
   CodexExecRealReadOnlyAdapterReadinessSummarySchema,
   CodexExecRealReadOnlyAdapterAuditSummarySchema,
+  CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema,
   CodexExecRealReadOnlyAdapterAttemptQuerySchema,
   CodexExecRealReadOnlyAdapterAttemptRecordSchema,
   CodexExecRealReadOnlyAdapterAttemptSummarySchema,
@@ -2693,6 +2694,27 @@ describe('contracts schemas', () => {
     expect(result.commandBodyStored).toBe(false);
     expect(result.stdoutBodyStored).toBe(false);
     expect(result.stderrBodyStored).toBe(false);
+    const approvalAuthority = CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema.parse({
+      id: 'codex_real_read_only_adapter_approval_authority_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: request.dryRunId,
+      status: 'resolved',
+      approvalRecordId: 'codex_approval_record_1',
+      approvalArtifactId: 'codex_approval_artifact_1',
+      approvalArtifactHash: 'sha256:approval',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionHash: 'sha256:policy',
+      expectedDryRunPlanHash: 'sha256:dry-run',
+      expectedPolicyDecisionHash: 'sha256:policy',
+      dryRunHashMatched: true,
+      policyHashMatched: true,
+      checkedAt: createdAt,
+      expiresAt: '2026-05-01T00:00:00.000Z',
+      reasonCodes: [],
+      summary: 'Approval authority summary stores metadata and hashes only.',
+      ...flagFields,
+    });
     const attemptRecord = CodexExecRealReadOnlyAdapterAttemptRecordSchema.parse({
       id: 'codex_real_read_only_adapter_attempt_1',
       schemaVersion,
@@ -2841,6 +2863,11 @@ describe('contracts schemas', () => {
     expect(attemptRecord.commandBodyStored).toBe(false);
     expect(attemptRecord.stdoutBodyStored).toBe(false);
     expect(attemptRecord.stderrBodyStored).toBe(false);
+    expect(approvalAuthority.status).toBe('resolved');
+    expect(JSON.stringify(approvalAuthority)).not.toContain('raw prompt body');
+    expect(JSON.stringify(approvalAuthority)).not.toContain('raw stdout body');
+    expect(JSON.stringify(approvalAuthority)).not.toContain('"argv"');
+    expect(JSON.stringify(approvalAuthority)).not.toContain('"executablePath":');
     expect(attemptRecord.degraded).toBe(false);
     expect(attemptRecord.notPersisted).toBe(false);
     expect(attemptSummary.attemptId).toBe(attemptRecord.id);

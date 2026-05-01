@@ -229,6 +229,15 @@ describe('store-sqlite migration initialization', () => {
     const codexExecApprovals = await second.codexExecApprovals.listCodexExecApprovalRecords(10);
     const codexExecApprovalRecord =
       await second.codexExecApprovals.getCodexExecApprovalRecord('codex_approval_record_1');
+    const codexExecApprovalByArtifact =
+      await second.codexExecApprovals.getCodexExecApprovalRecordByArtifactId(
+        'codex_approval_artifact_1',
+      );
+    const codexExecApprovalsForDryRun =
+      await second.codexExecApprovals.listCodexExecApprovalRecordsForDryRun(
+        'codex_dry_run_1',
+        10,
+      );
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -380,6 +389,11 @@ describe('store-sqlite migration initialization', () => {
     expect(codexExecApprovals).toHaveLength(1);
     expect(codexExecApprovals[0]?.status).toBe('approved');
     expect(codexExecApprovalRecord?.request.reason).toContain('hash sha256:');
+    expect(codexExecApprovalByArtifact?.id).toBe('codex_approval_record_1');
+    expect(codexExecApprovalsForDryRun).toHaveLength(1);
+    expect(codexExecApprovalsForDryRun[0]?.approvalArtifact?.id).toBe(
+      'codex_approval_artifact_1',
+    );
     expect(JSON.stringify(codexExecApprovalRecord)).not.toContain('manual private reason');
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
@@ -656,6 +670,24 @@ function createCodexExecApprovalRecordFixture(): CodexExecManualApprovalRecord {
       decisionHash: 'sha256:decision',
       approved: true,
       summary: 'Manual approval approved',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    },
+    approvalArtifact: {
+      id: 'codex_approval_artifact_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      dryRunPlanId: 'codex_dry_run_1',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: 'policy_1',
+      policyDecisionHash: 'sha256:policy',
+      scope: 'read_only_plan',
+      status: 'approved',
+      expiresAt: '2026-04-28T01:00:00.000Z',
+      singleUse: true,
+      revoked: false,
+      summary: 'Manual approval artifact',
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
