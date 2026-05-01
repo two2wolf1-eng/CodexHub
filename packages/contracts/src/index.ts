@@ -3094,6 +3094,13 @@ export type CodexExecRealReadOnlyAdapterPostRunVerificationStatus = z.infer<
   typeof CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema = z.enum([
+  'attempt_not_completed',
+]);
+export type CodexExecRealReadOnlyAdapterPostRunVerificationSkipReason = z.infer<
+  typeof CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema
+>;
+
 export const CodexExecRealReadOnlyAdapterErrorCodeSchema = z.enum([
   'config_disabled',
   'missing_dry_run',
@@ -3347,6 +3354,8 @@ export const CodexExecRealReadOnlyAdapterAttemptRecordSchema = createdEntityBase
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
+    postRunVerificationSkipReason:
+      CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema.optional(),
     workspaceMutationDetected: z.boolean().optional(),
     evidenceSummary: CodexExecRealReadOnlyAdapterEvidenceSummarySchema.optional(),
     auditSummary: CodexExecRealReadOnlyAdapterAuditSummarySchema.optional(),
@@ -3381,6 +3390,8 @@ export const CodexExecRealReadOnlyAdapterAttemptSummarySchema = createdEntityBas
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
+    postRunVerificationSkipReason:
+      CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema.optional(),
     workspaceMutationDetected: z.boolean().optional(),
     evidenceRefCount: z.number().int().nonnegative(),
     auditEventCount: z.number().int().nonnegative(),
@@ -3420,6 +3431,8 @@ export const CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema = createdEnt
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
+    postRunVerificationSkipReason:
+      CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema.optional(),
     workspaceMutationDetected: z.boolean().optional(),
     evidenceRefIds: z.array(z.string().min(1)).default([]),
     auditEventIds: z.array(z.string().min(1)).default([]),

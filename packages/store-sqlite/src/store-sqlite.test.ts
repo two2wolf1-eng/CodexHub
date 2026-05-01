@@ -195,6 +195,11 @@ describe('store-sqlite migration initialization', () => {
     const realReadOnlyAdapterAttempt: CodexExecRealReadOnlyAdapterAttemptRecord =
       createRealReadOnlyAdapterAttemptFixture();
     await first.codexExecRealReadOnlyAdapterAttempts.saveAttempt(realReadOnlyAdapterAttempt);
+    const realReadOnlyAdapterFailedAttempt: CodexExecRealReadOnlyAdapterAttemptRecord =
+      createRealReadOnlyAdapterFailedAttemptFixture();
+    await first.codexExecRealReadOnlyAdapterAttempts.saveAttempt(
+      realReadOnlyAdapterFailedAttempt,
+    );
     const realReadOnlyAdapterPilotPrerequisite: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord =
       createRealReadOnlyAdapterPilotPrerequisiteFixture();
     await first.codexExecRealReadOnlyAdapterPilotPrerequisites.savePilotPrerequisite(
@@ -331,6 +336,16 @@ describe('store-sqlite migration initialization', () => {
     const realReadOnlyAdapterAttemptRecord =
       await second.codexExecRealReadOnlyAdapterAttempts.getAttempt(
         'codex_real_read_only_adapter_attempt_1',
+      );
+    const realReadOnlyAdapterFailedAttempts =
+      await second.codexExecRealReadOnlyAdapterAttempts.listAttempts({
+        dryRunId: 'codex_dry_run_1',
+        status: 'failed',
+        limit: 10,
+      });
+    const realReadOnlyAdapterFailedAttemptRecord =
+      await second.codexExecRealReadOnlyAdapterAttempts.getAttempt(
+        'codex_real_read_only_adapter_attempt_failed_1',
       );
     const latestRealReadOnlyAdapterAttemptRecord =
       await second.codexExecRealReadOnlyAdapterAttempts.latestAttempt('codex_dry_run_1');
@@ -477,6 +492,28 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw stderr body');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"argv"');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"executablePath":');
+    expect(realReadOnlyAdapterFailedAttempts).toHaveLength(1);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.processBoundaryInvoked).toBe(true);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.failureCode).toBe(
+      'process_exit_nonzero',
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.exitCode).toBe(2);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stdoutHash).toBe(
+      'sha256:stdout',
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stderrHash).toBe(
+      'sha256:stderr',
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stdoutByteLength).toBe(12);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stderrByteLength).toBe(14);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.postRunVerificationStatus).toBe('skipped');
+    expect(realReadOnlyAdapterFailedAttemptRecord?.postRunVerificationSkipReason).toBe(
+      'attempt_not_completed',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('raw stdout body');
+    expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('raw stderr body');
+    expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('"argv"');
+    expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('"executablePath":');
     expect(realReadOnlyAdapterPilotPrerequisites).toHaveLength(1);
     expect(realReadOnlyAdapterPilotPrerequisiteRecord?.status).toBe('blocked');
     expect(realReadOnlyAdapterPilotPrerequisiteRecord?.pilotExecuted).toBe(false);
@@ -1279,6 +1316,66 @@ function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapter
       worktreePathStored: false,
     },
     ...flags,
+  };
+}
+
+function createRealReadOnlyAdapterFailedAttemptFixture(): CodexExecRealReadOnlyAdapterAttemptRecord {
+  const base = createRealReadOnlyAdapterAttemptFixture();
+
+  return {
+    ...base,
+    id: 'codex_real_read_only_adapter_attempt_failed_1',
+    createdAt: '2026-04-28T00:00:12.500Z',
+    status: 'failed',
+    processBoundaryInvoked: true,
+    processBoundaryModuleRef: 'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+    preflightStatus: 'passed',
+    resultStatus: 'failed',
+    resultErrorCode: 'boundary_failed',
+    failedCheckCodes: [],
+    boundaryDiagnostics: {
+      id: 'codex_real_read_only_adapter_boundary_diagnostics_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-04-28T00:00:12.500Z',
+      status: 'failed',
+      failureCode: 'process_exit_nonzero',
+      exitCode: 2,
+      timedOut: false,
+      cancelled: false,
+      durationMs: 35,
+      stdoutHash: 'sha256:stdout',
+      stderrHash: 'sha256:stderr',
+      stdoutByteLength: 12,
+      stderrByteLength: 14,
+      stdoutLineCount: 1,
+      stderrLineCount: 1,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      externalProcessStarted: true,
+      summary: 'Boundary diagnostics stores hashes and counts only.',
+      metadataOnly: true,
+      bodyStored: false,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      agentMessageBodyStored: false,
+      reasoningBodyStored: false,
+      liveExecution: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+    },
+    postRunVerificationStatus: 'skipped',
+    postRunVerificationSkipReason: 'attempt_not_completed',
+    outputHashCount: 2,
+    metadataHash: 'sha256:attempt_failed_metadata',
+    summary: 'Failed supervisor attempt stores boundary diagnostics metadata only.',
   };
 }
 

@@ -2627,6 +2627,22 @@ describe('codex-kernel live control-plane skeleton', () => {
         }),
       },
     });
+    const postRunVerificationPlan = createRealReadOnlyAdapterPostRunVerificationPlan({
+      dryRunId: dryRunPlan.id,
+      worktreePath: 'C:/safe/worktree/attempt-record',
+      timeoutMs: 1_000,
+    });
+    const skippedFailedPostRun = await runRealReadOnlyAdapterPostRunVerification(
+      postRunVerificationPlan,
+      {
+        attemptStatus: 'failed',
+        worktreeState: {
+          beforeStatus: 'clean',
+          afterStatus: 'clean',
+          unexpectedDiff: false,
+        },
+      },
+    );
 
     const buildBoundaryRecord = (
       boundaryResult:
@@ -2634,6 +2650,7 @@ describe('codex-kernel live control-plane skeleton', () => {
         | typeof failedBoundary
         | typeof abortedBoundary,
       resultId: string,
+      postRunVerificationResult?: typeof skippedFailedPostRun,
     ) => {
       const telemetryInput = { request, preflight, boundaryResult, resultId };
       const evidenceRefs = createRealReadOnlyAdapterAttemptEvidenceRefs(telemetryInput);
@@ -2669,6 +2686,7 @@ describe('codex-kernel live control-plane skeleton', () => {
         boundaryResult,
         evidenceRefs,
         auditEvents,
+        postRunVerificationResult,
       });
     };
 
@@ -2686,6 +2704,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     const failedRecord = buildBoundaryRecord(
       failedBoundary,
       'codex_real_read_only_adapter_result_attempt_failed',
+      skippedFailedPostRun,
     );
     const abortedRecord = buildBoundaryRecord(
       abortedBoundary,
@@ -2724,6 +2743,13 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(failedRecord.boundaryDiagnostics?.exitCode).toBe(2);
     expect(failedRecord.boundaryDiagnostics?.stdoutByteLength).toBeGreaterThan(0);
     expect(failedRecord.boundaryDiagnostics?.stderrByteLength).toBeGreaterThan(0);
+    expect(failedRecord.boundaryDiagnostics?.stdoutHash).toMatch(/^sha256:/);
+    expect(failedRecord.boundaryDiagnostics?.stderrHash).toMatch(/^sha256:/);
+    expect(failedRecord.boundaryDiagnostics?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(failedRecord.boundaryDiagnostics?.timedOut).toBe(false);
+    expect(failedRecord.boundaryDiagnostics?.cancelled).toBe(false);
+    expect(failedRecord.postRunVerificationStatus).toBe('skipped');
+    expect(failedRecord.postRunVerificationSkipReason).toBe('attempt_not_completed');
     expect(abortedRecord.resultErrorCode).toBe('boundary_aborted');
     expect(abortedRecord.boundaryDiagnostics?.failureCode).toBe('process_timed_out');
     expect(completedRecord.processBoundaryInvoked).toBe(true);
@@ -2751,6 +2777,10 @@ describe('codex-kernel live control-plane skeleton', () => {
       timeline.entries.find((entry) => entry.status === 'failed')?.boundaryDiagnostics
         ?.failureCode,
     ).toBe('process_exit_nonzero');
+    expect(
+      timeline.entries.find((entry) => entry.status === 'failed')
+        ?.postRunVerificationSkipReason,
+    ).toBe('attempt_not_completed');
     expect(timeline.implementationApproved).toBe(false);
     expect(timeline.processAdapterApproved).toBe(false);
     expect(timeline.recommendationGrantsExecution).toBe(false);

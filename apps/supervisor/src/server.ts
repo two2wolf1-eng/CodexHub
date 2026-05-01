@@ -2821,6 +2821,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               runner: options.realReadOnlyAdapterPostRunVerificationRunner,
             },
           );
+    const postRunVerificationStatus =
+      postRunVerificationResult === undefined
+        ? undefined
+        : postRunVerificationResult.skippedBeforeStart
+          ? 'skipped'
+          : postRunVerificationResult.status;
+    const postRunVerificationSkipReason = postRunVerificationResult?.skippedBeforeStart
+      ? (postRunVerificationResult.skipReason ?? 'attempt_not_completed')
+      : undefined;
     const telemetryInput = {
       request: attemptRequest,
       preflight,
@@ -2833,7 +2842,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         configLoadStatus: configLoadResult.status,
         approvalAuthorityStatus: approvalAuthority.summary.status,
         approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
-        postRunVerificationStatus: postRunVerificationResult?.status,
+        postRunVerificationStatus,
+        postRunVerificationSkipReason,
         worktreePathStored: false,
       },
     };
@@ -2871,7 +2881,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalExpiresAt: approvalAuthority.summary.expiresAt,
         approvalDryRunHashMatched: approvalAuthority.summary.dryRunHashMatched,
         approvalPolicyHashMatched: approvalAuthority.summary.policyHashMatched,
-        postRunVerificationStatus: postRunVerificationResult?.status,
+        postRunVerificationStatus,
+        postRunVerificationSkipReason,
       },
     });
 

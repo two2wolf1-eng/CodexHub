@@ -982,6 +982,9 @@ export function createRealReadOnlyAdapterAttemptRecord(
       : input.postRunVerificationResult.skippedBeforeStart
         ? 'skipped'
         : input.postRunVerificationResult.status;
+  const postRunVerificationSkipReason = input.postRunVerificationResult?.skippedBeforeStart
+    ? (input.postRunVerificationResult.skipReason ?? 'attempt_not_completed')
+    : undefined;
   const workspaceMutationDetected = input.postRunVerificationResult?.workspaceMutationDetected;
   const boundaryDiagnostics = input.boundaryResult
     ? createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult)
@@ -1007,6 +1010,16 @@ export function createRealReadOnlyAdapterAttemptRecord(
     boundarySignal: boundaryDiagnostics?.signal,
     boundaryTimedOut: boundaryDiagnostics?.timedOut,
     boundaryCancelled: boundaryDiagnostics?.cancelled,
+    boundaryDurationMs: boundaryDiagnostics?.durationMs,
+    boundaryStdoutHash: boundaryDiagnostics?.stdoutHash,
+    boundaryStderrHash: boundaryDiagnostics?.stderrHash,
+    boundaryStdoutByteLength: boundaryDiagnostics?.stdoutByteLength,
+    boundaryStderrByteLength: boundaryDiagnostics?.stderrByteLength,
+    boundaryStdoutLineCount: boundaryDiagnostics?.stdoutLineCount,
+    boundaryStderrLineCount: boundaryDiagnostics?.stderrLineCount,
+    boundaryStdoutTruncated: boundaryDiagnostics?.stdoutTruncated,
+    boundaryStderrTruncated: boundaryDiagnostics?.stderrTruncated,
+    postRunVerificationSkipReason,
   });
 
   return {
@@ -1036,6 +1049,7 @@ export function createRealReadOnlyAdapterAttemptRecord(
     blockedCheckCodes,
     boundaryDiagnostics,
     postRunVerificationStatus,
+    postRunVerificationSkipReason,
     workspaceMutationDetected,
     evidenceSummary: input.result.evidenceSummary,
     auditSummary: input.result.auditSummary,
@@ -1063,7 +1077,17 @@ export function createRealReadOnlyAdapterAttemptRecord(
         boundarySignal: boundaryDiagnostics?.signal,
         boundaryTimedOut: boundaryDiagnostics?.timedOut,
         boundaryCancelled: boundaryDiagnostics?.cancelled,
+        boundaryDurationMs: boundaryDiagnostics?.durationMs,
+        boundaryStdoutHash: boundaryDiagnostics?.stdoutHash,
+        boundaryStderrHash: boundaryDiagnostics?.stderrHash,
+        boundaryStdoutByteLength: boundaryDiagnostics?.stdoutByteLength,
+        boundaryStderrByteLength: boundaryDiagnostics?.stderrByteLength,
+        boundaryStdoutLineCount: boundaryDiagnostics?.stdoutLineCount,
+        boundaryStderrLineCount: boundaryDiagnostics?.stderrLineCount,
+        boundaryStdoutTruncated: boundaryDiagnostics?.stdoutTruncated,
+        boundaryStderrTruncated: boundaryDiagnostics?.stderrTruncated,
         postRunVerificationStatus,
+        postRunVerificationSkipReason,
         workspaceMutationDetected,
         evidenceRefCount: evidenceRefIds.length,
         auditEventCount: auditEventIds.length,
@@ -1100,6 +1124,7 @@ export function summarizeRealReadOnlyAdapterAttempt(
     blockedCheckCodes: record.blockedCheckCodes,
     boundaryDiagnostics: record.boundaryDiagnostics,
     postRunVerificationStatus: record.postRunVerificationStatus,
+    postRunVerificationSkipReason: record.postRunVerificationSkipReason,
     workspaceMutationDetected: record.workspaceMutationDetected,
     evidenceRefCount: record.evidenceRefIds.length,
     auditEventCount: record.auditEventIds.length,
@@ -1115,6 +1140,7 @@ export function summarizeRealReadOnlyAdapterAttempt(
       resultErrorCode: record.resultErrorCode,
       boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
       postRunVerificationStatus: record.postRunVerificationStatus,
+      postRunVerificationSkipReason: record.postRunVerificationSkipReason,
       workspaceMutationDetected: record.workspaceMutationDetected,
       source: 'codex-kernel.real-read-only-adapter.attempt-summary',
     }),
@@ -1170,6 +1196,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     blockedCheckCodes: record.blockedCheckCodes,
     boundaryDiagnostics: record.boundaryDiagnostics,
     postRunVerificationStatus: record.postRunVerificationStatus,
+    postRunVerificationSkipReason: record.postRunVerificationSkipReason,
     workspaceMutationDetected: record.workspaceMutationDetected,
     evidenceRefIds: includeEvidence ? record.evidenceRefIds : [],
     auditEventIds: includeAudit ? record.auditEventIds : [],
@@ -1188,6 +1215,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       resultErrorCode: record.resultErrorCode,
       boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
       postRunVerificationStatus: record.postRunVerificationStatus,
+      postRunVerificationSkipReason: record.postRunVerificationSkipReason,
       workspaceMutationDetected: record.workspaceMutationDetected,
       includeEvidence,
       includeAudit,

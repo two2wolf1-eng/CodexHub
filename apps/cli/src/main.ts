@@ -6677,6 +6677,7 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         dryRunId?: string;
         status?: string;
         processBoundaryInvoked?: boolean;
+        postRunVerificationSkipReason?: string;
         implementationApproved?: boolean;
         processAdapterApproved?: boolean;
         recommendationGrantsExecution?: boolean;
@@ -6732,6 +6733,18 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `boundaryDurationMs=${String(attempt?.boundaryDiagnostics?.durationMs ?? 0)}`,
     `boundaryStdoutHash=${attempt?.boundaryDiagnostics?.stdoutHash ?? 'not-recorded'}`,
     `boundaryStderrHash=${attempt?.boundaryDiagnostics?.stderrHash ?? 'not-recorded'}`,
+    `boundarySignal=${attempt?.boundaryDiagnostics?.signal ?? 'not-recorded'}`,
+    `boundaryStdoutByteLength=${String(
+      attempt?.boundaryDiagnostics?.stdoutByteLength ?? 0,
+    )}`,
+    `boundaryStderrByteLength=${String(
+      attempt?.boundaryDiagnostics?.stderrByteLength ?? 0,
+    )}`,
+    `boundaryStdoutLineCount=${String(attempt?.boundaryDiagnostics?.stdoutLineCount ?? 0)}`,
+    `boundaryStderrLineCount=${String(attempt?.boundaryDiagnostics?.stderrLineCount ?? 0)}`,
+    `boundaryStdoutTruncated=${String(attempt?.boundaryDiagnostics?.stdoutTruncated ?? false)}`,
+    `boundaryStderrTruncated=${String(attempt?.boundaryDiagnostics?.stderrTruncated ?? false)}`,
+    `postRunVerificationSkipReason=${attempt?.postRunVerificationSkipReason ?? 'none'}`,
     `implementationApproved=${String(attempt?.implementationApproved ?? false)}`,
     `processAdapterApproved=${String(attempt?.processAdapterApproved ?? false)}`,
     `recommendationGrantsExecution=${String(attempt?.recommendationGrantsExecution ?? false)}`,

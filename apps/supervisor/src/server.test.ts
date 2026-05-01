@@ -2190,6 +2190,21 @@ describe('supervisor mock development API', () => {
         worktreePath: pilotWorktreePath,
       },
     });
+    const failedAttemptId = failedAttemptResponse.json().attemptRecord.id as string;
+    const failedAttemptReadbackResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/attempt/${failedAttemptId}`,
+    });
+    const failedAttemptLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/attempt/latest/${dryRunId}`,
+    });
+    const failedAttemptTimelineResponse = await server.inject({
+      method: 'GET',
+      url:
+        `/api/codex/exec/real-read-only-adapter/attempt-timeline/${dryRunId}` +
+        '?includeEvidence=true&includeAudit=true&limit=1',
+    });
     const mismatchResponse = await server.inject({
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/attempt',
@@ -2298,6 +2313,7 @@ describe('supervisor mock development API', () => {
           stderrByteLength: expect.any(Number),
         },
         postRunVerificationStatus: 'skipped',
+        postRunVerificationSkipReason: 'attempt_not_completed',
         workspaceMutationDetected: false,
         implementationApproved: false,
         processAdapterApproved: false,
@@ -2312,6 +2328,61 @@ describe('supervisor mock development API', () => {
           exitCode: 2,
         },
       },
+    });
+    for (const response of [
+      failedAttemptReadbackResponse,
+      failedAttemptLatestResponse,
+      failedAttemptTimelineResponse,
+    ]) {
+      expect(response.statusCode).toBe(200);
+      expect(response.body).not.toContain('supervisor failed stdout must remain hashed');
+      expect(response.body).not.toContain('supervisor failed stderr must remain hashed');
+      expect(response.body).not.toContain(pilotWorktreePath);
+      expect(response.body).not.toContain('"argv"');
+      expect(response.body).not.toContain('"executablePath":');
+    }
+    expect(failedAttemptReadbackResponse.json()).toMatchObject({
+      attemptRecord: {
+        id: failedAttemptId,
+        processBoundaryInvoked: true,
+        boundaryDiagnostics: {
+          failureCode: 'process_exit_nonzero',
+          exitCode: 2,
+          stdoutHash: expect.stringMatching(/^sha256:/),
+          stderrHash: expect.stringMatching(/^sha256:/),
+          stdoutByteLength: expect.any(Number),
+          stderrByteLength: expect.any(Number),
+          stdoutLineCount: expect.any(Number),
+          stderrLineCount: expect.any(Number),
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+        postRunVerificationStatus: 'skipped',
+        postRunVerificationSkipReason: 'attempt_not_completed',
+      },
+      summary: {
+        boundaryDiagnostics: {
+          failureCode: 'process_exit_nonzero',
+          exitCode: 2,
+          stdoutHash: expect.stringMatching(/^sha256:/),
+          stderrHash: expect.stringMatching(/^sha256:/),
+        },
+        postRunVerificationSkipReason: 'attempt_not_completed',
+      },
+    });
+    expect(failedAttemptLatestResponse.json().attemptRecord.id).toBe(failedAttemptId);
+    expect(failedAttemptLatestResponse.json().attemptRecord.boundaryDiagnostics.failureCode).toBe(
+      'process_exit_nonzero',
+    );
+    expect(failedAttemptTimelineResponse.json().timeline.entries[0]).toMatchObject({
+      attemptId: failedAttemptId,
+      processBoundaryInvoked: true,
+      boundaryDiagnostics: {
+        failureCode: 'process_exit_nonzero',
+        exitCode: 2,
+      },
+      postRunVerificationStatus: 'skipped',
+      postRunVerificationSkipReason: 'attempt_not_completed',
     });
     expect(failedAttemptResponse.body).not.toContain('supervisor failed stdout must remain hashed');
     expect(failedAttemptResponse.body).not.toContain('supervisor failed stderr must remain hashed');

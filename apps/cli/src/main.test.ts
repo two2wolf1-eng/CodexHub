@@ -669,9 +669,11 @@ describe('cli development mock-run fallback', () => {
         dryRunId: 'codex_dry_run_fixture',
         status: 'failed',
         processBoundaryInvoked: true,
+        postRunVerificationSkipReason: 'attempt_not_completed',
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
+          signal: 'SIGTERM',
           timedOut: false,
           cancelled: false,
           durationMs: 42,
@@ -679,6 +681,10 @@ describe('cli development mock-run fallback', () => {
           stderrHash: 'sha256:safe-stderr-hash',
           stdoutByteLength: 12,
           stderrByteLength: 20,
+          stdoutLineCount: 1,
+          stderrLineCount: 2,
+          stdoutTruncated: false,
+          stderrTruncated: false,
         },
         implementationApproved: false,
         processAdapterApproved: false,
@@ -757,6 +763,14 @@ describe('cli development mock-run fallback', () => {
     expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
     expect(diagnosticOutput).toContain('boundaryExitCode=2');
     expect(diagnosticOutput).toContain('boundaryStdoutHash=sha256:safe-stdout-hash');
+    expect(diagnosticOutput).toContain('boundarySignal=SIGTERM');
+    expect(diagnosticOutput).toContain('boundaryStdoutByteLength=12');
+    expect(diagnosticOutput).toContain('boundaryStderrByteLength=20');
+    expect(diagnosticOutput).toContain('boundaryStdoutLineCount=1');
+    expect(diagnosticOutput).toContain('boundaryStderrLineCount=2');
+    expect(diagnosticOutput).toContain('boundaryStdoutTruncated=false');
+    expect(diagnosticOutput).toContain('boundaryStderrTruncated=false');
+    expect(diagnosticOutput).toContain('postRunVerificationSkipReason=attempt_not_completed');
     expect(diagnosticOutput).not.toContain('raw stdout body');
     expect(diagnosticOutput).not.toContain('raw stderr body');
     expect(diagnosticOutput).not.toContain('"argv":');

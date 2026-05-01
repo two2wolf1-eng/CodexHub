@@ -99,6 +99,7 @@ import {
   CodexExecRealReadOnlyAdapterPilotPrerequisiteSummarySchema,
   CodexExecRealReadOnlyAdapterPreflightCheckSchema,
   CodexExecRealReadOnlyAdapterPreflightSchema,
+  CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema,
   CodexExecRealReadOnlyAdapterRequestSchema,
   CodexExecRealReadOnlyAdapterResultSchema,
   CodexExecNoLiveEvidenceSummarySchema,
@@ -2715,6 +2716,10 @@ describe('contracts schemas', () => {
       summary: 'Approval authority summary stores metadata and hashes only.',
       ...flagFields,
     });
+    const postRunSkipReason =
+      CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema.parse(
+        'attempt_not_completed',
+      );
     const attemptRecord = CodexExecRealReadOnlyAdapterAttemptRecordSchema.parse({
       id: 'codex_real_read_only_adapter_attempt_1',
       schemaVersion,
@@ -2747,6 +2752,21 @@ describe('contracts schemas', () => {
       summary: 'Authoritative blocked attempt record stores metadata only.',
       ...flagFields,
     });
+    const failedBoundaryAttemptRecord = CodexExecRealReadOnlyAdapterAttemptRecordSchema.parse({
+      ...attemptRecord,
+      id: 'codex_real_read_only_adapter_attempt_failed_boundary',
+      status: 'failed',
+      resultStatus: 'failed',
+      resultErrorCode: 'boundary_failed',
+      processBoundaryInvoked: true,
+      processBoundaryModuleRef: 'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+      boundaryDiagnostics,
+      postRunVerificationStatus: 'skipped',
+      postRunVerificationSkipReason: postRunSkipReason,
+      outputHashCount: 2,
+      metadataHash: 'sha256:failed-boundary-attempt',
+      summary: 'Failed boundary attempt record keeps diagnostics metadata only.',
+    });
     const attemptSummary = CodexExecRealReadOnlyAdapterAttemptSummarySchema.parse({
       id: 'codex_real_read_only_adapter_attempt_summary_1',
       schemaVersion,
@@ -2767,6 +2787,7 @@ describe('contracts schemas', () => {
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
       boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
       postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
+      postRunVerificationSkipReason: attemptRecord.postRunVerificationSkipReason,
       workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
       evidenceRefCount: 1,
       auditEventCount: 1,
@@ -2800,6 +2821,7 @@ describe('contracts schemas', () => {
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
       boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
       postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
+      postRunVerificationSkipReason: attemptRecord.postRunVerificationSkipReason,
       workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
       evidenceRefIds: ['evidence_1'],
       auditEventIds: ['audit_1'],
@@ -2858,6 +2880,16 @@ describe('contracts schemas', () => {
     expect(attemptRecord.boundaryDiagnostics?.stdoutHash).toBe('sha256:stdout');
     expect(attemptRecord.boundaryDiagnostics?.stderrHash).toBe('sha256:stderr');
     expect(attemptRecord.postRunVerificationStatus).toBe('not_required');
+    expect(failedBoundaryAttemptRecord.processBoundaryInvoked).toBe(true);
+    expect(failedBoundaryAttemptRecord.postRunVerificationStatus).toBe('skipped');
+    expect(failedBoundaryAttemptRecord.postRunVerificationSkipReason).toBe(
+      'attempt_not_completed',
+    );
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.failureCode).toBe(
+      'process_exit_nonzero',
+    );
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stdoutByteLength).toBe(12);
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stderrByteLength).toBe(14);
     expect(attemptRecord.workspaceMutationDetected).toBe(false);
     expect(attemptRecord.promptBodyStored).toBe(false);
     expect(attemptRecord.commandBodyStored).toBe(false);
@@ -2868,6 +2900,10 @@ describe('contracts schemas', () => {
     expect(JSON.stringify(approvalAuthority)).not.toContain('raw stdout body');
     expect(JSON.stringify(approvalAuthority)).not.toContain('"argv"');
     expect(JSON.stringify(approvalAuthority)).not.toContain('"executablePath":');
+    expect(JSON.stringify(failedBoundaryAttemptRecord)).not.toContain('raw stdout body');
+    expect(JSON.stringify(failedBoundaryAttemptRecord)).not.toContain('raw stderr body');
+    expect(JSON.stringify(failedBoundaryAttemptRecord)).not.toContain('"argv"');
+    expect(JSON.stringify(failedBoundaryAttemptRecord)).not.toContain('"executablePath":');
     expect(attemptRecord.degraded).toBe(false);
     expect(attemptRecord.notPersisted).toBe(false);
     expect(attemptSummary.attemptId).toBe(attemptRecord.id);
