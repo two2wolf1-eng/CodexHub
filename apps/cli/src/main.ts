@@ -37,6 +37,7 @@ import {
   createDefaultRealReadOnlyAdapterConfig,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
+  hashRealReadOnlyAdapterRuntimeWorktreePath,
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterAttempt,
@@ -335,6 +336,7 @@ export interface CodexExecRealReadOnlyAdapterPolicySourceListCliOptions
 export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions
   extends CodexExecJsonCliOptions {
   approval?: string;
+  worktree?: string;
   worktreeLabel?: string;
   worktreeStatus?: string;
   worktreePathHash?: string;
@@ -350,6 +352,7 @@ export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions
 export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions
   extends CodexExecJsonCliOptions {
   approval?: string;
+  worktree?: string;
   worktreeLabel?: string;
   worktreeStatus?: string;
   worktreePathHash?: string;
@@ -1203,6 +1206,7 @@ export function buildProgram(): Command {
         '',
         'Source-preparation rules:',
         '  - records persisted Supervisor-backed metadata only',
+        '  - --worktree is used only to derive a sanitized hash; raw paths are not sent',
         '  - degraded or notPersisted fallback output is display-only and never prepared',
         '  - this command does not invoke adapter attempts or run pilots',
       ].join('\n'),
@@ -1212,6 +1216,7 @@ export function buildProgram(): Command {
     .command('prepare')
     .argument('<dryRunId>')
     .option('--approval <approvalArtifactId>', 'Existing approval artifact id to verify')
+    .option('--worktree <path>', 'Runtime worktree path used only to derive the sanitized hash')
     .option('--worktree-label <label>', 'Isolated worktree label, not a local path')
     .option('--worktree-status <status>', 'Worktree metadata status: clean, dirty, missing, or unknown')
     .option('--worktree-path-hash <hash>', 'Hash for the isolated worktree path')
@@ -1267,6 +1272,7 @@ export function buildProgram(): Command {
         '',
         'Readiness rules:',
         '  - readiness requires persisted Supervisor-backed evidence',
+        '  - --worktree is used only to derive a sanitized hash; raw paths are not sent',
         '  - degraded or notPersisted fallback output is display-only and never ready',
         '  - this command does not create approvals, enable config, invoke attempts, or run pilots',
       ].join('\n'),
@@ -1276,6 +1282,7 @@ export function buildProgram(): Command {
     .command('check')
     .argument('<dryRunId>')
     .option('--approval <approvalArtifactId>', 'Existing approval artifact id to verify')
+    .option('--worktree <path>', 'Runtime worktree path used only to derive the sanitized hash')
     .option('--worktree-label <label>', 'Isolated worktree label, not a local path')
     .option('--worktree-status <status>', 'Worktree metadata status: clean, dirty, missing, or unknown')
     .option('--worktree-path-hash <hash>', 'Hash for the isolated worktree path')
@@ -3480,10 +3487,24 @@ export async function getLatestRealReadOnlyAdapterPolicySourceCommand(
   }
 }
 
+function resolveRealReadOnlyAdapterWorktreePathHash(
+  options:
+    | CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions
+    | CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions,
+): string | undefined {
+  if (options.worktree) {
+    return hashRealReadOnlyAdapterRuntimeWorktreePath(options.worktree);
+  }
+
+  return options.worktreePathHash;
+}
+
 export async function prepareRealReadOnlyAdapterPilotSourceCommand(
   dryRunId: string,
   options: CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions = {},
 ): Promise<Record<string, unknown>> {
+  const worktreePathHash = resolveRealReadOnlyAdapterWorktreePathHash(options);
+
   try {
     const response = await fetch(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources`,
@@ -3495,7 +3516,7 @@ export async function prepareRealReadOnlyAdapterPilotSourceCommand(
           approvalArtifactId: options.approval,
           worktreeLabel: options.worktreeLabel,
           worktreeStatus: options.worktreeStatus,
-          worktreePathHash: options.worktreePathHash,
+          worktreePathHash,
         }),
       },
     );
@@ -3585,6 +3606,8 @@ export async function checkRealReadOnlyAdapterPilotPrerequisitesCommand(
   dryRunId: string,
   options: CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions = {},
 ): Promise<Record<string, unknown>> {
+  const worktreePathHash = resolveRealReadOnlyAdapterWorktreePathHash(options);
+
   try {
     const response = await fetch(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisites`,
@@ -3596,7 +3619,7 @@ export async function checkRealReadOnlyAdapterPilotPrerequisitesCommand(
           approvalArtifactId: options.approval,
           worktreeLabel: options.worktreeLabel,
           worktreeStatus: options.worktreeStatus,
-          worktreePathHash: options.worktreePathHash,
+          worktreePathHash,
           handoffContextComplete: options.handoffContextComplete === true,
         }),
       },

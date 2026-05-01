@@ -554,6 +554,94 @@ describe('cli development mock-run fallback', () => {
     }
   });
 
+  it('derives source-prep worktree hashes from runtime input without sending raw paths', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const rawWorktreePath = 'C:/safe/isolated-source-worktree-runtime';
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          status: String(url).includes('pilot-prerequisites')
+            ? 'ready_for_pilot_retry'
+            : 'prepared',
+          authoritative: true,
+          supervisorBacked: true,
+          persisted: true,
+          degraded: false,
+          notPersisted: false,
+          fallbackUsedAsAuthority: false,
+          pilotExecuted: false,
+          adapterAttemptInvoked: false,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          workspaceWriteAllowed: false,
+          dangerFullAccessAllowed: false,
+          dashboardTriggerAllowed: false,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    try {
+      const {
+        checkRealReadOnlyAdapterPilotPrerequisitesCommand,
+        prepareRealReadOnlyAdapterPilotSourceCommand,
+      } = await import('./main');
+      const { hashRealReadOnlyAdapterRuntimeWorktreePath } = await import(
+        '@codexhub/codex-kernel'
+      );
+      const expectedHash = hashRealReadOnlyAdapterRuntimeWorktreePath(rawWorktreePath);
+
+      const sourceResult = await prepareRealReadOnlyAdapterPilotSourceCommand(
+        'codex_dry_run_fixture',
+        {
+          approval: 'codex_approval_fixture',
+          worktree: rawWorktreePath,
+          worktreeLabel: 'isolated-fixture',
+          worktreeStatus: 'clean',
+          worktreePathHash: 'sha256:manual-stale-hash',
+        },
+      );
+      const prerequisiteResult = await checkRealReadOnlyAdapterPilotPrerequisitesCommand(
+        'codex_dry_run_fixture',
+        {
+          approval: 'codex_approval_fixture',
+          worktree: rawWorktreePath,
+          worktreeLabel: 'isolated-fixture',
+          worktreeStatus: 'clean',
+          worktreePathHash: 'sha256:manual-stale-hash',
+          handoffContextComplete: true,
+        },
+      );
+      const sourceBody = JSON.parse(String(fetchCalls[0]?.init?.body));
+      const prerequisiteBody = JSON.parse(String(fetchCalls[1]?.init?.body));
+
+      expect(sourceBody).toMatchObject({
+        dryRunId: 'codex_dry_run_fixture',
+        approvalArtifactId: 'codex_approval_fixture',
+        worktreeLabel: 'isolated-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: expectedHash,
+      });
+      expect(prerequisiteBody).toMatchObject({
+        dryRunId: 'codex_dry_run_fixture',
+        approvalArtifactId: 'codex_approval_fixture',
+        worktreeLabel: 'isolated-fixture',
+        worktreeStatus: 'clean',
+        worktreePathHash: expectedHash,
+        handoffContextComplete: true,
+      });
+      expect(sourceBody).not.toHaveProperty('worktreePath');
+      expect(prerequisiteBody).not.toHaveProperty('worktreePath');
+      expect(
+        JSON.stringify({ sourceBody, prerequisiteBody, sourceResult, prerequisiteResult }),
+      ).not.toContain(rawWorktreePath);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('uses degraded read-only attempt query fallbacks without creating authoritative records', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {

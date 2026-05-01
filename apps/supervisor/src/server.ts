@@ -67,6 +67,7 @@ import {
   createPolicyDecisionFromRealReadOnlyAdapterPolicySource,
   createRealReadOnlyAdapterPolicySourceAuditEvents,
   createRealReadOnlyAdapterPolicySourceEvidenceRefs,
+  hashRealReadOnlyAdapterRuntimeWorktreePath,
   listRealReadOnlyAdapterPilotSourcePreparationSummaries,
   listRealReadOnlyAdapterPolicySourceSummaries,
   summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
@@ -2665,7 +2666,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       latestSourcePreparation?.worktreePathHash ?? latestPrerequisite?.worktreePathHash;
     const runtimeWorktreePathHash =
       body.worktreePath && body.worktreePath.trim().length > 0
-        ? hashRuntimeWorktreePath(body.worktreePath)
+        ? hashRealReadOnlyAdapterRuntimeWorktreePath(body.worktreePath)
         : undefined;
     const worktreePathHashMatched =
       expectedWorktreePathHash !== undefined && runtimeWorktreePathHash === expectedWorktreePathHash;
@@ -5484,11 +5485,6 @@ function isPilotPrerequisiteWorktreeStatus(
 
 function hashLocalMetadata(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
-
-function hashRuntimeWorktreePath(worktreePath: string): string {
-  const normalizedAbsolutePath = resolve(worktreePath).replace(/\\/g, '/');
-  return `sha256:${createHash('sha256').update(normalizedAbsolutePath).digest('hex')}`;
 }
 
 function approvalActionForOutcome(

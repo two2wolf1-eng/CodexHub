@@ -1,9 +1,11 @@
-import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDefaultCodexExecConfigLoadResult } from '@codexhub/codex-kernel';
+import {
+  createDefaultCodexExecConfigLoadResult,
+  hashRealReadOnlyAdapterRuntimeWorktreePath,
+} from '@codexhub/codex-kernel';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
 
@@ -12,7 +14,7 @@ const symlinkEscapeFixturePath =
 const symlinkEscapeAbsolutePath = join(process.cwd(), ...symlinkEscapeFixturePath.split('/'));
 
 function hashTestWorktreePath(worktreePath: string): string {
-  return `sha256:${createHash('sha256').update(resolve(worktreePath).replace(/\\/g, '/')).digest('hex')}`;
+  return hashRealReadOnlyAdapterRuntimeWorktreePath(worktreePath);
 }
 
 afterEach(() => {

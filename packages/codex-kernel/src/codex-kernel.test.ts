@@ -81,6 +81,7 @@ import {
   createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
+  hashRealReadOnlyAdapterRuntimeWorktreePath,
   runRealReadOnlyAdapterPostRunVerification,
   runRealReadOnlyAdapterProcessBoundary,
   createCodexExecTimelineDetailView,
@@ -2005,6 +2006,15 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(JSON.stringify({ missingApproval, hashMismatch, dirtyWorktree })).not.toContain(
       '"argv":',
     );
+  });
+
+  it('derives stable metadata-only worktree path hashes for source alignment', () => {
+    const hash = hashRealReadOnlyAdapterRuntimeWorktreePath('pilot-worktree');
+    const equivalentHash = hashRealReadOnlyAdapterRuntimeWorktreePath('./pilot-worktree');
+
+    expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(equivalentHash).toBe(hash);
+    expect(hash).not.toContain('pilot-worktree');
   });
 
   it('blocks forbidden real read-only adapter modes and dashboard trigger', () => {

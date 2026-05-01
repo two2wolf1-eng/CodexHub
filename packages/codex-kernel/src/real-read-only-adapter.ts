@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type {
   AuditEvent,
   CodexExecApprovalArtifact,
@@ -72,6 +73,11 @@ export interface CodexExecRealReadOnlyAdapterGuardInput {
   auditStoreReady?: boolean;
   now?: string;
   metadata?: JsonMetadata;
+}
+
+export function hashRealReadOnlyAdapterRuntimeWorktreePath(worktreePath: string): string {
+  const normalizedAbsolutePath = resolve(worktreePath).replace(/\\/g, '/');
+  return `sha256:${hashText(normalizedAbsolutePath)}`;
 }
 
 export interface CodexExecRealReadOnlyAdapterAttemptTelemetryInput {
