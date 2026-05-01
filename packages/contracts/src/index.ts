@@ -3163,6 +3163,37 @@ export type CodexExecRealReadOnlyAdapterBoundaryDiagnostics = z.infer<
   typeof CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema = z.enum([
+  'boundaryDiagnostics',
+  'status',
+  'failureCode',
+  'exitCode',
+  'signal',
+  'timedOut',
+  'cancelled',
+  'durationMs',
+  'stdoutHash',
+  'stderrHash',
+  'stdoutByteLength',
+  'stderrByteLength',
+  'stdoutLineCount',
+  'stderrLineCount',
+  'stdoutTruncated',
+  'stderrTruncated',
+  'externalProcessStarted',
+  'postRunVerificationSkipReason',
+]);
+export type CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema
+>;
+
+const codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema = z.object({
+  boundaryDiagnosticsComplete: z.boolean().default(false),
+  boundaryDiagnosticsMissingFields: z
+    .array(CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema)
+    .default([]),
+});
+
 export const CodexExecRealReadOnlyAdapterConfigSchema = createdEntityBaseSchema
   .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
   .merge(codexExecRealReadOnlyAdapterNoRunnableBoundarySchema)
@@ -3351,6 +3382,12 @@ export const CodexExecRealReadOnlyAdapterAttemptRecordSchema = createdEntityBase
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
     boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
+    boundaryDiagnosticsComplete:
+      codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
+        .boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields:
+      codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
+        .boundaryDiagnosticsMissingFields,
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
@@ -3387,6 +3424,12 @@ export const CodexExecRealReadOnlyAdapterAttemptSummarySchema = createdEntityBas
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
     boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
+    boundaryDiagnosticsComplete:
+      codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
+        .boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields:
+      codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
+        .boundaryDiagnosticsMissingFields,
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),
@@ -3428,6 +3471,12 @@ export const CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema = createdEnt
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
     boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
+    boundaryDiagnosticsComplete:
+      codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
+        .boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields:
+      codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
+        .boundaryDiagnosticsMissingFields,
     postRunVerificationStatus: CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema.default(
       'not_required',
     ),

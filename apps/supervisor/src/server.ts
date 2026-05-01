@@ -75,6 +75,7 @@ import {
   listRealReadOnlyAdapterPilotPrerequisiteSummaries,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   summarizeRealReadOnlyAdapterAttempt,
+  alignRealReadOnlyAdapterAttemptRecordDiagnostics,
   getLatestReadOnlyAdapterSkeletonReview,
   getLatestReadOnlyAdapterFinalReadiness,
   listReadOnlyAdapterSkeletonReviewSummaries,
@@ -3044,9 +3045,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const attempts = await store.codexExecRealReadOnlyAdapterAttempts.listAttempts(
         queryResult.query,
       );
+      const alignedAttempts = attempts.map((attempt) =>
+        alignRealReadOnlyAdapterAttemptRecordDiagnostics(attempt),
+      );
       const timeline = createRealReadOnlyAdapterAttemptTimeline({
         dryRunId: params.dryRunId,
-        records: attempts,
+        records: alignedAttempts,
         query: queryResult.query,
         metadata: {
           requestedBy: 'supervisor-api',
@@ -3055,10 +3059,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
       return {
         timeline,
-        attempts,
-        attemptRecords: attempts,
-        summaries: attempts.map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt)),
-        count: attempts.length,
+        attempts: alignedAttempts,
+        attemptRecords: alignedAttempts,
+        summaries: alignedAttempts.map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt)),
+        count: alignedAttempts.length,
         authoritative: true,
         supervisorBacked: true,
         persisted: true,
@@ -5391,10 +5395,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       auditEvents?: ReturnType<typeof createRealReadOnlyAdapterAttemptAuditEvents>;
     } = {},
   ) {
+    const alignedAttemptRecord = alignRealReadOnlyAdapterAttemptRecordDiagnostics(attemptRecord);
+
     return {
-      attempt: attemptRecord,
-      attemptRecord,
-      summary: summarizeRealReadOnlyAdapterAttempt(attemptRecord),
+      attempt: alignedAttemptRecord,
+      attemptRecord: alignedAttemptRecord,
+      summary: summarizeRealReadOnlyAdapterAttempt(alignedAttemptRecord),
       request: details.request,
       preflight: details.preflight,
       result: details.result,
@@ -5413,11 +5419,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   function createRealReadOnlyAdapterAttemptListResponse(
     attempts: CodexExecRealReadOnlyAdapterAttemptRecord[],
   ) {
+    const alignedAttempts = attempts.map((attempt) =>
+      alignRealReadOnlyAdapterAttemptRecordDiagnostics(attempt),
+    );
+
     return {
-      attempts,
-      attemptRecords: attempts,
-      summaries: attempts.map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt)),
-      count: attempts.length,
+      attempts: alignedAttempts,
+      attemptRecords: alignedAttempts,
+      summaries: alignedAttempts.map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt)),
+      count: alignedAttempts.length,
       authoritative: true,
       supervisorBacked: true,
       persisted: true,

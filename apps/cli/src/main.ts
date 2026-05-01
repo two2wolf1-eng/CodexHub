@@ -6677,6 +6677,8 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         dryRunId?: string;
         status?: string;
         processBoundaryInvoked?: boolean;
+        boundaryDiagnosticsComplete?: boolean;
+        boundaryDiagnosticsMissingFields?: string[];
         postRunVerificationSkipReason?: string;
         implementationApproved?: boolean;
         processAdapterApproved?: boolean;
@@ -6726,6 +6728,12 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `failedGates=${String(preflight?.failedGateCount ?? 0)}`,
     `blockers=${String(preflight?.blockerCount ?? 0)}`,
     `processBoundaryInvoked=${String(attempt?.processBoundaryInvoked ?? false)}`,
+    `boundaryDiagnosticsComplete=${String(attempt?.boundaryDiagnosticsComplete ?? false)}`,
+    `boundaryDiagnosticsMissingFields=${String(
+      attempt?.boundaryDiagnosticsMissingFields && attempt.boundaryDiagnosticsMissingFields.length > 0
+        ? attempt.boundaryDiagnosticsMissingFields.join(',')
+        : 'none',
+    )}`,
     `boundaryFailureCode=${attempt?.boundaryDiagnostics?.failureCode ?? 'none'}`,
     `boundaryExitCode=${String(attempt?.boundaryDiagnostics?.exitCode ?? 'not-recorded')}`,
     `boundaryTimedOut=${String(attempt?.boundaryDiagnostics?.timedOut ?? false)}`,
@@ -6778,6 +6786,7 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
         dryRunId?: string;
         status?: string;
         processBoundaryInvoked?: boolean;
+        boundaryDiagnosticsComplete?: boolean;
         boundaryDiagnostics?: { failureCode?: string };
       }>)
     : (attemptRecords ?? []).map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt));
@@ -6789,7 +6798,7 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
           summary.dryRunId ?? 'unknown'
         } processBoundaryInvoked=${String(summary.processBoundaryInvoked ?? false)} boundaryFailureCode=${
           summary.boundaryDiagnostics?.failureCode ?? 'none'
-        }`,
+        } boundaryDiagnosticsComplete=${String(summary.boundaryDiagnosticsComplete ?? false)}`,
     );
 
   return [
@@ -6835,6 +6844,7 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           evidenceRefCount?: number;
           auditEventCount?: number;
           processBoundaryInvoked?: boolean;
+          boundaryDiagnosticsComplete?: boolean;
           boundaryDiagnostics?: { failureCode?: string };
         }>;
       }
@@ -6849,7 +6859,9 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           entry.auditEventCount ?? 0,
         )} processBoundaryInvoked=${String(
           entry.processBoundaryInvoked ?? false,
-        )} boundaryFailureCode=${entry.boundaryDiagnostics?.failureCode ?? 'none'}`,
+        )} boundaryFailureCode=${
+          entry.boundaryDiagnostics?.failureCode ?? 'none'
+        } boundaryDiagnosticsComplete=${String(entry.boundaryDiagnosticsComplete ?? false)}`,
     );
 
   return [

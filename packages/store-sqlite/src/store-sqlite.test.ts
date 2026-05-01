@@ -494,6 +494,8 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"executablePath":');
     expect(realReadOnlyAdapterFailedAttempts).toHaveLength(1);
     expect(realReadOnlyAdapterFailedAttemptRecord?.processBoundaryInvoked).toBe(true);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnosticsComplete).toBe(true);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnosticsMissingFields).toEqual([]);
     expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.failureCode).toBe(
       'process_exit_nonzero',
     );
@@ -1299,6 +1301,8 @@ function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapter
     resultErrorCode: 'config_disabled',
     failedCheckCodes: ['config_explicit_enable'],
     blockedCheckCodes: [],
+    boundaryDiagnosticsComplete: false,
+    boundaryDiagnosticsMissingFields: [],
     postRunVerificationStatus: 'not_required',
     workspaceMutationDetected: false,
     evidenceRefIds: ['evidence_real_read_only_adapter_attempt_1'],
@@ -1333,6 +1337,8 @@ function createRealReadOnlyAdapterFailedAttemptFixture(): CodexExecRealReadOnlyA
     resultStatus: 'failed',
     resultErrorCode: 'boundary_failed',
     failedCheckCodes: [],
+    boundaryDiagnosticsComplete: true,
+    boundaryDiagnosticsMissingFields: [],
     boundaryDiagnostics: {
       id: 'codex_real_read_only_adapter_boundary_diagnostics_1',
       schemaVersion: SchemaVersionSchema.value,

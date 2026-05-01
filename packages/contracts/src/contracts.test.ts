@@ -2741,6 +2741,8 @@ describe('contracts schemas', () => {
       failedCheckCodes: [],
       blockedCheckCodes: [],
       boundaryDiagnostics,
+      boundaryDiagnosticsComplete: false,
+      boundaryDiagnosticsMissingFields: [],
       postRunVerificationStatus: 'not_required',
       workspaceMutationDetected: false,
       evidenceSummary,
@@ -2761,6 +2763,8 @@ describe('contracts schemas', () => {
       processBoundaryInvoked: true,
       processBoundaryModuleRef: 'packages/codex-kernel/src/real-read-only-adapter-process.ts',
       boundaryDiagnostics,
+      boundaryDiagnosticsComplete: true,
+      boundaryDiagnosticsMissingFields: [],
       postRunVerificationStatus: 'skipped',
       postRunVerificationSkipReason: postRunSkipReason,
       outputHashCount: 2,
@@ -2786,6 +2790,8 @@ describe('contracts schemas', () => {
       failedCheckCodes: attemptRecord.failedCheckCodes,
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
       boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
+      boundaryDiagnosticsComplete: attemptRecord.boundaryDiagnosticsComplete,
+      boundaryDiagnosticsMissingFields: attemptRecord.boundaryDiagnosticsMissingFields,
       postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
       postRunVerificationSkipReason: attemptRecord.postRunVerificationSkipReason,
       workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
@@ -2820,6 +2826,8 @@ describe('contracts schemas', () => {
       failedCheckCodes: attemptRecord.failedCheckCodes,
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
       boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
+      boundaryDiagnosticsComplete: attemptRecord.boundaryDiagnosticsComplete,
+      boundaryDiagnosticsMissingFields: attemptRecord.boundaryDiagnosticsMissingFields,
       postRunVerificationStatus: attemptRecord.postRunVerificationStatus,
       postRunVerificationSkipReason: attemptRecord.postRunVerificationSkipReason,
       workspaceMutationDetected: attemptRecord.workspaceMutationDetected,
@@ -2890,6 +2898,8 @@ describe('contracts schemas', () => {
     );
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stdoutByteLength).toBe(12);
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stderrByteLength).toBe(14);
+    expect(failedBoundaryAttemptRecord.boundaryDiagnosticsComplete).toBe(true);
+    expect(failedBoundaryAttemptRecord.boundaryDiagnosticsMissingFields).toEqual([]);
     expect(attemptRecord.workspaceMutationDetected).toBe(false);
     expect(attemptRecord.promptBodyStored).toBe(false);
     expect(attemptRecord.commandBodyStored).toBe(false);
@@ -2907,8 +2917,12 @@ describe('contracts schemas', () => {
     expect(attemptRecord.degraded).toBe(false);
     expect(attemptRecord.notPersisted).toBe(false);
     expect(attemptSummary.attemptId).toBe(attemptRecord.id);
+    expect(attemptSummary.boundaryDiagnosticsComplete).toBe(false);
+    expect(attemptSummary.boundaryDiagnosticsMissingFields).toEqual([]);
     expect(attemptQuery.status).toBe('blocked');
     expect(attemptTimelineEntry.attemptId).toBe(attemptRecord.id);
+    expect(attemptTimelineEntry.boundaryDiagnosticsComplete).toBe(false);
+    expect(attemptTimelineEntry.boundaryDiagnosticsMissingFields).toEqual([]);
     expect(attemptTimelineSummary.eventCount).toBe(1);
     expect(attemptTimelineSummary.implementationApproved).toBe(false);
     expect(attemptTimelineSummary.processAdapterApproved).toBe(false);

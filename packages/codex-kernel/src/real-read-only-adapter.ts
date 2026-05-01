@@ -12,6 +12,7 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
   CodexExecRealReadOnlyAdapterBoundaryDiagnostics,
   CodexExecRealReadOnlyAdapterBoundaryFailureCode,
+  CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField,
   CodexExecRealReadOnlyAdapterBoundaryPlan,
   CodexExecRealReadOnlyAdapterConfig,
   CodexExecRealReadOnlyAdapterError,
@@ -711,6 +712,101 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
   };
 }
 
+const requiredBoundaryDiagnosticFields = [
+  'status',
+  'failureCode',
+  'timedOut',
+  'cancelled',
+  'durationMs',
+  'stdoutHash',
+  'stderrHash',
+  'stdoutByteLength',
+  'stderrByteLength',
+  'stdoutLineCount',
+  'stderrLineCount',
+  'stdoutTruncated',
+  'stderrTruncated',
+  'externalProcessStarted',
+] as const satisfies ReadonlyArray<CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField>;
+
+function uniqueBoundaryDiagnosticMissingFields(
+  fields: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField[],
+): CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField[] {
+  return Array.from(new Set(fields));
+}
+
+function hasBoundaryDiagnosticField(
+  diagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnostics,
+  field: (typeof requiredBoundaryDiagnosticFields)[number],
+): boolean {
+  return diagnostics[field] !== undefined && diagnostics[field] !== null;
+}
+
+export function getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(
+  record: Pick<
+    CodexExecRealReadOnlyAdapterAttemptRecord,
+    | 'processBoundaryInvoked'
+    | 'boundaryDiagnostics'
+    | 'postRunVerificationStatus'
+    | 'postRunVerificationSkipReason'
+  >,
+): CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField[] {
+  if (!record.processBoundaryInvoked) {
+    return [];
+  }
+
+  const missingFields: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField[] = [];
+
+  if (!record.boundaryDiagnostics) {
+    missingFields.push('boundaryDiagnostics');
+    missingFields.push(...requiredBoundaryDiagnosticFields);
+    missingFields.push('exitCode', 'signal');
+  } else {
+    for (const field of requiredBoundaryDiagnosticFields) {
+      if (!hasBoundaryDiagnosticField(record.boundaryDiagnostics, field)) {
+        missingFields.push(field);
+      }
+    }
+
+    if (
+      record.boundaryDiagnostics.failureCode === 'process_exit_nonzero' &&
+      record.boundaryDiagnostics.exitCode === undefined
+    ) {
+      missingFields.push('exitCode');
+    }
+
+    if (
+      record.boundaryDiagnostics.failureCode === 'process_signaled' &&
+      record.boundaryDiagnostics.signal === undefined
+    ) {
+      missingFields.push('signal');
+    }
+  }
+
+  if (
+    record.postRunVerificationStatus === 'skipped' &&
+    record.postRunVerificationSkipReason === undefined
+  ) {
+    missingFields.push('postRunVerificationSkipReason');
+  }
+
+  return uniqueBoundaryDiagnosticMissingFields(missingFields);
+}
+
+export function alignRealReadOnlyAdapterAttemptRecordDiagnostics(
+  record: CodexExecRealReadOnlyAdapterAttemptRecord,
+): CodexExecRealReadOnlyAdapterAttemptRecord {
+  const boundaryDiagnosticsMissingFields =
+    getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(record);
+
+  return {
+    ...record,
+    boundaryDiagnosticsComplete:
+      record.processBoundaryInvoked && boundaryDiagnosticsMissingFields.length === 0,
+    boundaryDiagnosticsMissingFields,
+  };
+}
+
 export function createDisabledRealReadOnlyAdapter(): CodexExecRealReadOnlyAdapter {
   return {
     attempt: async (input) => createDisabledRealReadOnlyAdapterResult(input),
@@ -989,6 +1085,14 @@ export function createRealReadOnlyAdapterAttemptRecord(
   const boundaryDiagnostics = input.boundaryResult
     ? createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult)
     : undefined;
+  const boundaryDiagnosticsMissingFields = getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields({
+    processBoundaryInvoked: input.boundaryResult !== undefined,
+    boundaryDiagnostics,
+    postRunVerificationStatus,
+    postRunVerificationSkipReason,
+  });
+  const boundaryDiagnosticsComplete =
+    input.boundaryResult !== undefined && boundaryDiagnosticsMissingFields.length === 0;
   const metadataHash = prefixedAdapterHash({
     requestId: input.request.id,
     preflightId: input.preflight.id,
@@ -1019,6 +1123,8 @@ export function createRealReadOnlyAdapterAttemptRecord(
     boundaryStderrLineCount: boundaryDiagnostics?.stderrLineCount,
     boundaryStdoutTruncated: boundaryDiagnostics?.stdoutTruncated,
     boundaryStderrTruncated: boundaryDiagnostics?.stderrTruncated,
+    boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields,
     postRunVerificationSkipReason,
   });
 
@@ -1048,6 +1154,8 @@ export function createRealReadOnlyAdapterAttemptRecord(
     failedCheckCodes,
     blockedCheckCodes,
     boundaryDiagnostics,
+    boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields,
     postRunVerificationStatus,
     postRunVerificationSkipReason,
     workspaceMutationDetected,
@@ -1086,6 +1194,8 @@ export function createRealReadOnlyAdapterAttemptRecord(
         boundaryStderrLineCount: boundaryDiagnostics?.stderrLineCount,
         boundaryStdoutTruncated: boundaryDiagnostics?.stdoutTruncated,
         boundaryStderrTruncated: boundaryDiagnostics?.stderrTruncated,
+        boundaryDiagnosticsComplete,
+        boundaryDiagnosticsMissingFields,
         postRunVerificationStatus,
         postRunVerificationSkipReason,
         workspaceMutationDetected,
@@ -1103,45 +1213,51 @@ export function createRealReadOnlyAdapterAttemptRecord(
 export function summarizeRealReadOnlyAdapterAttempt(
   record: CodexExecRealReadOnlyAdapterAttemptRecord,
 ): CodexExecRealReadOnlyAdapterAttemptSummary {
+  const alignedRecord = alignRealReadOnlyAdapterAttemptRecordDiagnostics(record);
+
   return {
     id: foundationId('codex_real_read_only_adapter_attempt_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
     ...realReadOnlyAdapterMetadataOnlyFlags,
-    attemptId: record.id,
-    dryRunId: record.dryRunId,
-    status: record.status,
-    authoritative: record.authoritative,
-    supervisorBacked: record.supervisorBacked,
-    persisted: record.persisted,
-    degraded: record.degraded,
-    notPersisted: record.notPersisted,
-    processBoundaryInvoked: record.processBoundaryInvoked,
-    preflightStatus: record.preflightStatus,
-    resultStatus: record.resultStatus,
-    resultErrorCode: record.resultErrorCode,
-    failedCheckCodes: record.failedCheckCodes,
-    blockedCheckCodes: record.blockedCheckCodes,
-    boundaryDiagnostics: record.boundaryDiagnostics,
-    postRunVerificationStatus: record.postRunVerificationStatus,
-    postRunVerificationSkipReason: record.postRunVerificationSkipReason,
-    workspaceMutationDetected: record.workspaceMutationDetected,
-    evidenceRefCount: record.evidenceRefIds.length,
-    auditEventCount: record.auditEventIds.length,
-    outputHashCount: record.outputHashCount,
-    metadataHash: record.metadataHash,
-    summary: record.summary,
+    attemptId: alignedRecord.id,
+    dryRunId: alignedRecord.dryRunId,
+    status: alignedRecord.status,
+    authoritative: alignedRecord.authoritative,
+    supervisorBacked: alignedRecord.supervisorBacked,
+    persisted: alignedRecord.persisted,
+    degraded: alignedRecord.degraded,
+    notPersisted: alignedRecord.notPersisted,
+    processBoundaryInvoked: alignedRecord.processBoundaryInvoked,
+    preflightStatus: alignedRecord.preflightStatus,
+    resultStatus: alignedRecord.resultStatus,
+    resultErrorCode: alignedRecord.resultErrorCode,
+    failedCheckCodes: alignedRecord.failedCheckCodes,
+    blockedCheckCodes: alignedRecord.blockedCheckCodes,
+    boundaryDiagnostics: alignedRecord.boundaryDiagnostics,
+    boundaryDiagnosticsComplete: alignedRecord.boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields: alignedRecord.boundaryDiagnosticsMissingFields,
+    postRunVerificationStatus: alignedRecord.postRunVerificationStatus,
+    postRunVerificationSkipReason: alignedRecord.postRunVerificationSkipReason,
+    workspaceMutationDetected: alignedRecord.workspaceMutationDetected,
+    evidenceRefCount: alignedRecord.evidenceRefIds.length,
+    auditEventCount: alignedRecord.auditEventIds.length,
+    outputHashCount: alignedRecord.outputHashCount,
+    metadataHash: alignedRecord.metadataHash,
+    summary: alignedRecord.summary,
     metadata: createRealReadOnlyAdapterMetadata({
-      attemptId: record.id,
-      dryRunId: record.dryRunId,
-      status: record.status,
-      preflightStatus: record.preflightStatus,
-      resultStatus: record.resultStatus,
-      resultErrorCode: record.resultErrorCode,
-      boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
-      postRunVerificationStatus: record.postRunVerificationStatus,
-      postRunVerificationSkipReason: record.postRunVerificationSkipReason,
-      workspaceMutationDetected: record.workspaceMutationDetected,
+      attemptId: alignedRecord.id,
+      dryRunId: alignedRecord.dryRunId,
+      status: alignedRecord.status,
+      preflightStatus: alignedRecord.preflightStatus,
+      resultStatus: alignedRecord.resultStatus,
+      resultErrorCode: alignedRecord.resultErrorCode,
+      boundaryFailureCode: alignedRecord.boundaryDiagnostics?.failureCode,
+      boundaryDiagnosticsComplete: alignedRecord.boundaryDiagnosticsComplete,
+      boundaryDiagnosticsMissingFields: alignedRecord.boundaryDiagnosticsMissingFields,
+      postRunVerificationStatus: alignedRecord.postRunVerificationStatus,
+      postRunVerificationSkipReason: alignedRecord.postRunVerificationSkipReason,
+      workspaceMutationDetected: alignedRecord.workspaceMutationDetected,
       source: 'codex-kernel.real-read-only-adapter.attempt-summary',
     }),
   };
@@ -1178,7 +1294,8 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     .filter((record) => record.dryRunId === input.dryRunId)
     .filter((record) => (query.status === undefined ? true : record.status === query.status))
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, limit);
+    .slice(0, limit)
+    .map((record) => alignRealReadOnlyAdapterAttemptRecordDiagnostics(record));
   const entries = records.map((record) => ({
     id: foundationId('codex_real_read_only_adapter_attempt_timeline_entry'),
     schemaVersion: SchemaVersionSchema.value,
@@ -1195,6 +1312,8 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     failedCheckCodes: record.failedCheckCodes,
     blockedCheckCodes: record.blockedCheckCodes,
     boundaryDiagnostics: record.boundaryDiagnostics,
+    boundaryDiagnosticsComplete: record.boundaryDiagnosticsComplete,
+    boundaryDiagnosticsMissingFields: record.boundaryDiagnosticsMissingFields,
     postRunVerificationStatus: record.postRunVerificationStatus,
     postRunVerificationSkipReason: record.postRunVerificationSkipReason,
     workspaceMutationDetected: record.workspaceMutationDetected,
@@ -1214,6 +1333,8 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       resultStatus: record.resultStatus,
       resultErrorCode: record.resultErrorCode,
       boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
+      boundaryDiagnosticsComplete: record.boundaryDiagnosticsComplete,
+      boundaryDiagnosticsMissingFields: record.boundaryDiagnosticsMissingFields,
       postRunVerificationStatus: record.postRunVerificationStatus,
       postRunVerificationSkipReason: record.postRunVerificationSkipReason,
       workspaceMutationDetected: record.workspaceMutationDetected,

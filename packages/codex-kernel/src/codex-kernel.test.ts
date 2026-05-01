@@ -2748,6 +2748,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(failedRecord.boundaryDiagnostics?.durationMs).toBeGreaterThanOrEqual(0);
     expect(failedRecord.boundaryDiagnostics?.timedOut).toBe(false);
     expect(failedRecord.boundaryDiagnostics?.cancelled).toBe(false);
+    expect(failedRecord.boundaryDiagnosticsComplete).toBe(true);
+    expect(failedRecord.boundaryDiagnosticsMissingFields).toEqual([]);
     expect(failedRecord.postRunVerificationStatus).toBe('skipped');
     expect(failedRecord.postRunVerificationSkipReason).toBe('attempt_not_completed');
     expect(abortedRecord.resultErrorCode).toBe('boundary_aborted');
@@ -2779,8 +2781,50 @@ describe('codex-kernel live control-plane skeleton', () => {
     ).toBe('process_exit_nonzero');
     expect(
       timeline.entries.find((entry) => entry.status === 'failed')
+        ?.boundaryDiagnosticsComplete,
+    ).toBe(true);
+    expect(
+      timeline.entries.find((entry) => entry.status === 'failed')
+        ?.boundaryDiagnosticsMissingFields,
+    ).toEqual([]);
+    expect(
+      timeline.entries.find((entry) => entry.status === 'failed')
         ?.postRunVerificationSkipReason,
     ).toBe('attempt_not_completed');
+    const {
+      boundaryDiagnostics: _legacyBoundaryDiagnostics,
+      postRunVerificationSkipReason: _legacyPostRunVerificationSkipReason,
+      ...legacyFailedRecordBase
+    } = failedRecord;
+    const legacyFailedRecord = {
+      ...legacyFailedRecordBase,
+      id: 'codex_real_read_only_adapter_attempt_legacy_failed',
+      boundaryDiagnosticsComplete: false,
+      boundaryDiagnosticsMissingFields: [],
+    };
+    const legacyFailedSummary = summarizeRealReadOnlyAdapterAttempt(legacyFailedRecord);
+    const legacyFailedTimeline = createRealReadOnlyAdapterAttemptTimeline({
+      dryRunId: dryRunPlan.id,
+      records: [legacyFailedRecord],
+      query: {
+        dryRunId: dryRunPlan.id,
+        includeEvidence: true,
+        includeAudit: true,
+        limit: 1,
+      },
+    });
+
+    expect(legacyFailedSummary.boundaryDiagnosticsComplete).toBe(false);
+    expect(legacyFailedSummary.boundaryDiagnosticsMissingFields).toContain(
+      'boundaryDiagnostics',
+    );
+    expect(legacyFailedSummary.boundaryDiagnosticsMissingFields).toContain(
+      'postRunVerificationSkipReason',
+    );
+    expect(legacyFailedTimeline.entries[0]?.boundaryDiagnosticsComplete).toBe(false);
+    expect(legacyFailedTimeline.entries[0]?.boundaryDiagnosticsMissingFields).toContain(
+      'boundaryDiagnostics',
+    );
     expect(timeline.implementationApproved).toBe(false);
     expect(timeline.processAdapterApproved).toBe(false);
     expect(timeline.recommendationGrantsExecution).toBe(false);

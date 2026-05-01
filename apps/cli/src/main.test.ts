@@ -669,6 +669,8 @@ describe('cli development mock-run fallback', () => {
         dryRunId: 'codex_dry_run_fixture',
         status: 'failed',
         processBoundaryInvoked: true,
+        boundaryDiagnosticsComplete: true,
+        boundaryDiagnosticsMissingFields: [],
         postRunVerificationSkipReason: 'attempt_not_completed',
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
@@ -761,6 +763,8 @@ describe('cli development mock-run fallback', () => {
     expect(timelineOutput).toContain('metadata-only');
     expect(timelineOutput).not.toContain('execution approval');
     expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
+    expect(diagnosticOutput).toContain('boundaryDiagnosticsComplete=true');
+    expect(diagnosticOutput).toContain('boundaryDiagnosticsMissingFields=none');
     expect(diagnosticOutput).toContain('boundaryExitCode=2');
     expect(diagnosticOutput).toContain('boundaryStdoutHash=sha256:safe-stdout-hash');
     expect(diagnosticOutput).toContain('boundarySignal=SIGTERM');

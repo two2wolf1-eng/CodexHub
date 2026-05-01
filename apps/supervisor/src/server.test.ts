@@ -2312,6 +2312,8 @@ describe('supervisor mock development API', () => {
           stdoutByteLength: expect.any(Number),
           stderrByteLength: expect.any(Number),
         },
+        boundaryDiagnosticsComplete: true,
+        boundaryDiagnosticsMissingFields: [],
         postRunVerificationStatus: 'skipped',
         postRunVerificationSkipReason: 'attempt_not_completed',
         workspaceMutationDetected: false,
@@ -2323,6 +2325,8 @@ describe('supervisor mock development API', () => {
         dashboardTriggerAllowed: false,
       },
       summary: {
+        boundaryDiagnosticsComplete: true,
+        boundaryDiagnosticsMissingFields: [],
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
@@ -2357,10 +2361,14 @@ describe('supervisor mock development API', () => {
           stdoutTruncated: false,
           stderrTruncated: false,
         },
+        boundaryDiagnosticsComplete: true,
+        boundaryDiagnosticsMissingFields: [],
         postRunVerificationStatus: 'skipped',
         postRunVerificationSkipReason: 'attempt_not_completed',
       },
       summary: {
+        boundaryDiagnosticsComplete: true,
+        boundaryDiagnosticsMissingFields: [],
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
@@ -2374,9 +2382,14 @@ describe('supervisor mock development API', () => {
     expect(failedAttemptLatestResponse.json().attemptRecord.boundaryDiagnostics.failureCode).toBe(
       'process_exit_nonzero',
     );
+    expect(failedAttemptLatestResponse.json().attemptRecord.boundaryDiagnosticsComplete).toBe(
+      true,
+    );
     expect(failedAttemptTimelineResponse.json().timeline.entries[0]).toMatchObject({
       attemptId: failedAttemptId,
       processBoundaryInvoked: true,
+      boundaryDiagnosticsComplete: true,
+      boundaryDiagnosticsMissingFields: [],
       boundaryDiagnostics: {
         failureCode: 'process_exit_nonzero',
         exitCode: 2,
