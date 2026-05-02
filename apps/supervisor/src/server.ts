@@ -2867,6 +2867,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         requestedBy: 'supervisor-api',
         isolatedWorktreeProvided:
           body.isolatedWorktreeProvided === true || body.worktreePath !== undefined,
+        runtimeWorktreeProvided: body.worktreePath !== undefined,
+        approvalInputProvided: body.approvalArtifactId !== undefined,
         configLoadStatus: configLoadResult.status,
         configSource: configLoadResult.source,
         dryRunRecordPresent: dryRunRecord !== undefined,
@@ -2995,6 +2997,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               approvalAuthorityTraceId: approvalAuthorityTrace.id,
               approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
               approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+              runtimeWorktreeProvided: body.worktreePath !== undefined,
+              approvalInputProvided: body.approvalArtifactId !== undefined,
               executableResolutionStatus: executableResolution?.status,
               executableResolutionReasonCode:
                 executableResolution?.status === 'blocked'
@@ -3126,6 +3130,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalAuthorityTraceId: approvalAuthorityTrace.id,
         approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
         approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+        runtimeWorktreeProvided: body.worktreePath !== undefined,
+        approvalInputProvided: body.approvalArtifactId !== undefined,
         executablePolicyLabel: 'codex_cli',
         executableResolutionStatus: executableResolution?.status,
         executableResolutionReasonCode:
@@ -3198,6 +3204,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalExpiresAt: approvalAuthority.summary.expiresAt,
         approvalDryRunHashMatched: approvalAuthority.summary.dryRunHashMatched,
         approvalPolicyHashMatched: approvalAuthority.summary.policyHashMatched,
+        runtimeWorktreeProvided: body.worktreePath !== undefined,
+        approvalInputProvided: body.approvalArtifactId !== undefined,
         executablePolicyLabel: 'codex_cli',
         executableResolutionStatus: executableResolution?.status,
         executableResolutionReasonCode:

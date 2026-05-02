@@ -2520,6 +2520,15 @@ describe('supervisor mock development API', () => {
         preflightStatus: 'passed',
         resultStatus: 'not_started',
         resultErrorCode: 'boundary_deferred',
+        boundaryDeferredReasonCode: 'executable_resolution_blocked',
+        boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+        boundaryDeferredDiagnostics: {
+          reasonCode: 'executable_resolution_blocked',
+          executableResolutionStatus: 'blocked',
+          executableResolutionReasonCode: 'executable_requires_shell',
+          cwdSelfCheckStatus: 'passed',
+          processBoundaryReady: false,
+        },
         metadata: {
           executableResolutionStatus: 'blocked',
           executableResolutionReasonCode: 'executable_requires_shell',

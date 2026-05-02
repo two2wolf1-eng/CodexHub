@@ -6942,6 +6942,17 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         dryRunId?: string;
         status?: string;
         processBoundaryInvoked?: boolean;
+        boundaryDeferredReasonCode?: string;
+        boundaryDeferredReasonCodes?: string[];
+        boundaryDeferredDiagnostics?: {
+          reasonCode?: string;
+          reasonCodes?: string[];
+          executableResolutionStatus?: string;
+          executableResolutionReasonCode?: string;
+          cwdSelfCheckStatus?: string;
+          cwdSelfCheckReasonCode?: string;
+          processBoundaryReady?: boolean;
+        };
         boundaryDiagnosticsComplete?: boolean;
         boundaryDiagnosticsMissingFields?: string[];
         postRunVerificationSkipReason?: string;
@@ -7008,6 +7019,27 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `failedGates=${String(preflight?.failedGateCount ?? 0)}`,
     `blockers=${String(preflight?.blockerCount ?? 0)}`,
     `processBoundaryInvoked=${String(attempt?.processBoundaryInvoked ?? false)}`,
+    `boundaryDeferredReasonCode=${attempt?.boundaryDeferredReasonCode ?? 'none'}`,
+    `boundaryDeferredReasonCodes=${String(
+      attempt?.boundaryDeferredReasonCodes && attempt.boundaryDeferredReasonCodes.length > 0
+        ? attempt.boundaryDeferredReasonCodes.join(',')
+        : 'none',
+    )}`,
+    `boundaryDeferredExecutableResolutionStatus=${
+      attempt?.boundaryDeferredDiagnostics?.executableResolutionStatus ?? 'not_recorded'
+    }`,
+    `boundaryDeferredExecutableResolutionReasonCode=${
+      attempt?.boundaryDeferredDiagnostics?.executableResolutionReasonCode ?? 'none'
+    }`,
+    `boundaryDeferredCwdSelfCheckStatus=${
+      attempt?.boundaryDeferredDiagnostics?.cwdSelfCheckStatus ?? 'not_recorded'
+    }`,
+    `boundaryDeferredCwdSelfCheckReasonCode=${
+      attempt?.boundaryDeferredDiagnostics?.cwdSelfCheckReasonCode ?? 'none'
+    }`,
+    `boundaryDeferredProcessBoundaryReady=${String(
+      attempt?.boundaryDeferredDiagnostics?.processBoundaryReady ?? false,
+    )}`,
     `boundaryDiagnosticsComplete=${String(attempt?.boundaryDiagnosticsComplete ?? false)}`,
     `boundaryDiagnosticsMissingFields=${String(
       attempt?.boundaryDiagnosticsMissingFields && attempt.boundaryDiagnosticsMissingFields.length > 0
@@ -7097,6 +7129,8 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
         dryRunId?: string;
         status?: string;
         processBoundaryInvoked?: boolean;
+        boundaryDeferredReasonCode?: string;
+        boundaryDeferredReasonCodes?: string[];
         boundaryDiagnosticsComplete?: boolean;
         boundaryDiagnostics?: { failureCode?: string };
       }>)
@@ -7107,7 +7141,9 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
       (summary) =>
         `- ${summary.status ?? 'unknown'} ${summary.attemptId ?? summary.id ?? 'unknown'} dryRunId=${
           summary.dryRunId ?? 'unknown'
-        } processBoundaryInvoked=${String(summary.processBoundaryInvoked ?? false)} boundaryFailureCode=${
+        } processBoundaryInvoked=${String(summary.processBoundaryInvoked ?? false)} boundaryDeferredReasonCode=${
+          summary.boundaryDeferredReasonCode ?? 'none'
+        } boundaryFailureCode=${
           summary.boundaryDiagnostics?.failureCode ?? 'none'
         } boundaryDiagnosticsComplete=${String(summary.boundaryDiagnosticsComplete ?? false)}`,
     );
@@ -7155,6 +7191,8 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           evidenceRefCount?: number;
           auditEventCount?: number;
           processBoundaryInvoked?: boolean;
+          boundaryDeferredReasonCode?: string;
+          boundaryDeferredReasonCodes?: string[];
           boundaryDiagnosticsComplete?: boolean;
           boundaryDiagnostics?: { failureCode?: string };
         }>;
@@ -7170,7 +7208,7 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           entry.auditEventCount ?? 0,
         )} processBoundaryInvoked=${String(
           entry.processBoundaryInvoked ?? false,
-        )} boundaryFailureCode=${
+        )} boundaryDeferredReasonCode=${entry.boundaryDeferredReasonCode ?? 'none'} boundaryFailureCode=${
           entry.boundaryDiagnostics?.failureCode ?? 'none'
         } boundaryDiagnosticsComplete=${String(entry.boundaryDiagnosticsComplete ?? false)}`,
     );

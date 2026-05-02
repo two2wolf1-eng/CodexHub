@@ -773,6 +773,35 @@ describe('cli development mock-run fallback', () => {
       degraded: false,
       notPersisted: false,
     });
+    const deferredOutput = formatRealReadOnlyAdapterAttemptOutput({
+      attempt: {
+        id: 'codex_real_read_only_adapter_attempt_deferred',
+        dryRunId: 'codex_dry_run_fixture',
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        boundaryDeferredReasonCode: 'executable_resolution_blocked',
+        boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+        boundaryDeferredDiagnostics: {
+          reasonCode: 'executable_resolution_blocked',
+          reasonCodes: ['executable_resolution_blocked'],
+          executableResolutionStatus: 'blocked',
+          executableResolutionReasonCode: 'executable_inaccessible',
+          cwdSelfCheckStatus: 'passed',
+          processBoundaryReady: false,
+        },
+        boundaryDiagnosticsComplete: false,
+        boundaryDiagnosticsMissingFields: [],
+        implementationApproved: false,
+        processAdapterApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+      },
+      preflight: { status: 'passed', blockerCount: 0, failedGateCount: 0, checks: [] },
+      degraded: false,
+      notPersisted: false,
+    });
     const listOutput = formatRealReadOnlyAdapterAttemptListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterAttemptOutput(latest);
     const timelineOutput = formatRealReadOnlyAdapterAttemptTimelineOutput(timeline);
@@ -868,6 +897,18 @@ describe('cli development mock-run fallback', () => {
     expect(diagnosticOutput).toContain('boundaryStdoutTruncated=false');
     expect(diagnosticOutput).toContain('boundaryStderrTruncated=false');
     expect(diagnosticOutput).toContain('postRunVerificationSkipReason=attempt_not_completed');
+    expect(deferredOutput).toContain(
+      'boundaryDeferredReasonCode=executable_resolution_blocked',
+    );
+    expect(deferredOutput).toContain(
+      'boundaryDeferredReasonCodes=executable_resolution_blocked',
+    );
+    expect(deferredOutput).toContain('boundaryDeferredExecutableResolutionStatus=blocked');
+    expect(deferredOutput).toContain(
+      'boundaryDeferredExecutableResolutionReasonCode=executable_inaccessible',
+    );
+    expect(deferredOutput).toContain('boundaryDeferredCwdSelfCheckStatus=passed');
+    expect(deferredOutput).toContain('boundaryDeferredProcessBoundaryReady=false');
     expect(diagnosticOutput).not.toContain('raw stdout body');
     expect(diagnosticOutput).not.toContain('raw stderr body');
     expect(diagnosticOutput).not.toContain('"argv":');

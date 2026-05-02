@@ -10,6 +10,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptSummary,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
+  CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics,
+  CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCode,
   CodexExecRealReadOnlyAdapterBoundaryDiagnostics,
   CodexExecRealReadOnlyAdapterBoundaryFailureCode,
   CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField,
@@ -871,6 +873,100 @@ export function alignRealReadOnlyAdapterAttemptRecordDiagnostics(
   };
 }
 
+export function createRealReadOnlyAdapterBoundaryDeferredDiagnostics(input: {
+  request: CodexExecRealReadOnlyAdapterRequest;
+  preflight: CodexExecRealReadOnlyAdapterPreflight;
+  result: CodexExecRealReadOnlyAdapterResult;
+  metadata?: JsonMetadata;
+}): CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics | undefined {
+  if (input.preflight.status !== 'passed' || input.result.error?.code !== 'boundary_deferred') {
+    return undefined;
+  }
+
+  const metadata = {
+    ...(input.request.metadata ?? {}),
+    ...(input.metadata ?? {}),
+  };
+  const runtimeWorktreeProvided =
+    metadataBoolean(metadata, 'runtimeWorktreeProvided') ??
+    metadataBoolean(metadata, 'isolatedWorktreeProvided') ??
+    false;
+  const approvalInputProvided =
+    input.request.approvalArtifactId !== undefined ||
+    metadataString(metadata, 'approvalArtifactId') !== undefined ||
+    metadataBoolean(metadata, 'approvalInputProvided') === true;
+  const executableResolutionStatus = normalizeDeferredExecutableResolutionStatus(
+    metadataString(metadata, 'executableResolutionStatus'),
+  );
+  const cwdSelfCheckStatus = normalizeDeferredCwdSelfCheckStatus(
+    metadataString(metadata, 'cwdSelfCheckStatus'),
+  );
+  const executableResolutionReasonCode = metadataString(
+    metadata,
+    'executableResolutionReasonCode',
+  );
+  const cwdSelfCheckReasonCode = metadataString(metadata, 'cwdSelfCheckReasonCode');
+  const sourcePreparationReady = metadataBoolean(metadata, 'sourcePreparationReady');
+  const prerequisiteReady = metadataBoolean(metadata, 'prerequisiteReady');
+  const worktreePathHashMatched = metadataBoolean(metadata, 'worktreePathHashMatched');
+  const processBoundaryReady =
+    runtimeWorktreeProvided &&
+    approvalInputProvided &&
+    executableResolutionStatus === 'resolved' &&
+    cwdSelfCheckStatus === 'passed';
+  const reasonCodes = classifyBoundaryDeferredReasonCodes({
+    runtimeWorktreeProvided,
+    approvalInputProvided,
+    executableResolutionStatus,
+    cwdSelfCheckStatus,
+    processBoundaryReady,
+  });
+
+  return {
+    id: foundationId('codex_real_read_only_adapter_boundary_deferred_diagnostics'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    ...realReadOnlyAdapterMetadataOnlyFlags,
+    reasonCode: reasonCodes[0] ?? 'unknown',
+    reasonCodes,
+    preflightStatus: input.preflight.status,
+    runtimeWorktreeProvided,
+    approvalInputProvided,
+    executableResolutionStatus,
+    executableResolutionReasonCode,
+    cwdSelfCheckStatus,
+    cwdSelfCheckReasonCode,
+    sourcePreparationReady,
+    prerequisiteReady,
+    worktreePathHashMatched,
+    processBoundaryReady,
+    summary:
+      reasonCodes[0] === 'boundary_result_missing_after_ready'
+        ? 'Boundary was deferred even though runtime inputs and pre-boundary checks were ready.'
+        : 'Boundary was deferred before process invocation; diagnostic metadata names the blocking source.',
+    metadata: createRealReadOnlyAdapterMetadata({
+      reasonCode: reasonCodes[0] ?? 'unknown',
+      reasonCodes,
+      preflightStatus: input.preflight.status,
+      runtimeWorktreeProvided,
+      approvalInputProvided,
+      executableResolutionStatus,
+      executableResolutionReasonCode,
+      cwdSelfCheckStatus,
+      cwdSelfCheckReasonCode,
+      sourcePreparationReady,
+      prerequisiteReady,
+      worktreePathHashMatched,
+      processBoundaryReady,
+      worktreePathStored: false,
+      executablePathStored: false,
+      argvStored: false,
+      envPlanStored: false,
+      source: 'codex-kernel.real-read-only-adapter.boundary-deferred-diagnostics',
+    }),
+  };
+}
+
 export function createDisabledRealReadOnlyAdapter(): CodexExecRealReadOnlyAdapter {
   return {
     attempt: async (input) => createDisabledRealReadOnlyAdapterResult(input),
@@ -1179,6 +1275,17 @@ export function createRealReadOnlyAdapterAttemptRecord(
   const boundaryDiagnostics = input.boundaryResult
     ? createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult)
     : undefined;
+  const boundaryDeferredDiagnostics =
+    input.boundaryResult === undefined
+      ? createRealReadOnlyAdapterBoundaryDeferredDiagnostics({
+          request: input.request,
+          preflight: input.preflight,
+          result: input.result,
+          metadata: input.metadata,
+        })
+      : undefined;
+  const boundaryDeferredReasonCode = boundaryDeferredDiagnostics?.reasonCode;
+  const boundaryDeferredReasonCodes = boundaryDeferredDiagnostics?.reasonCodes ?? [];
   const boundaryDiagnosticsMissingFields = getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields({
     processBoundaryInvoked: input.boundaryResult !== undefined,
     boundaryDiagnostics,
@@ -1227,6 +1334,8 @@ export function createRealReadOnlyAdapterAttemptRecord(
     boundaryStderrLineCount: boundaryDiagnostics?.stderrLineCount,
     boundaryStdoutTruncated: boundaryDiagnostics?.stdoutTruncated,
     boundaryStderrTruncated: boundaryDiagnostics?.stderrTruncated,
+    boundaryDeferredReasonCode,
+    boundaryDeferredReasonCodes,
     boundaryDiagnosticsComplete,
     boundaryDiagnosticsMissingFields,
     postRunVerificationSkipReason,
@@ -1257,6 +1366,9 @@ export function createRealReadOnlyAdapterAttemptRecord(
     resultErrorCode: input.result.error?.code,
     failedCheckCodes,
     blockedCheckCodes,
+    boundaryDeferredReasonCode,
+    boundaryDeferredReasonCodes,
+    boundaryDeferredDiagnostics,
     boundaryDiagnostics,
     boundaryDiagnosticsComplete,
     boundaryDiagnosticsMissingFields,
@@ -1284,6 +1396,16 @@ export function createRealReadOnlyAdapterAttemptRecord(
         attemptStatus: status,
         failedCheckCodes,
         blockedCheckCodes,
+        boundaryDeferredReasonCode,
+        boundaryDeferredReasonCodes,
+        boundaryDeferredProcessBoundaryReady: boundaryDeferredDiagnostics?.processBoundaryReady,
+        boundaryDeferredExecutableResolutionStatus:
+          boundaryDeferredDiagnostics?.executableResolutionStatus,
+        boundaryDeferredExecutableResolutionReasonCode:
+          boundaryDeferredDiagnostics?.executableResolutionReasonCode,
+        boundaryDeferredCwdSelfCheckStatus: boundaryDeferredDiagnostics?.cwdSelfCheckStatus,
+        boundaryDeferredCwdSelfCheckReasonCode:
+          boundaryDeferredDiagnostics?.cwdSelfCheckReasonCode,
         boundaryFailureCode: boundaryDiagnostics?.failureCode,
         boundaryStartFailureKind: boundaryDiagnostics?.startFailureKind,
         boundaryEnoentKind: boundaryDiagnostics?.enoentKind,
@@ -1353,6 +1475,9 @@ export function summarizeRealReadOnlyAdapterAttempt(
     resultErrorCode: alignedRecord.resultErrorCode,
     failedCheckCodes: alignedRecord.failedCheckCodes,
     blockedCheckCodes: alignedRecord.blockedCheckCodes,
+    boundaryDeferredReasonCode: alignedRecord.boundaryDeferredReasonCode,
+    boundaryDeferredReasonCodes: alignedRecord.boundaryDeferredReasonCodes,
+    boundaryDeferredDiagnostics: alignedRecord.boundaryDeferredDiagnostics,
     boundaryDiagnostics: alignedRecord.boundaryDiagnostics,
     boundaryDiagnosticsComplete: alignedRecord.boundaryDiagnosticsComplete,
     boundaryDiagnosticsMissingFields: alignedRecord.boundaryDiagnosticsMissingFields,
@@ -1371,6 +1496,18 @@ export function summarizeRealReadOnlyAdapterAttempt(
       preflightStatus: alignedRecord.preflightStatus,
       resultStatus: alignedRecord.resultStatus,
       resultErrorCode: alignedRecord.resultErrorCode,
+      boundaryDeferredReasonCode: alignedRecord.boundaryDeferredReasonCode,
+      boundaryDeferredReasonCodes: alignedRecord.boundaryDeferredReasonCodes,
+      boundaryDeferredProcessBoundaryReady:
+        alignedRecord.boundaryDeferredDiagnostics?.processBoundaryReady,
+      boundaryDeferredExecutableResolutionStatus:
+        alignedRecord.boundaryDeferredDiagnostics?.executableResolutionStatus,
+      boundaryDeferredExecutableResolutionReasonCode:
+        alignedRecord.boundaryDeferredDiagnostics?.executableResolutionReasonCode,
+      boundaryDeferredCwdSelfCheckStatus:
+        alignedRecord.boundaryDeferredDiagnostics?.cwdSelfCheckStatus,
+      boundaryDeferredCwdSelfCheckReasonCode:
+        alignedRecord.boundaryDeferredDiagnostics?.cwdSelfCheckReasonCode,
       boundaryFailureCode: alignedRecord.boundaryDiagnostics?.failureCode,
       boundaryStartFailureKind: alignedRecord.boundaryDiagnostics?.startFailureKind,
       boundaryEnoentKind: alignedRecord.boundaryDiagnostics?.enoentKind,
@@ -1447,6 +1584,9 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     resultErrorCode: record.resultErrorCode,
     failedCheckCodes: record.failedCheckCodes,
     blockedCheckCodes: record.blockedCheckCodes,
+    boundaryDeferredReasonCode: record.boundaryDeferredReasonCode,
+    boundaryDeferredReasonCodes: record.boundaryDeferredReasonCodes,
+    boundaryDeferredDiagnostics: record.boundaryDeferredDiagnostics,
     boundaryDiagnostics: record.boundaryDiagnostics,
     boundaryDiagnosticsComplete: record.boundaryDiagnosticsComplete,
     boundaryDiagnosticsMissingFields: record.boundaryDiagnosticsMissingFields,
@@ -1468,6 +1608,16 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       preflightStatus: record.preflightStatus,
       resultStatus: record.resultStatus,
       resultErrorCode: record.resultErrorCode,
+      boundaryDeferredReasonCode: record.boundaryDeferredReasonCode,
+      boundaryDeferredReasonCodes: record.boundaryDeferredReasonCodes,
+      boundaryDeferredProcessBoundaryReady: record.boundaryDeferredDiagnostics?.processBoundaryReady,
+      boundaryDeferredExecutableResolutionStatus:
+        record.boundaryDeferredDiagnostics?.executableResolutionStatus,
+      boundaryDeferredExecutableResolutionReasonCode:
+        record.boundaryDeferredDiagnostics?.executableResolutionReasonCode,
+      boundaryDeferredCwdSelfCheckStatus: record.boundaryDeferredDiagnostics?.cwdSelfCheckStatus,
+      boundaryDeferredCwdSelfCheckReasonCode:
+        record.boundaryDeferredDiagnostics?.cwdSelfCheckReasonCode,
       boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
       boundaryStartFailureKind: record.boundaryDiagnostics?.startFailureKind,
       boundaryEnoentKind: record.boundaryDiagnostics?.enoentKind,
@@ -1791,6 +1941,78 @@ function realReadOnlyAdapterErrorCodeForCheck(
     default:
       return checkCode === undefined ? 'boundary_deferred' : 'preflight_failed';
   }
+}
+
+function metadataString(metadata: JsonMetadata, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function metadataBoolean(metadata: JsonMetadata, key: string): boolean | undefined {
+  const value = metadata[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function normalizeDeferredExecutableResolutionStatus(
+  status: string | undefined,
+): CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics['executableResolutionStatus'] {
+  if (status === 'resolved' || status === 'blocked') {
+    return status;
+  }
+
+  return status === undefined ? 'not_run' : 'unknown';
+}
+
+function normalizeDeferredCwdSelfCheckStatus(
+  status: string | undefined,
+): CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics['cwdSelfCheckStatus'] {
+  if (status === 'passed' || status === 'failed' || status === 'blocked') {
+    return status;
+  }
+
+  return status === undefined ? 'not_run' : 'unknown';
+}
+
+function classifyBoundaryDeferredReasonCodes(input: {
+  runtimeWorktreeProvided: boolean;
+  approvalInputProvided: boolean;
+  executableResolutionStatus: CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics['executableResolutionStatus'];
+  cwdSelfCheckStatus: CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics['cwdSelfCheckStatus'];
+  processBoundaryReady: boolean;
+}): CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCode[] {
+  const reasonCodes: CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCode[] = [];
+
+  if (!input.runtimeWorktreeProvided) {
+    reasonCodes.push('runtime_worktree_missing');
+  }
+
+  if (!input.approvalInputProvided) {
+    reasonCodes.push('approval_input_missing');
+  }
+
+  if (input.executableResolutionStatus === 'not_run') {
+    reasonCodes.push('executable_resolution_not_run');
+  } else if (input.executableResolutionStatus === 'blocked') {
+    reasonCodes.push('executable_resolution_blocked');
+  }
+
+  if (input.cwdSelfCheckStatus === 'not_run') {
+    reasonCodes.push('cwd_self_check_not_run');
+  } else if (
+    input.cwdSelfCheckStatus === 'failed' ||
+    input.cwdSelfCheckStatus === 'blocked' ||
+    input.cwdSelfCheckStatus === 'unknown'
+  ) {
+    reasonCodes.push('cwd_self_check_failed');
+  }
+
+  if (reasonCodes.length === 0) {
+    reasonCodes.push(
+      input.processBoundaryReady ? 'boundary_result_missing_after_ready' : 'unknown',
+    );
+  }
+
+  return [...new Set(reasonCodes)];
 }
 
 function createRealReadOnlyAdapterMetadata(extra: JsonMetadata): JsonMetadata {

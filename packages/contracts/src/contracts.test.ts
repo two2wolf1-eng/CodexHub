@@ -74,6 +74,7 @@ import {
   CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuerySchema,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummarySchema,
+  CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema,
   CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema,
   CodexExecRealReadOnlyAdapterBoundaryPlanSchema,
   CodexExecRealReadOnlyAdapterConfigSchema,
@@ -2819,6 +2820,26 @@ describe('contracts schemas', () => {
       CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema.parse(
         'attempt_not_completed',
       );
+    const boundaryDeferredDiagnostics =
+      CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema.parse({
+        id: 'codex_real_read_only_adapter_boundary_deferred_diagnostics_1',
+        schemaVersion,
+        createdAt,
+        reasonCode: 'executable_resolution_blocked',
+        reasonCodes: ['executable_resolution_blocked'],
+        preflightStatus: 'passed',
+        runtimeWorktreeProvided: true,
+        approvalInputProvided: true,
+        executableResolutionStatus: 'blocked',
+        executableResolutionReasonCode: 'executable_inaccessible',
+        cwdSelfCheckStatus: 'passed',
+        sourcePreparationReady: true,
+        prerequisiteReady: true,
+        worktreePathHashMatched: true,
+        processBoundaryReady: false,
+        summary: 'Boundary deferred diagnostics store reason codes only.',
+        ...flagFields,
+      });
     const attemptRecord = CodexExecRealReadOnlyAdapterAttemptRecordSchema.parse({
       id: 'codex_real_read_only_adapter_attempt_1',
       schemaVersion,
@@ -2839,6 +2860,9 @@ describe('contracts schemas', () => {
       resultErrorCode: error.code,
       failedCheckCodes: [],
       blockedCheckCodes: [],
+      boundaryDeferredReasonCode: boundaryDeferredDiagnostics.reasonCode,
+      boundaryDeferredReasonCodes: boundaryDeferredDiagnostics.reasonCodes,
+      boundaryDeferredDiagnostics,
       boundaryDiagnostics,
       boundaryDiagnosticsComplete: false,
       boundaryDiagnosticsMissingFields: [],
@@ -2888,6 +2912,9 @@ describe('contracts schemas', () => {
       resultErrorCode: attemptRecord.resultErrorCode,
       failedCheckCodes: attemptRecord.failedCheckCodes,
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
+      boundaryDeferredReasonCode: attemptRecord.boundaryDeferredReasonCode,
+      boundaryDeferredReasonCodes: attemptRecord.boundaryDeferredReasonCodes,
+      boundaryDeferredDiagnostics: attemptRecord.boundaryDeferredDiagnostics,
       boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
       boundaryDiagnosticsComplete: attemptRecord.boundaryDiagnosticsComplete,
       boundaryDiagnosticsMissingFields: attemptRecord.boundaryDiagnosticsMissingFields,
@@ -2924,6 +2951,9 @@ describe('contracts schemas', () => {
       resultErrorCode: attemptRecord.resultErrorCode,
       failedCheckCodes: attemptRecord.failedCheckCodes,
       blockedCheckCodes: attemptRecord.blockedCheckCodes,
+      boundaryDeferredReasonCode: attemptRecord.boundaryDeferredReasonCode,
+      boundaryDeferredReasonCodes: attemptRecord.boundaryDeferredReasonCodes,
+      boundaryDeferredDiagnostics: attemptRecord.boundaryDeferredDiagnostics,
       boundaryDiagnostics: attemptRecord.boundaryDiagnostics,
       boundaryDiagnosticsComplete: attemptRecord.boundaryDiagnosticsComplete,
       boundaryDiagnosticsMissingFields: attemptRecord.boundaryDiagnosticsMissingFields,
@@ -2982,6 +3012,14 @@ describe('contracts schemas', () => {
     expect(attemptRecord.preflightStatus).toBe('passed');
     expect(attemptRecord.resultStatus).toBe('blocked');
     expect(attemptRecord.resultErrorCode).toBe('boundary_deferred');
+    expect(attemptRecord.boundaryDeferredReasonCode).toBe('executable_resolution_blocked');
+    expect(attemptRecord.boundaryDeferredDiagnostics?.executableResolutionStatus).toBe(
+      'blocked',
+    );
+    expect(attemptSummary.boundaryDeferredReasonCode).toBe('executable_resolution_blocked');
+    expect(attemptTimelineEntry.boundaryDeferredReasonCodes).toEqual([
+      'executable_resolution_blocked',
+    ]);
     expect(attemptRecord.failedCheckCodes).toHaveLength(0);
     expect(attemptRecord.boundaryDiagnostics?.failureCode).toBe('process_exit_nonzero');
     expect(attemptRecord.boundaryDiagnostics?.stdoutHash).toBe('sha256:stdout');

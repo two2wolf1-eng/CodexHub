@@ -82,6 +82,7 @@ import {
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
   listRealReadOnlyAdapterAttemptSummaries,
   summarizeRealReadOnlyAdapterAttempt,
+  createRealReadOnlyAdapterBoundaryDeferredDiagnostics,
   createRealReadOnlyAdapterBoundaryDiagnostics,
   createRealReadOnlyAdapterResultFromBoundary,
   createRealReadOnlyAdapterPostRunVerificationPlan,
@@ -1951,6 +1952,23 @@ describe('codex-kernel live control-plane skeleton', () => {
       'passed',
     );
     expect(result.error?.code).toBe('boundary_deferred');
+    expect(
+      createRealReadOnlyAdapterBoundaryDeferredDiagnostics({
+        request,
+        preflight,
+        result,
+        metadata: {
+          runtimeWorktreeProvided: true,
+          approvalInputProvided: true,
+          executableResolutionStatus: 'blocked',
+          executableResolutionReasonCode: 'executable_inaccessible',
+          cwdSelfCheckStatus: 'passed',
+          sourcePreparationReady: true,
+          prerequisiteReady: true,
+          worktreePathHashMatched: true,
+        },
+      })?.reasonCode,
+    ).toBe('executable_resolution_blocked');
     expect(JSON.stringify({ enabledConfig, result })).not.toContain('"argv"');
     expect(JSON.stringify({ enabledConfig, result })).not.toContain('"executablePath":');
     expect(unsafeConfig.status).toBe('disabled');
@@ -2923,19 +2941,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     });
     const blockedResult = createRealReadOnlyAdapterBlockedResult({
       request,
-      preflight: createRealReadOnlyAdapterGuardPreflight({
-        request,
-        config,
-        dryRunPlan,
-        policyDecision,
-        approvalArtifact,
-        expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
-        expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
-        worktree: { isolated: true, status: 'dirty' },
-        evidenceStoreReady: true,
-        auditStoreReady: true,
-        now: '2026-04-30T00:00:00.000Z',
-      }),
+      preflight,
       config,
     });
     const processPlan = createRealReadOnlyAdapterProcessPlan({
@@ -3059,6 +3065,16 @@ describe('codex-kernel live control-plane skeleton', () => {
       result: blockedResult,
       evidenceRefs: [],
       auditEvents: [],
+      metadata: {
+        runtimeWorktreeProvided: true,
+        approvalInputProvided: true,
+        executableResolutionStatus: 'blocked',
+        executableResolutionReasonCode: 'executable_inaccessible',
+        cwdSelfCheckStatus: 'passed',
+        sourcePreparationReady: true,
+        prerequisiteReady: true,
+        worktreePathHashMatched: true,
+      },
     });
     const completedRecord = buildBoundaryRecord(
       completedBoundary,
@@ -3097,6 +3113,11 @@ describe('codex-kernel live control-plane skeleton', () => {
     });
 
     expect(blockedRecord.status).toBe('blocked');
+    expect(blockedRecord.boundaryDeferredReasonCode).toBe('executable_resolution_blocked');
+    expect(blockedRecord.boundaryDeferredDiagnostics?.executableResolutionStatus).toBe(
+      'blocked',
+    );
+    expect(blockedRecord.boundaryDeferredDiagnostics?.processBoundaryReady).toBe(false);
     expect(completedRecord.status).toBe('completed');
     expect(failedRecord.status).toBe('failed');
     expect(abortedRecord.status).toBe('aborted');
@@ -3140,6 +3161,9 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(completedRecord.promptBodyStored).toBe(false);
     expect(completedRecord.stdoutBodyStored).toBe(false);
     expect(completedSummary.evidenceRefCount).toBeGreaterThan(0);
+    expect(summarizeRealReadOnlyAdapterAttempt(blockedRecord).boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
+    );
     expect(summaries).toHaveLength(4);
     expect(timeline.eventCount).toBe(4);
     expect(timeline.evidenceRefCount).toBeGreaterThan(0);
@@ -3166,6 +3190,9 @@ describe('codex-kernel live control-plane skeleton', () => {
       timeline.entries.find((entry) => entry.status === 'failed')
         ?.postRunVerificationSkipReason,
     ).toBe('attempt_not_completed');
+    expect(
+      timeline.entries.find((entry) => entry.status === 'blocked')?.boundaryDeferredReasonCode,
+    ).toBe('executable_resolution_blocked');
     const {
       boundaryDiagnostics: _legacyBoundaryDiagnostics,
       postRunVerificationSkipReason: _legacyPostRunVerificationSkipReason,

@@ -1372,6 +1372,7 @@ function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapter
     resultErrorCode: 'config_disabled',
     failedCheckCodes: ['config_explicit_enable'],
     blockedCheckCodes: [],
+    boundaryDeferredReasonCodes: [],
     boundaryDiagnosticsComplete: false,
     boundaryDiagnosticsMissingFields: [],
     postRunVerificationStatus: 'not_required',

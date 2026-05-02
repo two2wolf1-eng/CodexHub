@@ -3300,6 +3300,43 @@ export type CodexExecRealReadOnlyAdapterDependencyResolutionStatus = z.infer<
   typeof CodexExecRealReadOnlyAdapterDependencyResolutionStatusSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema = z.enum([
+  'runtime_worktree_missing',
+  'approval_input_missing',
+  'executable_resolution_not_run',
+  'executable_resolution_blocked',
+  'cwd_self_check_not_run',
+  'cwd_self_check_failed',
+  'boundary_result_missing_after_ready',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCode = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    reasonCode: CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema,
+    reasonCodes: z
+      .array(CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema)
+      .default([]),
+    preflightStatus: CodexExecRealReadOnlyAdapterPreflightStatusSchema,
+    runtimeWorktreeProvided: z.boolean(),
+    approvalInputProvided: z.boolean(),
+    executableResolutionStatus: z.enum(['not_run', 'resolved', 'blocked', 'unknown']),
+    executableResolutionReasonCode: z.string().min(1).optional(),
+    cwdSelfCheckStatus: z.enum(['not_run', 'passed', 'failed', 'blocked', 'unknown']),
+    cwdSelfCheckReasonCode: z.string().min(1).optional(),
+    sourcePreparationReady: z.boolean().optional(),
+    prerequisiteReady: z.boolean().optional(),
+    worktreePathHashMatched: z.boolean().optional(),
+    processBoundaryReady: z.boolean(),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema
+>;
+
 export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEntityBaseSchema
   .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
   .extend({
@@ -3577,6 +3614,13 @@ export const CodexExecRealReadOnlyAdapterAttemptRecordSchema = createdEntityBase
     resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    boundaryDeferredReasonCode:
+      CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema.optional(),
+    boundaryDeferredReasonCodes: z
+      .array(CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema)
+      .default([]),
+    boundaryDeferredDiagnostics:
+      CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema.optional(),
     boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
     boundaryDiagnosticsComplete:
       codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
@@ -3619,6 +3663,13 @@ export const CodexExecRealReadOnlyAdapterAttemptSummarySchema = createdEntityBas
     resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    boundaryDeferredReasonCode:
+      CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema.optional(),
+    boundaryDeferredReasonCodes: z
+      .array(CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema)
+      .default([]),
+    boundaryDeferredDiagnostics:
+      CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema.optional(),
     boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
     boundaryDiagnosticsComplete:
       codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
@@ -3666,6 +3717,13 @@ export const CodexExecRealReadOnlyAdapterAttemptTimelineEntrySchema = createdEnt
     resultErrorCode: CodexExecRealReadOnlyAdapterErrorCodeSchema.optional(),
     failedCheckCodes: z.array(z.string().min(1)).default([]),
     blockedCheckCodes: z.array(z.string().min(1)).default([]),
+    boundaryDeferredReasonCode:
+      CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema.optional(),
+    boundaryDeferredReasonCodes: z
+      .array(CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema)
+      .default([]),
+    boundaryDeferredDiagnostics:
+      CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema.optional(),
     boundaryDiagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema.optional(),
     boundaryDiagnosticsComplete:
       codexExecRealReadOnlyAdapterBoundaryDiagnosticsReadbackSchema.shape
