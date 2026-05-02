@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { accessSync, constants, existsSync, statSync } from 'node:fs';
-import { delimiter, join, resolve } from 'node:path';
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { hashText } from '@codexhub/evidence-kernel';
 
 type JsonMetadata = Record<string, unknown>;
@@ -40,6 +40,7 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionInput {
   pathDelimiter?: string;
   fileExists?: (path: string) => boolean;
   fileAccessible?: (path: string) => boolean;
+  readTextFile?: (path: string) => string | undefined;
 }
 
 export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
@@ -351,13 +352,13 @@ export function resolveRealReadOnlyAdapterExecutable(
 
   const fileExists = input.fileExists ?? existsSync;
   const fileAccessible = input.fileAccessible ?? isExecutablePathAccessible;
+  const readTextFile = input.readTextFile ?? readTextFileFromDisk;
   const pathEntries = splitPathEntries(env.PATH, input.pathDelimiter ?? delimiter);
   const directExecutableNames = platform === 'win32' ? ['codex.exe', 'codex'] : ['codex'];
   const shellShimNames = platform === 'win32' ? ['codex.cmd', 'codex.bat'] : [];
-  const directExecutable = findExecutablePath(
-    pathEntries,
-    directExecutableNames,
-    fileExists,
+  const directExecutables = findExecutablePaths(pathEntries, directExecutableNames, fileExists);
+  const directExecutable = directExecutables.find(
+    (candidate) => !isWindowsPackagedAppResource(candidate.path, platform),
   );
 
   if (directExecutable !== undefined) {
@@ -390,9 +391,53 @@ export function resolveRealReadOnlyAdapterExecutable(
     };
   }
 
+  const shellShim = findExecutablePath(pathEntries, shellShimNames, fileExists);
+  const trustedShimTarget =
+    shellShim === undefined
+      ? undefined
+      : resolveTrustedCodexShellShimTarget(shellShim.path, {
+          platform,
+          readTextFile,
+        });
+
+  if (
+    trustedShimTarget !== undefined &&
+    !isWindowsPackagedAppResource(trustedShimTarget.path, platform)
+  ) {
+    const resolvedExecutableKind = classifyExecutableKind(trustedShimTarget.name, platform);
+    const executableAccessible = fileAccessible(trustedShimTarget.path);
+
+    if (!executableAccessible) {
+      return {
+        ...base,
+        status: 'blocked',
+        reasonCode: 'executable_inaccessible',
+        directExecutableFound: false,
+        shellShimDetected: true,
+        resolvedExecutableKind,
+        executableExists: true,
+        executableAccessible: false,
+      };
+    }
+
+    return {
+      ...base,
+      status: 'resolved',
+      policyLabel: codexCliExecutablePolicyLabel,
+      executablePath: trustedShimTarget.path,
+      executablePathHash: hashRuntimePath(trustedShimTarget.path),
+      env,
+      resolvedExecutableKind,
+      executableExists: true,
+      executableAccessible: true,
+    };
+  }
+
   const shellShimDetected =
-    shellShimNames.length > 0 &&
-    findExecutablePath(pathEntries, shellShimNames, fileExists) !== undefined;
+    shellShim !== undefined ||
+    directExecutables.some((candidate) =>
+      isWindowsPackagedAppResource(candidate.path, platform),
+    );
 
   return {
     ...base,
@@ -906,17 +951,67 @@ function findExecutablePath(
   executableNames: string[],
   fileExists: (path: string) => boolean,
 ): { path: string; name: string } | undefined {
+  return findExecutablePaths(pathEntries, executableNames, fileExists)[0];
+}
+
+function findExecutablePaths(
+  pathEntries: string[],
+  executableNames: string[],
+  fileExists: (path: string) => boolean,
+): { path: string; name: string }[] {
+  const matches: { path: string; name: string }[] = [];
+
   for (const executableName of executableNames) {
     for (const pathEntry of pathEntries) {
       const candidate = join(pathEntry, executableName);
 
       if (fileExists(candidate)) {
-        return { path: candidate, name: executableName };
+        matches.push({ path: candidate, name: executableName });
       }
     }
   }
 
-  return undefined;
+  return matches;
+}
+
+function resolveTrustedCodexShellShimTarget(
+  shimPath: string,
+  options: {
+    platform: NodeJS.Platform;
+    readTextFile: (path: string) => string | undefined;
+  },
+): { path: string; name: string } | undefined {
+  if (options.platform !== 'win32') {
+    return undefined;
+  }
+
+  const shimName = basename(shimPath).toLowerCase();
+
+  if (shimName !== 'codex.cmd' && shimName !== 'codex.bat') {
+    return undefined;
+  }
+
+  const shimText = options.readTextFile(shimPath);
+
+  if (shimText === undefined) {
+    return undefined;
+  }
+
+  const quotedExeMatch = /"([^"]+\\codex\.exe)"\s+%?\*/i.exec(shimText);
+  const targetPath = quotedExeMatch?.[1];
+
+  if (targetPath === undefined) {
+    return undefined;
+  }
+
+  const resolvedTargetPath = isAbsolute(targetPath)
+    ? targetPath
+    : resolve(dirname(shimPath), targetPath);
+
+  return {
+    path: resolvedTargetPath,
+    name: basename(resolvedTargetPath),
+  };
 }
 
 function classifyExecutableKind(
@@ -951,6 +1046,22 @@ function isExecutablePathAccessible(path: string): boolean {
       return false;
     }
   }
+}
+
+function readTextFileFromDisk(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function isWindowsPackagedAppResource(path: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') {
+    return false;
+  }
+
+  return path.replace(/\\/g, '/').toLowerCase().includes('/windowsapps/openai.codex_');
 }
 
 function isDirectoryPath(path: string): boolean {

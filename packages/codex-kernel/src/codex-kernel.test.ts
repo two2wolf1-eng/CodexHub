@@ -2367,6 +2367,55 @@ describe('codex-kernel live control-plane skeleton', () => {
     );
   });
 
+  it('uses a trusted Windows shim only to discover a native executable outside packaged app resources', () => {
+    const npmShimDir = 'C:/Users/Example/AppData/Roaming/npm';
+    const packagedAppDir =
+      'C:/Program Files/WindowsApps/OpenAI.Codex_26.429.3425.0_x64__2p2nqsd0c76g0/app/resources';
+    const trustedTarget =
+      'C:/Users/Example/.vscode/extensions/openai.chatgpt/bin/windows-x86_64/codex.exe';
+    const normalize = (candidate: string): string => candidate.replace(/\\/g, '/');
+    const fileExists = (candidate: string): boolean =>
+      [
+        `${npmShimDir}/codex.cmd`,
+        `${packagedAppDir}/codex.exe`,
+        `${packagedAppDir}/codex`,
+        trustedTarget,
+      ].includes(normalize(candidate));
+    const readTextFile = (candidate: string): string | undefined =>
+      normalize(candidate) === `${npmShimDir}/codex.cmd`
+        ? `@echo off\r\n"${trustedTarget.replace(/\//g, '\\')}" %*\r\n`
+        : undefined;
+
+    const resolved = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env: {
+        PATH: `${npmShimDir};${packagedAppDir}`,
+        PATHEXT: '.COM;.EXE;.CMD',
+        SystemRoot: 'C:/Windows',
+        TEMP: 'C:/Temp',
+      },
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+      fileAccessible: fileExists,
+      readTextFile,
+    });
+
+    expect(resolved.status).toBe('resolved');
+    if (resolved.status !== 'resolved') {
+      throw new Error('expected trusted shim target resolution to succeed');
+    }
+    expect(normalize(resolved.executablePath)).toBe(trustedTarget);
+    expect(normalize(resolved.executablePath)).not.toContain('/WindowsApps/OpenAI.Codex_');
+    expect(resolved.shell).toBe(false);
+    expect(resolved.resolvedExecutableKind).toBe('native_exe');
+    expect(resolved.executablePathStored).toBe(false);
+    expect(resolved.envPlanStored).toBe(false);
+    expect(resolved.argvStored).toBe(false);
+    expect(resolved.executableExists).toBe(true);
+    expect(resolved.executableAccessible).toBe(true);
+  });
+
   it('summarizes process boundary output through an injected runner without storing raw streams', async () => {
     const plan = createRealReadOnlyAdapterProcessPlan({
       dryRunId: 'codex_dry_run_process_summary',
