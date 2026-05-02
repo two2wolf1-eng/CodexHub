@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { hashText } from '@codexhub/evidence-kernel';
 
@@ -71,6 +71,7 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionInput {
   fileExists?: (path: string) => boolean;
   fileAccessible?: (path: string) => boolean;
   readTextFile?: (path: string) => string | undefined;
+  listDirectoryNames?: (path: string) => string[];
 }
 
 export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
@@ -402,6 +403,7 @@ export function resolveRealReadOnlyAdapterExecutable(
   const fileExists = input.fileExists ?? existsSync;
   const fileAccessible = input.fileAccessible ?? isExecutablePathAccessible;
   const readTextFile = input.readTextFile ?? readTextFileFromDisk;
+  const listDirectoryNames = input.listDirectoryNames ?? listDirectoryNamesFromDisk;
   const pathEntries = splitPathEntries(env.PATH, input.pathDelimiter ?? delimiter);
   const directExecutableNames = platform === 'win32' ? ['codex.exe', 'codex'] : ['codex'];
   const shellShimNames = platform === 'win32' ? ['codex.cmd', 'codex.bat'] : [];
@@ -492,32 +494,47 @@ export function resolveRealReadOnlyAdapterExecutable(
           readTextFile,
         });
 
+  const trustedResolvedTarget =
+    trustedShimTarget === undefined
+      ? undefined
+      : fileExists(trustedShimTarget.path)
+        ? trustedShimTarget
+        : resolveLatestTrustedCodexExtensionTarget(trustedShimTarget.path, {
+            platform,
+            fileExists,
+            listDirectoryNames,
+          });
+
   if (
-    trustedShimTarget !== undefined &&
-    !isWindowsPackagedAppResource(trustedShimTarget.path, platform)
+    trustedResolvedTarget !== undefined &&
+    !isWindowsPackagedAppResource(trustedResolvedTarget.path, platform)
   ) {
-    const resolvedExecutableKind = classifyExecutableKind(trustedShimTarget.name, platform);
-    const executableAccessProbePassed = fileAccessible(trustedShimTarget.path);
+    const resolvedExecutableKind = classifyExecutableKind(trustedResolvedTarget.name, platform);
+    const spawnTargetKind = classifySpawnTargetKind(resolvedExecutableKind);
+    const executableExists = fileExists(trustedResolvedTarget.path);
+    const executableAccessProbePassed =
+      executableExists && fileAccessible(trustedResolvedTarget.path);
     const windowsNativeExecutableAccessProbeBypassed =
       shouldBypassWindowsNativeExecutableAccessProbe({
-        executableName: trustedShimTarget.name,
+        executableName: trustedResolvedTarget.name,
         platform,
         accessProbePassed: executableAccessProbePassed,
       });
     const executableAccessible =
-      executableAccessProbePassed || windowsNativeExecutableAccessProbeBypassed;
+      executableExists &&
+      (executableAccessProbePassed || windowsNativeExecutableAccessProbeBypassed);
 
     if (!executableAccessible) {
       return {
         ...base,
         status: 'blocked',
-        reasonCode: 'executable_inaccessible',
+        reasonCode: executableExists ? 'executable_inaccessible' : 'executable_resolution_failed',
         directExecutableFound: false,
         shellShimDetected: true,
         resolvedExecutableKind,
-        spawnTargetKind: 'trusted_shell_shim_target',
+        spawnTargetKind,
         executableResolutionSource: 'trusted_shell_shim_target',
-        executableExists: true,
+        executableExists,
         executableAccessible: false,
         executableAccessProbePassed,
         windowsNativeExecutableAccessProbeBypassed,
@@ -528,16 +545,33 @@ export function resolveRealReadOnlyAdapterExecutable(
       ...base,
       status: 'resolved',
       policyLabel: codexCliExecutablePolicyLabel,
-      executablePath: trustedShimTarget.path,
-      executablePathHash: hashRuntimePath(trustedShimTarget.path),
+      executablePath: trustedResolvedTarget.path,
+      executablePathHash: hashRuntimePath(trustedResolvedTarget.path),
       env,
       resolvedExecutableKind,
-      spawnTargetKind: 'trusted_shell_shim_target',
+      spawnTargetKind,
       executableResolutionSource: 'trusted_shell_shim_target',
       executableExists: true,
       executableAccessible: true,
       executableAccessProbePassed,
       windowsNativeExecutableAccessProbeBypassed,
+    };
+  }
+
+  if (trustedShimTarget !== undefined && trustedResolvedTarget === undefined) {
+    return {
+      ...base,
+      status: 'blocked',
+      reasonCode: 'executable_resolution_failed',
+      directExecutableFound: false,
+      shellShimDetected: true,
+      resolvedExecutableKind: classifyExecutableKind(trustedShimTarget.name, platform),
+      spawnTargetKind: 'trusted_shell_shim_target',
+      executableResolutionSource: 'trusted_shell_shim_target',
+      executableExists: false,
+      executableAccessible: false,
+      executableAccessProbePassed: false,
+      windowsNativeExecutableAccessProbeBypassed: false,
     };
   }
 
@@ -561,6 +595,54 @@ export function resolveRealReadOnlyAdapterExecutable(
     executableExists: shellShimDetected,
     executableAccessible: false,
   };
+}
+
+function resolveLatestTrustedCodexExtensionTarget(
+  missingShimTargetPath: string,
+  options: {
+    platform: NodeJS.Platform;
+    fileExists: (path: string) => boolean;
+    listDirectoryNames: (path: string) => string[];
+  },
+): { path: string; name: string } | undefined {
+  if (options.platform !== 'win32') {
+    return undefined;
+  }
+
+  const targetName = basename(missingShimTargetPath).toLowerCase();
+  const architectureDir = dirname(missingShimTargetPath);
+  const binDir = dirname(architectureDir);
+  const extensionDir = dirname(binDir);
+  const extensionsRoot = dirname(extensionDir);
+  const extensionName = basename(extensionDir).toLowerCase();
+
+  if (
+    targetName !== 'codex.exe' ||
+    basename(architectureDir).toLowerCase() !== 'windows-x86_64' ||
+    basename(binDir).toLowerCase() !== 'bin' ||
+    !extensionName.startsWith('openai.chatgpt-') ||
+    !extensionName.endsWith('-win32-x64')
+  ) {
+    return undefined;
+  }
+
+  const latestCandidate = options
+    .listDirectoryNames(extensionsRoot)
+    .filter((name) => {
+      const normalized = name.toLowerCase();
+      return normalized.startsWith('openai.chatgpt-') && normalized.endsWith('-win32-x64');
+    })
+    .sort()
+    .reverse()
+    .map((name) => join(extensionsRoot, name, 'bin', 'windows-x86_64', 'codex.exe'))
+    .find((candidate) => options.fileExists(candidate));
+
+  return latestCandidate === undefined
+    ? undefined
+    : {
+        path: latestCandidate,
+        name: basename(latestCandidate),
+      };
 }
 
 export function createRealReadOnlyAdapterRuntimeCwdSelfCheck(input: {
@@ -1227,6 +1309,16 @@ function readTextFileFromDisk(path: string): string | undefined {
     return readFileSync(path, 'utf8');
   } catch {
     return undefined;
+  }
+}
+
+function listDirectoryNamesFromDisk(path: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
   }
 }
 

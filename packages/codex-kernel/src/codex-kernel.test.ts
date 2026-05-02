@@ -2472,13 +2472,102 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(normalize(resolved.executablePath)).not.toContain('/WindowsApps/OpenAI.Codex_');
     expect(resolved.shell).toBe(false);
     expect(resolved.resolvedExecutableKind).toBe('native_exe');
-    expect(resolved.spawnTargetKind).toBe('trusted_shell_shim_target');
+    expect(resolved.spawnTargetKind).toBe('native_exe');
     expect(resolved.executableResolutionSource).toBe('trusted_shell_shim_target');
     expect(resolved.executablePathStored).toBe(false);
     expect(resolved.envPlanStored).toBe(false);
     expect(resolved.argvStored).toBe(false);
     expect(resolved.executableExists).toBe(true);
     expect(resolved.executableAccessible).toBe(true);
+  });
+
+  it('recovers from a stale trusted Windows shim target without accepting shell execution', () => {
+    const npmShimDir = 'C:/Users/Example/AppData/Roaming/npm';
+    const staleTarget =
+      'C:/Users/Example/.vscode/extensions/openai.chatgpt-26.5300.1-win32-x64/bin/windows-x86_64/codex.exe';
+    const currentExtension = 'openai.chatgpt-26.5400.2-win32-x64';
+    const currentTarget =
+      `C:/Users/Example/.vscode/extensions/${currentExtension}/bin/windows-x86_64/codex.exe`;
+    const normalize = (candidate: string): string => candidate.replace(/\\/g, '/');
+    const fileExists = (candidate: string): boolean =>
+      [`${npmShimDir}/codex.cmd`, currentTarget].includes(normalize(candidate));
+    const readTextFile = (candidate: string): string | undefined =>
+      normalize(candidate) === `${npmShimDir}/codex.cmd`
+        ? `@echo off\r\n"${staleTarget.replace(/\//g, '\\')}" %*\r\n`
+        : undefined;
+
+    const resolved = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env: {
+        PATH: npmShimDir,
+        PATHEXT: '.EXE;.CMD',
+        SystemRoot: 'C:/Windows',
+        TEMP: 'C:/Temp',
+      },
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+      fileAccessible: fileExists,
+      readTextFile,
+      listDirectoryNames: (candidate) =>
+        normalize(candidate) === 'C:/Users/Example/.vscode/extensions'
+          ? ['openai.chatgpt-26.5300.1-win32-x64', currentExtension]
+          : [],
+    });
+
+    expect(resolved.status).toBe('resolved');
+    if (resolved.status !== 'resolved') {
+      throw new Error('expected stale trusted shim target to resolve to current native target');
+    }
+    expect(normalize(resolved.executablePath)).toBe(currentTarget);
+    expect(resolved.shell).toBe(false);
+    expect(resolved.resolvedExecutableKind).toBe('native_exe');
+    expect(resolved.spawnTargetKind).toBe('native_exe');
+    expect(resolved.executableResolutionSource).toBe('trusted_shell_shim_target');
+    expect(resolved.executablePathStored).toBe(false);
+    expect(resolved.envPlanStored).toBe(false);
+    expect(resolved.argvStored).toBe(false);
+    expect(JSON.stringify(resolved)).not.toContain('"argv"');
+    expect(JSON.stringify(resolved)).not.toContain('"envPlan"');
+  });
+
+  it('blocks stale trusted Windows shim targets when no current native target exists', () => {
+    const npmShimDir = 'C:/Users/Example/AppData/Roaming/npm';
+    const staleTarget =
+      'C:/Users/Example/.vscode/extensions/openai.chatgpt-26.5300.1-win32-x64/bin/windows-x86_64/codex.exe';
+    const normalize = (candidate: string): string => candidate.replace(/\\/g, '/');
+    const fileExists = (candidate: string): boolean =>
+      normalize(candidate) === `${npmShimDir}/codex.cmd`;
+    const readTextFile = (candidate: string): string | undefined =>
+      normalize(candidate) === `${npmShimDir}/codex.cmd`
+        ? `@echo off\r\n"${staleTarget.replace(/\//g, '\\')}" %*\r\n`
+        : undefined;
+
+    const resolved = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env: {
+        PATH: npmShimDir,
+        PATHEXT: '.EXE;.CMD',
+        SystemRoot: 'C:/Windows',
+        TEMP: 'C:/Temp',
+      },
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+      fileAccessible: () => false,
+      readTextFile,
+      listDirectoryNames: () => ['openai.chatgpt-26.5300.1-win32-x64'],
+    });
+
+    expect(resolved.status).toBe('blocked');
+    if (resolved.status !== 'blocked') {
+      throw new Error('expected missing trusted shim target to block before boundary');
+    }
+    expect(resolved.reasonCode).toBe('executable_resolution_failed');
+    expect(resolved.shellShimDetected).toBe(true);
+    expect(resolved.executableExists).toBe(false);
+    expect(resolved.executableAccessible).toBe(false);
+    expect(resolved.executableResolutionSource).toBe('trusted_shell_shim_target');
   });
 
   it('summarizes process boundary output through an injected runner without storing raw streams', async () => {
