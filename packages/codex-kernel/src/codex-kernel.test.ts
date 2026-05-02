@@ -2321,6 +2321,17 @@ describe('codex-kernel live control-plane skeleton', () => {
       fileExists: (candidate) => candidate.replace(/\\/g, '/') === 'C:/bare/codex',
       fileAccessible: () => false,
     });
+    const laterAccessibleNative = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env: { ...env, PATH: 'C:/denied;C:/native' },
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists: (candidate) =>
+        ['C:/denied/codex.exe', 'C:/native/codex.exe'].includes(
+          candidate.replace(/\\/g, '/'),
+        ),
+      fileAccessible: (candidate) => candidate.replace(/\\/g, '/') === 'C:/native/codex.exe',
+    });
     const allowedEnv = createRealReadOnlyAdapterAllowedProcessEnv(env);
     const casePreservedEnv = createRealReadOnlyAdapterAllowedProcessEnv({
       Path: 'C:/native',
@@ -2373,6 +2384,17 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(inaccessibleBareCommand.reasonCode).toBe('executable_inaccessible');
     expect(inaccessibleBareCommand.executableExists).toBe(true);
     expect(inaccessibleBareCommand.executableAccessible).toBe(false);
+    expect(laterAccessibleNative.status).toBe('resolved');
+    if (laterAccessibleNative.status !== 'resolved') {
+      throw new Error('expected later accessible native executable to be selected');
+    }
+    expect(laterAccessibleNative.executablePath.replace(/\\/g, '/')).toBe(
+      'C:/native/codex.exe',
+    );
+    expect(laterAccessibleNative.resolvedExecutableKind).toBe('native_exe');
+    expect(laterAccessibleNative.executableAccessible).toBe(true);
+    expect(laterAccessibleNative.executableAccessProbePassed).toBe(true);
+    expect(laterAccessibleNative.windowsNativeExecutableAccessProbeBypassed).toBe(false);
     expect(forbiddenPolicy.status).toBe('blocked');
     if (forbiddenPolicy.status !== 'blocked') {
       throw new Error('expected forbidden executable policy to block');

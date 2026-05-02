@@ -361,37 +361,41 @@ export function resolveRealReadOnlyAdapterExecutable(
   const directExecutableNames = platform === 'win32' ? ['codex.exe', 'codex'] : ['codex'];
   const shellShimNames = platform === 'win32' ? ['codex.cmd', 'codex.bat'] : [];
   const directExecutables = findExecutablePaths(pathEntries, directExecutableNames, fileExists);
-  const directExecutable = directExecutables.find(
-    (candidate) => !isWindowsPackagedAppResource(candidate.path, platform),
-  );
+  const directExecutableCandidates = directExecutables
+    .filter((candidate) => !isWindowsPackagedAppResource(candidate.path, platform))
+    .map((candidate) => {
+      const resolvedExecutableKind = classifyExecutableKind(candidate.name, platform);
+      const executableAccessProbePassed = fileAccessible(candidate.path);
+      const windowsNativeExecutableAccessProbeBypassed =
+        shouldBypassWindowsNativeExecutableAccessProbe({
+          executableName: candidate.name,
+          platform,
+          accessProbePassed: executableAccessProbePassed,
+        });
+      const executableAccessible =
+        executableAccessProbePassed || windowsNativeExecutableAccessProbeBypassed;
 
-  if (directExecutable !== undefined) {
-    const resolvedExecutableKind = classifyExecutableKind(directExecutable.name, platform);
-    const executableAccessProbePassed = fileAccessible(directExecutable.path);
-    const windowsNativeExecutableAccessProbeBypassed =
-      shouldBypassWindowsNativeExecutableAccessProbe({
-        executableName: directExecutable.name,
-        platform,
-        accessProbePassed: executableAccessProbePassed,
-      });
-    const executableAccessible =
-      executableAccessProbePassed || windowsNativeExecutableAccessProbeBypassed;
-
-    if (!executableAccessible) {
       return {
-        ...base,
-        status: 'blocked',
-        reasonCode: 'executable_inaccessible',
-        directExecutableFound: false,
-        shellShimDetected: false,
+        ...candidate,
         resolvedExecutableKind,
-        executableExists: true,
-        executableAccessible: false,
         executableAccessProbePassed,
         windowsNativeExecutableAccessProbeBypassed,
+        executableAccessible,
       };
-    }
+    });
+  const directExecutable =
+    directExecutableCandidates.find(
+      (candidate) =>
+        candidate.executableAccessProbePassed && candidate.resolvedExecutableKind === 'native_exe',
+    ) ??
+    directExecutableCandidates.find(
+      (candidate) =>
+        candidate.executableAccessible && candidate.resolvedExecutableKind === 'native_exe',
+    ) ??
+    directExecutableCandidates.find((candidate) => candidate.executableAccessProbePassed) ??
+    directExecutableCandidates.find((candidate) => candidate.executableAccessible);
 
+  if (directExecutable !== undefined) {
     return {
       ...base,
       status: 'resolved',
@@ -399,11 +403,29 @@ export function resolveRealReadOnlyAdapterExecutable(
       executablePath: directExecutable.path,
       executablePathHash: hashRuntimePath(directExecutable.path),
       env,
-      resolvedExecutableKind,
+      resolvedExecutableKind: directExecutable.resolvedExecutableKind,
       executableExists: true,
       executableAccessible: true,
-      executableAccessProbePassed,
-      windowsNativeExecutableAccessProbeBypassed,
+      executableAccessProbePassed: directExecutable.executableAccessProbePassed,
+      windowsNativeExecutableAccessProbeBypassed:
+        directExecutable.windowsNativeExecutableAccessProbeBypassed,
+    };
+  }
+
+  const inaccessibleDirectExecutable = directExecutableCandidates[0];
+  if (inaccessibleDirectExecutable !== undefined) {
+    return {
+      ...base,
+      status: 'blocked',
+      reasonCode: 'executable_inaccessible',
+      directExecutableFound: false,
+      shellShimDetected: false,
+      resolvedExecutableKind: inaccessibleDirectExecutable.resolvedExecutableKind,
+      executableExists: true,
+      executableAccessible: false,
+      executableAccessProbePassed: inaccessibleDirectExecutable.executableAccessProbePassed,
+      windowsNativeExecutableAccessProbeBypassed:
+        inaccessibleDirectExecutable.windowsNativeExecutableAccessProbeBypassed,
     };
   }
 
