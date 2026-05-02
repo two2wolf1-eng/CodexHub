@@ -802,6 +802,61 @@ describe('cli development mock-run fallback', () => {
       degraded: false,
       notPersisted: false,
     });
+    const deferredListOutput = formatRealReadOnlyAdapterAttemptListOutput({
+      summaries: [
+        {
+          attemptId: 'codex_real_read_only_adapter_attempt_deferred',
+          dryRunId: 'codex_dry_run_fixture',
+          status: 'blocked',
+          processBoundaryInvoked: false,
+          boundaryDeferredReasonCode: 'executable_resolution_blocked',
+          boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+          boundaryDiagnosticsComplete: false,
+        },
+      ],
+      count: 1,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
+    const deferredTimelineOutput = formatRealReadOnlyAdapterAttemptTimelineOutput({
+      timeline: {
+        dryRunId: 'codex_dry_run_fixture',
+        status: 'blocked',
+        eventCount: 1,
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        outputHashCount: 0,
+        processBoundaryInvokedCount: 0,
+        entries: [
+          {
+            attemptId: 'codex_real_read_only_adapter_attempt_deferred',
+            dryRunId: 'codex_dry_run_fixture',
+            status: 'blocked',
+            occurredAt: '2026-04-28T00:00:00.000Z',
+            evidenceRefCount: 1,
+            auditEventCount: 1,
+            processBoundaryInvoked: false,
+            boundaryDeferredReasonCode: 'executable_resolution_blocked',
+            boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+            boundaryDiagnosticsComplete: false,
+          },
+        ],
+      },
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      recommendationGrantsExecution: false,
+    });
     const listOutput = formatRealReadOnlyAdapterAttemptListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterAttemptOutput(latest);
     const timelineOutput = formatRealReadOnlyAdapterAttemptTimelineOutput(timeline);
@@ -909,6 +964,16 @@ describe('cli development mock-run fallback', () => {
     );
     expect(deferredOutput).toContain('boundaryDeferredCwdSelfCheckStatus=passed');
     expect(deferredOutput).toContain('boundaryDeferredProcessBoundaryReady=false');
+    expect(deferredListOutput).toContain(
+      'boundaryDeferredReasonCode=executable_resolution_blocked',
+    );
+    expect(deferredTimelineOutput).toContain(
+      'boundaryDeferredReasonCode=executable_resolution_blocked',
+    );
+    expect(deferredListOutput).not.toContain('raw stdout body');
+    expect(deferredTimelineOutput).not.toContain('raw stderr body');
+    expect(deferredListOutput).not.toContain('"executablePath":');
+    expect(deferredTimelineOutput).not.toContain('"argv":');
     expect(diagnosticOutput).not.toContain('raw stdout body');
     expect(diagnosticOutput).not.toContain('raw stderr body');
     expect(diagnosticOutput).not.toContain('"argv":');

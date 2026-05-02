@@ -495,16 +495,47 @@ describe('store-sqlite migration initialization', () => {
       'full command body',
     );
     expect(realReadOnlyAdapterAttempts).toHaveLength(1);
+    expect(realReadOnlyAdapterAttempts[0]?.boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
+    );
+    expect(
+      realReadOnlyAdapterAttempts[0]?.boundaryDeferredDiagnostics?.executableResolutionStatus,
+    ).toBe('blocked');
     expect(realReadOnlyAdapterAttemptRecord?.status).toBe('blocked');
     expect(realReadOnlyAdapterAttemptRecord?.authoritative).toBe(true);
     expect(realReadOnlyAdapterAttemptRecord?.supervisorBacked).toBe(true);
     expect(realReadOnlyAdapterAttemptRecord?.persisted).toBe(true);
     expect(realReadOnlyAdapterAttemptRecord?.processBoundaryInvoked).toBe(false);
+    expect(realReadOnlyAdapterAttemptRecord?.preflightStatus).toBe('passed');
+    expect(realReadOnlyAdapterAttemptRecord?.resultErrorCode).toBe('boundary_deferred');
+    expect(realReadOnlyAdapterAttemptRecord?.boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
+    );
+    expect(realReadOnlyAdapterAttemptRecord?.boundaryDeferredReasonCodes).toEqual([
+      'executable_resolution_blocked',
+    ]);
+    expect(
+      realReadOnlyAdapterAttemptRecord?.boundaryDeferredDiagnostics
+        ?.executableResolutionStatus,
+    ).toBe('blocked');
+    expect(
+      realReadOnlyAdapterAttemptRecord?.boundaryDeferredDiagnostics
+        ?.executableResolutionReasonCode,
+    ).toBe('executable_inaccessible');
+    expect(realReadOnlyAdapterAttemptRecord?.boundaryDeferredDiagnostics?.cwdSelfCheckStatus).toBe(
+      'passed',
+    );
+    expect(
+      realReadOnlyAdapterAttemptRecord?.boundaryDeferredDiagnostics?.processBoundaryReady,
+    ).toBe(false);
     expect(realReadOnlyAdapterAttemptRecord?.implementationApproved).toBe(false);
     expect(realReadOnlyAdapterAttemptRecord?.processAdapterApproved).toBe(false);
     expect(realReadOnlyAdapterAttemptRecord?.recommendationGrantsExecution).toBe(false);
     expect(latestRealReadOnlyAdapterAttemptRecord?.id).toBe(
       'codex_real_read_only_adapter_attempt_1',
+    );
+    expect(latestRealReadOnlyAdapterAttemptRecord?.boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
     );
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw prompt body');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw command body');
@@ -512,6 +543,7 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('raw stderr body');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"argv"');
     expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('"executablePath":');
+    expect(JSON.stringify(realReadOnlyAdapterAttemptRecord)).not.toContain('C:/');
     expect(realReadOnlyAdapterFailedAttempts).toHaveLength(1);
     expect(realReadOnlyAdapterFailedAttemptRecord?.processBoundaryInvoked).toBe(true);
     expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnosticsComplete).toBe(true);
@@ -1367,12 +1399,57 @@ function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapter
     degraded: false,
     notPersisted: false,
     processBoundaryInvoked: false,
-    preflightStatus: 'failed',
-    resultStatus: 'blocked',
-    resultErrorCode: 'config_disabled',
-    failedCheckCodes: ['config_explicit_enable'],
+    preflightStatus: 'passed',
+    resultStatus: 'not_started',
+    resultErrorCode: 'boundary_deferred',
+    failedCheckCodes: [],
     blockedCheckCodes: [],
-    boundaryDeferredReasonCodes: [],
+    boundaryDeferredReasonCode: 'executable_resolution_blocked',
+    boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+    boundaryDeferredDiagnostics: {
+      id: 'codex_real_read_only_adapter_boundary_deferred_diagnostics_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      reasonCode: 'executable_resolution_blocked',
+      reasonCodes: ['executable_resolution_blocked'],
+      preflightStatus: 'passed',
+      runtimeWorktreeProvided: true,
+      approvalInputProvided: true,
+      executableResolutionStatus: 'blocked',
+      executableResolutionReasonCode: 'executable_inaccessible',
+      cwdSelfCheckStatus: 'passed',
+      sourcePreparationReady: true,
+      prerequisiteReady: true,
+      worktreePathHashMatched: true,
+      processBoundaryReady: false,
+      summary: 'Boundary deferred diagnostics stores metadata only.',
+      metadata: {
+        metadataOnly: true,
+        source: 'store-sqlite-test-boundary-deferred',
+        worktreePathStored: false,
+        executablePathStored: false,
+        argvStored: false,
+        envPlanStored: false,
+      },
+      metadataOnly: true,
+      bodyStored: false,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      agentMessageBodyStored: false,
+      reasoningBodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      processAdapterStarted: false,
+      implementationApproved: false,
+      processAdapterApproved: false,
+      dashboardTriggerAllowed: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+    },
     boundaryDiagnosticsComplete: false,
     boundaryDiagnosticsMissingFields: [],
     postRunVerificationStatus: 'not_required',
@@ -1381,10 +1458,18 @@ function createRealReadOnlyAdapterAttemptFixture(): CodexExecRealReadOnlyAdapter
     auditEventIds: ['audit_real_read_only_adapter_attempt_1'],
     outputHashCount: 0,
     metadataHash: 'sha256:attempt_metadata',
-    summary: 'Default-disabled supervisor attempt was blocked before the process boundary.',
+    summary: 'Boundary deferred supervisor attempt stores metadata-only diagnostics.',
     metadata: {
       source: 'store-sqlite-test',
       metadataOnly: true,
+      runtimeWorktreeProvided: true,
+      approvalInputProvided: true,
+      executableResolutionStatus: 'blocked',
+      executableResolutionReasonCode: 'executable_inaccessible',
+      cwdSelfCheckStatus: 'passed',
+      sourcePreparationReady: true,
+      prerequisiteReady: true,
+      worktreePathHashMatched: true,
       promptBodyStored: false,
       commandBodyStored: false,
       stdoutBodyStored: false,
@@ -1409,6 +1494,9 @@ function createRealReadOnlyAdapterFailedAttemptFixture(): CodexExecRealReadOnlyA
     resultStatus: 'failed',
     resultErrorCode: 'boundary_failed',
     failedCheckCodes: [],
+    boundaryDeferredReasonCode: undefined,
+    boundaryDeferredReasonCodes: [],
+    boundaryDeferredDiagnostics: undefined,
     boundaryDiagnosticsComplete: true,
     boundaryDiagnosticsMissingFields: [],
     boundaryDiagnostics: {

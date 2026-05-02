@@ -3118,6 +3118,54 @@ describe('codex-kernel live control-plane skeleton', () => {
       'blocked',
     );
     expect(blockedRecord.boundaryDeferredDiagnostics?.processBoundaryReady).toBe(false);
+    const {
+      boundaryDeferredReasonCode: _legacyDeferredReasonCode,
+      boundaryDeferredDiagnostics: _legacyDeferredDiagnostics,
+      ...legacyDeferredRecordBase
+    } = blockedRecord;
+    const legacyDeferredRecord = {
+      ...legacyDeferredRecordBase,
+      id: 'codex_real_read_only_adapter_attempt_legacy_deferred',
+      boundaryDeferredReasonCodes: [],
+      metadata: {
+        ...(blockedRecord.metadata ?? {}),
+        source: 'codex-kernel-test-legacy-deferred',
+      },
+    };
+    const legacyDeferredSummary = summarizeRealReadOnlyAdapterAttempt(legacyDeferredRecord);
+    const legacyDeferredTimeline = createRealReadOnlyAdapterAttemptTimeline({
+      dryRunId: dryRunPlan.id,
+      records: [legacyDeferredRecord],
+      query: {
+        dryRunId: dryRunPlan.id,
+        includeEvidence: true,
+        includeAudit: true,
+        limit: 1,
+      },
+    });
+
+    expect(legacyDeferredSummary.boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
+    );
+    expect(
+      legacyDeferredSummary.boundaryDeferredDiagnostics?.executableResolutionStatus,
+    ).toBe('blocked');
+    expect(
+      legacyDeferredSummary.boundaryDeferredDiagnostics?.executableResolutionReasonCode,
+    ).toBe('executable_inaccessible');
+    expect(legacyDeferredSummary.boundaryDeferredDiagnostics?.cwdSelfCheckStatus).toBe(
+      'passed',
+    );
+    expect(legacyDeferredSummary.boundaryDeferredDiagnostics?.processBoundaryReady).toBe(
+      false,
+    );
+    expect(legacyDeferredTimeline.entries[0]?.boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
+    );
+    expect(
+      legacyDeferredTimeline.entries[0]?.boundaryDeferredDiagnostics
+        ?.executableResolutionReasonCode,
+    ).toBe('executable_inaccessible');
     expect(completedRecord.status).toBe('completed');
     expect(failedRecord.status).toBe('failed');
     expect(abortedRecord.status).toBe('aborted');

@@ -2267,6 +2267,27 @@ describe('supervisor mock development API', () => {
         worktreePath: pilotWorktreePath,
       },
     });
+    const blockedExecutableAttemptId = blockedExecutableResponse.json().attemptRecord.id as string;
+    const blockedExecutableReadbackResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/attempt/${blockedExecutableAttemptId}`,
+    });
+    const blockedExecutableLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/attempt/latest/${dryRunId}`,
+    });
+    const blockedExecutableListResponse = await server.inject({
+      method: 'GET',
+      url:
+        `/api/codex/exec/real-read-only-adapter/attempts?dryRunId=${dryRunId}` +
+        '&status=blocked&limit=10',
+    });
+    const blockedExecutableTimelineResponse = await server.inject({
+      method: 'GET',
+      url:
+        `/api/codex/exec/real-read-only-adapter/attempt-timeline/${dryRunId}` +
+        '?status=blocked&includeEvidence=true&includeAudit=true&limit=1',
+    });
 
     await server.close();
     await store.close();
@@ -2544,6 +2565,66 @@ describe('supervisor mock development API', () => {
     expect(blockedExecutableResponse.body).not.toContain(pilotWorktreePath);
     expect(blockedExecutableResponse.body).not.toContain('"executablePath":');
     expect(blockedExecutableResponse.body).not.toContain('"argv"');
+    for (const response of [
+      blockedExecutableReadbackResponse,
+      blockedExecutableLatestResponse,
+      blockedExecutableListResponse,
+      blockedExecutableTimelineResponse,
+    ]) {
+      expect(response.statusCode).toBe(200);
+      expect(response.body).not.toContain(pilotWorktreePath);
+      expect(response.body).not.toContain(resolvedExecutablePath);
+      expect(response.body).not.toContain('C:/Windows');
+      expect(response.body).not.toContain('"executablePath":');
+      expect(response.body).not.toContain('"argv"');
+      expect(response.body).not.toContain('"env"');
+    }
+    expect(blockedExecutableReadbackResponse.json()).toMatchObject({
+      attemptRecord: {
+        id: blockedExecutableAttemptId,
+        boundaryDeferredReasonCode: 'executable_resolution_blocked',
+        boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+        boundaryDeferredDiagnostics: {
+          reasonCode: 'executable_resolution_blocked',
+          executableResolutionStatus: 'blocked',
+          executableResolutionReasonCode: 'executable_requires_shell',
+          cwdSelfCheckStatus: 'passed',
+          processBoundaryReady: false,
+        },
+      },
+      summary: {
+        boundaryDeferredReasonCode: 'executable_resolution_blocked',
+        boundaryDeferredDiagnostics: {
+          executableResolutionStatus: 'blocked',
+          executableResolutionReasonCode: 'executable_requires_shell',
+        },
+      },
+    });
+    expect(blockedExecutableLatestResponse.json().attemptRecord.id).toBe(
+      blockedExecutableAttemptId,
+    );
+    expect(blockedExecutableLatestResponse.json().attemptRecord.boundaryDeferredReasonCode).toBe(
+      'executable_resolution_blocked',
+    );
+    expect(blockedExecutableListResponse.json().summaries[0]).toMatchObject({
+      attemptId: blockedExecutableAttemptId,
+      boundaryDeferredReasonCode: 'executable_resolution_blocked',
+      boundaryDeferredDiagnostics: {
+        executableResolutionStatus: 'blocked',
+        executableResolutionReasonCode: 'executable_requires_shell',
+      },
+    });
+    expect(blockedExecutableTimelineResponse.json().timeline.entries[0]).toMatchObject({
+      attemptId: blockedExecutableAttemptId,
+      boundaryDeferredReasonCode: 'executable_resolution_blocked',
+      boundaryDeferredReasonCodes: ['executable_resolution_blocked'],
+      boundaryDeferredDiagnostics: {
+        executableResolutionStatus: 'blocked',
+        executableResolutionReasonCode: 'executable_requires_shell',
+        cwdSelfCheckStatus: 'passed',
+        processBoundaryReady: false,
+      },
+    });
   });
 
   it('records pilot prerequisite readiness without running a pilot or storing raw worktree paths', async () => {
