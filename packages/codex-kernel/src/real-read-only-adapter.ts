@@ -19,6 +19,7 @@ import type {
   CodexExecRealReadOnlyAdapterConfig,
   CodexExecRealReadOnlyAdapterError,
   CodexExecRealReadOnlyAdapterEvidenceSummary,
+  CodexExecRealReadOnlyAdapterNonzeroExitKind,
   CodexExecRealReadOnlyAdapterPreflight,
   CodexExecRealReadOnlyAdapterPreflightCheck,
   CodexExecRealReadOnlyAdapterRequest,
@@ -56,6 +57,23 @@ function isBoundaryDeferredReasonCode(
       value as CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCode,
     )
   );
+}
+
+const nonzeroExitKindSet = new Set<CodexExecRealReadOnlyAdapterNonzeroExitKind>([
+  'codex_cli_usage_error_suspected',
+  'codex_cli_input_missing_suspected',
+  'codex_cli_auth_or_config_error_suspected',
+  'codex_cli_runtime_error_suspected',
+  'unknown',
+]);
+
+function normalizeNonzeroExitKind(
+  value: unknown,
+): CodexExecRealReadOnlyAdapterNonzeroExitKind | undefined {
+  return typeof value === 'string' &&
+    nonzeroExitKindSet.has(value as CodexExecRealReadOnlyAdapterNonzeroExitKind)
+    ? (value as CodexExecRealReadOnlyAdapterNonzeroExitKind)
+    : undefined;
 }
 
 export interface CodexExecRealReadOnlyAdapterAttemptInput {
@@ -825,6 +843,54 @@ function hasBoundaryDiagnosticField(
   return diagnostics[field] !== undefined && diagnostics[field] !== null;
 }
 
+function inferNonzeroExitKindForReadback(
+  record: Pick<CodexExecRealReadOnlyAdapterAttemptRecord, 'boundaryDiagnostics' | 'metadata'>,
+): CodexExecRealReadOnlyAdapterNonzeroExitKind | undefined {
+  const diagnostics = record.boundaryDiagnostics;
+
+  if (!diagnostics || diagnostics.failureCode !== 'process_exit_nonzero') {
+    return undefined;
+  }
+
+  return (
+    normalizeNonzeroExitKind(diagnostics.nonzeroExitKind) ??
+    normalizeNonzeroExitKind(record.metadata?.boundaryNonzeroExitKind) ??
+    normalizeNonzeroExitKind(diagnostics.metadata?.nonzeroExitKind) ??
+    normalizeNonzeroExitKind(diagnostics.metadata?.boundaryNonzeroExitKind) ??
+    (diagnostics.exitCode === 2 ? 'codex_cli_usage_error_suspected' : undefined)
+  );
+}
+
+function alignBoundaryDiagnosticsForReadback(
+  record: CodexExecRealReadOnlyAdapterAttemptRecord,
+): CodexExecRealReadOnlyAdapterBoundaryDiagnostics | undefined {
+  if (!record.boundaryDiagnostics) {
+    return undefined;
+  }
+
+  const nonzeroExitKind = inferNonzeroExitKindForReadback(record);
+
+  if (
+    record.boundaryDiagnostics.failureCode !== 'process_exit_nonzero' ||
+    nonzeroExitKind === undefined ||
+    record.boundaryDiagnostics.nonzeroExitKind === nonzeroExitKind
+  ) {
+    return record.boundaryDiagnostics;
+  }
+
+  return {
+    ...record.boundaryDiagnostics,
+    nonzeroExitKind,
+    metadata: {
+      ...(record.boundaryDiagnostics.metadata ?? {}),
+      nonzeroExitKind,
+      boundaryNonzeroExitKind: nonzeroExitKind,
+      nonzeroExitKindInferredFromReadback: true,
+      source: 'codex-kernel.real-read-only-adapter.boundary-diagnostics-readback-alignment',
+    },
+  };
+}
+
 export function getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(
   record: Pick<
     CodexExecRealReadOnlyAdapterAttemptRecord,
@@ -852,10 +918,16 @@ export function getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(
     }
 
     if (record.boundaryDiagnostics.failureCode === 'process_exit_nonzero') {
-      if (record.boundaryDiagnostics.exitCode === undefined) {
+      if (
+        record.boundaryDiagnostics.exitCode === undefined ||
+        record.boundaryDiagnostics.exitCode === null
+      ) {
         missingFields.push('exitCode');
       }
-      if (record.boundaryDiagnostics.nonzeroExitKind === undefined) {
+      if (
+        record.boundaryDiagnostics.nonzeroExitKind === undefined ||
+        record.boundaryDiagnostics.nonzeroExitKind === null
+      ) {
         missingFields.push('nonzeroExitKind');
       }
     }
@@ -889,6 +961,7 @@ export function getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(
 export function alignRealReadOnlyAdapterAttemptRecordDiagnostics(
   record: CodexExecRealReadOnlyAdapterAttemptRecord,
 ): CodexExecRealReadOnlyAdapterAttemptRecord {
+  const boundaryDiagnostics = alignBoundaryDiagnosticsForReadback(record);
   const boundaryDeferredDiagnostics =
     record.boundaryDeferredDiagnostics ??
     inferRealReadOnlyAdapterBoundaryDeferredDiagnostics(record);
@@ -900,10 +973,14 @@ export function alignRealReadOnlyAdapterAttemptRecordDiagnostics(
   const boundaryDeferredReasonCode =
     record.boundaryDeferredReasonCode ?? boundaryDeferredDiagnostics?.reasonCode;
   const boundaryDiagnosticsMissingFields =
-    getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(record);
+    getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields({
+      ...record,
+      boundaryDiagnostics,
+    });
 
   return {
     ...record,
+    boundaryDiagnostics,
     boundaryDeferredReasonCode,
     boundaryDeferredReasonCodes,
     boundaryDeferredDiagnostics,

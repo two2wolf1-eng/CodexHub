@@ -48,6 +48,7 @@ import {
   summarizeRealReadOnlyAdapterReadinessPackage,
   runReadOnlyAdapterFixtureBoundary,
   summarizeReadOnlyAdapterFixtureBoundary,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
   createCodexExecReportReviewDraft,
   createCodexExecReportReviewRecord,
   createCodexExecControlPlaneAuditEvents,
@@ -1535,6 +1536,19 @@ export async function getSupervisorHealth(): Promise<Record<string, unknown>> {
       reason: error instanceof Error ? error.message : 'unknown supervisor error',
       metadata: { mock: true },
     };
+  }
+}
+
+async function assertSupervisorRealReadOnlyAdapterInvocationContract(): Promise<void> {
+  const health = await getSupervisorHealth();
+  const metadata = health.metadata as Record<string, unknown> | undefined;
+  const contractVersion = metadata?.realReadOnlyAdapterCodexCliInvocationContractVersion;
+
+  if (
+    health.status !== 'ok' ||
+    contractVersion !== REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION
+  ) {
+    throw new Error('supervisor real read-only adapter invocation contract is stale or unavailable');
   }
 }
 
@@ -3330,6 +3344,7 @@ export async function attemptRealReadOnlyAdapterCommand(
   options: CodexExecRealReadOnlyAdapterAttemptCliOptions = {},
 ): Promise<Record<string, unknown>> {
   try {
+    await assertSupervisorRealReadOnlyAdapterInvocationContract();
     const response = await fetch(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt`,
       {
@@ -5992,6 +6007,9 @@ function createRealReadOnlyAdapterReadinessFallback(dryRunId: string): Record<st
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
     dashboardTriggerAllowed: false,
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
     degraded: true,
     notPersisted: true,
     reason: 'supervisor unavailable; local readiness fallback used and was not persisted',
@@ -6084,6 +6102,9 @@ function createRealReadOnlyAdapterAttemptRefusal(
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
     dashboardTriggerAllowed: false,
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
     degraded: true,
     notPersisted: true,
     fallbackRefused: true,

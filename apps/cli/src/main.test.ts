@@ -489,6 +489,24 @@ describe('cli development mock-run fallback', () => {
     const rawWorktreePath = 'C:/safe/isolated-worktree-runtime';
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ url: String(url), init });
+      if (String(url).endsWith('/health')) {
+        const { REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION } = await import(
+          '@codexhub/codex-kernel'
+        );
+
+        return new Response(
+          JSON.stringify({
+            service: 'codexhub-supervisor',
+            status: 'ok',
+            metadata: {
+              realReadOnlyAdapterCodexCliInvocationContractVersion:
+                REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+
       return new Response(
         JSON.stringify({
           status: 'blocked',
@@ -530,9 +548,10 @@ describe('cli development mock-run fallback', () => {
         worktree: rawWorktreePath,
       });
       const output = formatRealReadOnlyAdapterAttemptOutput(result);
-      const requestBody = JSON.parse(String(fetchCalls[0]?.init?.body));
+      const requestBody = JSON.parse(String(fetchCalls[1]?.init?.body));
 
-      expect(fetchCalls[0]?.url).toContain(
+      expect(fetchCalls[0]?.url).toContain('/health');
+      expect(fetchCalls[1]?.url).toContain(
         '/api/codex/exec/real-read-only-adapter/attempt',
       );
       expect(requestBody).toMatchObject({
@@ -549,6 +568,44 @@ describe('cli development mock-run fallback', () => {
       expect(JSON.stringify(result)).not.toContain(rawWorktreePath);
       expect(output).not.toContain(rawWorktreePath);
       expect(output).not.toContain('execution approval');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('refuses attempt authority when supervisor invocation contract is stale', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          service: 'codexhub-supervisor',
+          status: 'ok',
+          metadata: {
+            realReadOnlyAdapterCodexCliInvocationContractVersion: 'stale-contract',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    try {
+      const { attemptRealReadOnlyAdapterCommand } = await import('./main');
+      const result = await attemptRealReadOnlyAdapterCommand('codex_dry_run_fixture', {
+        approval: 'codex_approval_fixture',
+        worktree: 'C:/safe/stale-supervisor-worktree',
+      });
+
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).toContain('/health');
+      expect(result).toMatchObject({
+        authoritative: false,
+        degraded: true,
+        notPersisted: true,
+        fallbackRefused: true,
+      });
+      expect(JSON.stringify(result)).not.toContain('C:/safe/stale-supervisor-worktree');
     } finally {
       vi.unstubAllGlobals();
     }

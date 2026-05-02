@@ -88,6 +88,8 @@ import {
   createRealReadOnlyAdapterPostRunVerificationPlan,
   createRealReadOnlyAdapterAllowedProcessEnv,
   createRealReadOnlyAdapterProcessPlan,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
   resolveRealReadOnlyAdapterExecutable,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
@@ -2270,7 +2272,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(plan.workspaceWriteAllowed).toBe(false);
     expect(plan.dangerFullAccessAllowed).toBe(false);
     expect(plan.dashboardTriggerAllowed).toBe(false);
-    expect(plan.argv).toEqual(['exec', '--json', '--sandbox', 'read-only', '--ephemeral']);
+    expect(plan.argv).toEqual(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV);
+    expect(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH).toMatch(/^sha256:/);
     expect(plan.argv).not.toContain('--unsafe');
     expect(plan.argv).not.toContain('--jsonl');
     expect(plan.argv).not.toContain('read_only');
@@ -3333,6 +3336,43 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(
       timeline.entries.find((entry) => entry.status === 'blocked')?.boundaryDeferredReasonCode,
     ).toBe('executable_resolution_blocked');
+    const {
+      nonzeroExitKind: _legacyNonzeroExitKind,
+      ...legacyNonzeroDiagnostics
+    } = failedRecord.boundaryDiagnostics!;
+    const legacyNonzeroRecord = {
+      ...failedRecord,
+      id: 'codex_real_read_only_adapter_attempt_legacy_nonzero_kind',
+      boundaryDiagnostics: legacyNonzeroDiagnostics,
+      boundaryDiagnosticsComplete: false,
+      boundaryDiagnosticsMissingFields: [],
+      metadata: {
+        ...(failedRecord.metadata ?? {}),
+        boundaryNonzeroExitKind: undefined,
+        source: 'codex-kernel-test-legacy-nonzero-kind',
+      },
+    };
+    const legacyNonzeroSummary = summarizeRealReadOnlyAdapterAttempt(legacyNonzeroRecord);
+    const legacyNonzeroTimeline = createRealReadOnlyAdapterAttemptTimeline({
+      dryRunId: dryRunPlan.id,
+      records: [legacyNonzeroRecord],
+      query: {
+        dryRunId: dryRunPlan.id,
+        includeEvidence: true,
+        includeAudit: true,
+        limit: 1,
+      },
+    });
+
+    expect(legacyNonzeroSummary.boundaryDiagnostics?.nonzeroExitKind).toBe(
+      'codex_cli_usage_error_suspected',
+    );
+    expect(legacyNonzeroSummary.boundaryDiagnosticsComplete).toBe(true);
+    expect(legacyNonzeroSummary.boundaryDiagnosticsMissingFields).toEqual([]);
+    expect(
+      legacyNonzeroTimeline.entries[0]?.boundaryDiagnostics?.nonzeroExitKind,
+    ).toBe('codex_cli_usage_error_suspected');
+    expect(legacyNonzeroTimeline.entries[0]?.boundaryDiagnosticsComplete).toBe(true);
     const {
       boundaryDiagnostics: _legacyBoundaryDiagnostics,
       postRunVerificationSkipReason: _legacyPostRunVerificationSkipReason,

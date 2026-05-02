@@ -58,6 +58,21 @@ export type CodexExecRealReadOnlyAdapterNonzeroExitKind =
   | 'codex_cli_runtime_error_suspected'
   | 'unknown';
 
+export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION =
+  'codex_cli_invocation_v2_json_read_only_ephemeral_no_stdin_body';
+
+export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV = Object.freeze([
+  'exec',
+  '--json',
+  '--sandbox',
+  'read-only',
+  '--ephemeral',
+] as const);
+
+export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH = `sha256:${hashText(
+  JSON.stringify(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV),
+)}`;
+
 export type CodexExecRealReadOnlyAdapterBoundaryStartFailureKind =
   | 'none'
   | 'enoent'
@@ -719,13 +734,7 @@ export function createRealReadOnlyAdapterProcessPlan(
     dryRunId: input.dryRunId,
     approvalArtifactId: input.approvalArtifactId,
     executablePath: input.executablePath,
-    argv: [
-      'exec',
-      '--json',
-      '--sandbox',
-      'read-only',
-      '--ephemeral',
-    ],
+    argv: REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
     cwd: input.worktreePath,
     env: input.env ?? {},
     shell: false,

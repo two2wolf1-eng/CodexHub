@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createDefaultCodexExecConfigLoadResult,
   hashRealReadOnlyAdapterRuntimeWorktreePath,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
 } from '@codexhub/codex-kernel';
 import type { CodexExecRealReadOnlyAdapterExecutableResolution } from '@codexhub/codex-kernel';
 import { createSqliteStore } from '@codexhub/store-sqlite';
@@ -23,6 +26,38 @@ afterEach(() => {
 });
 
 describe('supervisor mock development API', () => {
+  it('reports the read-only adapter invocation contract in health metadata', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-health-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/health',
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      service: 'codexhub-supervisor',
+      status: 'ok',
+      metadata: {
+        realReadOnlyAdapterCodexCliInvocationContractVersion:
+          REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
+        realReadOnlyAdapterCodexCliArgvCount:
+          REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length,
+        realReadOnlyAdapterCodexCliArgvHash:
+          REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
+        realReadOnlyAdapterCodexCliStdinClosedWithoutBody: true,
+        realReadOnlyAdapterCodexCliArgvStored: false,
+      },
+    });
+    expect(response.body).not.toContain('"argv":');
+    expect(response.body).not.toContain('"executablePath":');
+  });
+
   it('runs and lists mock development orchestrations', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

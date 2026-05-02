@@ -59,6 +59,9 @@ import {
   resolveRealReadOnlyAdapterExecutable,
   runRealReadOnlyAdapterPostRunVerification,
   runRealReadOnlyAdapterProcessBoundary,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
+  REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
   buildRealReadOnlyAdapterPilotPrerequisiteRecord,
   createRealReadOnlyAdapterPilotPrerequisiteAuditEvents,
   createRealReadOnlyAdapterPilotPrerequisiteEvidenceRefs,
@@ -345,7 +348,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     observedAt: foundationTimestamp(),
     service: 'codexhub-supervisor',
     status: 'ok',
-    metadata: { mock: true },
+    metadata: {
+      mock: true,
+      realReadOnlyAdapterCodexCliInvocationContractVersion:
+        REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
+      realReadOnlyAdapterCodexCliArgvCount:
+        REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length,
+      realReadOnlyAdapterCodexCliArgvHash:
+        REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
+      realReadOnlyAdapterCodexCliStdinClosedWithoutBody: true,
+      realReadOnlyAdapterCodexCliArgvStored: false,
+    },
   }));
 
   server.post('/api/workflows/dry-run', async (request) => {
