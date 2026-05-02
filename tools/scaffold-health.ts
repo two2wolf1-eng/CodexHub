@@ -13,6 +13,7 @@ const expectedProjects = [
   'security-kernel',
   'workflow-kernel',
   'skill-registry',
+  'codex-exec-adapter',
   'codex-kernel',
   'store-sqlite',
   'store-core',

@@ -16,6 +16,7 @@
     "baseUrl": ".",
     "paths": {
       "@codexhub/browser-profile-kernel": ["packages/browser-profile-kernel/src/index.ts"],
+      "@codexhub/codex-exec-adapter": ["packages/codex-exec-adapter/src/index.ts"],
       "@codexhub/codex-kernel": ["packages/codex-kernel/src/index.ts"],
       "@codexhub/contracts": ["packages/contracts/src/index.ts"],
       "@codexhub/electron-cdp-kernel": ["packages/electron-cdp-kernel/src/index.ts"],
@@ -30,4 +31,3 @@
     }
   }
 }
-
