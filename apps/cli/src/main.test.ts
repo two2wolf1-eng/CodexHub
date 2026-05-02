@@ -734,13 +734,18 @@ describe('cli development mock-run fallback', () => {
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           startFailureKind: 'none',
+          enoentKind: 'none',
           platform: 'win32',
           resolvedExecutableKind: 'native_exe',
+          spawnTargetKind: 'native_exe',
           cwdHash: 'sha256:safe-cwd-hash',
           cwdExists: true,
           cwdIsDirectory: true,
+          executableHash: 'sha256:safe-executable-hash',
           executableExists: true,
           executableAccessible: true,
+          executableResolutionSource: 'direct_path',
+          dependencyResolutionStatus: 'not_applicable',
           envAllowlistKeyCount: 5,
           envAllowlistKeyHash: 'sha256:safe-env-keys-hash',
           exitCode: 2,
@@ -833,13 +838,20 @@ describe('cli development mock-run fallback', () => {
     expect(timelineOutput).not.toContain('execution approval');
     expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
     expect(diagnosticOutput).toContain('boundaryStartFailureKind=none');
+    expect(diagnosticOutput).toContain('boundaryEnoentKind=none');
     expect(diagnosticOutput).toContain('boundaryPlatform=win32');
     expect(diagnosticOutput).toContain('boundaryResolvedExecutableKind=native_exe');
+    expect(diagnosticOutput).toContain('boundarySpawnTargetKind=native_exe');
     expect(diagnosticOutput).toContain('boundaryCwdHash=sha256:safe-cwd-hash');
     expect(diagnosticOutput).toContain('boundaryCwdExists=true');
     expect(diagnosticOutput).toContain('boundaryCwdIsDirectory=true');
     expect(diagnosticOutput).toContain('boundaryExecutableExists=true');
     expect(diagnosticOutput).toContain('boundaryExecutableAccessible=true');
+    expect(diagnosticOutput).toContain('boundaryExecutableHash=sha256:safe-executable-hash');
+    expect(diagnosticOutput).toContain('boundaryExecutableResolutionSource=direct_path');
+    expect(diagnosticOutput).toContain(
+      'boundaryDependencyResolutionStatus=not_applicable',
+    );
     expect(diagnosticOutput).toContain('boundaryEnvAllowlistKeyCount=5');
     expect(diagnosticOutput).toContain(
       'boundaryEnvAllowlistKeyHash=sha256:safe-env-keys-hash',

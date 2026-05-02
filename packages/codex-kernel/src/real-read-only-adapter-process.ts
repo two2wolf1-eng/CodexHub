@@ -21,6 +21,36 @@ export type CodexExecRealReadOnlyAdapterResolvedExecutableKind =
   | 'shell_shim'
   | 'unknown';
 
+export type CodexExecRealReadOnlyAdapterEnoentKind =
+  | 'none'
+  | 'cwd_enoent'
+  | 'executable_enoent'
+  | 'windows_app_alias_enoent'
+  | 'dependency_or_spawn_target_enoent'
+  | 'unknown';
+
+export type CodexExecRealReadOnlyAdapterSpawnTargetKind =
+  | 'native_exe'
+  | 'bare_command'
+  | 'trusted_shell_shim_target'
+  | 'windows_app_alias'
+  | 'unknown';
+
+export type CodexExecRealReadOnlyAdapterExecutableResolutionSource =
+  | 'none'
+  | 'direct_path'
+  | 'trusted_shell_shim_target'
+  | 'blocked_shell_shim'
+  | 'blocked_windows_app_alias'
+  | 'not_found';
+
+export type CodexExecRealReadOnlyAdapterDependencyResolutionStatus =
+  | 'not_applicable'
+  | 'not_checked'
+  | 'dependency_missing_suspected'
+  | 'spawn_target_mismatch_suspected'
+  | 'unknown';
+
 export type CodexExecRealReadOnlyAdapterBoundaryStartFailureKind =
   | 'none'
   | 'enoent'
@@ -54,6 +84,8 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
   envAllowlistKeyHash: string;
   platform: string;
   resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKind;
+  spawnTargetKind: CodexExecRealReadOnlyAdapterSpawnTargetKind;
+  executableResolutionSource: CodexExecRealReadOnlyAdapterExecutableResolutionSource;
   executableExists: boolean;
   executableAccessible: boolean;
   executableAccessProbePassed?: boolean;
@@ -110,7 +142,13 @@ export interface CodexExecRealReadOnlyAdapterProcessPlanInput {
     | 'windowsNativeExecutableAccessProbeBypassed'
     | 'envAllowlistKeyCount'
     | 'envAllowlistKeyHash'
-  >;
+  > &
+    Partial<
+      Pick<
+        CodexExecRealReadOnlyAdapterExecutableResolved,
+        'spawnTargetKind' | 'executableResolutionSource'
+      >
+    >;
   cwdSelfCheck?: CodexExecRealReadOnlyAdapterRuntimeCwdSelfCheck;
   metadata?: JsonMetadata;
 }
@@ -168,13 +206,18 @@ export interface CodexExecRealReadOnlyAdapterProcessBoundaryResult {
   timedOut: boolean;
   cancelled: boolean;
   startFailureKind: CodexExecRealReadOnlyAdapterBoundaryStartFailureKind;
+  enoentKind?: CodexExecRealReadOnlyAdapterEnoentKind;
   platform: string;
   resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKind;
+  spawnTargetKind?: CodexExecRealReadOnlyAdapterSpawnTargetKind;
   cwdHash?: string;
   cwdExists?: boolean;
   cwdIsDirectory?: boolean;
+  executableHash?: string;
   executableExists?: boolean;
   executableAccessible?: boolean;
+  executableResolutionSource?: CodexExecRealReadOnlyAdapterExecutableResolutionSource;
+  dependencyResolutionStatus?: CodexExecRealReadOnlyAdapterDependencyResolutionStatus;
   envAllowlistKeyCount?: number;
   envAllowlistKeyHash?: string;
   stdoutSummary: CodexExecRealReadOnlyAdapterProcessOutputSummary;
@@ -339,6 +382,8 @@ export function resolveRealReadOnlyAdapterExecutable(
     metadataOnly: true as const,
     platform,
     resolvedExecutableKind: 'unknown' as const,
+    spawnTargetKind: 'unknown' as const,
+    executableResolutionSource: 'none' as const,
     executableExists: false,
     executableAccessible: false,
     ...envSummary,
@@ -361,10 +406,14 @@ export function resolveRealReadOnlyAdapterExecutable(
   const directExecutableNames = platform === 'win32' ? ['codex.exe', 'codex'] : ['codex'];
   const shellShimNames = platform === 'win32' ? ['codex.cmd', 'codex.bat'] : [];
   const directExecutables = findExecutablePaths(pathEntries, directExecutableNames, fileExists);
+  const windowsAppAliasDetected = directExecutables.some((candidate) =>
+    isWindowsPackagedAppResource(candidate.path, platform),
+  );
   const directExecutableCandidates = directExecutables
     .filter((candidate) => !isWindowsPackagedAppResource(candidate.path, platform))
     .map((candidate) => {
       const resolvedExecutableKind = classifyExecutableKind(candidate.name, platform);
+      const spawnTargetKind = classifySpawnTargetKind(resolvedExecutableKind);
       const executableAccessProbePassed = fileAccessible(candidate.path);
       const windowsNativeExecutableAccessProbeBypassed =
         shouldBypassWindowsNativeExecutableAccessProbe({
@@ -378,6 +427,7 @@ export function resolveRealReadOnlyAdapterExecutable(
       return {
         ...candidate,
         resolvedExecutableKind,
+        spawnTargetKind,
         executableAccessProbePassed,
         windowsNativeExecutableAccessProbeBypassed,
         executableAccessible,
@@ -404,6 +454,8 @@ export function resolveRealReadOnlyAdapterExecutable(
       executablePathHash: hashRuntimePath(directExecutable.path),
       env,
       resolvedExecutableKind: directExecutable.resolvedExecutableKind,
+      spawnTargetKind: directExecutable.spawnTargetKind,
+      executableResolutionSource: 'direct_path',
       executableExists: true,
       executableAccessible: true,
       executableAccessProbePassed: directExecutable.executableAccessProbePassed,
@@ -421,6 +473,8 @@ export function resolveRealReadOnlyAdapterExecutable(
       directExecutableFound: false,
       shellShimDetected: false,
       resolvedExecutableKind: inaccessibleDirectExecutable.resolvedExecutableKind,
+      spawnTargetKind: inaccessibleDirectExecutable.spawnTargetKind,
+      executableResolutionSource: 'direct_path',
       executableExists: true,
       executableAccessible: false,
       executableAccessProbePassed: inaccessibleDirectExecutable.executableAccessProbePassed,
@@ -461,6 +515,8 @@ export function resolveRealReadOnlyAdapterExecutable(
         directExecutableFound: false,
         shellShimDetected: true,
         resolvedExecutableKind,
+        spawnTargetKind: 'trusted_shell_shim_target',
+        executableResolutionSource: 'trusted_shell_shim_target',
         executableExists: true,
         executableAccessible: false,
         executableAccessProbePassed,
@@ -476,6 +532,8 @@ export function resolveRealReadOnlyAdapterExecutable(
       executablePathHash: hashRuntimePath(trustedShimTarget.path),
       env,
       resolvedExecutableKind,
+      spawnTargetKind: 'trusted_shell_shim_target',
+      executableResolutionSource: 'trusted_shell_shim_target',
       executableExists: true,
       executableAccessible: true,
       executableAccessProbePassed,
@@ -485,9 +543,7 @@ export function resolveRealReadOnlyAdapterExecutable(
 
   const shellShimDetected =
     shellShim !== undefined ||
-    directExecutables.some((candidate) =>
-      isWindowsPackagedAppResource(candidate.path, platform),
-    );
+    windowsAppAliasDetected;
 
   return {
     ...base,
@@ -496,6 +552,12 @@ export function resolveRealReadOnlyAdapterExecutable(
     directExecutableFound: false,
     shellShimDetected,
     resolvedExecutableKind: shellShimDetected ? 'shell_shim' : 'unknown',
+    spawnTargetKind: windowsAppAliasDetected ? 'windows_app_alias' : 'unknown',
+    executableResolutionSource: windowsAppAliasDetected
+      ? 'blocked_windows_app_alias'
+      : shellShimDetected
+        ? 'blocked_shell_shim'
+        : 'not_found',
     executableExists: shellShimDetected,
     executableAccessible: false,
   };
@@ -552,6 +614,14 @@ export function createRealReadOnlyAdapterProcessPlan(
       worktreePath: input.worktreePath,
     });
   const executableResolution = input.executableResolution;
+  const resolvedExecutableKind = executableResolution?.resolvedExecutableKind ?? 'unknown';
+  const spawnTargetKind =
+    executableResolution?.spawnTargetKind ?? classifySpawnTargetKind(resolvedExecutableKind);
+  const executableResolutionSource =
+    executableResolution?.executableResolutionSource ??
+    (executableResolution === undefined ? 'none' : 'direct_path');
+  const executablePathHash =
+    executableResolution?.executablePathHash ?? hashRuntimePath(input.executablePath);
 
   return {
     dryRunId: input.dryRunId,
@@ -590,8 +660,11 @@ export function createRealReadOnlyAdapterProcessPlan(
       readOnly: true,
       envPlanStored: false,
       platform: executableResolution?.platform ?? process.platform,
-      resolvedExecutableKind: executableResolution?.resolvedExecutableKind ?? 'unknown',
-      executablePathHash: executableResolution?.executablePathHash ?? hashRuntimePath(input.executablePath),
+      resolvedExecutableKind,
+      spawnTargetKind,
+      executableResolutionSource,
+      executablePathHash,
+      executableHash: executablePathHash,
       executableExists: executableResolution?.executableExists ?? true,
       executableAccessible: executableResolution?.executableAccessible ?? true,
       executableAccessProbePassed: executableResolution?.executableAccessProbePassed,
@@ -677,6 +750,32 @@ export async function runRealReadOnlyAdapterProcessBoundary(
     plan.metadata,
     'resolvedExecutableKind',
   );
+  const spawnTargetKind = readSpawnTargetKindMetadata(plan.metadata, 'spawnTargetKind');
+  const cwdExists = readBooleanMetadata(plan.metadata, 'cwdExists');
+  const cwdIsDirectory = readBooleanMetadata(plan.metadata, 'cwdIsDirectory');
+  const executableExists = readBooleanMetadata(plan.metadata, 'executableExists');
+  const executableAccessible = readBooleanMetadata(plan.metadata, 'executableAccessible');
+  const executableHash =
+    readStringMetadata(plan.metadata, 'executableHash') ??
+    readStringMetadata(plan.metadata, 'executablePathHash');
+  const executableResolutionSource = readExecutableResolutionSourceMetadata(
+    plan.metadata,
+    'executableResolutionSource',
+  );
+  const dependencyResolutionStatus = classifyDependencyResolutionStatus({
+    startFailureKind,
+    cwdExists,
+    cwdIsDirectory,
+    executableExists,
+    spawnTargetKind,
+  });
+  const enoentKind = classifyEnoentKind({
+    startFailureKind,
+    cwdExists,
+    cwdIsDirectory,
+    executableExists,
+    spawnTargetKind,
+  });
   const status =
     timedOut || cancelled
       ? 'aborted'
@@ -698,13 +797,18 @@ export async function runRealReadOnlyAdapterProcessBoundary(
     timedOut,
     cancelled,
     startFailureKind,
+    enoentKind,
     platform,
     resolvedExecutableKind,
+    spawnTargetKind,
     cwdHash: readStringMetadata(plan.metadata, 'cwdHash'),
-    cwdExists: readBooleanMetadata(plan.metadata, 'cwdExists'),
-    cwdIsDirectory: readBooleanMetadata(plan.metadata, 'cwdIsDirectory'),
-    executableExists: readBooleanMetadata(plan.metadata, 'executableExists'),
-    executableAccessible: readBooleanMetadata(plan.metadata, 'executableAccessible'),
+    cwdExists,
+    cwdIsDirectory,
+    executableHash,
+    executableExists,
+    executableAccessible,
+    executableResolutionSource,
+    dependencyResolutionStatus,
     envAllowlistKeyCount: readNumberMetadata(plan.metadata, 'envAllowlistKeyCount'),
     envAllowlistKeyHash: readStringMetadata(plan.metadata, 'envAllowlistKeyHash'),
     stdoutSummary: summarizeProcessOutput('stdout', runnerResult.stdout ?? ''),
@@ -727,13 +831,18 @@ export async function runRealReadOnlyAdapterProcessBoundary(
       shell: false,
       outputBodyStored: false,
       startFailureKind,
+      enoentKind,
       platform,
       resolvedExecutableKind,
+      spawnTargetKind,
       cwdHash: readStringMetadata(plan.metadata, 'cwdHash'),
-      cwdExists: readBooleanMetadata(plan.metadata, 'cwdExists'),
-      cwdIsDirectory: readBooleanMetadata(plan.metadata, 'cwdIsDirectory'),
-      executableExists: readBooleanMetadata(plan.metadata, 'executableExists'),
-      executableAccessible: readBooleanMetadata(plan.metadata, 'executableAccessible'),
+      cwdExists,
+      cwdIsDirectory,
+      executableHash,
+      executableExists,
+      executableAccessible,
+      executableResolutionSource,
+      dependencyResolutionStatus,
       envAllowlistKeyCount: readNumberMetadata(plan.metadata, 'envAllowlistKeyCount'),
       envAllowlistKeyHash: readStringMetadata(plan.metadata, 'envAllowlistKeyHash'),
     },
@@ -1126,7 +1235,12 @@ function isWindowsPackagedAppResource(path: string, platform: NodeJS.Platform): 
     return false;
   }
 
-  return path.replace(/\\/g, '/').toLowerCase().includes('/windowsapps/openai.codex_');
+  const normalized = path.replace(/\\/g, '/').toLowerCase();
+
+  return (
+    normalized.includes('/windowsapps/openai.codex_') ||
+    normalized.includes('/microsoft/windowsapps/')
+  );
 }
 
 function isDirectoryPath(path: string): boolean {
@@ -1200,4 +1314,107 @@ function readExecutableKindMetadata(
     value === 'unknown'
     ? value
     : 'unknown';
+}
+
+function classifySpawnTargetKind(
+  kind: CodexExecRealReadOnlyAdapterResolvedExecutableKind,
+): CodexExecRealReadOnlyAdapterSpawnTargetKind {
+  if (kind === 'native_exe') {
+    return 'native_exe';
+  }
+
+  if (kind === 'bare_command') {
+    return 'bare_command';
+  }
+
+  return 'unknown';
+}
+
+function readSpawnTargetKindMetadata(
+  metadata: JsonMetadata | undefined,
+  key: string,
+): CodexExecRealReadOnlyAdapterSpawnTargetKind {
+  const value = metadata?.[key];
+  return value === 'native_exe' ||
+    value === 'bare_command' ||
+    value === 'trusted_shell_shim_target' ||
+    value === 'windows_app_alias' ||
+    value === 'unknown'
+    ? value
+    : 'unknown';
+}
+
+function readExecutableResolutionSourceMetadata(
+  metadata: JsonMetadata | undefined,
+  key: string,
+): CodexExecRealReadOnlyAdapterExecutableResolutionSource {
+  const value = metadata?.[key];
+  return value === 'none' ||
+    value === 'direct_path' ||
+    value === 'trusted_shell_shim_target' ||
+    value === 'blocked_shell_shim' ||
+    value === 'blocked_windows_app_alias' ||
+    value === 'not_found'
+    ? value
+    : 'none';
+}
+
+function classifyEnoentKind(input: {
+  startFailureKind: CodexExecRealReadOnlyAdapterBoundaryStartFailureKind;
+  cwdExists?: boolean;
+  cwdIsDirectory?: boolean;
+  executableExists?: boolean;
+  spawnTargetKind?: CodexExecRealReadOnlyAdapterSpawnTargetKind;
+}): CodexExecRealReadOnlyAdapterEnoentKind {
+  if (input.startFailureKind !== 'enoent') {
+    return 'none';
+  }
+
+  if (input.cwdExists === false || input.cwdIsDirectory === false) {
+    return 'cwd_enoent';
+  }
+
+  if (input.executableExists === false) {
+    return 'executable_enoent';
+  }
+
+  if (input.spawnTargetKind === 'windows_app_alias') {
+    return 'windows_app_alias_enoent';
+  }
+
+  if (input.executableExists === true && input.cwdExists === true) {
+    return 'dependency_or_spawn_target_enoent';
+  }
+
+  return 'unknown';
+}
+
+function classifyDependencyResolutionStatus(input: {
+  startFailureKind: CodexExecRealReadOnlyAdapterBoundaryStartFailureKind;
+  cwdExists?: boolean;
+  cwdIsDirectory?: boolean;
+  executableExists?: boolean;
+  spawnTargetKind?: CodexExecRealReadOnlyAdapterSpawnTargetKind;
+}): CodexExecRealReadOnlyAdapterDependencyResolutionStatus {
+  if (input.startFailureKind !== 'enoent') {
+    return 'not_applicable';
+  }
+
+  if (
+    input.cwdExists === false ||
+    input.cwdIsDirectory === false ||
+    input.executableExists === false
+  ) {
+    return 'not_applicable';
+  }
+
+  if (input.spawnTargetKind === 'windows_app_alias') {
+    return 'spawn_target_mismatch_suspected';
+  }
+
+  if (input.executableExists === true && input.cwdExists === true) {
+    return 'dependency_missing_suspected';
+  }
+
+  return 'unknown';
 }

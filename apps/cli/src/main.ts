@@ -6954,13 +6954,18 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         boundaryDiagnostics?: {
           failureCode?: string;
           startFailureKind?: string;
+          enoentKind?: string;
           platform?: string;
           resolvedExecutableKind?: string;
+          spawnTargetKind?: string;
           cwdHash?: string;
           cwdExists?: boolean;
           cwdIsDirectory?: boolean;
+          executableHash?: string;
           executableExists?: boolean;
           executableAccessible?: boolean;
+          executableResolutionSource?: string;
+          dependencyResolutionStatus?: string;
           envAllowlistKeyCount?: number;
           envAllowlistKeyHash?: string;
           exitCode?: number;
@@ -7011,10 +7016,12 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     )}`,
     `boundaryFailureCode=${attempt?.boundaryDiagnostics?.failureCode ?? 'none'}`,
     `boundaryStartFailureKind=${attempt?.boundaryDiagnostics?.startFailureKind ?? 'none'}`,
+    `boundaryEnoentKind=${attempt?.boundaryDiagnostics?.enoentKind ?? 'none'}`,
     `boundaryPlatform=${attempt?.boundaryDiagnostics?.platform ?? 'unknown'}`,
     `boundaryResolvedExecutableKind=${
       attempt?.boundaryDiagnostics?.resolvedExecutableKind ?? 'unknown'
     }`,
+    `boundarySpawnTargetKind=${attempt?.boundaryDiagnostics?.spawnTargetKind ?? 'unknown'}`,
     `boundaryCwdHash=${attempt?.boundaryDiagnostics?.cwdHash ?? 'not-recorded'}`,
     `boundaryCwdExists=${String(attempt?.boundaryDiagnostics?.cwdExists ?? false)}`,
     `boundaryCwdIsDirectory=${String(
@@ -7026,6 +7033,13 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `boundaryExecutableAccessible=${String(
       attempt?.boundaryDiagnostics?.executableAccessible ?? false,
     )}`,
+    `boundaryExecutableHash=${attempt?.boundaryDiagnostics?.executableHash ?? 'not-recorded'}`,
+    `boundaryExecutableResolutionSource=${
+      attempt?.boundaryDiagnostics?.executableResolutionSource ?? 'none'
+    }`,
+    `boundaryDependencyResolutionStatus=${
+      attempt?.boundaryDiagnostics?.dependencyResolutionStatus ?? 'not_applicable'
+    }`,
     `boundaryEnvAllowlistKeyCount=${String(
       attempt?.boundaryDiagnostics?.envAllowlistKeyCount ?? 0,
     )}`,

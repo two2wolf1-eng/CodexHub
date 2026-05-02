@@ -3254,6 +3254,52 @@ export type CodexExecRealReadOnlyAdapterResolvedExecutableKind = z.infer<
   typeof CodexExecRealReadOnlyAdapterResolvedExecutableKindSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterEnoentKindSchema = z.enum([
+  'none',
+  'cwd_enoent',
+  'executable_enoent',
+  'windows_app_alias_enoent',
+  'dependency_or_spawn_target_enoent',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterEnoentKind = z.infer<
+  typeof CodexExecRealReadOnlyAdapterEnoentKindSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterSpawnTargetKindSchema = z.enum([
+  'native_exe',
+  'bare_command',
+  'trusted_shell_shim_target',
+  'windows_app_alias',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterSpawnTargetKind = z.infer<
+  typeof CodexExecRealReadOnlyAdapterSpawnTargetKindSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterExecutableResolutionSourceSchema = z.enum([
+  'none',
+  'direct_path',
+  'trusted_shell_shim_target',
+  'blocked_shell_shim',
+  'blocked_windows_app_alias',
+  'not_found',
+]);
+export type CodexExecRealReadOnlyAdapterExecutableResolutionSource = z.infer<
+  typeof CodexExecRealReadOnlyAdapterExecutableResolutionSourceSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterDependencyResolutionStatusSchema = z.enum([
+  'not_applicable',
+  'not_checked',
+  'dependency_missing_suspected',
+  'spawn_target_mismatch_suspected',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterDependencyResolutionStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterDependencyResolutionStatusSchema
+>;
+
 export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEntityBaseSchema
   .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
   .extend({
@@ -3264,11 +3310,18 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEnti
     resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKindSchema.default(
       'unknown',
     ),
+    enoentKind: CodexExecRealReadOnlyAdapterEnoentKindSchema.optional(),
+    spawnTargetKind: CodexExecRealReadOnlyAdapterSpawnTargetKindSchema.optional(),
     cwdHash: z.string().min(1).optional(),
     cwdExists: z.boolean().optional(),
     cwdIsDirectory: z.boolean().optional(),
+    executableHash: z.string().min(1).optional(),
     executableExists: z.boolean().optional(),
     executableAccessible: z.boolean().optional(),
+    executableResolutionSource:
+      CodexExecRealReadOnlyAdapterExecutableResolutionSourceSchema.optional(),
+    dependencyResolutionStatus:
+      CodexExecRealReadOnlyAdapterDependencyResolutionStatusSchema.optional(),
     envAllowlistKeyCount: z.number().int().nonnegative().optional(),
     envAllowlistKeyHash: z.string().min(1).optional(),
     exitCode: z.number().int().optional(),
@@ -3298,11 +3351,16 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema =
   'startFailureKind',
   'platform',
   'resolvedExecutableKind',
+  'enoentKind',
+  'spawnTargetKind',
   'cwdHash',
   'cwdExists',
   'cwdIsDirectory',
+  'executableHash',
   'executableExists',
   'executableAccessible',
+  'executableResolutionSource',
+  'dependencyResolutionStatus',
   'envAllowlistKeyCount',
   'envAllowlistKeyHash',
   'exitCode',

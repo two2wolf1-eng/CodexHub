@@ -2040,6 +2040,8 @@ describe('supervisor mock development API', () => {
       envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
       platform: 'win32',
       resolvedExecutableKind: 'native_exe',
+      spawnTargetKind: 'native_exe',
+      executableResolutionSource: 'direct_path',
       executablePathHash: 'sha256:supervisor-test-executable-path',
       executableExists: true,
       executableAccessible: true,
@@ -2251,6 +2253,8 @@ describe('supervisor mock development API', () => {
       envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
       platform: 'win32',
       resolvedExecutableKind: 'shell_shim',
+      spawnTargetKind: 'unknown',
+      executableResolutionSource: 'blocked_shell_shim',
       executableExists: true,
       executableAccessible: false,
     };

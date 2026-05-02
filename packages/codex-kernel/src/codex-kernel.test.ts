@@ -2348,6 +2348,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(resolved.shell).toBe(false);
     expect(resolved.executablePath.replace(/\\/g, '/')).toBe('C:/native/codex.exe');
     expect(resolved.resolvedExecutableKind).toBe('native_exe');
+    expect(resolved.spawnTargetKind).toBe('native_exe');
+    expect(resolved.executableResolutionSource).toBe('direct_path');
     expect(resolved.platform).toBe('win32');
     expect(resolved.executablePathHash).toMatch(/^sha256:/);
     expect(resolved.executableExists).toBe(true);
@@ -2392,6 +2394,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       'C:/native/codex.exe',
     );
     expect(laterAccessibleNative.resolvedExecutableKind).toBe('native_exe');
+    expect(laterAccessibleNative.spawnTargetKind).toBe('native_exe');
     expect(laterAccessibleNative.executableAccessible).toBe(true);
     expect(laterAccessibleNative.executableAccessProbePassed).toBe(true);
     expect(laterAccessibleNative.windowsNativeExecutableAccessProbeBypassed).toBe(false);
@@ -2409,6 +2412,7 @@ describe('codex-kernel live control-plane skeleton', () => {
 
   it('uses a trusted Windows shim only to discover a native executable outside packaged app resources', () => {
     const npmShimDir = 'C:/Users/Example/AppData/Roaming/npm';
+    const appAliasDir = 'C:/Users/Example/AppData/Local/Microsoft/WindowsApps';
     const packagedAppDir =
       'C:/Program Files/WindowsApps/OpenAI.Codex_26.429.3425.0_x64__2p2nqsd0c76g0/app/resources';
     const trustedTarget =
@@ -2417,6 +2421,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     const fileExists = (candidate: string): boolean =>
       [
         `${npmShimDir}/codex.cmd`,
+        `${appAliasDir}/codex.exe`,
         `${packagedAppDir}/codex.exe`,
         `${packagedAppDir}/codex`,
         trustedTarget,
@@ -2429,7 +2434,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     const resolved = resolveRealReadOnlyAdapterExecutable({
       policyLabel: 'codex_cli',
       env: {
-        PATH: `${npmShimDir};${packagedAppDir}`,
+        PATH: `${appAliasDir};${npmShimDir};${packagedAppDir}`,
         PATHEXT: '.COM;.EXE;.CMD',
         SystemRoot: 'C:/Windows',
         TEMP: 'C:/Temp',
@@ -2449,6 +2454,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(normalize(resolved.executablePath)).not.toContain('/WindowsApps/OpenAI.Codex_');
     expect(resolved.shell).toBe(false);
     expect(resolved.resolvedExecutableKind).toBe('native_exe');
+    expect(resolved.spawnTargetKind).toBe('trusted_shell_shim_target');
+    expect(resolved.executableResolutionSource).toBe('trusted_shell_shim_target');
     expect(resolved.executablePathStored).toBe(false);
     expect(resolved.envPlanStored).toBe(false);
     expect(resolved.argvStored).toBe(false);
@@ -2847,13 +2854,22 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(diagnostics.nonzero.failureCode).toBe('process_exit_nonzero');
     expect(diagnostics.startFailure.failureCode).toBe('process_start_failed');
     expect(diagnostics.startFailure.startFailureKind).toBe('enoent');
+    expect(diagnostics.startFailure.enoentKind).toBe(
+      'dependency_or_spawn_target_enoent',
+    );
     expect(diagnostics.startFailure.platform).toBe('win32');
     expect(diagnostics.startFailure.resolvedExecutableKind).toBe('native_exe');
+    expect(diagnostics.startFailure.spawnTargetKind).toBe('native_exe');
     expect(diagnostics.startFailure.cwdHash).toBe('sha256:diagnostics-cwd');
     expect(diagnostics.startFailure.cwdExists).toBe(true);
     expect(diagnostics.startFailure.cwdIsDirectory).toBe(true);
+    expect(diagnostics.startFailure.executableHash).toBe('sha256:diagnostics-executable');
     expect(diagnostics.startFailure.executableExists).toBe(true);
     expect(diagnostics.startFailure.executableAccessible).toBe(true);
+    expect(diagnostics.startFailure.executableResolutionSource).toBe('direct_path');
+    expect(diagnostics.startFailure.dependencyResolutionStatus).toBe(
+      'dependency_missing_suspected',
+    );
     expect(diagnostics.startFailure.envAllowlistKeyCount).toBe(2);
     expect(diagnostics.startFailure.envAllowlistKeyHash).toBe('sha256:diagnostics-env-keys');
     expect(diagnostics.timeout.failureCode).toBe('process_timed_out');

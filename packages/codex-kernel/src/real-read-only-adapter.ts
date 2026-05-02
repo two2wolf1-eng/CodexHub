@@ -686,13 +686,18 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
     status: boundaryResult.status,
     failureCode,
     startFailureKind: boundaryResult.startFailureKind,
+    enoentKind: boundaryResult.enoentKind,
     platform: boundaryResult.platform,
     resolvedExecutableKind: boundaryResult.resolvedExecutableKind,
+    spawnTargetKind: boundaryResult.spawnTargetKind,
     cwdHash: boundaryResult.cwdHash,
     cwdExists: boundaryResult.cwdExists,
     cwdIsDirectory: boundaryResult.cwdIsDirectory,
+    executableHash: boundaryResult.executableHash,
     executableExists: boundaryResult.executableExists,
     executableAccessible: boundaryResult.executableAccessible,
+    executableResolutionSource: boundaryResult.executableResolutionSource,
+    dependencyResolutionStatus: boundaryResult.dependencyResolutionStatus,
     envAllowlistKeyCount: boundaryResult.envAllowlistKeyCount,
     envAllowlistKeyHash: boundaryResult.envAllowlistKeyHash,
     exitCode: boundaryResult.exitCode,
@@ -718,13 +723,18 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
         boundaryStatus: boundaryResult.status,
         boundaryFailureCode: failureCode,
         boundaryStartFailureKind: boundaryResult.startFailureKind,
+        boundaryEnoentKind: boundaryResult.enoentKind,
         boundaryPlatform: boundaryResult.platform,
         boundaryResolvedExecutableKind: boundaryResult.resolvedExecutableKind,
+        boundarySpawnTargetKind: boundaryResult.spawnTargetKind,
         cwdHash: boundaryResult.cwdHash,
         cwdExists: boundaryResult.cwdExists,
         cwdIsDirectory: boundaryResult.cwdIsDirectory,
+        executableHash: boundaryResult.executableHash,
         executableExists: boundaryResult.executableExists,
         executableAccessible: boundaryResult.executableAccessible,
+        executableResolutionSource: boundaryResult.executableResolutionSource,
+        dependencyResolutionStatus: boundaryResult.dependencyResolutionStatus,
         envAllowlistKeyCount: boundaryResult.envAllowlistKeyCount,
         envAllowlistKeyHash: boundaryResult.envAllowlistKeyHash,
         outputBodyStored: false,
@@ -734,6 +744,11 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
     ),
   };
 }
+
+type BoundaryDiagnosticDataField = Exclude<
+  CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField,
+  'boundaryDiagnostics' | 'postRunVerificationSkipReason'
+>;
 
 const requiredBoundaryDiagnosticFields = [
   'status',
@@ -760,7 +775,15 @@ const requiredBoundaryDiagnosticFields = [
   'stdoutTruncated',
   'stderrTruncated',
   'externalProcessStarted',
-] as const satisfies ReadonlyArray<CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField>;
+] as const satisfies ReadonlyArray<BoundaryDiagnosticDataField>;
+
+const requiredProcessStartDiagnosticFields = [
+  'enoentKind',
+  'spawnTargetKind',
+  'executableHash',
+  'executableResolutionSource',
+  'dependencyResolutionStatus',
+] as const satisfies ReadonlyArray<BoundaryDiagnosticDataField>;
 
 function uniqueBoundaryDiagnosticMissingFields(
   fields: CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField[],
@@ -770,7 +793,7 @@ function uniqueBoundaryDiagnosticMissingFields(
 
 function hasBoundaryDiagnosticField(
   diagnostics: CodexExecRealReadOnlyAdapterBoundaryDiagnostics,
-  field: (typeof requiredBoundaryDiagnosticFields)[number],
+  field: BoundaryDiagnosticDataField,
 ): boolean {
   return diagnostics[field] !== undefined && diagnostics[field] !== null;
 }
@@ -813,6 +836,14 @@ export function getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(
       record.boundaryDiagnostics.signal === undefined
     ) {
       missingFields.push('signal');
+    }
+
+    if (record.boundaryDiagnostics.failureCode === 'process_start_failed') {
+      for (const field of requiredProcessStartDiagnosticFields) {
+        if (!hasBoundaryDiagnosticField(record.boundaryDiagnostics, field)) {
+          missingFields.push(field);
+        }
+      }
     }
   }
 
@@ -895,13 +926,18 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           cancelled: boundaryResult.cancelled,
           boundaryFailureCode: boundaryDiagnostics.failureCode,
           startFailureKind: boundaryDiagnostics.startFailureKind,
+          enoentKind: boundaryDiagnostics.enoentKind,
           platform: boundaryDiagnostics.platform,
           resolvedExecutableKind: boundaryDiagnostics.resolvedExecutableKind,
+          spawnTargetKind: boundaryDiagnostics.spawnTargetKind,
           cwdHash: boundaryDiagnostics.cwdHash,
           cwdExists: boundaryDiagnostics.cwdExists,
           cwdIsDirectory: boundaryDiagnostics.cwdIsDirectory,
+          executableHash: boundaryDiagnostics.executableHash,
           executableExists: boundaryDiagnostics.executableExists,
           executableAccessible: boundaryDiagnostics.executableAccessible,
+          executableResolutionSource: boundaryDiagnostics.executableResolutionSource,
+          dependencyResolutionStatus: boundaryDiagnostics.dependencyResolutionStatus,
           envAllowlistKeyCount: boundaryDiagnostics.envAllowlistKeyCount,
           envAllowlistKeyHash: boundaryDiagnostics.envAllowlistKeyHash,
           durationMs: boundaryDiagnostics.durationMs,
@@ -927,13 +963,18 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           cancelled: boundaryResult.cancelled,
           boundaryFailureCode: boundaryDiagnostics.failureCode,
           startFailureKind: boundaryDiagnostics.startFailureKind,
+          enoentKind: boundaryDiagnostics.enoentKind,
           platform: boundaryDiagnostics.platform,
           resolvedExecutableKind: boundaryDiagnostics.resolvedExecutableKind,
+          spawnTargetKind: boundaryDiagnostics.spawnTargetKind,
           cwdHash: boundaryDiagnostics.cwdHash,
           cwdExists: boundaryDiagnostics.cwdExists,
           cwdIsDirectory: boundaryDiagnostics.cwdIsDirectory,
+          executableHash: boundaryDiagnostics.executableHash,
           executableExists: boundaryDiagnostics.executableExists,
           executableAccessible: boundaryDiagnostics.executableAccessible,
+          executableResolutionSource: boundaryDiagnostics.executableResolutionSource,
+          dependencyResolutionStatus: boundaryDiagnostics.dependencyResolutionStatus,
           envAllowlistKeyCount: boundaryDiagnostics.envAllowlistKeyCount,
           envAllowlistKeyHash: boundaryDiagnostics.envAllowlistKeyHash,
           stdoutSummary: boundaryResult.stdoutSummary,
@@ -1245,13 +1286,18 @@ export function createRealReadOnlyAdapterAttemptRecord(
         blockedCheckCodes,
         boundaryFailureCode: boundaryDiagnostics?.failureCode,
         boundaryStartFailureKind: boundaryDiagnostics?.startFailureKind,
+        boundaryEnoentKind: boundaryDiagnostics?.enoentKind,
         boundaryPlatform: boundaryDiagnostics?.platform,
         boundaryResolvedExecutableKind: boundaryDiagnostics?.resolvedExecutableKind,
+        boundarySpawnTargetKind: boundaryDiagnostics?.spawnTargetKind,
         boundaryCwdHash: boundaryDiagnostics?.cwdHash,
         boundaryCwdExists: boundaryDiagnostics?.cwdExists,
         boundaryCwdIsDirectory: boundaryDiagnostics?.cwdIsDirectory,
+        boundaryExecutableHash: boundaryDiagnostics?.executableHash,
         boundaryExecutableExists: boundaryDiagnostics?.executableExists,
         boundaryExecutableAccessible: boundaryDiagnostics?.executableAccessible,
+        boundaryExecutableResolutionSource: boundaryDiagnostics?.executableResolutionSource,
+        boundaryDependencyResolutionStatus: boundaryDiagnostics?.dependencyResolutionStatus,
         boundaryEnvAllowlistKeyCount: boundaryDiagnostics?.envAllowlistKeyCount,
         boundaryEnvAllowlistKeyHash: boundaryDiagnostics?.envAllowlistKeyHash,
         boundaryExitCode: boundaryDiagnostics?.exitCode,
@@ -1327,13 +1373,20 @@ export function summarizeRealReadOnlyAdapterAttempt(
       resultErrorCode: alignedRecord.resultErrorCode,
       boundaryFailureCode: alignedRecord.boundaryDiagnostics?.failureCode,
       boundaryStartFailureKind: alignedRecord.boundaryDiagnostics?.startFailureKind,
+      boundaryEnoentKind: alignedRecord.boundaryDiagnostics?.enoentKind,
       boundaryPlatform: alignedRecord.boundaryDiagnostics?.platform,
       boundaryResolvedExecutableKind: alignedRecord.boundaryDiagnostics?.resolvedExecutableKind,
+      boundarySpawnTargetKind: alignedRecord.boundaryDiagnostics?.spawnTargetKind,
       boundaryCwdHash: alignedRecord.boundaryDiagnostics?.cwdHash,
       boundaryCwdExists: alignedRecord.boundaryDiagnostics?.cwdExists,
       boundaryCwdIsDirectory: alignedRecord.boundaryDiagnostics?.cwdIsDirectory,
+      boundaryExecutableHash: alignedRecord.boundaryDiagnostics?.executableHash,
       boundaryExecutableExists: alignedRecord.boundaryDiagnostics?.executableExists,
       boundaryExecutableAccessible: alignedRecord.boundaryDiagnostics?.executableAccessible,
+      boundaryExecutableResolutionSource:
+        alignedRecord.boundaryDiagnostics?.executableResolutionSource,
+      boundaryDependencyResolutionStatus:
+        alignedRecord.boundaryDiagnostics?.dependencyResolutionStatus,
       boundaryEnvAllowlistKeyCount: alignedRecord.boundaryDiagnostics?.envAllowlistKeyCount,
       boundaryEnvAllowlistKeyHash: alignedRecord.boundaryDiagnostics?.envAllowlistKeyHash,
       boundaryDiagnosticsComplete: alignedRecord.boundaryDiagnosticsComplete,
@@ -1417,13 +1470,18 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       resultErrorCode: record.resultErrorCode,
       boundaryFailureCode: record.boundaryDiagnostics?.failureCode,
       boundaryStartFailureKind: record.boundaryDiagnostics?.startFailureKind,
+      boundaryEnoentKind: record.boundaryDiagnostics?.enoentKind,
       boundaryPlatform: record.boundaryDiagnostics?.platform,
       boundaryResolvedExecutableKind: record.boundaryDiagnostics?.resolvedExecutableKind,
+      boundarySpawnTargetKind: record.boundaryDiagnostics?.spawnTargetKind,
       boundaryCwdHash: record.boundaryDiagnostics?.cwdHash,
       boundaryCwdExists: record.boundaryDiagnostics?.cwdExists,
       boundaryCwdIsDirectory: record.boundaryDiagnostics?.cwdIsDirectory,
+      boundaryExecutableHash: record.boundaryDiagnostics?.executableHash,
       boundaryExecutableExists: record.boundaryDiagnostics?.executableExists,
       boundaryExecutableAccessible: record.boundaryDiagnostics?.executableAccessible,
+      boundaryExecutableResolutionSource: record.boundaryDiagnostics?.executableResolutionSource,
+      boundaryDependencyResolutionStatus: record.boundaryDiagnostics?.dependencyResolutionStatus,
       boundaryEnvAllowlistKeyCount: record.boundaryDiagnostics?.envAllowlistKeyCount,
       boundaryEnvAllowlistKeyHash: record.boundaryDiagnostics?.envAllowlistKeyHash,
       boundaryDiagnosticsComplete: record.boundaryDiagnosticsComplete,
