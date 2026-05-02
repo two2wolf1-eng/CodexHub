@@ -44,7 +44,10 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
 
   const riskLevel = input.riskLevel ?? inferRiskLevel(input.actionType);
   const requiresDryRun = input.actionMode === 'write';
-  const requiresApproval = riskLevel === 'high' || riskLevel === 'critical';
+  const requiresApproval =
+    riskLevel === 'high' ||
+    riskLevel === 'critical' ||
+    (input.actionMode === 'write' && !isWriteApprovalExempt(input));
   const reasons: string[] = [];
 
   let outcome: PolicyDecision['outcome'] = 'allow';
@@ -54,7 +57,11 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
     reasons.push('write action requires dry-run before execution');
   } else if (requiresApproval && input.approvalGranted !== true) {
     outcome = 'approval_required';
-    reasons.push(`${riskLevel} risk action requires explicit approval`);
+    reasons.push(
+      input.actionMode === 'write'
+        ? 'real write action requires explicit approval'
+        : `${riskLevel} risk action requires explicit approval`,
+    );
   } else {
     reasons.push('policy rules allow this foundation-only action');
   }
@@ -73,6 +80,20 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
     requiresApproval,
     metadata: input.metadata,
   };
+}
+
+function isWriteApprovalExempt(input: PolicyActionInput): boolean {
+  const metadata = input.metadata ?? {};
+  const normalizedActionType = input.actionType.toLowerCase();
+
+  return (
+    metadata.mockOnly === true ||
+    metadata.noRealWrite === true ||
+    metadata.dryRunOnly === true ||
+    normalizedActionType.includes('dry_run') ||
+    normalizedActionType.includes('dry-run') ||
+    normalizedActionType.includes('mock')
+  );
 }
 
 export function inferRiskLevel(actionType: string): RiskLevel {

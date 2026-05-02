@@ -489,6 +489,105 @@ describe('contracts schemas', () => {
     expect(preflight.status).toBe('blocked');
   });
 
+  it('parses real read-only adapter process-start state as authoritative metadata', () => {
+    const realBoundaryFlags = {
+      liveExecution: false,
+      externalProcessStarted: true,
+      executionDisabled: true,
+      processAdapterStarted: true,
+      processAdapterApproved: false,
+      implementationApproved: false,
+      recommendationGrantsExecution: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+      metadataOnly: true,
+      bodyStored: false,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      agentMessageBodyStored: false,
+      reasoningBodyStored: false,
+    } as const;
+    const evidenceSummary = CodexExecRealReadOnlyAdapterEvidenceSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_evidence_summary_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      requestId: 'codex_real_read_only_adapter_request_1',
+      resultId: 'codex_real_read_only_adapter_result_1',
+      evidenceRefIds: ['evidence_1'],
+      eventHashCount: 2,
+      outputHashCount: 2,
+      metadataHash: 'sha256:evidence',
+      redacted: true,
+      summary: 'Metadata-only evidence summary.',
+      ...realBoundaryFlags,
+    });
+    const auditSummary = CodexExecRealReadOnlyAdapterAuditSummarySchema.parse({
+      id: 'codex_real_read_only_adapter_audit_summary_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      requestId: 'codex_real_read_only_adapter_request_1',
+      resultId: 'codex_real_read_only_adapter_result_1',
+      auditEventIds: ['audit_1'],
+      beforeStartRequired: true,
+      afterFinishRequired: true,
+      abortRequired: true,
+      failureRequired: true,
+      eventCount: 1,
+      summary: 'Metadata-only audit summary.',
+      ...realBoundaryFlags,
+    });
+    const result = CodexExecRealReadOnlyAdapterResultSchema.parse({
+      id: 'codex_real_read_only_adapter_result_1',
+      schemaVersion,
+      createdAt,
+      requestId: 'codex_real_read_only_adapter_request_1',
+      dryRunId: 'codex_dry_run_1',
+      preflightId: 'codex_real_read_only_adapter_preflight_1',
+      status: 'completed',
+      evidenceSummary,
+      auditSummary,
+      postRunVerificationRequired: true,
+      workspaceMutationAllowed: false,
+      unexpectedWorkspaceDiffCritical: true,
+      autoRevertAllowed: false,
+      summary: 'Boundary completed with metadata-only process state.',
+      ...realBoundaryFlags,
+    });
+    const noLiveEvidence = CodexExecNoLiveEvidenceSummarySchema.parse({
+      id: 'codex_no_live_evidence_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'codex_dry_run_1',
+      noRealCodexExec: true,
+      noExternalProcessStarted: false,
+      noBrowserOrCdpAction: true,
+      noWorkspaceWrite: true,
+      noExecutionApprovalGranted: true,
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      evidenceKinds: ['codex.exec.real_read_only_adapter.attempt'],
+      auditActions: ['codex.exec.real_read_only_adapter.complete'],
+      summary: 'Boundary was invoked through the real read-only adapter path.',
+      recommendationGrantsExecution: false,
+      metadataOnly: true,
+      bodyStored: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.processAdapterStarted).toBe(true);
+    expect(result.evidenceSummary?.externalProcessStarted).toBe(true);
+    expect(result.auditSummary?.externalProcessStarted).toBe(true);
+    expect(noLiveEvidence.noExternalProcessStarted).toBe(false);
+  });
+
   it('parses codex config load and manual approval records', () => {
     const config = CodexExecLiveConfigSchema.parse({
       id: 'codex_live_config_1',
@@ -2698,8 +2797,35 @@ describe('contracts schemas', () => {
       stdoutTruncated: false,
       stderrTruncated: false,
       externalProcessStarted: true,
+      governedInputVerified: true,
+      governedInputSourceKind: 'governed_file',
+      governedInputRelativePathHash: 'sha256:input-path',
+      governedInputContentHash: 'sha256:input-content',
+      governedInputByteLength: 42,
+      governedInputLineCount: 1,
+      promptArgumentHash: 'sha256:prompt-argument',
+      promptArgumentStored: false,
       summary: 'Boundary diagnostics stores hashes and counts only.',
     });
+    const governedBoundaryDeferredDiagnostics =
+      CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema.parse({
+        id: 'codex_real_read_only_adapter_boundary_deferred_governed_input_1',
+        schemaVersion,
+        createdAt,
+        ...flagFields,
+        reasonCode: 'governed_input_missing',
+        reasonCodes: ['governed_input_missing'],
+        preflightStatus: 'passed',
+        runtimeWorktreeProvided: true,
+        approvalInputProvided: true,
+        executableResolutionStatus: 'resolved',
+        cwdSelfCheckStatus: 'passed',
+        governedInputProvided: false,
+        governedInputVerified: false,
+        governedInputReasonCode: 'governed_input_missing',
+        processBoundaryReady: false,
+        summary: 'Boundary deferred because governed input was not verified.',
+      });
 
     expect(config.defaultEnabled).toBe(false);
     expect(request.dryRunId).toBe('codex_dry_run_1');
@@ -2715,6 +2841,9 @@ describe('contracts schemas', () => {
     expect(result.commandBodyStored).toBe(false);
     expect(result.stdoutBodyStored).toBe(false);
     expect(result.stderrBodyStored).toBe(false);
+    expect(boundaryDiagnostics.governedInputVerified).toBe(true);
+    expect(boundaryDiagnostics.promptArgumentStored).toBe(false);
+    expect(governedBoundaryDeferredDiagnostics.reasonCode).toBe('governed_input_missing');
     const approvalAuthority = CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema.parse({
       id: 'codex_real_read_only_adapter_approval_authority_1',
       schemaVersion,

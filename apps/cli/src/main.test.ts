@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('cli development mock-run fallback', () => {
+  beforeEach(() => {
+    process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
+  });
+
   it('falls back to local mock orchestration when supervisor is unavailable', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const { mockRunDevelopment } = await import('./main');
@@ -426,6 +430,8 @@ describe('cli development mock-run fallback', () => {
     const result = await attemptRealReadOnlyAdapterCommand('codex_dry_run_fixture', {
       approval: 'codex_approval_fixture',
       worktree: 'C:/safe/isolated-worktree',
+      governedInput: '.codexhub/governed-input.md',
+      governedInputHash: 'sha256:governed-input',
     });
     const output = formatRealReadOnlyAdapterAttemptOutput(result);
 
@@ -468,6 +474,7 @@ describe('cli development mock-run fallback', () => {
         'dry_run_hash_match',
         'policy_hash_match',
         'isolated_worktree_clean',
+        'governed_input_verified',
         'evidence_store_ready',
         'audit_store_ready',
       ]),
@@ -487,6 +494,8 @@ describe('cli development mock-run fallback', () => {
   it('sends runtime worktree input only to the supervisor attempt path', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     const rawWorktreePath = 'C:/safe/isolated-worktree-runtime';
+    const governedInputRelativePath = '.codexhub/governed-input.md';
+    const governedInputHash = 'sha256:governed-input';
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ url: String(url), init });
       if (String(url).endsWith('/health')) {
@@ -546,6 +555,8 @@ describe('cli development mock-run fallback', () => {
       const result = await attemptRealReadOnlyAdapterCommand('codex_dry_run_fixture', {
         approval: 'codex_approval_fixture',
         worktree: rawWorktreePath,
+        governedInput: governedInputRelativePath,
+        governedInputHash,
       });
       const output = formatRealReadOnlyAdapterAttemptOutput(result);
       const requestBody = JSON.parse(String(fetchCalls[1]?.init?.body));
@@ -559,6 +570,8 @@ describe('cli development mock-run fallback', () => {
         approvalArtifactId: 'codex_approval_fixture',
         isolatedWorktreeProvided: true,
         worktreePath: rawWorktreePath,
+        governedInputRelativePath,
+        governedInputContentHash: governedInputHash,
       });
       expect(result).toMatchObject({
         authoritative: true,
@@ -566,7 +579,9 @@ describe('cli development mock-run fallback', () => {
         notPersisted: false,
       });
       expect(JSON.stringify(result)).not.toContain(rawWorktreePath);
+      expect(JSON.stringify(result)).not.toContain(governedInputRelativePath);
       expect(output).not.toContain(rawWorktreePath);
+      expect(output).not.toContain(governedInputRelativePath);
       expect(output).not.toContain('execution approval');
     } finally {
       vi.unstubAllGlobals();
@@ -595,6 +610,8 @@ describe('cli development mock-run fallback', () => {
       const result = await attemptRealReadOnlyAdapterCommand('codex_dry_run_fixture', {
         approval: 'codex_approval_fixture',
         worktree: 'C:/safe/stale-supervisor-worktree',
+        governedInput: '.codexhub/governed-input.md',
+        governedInputHash: 'sha256:governed-input',
       });
 
       expect(fetchCalls).toHaveLength(1);

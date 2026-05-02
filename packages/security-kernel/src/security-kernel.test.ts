@@ -24,6 +24,30 @@ describe('security-kernel policy evaluation', () => {
     expect(decision.requiresDryRun).toBe(true);
   });
 
+  it('requires approval for real medium write actions after dry-run', () => {
+    const realWriteDecision = evaluateAction({
+      actionId: 'write-patch',
+      actionType: 'workspace.patch.write',
+      actionMode: 'write',
+      dryRun: true,
+    });
+    const mockWriteDecision = evaluateAction({
+      actionId: 'write-patch-dry-run',
+      actionType: 'workspace.patch.dry_run',
+      actionMode: 'write',
+      dryRun: true,
+      metadata: {
+        noRealWrite: true,
+      },
+    });
+
+    expect(realWriteDecision.riskLevel).toBe('medium');
+    expect(realWriteDecision.outcome).toBe('approval_required');
+    expect(realWriteDecision.requiresApproval).toBe(true);
+    expect(mockWriteDecision.outcome).toBe('allow');
+    expect(mockWriteDecision.requiresApproval).toBe(false);
+  });
+
   it('requires approval for high-risk browser input placeholders', () => {
     const decision = evaluateAction({
       actionId: 'browser-input',

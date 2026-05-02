@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { PolicyDecision } from '@codexhub/contracts';
+import { hashText } from '@codexhub/evidence-kernel';
 import {
   createCodexExecDisabledLiveRunRecord,
   createCodexExecDryRunPlan,
@@ -87,6 +88,7 @@ import {
   createRealReadOnlyAdapterResultFromBoundary,
   createRealReadOnlyAdapterPostRunVerificationPlan,
   createRealReadOnlyAdapterAllowedProcessEnv,
+  verifyRealReadOnlyAdapterGovernedInputSource,
   createRealReadOnlyAdapterProcessPlan,
   REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
   REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
@@ -1962,6 +1964,9 @@ describe('codex-kernel live control-plane skeleton', () => {
         metadata: {
           runtimeWorktreeProvided: true,
           approvalInputProvided: true,
+          governedInputProvided: true,
+          governedInputVerified: true,
+          governedInputContentHash: 'sha256:governed-input',
           executableResolutionStatus: 'blocked',
           executableResolutionReasonCode: 'executable_inaccessible',
           cwdSelfCheckStatus: 'passed',
@@ -1993,6 +1998,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
     });
@@ -2004,6 +2010,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: 'sha256:mismatch',
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
     });
@@ -2015,6 +2022,18 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'dirty' },
+      governedInput: createVerifiedGovernedInput(),
+      evidenceStoreReady: true,
+      auditStoreReady: true,
+    });
+    const missingGovernedInput = createRealReadOnlyAdapterGuardPreflight({
+      config: enabledConfig,
+      dryRunPlan: plan,
+      policyDecision,
+      approvalArtifact,
+      expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
+      expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
+      worktree: { isolated: true, status: 'clean' },
       evidenceStoreReady: true,
       auditStoreReady: true,
     });
@@ -2032,6 +2051,22 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(
       dirtyWorktree.checks.find((check) => check.code === 'isolated_worktree_clean')?.status,
     ).toBe('failed');
+    expect(missingGovernedInput.status).toBe('failed');
+    expect(
+      missingGovernedInput.checks.find((check) => check.code === 'governed_input_verified')
+        ?.status,
+    ).toBe('failed');
+    expect(
+      createRealReadOnlyAdapterBlockedResult({
+        request: createRealReadOnlyAdapterRequest({
+          dryRunId: plan.id,
+          config: enabledConfig,
+          approvalArtifactId: approvalArtifact.id,
+        }),
+        preflight: missingGovernedInput,
+        config: enabledConfig,
+      }).error?.code,
+    ).toBe('governed_input_missing');
     expect(JSON.stringify({ missingApproval, hashMismatch, dirtyWorktree })).not.toContain(
       '"argv":',
     );
@@ -2171,6 +2206,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       requestedSandboxMode: 'workspace_write',
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
     });
@@ -2183,6 +2219,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       requestedSandboxMode: 'danger_full_access',
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
     });
@@ -2195,6 +2232,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       triggerKind: 'dashboard',
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
     });
@@ -2234,6 +2272,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
       now: '2026-04-30T00:00:00.000Z',
@@ -2263,6 +2302,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       approvalArtifactId: 'codex_approval_artifact_process_boundary',
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/hash-only-in-tests',
+      governedInput: createVerifiedGovernedInput(),
       timeoutMs: 1_000,
       metadata: { ignoredArgv: ['--unsafe'] },
     });
@@ -2272,7 +2312,11 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(plan.workspaceWriteAllowed).toBe(false);
     expect(plan.dangerFullAccessAllowed).toBe(false);
     expect(plan.dashboardTriggerAllowed).toBe(false);
-    expect(plan.argv).toEqual(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV);
+    expect(plan.argv.slice(0, REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length)).toEqual(
+      REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
+    );
+    expect(plan.argv).toHaveLength(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length + 1);
+    expect(plan.argv.at(-1)).toContain('.codexhub/governed-input.md');
     expect(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH).toMatch(/^sha256:/);
     expect(plan.argv).not.toContain('--unsafe');
     expect(plan.argv).not.toContain('--jsonl');
@@ -2284,6 +2328,11 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(plan.commandBodyStored).toBe(false);
     expect(plan.stdinBodyStored).toBe(false);
     expect(plan.stdinClosedWithoutBody).toBe(true);
+    expect(plan.governedInputRequired).toBe(true);
+    expect(plan.governedInputVerified).toBe(true);
+    expect(plan.governedInputContentHash).toMatch(/^sha256:/);
+    expect(plan.promptArgumentHash).toMatch(/^sha256:/);
+    expect(plan.promptArgumentStored).toBe(false);
     expect(plan.stdoutBodyStored).toBe(false);
     expect(plan.stderrBodyStored).toBe(false);
   });
@@ -2578,6 +2627,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       approvalArtifactId: 'codex_approval_artifact_process_summary',
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/process-summary',
+      governedInput: createVerifiedGovernedInput(),
       timeoutMs: 1_000,
     });
     const result = await runRealReadOnlyAdapterProcessBoundary(plan, {
@@ -2619,6 +2669,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       approvalArtifactId: 'codex_approval_artifact_process_abort',
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/process-abort',
+      governedInput: createVerifiedGovernedInput(),
       timeoutMs: 1_000,
     });
     const timedOut = await runRealReadOnlyAdapterProcessBoundary(plan, {
@@ -2684,6 +2735,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: false,
       auditStoreReady: false,
       now: '2026-04-30T00:00:00.000Z',
@@ -2767,6 +2819,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
       now: '2026-04-30T00:00:00.000Z',
@@ -2776,6 +2829,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       approvalArtifactId: approvalArtifact.id,
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/telemetry',
+      governedInput: createVerifiedGovernedInput(),
       timeoutMs: 1_000,
     });
     const completedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
@@ -2880,6 +2934,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       approvalArtifactId: approvalArtifact.id,
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/diagnostics',
+      governedInput: createVerifiedGovernedInput(),
       timeoutMs: 1_000,
       executableResolution: {
         platform: 'win32',
@@ -3027,6 +3082,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       expectedDryRunPlanHash: approvalArtifact.dryRunPlanHash,
       expectedPolicyDecisionHash: approvalArtifact.policyDecisionHash,
       worktree: { isolated: true, status: 'clean' },
+      governedInput: createVerifiedGovernedInput(),
       evidenceStoreReady: true,
       auditStoreReady: true,
       now: '2026-04-30T00:00:00.000Z',
@@ -3041,6 +3097,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       approvalArtifactId: approvalArtifact.id,
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/attempt-record',
+      governedInput: createVerifiedGovernedInput(),
       timeoutMs: 1_000,
       executableResolution: {
         platform: 'win32',
@@ -3160,6 +3217,9 @@ describe('codex-kernel live control-plane skeleton', () => {
       metadata: {
         runtimeWorktreeProvided: true,
         approvalInputProvided: true,
+        governedInputProvided: true,
+        governedInputVerified: true,
+        governedInputContentHash: 'sha256:governed-input',
         executableResolutionStatus: 'blocked',
         executableResolutionReasonCode: 'executable_inaccessible',
         cwdSelfCheckStatus: 'passed',
@@ -3294,6 +3354,11 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(abortedRecord.resultErrorCode).toBe('boundary_aborted');
     expect(abortedRecord.boundaryDiagnostics?.failureCode).toBe('process_timed_out');
     expect(completedRecord.processBoundaryInvoked).toBe(true);
+    expect(completedRecord.externalProcessStarted).toBe(true);
+    expect(completedRecord.processAdapterStarted).toBe(true);
+    expect(completedRecord.evidenceSummary?.externalProcessStarted).toBe(true);
+    expect(completedRecord.auditSummary?.externalProcessStarted).toBe(true);
+    expect(blockedRecord.externalProcessStarted).toBe(false);
     expect(completedRecord.executionDisabled).toBe(true);
     expect(completedRecord.implementationApproved).toBe(false);
     expect(completedRecord.processAdapterApproved).toBe(false);
@@ -3309,6 +3374,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     );
     expect(summaries).toHaveLength(4);
     expect(timeline.eventCount).toBe(4);
+    expect(timeline.externalProcessStarted).toBe(true);
+    expect(timeline.processAdapterStarted).toBe(true);
     expect(timeline.evidenceRefCount).toBeGreaterThan(0);
     expect(timeline.auditEventCount).toBeGreaterThan(0);
     expect(timeline.entries.map((entry) => entry.status).sort()).toEqual([
@@ -3321,6 +3388,14 @@ describe('codex-kernel live control-plane skeleton', () => {
       timeline.entries.find((entry) => entry.status === 'failed')?.boundaryDiagnostics
         ?.failureCode,
     ).toBe('process_exit_nonzero');
+    expect(
+      timeline.entries.find((entry) => entry.status === 'completed')
+        ?.externalProcessStarted,
+    ).toBe(true);
+    expect(
+      timeline.entries.find((entry) => entry.status === 'blocked')
+        ?.externalProcessStarted,
+    ).toBe(false);
     expect(
       timeline.entries.find((entry) => entry.status === 'failed')
         ?.boundaryDiagnosticsComplete,
@@ -4102,6 +4177,29 @@ function createFullTimelineFixture() {
 
 function readFixture(name: string): string {
   return readFileSync(join('fixtures', name), 'utf8');
+}
+
+function createVerifiedGovernedInput(
+  relativePath = '.codexhub/governed-input.md',
+  text = 'Summarize repository structure without making changes.',
+) {
+  const verification = verifyRealReadOnlyAdapterGovernedInputSource({
+    worktreePath: 'C:/safe/worktree',
+    source: {
+      sourceKind: 'governed_file',
+      relativePath,
+      expectedContentHash: `sha256:${hashText(text)}`,
+    },
+    pathExists: () => true,
+    realPath: (path) => path,
+    readTextFile: () => text,
+  });
+
+  if (verification.status !== 'verified') {
+    throw new Error('expected test governed input to verify');
+  }
+
+  return verification;
 }
 
 function fixedClock(values: string[]): () => string {

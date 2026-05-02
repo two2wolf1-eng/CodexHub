@@ -1661,7 +1661,7 @@ export const CodexExecNoLiveEvidenceSummarySchema = createdEntityBaseSchema
   .extend({
     dryRunId: z.string().min(1),
     noRealCodexExec: z.literal(true),
-    noExternalProcessStarted: z.literal(true),
+    noExternalProcessStarted: z.boolean().default(true),
     noBrowserOrCdpAction: z.literal(true),
     noWorkspaceWrite: z.literal(true),
     noExecutionApprovalGranted: z.literal(true),
@@ -2988,6 +2988,8 @@ export type CodexExecRealReadOnlyAdapterReadinessReviewQuery = z.infer<
 
 const codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema =
   codexExecReadOnlyAdapterImplementationPlanReviewFlagsSchema.extend({
+    externalProcessStarted: z.boolean().default(false),
+    processAdapterStarted: z.boolean().default(false),
     promptBodyStored: z.literal(false),
     commandBodyStored: z.literal(false),
     stdoutBodyStored: z.literal(false),
@@ -3205,6 +3207,7 @@ export const CodexExecRealReadOnlyAdapterErrorCodeSchema = z.enum([
   'worktree_not_isolated',
   'worktree_dirty',
   'store_degraded',
+  'governed_input_missing',
   'preflight_failed',
   'boundary_deferred',
   'boundary_failed',
@@ -3318,6 +3321,8 @@ export const CodexExecRealReadOnlyAdapterBoundaryDeferredReasonCodeSchema = z.en
   'executable_resolution_blocked',
   'cwd_self_check_not_run',
   'cwd_self_check_failed',
+  'governed_input_missing',
+  'governed_input_not_verified',
   'boundary_result_missing_after_ready',
   'unknown',
 ]);
@@ -3341,6 +3346,10 @@ export const CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnosticsSchema =
     sourcePreparationReady: z.boolean().optional(),
     prerequisiteReady: z.boolean().optional(),
     worktreePathHashMatched: z.boolean().optional(),
+    governedInputProvided: z.boolean().default(false),
+    governedInputVerified: z.boolean().default(false),
+    governedInputReasonCode: z.string().min(1).optional(),
+    governedInputContentHash: z.string().min(1).optional(),
     processBoundaryReady: z.boolean(),
     summary: z.string().min(1),
   });
@@ -3387,6 +3396,14 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEnti
     stdoutTruncated: z.boolean(),
     stderrTruncated: z.boolean(),
     externalProcessStarted: z.boolean(),
+    governedInputVerified: z.boolean().optional(),
+    governedInputSourceKind: z.literal('governed_file').optional(),
+    governedInputRelativePathHash: z.string().min(1).optional(),
+    governedInputContentHash: z.string().min(1).optional(),
+    governedInputByteLength: z.number().int().nonnegative().optional(),
+    governedInputLineCount: z.number().int().nonnegative().optional(),
+    promptArgumentHash: z.string().min(1).optional(),
+    promptArgumentStored: z.literal(false).optional(),
     summary: z.string().min(1),
   });
 export type CodexExecRealReadOnlyAdapterBoundaryDiagnostics = z.infer<
@@ -3427,6 +3444,9 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema =
   'stdoutTruncated',
   'stderrTruncated',
   'externalProcessStarted',
+  'governedInputVerified',
+  'governedInputContentHash',
+  'promptArgumentHash',
   'postRunVerificationSkipReason',
 ]);
 export type CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingField = z.infer<

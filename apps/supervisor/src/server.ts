@@ -54,6 +54,8 @@ import {
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
   createRealReadOnlyAdapterProcessPlan,
+  verifyRealReadOnlyAdapterGovernedInputSource,
+  createBlockedRealReadOnlyAdapterGovernedInputVerification,
   createRealReadOnlyAdapterRuntimeCwdSelfCheck,
   createRealReadOnlyAdapterPostRunVerificationPlan,
   resolveRealReadOnlyAdapterExecutable,
@@ -150,6 +152,7 @@ import type {
   CodexExecRealReadOnlyAdapterProcessRunner,
 } from '@codexhub/codex-kernel';
 import type {
+  AuditEvent,
   CodexExecApprovalArtifact,
   CodexExecApprovalDecisionOutcome,
   CodexExecApprovalMode,
@@ -214,6 +217,7 @@ import type {
   CodexExecTimelineFilter,
   CodexReplaySummary,
   CodexReplayRecord,
+  EvidenceRef,
 } from '@codexhub/contracts';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
@@ -229,6 +233,8 @@ import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow
 interface SupervisorServerOptions {
   store?: CodexHubStore;
   disableStore?: boolean;
+  localControlKey?: string;
+  trustedOrigins?: string[];
   configLoadResult?: CodexExecConfigLoadResult;
   realReadOnlyAdapterExecutableResolver?: () => CodexExecRealReadOnlyAdapterExecutableResolution;
   realReadOnlyAdapterProcessRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
@@ -241,8 +247,23 @@ interface PersistenceState {
   reason?: string;
 }
 
+const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
+const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
+const LOCAL_CONTROL_ENV_VAR = ['CODEXHUB_SUPERVISOR_LOCAL_', LOCAL_CONTROL_KEY_KIND.toUpperCase()].join('');
+const LOCAL_CONTROL_REQUIRED_ERROR = ['local_control', LOCAL_CONTROL_KEY_KIND, 'required'].join('_');
+const LOCAL_CONTROL_NOT_CONFIGURED_ERROR = [
+  'local_control',
+  LOCAL_CONTROL_KEY_KIND,
+  'not_configured',
+].join('_');
+const INVALID_LOCAL_CONTROL_ERROR = ['invalid_local_control', LOCAL_CONTROL_KEY_KIND].join('_');
+const DEFAULT_TRUSTED_ORIGIN_PORTS = new Set(['3000', '3001', '4173', '5173', '5174']);
+
 export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const server = Fastify({ logger: true });
+  const localControlKey =
+    options.localControlKey ?? process.env[LOCAL_CONTROL_ENV_VAR];
+  const trustedOrigins = new Set(options.trustedOrigins ?? []);
   const workflowRunner = new WorkflowRunner();
   const observationSource = new MockObservationSource('codexhub.mock.supervisor');
   const mockDevelopmentRuns: MockDevelopmentOrchestrationResult[] = [];
@@ -327,13 +348,63 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
-  server.addHook('onRequest', async (_request, reply) => {
-    reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Access-Control-Allow-Headers', 'content-type');
+  server.addHook('onRequest', async (request, reply) => {
+    const origin = readHeaderValue(request.headers.origin);
+    const trustedOrigin = origin ? isTrustedOrigin(origin, trustedOrigins) : false;
+
+    reply.header('Access-Control-Allow-Headers', `content-type, ${LOCAL_CONTROL_HEADER}`);
     reply.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+
+    if (origin) {
+      reply.header('Vary', 'Origin');
+
+      if (!trustedOrigin) {
+        return reply.code(403).send({
+          error: 'untrusted_origin',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      reply.header('Access-Control-Allow-Origin', origin);
+    }
+
+    if (request.method === 'OPTIONS') {
+      if (!hasPreflightLocalControlHeader(request.headers['access-control-request-headers'])) {
+        return reply.code(401).send({
+          error: LOCAL_CONTROL_REQUIRED_ERROR,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return reply.code(204).send();
+    }
+
+    if (request.method === 'POST') {
+      if (!localControlKey) {
+        return reply.code(503).send({
+          error: LOCAL_CONTROL_NOT_CONFIGURED_ERROR,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      if (readHeaderValue(request.headers[LOCAL_CONTROL_HEADER]) !== localControlKey) {
+        return reply.code(401).send({
+          error: INVALID_LOCAL_CONTROL_ERROR,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+    }
   });
 
-  server.options('*', async () => ({ ok: true }));
+  server.options('*', async () => undefined);
 
   server.addHook('onClose', async () => {
     if (ownedStore) {
@@ -357,6 +428,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       realReadOnlyAdapterCodexCliArgvHash:
         REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
       realReadOnlyAdapterCodexCliStdinClosedWithoutBody: true,
+      realReadOnlyAdapterCodexCliGovernedInputRequired: true,
+      realReadOnlyAdapterCodexCliPromptArgumentStored: false,
       realReadOnlyAdapterCodexCliArgvStored: false,
     },
   }));
@@ -959,8 +1032,49 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   server.post('/api/codex/exec/evaluate-gate', async (request, reply) => {
     const body = request.body as
-      | { dryRunId?: string; approvalArtifact?: CodexExecApprovalArtifact }
+      | {
+          dryRunId?: string;
+          approvalArtifactId?: string;
+          approvalArtifact?: unknown;
+        }
       | undefined;
+
+    if (
+      body !== undefined &&
+      Object.prototype.hasOwnProperty.call(body, 'approvalArtifact')
+    ) {
+      const store = await getStore();
+      const record = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+      const evidenceRefs = createUntrustedApprovalArtifactBodyEvidenceRefs(body.dryRunId);
+      const auditEvents = createUntrustedApprovalArtifactBodyAuditEvents(
+        body.dryRunId,
+        evidenceRefs,
+      );
+
+      if (record) {
+        await persistCodexExecLiveRunRecord(
+          {
+            ...record,
+            evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+            auditEvents: [...record.auditEvents, ...auditEvents],
+          },
+          store,
+          evidenceRefs,
+          auditEvents,
+        );
+      }
+
+      return reply.code(400).send({
+        error: 'untrusted_approval_artifact_body',
+        dryRunId: body.dryRunId,
+        evidenceRefs,
+        auditEvents,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
     const store = await getStore();
     const configLoadResult = await getLiveConfigLoadResult();
     const liveConfig = configLoadResult.config;
@@ -970,7 +1084,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply.code(404).send({ error: 'dry-run record was not found' });
     }
 
-    const approvalArtifact = body?.approvalArtifact ?? record.approvalArtifact;
+    const resolvedApprovalRecord = await resolveExactApprovalAuthorityRecord({
+      dryRunPlanId: record.dryRunPlanId,
+      approvalArtifactId: body?.approvalArtifactId,
+      store,
+    });
+    const approvalArtifact =
+      body?.approvalArtifactId !== undefined
+        ? resolvedApprovalRecord?.approvalArtifact
+        : record.approvalArtifact;
     const executionGateResult = evaluateCodexExecExecutionGate(
       record.dryRunPlan,
       record.policyDecision,
@@ -2751,6 +2873,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           policyDecisionId?: string;
           isolatedWorktreeProvided?: boolean;
           worktreePath?: string;
+          governedInputRelativePath?: string;
+          governedInputContentHash?: string;
         }
       | undefined;
 
@@ -2867,6 +2991,26 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         : undefined;
     const worktreePathHashMatched =
       expectedWorktreePathHash !== undefined && runtimeWorktreePathHash === expectedWorktreePathHash;
+    const governedInputSource =
+      body.worktreePath &&
+      body.governedInputRelativePath &&
+      body.governedInputContentHash
+        ? {
+            sourceKind: 'governed_file' as const,
+            relativePath: body.governedInputRelativePath,
+            expectedContentHash: body.governedInputContentHash,
+          }
+        : undefined;
+    const governedInputVerification =
+      body.worktreePath && governedInputSource
+        ? verifyRealReadOnlyAdapterGovernedInputSource({
+            worktreePath: body.worktreePath,
+            source: governedInputSource,
+          })
+        : createBlockedRealReadOnlyAdapterGovernedInputVerification(
+            'governed_input_missing',
+            governedInputSource,
+          );
     const isolatedCleanWorktreeMetadataPresent =
       latestSourcePreparation?.isolatedCleanWorktreeMetadataPresent === true ||
       latestPrerequisite?.isolatedCleanWorktreeMetadataPresent === true;
@@ -2882,6 +3026,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           body.isolatedWorktreeProvided === true || body.worktreePath !== undefined,
         runtimeWorktreeProvided: body.worktreePath !== undefined,
         approvalInputProvided: body.approvalArtifactId !== undefined,
+        governedInputProvided: governedInputSource !== undefined,
+        governedInputVerified: governedInputVerification.status === 'verified',
+        governedInputReasonCode:
+          governedInputVerification.status === 'blocked'
+            ? governedInputVerification.reasonCode
+            : undefined,
+        governedInputSourceKind: governedInputVerification.sourceKind,
+        governedInputRelativePathHash: governedInputVerification.relativePathHash,
+        governedInputContentHash: governedInputVerification.contentHash,
+        governedInputExpectedContentHash: governedInputVerification.expectedContentHash,
+        governedInputByteLength: governedInputVerification.byteLength,
+        governedInputLineCount: governedInputVerification.lineCount,
+        governedInputBodyStored: false,
+        promptBodyStored: false,
+        promptArgumentStored: false,
         configLoadStatus: configLoadResult.status,
         configSource: configLoadResult.source,
         dryRunRecordPresent: dryRunRecord !== undefined,
@@ -2928,6 +3087,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           isolatedCleanWorktreeMetadataPresent && worktreePathHashMatched ? 'clean' : 'missing',
         pathHash: worktreePathHashMatched ? runtimeWorktreePathHash : undefined,
       },
+      governedInput: governedInputVerification,
       evidenceStoreReady: evidenceAuditReady,
       auditStoreReady: evidenceAuditReady,
       metadata: {
@@ -2944,6 +3104,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         latestPolicySourceId: latestPolicySource?.id,
         sourcePreparationReady: authoritativeSourcePreparationPresent,
         prerequisiteReady: authoritativePrerequisiteReady,
+        governedInputProvided: governedInputSource !== undefined,
+        governedInputVerified: governedInputVerification.status === 'verified',
+        governedInputReasonCode:
+          governedInputVerification.status === 'blocked'
+            ? governedInputVerification.reasonCode
+            : undefined,
+        governedInputSourceKind: governedInputVerification.sourceKind,
+        governedInputRelativePathHash: governedInputVerification.relativePathHash,
+        governedInputContentHash: governedInputVerification.contentHash,
+        governedInputExpectedContentHash: governedInputVerification.expectedContentHash,
+        governedInputByteLength: governedInputVerification.byteLength,
+        governedInputLineCount: governedInputVerification.lineCount,
+        governedInputBodyStored: false,
+        promptBodyStored: false,
+        promptArgumentStored: false,
         worktreePathStored: false,
       },
     });
@@ -2959,6 +3134,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const boundaryResult =
       executableResolution?.status === 'resolved' &&
       cwdSelfCheck?.status === 'passed' &&
+      governedInputVerification.status === 'verified' &&
       body.worktreePath &&
       body.approvalArtifactId
         ? await runRealReadOnlyAdapterProcessBoundary(
@@ -2968,6 +3144,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               executablePath: executableResolution.executablePath,
               executablePolicyLabel: 'codex_cli',
               worktreePath: body.worktreePath,
+              governedInput: governedInputVerification,
               env: executableResolution.env,
               timeoutMs: 60_000,
               executableResolution,
@@ -2989,6 +3166,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
                 cwdIsDirectory: cwdSelfCheck.cwdIsDirectory,
                 cwdPathStored: false,
                 worktreePathStored: false,
+                governedInputVerified: true,
+                governedInputSourceKind: governedInputVerification.sourceKind,
+                governedInputRelativePathHash: governedInputVerification.relativePathHash,
+                governedInputContentHash: governedInputVerification.contentHash,
+                governedInputByteLength: governedInputVerification.byteLength,
+                governedInputLineCount: governedInputVerification.lineCount,
+                governedInputBodyStored: false,
+                promptBodyStored: false,
+                promptArgumentStored: false,
                 source: 'apps.supervisor.real-read-only-adapter.attempt-process-plan',
               },
             }),
@@ -3012,6 +3198,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
               runtimeWorktreeProvided: body.worktreePath !== undefined,
               approvalInputProvided: body.approvalArtifactId !== undefined,
+              governedInputProvided: governedInputSource !== undefined,
+              governedInputVerified: governedInputVerification.status === 'verified',
+              governedInputReasonCode:
+                governedInputVerification.status === 'blocked'
+                  ? governedInputVerification.reasonCode
+                  : undefined,
+              governedInputSourceKind: governedInputVerification.sourceKind,
+              governedInputRelativePathHash: governedInputVerification.relativePathHash,
+              governedInputContentHash: governedInputVerification.contentHash,
+              governedInputExpectedContentHash: governedInputVerification.expectedContentHash,
+              governedInputByteLength: governedInputVerification.byteLength,
+              governedInputLineCount: governedInputVerification.lineCount,
+              governedInputBodyStored: false,
+              promptBodyStored: false,
+              promptArgumentStored: false,
               executableResolutionStatus: executableResolution?.status,
               executableResolutionReasonCode:
                 executableResolution?.status === 'blocked'
@@ -3091,6 +3292,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               cwdIsDirectory: cwdSelfCheck?.cwdIsDirectory,
               cwdPathStored: false,
               worktreePathStored: false,
+              governedInputVerified: governedInputVerification.status === 'verified',
+              governedInputSourceKind: governedInputVerification.sourceKind,
+              governedInputRelativePathHash: governedInputVerification.relativePathHash,
+              governedInputContentHash: governedInputVerification.contentHash,
+              governedInputByteLength: governedInputVerification.byteLength,
+              governedInputLineCount: governedInputVerification.lineCount,
+              governedInputBodyStored: false,
+              promptBodyStored: false,
+              promptArgumentStored: false,
             },
           });
     const postRunVerificationResult =
@@ -3145,6 +3355,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
         runtimeWorktreeProvided: body.worktreePath !== undefined,
         approvalInputProvided: body.approvalArtifactId !== undefined,
+        governedInputProvided: governedInputSource !== undefined,
+        governedInputVerified: governedInputVerification.status === 'verified',
+        governedInputReasonCode:
+          governedInputVerification.status === 'blocked'
+            ? governedInputVerification.reasonCode
+            : undefined,
+        governedInputSourceKind: governedInputVerification.sourceKind,
+        governedInputRelativePathHash: governedInputVerification.relativePathHash,
+        governedInputContentHash: governedInputVerification.contentHash,
+        governedInputExpectedContentHash: governedInputVerification.expectedContentHash,
+        governedInputByteLength: governedInputVerification.byteLength,
+        governedInputLineCount: governedInputVerification.lineCount,
+        governedInputBodyStored: false,
+        promptBodyStored: false,
+        promptArgumentStored: false,
         executablePolicyLabel: 'codex_cli',
         executableResolutionStatus: executableResolution?.status,
         executableResolutionReasonCode:
@@ -3219,6 +3444,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalPolicyHashMatched: approvalAuthority.summary.policyHashMatched,
         runtimeWorktreeProvided: body.worktreePath !== undefined,
         approvalInputProvided: body.approvalArtifactId !== undefined,
+        governedInputProvided: governedInputSource !== undefined,
+        governedInputVerified: governedInputVerification.status === 'verified',
+        governedInputReasonCode:
+          governedInputVerification.status === 'blocked'
+            ? governedInputVerification.reasonCode
+            : undefined,
+        governedInputSourceKind: governedInputVerification.sourceKind,
+        governedInputRelativePathHash: governedInputVerification.relativePathHash,
+        governedInputContentHash: governedInputVerification.contentHash,
+        governedInputExpectedContentHash: governedInputVerification.expectedContentHash,
+        governedInputByteLength: governedInputVerification.byteLength,
+        governedInputLineCount: governedInputVerification.lineCount,
+        governedInputBodyStored: false,
+        promptBodyStored: false,
+        promptArgumentStored: false,
         executablePolicyLabel: 'codex_cli',
         executableResolutionStatus: executableResolution?.status,
         executableResolutionReasonCode:
@@ -3438,7 +3678,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         persisted: true,
         degraded: false,
         notPersisted: false,
-        ...realReadOnlyAdapterAttemptSafetyFlags,
+        ...createRealReadOnlyAdapterAttemptRuntimeFlags(alignedAttempts),
         reason: persistenceState.reason,
       };
     },
@@ -5912,7 +6152,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       persisted: true,
       degraded: false,
       notPersisted: false,
-      ...realReadOnlyAdapterAttemptSafetyFlags,
+      ...createRealReadOnlyAdapterAttemptRuntimeFlags(alignedAttemptRecord),
       reason: persistenceState.reason,
     };
   }
@@ -5934,7 +6174,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       persisted: true,
       degraded: false,
       notPersisted: false,
-      ...realReadOnlyAdapterAttemptSafetyFlags,
+      ...createRealReadOnlyAdapterAttemptRuntimeFlags(alignedAttempts),
       reason: persistenceState.reason,
     };
   }
@@ -6478,6 +6718,23 @@ const realReadOnlyAdapterAttemptSafetyFlags = {
   dangerFullAccessAllowed: false,
   dashboardTriggerAllowed: false,
 } as const;
+
+function createRealReadOnlyAdapterAttemptRuntimeFlags(
+  attempts:
+    | CodexExecRealReadOnlyAdapterAttemptRecord
+    | CodexExecRealReadOnlyAdapterAttemptRecord[],
+) {
+  const records = Array.isArray(attempts) ? attempts : [attempts];
+  const externalProcessStarted = records.some(
+    (record) => record.externalProcessStarted === true,
+  );
+
+  return {
+    ...realReadOnlyAdapterAttemptSafetyFlags,
+    externalProcessStarted,
+    processAdapterStarted: externalProcessStarted,
+  };
+}
 const codexExecSandboxModes = new Set(['read_only', 'workspace_write', 'danger_full_access']);
 
 function createReadOnlyAdapterOperatorChecklistFromBody(
@@ -7357,6 +7614,101 @@ function resolveAllowedCwd(
     path: requestedPath,
     cwd: requestedPath === workspaceRoot ? '.' : toWorkspacePath(requestedPath, workspaceRoot),
   };
+}
+
+function readHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isTrustedOrigin(origin: string, trustedOrigins: Set<string>): boolean {
+  if (trustedOrigins.has(origin)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname.toLowerCase();
+
+    return (
+      (hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]' ||
+        hostname === '::1') &&
+      DEFAULT_TRUSTED_ORIGIN_PORTS.has(parsed.port)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasPreflightLocalControlHeader(value: string | string[] | undefined): boolean {
+  const rawHeader = readHeaderValue(value);
+
+  if (!rawHeader) {
+    return false;
+  }
+
+  return rawHeader
+    .split(',')
+    .map((header) => header.trim().toLowerCase())
+    .includes(LOCAL_CONTROL_HEADER);
+}
+
+function createUntrustedApprovalArtifactBodyEvidenceRefs(
+  dryRunId: string | undefined,
+): EvidenceRef[] {
+  const metadata = {
+    dryRunId,
+    reason: 'untrusted_approval_artifact_body',
+    bodyStored: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+
+  return [
+    {
+      id: foundationId('evidence'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      kind: 'audit',
+      summary: 'Rejected request-body approval artifact for execution gate evaluation.',
+      hash: hashSupervisorMetadata(metadata),
+      redacted: true,
+      labels: ['codex.exec.execution_gate.untrusted_approval_artifact_body'],
+      metadata,
+    },
+  ];
+}
+
+function createUntrustedApprovalArtifactBodyAuditEvents(
+  dryRunId: string | undefined,
+  evidenceRefs: EvidenceRef[],
+): AuditEvent[] {
+  return [
+    {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codexhub-supervisor',
+      action: 'codex.exec.execution_gate.untrusted_approval_artifact_body',
+      outcome: 'blocked',
+      evidenceRefs,
+      metadata: {
+        dryRunId,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      },
+    },
+  ];
+}
+
+function hashSupervisorMetadata(metadata: Record<string, unknown>): string {
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify(metadata))
+    .digest('hex')}`;
 }
 
 function findWorkspaceRoot(startDirectory: string): string {

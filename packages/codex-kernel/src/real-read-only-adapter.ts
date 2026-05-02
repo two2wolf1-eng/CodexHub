@@ -31,6 +31,7 @@ import type {
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import { createEvidenceRef, hashText } from '@codexhub/evidence-kernel';
 import type {
+  CodexExecRealReadOnlyAdapterGovernedInputVerification,
   CodexExecRealReadOnlyAdapterPostRunVerificationResult,
   CodexExecRealReadOnlyAdapterProcessBoundaryResult,
 } from './real-read-only-adapter-process';
@@ -44,6 +45,8 @@ const boundaryDeferredReasonCodeSet =
     'executable_resolution_blocked',
     'cwd_self_check_not_run',
     'cwd_self_check_failed',
+    'governed_input_missing',
+    'governed_input_not_verified',
     'boundary_result_missing_after_ready',
     'unknown',
   ]);
@@ -114,6 +117,7 @@ export interface CodexExecRealReadOnlyAdapterGuardInput {
   requestedSandboxMode?: 'read_only' | 'workspace_write' | 'danger_full_access';
   triggerKind?: 'cli' | 'dashboard';
   worktree?: CodexExecRealReadOnlyAdapterInjectedWorktreeState;
+  governedInput?: CodexExecRealReadOnlyAdapterGovernedInputVerification;
   evidenceStoreReady?: boolean;
   auditStoreReady?: boolean;
   now?: string;
@@ -183,6 +187,28 @@ const realReadOnlyAdapterMetadataOnlyFlags = {
   agentMessageBodyStored: false,
   reasoningBodyStored: false,
 } as const;
+
+function createRealReadOnlyAdapterRuntimeFlags(externalProcessStarted = false) {
+  return {
+    ...realReadOnlyAdapterNoApprovalFlags,
+    externalProcessStarted,
+    processAdapterStarted: externalProcessStarted,
+  } as const;
+}
+
+function createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted = false) {
+  return {
+    ...createRealReadOnlyAdapterRuntimeFlags(externalProcessStarted),
+    metadataOnly: true,
+    bodyStored: false,
+    promptBodyStored: false,
+    commandBodyStored: false,
+    stdoutBodyStored: false,
+    stderrBodyStored: false,
+    agentMessageBodyStored: false,
+    reasoningBodyStored: false,
+  } as const;
+}
 
 const realReadOnlyAdapterNoRunnableBoundaryFlags = {
   noRunnableCommand: true,
@@ -391,6 +417,8 @@ export function createRealReadOnlyAdapterGuardPreflight(
   const expectedDryRunPlanHash = input.expectedDryRunPlanHash;
   const expectedPolicyDecisionHash = input.expectedPolicyDecisionHash;
   const approvalArtifact = input.approvalArtifact;
+  const governedInput = input.governedInput;
+  const governedInputVerified = governedInput?.status === 'verified';
   const nowMs = Date.parse(input.now ?? foundationTimestamp());
   const checks = [
     createRealReadOnlyAdapterPreflightCheck({
@@ -496,6 +524,15 @@ export function createRealReadOnlyAdapterGuardPreflight(
       summary: 'An injected isolated clean worktree state is required before boundary planning.',
     }),
     createRealReadOnlyAdapterPreflightCheck({
+      code: 'governed_input_verified',
+      label: 'Governed input verified',
+      status: governedInputVerified ? 'passed' : 'failed',
+      required: true,
+      summary: governedInputVerified
+        ? 'Governed input file hash is verified and body is not stored.'
+        : 'A hash-bound governed input file is required before boundary planning.',
+    }),
+    createRealReadOnlyAdapterPreflightCheck({
       code: 'evidence_store_ready',
       label: 'Evidence store ready',
       status: input.evidenceStoreReady === true ? 'passed' : 'failed',
@@ -526,7 +563,7 @@ export function createRealReadOnlyAdapterGuardPreflight(
       ? createRealReadOnlyAdapterDeferredBoundaryPlan({
           request,
           dryRunPlanHash: expectedDryRunPlanHash ?? approvalArtifact?.dryRunPlanHash ?? 'missing_hash',
-          policyDecisionHash:
+      policyDecisionHash:
             expectedPolicyDecisionHash ?? approvalArtifact?.policyDecisionHash ?? 'missing_hash',
           approvalArtifact,
         })
@@ -555,6 +592,18 @@ export function createRealReadOnlyAdapterGuardPreflight(
         : 'Read-only adapter hard gates failed before boundary planning.',
     metadata: createRealReadOnlyAdapterMetadata({
       source: 'codex-kernel.real-read-only-adapter.guard-preflight',
+      governedInputProvided: governedInput !== undefined,
+      governedInputVerified,
+      governedInputReasonCode: governedInput?.status === 'blocked' ? governedInput.reasonCode : undefined,
+      governedInputSourceKind: governedInput?.sourceKind,
+      governedInputRelativePathHash: governedInput?.relativePathHash,
+      governedInputContentHash: governedInput?.contentHash,
+      governedInputExpectedContentHash: governedInput?.expectedContentHash,
+      governedInputByteLength: governedInput?.byteLength,
+      governedInputLineCount: governedInput?.lineCount,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentStored: false,
     }),
   };
 }
@@ -662,6 +711,7 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
 }): CodexExecRealReadOnlyAdapterResult {
   const resultId = foundationId('codex_real_read_only_adapter_result');
   const boundaryDiagnostics = createRealReadOnlyAdapterBoundaryDiagnostics(input.boundaryResult);
+  const externalProcessStarted = input.boundaryResult.externalProcessStarted === true;
   const error =
     input.boundaryResult.status === 'completed'
       ? undefined
@@ -671,21 +721,30 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
           messageSummary: `Read-only adapter boundary ${input.boundaryResult.status}; metadata-only diagnostics classify ${boundaryDiagnostics.failureCode}.`,
           remediationSummary:
             'Review boundary diagnostics, evidence refs, and audit refs before any retry; raw output and paths remain unavailable by design.',
+          externalProcessStarted,
         });
 
   return {
     id: resultId,
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     requestId: input.request.id,
     dryRunId: input.request.dryRunId,
     preflightId: input.preflight.id,
     status: input.boundaryResult.status,
     boundaryPlanId: input.preflight.boundaryPlan?.id,
     error,
-    evidenceSummary: createRealReadOnlyAdapterEvidenceSummary(input.request, resultId),
-    auditSummary: createRealReadOnlyAdapterAuditSummary(input.request, resultId),
+    evidenceSummary: createRealReadOnlyAdapterEvidenceSummary(
+      input.request,
+      resultId,
+      externalProcessStarted,
+    ),
+    auditSummary: createRealReadOnlyAdapterAuditSummary(
+      input.request,
+      resultId,
+      externalProcessStarted,
+    ),
     postRunVerificationRequired: true,
     workspaceMutationAllowed: false,
     unexpectedWorkspaceDiffCritical: true,
@@ -707,6 +766,14 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
         boundaryTimedOut: boundaryDiagnostics.timedOut,
         boundaryCancelled: boundaryDiagnostics.cancelled,
         boundaryDurationMs: boundaryDiagnostics.durationMs,
+        governedInputVerified: boundaryDiagnostics.governedInputVerified,
+        governedInputSourceKind: boundaryDiagnostics.governedInputSourceKind,
+        governedInputRelativePathHash: boundaryDiagnostics.governedInputRelativePathHash,
+        governedInputContentHash: boundaryDiagnostics.governedInputContentHash,
+        governedInputBodyStored: false,
+        promptBodyStored: false,
+        promptArgumentHash: boundaryDiagnostics.promptArgumentHash,
+        promptArgumentStored: false,
         boundaryPlanId: input.preflight.boundaryPlan?.id,
         outputBodyStored: false,
         source: 'codex-kernel.real-read-only-adapter.boundary-result',
@@ -725,7 +792,7 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
     id: foundationId('codex_real_read_only_adapter_boundary_diagnostics'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(boundaryResult.externalProcessStarted === true),
     status: boundaryResult.status,
     failureCode,
     startFailureKind: boundaryResult.startFailureKind,
@@ -758,6 +825,14 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
     stdoutTruncated: boundaryResult.stdoutSummary.truncated,
     stderrTruncated: boundaryResult.stderrSummary.truncated,
     externalProcessStarted: boundaryResult.externalProcessStarted,
+    governedInputVerified: boundaryResult.governedInputVerified,
+    governedInputSourceKind: boundaryResult.governedInputSourceKind,
+    governedInputRelativePathHash: boundaryResult.governedInputRelativePathHash,
+    governedInputContentHash: boundaryResult.governedInputContentHash,
+    governedInputByteLength: boundaryResult.governedInputByteLength,
+    governedInputLineCount: boundaryResult.governedInputLineCount,
+    promptArgumentHash: boundaryResult.promptArgumentHash,
+    promptArgumentStored: false,
     summary:
       failureCode === 'none'
         ? 'Boundary completed; diagnostics contain output hashes and counts only.'
@@ -781,6 +856,18 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
         dependencyResolutionStatus: boundaryResult.dependencyResolutionStatus,
         envAllowlistKeyCount: boundaryResult.envAllowlistKeyCount,
         envAllowlistKeyHash: boundaryResult.envAllowlistKeyHash,
+        governedInputRequired: boundaryResult.governedInputRequired,
+        governedInputProvided: boundaryResult.governedInputProvided,
+        governedInputVerified: boundaryResult.governedInputVerified,
+        governedInputSourceKind: boundaryResult.governedInputSourceKind,
+        governedInputRelativePathHash: boundaryResult.governedInputRelativePathHash,
+        governedInputContentHash: boundaryResult.governedInputContentHash,
+        governedInputByteLength: boundaryResult.governedInputByteLength,
+        governedInputLineCount: boundaryResult.governedInputLineCount,
+        governedInputBodyStored: false,
+        promptBodyStored: false,
+        promptArgumentHash: boundaryResult.promptArgumentHash,
+        promptArgumentStored: false,
         nonzeroExitKind: boundaryResult.nonzeroExitKind,
         outputBodyStored: false,
         source: 'codex-kernel.real-read-only-adapter.boundary-diagnostics',
@@ -820,6 +907,9 @@ const requiredBoundaryDiagnosticFields = [
   'stdoutTruncated',
   'stderrTruncated',
   'externalProcessStarted',
+  'governedInputVerified',
+  'governedInputContentHash',
+  'promptArgumentHash',
 ] as const satisfies ReadonlyArray<BoundaryDiagnosticDataField>;
 
 const requiredProcessStartDiagnosticFields = [
@@ -1026,14 +1116,21 @@ export function createRealReadOnlyAdapterBoundaryDeferredDiagnostics(input: {
   const sourcePreparationReady = metadataBoolean(metadata, 'sourcePreparationReady');
   const prerequisiteReady = metadataBoolean(metadata, 'prerequisiteReady');
   const worktreePathHashMatched = metadataBoolean(metadata, 'worktreePathHashMatched');
+  const governedInputProvided = metadataBoolean(metadata, 'governedInputProvided') ?? false;
+  const governedInputVerified = metadataBoolean(metadata, 'governedInputVerified') ?? false;
+  const governedInputReasonCode = metadataString(metadata, 'governedInputReasonCode');
+  const governedInputContentHash = metadataString(metadata, 'governedInputContentHash');
   const processBoundaryReady =
     runtimeWorktreeProvided &&
     approvalInputProvided &&
+    governedInputVerified &&
     executableResolutionStatus === 'resolved' &&
     cwdSelfCheckStatus === 'passed';
   const reasonCodes = classifyBoundaryDeferredReasonCodes({
     runtimeWorktreeProvided,
     approvalInputProvided,
+    governedInputProvided,
+    governedInputVerified,
     executableResolutionStatus,
     cwdSelfCheckStatus,
     processBoundaryReady,
@@ -1056,6 +1153,10 @@ export function createRealReadOnlyAdapterBoundaryDeferredDiagnostics(input: {
     sourcePreparationReady,
     prerequisiteReady,
     worktreePathHashMatched,
+    governedInputProvided,
+    governedInputVerified,
+    governedInputReasonCode,
+    governedInputContentHash,
     processBoundaryReady,
     summary:
       reasonCodes[0] === 'boundary_result_missing_after_ready'
@@ -1074,6 +1175,13 @@ export function createRealReadOnlyAdapterBoundaryDeferredDiagnostics(input: {
       sourcePreparationReady,
       prerequisiteReady,
       worktreePathHashMatched,
+      governedInputProvided,
+      governedInputVerified,
+      governedInputReasonCode,
+      governedInputContentHash,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentStored: false,
       processBoundaryReady,
       worktreePathStored: false,
       executablePathStored: false,
@@ -1153,6 +1261,16 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           dependencyResolutionStatus: boundaryDiagnostics.dependencyResolutionStatus,
           envAllowlistKeyCount: boundaryDiagnostics.envAllowlistKeyCount,
           envAllowlistKeyHash: boundaryDiagnostics.envAllowlistKeyHash,
+          governedInputVerified: boundaryDiagnostics.governedInputVerified,
+          governedInputSourceKind: boundaryDiagnostics.governedInputSourceKind,
+          governedInputRelativePathHash: boundaryDiagnostics.governedInputRelativePathHash,
+          governedInputContentHash: boundaryDiagnostics.governedInputContentHash,
+          governedInputByteLength: boundaryDiagnostics.governedInputByteLength,
+          governedInputLineCount: boundaryDiagnostics.governedInputLineCount,
+          governedInputBodyStored: false,
+          promptBodyStored: false,
+          promptArgumentHash: boundaryDiagnostics.promptArgumentHash,
+          promptArgumentStored: false,
           nonzeroExitKind: boundaryDiagnostics.nonzeroExitKind,
           durationMs: boundaryDiagnostics.durationMs,
           stdoutHash: boundaryResult.stdoutSummary.contentHash,
@@ -1191,6 +1309,13 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           dependencyResolutionStatus: boundaryDiagnostics.dependencyResolutionStatus,
           envAllowlistKeyCount: boundaryDiagnostics.envAllowlistKeyCount,
           envAllowlistKeyHash: boundaryDiagnostics.envAllowlistKeyHash,
+          governedInputVerified: boundaryDiagnostics.governedInputVerified,
+          governedInputSourceKind: boundaryDiagnostics.governedInputSourceKind,
+          governedInputRelativePathHash: boundaryDiagnostics.governedInputRelativePathHash,
+          governedInputContentHash: boundaryDiagnostics.governedInputContentHash,
+          governedInputByteLength: boundaryDiagnostics.governedInputByteLength,
+          governedInputLineCount: boundaryDiagnostics.governedInputLineCount,
+          promptArgumentHash: boundaryDiagnostics.promptArgumentHash,
           stdoutSummary: boundaryResult.stdoutSummary,
           stderrSummary: boundaryResult.stderrSummary,
           durationMs: boundaryResult.durationMs,
@@ -1282,6 +1407,7 @@ export function createRealReadOnlyAdapterEvidenceSummaryFromRefs(
   const boundaryDiagnostics = boundaryResult
     ? createRealReadOnlyAdapterBoundaryDiagnostics(boundaryResult)
     : undefined;
+  const externalProcessStarted = boundaryResult?.externalProcessStarted === true;
   const outputHashCount = boundaryResult ? 2 : 0;
   const eventHashCount = input.preflight.checks.length + outputHashCount;
   const resultId = input.resultId ?? 'pending_result';
@@ -1290,7 +1416,7 @@ export function createRealReadOnlyAdapterEvidenceSummaryFromRefs(
     id: foundationId('codex_real_read_only_adapter_evidence_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     dryRunId: input.request.dryRunId,
     requestId: input.request.id,
     resultId,
@@ -1326,7 +1452,7 @@ export function createRealReadOnlyAdapterEvidenceSummaryFromRefs(
         boundaryFailureCode: boundaryDiagnostics?.failureCode,
         source: 'codex-kernel.real-read-only-adapter.evidence-summary',
       },
-      boundaryResult?.externalProcessStarted === true,
+      externalProcessStarted,
     ),
   };
 }
@@ -1335,11 +1461,13 @@ export function createRealReadOnlyAdapterAuditSummaryFromEvents(
   input: CodexExecRealReadOnlyAdapterAttemptTelemetryInput,
   auditEvents: AuditEvent[],
 ): CodexExecRealReadOnlyAdapterAuditSummary {
+  const externalProcessStarted = input.boundaryResult?.externalProcessStarted === true;
+
   return {
     id: foundationId('codex_real_read_only_adapter_audit_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     dryRunId: input.request.dryRunId,
     requestId: input.request.id,
     resultId: input.resultId,
@@ -1359,7 +1487,7 @@ export function createRealReadOnlyAdapterAuditSummaryFromEvents(
         actionKinds: auditEvents.map((event) => event.action),
         source: 'codex-kernel.real-read-only-adapter.audit-summary',
       },
-      input.boundaryResult?.externalProcessStarted === true,
+      externalProcessStarted,
     ),
   };
 }
@@ -1372,6 +1500,9 @@ export function createRealReadOnlyAdapterAttemptRecord(
   const auditEventIds =
     input.auditEvents?.map((event) => event.id) ?? input.result.auditSummary?.auditEventIds ?? [];
   const status = attemptStatusFromResult(input.result.status);
+  const externalProcessStarted =
+    input.boundaryResult?.externalProcessStarted === true ||
+    input.result.externalProcessStarted === true;
   const outputHashCount =
     input.result.evidenceSummary?.outputHashCount ?? (input.boundaryResult ? 2 : 0);
   const failedCheckCodes = input.preflight.checks
@@ -1428,6 +1559,8 @@ export function createRealReadOnlyAdapterAttemptRecord(
     auditEventIds,
     outputHashCount,
     processBoundaryInvoked: input.boundaryResult !== undefined,
+    externalProcessStarted,
+    processAdapterStarted: externalProcessStarted,
     boundaryFailureCode: boundaryDiagnostics?.failureCode,
     boundaryStartFailureKind: boundaryDiagnostics?.startFailureKind,
     boundaryPlatform: boundaryDiagnostics?.platform,
@@ -1464,7 +1597,7 @@ export function createRealReadOnlyAdapterAttemptRecord(
     id: foundationId('codex_real_read_only_adapter_attempt'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     dryRunId: input.request.dryRunId,
     requestId: input.request.id,
     preflightId: input.preflight.id,
@@ -1566,7 +1699,7 @@ export function createRealReadOnlyAdapterAttemptRecord(
         outputBodyStored: false,
         source: 'codex-kernel.real-read-only-adapter.attempt-record',
       },
-      input.boundaryResult?.externalProcessStarted === true,
+      externalProcessStarted,
     ),
   };
 }
@@ -1580,7 +1713,7 @@ export function summarizeRealReadOnlyAdapterAttempt(
     id: foundationId('codex_real_read_only_adapter_attempt_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(alignedRecord.externalProcessStarted),
     attemptId: alignedRecord.id,
     dryRunId: alignedRecord.dryRunId,
     status: alignedRecord.status,
@@ -1694,7 +1827,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     id: foundationId('codex_real_read_only_adapter_attempt_timeline_entry'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(record.externalProcessStarted),
     attemptId: record.id,
     dryRunId: record.dryRunId,
     status: record.status,
@@ -1721,7 +1854,8 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     outputHashCount: record.outputHashCount,
     metadataHash: record.metadataHash,
     summary: `Read-only adapter attempt ${record.status} timeline entry stores refs and counts only.`,
-    metadata: createRealReadOnlyAdapterMetadata({
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
       ...(input.metadata ?? {}),
       attemptId: record.id,
       dryRunId: record.dryRunId,
@@ -1764,7 +1898,9 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       includeEvidence,
       includeAudit,
       source: 'codex-kernel.real-read-only-adapter.attempt-timeline-entry',
-    }),
+      },
+      record.externalProcessStarted,
+    ),
   }));
   const evidenceRefCount = records.reduce((total, record) => total + record.evidenceRefIds.length, 0);
   const auditEventCount = records.reduce((total, record) => total + record.auditEventIds.length, 0);
@@ -1772,6 +1908,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
   const processBoundaryInvokedCount = records.filter(
     (record) => record.processBoundaryInvoked,
   ).length;
+  const externalProcessStarted = records.some((record) => record.externalProcessStarted);
   const status = entries[0]?.status ?? 'empty';
   const verificationSummary =
     records.some((record) => record.status !== 'blocked')
@@ -1784,7 +1921,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
     id: foundationId('codex_real_read_only_adapter_attempt_timeline'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     dryRunId: input.dryRunId,
     status,
     entries,
@@ -1803,7 +1940,8 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       entries.length === 0
         ? 'No read-only adapter attempt records were found for the requested timeline.'
         : 'Read-only adapter attempt timeline aggregates status, counts, hashes, and refs only.',
-    metadata: createRealReadOnlyAdapterMetadata({
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
       ...(input.metadata ?? {}),
       dryRunId: input.dryRunId,
       status,
@@ -1811,7 +1949,9 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       includeEvidence,
       includeAudit,
       source: 'codex-kernel.real-read-only-adapter.attempt-timeline',
-    }),
+      },
+      externalProcessStarted,
+    ),
   };
 }
 
@@ -1856,12 +1996,15 @@ function createRealReadOnlyAdapterError(input: {
   relatedCheckCode?: string;
   messageSummary: string;
   remediationSummary: string;
+  externalProcessStarted?: boolean;
 }): CodexExecRealReadOnlyAdapterError {
+  const externalProcessStarted = input.externalProcessStarted === true;
+
   return {
     id: foundationId('codex_real_read_only_adapter_error'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     code: input.code,
     severity: 'high',
     relatedCheckCode: input.relatedCheckCode,
@@ -1878,12 +2021,13 @@ function createRealReadOnlyAdapterError(input: {
 function createRealReadOnlyAdapterEvidenceSummary(
   request: CodexExecRealReadOnlyAdapterRequest,
   resultId: string,
+  externalProcessStarted = false,
 ): CodexExecRealReadOnlyAdapterEvidenceSummary {
   return {
     id: foundationId('codex_real_read_only_adapter_evidence_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     dryRunId: request.dryRunId,
     requestId: request.id,
     resultId,
@@ -1897,25 +2041,31 @@ function createRealReadOnlyAdapterEvidenceSummary(
       evidenceRefIds: [],
     }),
     redacted: true,
-    summary: 'No process output exists; disabled-default attempt records metadata only.',
-    metadata: createRealReadOnlyAdapterMetadata({
+    summary: externalProcessStarted
+      ? 'Boundary process state is captured through metadata-only evidence summaries.'
+      : 'No process output exists; disabled-default attempt records metadata only.',
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
       requestId: request.id,
       resultId,
       bodyStored: false,
       source: 'codex-kernel.real-read-only-adapter.evidence',
-    }),
+      },
+      externalProcessStarted,
+    ),
   };
 }
 
 function createRealReadOnlyAdapterAuditSummary(
   request: CodexExecRealReadOnlyAdapterRequest,
   resultId: string,
+  externalProcessStarted = false,
 ): CodexExecRealReadOnlyAdapterAuditSummary {
   return {
     id: foundationId('codex_real_read_only_adapter_audit_summary'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
-    ...realReadOnlyAdapterMetadataOnlyFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     dryRunId: request.dryRunId,
     requestId: request.id,
     resultId,
@@ -1926,11 +2076,14 @@ function createRealReadOnlyAdapterAuditSummary(
     failureRequired: true,
     eventCount: 0,
     summary: 'Disabled-default attempt requires audit coverage before any future boundary start.',
-    metadata: createRealReadOnlyAdapterMetadata({
+    metadata: createRealReadOnlyAdapterTelemetryMetadata(
+      {
       requestId: request.id,
       resultId,
       source: 'codex-kernel.real-read-only-adapter.audit',
-    }),
+      },
+      externalProcessStarted,
+    ),
   };
 }
 
@@ -2057,6 +2210,8 @@ function realReadOnlyAdapterErrorCodeForCheck(
       return 'dashboard_trigger_forbidden';
     case 'isolated_worktree_clean':
       return 'worktree_not_isolated';
+    case 'governed_input_verified':
+      return 'governed_input_missing';
     case 'evidence_store_ready':
     case 'audit_store_ready':
       return 'store_degraded';
@@ -2123,6 +2278,10 @@ function inferRealReadOnlyAdapterBoundaryDeferredDiagnostics(
   const approvalInputProvided =
     metadataString(metadata, 'approvalArtifactId') !== undefined ||
     metadataBoolean(metadata, 'approvalInputProvided') !== false;
+  const governedInputProvided = metadataBoolean(metadata, 'governedInputProvided') ?? true;
+  const governedInputVerified = metadataBoolean(metadata, 'governedInputVerified') ?? true;
+  const governedInputReasonCode = metadataString(metadata, 'governedInputReasonCode');
+  const governedInputContentHash = metadataString(metadata, 'governedInputContentHash');
   const executableResolutionStatus = normalizeDeferredExecutableResolutionStatus(
     metadataString(metadata, 'executableResolutionStatus') ??
       metadataString(metadata, 'boundaryDeferredExecutableResolutionStatus'),
@@ -2135,6 +2294,7 @@ function inferRealReadOnlyAdapterBoundaryDeferredDiagnostics(
     metadataBoolean(metadata, 'boundaryDeferredProcessBoundaryReady') ??
     (runtimeWorktreeProvided &&
       approvalInputProvided &&
+      governedInputVerified &&
       executableResolutionStatus === 'resolved' &&
       cwdSelfCheckStatus === 'passed');
   const inferredReasonCodes =
@@ -2145,6 +2305,8 @@ function inferRealReadOnlyAdapterBoundaryDeferredDiagnostics(
         : classifyBoundaryDeferredReasonCodes({
             runtimeWorktreeProvided,
             approvalInputProvided,
+            governedInputProvided,
+            governedInputVerified,
             executableResolutionStatus,
             cwdSelfCheckStatus,
             processBoundaryReady,
@@ -2172,6 +2334,10 @@ function inferRealReadOnlyAdapterBoundaryDeferredDiagnostics(
     sourcePreparationReady: metadataBoolean(metadata, 'sourcePreparationReady'),
     prerequisiteReady: metadataBoolean(metadata, 'prerequisiteReady'),
     worktreePathHashMatched: metadataBoolean(metadata, 'worktreePathHashMatched'),
+    governedInputProvided,
+    governedInputVerified,
+    governedInputReasonCode,
+    governedInputContentHash,
     processBoundaryReady,
     summary:
       reasonCode === 'boundary_result_missing_after_ready'
@@ -2194,6 +2360,13 @@ function inferRealReadOnlyAdapterBoundaryDeferredDiagnostics(
       sourcePreparationReady: metadataBoolean(metadata, 'sourcePreparationReady'),
       prerequisiteReady: metadataBoolean(metadata, 'prerequisiteReady'),
       worktreePathHashMatched: metadataBoolean(metadata, 'worktreePathHashMatched'),
+      governedInputProvided,
+      governedInputVerified,
+      governedInputReasonCode,
+      governedInputContentHash,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentStored: false,
       processBoundaryReady,
       reconstructedFromAttemptMetadata: true,
       worktreePathStored: false,
@@ -2228,6 +2401,8 @@ function normalizeDeferredCwdSelfCheckStatus(
 function classifyBoundaryDeferredReasonCodes(input: {
   runtimeWorktreeProvided: boolean;
   approvalInputProvided: boolean;
+  governedInputProvided: boolean;
+  governedInputVerified: boolean;
   executableResolutionStatus: CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics['executableResolutionStatus'];
   cwdSelfCheckStatus: CodexExecRealReadOnlyAdapterBoundaryDeferredDiagnostics['cwdSelfCheckStatus'];
   processBoundaryReady: boolean;
@@ -2240,6 +2415,12 @@ function classifyBoundaryDeferredReasonCodes(input: {
 
   if (!input.approvalInputProvided) {
     reasonCodes.push('approval_input_missing');
+  }
+
+  if (!input.governedInputProvided) {
+    reasonCodes.push('governed_input_missing');
+  } else if (!input.governedInputVerified) {
+    reasonCodes.push('governed_input_not_verified');
   }
 
   if (input.executableResolutionStatus === 'not_run') {
@@ -2281,17 +2462,12 @@ function createRealReadOnlyAdapterTelemetryMetadata(
   externalProcessStarted: boolean,
 ): JsonMetadata {
   return {
-    ...realReadOnlyAdapterNoApprovalFlags,
+    ...createRealReadOnlyAdapterMetadataOnlyFlags(externalProcessStarted),
     metadataOnly: true,
     bodyStored: false,
-    promptBodyStored: false,
-    commandBodyStored: false,
-    stdoutBodyStored: false,
-    stderrBodyStored: false,
-    agentMessageBodyStored: false,
-    reasoningBodyStored: false,
     ...extra,
     externalProcessStarted,
+    processAdapterStarted: externalProcessStarted,
     implementationApproved: false,
     processAdapterApproved: false,
     recommendationGrantsExecution: false,

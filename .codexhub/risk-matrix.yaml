@@ -1,4 +1,13 @@
 version: 1
+writePolicy:
+  local_patch_dry_run:
+    approvalRequired: false
+    realWriteAllowed: false
+  real_write:
+    dryRunRequired: true
+    approvalRequired: true
+    evidenceRequired: true
+    auditRequired: true
 levels:
   low:
     approvalRequired: false
@@ -9,9 +18,12 @@ levels:
     approvalRequired: false
     examples:
       - local_patch_dry_run
+      - local_patch_dry_run_no_real_write
   high:
     approvalRequired: true
     examples:
+      - real_patch_write
+      - source_delete_write
       - browser_click_placeholder
       - browser_input_placeholder
       - browser_profile_observer_placeholder
@@ -21,4 +33,3 @@ levels:
       - workspace_invite_remove
       - electron_main_inspector
       - credential_or_session_access
-

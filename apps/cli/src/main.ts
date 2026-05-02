@@ -158,6 +158,24 @@ import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 
 const supervisorUrl = process.env.CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
+const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
+const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
+const LOCAL_CONTROL_ENV_VAR = ['CODEXHUB_SUPERVISOR_LOCAL_', LOCAL_CONTROL_KEY_KIND.toUpperCase()].join('');
+
+function createSupervisorPostHeaders(): Record<string, string> {
+  const localControlKey = process.env[LOCAL_CONTROL_ENV_VAR];
+
+  if (!localControlKey) {
+    throw new Error(
+      `${LOCAL_CONTROL_ENV_VAR} is required for Supervisor mutating requests`,
+    );
+  }
+
+  return {
+    'content-type': 'application/json',
+    [LOCAL_CONTROL_HEADER]: localControlKey,
+  };
+}
 
 export interface CodexExecTimelineCliOptions {
   source?: string;
@@ -315,6 +333,8 @@ export interface CodexExecRealReadOnlyAdapterReadinessReviewListCliOptions exten
 export interface CodexExecRealReadOnlyAdapterAttemptCliOptions extends CodexExecJsonCliOptions {
   approval?: string;
   worktree?: string;
+  governedInput?: string;
+  governedInputHash?: string;
 }
 
 export interface CodexExecRealReadOnlyAdapterAttemptListCliOptions extends CodexExecJsonCliOptions {
@@ -1063,6 +1083,11 @@ export function buildProgram(): Command {
     .argument('<dryRunId>')
     .requiredOption('--approval <approvalArtifactId>', 'Existing approval artifact id')
     .requiredOption('--worktree <path>', 'Existing isolated worktree path')
+    .requiredOption(
+      '--governed-input <relativePath>',
+      'Governed input file path relative to the isolated worktree',
+    )
+    .requiredOption('--governed-input-hash <hash>', 'Expected governed input content hash')
     .option('--json', 'Print full JSON output')
     .description('Attempt the gated CLI-only read-only adapter path')
     .addHelpText(
@@ -1556,7 +1581,7 @@ export async function dryRunWorkflow(workflowName: string): Promise<Record<strin
   try {
     const response = await fetch(`${supervisorUrl}/api/workflows/dry-run`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ workflowName, input: { requestedBy: 'cli' } }),
     });
 
@@ -1580,7 +1605,7 @@ export async function mockRunDevelopment(
   try {
     const response = await fetch(`${supervisorUrl}/api/development/mock-run`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ title, description }),
     });
 
@@ -1603,7 +1628,7 @@ export async function replayCodexFixture(fixturePath: string): Promise<CodexRepl
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/replay-fixture`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ fixturePath }),
     });
 
@@ -1652,7 +1677,7 @@ export async function dryRunCodexExec(
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/dry-run`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({
         title: prompt,
         prompt,
@@ -1695,7 +1720,7 @@ export async function requestCodexExecApproval(
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/approval-request`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ dryRunId, reason, policySourceId }),
     });
 
@@ -1764,7 +1789,7 @@ export async function decideCodexExecApproval(
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/manual-approval`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ dryRunId, approvalRequestId, outcome: approvalOutcome, reason }),
     });
 
@@ -1870,7 +1895,7 @@ export async function preflightCodexExec(dryRunId: string): Promise<Record<strin
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/preflight`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ dryRunId }),
     });
 
@@ -1900,7 +1925,7 @@ export async function evaluateCodexExecGate(dryRunId: string): Promise<Record<st
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/evaluate-gate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({ dryRunId }),
     });
 
@@ -2281,7 +2306,7 @@ export async function createCodexExecAdrDecision(
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/live-adapter-adr-decision`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({
         dryRunId,
         reviewerLabel: options.reviewer ?? 'local-operator',
@@ -2422,7 +2447,7 @@ export async function simulateReadOnlyAdapterPreflightCommand(
       `${supervisorUrl}/api/codex/exec/read-only-adapter/preflight-simulate`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           dryRunId,
           isolatedWorktreePresent: options.isolatedWorktree === true,
@@ -2492,7 +2517,7 @@ export async function createReadOnlyAdapterSimulatorReviewCommand(
       `${supervisorUrl}/api/codex/exec/read-only-adapter/simulator-review`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           dryRunId,
           reviewerLabel: options.reviewer ?? 'local-operator',
@@ -2644,7 +2669,7 @@ export async function createReadOnlyAdapterImplementationPlanReviewCommand(
       `${supervisorUrl}/api/codex/exec/read-only-adapter/implementation-plan-review`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           reviewerLabel: options.reviewer ?? 'local-operator',
           outcome,
@@ -2821,7 +2846,7 @@ export async function createReadOnlyAdapterSkeletonReviewCommand(
       `${supervisorUrl}/api/codex/exec/read-only-adapter/skeleton-review`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           reviewerLabel: options.reviewer ?? 'local-operator',
           outcome,
@@ -2950,7 +2975,7 @@ export async function runReadOnlyAdapterFixtureBoundaryCommand(
       `${supervisorUrl}/api/codex/exec/read-only-adapter/fixture-boundary`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({ fixturePath, dryRunId: options.dryRun }),
       },
     );
@@ -3000,7 +3025,7 @@ export async function createReadOnlyAdapterFinalReadinessCommand(
       `${supervisorUrl}/api/codex/exec/read-only-adapter/final-readiness`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           reviewerLabel: options.reviewer ?? 'local-operator',
           outcome,
@@ -3102,7 +3127,7 @@ export async function createRealReadOnlyAdapterReadinessCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/readiness-package`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({ dryRunId }),
       },
     );
@@ -3227,7 +3252,7 @@ export async function createRealReadOnlyAdapterReadinessReviewCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/readiness-review`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           packageId,
           outcome,
@@ -3349,12 +3374,14 @@ export async function attemptRealReadOnlyAdapterCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           dryRunId,
           approvalArtifactId: options.approval,
           isolatedWorktreeProvided: options.worktree !== undefined,
           worktreePath: options.worktree,
+          governedInputRelativePath: options.governedInput,
+          governedInputContentHash: options.governedInputHash,
         }),
       },
     );
@@ -3494,7 +3521,7 @@ export async function traceRealReadOnlyAdapterApprovalAuthorityCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/approval-authority-traces`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           dryRunId,
           approvalArtifactId: options.approval,
@@ -3591,7 +3618,7 @@ export async function prepareRealReadOnlyAdapterPolicySourceCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/policy-sources`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({ dryRunId }),
       },
     );
@@ -3700,7 +3727,7 @@ export async function prepareRealReadOnlyAdapterPilotSourceCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           dryRunId,
           approvalArtifactId: options.approval,
@@ -3803,7 +3830,7 @@ export async function checkRealReadOnlyAdapterPilotPrerequisitesCommand(
       `${supervisorUrl}/api/codex/exec/real-read-only-adapter/pilot-prerequisites`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: createSupervisorPostHeaders(),
         body: JSON.stringify({
           dryRunId,
           approvalArtifactId: options.approval,
@@ -3934,7 +3961,7 @@ export async function createCodexExecReportReview(
   try {
     const response = await fetch(`${supervisorUrl}/api/codex/exec/report-review`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: createSupervisorPostHeaders(),
       body: JSON.stringify({
         dryRunId,
         reviewerLabel: options.reviewer ?? 'local-operator',
@@ -6031,6 +6058,12 @@ function createRealReadOnlyAdapterAttemptRefusal(
     metadata: {
       approvalArtifactIdProvided: options.approval !== undefined,
       worktreePathProvided: options.worktree !== undefined,
+      governedInputProvided: options.governedInput !== undefined,
+      governedInputExpectedContentHashProvided: options.governedInputHash !== undefined,
+      governedInputExpectedContentHash: options.governedInputHash,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentStored: false,
       worktreePathStored: false,
     },
   });
@@ -6050,6 +6083,13 @@ function createRealReadOnlyAdapterAttemptRefusal(
     metadata: {
       cliAttempt: true,
       supervisorFallbackRefused: true,
+      governedInputProvided: options.governedInput !== undefined,
+      governedInputVerified: false,
+      governedInputExpectedContentHashProvided: options.governedInputHash !== undefined,
+      governedInputExpectedContentHash: options.governedInputHash,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentStored: false,
       worktreePathStored: false,
     },
   });

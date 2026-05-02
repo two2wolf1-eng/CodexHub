@@ -52,15 +52,92 @@ export function hashText(value: string): string {
 }
 
 export function redactMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  return redactMetadataRecord(metadata);
+}
+
+function redactMetadataRecord(metadata: Record<string, unknown>): Record<string, unknown> {
   const redacted: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(metadata)) {
-    if (/token|cookie|session|secret|password|mfa/i.test(key)) {
-      redacted[key] = '[redacted]';
-    } else {
-      redacted[key] = value;
-    }
+    redacted[key] = redactMetadataValue(key, value);
   }
 
   return redacted;
+}
+
+function redactMetadataValue(key: string, value: unknown): unknown {
+  if (isSensitiveMetadataKey(key)) {
+    return '[redacted]';
+  }
+
+  if (isPathMetadataKey(key)) {
+    return redactPathMetadataValue(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactArrayItem(item));
+  }
+
+  if (isPlainObject(value)) {
+    return redactMetadataRecord(value);
+  }
+
+  return value;
+}
+
+function redactArrayItem(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactArrayItem(item));
+  }
+
+  if (isPlainObject(value)) {
+    return redactMetadataRecord(value);
+  }
+
+  return value;
+}
+
+function redactPathMetadataValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return `sha256:${hashText(value)}`;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactPathMetadataValue(item));
+  }
+
+  if (isPlainObject(value)) {
+    const redacted: Record<string, unknown> = {};
+
+    for (const [key, nestedValue] of Object.entries(value)) {
+      redacted[key] = redactPathMetadataValue(nestedValue);
+    }
+
+    return redacted;
+  }
+
+  return value;
+}
+
+function isSensitiveMetadataKey(key: string): boolean {
+  return /token|cookie|session|secret|password|mfa|authorization|credential|apikey|accesskey|refresh|privatekey/i.test(
+    key,
+  );
+}
+
+function isPathMetadataKey(key: string): boolean {
+  if (/hash$/i.test(key)) {
+    return false;
+  }
+
+  return /^(profilePath|worktreePath|configPath|executablePath|cwd|path)$/i.test(key);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
 }

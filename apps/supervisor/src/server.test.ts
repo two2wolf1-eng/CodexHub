@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,9 +17,17 @@ import { buildSupervisorServer } from './server';
 const symlinkEscapeFixturePath =
   'packages/codex-kernel/fixtures/codexhub-symlink-escape-test.jsonl';
 const symlinkEscapeAbsolutePath = join(process.cwd(), ...symlinkEscapeFixturePath.split('/'));
+const localControlToken = 'test-local-control-token';
+const localControlHeaders = { 'x-codexhub-local-token': localControlToken };
+
+process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
 
 function hashTestWorktreePath(worktreePath: string): string {
   return hashRealReadOnlyAdapterRuntimeWorktreePath(worktreePath);
+}
+
+function hashTestText(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 afterEach(() => {
@@ -51,11 +60,76 @@ describe('supervisor mock development API', () => {
         realReadOnlyAdapterCodexCliArgvHash:
           REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
         realReadOnlyAdapterCodexCliStdinClosedWithoutBody: true,
+        realReadOnlyAdapterCodexCliGovernedInputRequired: true,
+        realReadOnlyAdapterCodexCliPromptArgumentStored: false,
         realReadOnlyAdapterCodexCliArgvStored: false,
       },
     });
     expect(response.body).not.toContain('"argv":');
     expect(response.body).not.toContain('"executablePath":');
+  });
+
+  it('protects mutating local API routes with trusted origins and a local token', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-api-guard-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      headers: {
+        ...localControlHeaders,
+        origin: 'https://evil.example',
+      },
+      payload: { workflowName: 'development.bootstrap' },
+    });
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      payload: { workflowName: 'development.bootstrap' },
+    });
+    const trustedOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      headers: {
+        ...localControlHeaders,
+        origin: 'http://127.0.0.1:5173',
+      },
+      payload: { workflowName: 'development.bootstrap' },
+    });
+    const cliStyleResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      headers: localControlHeaders,
+      payload: { workflowName: 'development.bootstrap' },
+    });
+    const preflightResponse = await server.inject({
+      method: 'OPTIONS',
+      url: '/api/workflows/dry-run',
+      headers: {
+        origin: 'http://localhost:4173',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, x-codexhub-local-token',
+      },
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(maliciousOriginResponse.json().error).toBe('untrusted_origin');
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(missingTokenResponse.json().error).toBe('invalid_local_control_token');
+    expect(trustedOriginResponse.statusCode).toBe(200);
+    expect(trustedOriginResponse.headers['access-control-allow-origin']).toBe(
+      'http://127.0.0.1:5173',
+    );
+    expect(cliStyleResponse.statusCode).toBe(200);
+    expect(preflightResponse.statusCode).toBe(204);
+    expect(preflightResponse.headers['access-control-allow-origin']).toBe(
+      'http://localhost:4173',
+    );
+    expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
   });
 
   it('runs and lists mock development orchestrations', async () => {
@@ -65,6 +139,7 @@ describe('supervisor mock development API', () => {
 
     const runResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/development/mock-run',
       payload: {
         title: 'Add Electron CDP read-only observation skeleton',
@@ -95,6 +170,7 @@ describe('supervisor mock development API', () => {
 
     const replayResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/replay-fixture',
       payload: {
         fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
@@ -115,6 +191,7 @@ describe('supervisor mock development API', () => {
       rejectedPayloads.map((fixturePath) =>
         server.inject({
           method: 'POST',
+          headers: localControlHeaders,
           url: '/api/codex/replay-fixture',
           payload: { fixturePath },
         }),
@@ -153,6 +230,7 @@ describe('supervisor mock development API', () => {
 
     const dryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Summarize repository structure',
@@ -169,6 +247,7 @@ describe('supervisor mock development API', () => {
     const dryRunId = dryRunResponse.json().liveRunRecord.id as string;
     const preflightResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/preflight',
       payload: { dryRunId },
     });
@@ -178,6 +257,7 @@ describe('supervisor mock development API', () => {
     });
     const approvalRequestResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/approval-request',
       payload: {
         dryRunId,
@@ -186,11 +266,13 @@ describe('supervisor mock development API', () => {
     });
     const legacyApprovalArtifactResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/approval-artifact',
       payload: { dryRunId },
     });
     const manualApprovalResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/manual-approval',
       payload: {
         dryRunId,
@@ -201,6 +283,7 @@ describe('supervisor mock development API', () => {
     });
     const duplicateApprovalResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/manual-approval',
       payload: {
         dryRunId,
@@ -213,10 +296,23 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/codex/exec/approvals',
     });
+    const forgedGateResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/codex/exec/evaluate-gate',
+      payload: {
+        dryRunId,
+        approvalArtifact: manualApprovalResponse.json().approvalArtifact,
+      },
+    });
     const gateResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/evaluate-gate',
-      payload: { dryRunId },
+      payload: {
+        dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifact.id,
+      },
     });
     const timelineResponse = await server.inject({
       method: 'GET',
@@ -278,6 +374,7 @@ describe('supervisor mock development API', () => {
     });
     const reportReviewResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/report-review',
       payload: {
         dryRunId,
@@ -291,6 +388,7 @@ describe('supervisor mock development API', () => {
     const reportReviewId = reportReviewResponse.json().reviewRecord.id as string;
     const reportReviewSecondResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/report-review',
       payload: {
         dryRunId,
@@ -347,6 +445,7 @@ describe('supervisor mock development API', () => {
     });
     const adrDecisionCreateResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/live-adapter-adr-decision',
       payload: {
         dryRunId: canonicalDryRunPlanId,
@@ -382,6 +481,7 @@ describe('supervisor mock development API', () => {
     });
     const readOnlyPreflightSimulationResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/preflight-simulate',
       payload: {
         dryRunId: canonicalDryRunPlanId,
@@ -393,6 +493,7 @@ describe('supervisor mock development API', () => {
     });
     const blockedReadOnlyPreflightSimulationResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/preflight-simulate',
       payload: {
         dryRunId: canonicalDryRunPlanId,
@@ -410,6 +511,7 @@ describe('supervisor mock development API', () => {
     });
     const readOnlySimulatorReviewCreateResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/simulator-review',
       payload: {
         dryRunId: canonicalDryRunPlanId,
@@ -435,6 +537,7 @@ describe('supervisor mock development API', () => {
     });
     const implementationPlanReviewCreateResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
       payload: {
         outcome: 'conditional_go_to_disabled_skeleton',
@@ -463,6 +566,7 @@ describe('supervisor mock development API', () => {
     });
     const implementationPlanReviewInvalidOutcomeResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
       payload: {
         outcome: 'execute_now',
@@ -470,6 +574,7 @@ describe('supervisor mock development API', () => {
     });
     const implementationPlanReviewMissingOutcomeResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
       payload: {},
     });
@@ -483,11 +588,13 @@ describe('supervisor mock development API', () => {
     });
     const readOnlySimulatorReviewMissingIdResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/simulator-review',
       payload: {},
     });
     const dryRunWithoutSimulationResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Dry-run without simulator result',
@@ -499,6 +606,7 @@ describe('supervisor mock development API', () => {
     });
     const missingReadOnlySimulatorReviewSimulationResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/simulator-review',
       payload: {
         dryRunId: dryRunWithoutSimulationResponse.json().liveRunRecord.dryRunPlanId,
@@ -506,11 +614,13 @@ describe('supervisor mock development API', () => {
     });
     const missingReadOnlyPreflightSimulationDryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/preflight-simulate',
       payload: { dryRunId: 'missing_dry_run' },
     });
     const missingReadOnlyPreflightSimulationIdResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/preflight-simulate',
       payload: {},
     });
@@ -532,6 +642,7 @@ describe('supervisor mock development API', () => {
     });
     const rejectedCwdResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Bad cwd',
@@ -665,6 +776,17 @@ describe('supervisor mock development API', () => {
         status: 'approved',
         nextAllowedActions: ['revoke'],
       },
+    });
+    expect(forgedGateResponse.statusCode).toBe(400);
+    expect(forgedGateResponse.json()).toMatchObject({
+      error: 'untrusted_approval_artifact_body',
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(forgedGateResponse.json().evidenceRefs[0]).toMatchObject({
+      kind: 'audit',
+      redacted: true,
     });
     expect(gateResponse.statusCode).toBe(200);
     expect(gateResponse.json()).toMatchObject({
@@ -1395,6 +1517,7 @@ describe('supervisor mock development API', () => {
     });
     const reviewResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/skeleton-review',
       payload: {
         outcome: 'skeleton_accepted_for_fixture_boundary_only',
@@ -1423,6 +1546,7 @@ describe('supervisor mock development API', () => {
 
     const fixtureResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/fixture-boundary',
       payload: {
         fixturePath: 'packages/codex-kernel/fixtures/codex-exec-basic.jsonl',
@@ -1444,6 +1568,7 @@ describe('supervisor mock development API', () => {
       rejectedFixturePayloads.map((fixturePath) =>
         server.inject({
           method: 'POST',
+          headers: localControlHeaders,
           url: '/api/codex/exec/read-only-adapter/fixture-boundary',
           payload: { fixturePath },
         }),
@@ -1455,6 +1580,7 @@ describe('supervisor mock development API', () => {
     });
     const finalReadinessResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/final-readiness',
       payload: {
         outcome: 'ready_for_separate_read_only_adapter_adr',
@@ -1570,6 +1696,7 @@ describe('supervisor mock development API', () => {
 
     const dryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Summarize repository structure',
@@ -1582,12 +1709,14 @@ describe('supervisor mock development API', () => {
     const dryRunId = dryRunResponse.json().liveRunRecord.dryRunPlanId as string;
     const missingDecisionResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
       payload: { dryRunId },
     });
 
     await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/implementation-plan-review',
       payload: {
         outcome: 'conditional_go_to_disabled_skeleton',
@@ -1598,6 +1727,7 @@ describe('supervisor mock development API', () => {
     });
     await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/read-only-adapter/skeleton-review',
       payload: {
         outcome: 'skeleton_accepted_for_fixture_boundary_only',
@@ -1608,6 +1738,7 @@ describe('supervisor mock development API', () => {
 
     const createResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
       payload: { dryRunId },
     });
@@ -1626,6 +1757,7 @@ describe('supervisor mock development API', () => {
     });
     const missingReviewPackageResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-review',
       payload: {
         packageId: 'missing_readiness_package',
@@ -1637,6 +1769,7 @@ describe('supervisor mock development API', () => {
     });
     const invalidReviewResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-review',
       payload: {
         packageId,
@@ -1647,6 +1780,7 @@ describe('supervisor mock development API', () => {
     });
     const validReviewResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-review',
       payload: {
         packageId,
@@ -1675,27 +1809,32 @@ describe('supervisor mock development API', () => {
     });
     const missingReviewBodyResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-review',
       payload: {},
     });
     const missingDryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
       payload: { dryRunId: 'missing_dry_run' },
     });
     const missingIdResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
       payload: {},
     });
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-package',
       payload: { dryRunId },
     });
     const disabledStoreReviewResponse = await disabledStoreServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/readiness-review',
       payload: {
         packageId,
@@ -1863,6 +2002,7 @@ describe('supervisor mock development API', () => {
 
     const createResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: {
         dryRunId: 'codex_dry_run_attempt_fixture',
@@ -1899,12 +2039,14 @@ describe('supervisor mock development API', () => {
     });
     const missingBodyResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: {},
     });
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: { dryRunId: 'codex_dry_run_attempt_fixture' },
     });
@@ -1932,6 +2074,7 @@ describe('supervisor mock development API', () => {
     });
     const disabledConfigResponse = await disabledConfigServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: { dryRunId: 'codex_dry_run_attempt_fixture' },
     });
@@ -2052,13 +2195,33 @@ describe('supervisor mock development API', () => {
     const pilotWorktreePath = join(dir, 'pilot-worktree');
     const pilotWorktreeHash = hashTestWorktreePath(pilotWorktreePath);
     mkdirSync(pilotWorktreePath);
+    const governedInputRelativePath = '.codexhub/governed-input.md';
+    const governedInputText = 'Summarize repository structure without making changes.';
+    const governedInputHash = `sha256:${hashTestText(governedInputText)}`;
+    mkdirSync(join(pilotWorktreePath, '.codexhub'));
+    writeFileSync(join(pilotWorktreePath, '.codexhub', 'governed-input.md'), governedInputText);
     let fakeRunnerResult = {
       exitCode: 0 as number | undefined,
       stdout: '{"type":"result","status":"ok"}\n',
       stderr: '',
     };
+    let observedPromptArgumentHash: string | undefined;
     const fakeRunner = {
-      start: async () => fakeRunnerResult,
+      start: async (plan: {
+        argv?: readonly string[];
+        metadata?: Record<string, unknown>;
+        postRunVerification?: boolean;
+      }) => {
+        if (plan.postRunVerification !== true) {
+          observedPromptArgumentHash = plan.metadata?.promptArgumentHash as string | undefined;
+
+          if (plan.argv?.at(-1)?.includes(governedInputRelativePath) !== true) {
+            throw new Error('expected governed input prompt argument');
+          }
+        }
+
+        return fakeRunnerResult;
+      },
     };
     const resolvedExecutablePath = join(dir, 'codex.exe');
     let executableResolution: CodexExecRealReadOnlyAdapterExecutableResolution = {
@@ -2109,6 +2272,7 @@ describe('supervisor mock development API', () => {
 
     const dryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Guarded real read-only attempt fixture',
@@ -2121,12 +2285,14 @@ describe('supervisor mock development API', () => {
     const dryRunId = dryRunResponse.json().liveRunRecord.id as string;
     const policySourceResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/policy-sources',
       payload: { dryRunId },
     });
     const policySourceRecordId = policySourceResponse.json().recordId as string;
     const approvalRequestResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/approval-request',
       payload: {
         dryRunId,
@@ -2137,6 +2303,7 @@ describe('supervisor mock development API', () => {
     });
     const approvalResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/manual-approval',
       payload: {
         dryRunId,
@@ -2151,6 +2318,7 @@ describe('supervisor mock development API', () => {
     for (let index = 0; index < 55; index += 1) {
       const unrelatedDryRunResponse = await server.inject({
         method: 'POST',
+        headers: localControlHeaders,
         url: '/api/codex/exec/dry-run',
         payload: {
           title: `Unrelated approval authority fixture ${index}`,
@@ -2163,11 +2331,13 @@ describe('supervisor mock development API', () => {
       const unrelatedDryRunId = unrelatedDryRunResponse.json().liveRunRecord.id as string;
       const unrelatedPolicySourceResponse = await server.inject({
         method: 'POST',
+        headers: localControlHeaders,
         url: '/api/codex/exec/real-read-only-adapter/policy-sources',
         payload: { dryRunId: unrelatedDryRunId },
       });
       const unrelatedApprovalRequestResponse = await server.inject({
         method: 'POST',
+        headers: localControlHeaders,
         url: '/api/codex/exec/approval-request',
         payload: {
           dryRunId: unrelatedDryRunId,
@@ -2178,6 +2348,7 @@ describe('supervisor mock development API', () => {
       });
       const unrelatedManualApprovalResponse = await server.inject({
         method: 'POST',
+        headers: localControlHeaders,
         url: '/api/codex/exec/manual-approval',
         payload: {
           dryRunId: unrelatedDryRunId,
@@ -2193,6 +2364,7 @@ describe('supervisor mock development API', () => {
 
     const mismatchedApprovalSourceResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: {
         dryRunId,
@@ -2204,6 +2376,7 @@ describe('supervisor mock development API', () => {
     });
     const sourcePreparationResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: {
         dryRunId,
@@ -2215,6 +2388,7 @@ describe('supervisor mock development API', () => {
     });
     const prerequisiteResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: {
         dryRunId,
@@ -2227,11 +2401,14 @@ describe('supervisor mock development API', () => {
     });
     const attemptResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: {
         dryRunId,
         approvalArtifactId,
         worktreePath: pilotWorktreePath,
+        governedInputRelativePath,
+        governedInputContentHash: governedInputHash,
       },
     });
     const attemptBodyText = attemptResponse.body;
@@ -2242,11 +2419,14 @@ describe('supervisor mock development API', () => {
     };
     const failedAttemptResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: {
         dryRunId,
         approvalArtifactId,
         worktreePath: pilotWorktreePath,
+        governedInputRelativePath,
+        governedInputContentHash: governedInputHash,
       },
     });
     const failedAttemptId = failedAttemptResponse.json().attemptRecord.id as string;
@@ -2266,11 +2446,24 @@ describe('supervisor mock development API', () => {
     });
     const mismatchResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: {
         dryRunId,
         approvalArtifactId,
         worktreePath: join(dir, 'different-worktree'),
+        governedInputRelativePath,
+        governedInputContentHash: governedInputHash,
+      },
+    });
+    const missingGovernedInputResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: {
+        dryRunId,
+        approvalArtifactId,
+        worktreePath: pilotWorktreePath,
       },
     });
     executableResolution = {
@@ -2295,11 +2488,14 @@ describe('supervisor mock development API', () => {
     };
     const blockedExecutableResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/attempt',
       payload: {
         dryRunId,
         approvalArtifactId,
         worktreePath: pilotWorktreePath,
+        governedInputRelativePath,
+        governedInputContentHash: governedInputHash,
       },
     });
     const blockedExecutableAttemptId = blockedExecutableResponse.json().attemptRecord.id as string;
@@ -2383,9 +2579,12 @@ describe('supervisor mock development API', () => {
         workspaceWriteAllowed: false,
         dangerFullAccessAllowed: false,
         dashboardTriggerAllowed: false,
+        externalProcessStarted: true,
+        processAdapterStarted: true,
       },
       liveExecution: false,
-      externalProcessStarted: false,
+      externalProcessStarted: true,
+      processAdapterStarted: true,
       executionDisabled: true,
       degraded: false,
       notPersisted: false,
@@ -2414,7 +2613,12 @@ describe('supervisor mock development API', () => {
       cwdExists: true,
       cwdIsDirectory: true,
       cwdPathStored: false,
+      governedInputVerified: true,
+      governedInputContentHash: governedInputHash,
+      governedInputBodyStored: false,
+      promptArgumentStored: false,
     });
+    expect(observedPromptArgumentHash).toMatch(/^sha256:/);
     expect(attemptResponse.json().result.error).toBeUndefined();
     expect(attemptResponse.json().evidenceRefs.length).toBeGreaterThan(0);
     expect(attemptResponse.json().auditEvents.length).toBeGreaterThan(0);
@@ -2481,6 +2685,8 @@ describe('supervisor mock development API', () => {
       expect(response.body).not.toContain(pilotWorktreePath);
       expect(response.body).not.toContain(resolvedExecutablePath);
       expect(response.body).not.toContain('C:/Windows');
+      expect(response.body).not.toContain(governedInputText);
+      expect(response.body).not.toContain(governedInputRelativePath);
       expect(response.body).not.toContain('"argv"');
       expect(response.body).not.toContain('"executablePath":');
     }
@@ -2558,11 +2764,15 @@ describe('supervisor mock development API', () => {
     expect(failedAttemptResponse.body).not.toContain(pilotWorktreePath);
     expect(failedAttemptResponse.body).not.toContain(resolvedExecutablePath);
     expect(failedAttemptResponse.body).not.toContain('C:/Windows');
+    expect(failedAttemptResponse.body).not.toContain(governedInputText);
+    expect(failedAttemptResponse.body).not.toContain(governedInputRelativePath);
     expect(failedAttemptResponse.body).not.toContain('"argv"');
     expect(failedAttemptResponse.body).not.toContain('"executablePath":');
     expect(attemptBodyText).not.toContain(pilotWorktreePath);
     expect(attemptBodyText).not.toContain(resolvedExecutablePath);
     expect(attemptBodyText).not.toContain('C:/Windows');
+    expect(attemptBodyText).not.toContain(governedInputText);
+    expect(attemptBodyText).not.toContain(governedInputRelativePath);
     expect(attemptBodyText).not.toContain('"argv"');
     expect(attemptBodyText).not.toContain('"executablePath":');
     expect(mismatchResponse.statusCode).toBe(200);
@@ -2572,6 +2782,28 @@ describe('supervisor mock development API', () => {
       'isolated_worktree_clean',
     );
     expect(mismatchResponse.body).not.toContain(join(dir, 'different-worktree'));
+    expect(mismatchResponse.body).not.toContain(governedInputText);
+    expect(mismatchResponse.body).not.toContain(governedInputRelativePath);
+    expect(missingGovernedInputResponse.statusCode).toBe(200);
+    expect(missingGovernedInputResponse.json()).toMatchObject({
+      attemptRecord: {
+        dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        resultErrorCode: 'governed_input_missing',
+        failedCheckCodes: ['governed_input_verified'],
+        metadata: {
+          governedInputProvided: false,
+          governedInputVerified: false,
+          governedInputReasonCode: 'governed_input_missing',
+          governedInputBodyStored: false,
+          promptArgumentStored: false,
+        },
+      },
+    });
+    expect(missingGovernedInputResponse.body).not.toContain(governedInputText);
+    expect(missingGovernedInputResponse.body).not.toContain(governedInputRelativePath);
+    expect(missingGovernedInputResponse.body).not.toContain('"argv"');
     expect(blockedExecutableResponse.statusCode).toBe(200);
     expect(blockedExecutableResponse.json()).toMatchObject({
       attemptRecord: {
@@ -2603,6 +2835,8 @@ describe('supervisor mock development API', () => {
       },
     });
     expect(blockedExecutableResponse.body).not.toContain(pilotWorktreePath);
+    expect(blockedExecutableResponse.body).not.toContain(governedInputText);
+    expect(blockedExecutableResponse.body).not.toContain(governedInputRelativePath);
     expect(blockedExecutableResponse.body).not.toContain('"executablePath":');
     expect(blockedExecutableResponse.body).not.toContain('"argv"');
     for (const response of [
@@ -2615,6 +2849,8 @@ describe('supervisor mock development API', () => {
       expect(response.body).not.toContain(pilotWorktreePath);
       expect(response.body).not.toContain(resolvedExecutablePath);
       expect(response.body).not.toContain('C:/Windows');
+      expect(response.body).not.toContain(governedInputText);
+      expect(response.body).not.toContain(governedInputRelativePath);
       expect(response.body).not.toContain('"executablePath":');
       expect(response.body).not.toContain('"argv"');
       expect(response.body).not.toContain('"env"');
@@ -2688,6 +2924,7 @@ describe('supervisor mock development API', () => {
 
     const dryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Pilot prerequisite dry-run fixture',
@@ -2700,11 +2937,13 @@ describe('supervisor mock development API', () => {
     const dryRunId = dryRunResponse.json().liveRunRecord.id as string;
     const blockedResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: { dryRunId },
     });
     const policySourceResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/policy-sources',
       payload: { dryRunId },
     });
@@ -2723,6 +2962,7 @@ describe('supervisor mock development API', () => {
     });
     const approvalRequestResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/approval-request',
       payload: {
         dryRunId,
@@ -2733,6 +2973,7 @@ describe('supervisor mock development API', () => {
     });
     const approvalResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/manual-approval',
       payload: {
         dryRunId,
@@ -2744,6 +2985,7 @@ describe('supervisor mock development API', () => {
     const approvalArtifactId = approvalResponse.json().approvalArtifact.id as string;
     const sourcePreparationResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: {
         dryRunId,
@@ -2768,6 +3010,7 @@ describe('supervisor mock development API', () => {
     });
     const sourcePreparationRawPathResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: {
         dryRunId,
@@ -2776,6 +3019,7 @@ describe('supervisor mock development API', () => {
     });
     const readyResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: {
         dryRunId,
@@ -2788,6 +3032,7 @@ describe('supervisor mock development API', () => {
     });
     const approvalAuthorityTraceResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
       payload: {
         dryRunId,
@@ -2823,6 +3068,7 @@ describe('supervisor mock development API', () => {
     });
     const rawPathResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: {
         dryRunId,
@@ -2835,22 +3081,26 @@ describe('supervisor mock development API', () => {
     });
     const missingBodyResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: {},
     });
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreSourceResponse = await disabledStoreServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: { dryRunId },
     });
     const disabledStoreApprovalTraceResponse = await disabledStoreServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
       payload: { dryRunId, approvalArtifactId },
     });
     const disabledStoreResponse = await disabledStoreServer.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
       payload: { dryRunId },
     });
@@ -3088,6 +3338,7 @@ describe('supervisor mock development API', () => {
 
     const dryRunResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/dry-run',
       payload: {
         title: 'Policy source approval binding fixture',
@@ -3100,12 +3351,14 @@ describe('supervisor mock development API', () => {
     const dryRunPlanId = dryRunResponse.json().liveRunRecord.dryRunPlanId as string;
     const policySourceResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/real-read-only-adapter/policy-sources',
       payload: { dryRunId: dryRunPlanId },
     });
     const policySourceRecordId = policySourceResponse.json().recordId as string;
     const approvalRequestResponse = await server.inject({
       method: 'POST',
+      headers: localControlHeaders,
       url: '/api/codex/exec/approval-request',
       payload: {
         dryRunId: dryRunPlanId,

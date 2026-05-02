@@ -1,9 +1,20 @@
 version: 1
 defaults:
   readOnlyAction: allow
-  writeAction: dry_run_required
+  writeAction: dry_run_and_approval_required
   highRiskAction: approval_required
   criticalRiskAction: approval_required
+writeActions:
+  local_patch_dry_run:
+    mode: dry_run_only
+    approvalRequired: false
+    realWriteAllowed: false
+  real_write:
+    mode: write
+    dryRunRequired: true
+    approvalRequired: true
+    evidenceRequired: true
+    auditRequired: true
 blocked:
   - token_collection
   - cookie_collection
@@ -13,4 +24,3 @@ blocked:
   - quota_bypass
   - real_browser_click_input
   - electron_main_inspector_connection
-

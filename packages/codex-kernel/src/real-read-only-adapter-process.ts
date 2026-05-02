@@ -1,6 +1,14 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { hashText } from '@codexhub/evidence-kernel';
 
@@ -59,7 +67,7 @@ export type CodexExecRealReadOnlyAdapterNonzeroExitKind =
   | 'unknown';
 
 export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION =
-  'codex_cli_invocation_v2_json_read_only_ephemeral_no_stdin_body';
+  'codex_cli_invocation_v3_json_read_only_ephemeral_governed_file_arg_no_stdin_body';
 
 export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV = Object.freeze([
   'exec',
@@ -72,6 +80,61 @@ export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV = Object.freeze([
 export const REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH = `sha256:${hashText(
   JSON.stringify(REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV),
 )}`;
+
+export type CodexExecRealReadOnlyAdapterGovernedInputSourceKind = 'governed_file';
+
+export type CodexExecRealReadOnlyAdapterGovernedInputVerificationFailureCode =
+  | 'governed_input_missing'
+  | 'governed_input_relative_path_required'
+  | 'governed_input_absolute_path_forbidden'
+  | 'governed_input_parent_traversal_forbidden'
+  | 'governed_input_symlink_escape_forbidden'
+  | 'governed_input_file_missing'
+  | 'governed_input_file_not_readable'
+  | 'governed_input_hash_mismatch';
+
+export interface CodexExecRealReadOnlyAdapterGovernedInputSource {
+  sourceKind: CodexExecRealReadOnlyAdapterGovernedInputSourceKind;
+  relativePath: string;
+  expectedContentHash: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterGovernedInputVerificationBase {
+  sourceKind: CodexExecRealReadOnlyAdapterGovernedInputSourceKind;
+  relativePath?: string;
+  relativePathHash?: string;
+  expectedContentHash?: string;
+  contentHash?: string;
+  byteLength?: number;
+  lineCount?: number;
+  bodyStored: false;
+  promptBodyStored: false;
+  stdinBodyStored: false;
+  promptArgumentStored: false;
+  metadataOnly: true;
+}
+
+export interface CodexExecRealReadOnlyAdapterGovernedInputVerificationVerified
+  extends CodexExecRealReadOnlyAdapterGovernedInputVerificationBase {
+  status: 'verified';
+  sourceKind: 'governed_file';
+  relativePath: string;
+  relativePathHash: string;
+  expectedContentHash: string;
+  contentHash: string;
+  byteLength: number;
+  lineCount: number;
+}
+
+export interface CodexExecRealReadOnlyAdapterGovernedInputVerificationBlocked
+  extends CodexExecRealReadOnlyAdapterGovernedInputVerificationBase {
+  status: 'blocked';
+  reasonCode: CodexExecRealReadOnlyAdapterGovernedInputVerificationFailureCode;
+}
+
+export type CodexExecRealReadOnlyAdapterGovernedInputVerification =
+  | CodexExecRealReadOnlyAdapterGovernedInputVerificationVerified
+  | CodexExecRealReadOnlyAdapterGovernedInputVerificationBlocked;
 
 export type CodexExecRealReadOnlyAdapterBoundaryStartFailureKind =
   | 'none'
@@ -152,6 +215,7 @@ export interface CodexExecRealReadOnlyAdapterProcessPlanInput {
   executablePath: string;
   executablePolicyLabel?: CodexExecRealReadOnlyAdapterExecutablePolicyLabel;
   worktreePath: string;
+  governedInput?: CodexExecRealReadOnlyAdapterGovernedInputVerification;
   env?: Record<string, string>;
   timeoutMs: number;
   executableResolution?: Pick<
@@ -195,6 +259,16 @@ export interface CodexExecRealReadOnlyAdapterProcessPlan {
   reasoningBodyStored: false;
   stdinBodyStored: false;
   stdinClosedWithoutBody: true;
+  governedInputRequired: true;
+  governedInputProvided: boolean;
+  governedInputVerified: boolean;
+  governedInputSourceKind?: CodexExecRealReadOnlyAdapterGovernedInputSourceKind;
+  governedInputRelativePathHash?: string;
+  governedInputContentHash?: string;
+  governedInputByteLength?: number;
+  governedInputLineCount?: number;
+  promptArgumentHash?: string;
+  promptArgumentStored: false;
   dashboardTriggerAllowed: false;
   workspaceWriteAllowed: false;
   dangerFullAccessAllowed: false;
@@ -257,6 +331,16 @@ export interface CodexExecRealReadOnlyAdapterProcessBoundaryResult {
   stderrBodyStored: false;
   metadataOnly: true;
   externalProcessStarted: boolean;
+  governedInputRequired: true;
+  governedInputProvided: boolean;
+  governedInputVerified: boolean;
+  governedInputSourceKind?: CodexExecRealReadOnlyAdapterGovernedInputSourceKind;
+  governedInputRelativePathHash?: string;
+  governedInputContentHash?: string;
+  governedInputByteLength?: number;
+  governedInputLineCount?: number;
+  promptArgumentHash?: string;
+  promptArgumentStored: false;
   workspaceWriteAllowed: false;
   dangerFullAccessAllowed: false;
   dashboardTriggerAllowed: false;
@@ -692,6 +776,163 @@ export function createRealReadOnlyAdapterRuntimeCwdSelfCheck(input: {
   };
 }
 
+export function createBlockedRealReadOnlyAdapterGovernedInputVerification(
+  reasonCode: CodexExecRealReadOnlyAdapterGovernedInputVerificationFailureCode,
+  input: Partial<CodexExecRealReadOnlyAdapterGovernedInputSource> = {},
+): CodexExecRealReadOnlyAdapterGovernedInputVerificationBlocked {
+  const relativePath =
+    typeof input.relativePath === 'string' && input.relativePath.trim().length > 0
+      ? normalizeGovernedInputRelativePath(input.relativePath)
+      : undefined;
+
+  return {
+    status: 'blocked',
+    reasonCode,
+    sourceKind: input.sourceKind ?? 'governed_file',
+    relativePath,
+    relativePathHash: relativePath ? hashGovernedInputRelativePath(relativePath) : undefined,
+    expectedContentHash: input.expectedContentHash,
+    bodyStored: false,
+    promptBodyStored: false,
+    stdinBodyStored: false,
+    promptArgumentStored: false,
+    metadataOnly: true,
+  };
+}
+
+export function verifyRealReadOnlyAdapterGovernedInputSource(input: {
+  worktreePath: string;
+  source?: CodexExecRealReadOnlyAdapterGovernedInputSource;
+  readTextFile?: (path: string) => string;
+  pathExists?: (path: string) => boolean;
+  realPath?: (path: string) => string;
+}): CodexExecRealReadOnlyAdapterGovernedInputVerification {
+  if (!input.source) {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification('governed_input_missing');
+  }
+
+  const relativePath = normalizeGovernedInputRelativePath(input.source.relativePath);
+
+  if (relativePath.length === 0) {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_relative_path_required',
+      input.source,
+    );
+  }
+
+  if (isAbsolute(relativePath)) {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_absolute_path_forbidden',
+      input.source,
+    );
+  }
+
+  if (governedInputRelativePathEscapes(relativePath)) {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_parent_traversal_forbidden',
+      input.source,
+    );
+  }
+
+  const worktreeRoot = resolve(input.worktreePath);
+  const absolutePath = resolve(worktreeRoot, relativePath);
+
+  if (!isPathWithinRoot(absolutePath, worktreeRoot)) {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_parent_traversal_forbidden',
+      input.source,
+    );
+  }
+
+  const pathExists = input.pathExists ?? existsSync;
+
+  if (!pathExists(absolutePath)) {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_file_missing',
+      input.source,
+    );
+  }
+
+  try {
+    const realPath = input.realPath ?? realpathSync;
+    const realWorktreeRoot = realPath(worktreeRoot);
+    const realInputPath = realPath(absolutePath);
+
+    if (!isPathWithinRoot(realInputPath, realWorktreeRoot)) {
+      return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+        'governed_input_symlink_escape_forbidden',
+        input.source,
+      );
+    }
+  } catch {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_file_not_readable',
+      input.source,
+    );
+  }
+
+  let text: string;
+
+  try {
+    text = input.readTextFile ? input.readTextFile(absolutePath) : readFileSync(absolutePath, 'utf8');
+  } catch {
+    return createBlockedRealReadOnlyAdapterGovernedInputVerification(
+      'governed_input_file_not_readable',
+      input.source,
+    );
+  }
+
+  const contentHash = `sha256:${hashText(text)}`;
+
+  if (contentHash !== input.source.expectedContentHash) {
+    return {
+      ...createBlockedRealReadOnlyAdapterGovernedInputVerification(
+        'governed_input_hash_mismatch',
+        input.source,
+      ),
+      contentHash,
+      byteLength: Buffer.byteLength(text, 'utf8'),
+      lineCount: countTextLines(text),
+    };
+  }
+
+  return {
+    status: 'verified',
+    sourceKind: 'governed_file',
+    relativePath,
+    relativePathHash: hashGovernedInputRelativePath(relativePath),
+    expectedContentHash: input.source.expectedContentHash,
+    contentHash,
+    byteLength: Buffer.byteLength(text, 'utf8'),
+    lineCount: countTextLines(text),
+    bodyStored: false,
+    promptBodyStored: false,
+    stdinBodyStored: false,
+    promptArgumentStored: false,
+    metadataOnly: true,
+  };
+}
+
+export function createRealReadOnlyAdapterGovernedInputPromptArgument(
+  governedInput: CodexExecRealReadOnlyAdapterGovernedInputVerificationVerified,
+): string {
+  return [
+    'Use only the governed input file inside the current worktree.',
+    `Read ${governedInput.relativePath} and perform that request in read-only mode.`,
+    'Do not use browser, desktop, account, credential, or workspace administration automation.',
+    'Do not modify files; return metadata-only observations and stop if a write is needed.',
+  ].join(' ');
+}
+
+export function createRealReadOnlyAdapterProcessArgv(
+  governedInput: CodexExecRealReadOnlyAdapterGovernedInputVerificationVerified,
+): readonly string[] {
+  return Object.freeze([
+    ...REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
+    createRealReadOnlyAdapterGovernedInputPromptArgument(governedInput),
+  ]);
+}
+
 export function createRealReadOnlyAdapterProcessPlan(
   input: CodexExecRealReadOnlyAdapterProcessPlanInput,
 ): CodexExecRealReadOnlyAdapterProcessPlan {
@@ -715,6 +956,10 @@ export function createRealReadOnlyAdapterProcessPlan(
     throw new Error('timeoutMs must be between 1 and 600000 milliseconds');
   }
 
+  if (input.governedInput?.status !== 'verified') {
+    throw new Error('verified governed input is required before process boundary planning');
+  }
+
   const cwdSelfCheck =
     input.cwdSelfCheck ??
     createRealReadOnlyAdapterRuntimeCwdSelfCheck({
@@ -729,12 +974,14 @@ export function createRealReadOnlyAdapterProcessPlan(
     (executableResolution === undefined ? 'none' : 'direct_path');
   const executablePathHash =
     executableResolution?.executablePathHash ?? hashRuntimePath(input.executablePath);
+  const argv = createRealReadOnlyAdapterProcessArgv(input.governedInput);
+  const promptArgumentHash = `sha256:${hashText(argv[argv.length - 1] ?? '')}`;
 
   return {
     dryRunId: input.dryRunId,
     approvalArtifactId: input.approvalArtifactId,
     executablePath: input.executablePath,
-    argv: REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV,
+    argv,
     cwd: input.worktreePath,
     env: input.env ?? {},
     shell: false,
@@ -749,6 +996,16 @@ export function createRealReadOnlyAdapterProcessPlan(
     reasoningBodyStored: false,
     stdinBodyStored: false,
     stdinClosedWithoutBody: true,
+    governedInputRequired: true,
+    governedInputProvided: true,
+    governedInputVerified: true,
+    governedInputSourceKind: input.governedInput.sourceKind,
+    governedInputRelativePathHash: input.governedInput.relativePathHash,
+    governedInputContentHash: input.governedInput.contentHash,
+    governedInputByteLength: input.governedInput.byteLength,
+    governedInputLineCount: input.governedInput.lineCount,
+    promptArgumentHash,
+    promptArgumentStored: false,
     dashboardTriggerAllowed: false,
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
@@ -760,6 +1017,18 @@ export function createRealReadOnlyAdapterProcessPlan(
       readOnly: true,
       stdinBodyStored: false,
       stdinClosedWithoutBody: true,
+      governedInputRequired: true,
+      governedInputProvided: true,
+      governedInputVerified: true,
+      governedInputSourceKind: input.governedInput.sourceKind,
+      governedInputRelativePathHash: input.governedInput.relativePathHash,
+      governedInputContentHash: input.governedInput.contentHash,
+      governedInputByteLength: input.governedInput.byteLength,
+      governedInputLineCount: input.governedInput.lineCount,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentHash,
+      promptArgumentStored: false,
       envPlanStored: false,
       platform: executableResolution?.platform ?? process.platform,
       resolvedExecutableKind,
@@ -929,6 +1198,16 @@ export async function runRealReadOnlyAdapterProcessBoundary(
     stderrBodyStored: false,
     metadataOnly: true,
     externalProcessStarted: true,
+    governedInputRequired: true,
+    governedInputProvided: plan.governedInputProvided,
+    governedInputVerified: plan.governedInputVerified,
+    governedInputSourceKind: plan.governedInputSourceKind,
+    governedInputRelativePathHash: plan.governedInputRelativePathHash,
+    governedInputContentHash: plan.governedInputContentHash,
+    governedInputByteLength: plan.governedInputByteLength,
+    governedInputLineCount: plan.governedInputLineCount,
+    promptArgumentHash: plan.promptArgumentHash,
+    promptArgumentStored: false,
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
     dashboardTriggerAllowed: false,
@@ -937,6 +1216,18 @@ export async function runRealReadOnlyAdapterProcessBoundary(
       readOnly: true,
       shell: false,
       outputBodyStored: false,
+      governedInputRequired: true,
+      governedInputProvided: plan.governedInputProvided,
+      governedInputVerified: plan.governedInputVerified,
+      governedInputSourceKind: plan.governedInputSourceKind,
+      governedInputRelativePathHash: plan.governedInputRelativePathHash,
+      governedInputContentHash: plan.governedInputContentHash,
+      governedInputByteLength: plan.governedInputByteLength,
+      governedInputLineCount: plan.governedInputLineCount,
+      governedInputBodyStored: false,
+      promptBodyStored: false,
+      promptArgumentHash: plan.promptArgumentHash,
+      promptArgumentStored: false,
       startFailureKind,
       enoentKind,
       nonzeroExitKind,
@@ -1427,6 +1718,35 @@ function isDirectoryPath(path: string): boolean {
 
 function hashRuntimePath(path: string): string {
   return `sha256:${hashText(resolve(path).replace(/\\/g, '/'))}`;
+}
+
+function normalizeGovernedInputRelativePath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+function hashGovernedInputRelativePath(path: string): string {
+  return `sha256:${hashText(normalizeGovernedInputRelativePath(path))}`;
+}
+
+function governedInputRelativePathEscapes(path: string): boolean {
+  return normalizeGovernedInputRelativePath(path)
+    .split('/')
+    .some((segment) => segment === '..');
+}
+
+function normalizeRootPath(path: string): string {
+  return resolve(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function isPathWithinRoot(path: string, root: string): boolean {
+  const normalizedRoot = normalizeRootPath(root);
+  const normalizedPath = normalizeRootPath(path);
+
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+function countTextLines(text: string): number {
+  return text.length === 0 ? 0 : text.split(/\r?\n/).length;
 }
 
 function classifyProcessStartError(
