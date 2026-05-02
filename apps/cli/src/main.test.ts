@@ -733,6 +733,16 @@ describe('cli development mock-run fallback', () => {
         postRunVerificationSkipReason: 'attempt_not_completed',
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
+          startFailureKind: 'none',
+          platform: 'win32',
+          resolvedExecutableKind: 'native_exe',
+          cwdHash: 'sha256:safe-cwd-hash',
+          cwdExists: true,
+          cwdIsDirectory: true,
+          executableExists: true,
+          executableAccessible: true,
+          envAllowlistKeyCount: 5,
+          envAllowlistKeyHash: 'sha256:safe-env-keys-hash',
           exitCode: 2,
           signal: 'SIGTERM',
           timedOut: false,
@@ -822,6 +832,18 @@ describe('cli development mock-run fallback', () => {
     expect(timelineOutput).toContain('metadata-only');
     expect(timelineOutput).not.toContain('execution approval');
     expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
+    expect(diagnosticOutput).toContain('boundaryStartFailureKind=none');
+    expect(diagnosticOutput).toContain('boundaryPlatform=win32');
+    expect(diagnosticOutput).toContain('boundaryResolvedExecutableKind=native_exe');
+    expect(diagnosticOutput).toContain('boundaryCwdHash=sha256:safe-cwd-hash');
+    expect(diagnosticOutput).toContain('boundaryCwdExists=true');
+    expect(diagnosticOutput).toContain('boundaryCwdIsDirectory=true');
+    expect(diagnosticOutput).toContain('boundaryExecutableExists=true');
+    expect(diagnosticOutput).toContain('boundaryExecutableAccessible=true');
+    expect(diagnosticOutput).toContain('boundaryEnvAllowlistKeyCount=5');
+    expect(diagnosticOutput).toContain(
+      'boundaryEnvAllowlistKeyHash=sha256:safe-env-keys-hash',
+    );
     expect(diagnosticOutput).toContain('boundaryDiagnosticsComplete=true');
     expect(diagnosticOutput).toContain('boundaryDiagnosticsMissingFields=none');
     expect(diagnosticOutput).toContain('boundaryExitCode=2');

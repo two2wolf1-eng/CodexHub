@@ -54,6 +54,7 @@ import {
   createRealReadOnlyAdapterAuditSummaryFromEvents,
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
   createRealReadOnlyAdapterProcessPlan,
+  createRealReadOnlyAdapterRuntimeCwdSelfCheck,
   createRealReadOnlyAdapterPostRunVerificationPlan,
   resolveRealReadOnlyAdapterExecutable,
   runRealReadOnlyAdapterPostRunVerification,
@@ -2936,8 +2937,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         ? (options.realReadOnlyAdapterExecutableResolver ?? (() =>
             resolveRealReadOnlyAdapterExecutable({ policyLabel: 'codex_cli' })))()
         : undefined;
+    const cwdSelfCheck =
+      preflight.status === 'passed' && body.worktreePath
+        ? createRealReadOnlyAdapterRuntimeCwdSelfCheck({ worktreePath: body.worktreePath })
+        : undefined;
     const boundaryResult =
-      executableResolution?.status === 'resolved' && body.worktreePath && body.approvalArtifactId
+      executableResolution?.status === 'resolved' &&
+      cwdSelfCheck?.status === 'passed' &&
+      body.worktreePath &&
+      body.approvalArtifactId
         ? await runRealReadOnlyAdapterProcessBoundary(
             createRealReadOnlyAdapterProcessPlan({
               dryRunId: body.dryRunId,
@@ -2947,13 +2955,24 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               worktreePath: body.worktreePath,
               env: executableResolution.env,
               timeoutMs: 60_000,
+              executableResolution,
+              cwdSelfCheck,
               metadata: {
                 executablePolicyLabel: 'codex_cli',
                 executablePathStored: false,
                 argvStored: false,
                 envPlanStored: false,
+                platform: executableResolution.platform,
+                resolvedExecutableKind: executableResolution.resolvedExecutableKind,
+                executablePathHash: executableResolution.executablePathHash,
+                executableExists: executableResolution.executableExists,
+                executableAccessible: executableResolution.executableAccessible,
                 envAllowlistKeyCount: executableResolution.envAllowlistKeyCount,
                 envAllowlistKeyHash: executableResolution.envAllowlistKeyHash,
+                cwdHash: cwdSelfCheck.cwdHash,
+                cwdExists: cwdSelfCheck.cwdExists,
+                cwdIsDirectory: cwdSelfCheck.cwdIsDirectory,
+                cwdPathStored: false,
                 worktreePathStored: false,
                 source: 'apps.supervisor.real-read-only-adapter.attempt-process-plan',
               },
@@ -2981,6 +3000,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
                 executableResolution?.status === 'blocked'
                   ? executableResolution.reasonCode
                   : undefined,
+              executableResolvedKind: executableResolution?.resolvedExecutableKind,
+              executableExists: executableResolution?.executableExists,
+              executableAccessible: executableResolution?.executableAccessible,
+              cwdSelfCheckStatus: cwdSelfCheck?.status,
+              cwdSelfCheckReasonCode: cwdSelfCheck?.reasonCode,
+              cwdHash: cwdSelfCheck?.cwdHash,
+              cwdExists: cwdSelfCheck?.cwdExists,
+              cwdIsDirectory: cwdSelfCheck?.cwdIsDirectory,
               executableShellShimDetected:
                 executableResolution?.status === 'blocked'
                   ? executableResolution.shellShimDetected
@@ -3003,6 +3030,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               configLoadStatus: configLoadResult.status,
               executablePolicyLabel: 'codex_cli',
               executableResolutionStatus: executableResolution?.status,
+              executableResolvedKind:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.resolvedExecutableKind
+                  : undefined,
+              executablePathHash:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.executablePathHash
+                  : undefined,
+              executableExists:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.executableExists
+                  : undefined,
+              executableAccessible:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.executableAccessible
+                  : undefined,
               envAllowlistKeyCount:
                 executableResolution?.status === 'resolved'
                   ? executableResolution.envAllowlistKeyCount
@@ -3014,6 +3057,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               executablePathStored: false,
               envPlanStored: false,
               argvStored: false,
+              cwdSelfCheckStatus: cwdSelfCheck?.status,
+              cwdHash: cwdSelfCheck?.cwdHash,
+              cwdExists: cwdSelfCheck?.cwdExists,
+              cwdIsDirectory: cwdSelfCheck?.cwdIsDirectory,
+              cwdPathStored: false,
               worktreePathStored: false,
             },
           });
@@ -3073,6 +3121,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           executableResolution?.status === 'blocked'
             ? executableResolution.reasonCode
             : undefined,
+        executableResolvedKind: executableResolution?.resolvedExecutableKind,
+        executableExists: executableResolution?.executableExists,
+        executableAccessible: executableResolution?.executableAccessible,
+        executablePathHash:
+          executableResolution?.status === 'resolved'
+            ? executableResolution.executablePathHash
+            : undefined,
         envAllowlistKeyCount:
           executableResolution?.status === 'resolved'
             ? executableResolution.envAllowlistKeyCount
@@ -3084,6 +3139,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         executablePathStored: false,
         envPlanStored: false,
         argvStored: false,
+        cwdSelfCheckStatus: cwdSelfCheck?.status,
+        cwdSelfCheckReasonCode: cwdSelfCheck?.reasonCode,
+        cwdHash: cwdSelfCheck?.cwdHash,
+        cwdExists: cwdSelfCheck?.cwdExists,
+        cwdIsDirectory: cwdSelfCheck?.cwdIsDirectory,
+        cwdPathStored: false,
         postRunVerificationStatus,
         postRunVerificationSkipReason,
         worktreePathStored: false,
@@ -3129,6 +3190,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           executableResolution?.status === 'blocked'
             ? executableResolution.reasonCode
             : undefined,
+        executableResolvedKind: executableResolution?.resolvedExecutableKind,
+        executableExists: executableResolution?.executableExists,
+        executableAccessible: executableResolution?.executableAccessible,
+        executablePathHash:
+          executableResolution?.status === 'resolved'
+            ? executableResolution.executablePathHash
+            : undefined,
         envAllowlistKeyCount:
           executableResolution?.status === 'resolved'
             ? executableResolution.envAllowlistKeyCount
@@ -3140,6 +3208,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         executablePathStored: false,
         envPlanStored: false,
         argvStored: false,
+        cwdSelfCheckStatus: cwdSelfCheck?.status,
+        cwdSelfCheckReasonCode: cwdSelfCheck?.reasonCode,
+        cwdHash: cwdSelfCheck?.cwdHash,
+        cwdExists: cwdSelfCheck?.cwdExists,
+        cwdIsDirectory: cwdSelfCheck?.cwdIsDirectory,
+        cwdPathStored: false,
         postRunVerificationStatus,
         postRunVerificationSkipReason,
       },

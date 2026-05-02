@@ -2287,6 +2287,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       platform: 'win32',
       pathDelimiter: ';',
       fileExists,
+      fileAccessible: fileExists,
     });
     const shellOnly = resolveRealReadOnlyAdapterExecutable({
       policyLabel: 'codex_cli',
@@ -2294,6 +2295,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       platform: 'win32',
       pathDelimiter: ';',
       fileExists,
+      fileAccessible: fileExists,
     });
     const forbiddenPolicy = resolveRealReadOnlyAdapterExecutable({
       policyLabel: 'arbitrary_binary',
@@ -2301,8 +2303,24 @@ describe('codex-kernel live control-plane skeleton', () => {
       platform: 'win32',
       pathDelimiter: ';',
       fileExists,
+      fileAccessible: fileExists,
+    });
+    const inaccessible = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env,
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+      fileAccessible: () => false,
     });
     const allowedEnv = createRealReadOnlyAdapterAllowedProcessEnv(env);
+    const casePreservedEnv = createRealReadOnlyAdapterAllowedProcessEnv({
+      Path: 'C:/native',
+      Pathext: '.EXE',
+      SYSTEMROOT: 'C:/Windows',
+      TMP: 'C:/Tmp',
+      CODEX_TOKEN_SHOULD_NOT_PASS: 'secret',
+    });
 
     expect(resolved.status).toBe('resolved');
     if (resolved.status !== 'resolved') {
@@ -2310,6 +2328,11 @@ describe('codex-kernel live control-plane skeleton', () => {
     }
     expect(resolved.shell).toBe(false);
     expect(resolved.executablePath.replace(/\\/g, '/')).toBe('C:/native/codex.exe');
+    expect(resolved.resolvedExecutableKind).toBe('native_exe');
+    expect(resolved.platform).toBe('win32');
+    expect(resolved.executablePathHash).toMatch(/^sha256:/);
+    expect(resolved.executableExists).toBe(true);
+    expect(resolved.executableAccessible).toBe(true);
     expect(resolved.env).toMatchObject({
       PATH: 'C:/shim;C:/native',
       PATHEXT: '.COM;.EXE;.CMD',
@@ -2324,12 +2347,21 @@ describe('codex-kernel live control-plane skeleton', () => {
     }
     expect(shellOnly.reasonCode).toBe('executable_requires_shell');
     expect(shellOnly.shellShimDetected).toBe(true);
+    expect(shellOnly.resolvedExecutableKind).toBe('shell_shim');
+    expect(inaccessible.status).toBe('blocked');
+    if (inaccessible.status !== 'blocked') {
+      throw new Error('expected inaccessible executable resolution to block');
+    }
+    expect(inaccessible.reasonCode).toBe('executable_inaccessible');
+    expect(inaccessible.executableExists).toBe(true);
+    expect(inaccessible.executableAccessible).toBe(false);
     expect(forbiddenPolicy.status).toBe('blocked');
     if (forbiddenPolicy.status !== 'blocked') {
       throw new Error('expected forbidden executable policy to block');
     }
     expect(forbiddenPolicy.reasonCode).toBe('executable_policy_forbidden');
     expect(Object.keys(allowedEnv).sort()).toEqual(['PATH', 'PATHEXT', 'SystemRoot', 'TEMP']);
+    expect(Object.keys(casePreservedEnv).sort()).toEqual(['Path', 'Pathext', 'SYSTEMROOT', 'TMP']);
     expect(JSON.stringify({ shellOnly, forbiddenPolicy, allowedEnv })).not.toContain(
       'TOKEN_SHOULD_NOT_PASS',
     );
@@ -2644,6 +2676,23 @@ describe('codex-kernel live control-plane skeleton', () => {
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/diagnostics',
       timeoutMs: 1_000,
+      executableResolution: {
+        platform: 'win32',
+        resolvedExecutableKind: 'native_exe',
+        executablePathHash: 'sha256:diagnostics-executable',
+        executableExists: true,
+        executableAccessible: true,
+        envAllowlistKeyCount: 2,
+        envAllowlistKeyHash: 'sha256:diagnostics-env-keys',
+      },
+      cwdSelfCheck: {
+        status: 'passed',
+        cwdHash: 'sha256:diagnostics-cwd',
+        cwdExists: true,
+        cwdIsDirectory: true,
+        cwdPathStored: false,
+        metadataOnly: true,
+      },
     });
     const nonzero = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
       runner: {
@@ -2658,6 +2707,7 @@ describe('codex-kernel live control-plane skeleton', () => {
       runner: {
         start: async () => ({
           stderr: 'start failure detail must stay hashed',
+          startFailureKind: 'enoent',
         }),
       },
     });
@@ -2707,6 +2757,16 @@ describe('codex-kernel live control-plane skeleton', () => {
 
     expect(diagnostics.nonzero.failureCode).toBe('process_exit_nonzero');
     expect(diagnostics.startFailure.failureCode).toBe('process_start_failed');
+    expect(diagnostics.startFailure.startFailureKind).toBe('enoent');
+    expect(diagnostics.startFailure.platform).toBe('win32');
+    expect(diagnostics.startFailure.resolvedExecutableKind).toBe('native_exe');
+    expect(diagnostics.startFailure.cwdHash).toBe('sha256:diagnostics-cwd');
+    expect(diagnostics.startFailure.cwdExists).toBe(true);
+    expect(diagnostics.startFailure.cwdIsDirectory).toBe(true);
+    expect(diagnostics.startFailure.executableExists).toBe(true);
+    expect(diagnostics.startFailure.executableAccessible).toBe(true);
+    expect(diagnostics.startFailure.envAllowlistKeyCount).toBe(2);
+    expect(diagnostics.startFailure.envAllowlistKeyHash).toBe('sha256:diagnostics-env-keys');
     expect(diagnostics.timeout.failureCode).toBe('process_timed_out');
     expect(diagnostics.cancelled.failureCode).toBe('process_cancelled');
     expect(diagnostics.malformedButCompleted.failureCode).toBe('none');
@@ -2779,6 +2839,23 @@ describe('codex-kernel live control-plane skeleton', () => {
       executablePath: 'codex',
       worktreePath: 'C:/safe/worktree/attempt-record',
       timeoutMs: 1_000,
+      executableResolution: {
+        platform: 'win32',
+        resolvedExecutableKind: 'native_exe',
+        executablePathHash: 'sha256:attempt-record-executable',
+        executableExists: true,
+        executableAccessible: true,
+        envAllowlistKeyCount: 2,
+        envAllowlistKeyHash: 'sha256:attempt-record-env-keys',
+      },
+      cwdSelfCheck: {
+        status: 'passed',
+        cwdHash: 'sha256:attempt-record-cwd',
+        cwdExists: true,
+        cwdIsDirectory: true,
+        cwdPathStored: false,
+        metadataOnly: true,
+      },
     });
     const completedBoundary = await runRealReadOnlyAdapterProcessBoundary(processPlan, {
       runner: {
@@ -2927,6 +3004,18 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(failedRecord.boundaryDiagnostics?.stdoutHash).toMatch(/^sha256:/);
     expect(failedRecord.boundaryDiagnostics?.stderrHash).toMatch(/^sha256:/);
     expect(failedRecord.boundaryDiagnostics?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(failedRecord.boundaryDiagnostics?.startFailureKind).toBe('none');
+    expect(failedRecord.boundaryDiagnostics?.platform).toBe('win32');
+    expect(failedRecord.boundaryDiagnostics?.resolvedExecutableKind).toBe('native_exe');
+    expect(failedRecord.boundaryDiagnostics?.cwdHash).toBe('sha256:attempt-record-cwd');
+    expect(failedRecord.boundaryDiagnostics?.cwdExists).toBe(true);
+    expect(failedRecord.boundaryDiagnostics?.cwdIsDirectory).toBe(true);
+    expect(failedRecord.boundaryDiagnostics?.executableExists).toBe(true);
+    expect(failedRecord.boundaryDiagnostics?.executableAccessible).toBe(true);
+    expect(failedRecord.boundaryDiagnostics?.envAllowlistKeyCount).toBe(2);
+    expect(failedRecord.boundaryDiagnostics?.envAllowlistKeyHash).toBe(
+      'sha256:attempt-record-env-keys',
+    );
     expect(failedRecord.boundaryDiagnostics?.timedOut).toBe(false);
     expect(failedRecord.boundaryDiagnostics?.cancelled).toBe(false);
     expect(failedRecord.boundaryDiagnosticsComplete).toBe(true);

@@ -6953,6 +6953,16 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         dashboardTriggerAllowed?: boolean;
         boundaryDiagnostics?: {
           failureCode?: string;
+          startFailureKind?: string;
+          platform?: string;
+          resolvedExecutableKind?: string;
+          cwdHash?: string;
+          cwdExists?: boolean;
+          cwdIsDirectory?: boolean;
+          executableExists?: boolean;
+          executableAccessible?: boolean;
+          envAllowlistKeyCount?: number;
+          envAllowlistKeyHash?: string;
           exitCode?: number;
           signal?: string;
           timedOut?: boolean;
@@ -7000,6 +7010,28 @@ export function formatRealReadOnlyAdapterAttemptOutput(
         : 'none',
     )}`,
     `boundaryFailureCode=${attempt?.boundaryDiagnostics?.failureCode ?? 'none'}`,
+    `boundaryStartFailureKind=${attempt?.boundaryDiagnostics?.startFailureKind ?? 'none'}`,
+    `boundaryPlatform=${attempt?.boundaryDiagnostics?.platform ?? 'unknown'}`,
+    `boundaryResolvedExecutableKind=${
+      attempt?.boundaryDiagnostics?.resolvedExecutableKind ?? 'unknown'
+    }`,
+    `boundaryCwdHash=${attempt?.boundaryDiagnostics?.cwdHash ?? 'not-recorded'}`,
+    `boundaryCwdExists=${String(attempt?.boundaryDiagnostics?.cwdExists ?? false)}`,
+    `boundaryCwdIsDirectory=${String(
+      attempt?.boundaryDiagnostics?.cwdIsDirectory ?? false,
+    )}`,
+    `boundaryExecutableExists=${String(
+      attempt?.boundaryDiagnostics?.executableExists ?? false,
+    )}`,
+    `boundaryExecutableAccessible=${String(
+      attempt?.boundaryDiagnostics?.executableAccessible ?? false,
+    )}`,
+    `boundaryEnvAllowlistKeyCount=${String(
+      attempt?.boundaryDiagnostics?.envAllowlistKeyCount ?? 0,
+    )}`,
+    `boundaryEnvAllowlistKeyHash=${
+      attempt?.boundaryDiagnostics?.envAllowlistKeyHash ?? 'not-recorded'
+    }`,
     `boundaryExitCode=${String(attempt?.boundaryDiagnostics?.exitCode ?? 'not-recorded')}`,
     `boundaryTimedOut=${String(attempt?.boundaryDiagnostics?.timedOut ?? false)}`,
     `boundaryCancelled=${String(attempt?.boundaryDiagnostics?.cancelled ?? false)}`,

@@ -520,6 +520,15 @@ describe('store-sqlite migration initialization', () => {
       'process_exit_nonzero',
     );
     expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.exitCode).toBe(2);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.startFailureKind).toBe(
+      'none',
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.platform).toBe(
+      'win32',
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.resolvedExecutableKind).toBe(
+      'native_exe',
+    );
     expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stdoutHash).toBe(
       'sha256:stdout',
     );
@@ -528,6 +537,25 @@ describe('store-sqlite migration initialization', () => {
     );
     expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stdoutByteLength).toBe(12);
     expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.stderrByteLength).toBe(14);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.cwdHash).toBe(
+      'sha256:cwd',
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.cwdExists).toBe(true);
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.cwdIsDirectory).toBe(
+      true,
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.executableExists).toBe(
+      true,
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.executableAccessible).toBe(
+      true,
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.envAllowlistKeyCount).toBe(
+      6,
+    );
+    expect(realReadOnlyAdapterFailedAttemptRecord?.boundaryDiagnostics?.envAllowlistKeyHash).toBe(
+      'sha256:env_keys',
+    );
     expect(realReadOnlyAdapterFailedAttemptRecord?.postRunVerificationStatus).toBe('skipped');
     expect(realReadOnlyAdapterFailedAttemptRecord?.postRunVerificationSkipReason).toBe(
       'attempt_not_completed',
@@ -1389,6 +1417,9 @@ function createRealReadOnlyAdapterFailedAttemptFixture(): CodexExecRealReadOnlyA
       status: 'failed',
       failureCode: 'process_exit_nonzero',
       exitCode: 2,
+      startFailureKind: 'none',
+      platform: 'win32',
+      resolvedExecutableKind: 'native_exe',
       timedOut: false,
       cancelled: false,
       durationMs: 35,
@@ -1400,6 +1431,13 @@ function createRealReadOnlyAdapterFailedAttemptFixture(): CodexExecRealReadOnlyA
       stderrLineCount: 1,
       stdoutTruncated: false,
       stderrTruncated: false,
+      cwdHash: 'sha256:cwd',
+      cwdExists: true,
+      cwdIsDirectory: true,
+      executableExists: true,
+      executableAccessible: true,
+      envAllowlistKeyCount: 6,
+      envAllowlistKeyHash: 'sha256:env_keys',
       externalProcessStarted: true,
       summary: 'Boundary diagnostics stores hashes and counts only.',
       metadataOnly: true,

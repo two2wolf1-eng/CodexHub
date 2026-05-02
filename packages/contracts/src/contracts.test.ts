@@ -2668,6 +2668,16 @@ describe('contracts schemas', () => {
       ...flagFields,
       status: 'failed',
       failureCode: 'process_exit_nonzero',
+      startFailureKind: 'none',
+      platform: 'win32',
+      resolvedExecutableKind: 'native_exe',
+      cwdHash: 'sha256:cwd',
+      cwdExists: true,
+      cwdIsDirectory: true,
+      executableExists: true,
+      executableAccessible: true,
+      envAllowlistKeyCount: 5,
+      envAllowlistKeyHash: 'sha256:env-keys',
       exitCode: 2,
       timedOut: false,
       cancelled: false,
@@ -2979,6 +2989,15 @@ describe('contracts schemas', () => {
     );
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.failureCode).toBe(
       'process_exit_nonzero',
+    );
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.startFailureKind).toBe('none');
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.resolvedExecutableKind).toBe(
+      'native_exe',
+    );
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.cwdHash).toBe('sha256:cwd');
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.executableAccessible).toBe(true);
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.envAllowlistKeyHash).toBe(
+      'sha256:env-keys',
     );
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stdoutByteLength).toBe(12);
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stderrByteLength).toBe(14);

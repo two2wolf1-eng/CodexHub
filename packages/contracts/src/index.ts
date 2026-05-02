@@ -3228,11 +3228,49 @@ export type CodexExecRealReadOnlyAdapterBoundaryFailureCode = z.infer<
   typeof CodexExecRealReadOnlyAdapterBoundaryFailureCodeSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterBoundaryStartFailureKindSchema = z.enum([
+  'none',
+  'enoent',
+  'eacces',
+  'eperm',
+  'spawn_unknown',
+  'cwd_missing',
+  'cwd_not_directory',
+  'executable_missing',
+  'executable_inaccessible',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterBoundaryStartFailureKind = z.infer<
+  typeof CodexExecRealReadOnlyAdapterBoundaryStartFailureKindSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterResolvedExecutableKindSchema = z.enum([
+  'native_exe',
+  'bare_command',
+  'shell_shim',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterResolvedExecutableKind = z.infer<
+  typeof CodexExecRealReadOnlyAdapterResolvedExecutableKindSchema
+>;
+
 export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEntityBaseSchema
   .merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema)
   .extend({
     status: z.enum(['completed', 'failed', 'aborted']),
     failureCode: CodexExecRealReadOnlyAdapterBoundaryFailureCodeSchema,
+    startFailureKind: CodexExecRealReadOnlyAdapterBoundaryStartFailureKindSchema.default('none'),
+    platform: z.string().min(1).default('unknown'),
+    resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKindSchema.default(
+      'unknown',
+    ),
+    cwdHash: z.string().min(1).optional(),
+    cwdExists: z.boolean().optional(),
+    cwdIsDirectory: z.boolean().optional(),
+    executableExists: z.boolean().optional(),
+    executableAccessible: z.boolean().optional(),
+    envAllowlistKeyCount: z.number().int().nonnegative().optional(),
+    envAllowlistKeyHash: z.string().min(1).optional(),
     exitCode: z.number().int().optional(),
     signal: z.string().min(1).optional(),
     timedOut: z.boolean(),
@@ -3257,6 +3295,16 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema =
   'boundaryDiagnostics',
   'status',
   'failureCode',
+  'startFailureKind',
+  'platform',
+  'resolvedExecutableKind',
+  'cwdHash',
+  'cwdExists',
+  'cwdIsDirectory',
+  'executableExists',
+  'executableAccessible',
+  'envAllowlistKeyCount',
+  'envAllowlistKeyHash',
   'exitCode',
   'signal',
   'timedOut',

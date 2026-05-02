@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { delimiter, join, resolve } from 'node:path';
 import { hashText } from '@codexhub/evidence-kernel';
 
 type JsonMetadata = Record<string, unknown>;
@@ -12,7 +12,26 @@ export type CodexExecRealReadOnlyAdapterExecutablePolicyLabel = 'codex_cli';
 export type CodexExecRealReadOnlyAdapterExecutableResolutionFailureCode =
   | 'executable_policy_forbidden'
   | 'executable_requires_shell'
+  | 'executable_inaccessible'
   | 'executable_resolution_failed';
+
+export type CodexExecRealReadOnlyAdapterResolvedExecutableKind =
+  | 'native_exe'
+  | 'bare_command'
+  | 'shell_shim'
+  | 'unknown';
+
+export type CodexExecRealReadOnlyAdapterBoundaryStartFailureKind =
+  | 'none'
+  | 'enoent'
+  | 'eacces'
+  | 'eperm'
+  | 'spawn_unknown'
+  | 'cwd_missing'
+  | 'cwd_not_directory'
+  | 'executable_missing'
+  | 'executable_inaccessible'
+  | 'unknown';
 
 export interface CodexExecRealReadOnlyAdapterExecutableResolutionInput {
   policyLabel: CodexExecRealReadOnlyAdapterExecutablePolicyLabel | string;
@@ -20,6 +39,7 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionInput {
   platform?: NodeJS.Platform;
   pathDelimiter?: string;
   fileExists?: (path: string) => boolean;
+  fileAccessible?: (path: string) => boolean;
 }
 
 export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
@@ -31,6 +51,10 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
   metadataOnly: true;
   envAllowlistKeyCount: number;
   envAllowlistKeyHash: string;
+  platform: string;
+  resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKind;
+  executableExists: boolean;
+  executableAccessible: boolean;
 }
 
 export interface CodexExecRealReadOnlyAdapterExecutableResolved
@@ -38,6 +62,7 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolved
   status: 'resolved';
   policyLabel: CodexExecRealReadOnlyAdapterExecutablePolicyLabel;
   executablePath: string;
+  executablePathHash: string;
   env: Record<string, string>;
 }
 
@@ -47,6 +72,16 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionBlocked
   reasonCode: CodexExecRealReadOnlyAdapterExecutableResolutionFailureCode;
   directExecutableFound: false;
   shellShimDetected: boolean;
+}
+
+export interface CodexExecRealReadOnlyAdapterRuntimeCwdSelfCheck {
+  status: 'passed' | 'blocked';
+  cwdHash: string;
+  cwdExists: boolean;
+  cwdIsDirectory: boolean;
+  cwdPathStored: false;
+  metadataOnly: true;
+  reasonCode?: 'cwd_missing' | 'cwd_not_directory';
 }
 
 export type CodexExecRealReadOnlyAdapterExecutableResolution =
@@ -61,6 +96,17 @@ export interface CodexExecRealReadOnlyAdapterProcessPlanInput {
   worktreePath: string;
   env?: Record<string, string>;
   timeoutMs: number;
+  executableResolution?: Pick<
+    CodexExecRealReadOnlyAdapterExecutableResolved,
+    | 'platform'
+    | 'resolvedExecutableKind'
+    | 'executablePathHash'
+    | 'executableExists'
+    | 'executableAccessible'
+    | 'envAllowlistKeyCount'
+    | 'envAllowlistKeyHash'
+  >;
+  cwdSelfCheck?: CodexExecRealReadOnlyAdapterRuntimeCwdSelfCheck;
   metadata?: JsonMetadata;
 }
 
@@ -103,6 +149,7 @@ export interface CodexExecRealReadOnlyAdapterProcessRunnerResult {
   stderr?: string;
   timedOut?: boolean;
   cancelled?: boolean;
+  startFailureKind?: CodexExecRealReadOnlyAdapterBoundaryStartFailureKind;
 }
 
 export interface CodexExecRealReadOnlyAdapterProcessBoundaryResult {
@@ -115,6 +162,16 @@ export interface CodexExecRealReadOnlyAdapterProcessBoundaryResult {
   signal?: string;
   timedOut: boolean;
   cancelled: boolean;
+  startFailureKind: CodexExecRealReadOnlyAdapterBoundaryStartFailureKind;
+  platform: string;
+  resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKind;
+  cwdHash?: string;
+  cwdExists?: boolean;
+  cwdIsDirectory?: boolean;
+  executableExists?: boolean;
+  executableAccessible?: boolean;
+  envAllowlistKeyCount?: number;
+  envAllowlistKeyHash?: string;
   stdoutSummary: CodexExecRealReadOnlyAdapterProcessOutputSummary;
   stderrSummary: CodexExecRealReadOnlyAdapterProcessOutputSummary;
   shell: false;
@@ -235,10 +292,10 @@ export function createRealReadOnlyAdapterAllowedProcessEnv(
       continue;
     }
 
-    const value = readEnvironmentValue(source, key);
+    const entry = readEnvironmentEntry(source, key);
 
-    if (value !== undefined && value.length > 0) {
-      allowed[key] = value;
+    if (entry !== undefined && entry.value.length > 0) {
+      allowed[entry.key] = entry.value;
       observedKeys.add(normalizedKey);
     }
   }
@@ -252,7 +309,9 @@ export function summarizeRealReadOnlyAdapterAllowedProcessEnv(
   CodexExecRealReadOnlyAdapterExecutableResolutionBase,
   'envAllowlistKeyCount' | 'envAllowlistKeyHash'
 > {
-  const keys = Object.keys(env).sort();
+  const keys = Object.keys(env)
+    .map((key) => key.toLowerCase())
+    .sort();
 
   return {
     envAllowlistKeyCount: keys.length,
@@ -273,6 +332,10 @@ export function resolveRealReadOnlyAdapterExecutable(
     envPlanStored: false as const,
     argvStored: false as const,
     metadataOnly: true as const,
+    platform,
+    resolvedExecutableKind: 'unknown' as const,
+    executableExists: false,
+    executableAccessible: false,
     ...envSummary,
   };
 
@@ -287,22 +350,43 @@ export function resolveRealReadOnlyAdapterExecutable(
   }
 
   const fileExists = input.fileExists ?? existsSync;
+  const fileAccessible = input.fileAccessible ?? isExecutablePathAccessible;
   const pathEntries = splitPathEntries(env.PATH, input.pathDelimiter ?? delimiter);
   const directExecutableNames = platform === 'win32' ? ['codex.exe', 'codex'] : ['codex'];
   const shellShimNames = platform === 'win32' ? ['codex.cmd', 'codex.bat'] : [];
-  const directExecutablePath = findExecutablePath(
+  const directExecutable = findExecutablePath(
     pathEntries,
     directExecutableNames,
     fileExists,
   );
 
-  if (directExecutablePath !== undefined) {
+  if (directExecutable !== undefined) {
+    const resolvedExecutableKind = classifyExecutableKind(directExecutable.name, platform);
+    const executableAccessible = fileAccessible(directExecutable.path);
+
+    if (!executableAccessible) {
+      return {
+        ...base,
+        status: 'blocked',
+        reasonCode: 'executable_inaccessible',
+        directExecutableFound: false,
+        shellShimDetected: false,
+        resolvedExecutableKind,
+        executableExists: true,
+        executableAccessible: false,
+      };
+    }
+
     return {
       ...base,
       status: 'resolved',
       policyLabel: codexCliExecutablePolicyLabel,
-      executablePath: directExecutablePath,
+      executablePath: directExecutable.path,
+      executablePathHash: hashRuntimePath(directExecutable.path),
       env,
+      resolvedExecutableKind,
+      executableExists: true,
+      executableAccessible: true,
     };
   }
 
@@ -316,6 +400,31 @@ export function resolveRealReadOnlyAdapterExecutable(
     reasonCode: shellShimDetected ? 'executable_requires_shell' : 'executable_resolution_failed',
     directExecutableFound: false,
     shellShimDetected,
+    resolvedExecutableKind: shellShimDetected ? 'shell_shim' : 'unknown',
+    executableExists: shellShimDetected,
+    executableAccessible: false,
+  };
+}
+
+export function createRealReadOnlyAdapterRuntimeCwdSelfCheck(input: {
+  worktreePath: string;
+  pathExists?: (path: string) => boolean;
+  pathIsDirectory?: (path: string) => boolean;
+}): CodexExecRealReadOnlyAdapterRuntimeCwdSelfCheck {
+  const cwdHash = hashRuntimePath(input.worktreePath);
+  const pathExists = input.pathExists ?? existsSync;
+  const pathIsDirectory = input.pathIsDirectory ?? isDirectoryPath;
+  const cwdExists = pathExists(input.worktreePath);
+  const cwdIsDirectory = cwdExists && pathIsDirectory(input.worktreePath);
+
+  return {
+    status: cwdExists && cwdIsDirectory ? 'passed' : 'blocked',
+    cwdHash,
+    cwdExists,
+    cwdIsDirectory,
+    cwdPathStored: false,
+    metadataOnly: true,
+    reasonCode: !cwdExists ? 'cwd_missing' : cwdIsDirectory ? undefined : 'cwd_not_directory',
   };
 }
 
@@ -341,6 +450,13 @@ export function createRealReadOnlyAdapterProcessPlan(
   if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600_000) {
     throw new Error('timeoutMs must be between 1 and 600000 milliseconds');
   }
+
+  const cwdSelfCheck =
+    input.cwdSelfCheck ??
+    createRealReadOnlyAdapterRuntimeCwdSelfCheck({
+      worktreePath: input.worktreePath,
+    });
+  const executableResolution = input.executableResolution;
 
   return {
     dryRunId: input.dryRunId,
@@ -378,6 +494,21 @@ export function createRealReadOnlyAdapterProcessPlan(
       shell: false,
       readOnly: true,
       envPlanStored: false,
+      platform: executableResolution?.platform ?? process.platform,
+      resolvedExecutableKind: executableResolution?.resolvedExecutableKind ?? 'unknown',
+      executablePathHash: executableResolution?.executablePathHash ?? hashRuntimePath(input.executablePath),
+      executableExists: executableResolution?.executableExists ?? true,
+      executableAccessible: executableResolution?.executableAccessible ?? true,
+      envAllowlistKeyCount:
+        executableResolution?.envAllowlistKeyCount ??
+        summarizeRealReadOnlyAdapterAllowedProcessEnv(input.env ?? {}).envAllowlistKeyCount,
+      envAllowlistKeyHash:
+        executableResolution?.envAllowlistKeyHash ??
+        summarizeRealReadOnlyAdapterAllowedProcessEnv(input.env ?? {}).envAllowlistKeyHash,
+      cwdHash: cwdSelfCheck.cwdHash,
+      cwdExists: cwdSelfCheck.cwdExists,
+      cwdIsDirectory: cwdSelfCheck.cwdIsDirectory,
+      cwdPathStored: false,
     },
   };
 }
@@ -442,6 +573,12 @@ export async function runRealReadOnlyAdapterProcessBoundary(
   const completedMs = Date.parse(completedAt);
   const timedOut = runnerResult.timedOut === true;
   const cancelled = runnerResult.cancelled === true || options.signal?.aborted === true;
+  const startFailureKind = runnerResult.startFailureKind ?? 'none';
+  const platform = readStringMetadata(plan.metadata, 'platform') ?? process.platform;
+  const resolvedExecutableKind = readExecutableKindMetadata(
+    plan.metadata,
+    'resolvedExecutableKind',
+  );
   const status =
     timedOut || cancelled
       ? 'aborted'
@@ -462,6 +599,16 @@ export async function runRealReadOnlyAdapterProcessBoundary(
     signal: runnerResult.signal,
     timedOut,
     cancelled,
+    startFailureKind,
+    platform,
+    resolvedExecutableKind,
+    cwdHash: readStringMetadata(plan.metadata, 'cwdHash'),
+    cwdExists: readBooleanMetadata(plan.metadata, 'cwdExists'),
+    cwdIsDirectory: readBooleanMetadata(plan.metadata, 'cwdIsDirectory'),
+    executableExists: readBooleanMetadata(plan.metadata, 'executableExists'),
+    executableAccessible: readBooleanMetadata(plan.metadata, 'executableAccessible'),
+    envAllowlistKeyCount: readNumberMetadata(plan.metadata, 'envAllowlistKeyCount'),
+    envAllowlistKeyHash: readStringMetadata(plan.metadata, 'envAllowlistKeyHash'),
     stdoutSummary: summarizeProcessOutput('stdout', runnerResult.stdout ?? ''),
     stderrSummary: summarizeProcessOutput('stderr', runnerResult.stderr ?? ''),
     shell: false,
@@ -481,6 +628,16 @@ export async function runRealReadOnlyAdapterProcessBoundary(
       readOnly: true,
       shell: false,
       outputBodyStored: false,
+      startFailureKind,
+      platform,
+      resolvedExecutableKind,
+      cwdHash: readStringMetadata(plan.metadata, 'cwdHash'),
+      cwdExists: readBooleanMetadata(plan.metadata, 'cwdExists'),
+      cwdIsDirectory: readBooleanMetadata(plan.metadata, 'cwdIsDirectory'),
+      executableExists: readBooleanMetadata(plan.metadata, 'executableExists'),
+      executableAccessible: readBooleanMetadata(plan.metadata, 'executableAccessible'),
+      envAllowlistKeyCount: readNumberMetadata(plan.metadata, 'envAllowlistKeyCount'),
+      envAllowlistKeyHash: readStringMetadata(plan.metadata, 'envAllowlistKeyHash'),
     },
   };
 }
@@ -646,9 +803,11 @@ export const nodeRealReadOnlyAdapterProcessRunner: CodexExecRealReadOnlyAdapterP
           windowsHide: true,
         });
       } catch (error) {
+        const startFailureKind = classifyProcessStartError(error);
         finish({
           exitCode: undefined,
-          stderr: error instanceof Error ? error.message : 'process boundary start failed',
+          stderr: createProcessStartFailureSummary(startFailureKind),
+          startFailureKind,
         });
         return;
       }
@@ -660,7 +819,14 @@ export const nodeRealReadOnlyAdapterProcessRunner: CodexExecRealReadOnlyAdapterP
         stderr = appendBounded(stderr, chunk);
       });
       child.on('error', (error) => {
-        finish({ exitCode: undefined, stderr: error.message, timedOut, cancelled });
+        const startFailureKind = classifyProcessStartError(error);
+        finish({
+          exitCode: undefined,
+          stderr: createProcessStartFailureSummary(startFailureKind),
+          timedOut,
+          cancelled,
+          startFailureKind,
+        });
       });
       child.on('close', (exitCode, signal) => {
         finish({
@@ -703,16 +869,25 @@ function appendBounded(current: string, chunk: Buffer): string {
   return next.slice(0, maxCapturedBytes);
 }
 
-function readEnvironmentValue(source: EnvironmentSource, key: string): string | undefined {
-  if (source[key] !== undefined) {
-    return source[key];
+function readEnvironmentEntry(
+  source: EnvironmentSource,
+  key: string,
+): { key: string; value: string } | undefined {
+  const exactValue = source[key];
+  if (exactValue !== undefined) {
+    return { key, value: exactValue };
   }
 
   const matchingKey = Object.keys(source).find(
     (candidate) => candidate.toLowerCase() === key.toLowerCase(),
   );
 
-  return matchingKey === undefined ? undefined : source[matchingKey];
+  if (matchingKey === undefined) {
+    return undefined;
+  }
+
+  const matchingValue = source[matchingKey];
+  return matchingValue === undefined ? undefined : { key: matchingKey, value: matchingValue };
 }
 
 function splitPathEntries(pathValue: string | undefined, pathDelimiter: string): string[] {
@@ -730,16 +905,123 @@ function findExecutablePath(
   pathEntries: string[],
   executableNames: string[],
   fileExists: (path: string) => boolean,
-): string | undefined {
+): { path: string; name: string } | undefined {
   for (const executableName of executableNames) {
     for (const pathEntry of pathEntries) {
       const candidate = join(pathEntry, executableName);
 
       if (fileExists(candidate)) {
-        return candidate;
+        return { path: candidate, name: executableName };
       }
     }
   }
 
   return undefined;
+}
+
+function classifyExecutableKind(
+  executableName: string,
+  platform: NodeJS.Platform,
+): CodexExecRealReadOnlyAdapterResolvedExecutableKind {
+  const normalizedName = executableName.toLowerCase();
+
+  if (platform === 'win32' && normalizedName.endsWith('.exe')) {
+    return 'native_exe';
+  }
+
+  if (
+    platform === 'win32' &&
+    (normalizedName.endsWith('.cmd') || normalizedName.endsWith('.bat'))
+  ) {
+    return 'shell_shim';
+  }
+
+  return 'bare_command';
+}
+
+function isExecutablePathAccessible(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    try {
+      accessSync(path, constants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function isDirectoryPath(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function hashRuntimePath(path: string): string {
+  return `sha256:${hashText(resolve(path).replace(/\\/g, '/'))}`;
+}
+
+function classifyProcessStartError(
+  error: unknown,
+): CodexExecRealReadOnlyAdapterBoundaryStartFailureKind {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code).toUpperCase()
+      : '';
+
+  if (code === 'ENOENT') {
+    return 'enoent';
+  }
+
+  if (code === 'EACCES') {
+    return 'eacces';
+  }
+
+  if (code === 'EPERM') {
+    return 'eperm';
+  }
+
+  if (code === 'UNKNOWN') {
+    return 'spawn_unknown';
+  }
+
+  return 'unknown';
+}
+
+function createProcessStartFailureSummary(
+  kind: CodexExecRealReadOnlyAdapterBoundaryStartFailureKind,
+): string {
+  return `process boundary start failed: ${kind}`;
+}
+
+function readStringMetadata(metadata: JsonMetadata | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readBooleanMetadata(metadata: JsonMetadata | undefined, key: string): boolean | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function readNumberMetadata(metadata: JsonMetadata | undefined, key: string): number | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readExecutableKindMetadata(
+  metadata: JsonMetadata | undefined,
+  key: string,
+): CodexExecRealReadOnlyAdapterResolvedExecutableKind {
+  const value = metadata?.[key];
+  return value === 'native_exe' ||
+    value === 'bare_command' ||
+    value === 'shell_shim' ||
+    value === 'unknown'
+    ? value
+    : 'unknown';
 }

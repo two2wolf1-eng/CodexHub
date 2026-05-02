@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -2016,6 +2016,7 @@ describe('supervisor mock development API', () => {
     const defaultConfigLoadResult = createDefaultCodexExecConfigLoadResult();
     const pilotWorktreePath = join(dir, 'pilot-worktree');
     const pilotWorktreeHash = hashTestWorktreePath(pilotWorktreePath);
+    mkdirSync(pilotWorktreePath);
     let fakeRunnerResult = {
       exitCode: 0 as number | undefined,
       stdout: '{"type":"result","status":"ok"}\n',
@@ -2037,6 +2038,11 @@ describe('supervisor mock development API', () => {
       metadataOnly: true,
       envAllowlistKeyCount: 2,
       envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
+      platform: 'win32',
+      resolvedExecutableKind: 'native_exe',
+      executablePathHash: 'sha256:supervisor-test-executable-path',
+      executableExists: true,
+      executableAccessible: true,
     };
     const server = buildSupervisorServer({
       store,
@@ -2243,6 +2249,10 @@ describe('supervisor mock development API', () => {
       metadataOnly: true,
       envAllowlistKeyCount: 2,
       envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
+      platform: 'win32',
+      resolvedExecutableKind: 'shell_shim',
+      executableExists: true,
+      executableAccessible: false,
     };
     const blockedExecutableResponse = await server.inject({
       method: 'POST',
@@ -2333,8 +2343,17 @@ describe('supervisor mock development API', () => {
       executablePathStored: false,
       envPlanStored: false,
       argvStored: false,
+      executableResolvedKind: 'native_exe',
+      executablePathHash: 'sha256:supervisor-test-executable-path',
+      executableExists: true,
+      executableAccessible: true,
       envAllowlistKeyCount: 2,
       envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
+      cwdSelfCheckStatus: 'passed',
+      cwdHash: pilotWorktreeHash,
+      cwdExists: true,
+      cwdIsDirectory: true,
+      cwdPathStored: false,
     });
     expect(attemptResponse.json().result.error).toBeUndefined();
     expect(attemptResponse.json().evidenceRefs.length).toBeGreaterThan(0);
@@ -2350,6 +2369,16 @@ describe('supervisor mock development API', () => {
         resultErrorCode: 'boundary_failed',
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
+          startFailureKind: 'none',
+          platform: 'win32',
+          resolvedExecutableKind: 'native_exe',
+          cwdHash: pilotWorktreeHash,
+          cwdExists: true,
+          cwdIsDirectory: true,
+          executableExists: true,
+          executableAccessible: true,
+          envAllowlistKeyCount: 2,
+          envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
           exitCode: 2,
           timedOut: false,
           cancelled: false,
@@ -2400,6 +2429,16 @@ describe('supervisor mock development API', () => {
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
+          startFailureKind: 'none',
+          platform: 'win32',
+          resolvedExecutableKind: 'native_exe',
+          cwdHash: pilotWorktreeHash,
+          cwdExists: true,
+          cwdIsDirectory: true,
+          executableExists: true,
+          executableAccessible: true,
+          envAllowlistKeyCount: 2,
+          envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
           stdoutHash: expect.stringMatching(/^sha256:/),
           stderrHash: expect.stringMatching(/^sha256:/),
           stdoutByteLength: expect.any(Number),
@@ -2420,6 +2459,8 @@ describe('supervisor mock development API', () => {
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
+          startFailureKind: 'none',
+          resolvedExecutableKind: 'native_exe',
           stdoutHash: expect.stringMatching(/^sha256:/),
           stderrHash: expect.stringMatching(/^sha256:/),
         },
@@ -2441,6 +2482,8 @@ describe('supervisor mock development API', () => {
       boundaryDiagnostics: {
         failureCode: 'process_exit_nonzero',
         exitCode: 2,
+        startFailureKind: 'none',
+        resolvedExecutableKind: 'native_exe',
       },
       postRunVerificationStatus: 'skipped',
       postRunVerificationSkipReason: 'attempt_not_completed',
@@ -2476,6 +2519,9 @@ describe('supervisor mock development API', () => {
         metadata: {
           executableResolutionStatus: 'blocked',
           executableResolutionReasonCode: 'executable_requires_shell',
+          executableResolvedKind: 'shell_shim',
+          executableExists: true,
+          executableAccessible: false,
           executablePathStored: false,
           envPlanStored: false,
           argvStored: false,
