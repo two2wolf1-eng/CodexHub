@@ -56,6 +56,8 @@ export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
   resolvedExecutableKind: CodexExecRealReadOnlyAdapterResolvedExecutableKind;
   executableExists: boolean;
   executableAccessible: boolean;
+  executableAccessProbePassed?: boolean;
+  windowsNativeExecutableAccessProbeBypassed?: boolean;
 }
 
 export interface CodexExecRealReadOnlyAdapterExecutableResolved
@@ -104,6 +106,8 @@ export interface CodexExecRealReadOnlyAdapterProcessPlanInput {
     | 'executablePathHash'
     | 'executableExists'
     | 'executableAccessible'
+    | 'executableAccessProbePassed'
+    | 'windowsNativeExecutableAccessProbeBypassed'
     | 'envAllowlistKeyCount'
     | 'envAllowlistKeyHash'
   >;
@@ -363,7 +367,15 @@ export function resolveRealReadOnlyAdapterExecutable(
 
   if (directExecutable !== undefined) {
     const resolvedExecutableKind = classifyExecutableKind(directExecutable.name, platform);
-    const executableAccessible = fileAccessible(directExecutable.path);
+    const executableAccessProbePassed = fileAccessible(directExecutable.path);
+    const windowsNativeExecutableAccessProbeBypassed =
+      shouldBypassWindowsNativeExecutableAccessProbe({
+        executableName: directExecutable.name,
+        platform,
+        accessProbePassed: executableAccessProbePassed,
+      });
+    const executableAccessible =
+      executableAccessProbePassed || windowsNativeExecutableAccessProbeBypassed;
 
     if (!executableAccessible) {
       return {
@@ -375,6 +387,8 @@ export function resolveRealReadOnlyAdapterExecutable(
         resolvedExecutableKind,
         executableExists: true,
         executableAccessible: false,
+        executableAccessProbePassed,
+        windowsNativeExecutableAccessProbeBypassed,
       };
     }
 
@@ -388,6 +402,8 @@ export function resolveRealReadOnlyAdapterExecutable(
       resolvedExecutableKind,
       executableExists: true,
       executableAccessible: true,
+      executableAccessProbePassed,
+      windowsNativeExecutableAccessProbeBypassed,
     };
   }
 
@@ -405,7 +421,15 @@ export function resolveRealReadOnlyAdapterExecutable(
     !isWindowsPackagedAppResource(trustedShimTarget.path, platform)
   ) {
     const resolvedExecutableKind = classifyExecutableKind(trustedShimTarget.name, platform);
-    const executableAccessible = fileAccessible(trustedShimTarget.path);
+    const executableAccessProbePassed = fileAccessible(trustedShimTarget.path);
+    const windowsNativeExecutableAccessProbeBypassed =
+      shouldBypassWindowsNativeExecutableAccessProbe({
+        executableName: trustedShimTarget.name,
+        platform,
+        accessProbePassed: executableAccessProbePassed,
+      });
+    const executableAccessible =
+      executableAccessProbePassed || windowsNativeExecutableAccessProbeBypassed;
 
     if (!executableAccessible) {
       return {
@@ -417,6 +441,8 @@ export function resolveRealReadOnlyAdapterExecutable(
         resolvedExecutableKind,
         executableExists: true,
         executableAccessible: false,
+        executableAccessProbePassed,
+        windowsNativeExecutableAccessProbeBypassed,
       };
     }
 
@@ -430,6 +456,8 @@ export function resolveRealReadOnlyAdapterExecutable(
       resolvedExecutableKind,
       executableExists: true,
       executableAccessible: true,
+      executableAccessProbePassed,
+      windowsNativeExecutableAccessProbeBypassed,
     };
   }
 
@@ -544,6 +572,9 @@ export function createRealReadOnlyAdapterProcessPlan(
       executablePathHash: executableResolution?.executablePathHash ?? hashRuntimePath(input.executablePath),
       executableExists: executableResolution?.executableExists ?? true,
       executableAccessible: executableResolution?.executableAccessible ?? true,
+      executableAccessProbePassed: executableResolution?.executableAccessProbePassed,
+      windowsNativeExecutableAccessProbeBypassed:
+        executableResolution?.windowsNativeExecutableAccessProbeBypassed,
       envAllowlistKeyCount:
         executableResolution?.envAllowlistKeyCount ??
         summarizeRealReadOnlyAdapterAllowedProcessEnv(input.env ?? {}).envAllowlistKeyCount,
@@ -1046,6 +1077,18 @@ function isExecutablePathAccessible(path: string): boolean {
       return false;
     }
   }
+}
+
+function shouldBypassWindowsNativeExecutableAccessProbe(input: {
+  executableName: string;
+  platform: NodeJS.Platform;
+  accessProbePassed: boolean;
+}): boolean {
+  return (
+    input.platform === 'win32' &&
+    !input.accessProbePassed &&
+    input.executableName.toLowerCase().endsWith('.exe')
+  );
 }
 
 function readTextFileFromDisk(path: string): string | undefined {

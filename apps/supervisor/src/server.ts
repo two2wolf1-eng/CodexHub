@@ -3003,6 +3003,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               executableResolvedKind: executableResolution?.resolvedExecutableKind,
               executableExists: executableResolution?.executableExists,
               executableAccessible: executableResolution?.executableAccessible,
+              executableAccessProbePassed: executableResolution?.executableAccessProbePassed,
+              windowsNativeExecutableAccessProbeBypassed:
+                executableResolution?.windowsNativeExecutableAccessProbeBypassed,
               cwdSelfCheckStatus: cwdSelfCheck?.status,
               cwdSelfCheckReasonCode: cwdSelfCheck?.reasonCode,
               cwdHash: cwdSelfCheck?.cwdHash,
@@ -3045,6 +3048,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               executableAccessible:
                 executableResolution?.status === 'resolved'
                   ? executableResolution.executableAccessible
+                  : undefined,
+              executableAccessProbePassed:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.executableAccessProbePassed
+                  : undefined,
+              windowsNativeExecutableAccessProbeBypassed:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.windowsNativeExecutableAccessProbeBypassed
                   : undefined,
               envAllowlistKeyCount:
                 executableResolution?.status === 'resolved'
@@ -3124,6 +3135,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         executableResolvedKind: executableResolution?.resolvedExecutableKind,
         executableExists: executableResolution?.executableExists,
         executableAccessible: executableResolution?.executableAccessible,
+        executableAccessProbePassed: executableResolution?.executableAccessProbePassed,
+        windowsNativeExecutableAccessProbeBypassed:
+          executableResolution?.windowsNativeExecutableAccessProbeBypassed,
         executablePathHash:
           executableResolution?.status === 'resolved'
             ? executableResolution.executablePathHash
@@ -3193,6 +3207,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         executableResolvedKind: executableResolution?.resolvedExecutableKind,
         executableExists: executableResolution?.executableExists,
         executableAccessible: executableResolution?.executableAccessible,
+        executableAccessProbePassed: executableResolution?.executableAccessProbePassed,
+        windowsNativeExecutableAccessProbeBypassed:
+          executableResolution?.windowsNativeExecutableAccessProbeBypassed,
         executablePathHash:
           executableResolution?.status === 'resolved'
             ? executableResolution.executablePathHash

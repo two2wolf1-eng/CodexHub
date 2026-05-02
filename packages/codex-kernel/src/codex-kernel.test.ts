@@ -2305,12 +2305,20 @@ describe('codex-kernel live control-plane skeleton', () => {
       fileExists,
       fileAccessible: fileExists,
     });
-    const inaccessible = resolveRealReadOnlyAdapterExecutable({
+    const windowsNativeProbeDenied = resolveRealReadOnlyAdapterExecutable({
       policyLabel: 'codex_cli',
       env,
       platform: 'win32',
       pathDelimiter: ';',
       fileExists,
+      fileAccessible: () => false,
+    });
+    const inaccessibleBareCommand = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env: { ...env, PATH: 'C:/bare' },
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists: (candidate) => candidate.replace(/\\/g, '/') === 'C:/bare/codex',
       fileAccessible: () => false,
     });
     const allowedEnv = createRealReadOnlyAdapterAllowedProcessEnv(env);
@@ -2333,6 +2341,8 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(resolved.executablePathHash).toMatch(/^sha256:/);
     expect(resolved.executableExists).toBe(true);
     expect(resolved.executableAccessible).toBe(true);
+    expect(resolved.executableAccessProbePassed).toBe(true);
+    expect(resolved.windowsNativeExecutableAccessProbeBypassed).toBe(false);
     expect(resolved.env).toMatchObject({
       PATH: 'C:/shim;C:/native',
       PATHEXT: '.COM;.EXE;.CMD',
@@ -2348,13 +2358,21 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(shellOnly.reasonCode).toBe('executable_requires_shell');
     expect(shellOnly.shellShimDetected).toBe(true);
     expect(shellOnly.resolvedExecutableKind).toBe('shell_shim');
-    expect(inaccessible.status).toBe('blocked');
-    if (inaccessible.status !== 'blocked') {
+    expect(windowsNativeProbeDenied.status).toBe('resolved');
+    if (windowsNativeProbeDenied.status !== 'resolved') {
+      throw new Error('expected Windows native executable resolution to tolerate denied probe');
+    }
+    expect(windowsNativeProbeDenied.executableExists).toBe(true);
+    expect(windowsNativeProbeDenied.executableAccessible).toBe(true);
+    expect(windowsNativeProbeDenied.executableAccessProbePassed).toBe(false);
+    expect(windowsNativeProbeDenied.windowsNativeExecutableAccessProbeBypassed).toBe(true);
+    expect(inaccessibleBareCommand.status).toBe('blocked');
+    if (inaccessibleBareCommand.status !== 'blocked') {
       throw new Error('expected inaccessible executable resolution to block');
     }
-    expect(inaccessible.reasonCode).toBe('executable_inaccessible');
-    expect(inaccessible.executableExists).toBe(true);
-    expect(inaccessible.executableAccessible).toBe(false);
+    expect(inaccessibleBareCommand.reasonCode).toBe('executable_inaccessible');
+    expect(inaccessibleBareCommand.executableExists).toBe(true);
+    expect(inaccessibleBareCommand.executableAccessible).toBe(false);
     expect(forbiddenPolicy.status).toBe('blocked');
     if (forbiddenPolicy.status !== 'blocked') {
       throw new Error('expected forbidden executable policy to block');
