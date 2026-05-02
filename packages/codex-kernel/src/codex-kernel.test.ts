@@ -85,7 +85,9 @@ import {
   createRealReadOnlyAdapterBoundaryDiagnostics,
   createRealReadOnlyAdapterResultFromBoundary,
   createRealReadOnlyAdapterPostRunVerificationPlan,
+  createRealReadOnlyAdapterAllowedProcessEnv,
   createRealReadOnlyAdapterProcessPlan,
+  resolveRealReadOnlyAdapterExecutable,
   createRealReadOnlyAdapterGuardPreflight,
   createRealReadOnlyAdapterRequest,
   hashRealReadOnlyAdapterRuntimeWorktreePath,
@@ -2264,6 +2266,73 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(plan.commandBodyStored).toBe(false);
     expect(plan.stdoutBodyStored).toBe(false);
     expect(plan.stderrBodyStored).toBe(false);
+  });
+
+  it('resolves only the approved codex executable policy without shell shims or broad env', () => {
+    const fileExists = (candidate: string): boolean => {
+      const normalized = candidate.replace(/\\/g, '/');
+      return normalized === 'C:/native/codex.exe' || normalized === 'C:/shim/codex.cmd';
+    };
+    const env = {
+      PATH: 'C:/shim;C:/native',
+      PATHEXT: '.COM;.EXE;.CMD',
+      SystemRoot: 'C:/Windows',
+      TEMP: 'C:/Temp',
+      TOKEN_SHOULD_NOT_PASS: 'secret',
+    };
+
+    const resolved = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env,
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+    });
+    const shellOnly = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'codex_cli',
+      env: { ...env, PATH: 'C:/shim' },
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+    });
+    const forbiddenPolicy = resolveRealReadOnlyAdapterExecutable({
+      policyLabel: 'arbitrary_binary',
+      env,
+      platform: 'win32',
+      pathDelimiter: ';',
+      fileExists,
+    });
+    const allowedEnv = createRealReadOnlyAdapterAllowedProcessEnv(env);
+
+    expect(resolved.status).toBe('resolved');
+    if (resolved.status !== 'resolved') {
+      throw new Error('expected codex_cli executable resolution to succeed');
+    }
+    expect(resolved.shell).toBe(false);
+    expect(resolved.executablePath.replace(/\\/g, '/')).toBe('C:/native/codex.exe');
+    expect(resolved.env).toMatchObject({
+      PATH: 'C:/shim;C:/native',
+      PATHEXT: '.COM;.EXE;.CMD',
+      SystemRoot: 'C:/Windows',
+      TEMP: 'C:/Temp',
+    });
+    expect(Object.keys(resolved.env)).not.toContain('TOKEN_SHOULD_NOT_PASS');
+    expect(resolved.envAllowlistKeyHash).toMatch(/^sha256:/);
+    expect(shellOnly.status).toBe('blocked');
+    if (shellOnly.status !== 'blocked') {
+      throw new Error('expected shell-only executable resolution to block');
+    }
+    expect(shellOnly.reasonCode).toBe('executable_requires_shell');
+    expect(shellOnly.shellShimDetected).toBe(true);
+    expect(forbiddenPolicy.status).toBe('blocked');
+    if (forbiddenPolicy.status !== 'blocked') {
+      throw new Error('expected forbidden executable policy to block');
+    }
+    expect(forbiddenPolicy.reasonCode).toBe('executable_policy_forbidden');
+    expect(Object.keys(allowedEnv).sort()).toEqual(['PATH', 'PATHEXT', 'SystemRoot', 'TEMP']);
+    expect(JSON.stringify({ shellOnly, forbiddenPolicy, allowedEnv })).not.toContain(
+      'TOKEN_SHOULD_NOT_PASS',
+    );
   });
 
   it('summarizes process boundary output through an injected runner without storing raw streams', async () => {

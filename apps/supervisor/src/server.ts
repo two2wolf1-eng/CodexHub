@@ -55,6 +55,7 @@ import {
   createRealReadOnlyAdapterEvidenceSummaryFromRefs,
   createRealReadOnlyAdapterProcessPlan,
   createRealReadOnlyAdapterPostRunVerificationPlan,
+  resolveRealReadOnlyAdapterExecutable,
   runRealReadOnlyAdapterPostRunVerification,
   runRealReadOnlyAdapterProcessBoundary,
   buildRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -141,6 +142,7 @@ import {
 } from '@codexhub/codex-kernel';
 import type {
   CodexExecRealReadOnlyAdapterPostRunWorktreeState,
+  CodexExecRealReadOnlyAdapterExecutableResolution,
   CodexExecRealReadOnlyAdapterProcessRunner,
 } from '@codexhub/codex-kernel';
 import type {
@@ -224,6 +226,7 @@ interface SupervisorServerOptions {
   store?: CodexHubStore;
   disableStore?: boolean;
   configLoadResult?: CodexExecConfigLoadResult;
+  realReadOnlyAdapterExecutableResolver?: () => CodexExecRealReadOnlyAdapterExecutableResolution;
   realReadOnlyAdapterProcessRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
   realReadOnlyAdapterPostRunVerificationRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
   realReadOnlyAdapterPostRunWorktreeState?: CodexExecRealReadOnlyAdapterPostRunWorktreeState;
@@ -2928,19 +2931,29 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         worktreePathStored: false,
       },
     });
-    const boundaryResult =
+    const executableResolution =
       preflight.status === 'passed' && body.worktreePath && body.approvalArtifactId
+        ? (options.realReadOnlyAdapterExecutableResolver ?? (() =>
+            resolveRealReadOnlyAdapterExecutable({ policyLabel: 'codex_cli' })))()
+        : undefined;
+    const boundaryResult =
+      executableResolution?.status === 'resolved' && body.worktreePath && body.approvalArtifactId
         ? await runRealReadOnlyAdapterProcessBoundary(
             createRealReadOnlyAdapterProcessPlan({
               dryRunId: body.dryRunId,
               approvalArtifactId: body.approvalArtifactId,
-              executablePath: 'codex',
+              executablePath: executableResolution.executablePath,
+              executablePolicyLabel: 'codex_cli',
               worktreePath: body.worktreePath,
+              env: executableResolution.env,
               timeoutMs: 60_000,
               metadata: {
                 executablePolicyLabel: 'codex_cli',
                 executablePathStored: false,
                 argvStored: false,
+                envPlanStored: false,
+                envAllowlistKeyCount: executableResolution.envAllowlistKeyCount,
+                envAllowlistKeyHash: executableResolution.envAllowlistKeyHash,
                 worktreePathStored: false,
                 source: 'apps.supervisor.real-read-only-adapter.attempt-process-plan',
               },
@@ -2963,6 +2976,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               approvalAuthorityTraceId: approvalAuthorityTrace.id,
               approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
               approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+              executableResolutionStatus: executableResolution?.status,
+              executableResolutionReasonCode:
+                executableResolution?.status === 'blocked'
+                  ? executableResolution.reasonCode
+                  : undefined,
+              executableShellShimDetected:
+                executableResolution?.status === 'blocked'
+                  ? executableResolution.shellShimDetected
+                  : undefined,
+              executablePathStored: false,
+              envPlanStored: false,
+              argvStored: false,
               sourcePreparationReady: authoritativeSourcePreparationPresent,
               prerequisiteReady: authoritativePrerequisiteReady,
               worktreePathHashMatched,
@@ -2977,6 +3002,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               authoritativeAttemptRecord: true,
               configLoadStatus: configLoadResult.status,
               executablePolicyLabel: 'codex_cli',
+              executableResolutionStatus: executableResolution?.status,
+              envAllowlistKeyCount:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.envAllowlistKeyCount
+                  : undefined,
+              envAllowlistKeyHash:
+                executableResolution?.status === 'resolved'
+                  ? executableResolution.envAllowlistKeyHash
+                  : undefined,
+              executablePathStored: false,
+              envPlanStored: false,
+              argvStored: false,
               worktreePathStored: false,
             },
           });
@@ -3030,6 +3067,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalAuthorityTraceId: approvalAuthorityTrace.id,
         approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
         approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+        executablePolicyLabel: 'codex_cli',
+        executableResolutionStatus: executableResolution?.status,
+        executableResolutionReasonCode:
+          executableResolution?.status === 'blocked'
+            ? executableResolution.reasonCode
+            : undefined,
+        envAllowlistKeyCount:
+          executableResolution?.status === 'resolved'
+            ? executableResolution.envAllowlistKeyCount
+            : undefined,
+        envAllowlistKeyHash:
+          executableResolution?.status === 'resolved'
+            ? executableResolution.envAllowlistKeyHash
+            : undefined,
+        executablePathStored: false,
+        envPlanStored: false,
+        argvStored: false,
         postRunVerificationStatus,
         postRunVerificationSkipReason,
         worktreePathStored: false,
@@ -3069,6 +3123,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalExpiresAt: approvalAuthority.summary.expiresAt,
         approvalDryRunHashMatched: approvalAuthority.summary.dryRunHashMatched,
         approvalPolicyHashMatched: approvalAuthority.summary.policyHashMatched,
+        executablePolicyLabel: 'codex_cli',
+        executableResolutionStatus: executableResolution?.status,
+        executableResolutionReasonCode:
+          executableResolution?.status === 'blocked'
+            ? executableResolution.reasonCode
+            : undefined,
+        envAllowlistKeyCount:
+          executableResolution?.status === 'resolved'
+            ? executableResolution.envAllowlistKeyCount
+            : undefined,
+        envAllowlistKeyHash:
+          executableResolution?.status === 'resolved'
+            ? executableResolution.envAllowlistKeyHash
+            : undefined,
+        executablePathStored: false,
+        envPlanStored: false,
+        argvStored: false,
         postRunVerificationStatus,
         postRunVerificationSkipReason,
       },

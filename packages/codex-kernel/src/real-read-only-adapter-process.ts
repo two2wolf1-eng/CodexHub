@@ -1,14 +1,65 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { hashText } from '@codexhub/evidence-kernel';
 
 type JsonMetadata = Record<string, unknown>;
+type EnvironmentSource = Record<string, string | undefined>;
+
+export type CodexExecRealReadOnlyAdapterExecutablePolicyLabel = 'codex_cli';
+
+export type CodexExecRealReadOnlyAdapterExecutableResolutionFailureCode =
+  | 'executable_policy_forbidden'
+  | 'executable_requires_shell'
+  | 'executable_resolution_failed';
+
+export interface CodexExecRealReadOnlyAdapterExecutableResolutionInput {
+  policyLabel: CodexExecRealReadOnlyAdapterExecutablePolicyLabel | string;
+  env?: EnvironmentSource;
+  platform?: NodeJS.Platform;
+  pathDelimiter?: string;
+  fileExists?: (path: string) => boolean;
+}
+
+export interface CodexExecRealReadOnlyAdapterExecutableResolutionBase {
+  policyLabel: CodexExecRealReadOnlyAdapterExecutablePolicyLabel | string;
+  shell: false;
+  executablePathStored: false;
+  envPlanStored: false;
+  argvStored: false;
+  metadataOnly: true;
+  envAllowlistKeyCount: number;
+  envAllowlistKeyHash: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterExecutableResolved
+  extends CodexExecRealReadOnlyAdapterExecutableResolutionBase {
+  status: 'resolved';
+  policyLabel: CodexExecRealReadOnlyAdapterExecutablePolicyLabel;
+  executablePath: string;
+  env: Record<string, string>;
+}
+
+export interface CodexExecRealReadOnlyAdapterExecutableResolutionBlocked
+  extends CodexExecRealReadOnlyAdapterExecutableResolutionBase {
+  status: 'blocked';
+  reasonCode: CodexExecRealReadOnlyAdapterExecutableResolutionFailureCode;
+  directExecutableFound: false;
+  shellShimDetected: boolean;
+}
+
+export type CodexExecRealReadOnlyAdapterExecutableResolution =
+  | CodexExecRealReadOnlyAdapterExecutableResolved
+  | CodexExecRealReadOnlyAdapterExecutableResolutionBlocked;
 
 export interface CodexExecRealReadOnlyAdapterProcessPlanInput {
   dryRunId: string;
   approvalArtifactId: string;
   executablePath: string;
+  executablePolicyLabel?: CodexExecRealReadOnlyAdapterExecutablePolicyLabel;
   worktreePath: string;
+  env?: Record<string, string>;
   timeoutMs: number;
   metadata?: JsonMetadata;
 }
@@ -160,6 +211,113 @@ export interface CodexExecRealReadOnlyAdapterProcessRunner {
 }
 
 const maxCapturedBytes = 64 * 1024;
+const codexCliExecutablePolicyLabel = 'codex_cli' as const;
+const safeProcessEnvKeys = [
+  'PATH',
+  'PATHEXT',
+  'SystemRoot',
+  'SYSTEMROOT',
+  'WINDIR',
+  'TEMP',
+  'TMP',
+] as const;
+
+export function createRealReadOnlyAdapterAllowedProcessEnv(
+  source: EnvironmentSource = process.env,
+): Record<string, string> {
+  const allowed: Record<string, string> = {};
+  const observedKeys = new Set<string>();
+
+  for (const key of safeProcessEnvKeys) {
+    const normalizedKey = key.toLowerCase();
+
+    if (observedKeys.has(normalizedKey)) {
+      continue;
+    }
+
+    const value = readEnvironmentValue(source, key);
+
+    if (value !== undefined && value.length > 0) {
+      allowed[key] = value;
+      observedKeys.add(normalizedKey);
+    }
+  }
+
+  return allowed;
+}
+
+export function summarizeRealReadOnlyAdapterAllowedProcessEnv(
+  env: Record<string, string>,
+): Pick<
+  CodexExecRealReadOnlyAdapterExecutableResolutionBase,
+  'envAllowlistKeyCount' | 'envAllowlistKeyHash'
+> {
+  const keys = Object.keys(env).sort();
+
+  return {
+    envAllowlistKeyCount: keys.length,
+    envAllowlistKeyHash: `sha256:${hashText(keys.join('\n'))}`,
+  };
+}
+
+export function resolveRealReadOnlyAdapterExecutable(
+  input: CodexExecRealReadOnlyAdapterExecutableResolutionInput,
+): CodexExecRealReadOnlyAdapterExecutableResolution {
+  const platform = input.platform ?? process.platform;
+  const env = createRealReadOnlyAdapterAllowedProcessEnv(input.env ?? process.env);
+  const envSummary = summarizeRealReadOnlyAdapterAllowedProcessEnv(env);
+  const base = {
+    policyLabel: input.policyLabel,
+    shell: false as const,
+    executablePathStored: false as const,
+    envPlanStored: false as const,
+    argvStored: false as const,
+    metadataOnly: true as const,
+    ...envSummary,
+  };
+
+  if (input.policyLabel !== codexCliExecutablePolicyLabel) {
+    return {
+      ...base,
+      status: 'blocked',
+      reasonCode: 'executable_policy_forbidden',
+      directExecutableFound: false,
+      shellShimDetected: false,
+    };
+  }
+
+  const fileExists = input.fileExists ?? existsSync;
+  const pathEntries = splitPathEntries(env.PATH, input.pathDelimiter ?? delimiter);
+  const directExecutableNames = platform === 'win32' ? ['codex.exe', 'codex'] : ['codex'];
+  const shellShimNames = platform === 'win32' ? ['codex.cmd', 'codex.bat'] : [];
+  const directExecutablePath = findExecutablePath(
+    pathEntries,
+    directExecutableNames,
+    fileExists,
+  );
+
+  if (directExecutablePath !== undefined) {
+    return {
+      ...base,
+      status: 'resolved',
+      policyLabel: codexCliExecutablePolicyLabel,
+      executablePath: directExecutablePath,
+      env,
+    };
+  }
+
+  const shellShimDetected =
+    shellShimNames.length > 0 &&
+    findExecutablePath(pathEntries, shellShimNames, fileExists) !== undefined;
+
+  return {
+    ...base,
+    status: 'blocked',
+    reasonCode: shellShimDetected ? 'executable_requires_shell' : 'executable_resolution_failed',
+    directExecutableFound: false,
+    shellShimDetected,
+  };
+}
 
 export function createRealReadOnlyAdapterProcessPlan(
   input: CodexExecRealReadOnlyAdapterProcessPlanInput,
@@ -199,7 +357,7 @@ export function createRealReadOnlyAdapterProcessPlan(
       input.approvalArtifactId,
     ],
     cwd: input.worktreePath,
-    env: {},
+    env: input.env ?? {},
     shell: false,
     timeoutMs: input.timeoutMs,
     readOnly: true,
@@ -216,8 +374,10 @@ export function createRealReadOnlyAdapterProcessPlan(
     metadata: {
       ...(input.metadata ?? {}),
       source: 'codex-kernel.real-read-only-adapter.process-plan',
+      executablePolicyLabel: input.executablePolicyLabel ?? codexCliExecutablePolicyLabel,
       shell: false,
       readOnly: true,
+      envPlanStored: false,
     },
   };
 }
@@ -541,4 +701,45 @@ function appendBounded(current: string, chunk: Buffer): string {
   }
 
   return next.slice(0, maxCapturedBytes);
+}
+
+function readEnvironmentValue(source: EnvironmentSource, key: string): string | undefined {
+  if (source[key] !== undefined) {
+    return source[key];
+  }
+
+  const matchingKey = Object.keys(source).find(
+    (candidate) => candidate.toLowerCase() === key.toLowerCase(),
+  );
+
+  return matchingKey === undefined ? undefined : source[matchingKey];
+}
+
+function splitPathEntries(pathValue: string | undefined, pathDelimiter: string): string[] {
+  if (pathValue === undefined || pathValue.trim().length === 0) {
+    return [];
+  }
+
+  return pathValue
+    .split(pathDelimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function findExecutablePath(
+  pathEntries: string[],
+  executableNames: string[],
+  fileExists: (path: string) => boolean,
+): string | undefined {
+  for (const executableName of executableNames) {
+    for (const pathEntry of pathEntries) {
+      const candidate = join(pathEntry, executableName);
+
+      if (fileExists(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
 }

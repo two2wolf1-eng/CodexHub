@@ -6,6 +6,7 @@ import {
   createDefaultCodexExecConfigLoadResult,
   hashRealReadOnlyAdapterRuntimeWorktreePath,
 } from '@codexhub/codex-kernel';
+import type { CodexExecRealReadOnlyAdapterExecutableResolution } from '@codexhub/codex-kernel';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
 
@@ -2023,6 +2024,20 @@ describe('supervisor mock development API', () => {
     const fakeRunner = {
       start: async () => fakeRunnerResult,
     };
+    const resolvedExecutablePath = join(dir, 'codex.exe');
+    let executableResolution: CodexExecRealReadOnlyAdapterExecutableResolution = {
+      status: 'resolved',
+      policyLabel: 'codex_cli',
+      executablePath: resolvedExecutablePath,
+      env: { PATH: dir, SystemRoot: 'C:/Windows' },
+      shell: false,
+      executablePathStored: false,
+      envPlanStored: false,
+      argvStored: false,
+      metadataOnly: true,
+      envAllowlistKeyCount: 2,
+      envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
+    };
     const server = buildSupervisorServer({
       store,
       configLoadResult: {
@@ -2038,6 +2053,7 @@ describe('supervisor mock development API', () => {
           configSource: 'file',
         },
       },
+      realReadOnlyAdapterExecutableResolver: () => executableResolution,
       realReadOnlyAdapterProcessRunner: fakeRunner,
       realReadOnlyAdapterPostRunVerificationRunner: fakeRunner,
       realReadOnlyAdapterPostRunWorktreeState: {
@@ -2214,6 +2230,29 @@ describe('supervisor mock development API', () => {
         worktreePath: join(dir, 'different-worktree'),
       },
     });
+    executableResolution = {
+      status: 'blocked',
+      policyLabel: 'codex_cli',
+      reasonCode: 'executable_requires_shell',
+      directExecutableFound: false,
+      shellShimDetected: true,
+      shell: false,
+      executablePathStored: false,
+      envPlanStored: false,
+      argvStored: false,
+      metadataOnly: true,
+      envAllowlistKeyCount: 2,
+      envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
+    };
+    const blockedExecutableResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/attempt',
+      payload: {
+        dryRunId,
+        approvalArtifactId,
+        worktreePath: pilotWorktreePath,
+      },
+    });
 
     await server.close();
     await store.close();
@@ -2289,6 +2328,13 @@ describe('supervisor mock development API', () => {
       approvalArtifactId,
       approvalDryRunHashMatched: true,
       approvalPolicyHashMatched: true,
+      executablePolicyLabel: 'codex_cli',
+      executableResolutionStatus: 'resolved',
+      executablePathStored: false,
+      envPlanStored: false,
+      argvStored: false,
+      envAllowlistKeyCount: 2,
+      envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
     });
     expect(attemptResponse.json().result.error).toBeUndefined();
     expect(attemptResponse.json().evidenceRefs.length).toBeGreaterThan(0);
@@ -2342,6 +2388,8 @@ describe('supervisor mock development API', () => {
       expect(response.body).not.toContain('supervisor failed stdout must remain hashed');
       expect(response.body).not.toContain('supervisor failed stderr must remain hashed');
       expect(response.body).not.toContain(pilotWorktreePath);
+      expect(response.body).not.toContain(resolvedExecutablePath);
+      expect(response.body).not.toContain('C:/Windows');
       expect(response.body).not.toContain('"argv"');
       expect(response.body).not.toContain('"executablePath":');
     }
@@ -2400,9 +2448,13 @@ describe('supervisor mock development API', () => {
     expect(failedAttemptResponse.body).not.toContain('supervisor failed stdout must remain hashed');
     expect(failedAttemptResponse.body).not.toContain('supervisor failed stderr must remain hashed');
     expect(failedAttemptResponse.body).not.toContain(pilotWorktreePath);
+    expect(failedAttemptResponse.body).not.toContain(resolvedExecutablePath);
+    expect(failedAttemptResponse.body).not.toContain('C:/Windows');
     expect(failedAttemptResponse.body).not.toContain('"argv"');
     expect(failedAttemptResponse.body).not.toContain('"executablePath":');
     expect(attemptBodyText).not.toContain(pilotWorktreePath);
+    expect(attemptBodyText).not.toContain(resolvedExecutablePath);
+    expect(attemptBodyText).not.toContain('C:/Windows');
     expect(attemptBodyText).not.toContain('"argv"');
     expect(attemptBodyText).not.toContain('"executablePath":');
     expect(mismatchResponse.statusCode).toBe(200);
@@ -2412,6 +2464,27 @@ describe('supervisor mock development API', () => {
       'isolated_worktree_clean',
     );
     expect(mismatchResponse.body).not.toContain(join(dir, 'different-worktree'));
+    expect(blockedExecutableResponse.statusCode).toBe(200);
+    expect(blockedExecutableResponse.json()).toMatchObject({
+      attemptRecord: {
+        dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        preflightStatus: 'passed',
+        resultStatus: 'not_started',
+        resultErrorCode: 'boundary_deferred',
+        metadata: {
+          executableResolutionStatus: 'blocked',
+          executableResolutionReasonCode: 'executable_requires_shell',
+          executablePathStored: false,
+          envPlanStored: false,
+          argvStored: false,
+        },
+      },
+    });
+    expect(blockedExecutableResponse.body).not.toContain(pilotWorktreePath);
+    expect(blockedExecutableResponse.body).not.toContain('"executablePath":');
+    expect(blockedExecutableResponse.body).not.toContain('"argv"');
   });
 
   it('records pilot prerequisite readiness without running a pilot or storing raw worktree paths', async () => {
