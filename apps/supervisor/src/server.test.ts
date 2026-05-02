@@ -2533,6 +2533,28 @@ describe('supervisor mock development API', () => {
         handoffContextComplete: true,
       },
     });
+    const approvalAuthorityTraceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
+      payload: {
+        dryRunId,
+        approvalArtifactId,
+      },
+    });
+    const approvalAuthorityTraceRecordId = approvalAuthorityTraceResponse.json()
+      .recordId as string;
+    const approvalAuthorityTraceGetResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/approval-authority-traces/${approvalAuthorityTraceRecordId}`,
+    });
+    const approvalAuthorityTraceListResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/approval-authority-traces?dryRunId=${dryRunId}&status=aligned&limit=10`,
+    });
+    const approvalAuthorityTraceLatestResponse = await server.inject({
+      method: 'GET',
+      url: `/api/codex/exec/real-read-only-adapter/approval-authority-trace/latest/${dryRunId}`,
+    });
     const recordId = readyResponse.json().recordId as string;
     const getResponse = await server.inject({
       method: 'GET',
@@ -2568,6 +2590,11 @@ describe('supervisor mock development API', () => {
       method: 'POST',
       url: '/api/codex/exec/real-read-only-adapter/pilot-prerequisite-sources',
       payload: { dryRunId },
+    });
+    const disabledStoreApprovalTraceResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      url: '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
+      payload: { dryRunId, approvalArtifactId },
     });
     const disabledStoreResponse = await disabledStoreServer.inject({
       method: 'POST',
@@ -2671,6 +2698,40 @@ describe('supervisor mock development API', () => {
     expect(readyResponse.json().blockedGateCount).toBe(0);
     expect(readyResponse.json().evidenceRefs.length).toBeGreaterThan(0);
     expect(readyResponse.json().auditEvents.length).toBeGreaterThan(0);
+    expect(approvalAuthorityTraceResponse.statusCode).toBe(200);
+    expect(approvalAuthorityTraceResponse.json()).toMatchObject({
+      recordId: approvalAuthorityTraceRecordId,
+      dryRunId,
+      status: 'aligned',
+      degraded: false,
+      notPersisted: false,
+      exactLookupMatched: true,
+      sourcePreparationMatched: true,
+      prerequisiteMatched: true,
+      dryRunHashMatched: true,
+      policyHashMatched: true,
+      approvalApproved: true,
+      approvalUnused: true,
+      approvalNotRevoked: true,
+      approvalNotExpired: true,
+      attemptPreflightWouldAccept: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(approvalAuthorityTraceGetResponse.statusCode).toBe(200);
+    expect(approvalAuthorityTraceGetResponse.json().recordId).toBe(
+      approvalAuthorityTraceRecordId,
+    );
+    expect(approvalAuthorityTraceListResponse.statusCode).toBe(200);
+    expect(approvalAuthorityTraceListResponse.json().summaries).toHaveLength(1);
+    expect(approvalAuthorityTraceLatestResponse.statusCode).toBe(200);
+    expect(approvalAuthorityTraceLatestResponse.json().recordId).toBe(
+      approvalAuthorityTraceRecordId,
+    );
     expect(getResponse.statusCode).toBe(200);
     expect(getResponse.json().recordId).toBe(recordId);
     expect(listResponse.statusCode).toBe(200);
@@ -2694,6 +2755,19 @@ describe('supervisor mock development API', () => {
       validUnusedApprovalPresent: false,
       isolatedCleanWorktreeMetadataPresent: false,
       evidenceAuditReady: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(disabledStoreApprovalTraceResponse.statusCode).toBe(503);
+    expect(disabledStoreApprovalTraceResponse.json()).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      attemptPreflightWouldAccept: false,
       fallbackUsedAsAuthority: false,
       pilotExecuted: false,
       adapterAttemptInvoked: false,
@@ -2730,6 +2804,13 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(readyResponse.json())).not.toContain('raw stderr body');
     expect(JSON.stringify(readyResponse.json())).not.toContain('"argv"');
     expect(JSON.stringify(readyResponse.json())).not.toContain('"executablePath":');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('C:/safe/worktree');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('raw prompt body');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('raw command body');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('raw stdout body');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('raw stderr body');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('"argv"');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('"executablePath":');
     expect(readyResponse.body).not.toContain(process.cwd());
   });
 

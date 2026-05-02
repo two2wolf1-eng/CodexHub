@@ -169,6 +169,7 @@ export * from './real-read-only-adapter';
 export * from './real-read-only-adapter-pilot-prerequisites';
 export * from './real-read-only-adapter-pilot-source-preparation';
 export * from './real-read-only-adapter-policy-source';
+export * from './real-read-only-adapter-approval-authority-trace';
 export * from './real-read-only-adapter-process';
 
 type JsonRecord = Record<string, unknown>;

@@ -642,6 +642,65 @@ describe('cli development mock-run fallback', () => {
     }
   });
 
+  it('passes approval authority trace input unchanged without invoking attempts', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          status: 'blocked',
+          record: undefined,
+          approvalAuthorityTraceRecord: undefined,
+          authoritative: false,
+          supervisorBacked: false,
+          persisted: false,
+          degraded: true,
+          notPersisted: true,
+          fallbackUsedAsAuthority: false,
+          pilotExecuted: false,
+          adapterAttemptInvoked: false,
+          attemptPreflightWouldAccept: false,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          workspaceWriteAllowed: false,
+          dangerFullAccessAllowed: false,
+          dashboardTriggerAllowed: false,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    try {
+      const {
+        formatRealReadOnlyAdapterApprovalAuthorityTraceOutput,
+        traceRealReadOnlyAdapterApprovalAuthorityCommand,
+      } = await import('./main');
+      const result = await traceRealReadOnlyAdapterApprovalAuthorityCommand(
+        'codex_dry_run_fixture',
+        {
+          approval: 'codex_approval_artifact_exact',
+        },
+      );
+      const requestBody = JSON.parse(String(fetchCalls[0]?.init?.body));
+      const output = formatRealReadOnlyAdapterApprovalAuthorityTraceOutput(result);
+
+      expect(fetchCalls[0]?.url).toContain(
+        '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
+      );
+      expect(requestBody).toMatchObject({
+        dryRunId: 'codex_dry_run_fixture',
+        approvalArtifactId: 'codex_approval_artifact_exact',
+      });
+      expect(requestBody).not.toHaveProperty('worktreePath');
+      expect(output).toContain('adapterAttemptInvoked=false');
+      expect(output).toContain('does not create approvals');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('uses degraded read-only attempt query fallbacks without creating authoritative records', async () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {
@@ -785,6 +844,8 @@ describe('cli development mock-run fallback', () => {
     process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
     const {
       checkRealReadOnlyAdapterPilotPrerequisitesCommand,
+      formatRealReadOnlyAdapterApprovalAuthorityTraceListOutput,
+      formatRealReadOnlyAdapterApprovalAuthorityTraceOutput,
       formatRealReadOnlyAdapterPolicySourceListOutput,
       formatRealReadOnlyAdapterPolicySourceOutput,
       formatRealReadOnlyAdapterPilotSourcePreparationListOutput,
@@ -792,16 +853,20 @@ describe('cli development mock-run fallback', () => {
       formatRealReadOnlyAdapterPilotPrerequisiteListOutput,
       formatRealReadOnlyAdapterPilotPrerequisiteOutput,
       getLatestRealReadOnlyAdapterPolicySourceCommand,
+      getLatestRealReadOnlyAdapterApprovalAuthorityTraceCommand,
       getLatestRealReadOnlyAdapterPilotSourceCommand,
       getLatestRealReadOnlyAdapterPilotPrerequisiteCommand,
       getRealReadOnlyAdapterPolicySourceCommand,
+      getRealReadOnlyAdapterApprovalAuthorityTraceCommand,
       getRealReadOnlyAdapterPilotSourceCommand,
       getRealReadOnlyAdapterPilotPrerequisiteCommand,
       listRealReadOnlyAdapterPolicySourcesCommand,
+      listRealReadOnlyAdapterApprovalAuthorityTracesCommand,
       listRealReadOnlyAdapterPilotSourcesCommand,
       listRealReadOnlyAdapterPilotPrerequisitesCommand,
       prepareRealReadOnlyAdapterPolicySourceCommand,
       prepareRealReadOnlyAdapterPilotSourceCommand,
+      traceRealReadOnlyAdapterApprovalAuthorityCommand,
     } = await import('./main');
     const preparedPolicySource =
       await prepareRealReadOnlyAdapterPolicySourceCommand('codex_dry_run_fixture');
@@ -814,6 +879,19 @@ describe('cli development mock-run fallback', () => {
     });
     const latestPolicySource =
       await getLatestRealReadOnlyAdapterPolicySourceCommand('codex_dry_run_fixture');
+    const tracedApproval = await traceRealReadOnlyAdapterApprovalAuthorityCommand(
+      'codex_dry_run_fixture',
+      { approval: 'codex_approval_fixture' },
+    );
+    const fetchedTrace = await getRealReadOnlyAdapterApprovalAuthorityTraceCommand(
+      'codex_real_read_only_adapter_approval_authority_trace_1',
+    );
+    const listedTraces = await listRealReadOnlyAdapterApprovalAuthorityTracesCommand({
+      dryRun: 'codex_dry_run_fixture',
+      status: 'aligned',
+    });
+    const latestTrace =
+      await getLatestRealReadOnlyAdapterApprovalAuthorityTraceCommand('codex_dry_run_fixture');
     const preparedSource = await prepareRealReadOnlyAdapterPilotSourceCommand(
       'codex_dry_run_fixture',
       {
@@ -855,6 +933,8 @@ describe('cli development mock-run fallback', () => {
     const policySourceOutput = formatRealReadOnlyAdapterPolicySourceOutput(preparedPolicySource);
     const policySourceListOutput =
       formatRealReadOnlyAdapterPolicySourceListOutput(listedPolicySources);
+    const traceOutput = formatRealReadOnlyAdapterApprovalAuthorityTraceOutput(tracedApproval);
+    const traceListOutput = formatRealReadOnlyAdapterApprovalAuthorityTraceListOutput(listedTraces);
     const checkOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(checked);
     const listOutput = formatRealReadOnlyAdapterPilotPrerequisiteListOutput(listed);
     const latestOutput = formatRealReadOnlyAdapterPilotPrerequisiteOutput(latest);
@@ -897,6 +977,45 @@ describe('cli development mock-run fallback', () => {
       adapterAttemptInvoked: false,
     });
     expect(latestPolicySource).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(tracedApproval).toMatchObject({
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      attemptPreflightWouldAccept: false,
+    });
+    expect(fetchedTrace).toMatchObject({
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(listedTraces).toMatchObject({
+      records: [],
+      summaries: [],
+      authoritative: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+    });
+    expect(latestTrace).toMatchObject({
       status: 'blocked',
       degraded: true,
       notPersisted: true,
@@ -1022,6 +1141,13 @@ describe('cli development mock-run fallback', () => {
     expect(policySourceOutput).not.toContain('execution approval');
     expect(policySourceListOutput).toContain('records: none');
     expect(policySourceListOutput).toContain('Policy-source records are metadata-only');
+    expect(traceOutput).toContain('status: blocked');
+    expect(traceOutput).toContain('attemptPreflightWouldAccept=false');
+    expect(traceOutput).toContain('notPersisted=true');
+    expect(traceOutput).toContain('does not create approvals');
+    expect(traceOutput).not.toContain('execution approval');
+    expect(traceListOutput).toContain('records: none');
+    expect(traceListOutput).toContain('Approval-authority traces are metadata-only');
     expect(sourceListOutput).toContain('records: none');
     expect(sourceListOutput).toContain('Source-preparation records are metadata-only');
     expect(listOutput).toContain('Records are metadata-only');

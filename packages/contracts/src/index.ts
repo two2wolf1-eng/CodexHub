@@ -3082,6 +3082,96 @@ export type CodexExecRealReadOnlyAdapterApprovalAuthoritySummary = z.infer<
   typeof CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema
 >;
 
+export const CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatusSchema = z.enum([
+  'aligned',
+  'blocked',
+  'requires_review',
+]);
+export type CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatus = z.infer<
+  typeof CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatusSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecordSchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    dryRunId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatusSchema,
+    sourcePreparationApprovalArtifactId: z.string().min(1).optional(),
+    prerequisiteApprovalArtifactId: z.string().min(1).optional(),
+    inputApprovalArtifactId: z.string().min(1).optional(),
+    resolvedApprovalRecordId: z.string().min(1).optional(),
+    resolvedApprovalArtifactId: z.string().min(1).optional(),
+    approvalArtifactHash: z.string().min(1).optional(),
+    dryRunPlanHash: z.string().min(1).optional(),
+    policyDecisionHash: z.string().min(1).optional(),
+    expectedDryRunPlanHash: z.string().min(1).optional(),
+    expectedPolicyDecisionHash: z.string().min(1).optional(),
+    exactLookupMatched: z.boolean(),
+    sourcePreparationMatched: z.boolean(),
+    prerequisiteMatched: z.boolean(),
+    approvalApproved: z.boolean(),
+    approvalUnused: z.boolean(),
+    approvalNotRevoked: z.boolean(),
+    approvalNotExpired: z.boolean(),
+    dryRunHashMatched: z.boolean(),
+    policyHashMatched: z.boolean(),
+    attemptPreflightWouldAccept: z.boolean(),
+    checkedAt: IsoDateTimeSchema,
+    expiresAt: IsoDateTimeSchema.optional(),
+    reasonCodes: z.array(z.string().min(1)).default([]),
+    degraded: z.boolean(),
+    notPersisted: z.boolean(),
+    fallbackUsedAsAuthority: z.literal(false),
+    pilotExecuted: z.literal(false),
+    adapterAttemptInvoked: z.literal(false),
+    authoritative: z.boolean(),
+    supervisorBacked: z.boolean(),
+    persisted: z.boolean(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord = z.infer<
+  typeof CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecordSchema
+>;
+
+export const CodexExecRealReadOnlyAdapterApprovalAuthorityTraceSummarySchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    recordId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    status: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatusSchema,
+    inputApprovalArtifactId: z.string().min(1).optional(),
+    resolvedApprovalRecordId: z.string().min(1).optional(),
+    resolvedApprovalArtifactId: z.string().min(1).optional(),
+    sourcePreparationMatched: z.boolean(),
+    prerequisiteMatched: z.boolean(),
+    exactLookupMatched: z.boolean(),
+    dryRunHashMatched: z.boolean(),
+    policyHashMatched: z.boolean(),
+    attemptPreflightWouldAccept: z.boolean(),
+    checkedAt: IsoDateTimeSchema,
+    expiresAt: IsoDateTimeSchema.optional(),
+    reasonCodes: z.array(z.string().min(1)).default([]),
+    degraded: z.boolean(),
+    notPersisted: z.boolean(),
+    fallbackUsedAsAuthority: z.literal(false),
+    pilotExecuted: z.literal(false),
+    adapterAttemptInvoked: z.literal(false),
+    summary: z.string().min(1),
+  });
+export type CodexExecRealReadOnlyAdapterApprovalAuthorityTraceSummary = z.infer<
+  typeof CodexExecRealReadOnlyAdapterApprovalAuthorityTraceSummarySchema
+>;
+
+export const CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuerySchema =
+  createdEntityBaseSchema.merge(codexExecRealReadOnlyAdapterMetadataOnlyFlagsSchema).extend({
+    dryRunId: z.string().min(1).optional(),
+    status: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatusSchema.optional(),
+    limit: z.number().int().positive().max(100).default(50),
+  });
+export type CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuery = z.infer<
+  typeof CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuerySchema
+>;
+
 export const CodexExecRealReadOnlyAdapterPostRunVerificationStatusSchema = z.enum([
   'not_required',
   'skipped',

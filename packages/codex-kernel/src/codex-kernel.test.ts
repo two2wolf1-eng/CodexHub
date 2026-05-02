@@ -72,6 +72,11 @@ import {
   getLatestRealReadOnlyAdapterPolicySource,
   listRealReadOnlyAdapterPolicySourceSummaries,
   summarizeRealReadOnlyAdapterPolicySourceRecord,
+  buildRealReadOnlyAdapterApprovalAuthorityTraceRecord,
+  createRealReadOnlyAdapterApprovalAuthorityTraceAuditEvents,
+  createRealReadOnlyAdapterApprovalAuthorityTraceEvidenceRefs,
+  listRealReadOnlyAdapterApprovalAuthorityTraceSummaries,
+  summarizeRealReadOnlyAdapterApprovalAuthorityTraceRecord,
   getLatestRealReadOnlyAdapterPilotPrerequisite,
   listRealReadOnlyAdapterPilotPrerequisiteSummaries,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -2017,6 +2022,113 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(equivalentHash).toBe(hash);
     expect(hash).not.toContain('pilot-worktree');
+  });
+
+  it('classifies metadata-only approval authority traces for aligned and stale approvals', () => {
+    const aligned = buildRealReadOnlyAdapterApprovalAuthorityTraceRecord({
+      dryRunId: 'codex_dry_run_trace',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      approvalAuthority: {
+        id: 'codex_real_read_only_adapter_approval_authority_trace',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt: '2026-04-28T00:00:00.000Z',
+        dryRunId: 'codex_dry_run_trace',
+        status: 'resolved',
+        approvalRecordId: 'codex_approval_record_trace',
+        approvalArtifactId: 'codex_approval_artifact_trace',
+        approvalArtifactHash: 'sha256:approval',
+        dryRunPlanHash: 'sha256:dry-run',
+        policyDecisionHash: 'sha256:policy',
+        expectedDryRunPlanHash: 'sha256:dry-run',
+        expectedPolicyDecisionHash: 'sha256:policy',
+        dryRunHashMatched: true,
+        policyHashMatched: true,
+        checkedAt: '2026-04-28T00:00:00.000Z',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        reasonCodes: [],
+        summary: 'resolved',
+        metadataOnly: true,
+        bodyStored: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        processAdapterStarted: false,
+        processAdapterApproved: false,
+        implementationApproved: false,
+        recommendationGrantsExecution: false,
+        workspaceWriteAllowed: false,
+        dangerFullAccessAllowed: false,
+        dashboardTriggerAllowed: false,
+        promptBodyStored: false,
+        commandBodyStored: false,
+        stdoutBodyStored: false,
+        stderrBodyStored: false,
+        agentMessageBodyStored: false,
+        reasoningBodyStored: false,
+      },
+      sourcePreparationApprovalArtifactId: 'codex_approval_artifact_trace',
+      prerequisiteApprovalArtifactId: 'codex_approval_artifact_trace',
+      inputApprovalArtifactId: 'codex_approval_artifact_trace',
+    });
+    const stale = buildRealReadOnlyAdapterApprovalAuthorityTraceRecord({
+      dryRunId: 'codex_dry_run_trace',
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      approvalAuthority: {
+        ...aligned,
+        id: 'codex_real_read_only_adapter_approval_authority_stale',
+        dryRunId: 'codex_dry_run_trace',
+        status: 'used',
+        approvalRecordId: 'codex_approval_record_stale',
+        approvalArtifactId: 'codex_approval_artifact_stale',
+        dryRunHashMatched: false,
+        policyHashMatched: false,
+        reasonCodes: ['approval_used', 'dry_run_hash_mismatch', 'policy_hash_mismatch'],
+        checkedAt: '2026-04-28T00:00:00.000Z',
+        summary: 'stale',
+      },
+      sourcePreparationApprovalArtifactId: 'codex_approval_artifact_trace',
+      prerequisiteApprovalArtifactId: 'codex_approval_artifact_trace',
+      inputApprovalArtifactId: 'codex_approval_artifact_trace',
+    });
+    const evidenceRefs = createRealReadOnlyAdapterApprovalAuthorityTraceEvidenceRefs(aligned);
+    const auditEvents = createRealReadOnlyAdapterApprovalAuthorityTraceAuditEvents(
+      aligned,
+      evidenceRefs,
+    );
+    const summary = summarizeRealReadOnlyAdapterApprovalAuthorityTraceRecord(aligned);
+    const listed = listRealReadOnlyAdapterApprovalAuthorityTraceSummaries([stale, aligned], {
+      dryRunId: 'codex_dry_run_trace',
+      status: 'aligned',
+    });
+
+    expect(aligned.status).toBe('aligned');
+    expect(aligned.attemptPreflightWouldAccept).toBe(true);
+    expect(stale.status).toBe('blocked');
+    expect(stale.reasonCodes).toEqual(
+      expect.arrayContaining([
+        'approval_used',
+        'dry_run_hash_mismatch',
+        'policy_hash_mismatch',
+        'approval_trace_source_preparation_mismatch',
+        'approval_trace_prerequisite_mismatch',
+      ]),
+    );
+    expect(summary.attemptPreflightWouldAccept).toBe(true);
+    expect(listed).toHaveLength(1);
+    expect(evidenceRefs[0].metadata).toMatchObject({ metadataOnly: true });
+    expect(auditEvents[0].metadata).toMatchObject({
+      workspaceWriteAllowed: false,
+      dangerFullAccessAllowed: false,
+      dashboardTriggerAllowed: false,
+    });
+    expect(JSON.stringify({ aligned, stale, evidenceRefs, auditEvents })).not.toContain('"argv"');
+    expect(JSON.stringify({ aligned, stale, evidenceRefs, auditEvents })).not.toContain(
+      '"executablePath":',
+    );
   });
 
   it('blocks forbidden real read-only adapter modes and dashboard trigger', () => {

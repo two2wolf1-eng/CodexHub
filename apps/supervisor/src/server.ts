@@ -67,6 +67,11 @@ import {
   createPolicyDecisionFromRealReadOnlyAdapterPolicySource,
   createRealReadOnlyAdapterPolicySourceAuditEvents,
   createRealReadOnlyAdapterPolicySourceEvidenceRefs,
+  buildRealReadOnlyAdapterApprovalAuthorityTraceRecord,
+  createRealReadOnlyAdapterApprovalAuthorityTraceAuditEvents,
+  createRealReadOnlyAdapterApprovalAuthorityTraceEvidenceRefs,
+  listRealReadOnlyAdapterApprovalAuthorityTraceSummaries,
+  summarizeRealReadOnlyAdapterApprovalAuthorityTraceRecord,
   hashRealReadOnlyAdapterRuntimeWorktreePath,
   listRealReadOnlyAdapterPilotSourcePreparationSummaries,
   listRealReadOnlyAdapterPolicySourceSummaries,
@@ -183,6 +188,9 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineQuery,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuery,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatus,
   CodexExecRealReadOnlyAdapterPolicySourceQuery,
   CodexExecRealReadOnlyAdapterPolicySourceRecord,
   CodexExecRealReadOnlyAdapterPolicySourceStatus,
@@ -2567,6 +2575,157 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
+  server.post(
+    '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
+    async (request, reply) => {
+      const body = request.body as
+        | {
+            dryRunId?: string;
+            approvalArtifactId?: string;
+          }
+        | undefined;
+
+      if (!body?.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse(body.dryRunId));
+      }
+
+      const record = await buildAndPersistRealReadOnlyAdapterApprovalAuthorityTrace({
+        dryRunId: body.dryRunId,
+        approvalArtifactId: body.approvalArtifactId,
+        store,
+        metadata: {
+          requestedBy: 'supervisor-api',
+          source: 'apps.supervisor.real-read-only-adapter.approval-authority-trace',
+        },
+      });
+
+      return createRealReadOnlyAdapterApprovalAuthorityTraceResponse(record);
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/approval-authority-traces/:recordId',
+    async (request, reply) => {
+      const params = request.params as { recordId?: string };
+
+      if (!params.recordId) {
+        return reply.code(400).send({
+          error: 'recordId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse());
+      }
+
+      const record =
+        await store.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.getApprovalAuthorityTrace(
+          params.recordId,
+        );
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'approval authority trace record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterApprovalAuthorityTraceResponse(record);
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/approval-authority-traces',
+    async (request, reply) => {
+      const queryResult = parseRealReadOnlyAdapterApprovalAuthorityTraceQuery(request.query);
+
+      if (!queryResult.allowed) {
+        return reply.code(400).send({
+          error: queryResult.reason,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse());
+      }
+
+      const records =
+        await store.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.listApprovalAuthorityTraces(
+          queryResult.query,
+        );
+
+      return createRealReadOnlyAdapterApprovalAuthorityTraceListResponse(
+        records,
+        queryResult.query,
+      );
+    },
+  );
+
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/approval-authority-trace/latest/:dryRunId',
+    async (request, reply) => {
+      const params = request.params as { dryRunId?: string };
+
+      if (!params.dryRunId) {
+        return reply.code(400).send({
+          error: 'dryRunId is required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      const store = await getStore();
+
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse(params.dryRunId));
+      }
+
+      const record =
+        await store.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.latestApprovalAuthorityTrace(
+          params.dryRunId,
+        );
+
+      if (!record) {
+        return reply.code(404).send({
+          error: 'approval authority trace record was not found',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+
+      return createRealReadOnlyAdapterApprovalAuthorityTraceResponse(record);
+    },
+  );
+
   server.post('/api/codex/exec/real-read-only-adapter/attempt', async (request, reply) => {
     const body = request.body as
       | {
@@ -2647,7 +2806,19 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       expectedPolicyDecisionHash,
       store,
     });
-    const approvalArtifact = approvalAuthority.artifact;
+    const approvalAuthorityTrace = createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
+      dryRunId: body.dryRunId,
+      approvalAuthority: approvalAuthority.summary,
+      inputApprovalArtifactId: body.approvalArtifactId,
+      latestSourcePreparation,
+      latestPrerequisite,
+      metadata: {
+        requestedBy: 'supervisor-api',
+        source: 'apps.supervisor.real-read-only-adapter.attempt',
+      },
+    });
+    const approvalArtifact =
+      approvalAuthorityTrace.status === 'aligned' ? approvalAuthority.artifact : undefined;
     const authoritativeSourcePreparationPresent =
       latestSourcePreparation?.status === 'prepared' &&
       latestSourcePreparation.authoritative === true &&
@@ -2698,6 +2869,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         approvalArtifactPresent: approvalArtifact !== undefined,
         approvalAuthorityStatus: approvalAuthority.summary.status,
         approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
+        approvalAuthorityTraceId: approvalAuthorityTrace.id,
+        approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
+        approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+        approvalAuthorityTracePreflightWouldAccept:
+          approvalAuthorityTrace.attemptPreflightWouldAccept,
         approvalRecordId: approvalAuthority.summary.approvalRecordId,
         approvalCheckedAt: approvalAuthority.summary.checkedAt,
         approvalExpiresAt: approvalAuthority.summary.expiresAt,
@@ -2741,6 +2917,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         policySourceReady: authoritativePolicySourcePresent,
         approvalAuthorityStatus: approvalAuthority.summary.status,
         approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
+        approvalAuthorityTraceId: approvalAuthorityTrace.id,
+        approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
+        approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+        approvalAuthorityTracePreflightWouldAccept:
+          approvalAuthorityTrace.attemptPreflightWouldAccept,
         latestPolicySourceId: latestPolicySource?.id,
         sourcePreparationReady: authoritativeSourcePreparationPresent,
         prerequisiteReady: authoritativePrerequisiteReady,
@@ -2779,6 +2960,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
               configLoadStatus: configLoadResult.status,
               approvalAuthorityStatus: approvalAuthority.summary.status,
               approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
+              approvalAuthorityTraceId: approvalAuthorityTrace.id,
+              approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
+              approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
               sourcePreparationReady: authoritativeSourcePreparationPresent,
               prerequisiteReady: authoritativePrerequisiteReady,
               worktreePathHashMatched,
@@ -2843,6 +3027,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         configLoadStatus: configLoadResult.status,
         approvalAuthorityStatus: approvalAuthority.summary.status,
         approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
+        approvalAuthorityTraceId: approvalAuthorityTrace.id,
+        approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
+        approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
         postRunVerificationStatus,
         postRunVerificationSkipReason,
         worktreePathStored: false,
@@ -3147,6 +3334,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         expectedPolicyDecisionHash: latestPolicySource?.policyDecisionHash,
         store,
       });
+      const approvalAuthorityTrace = createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
+        dryRunId: body.dryRunId,
+        approvalAuthority: approvalAuthority.summary,
+        inputApprovalArtifactId: body.approvalArtifactId,
+        metadata: {
+          requestedBy: 'supervisor-api',
+          source: 'apps.supervisor.real-read-only-adapter.pilot-source-preparation',
+        },
+      });
       const record = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
         dryRunId: body.dryRunId,
         authoritative: true,
@@ -3158,9 +3354,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         configExplicitlyEnabled:
           configLoadResult.status === 'loaded' && configLoadResult.config.liveEnabled === true,
         authoritativePolicySourcePresent,
-        validUnusedApprovalPresent: approvalAuthority.summary.status === 'resolved',
-        approvalArtifactId: approvalAuthority.summary.approvalArtifactId,
-        approvalArtifactHash: approvalAuthority.summary.approvalArtifactHash,
+        validUnusedApprovalPresent: approvalAuthorityTrace.status === 'aligned',
+        approvalArtifactId: approvalAuthorityTrace.resolvedApprovalArtifactId,
+        approvalArtifactHash: approvalAuthorityTrace.approvalArtifactHash,
         dryRunPlanHash: latestPolicySource?.dryRunPlanHash ?? approvalAuthority.summary.dryRunPlanHash,
         policyDecisionHash:
           latestPolicySource?.policyDecisionHash ?? approvalAuthority.summary.policyDecisionHash,
@@ -3178,6 +3374,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           approvalArtifactIdProvided: Boolean(body.approvalArtifactId),
           approvalAuthorityStatus: approvalAuthority.summary.status,
           approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
+          approvalAuthorityTraceId: approvalAuthorityTrace.id,
+          approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
+          approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+          approvalAuthorityTracePreflightWouldAccept:
+            approvalAuthorityTrace.attemptPreflightWouldAccept,
           approvalRecordId: approvalAuthority.summary.approvalRecordId,
           approvalCheckedAt: approvalAuthority.summary.checkedAt,
           approvalExpiresAt: approvalAuthority.summary.expiresAt,
@@ -3413,7 +3614,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         expectedPolicyDecisionHash: latestPolicySource?.policyDecisionHash,
         store,
       });
-      const validUnusedApprovalPresent = approvalAuthority.summary.status === 'resolved';
+      const approvalAuthorityTrace = createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
+        dryRunId: body.dryRunId,
+        approvalAuthority: approvalAuthority.summary,
+        inputApprovalArtifactId: body.approvalArtifactId,
+        latestSourcePreparation,
+        metadata: {
+          requestedBy: 'supervisor-api',
+          source: 'apps.supervisor.real-read-only-adapter.pilot-prerequisites',
+        },
+      });
+      const validUnusedApprovalPresent = approvalAuthorityTrace.status === 'aligned';
       const authoritativeAttemptEvidencePresent =
         latestAttempt?.authoritative === true &&
         latestAttempt.supervisorBacked === true &&
@@ -3463,6 +3674,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           approvalArtifactIdProvided: Boolean(body.approvalArtifactId),
           approvalAuthorityStatus: approvalAuthority.summary.status,
           approvalAuthorityReasonCodes: approvalAuthority.summary.reasonCodes,
+          approvalAuthorityTraceId: approvalAuthorityTrace.id,
+          approvalAuthorityTraceStatus: approvalAuthorityTrace.status,
+          approvalAuthorityTraceReasonCodes: approvalAuthorityTrace.reasonCodes,
+          approvalAuthorityTracePreflightWouldAccept:
+            approvalAuthorityTrace.attemptPreflightWouldAccept,
           approvalArtifactId: approvalAuthority.summary.approvalArtifactId,
           approvalArtifactHash: approvalAuthority.summary.approvalArtifactHash,
           approvalRecordId: approvalAuthority.summary.approvalRecordId,
@@ -4585,6 +4801,108 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     );
   }
 
+  async function buildAndPersistRealReadOnlyAdapterApprovalAuthorityTrace(input: {
+    dryRunId: string;
+    approvalArtifactId?: string;
+    store: CodexHubStore;
+    metadata?: Record<string, unknown>;
+  }): Promise<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord> {
+    const dryRunRecord = await resolveCodexExecLiveRunRecord(input.dryRunId, input.store);
+    const latestSourcePreparation =
+      await input.store.codexExecRealReadOnlyAdapterPilotSourcePreparations.latestPilotSourcePreparation(
+        input.dryRunId,
+      );
+    const latestPrerequisite =
+      await input.store.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
+        input.dryRunId,
+      );
+    const latestPolicySource =
+      await input.store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(input.dryRunId);
+    const expectedDryRunPlanHash =
+      latestPolicySource?.dryRunPlanHash ?? latestSourcePreparation?.dryRunPlanHash;
+    const expectedPolicyDecisionHash =
+      latestPolicySource?.policyDecisionHash ?? latestSourcePreparation?.policyDecisionHash;
+    const approvalAuthority = await resolveRealReadOnlyAdapterPilotApprovalAuthority({
+      dryRunId: input.dryRunId,
+      dryRunPlanId: dryRunRecord?.dryRunPlanId,
+      approvalArtifactId: input.approvalArtifactId,
+      expectedDryRunPlanHash,
+      expectedPolicyDecisionHash,
+      store: input.store,
+    });
+    const trace = createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
+      dryRunId: input.dryRunId,
+      approvalAuthority: approvalAuthority.summary,
+      inputApprovalArtifactId: input.approvalArtifactId,
+      latestSourcePreparation,
+      latestPrerequisite,
+      metadata: {
+        ...(input.metadata ?? {}),
+        latestPolicySourceId: latestPolicySource?.id,
+        latestSourcePreparationId: latestSourcePreparation?.id,
+        latestPrerequisiteId: latestPrerequisite?.id,
+      },
+    });
+    const evidenceRefs = createRealReadOnlyAdapterApprovalAuthorityTraceEvidenceRefs(trace);
+    const auditEvents = createRealReadOnlyAdapterApprovalAuthorityTraceAuditEvents(
+      trace,
+      evidenceRefs,
+    );
+    const traceWithRefs = {
+      ...trace,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
+
+    for (const evidenceRef of evidenceRefs) {
+      await input.store.evidenceRefs.create(evidenceRef);
+    }
+
+    for (const auditEvent of auditEvents) {
+      await input.store.auditEvents.append(auditEvent);
+    }
+
+    return input.store.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.saveApprovalAuthorityTrace(
+      traceWithRefs,
+    );
+  }
+
+  function createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest(input: {
+    dryRunId: string;
+    approvalAuthority: CodexExecRealReadOnlyAdapterApprovalAuthoritySummary;
+    inputApprovalArtifactId?: string;
+    latestSourcePreparation?: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord;
+    latestPrerequisite?: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord;
+    metadata?: Record<string, unknown>;
+  }): CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord {
+    return buildRealReadOnlyAdapterApprovalAuthorityTraceRecord({
+      dryRunId: input.dryRunId,
+      approvalAuthority: input.approvalAuthority,
+      inputApprovalArtifactId: input.inputApprovalArtifactId,
+      sourcePreparationApprovalArtifactId: input.latestSourcePreparation?.approvalArtifactId,
+      prerequisiteApprovalArtifactId: getPilotPrerequisiteApprovalArtifactId(
+        input.latestPrerequisite,
+      ),
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      fallbackUsedAsAuthority: false,
+      metadata: input.metadata,
+    });
+  }
+
+  function getPilotPrerequisiteApprovalArtifactId(
+    record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord | undefined,
+  ): string | undefined {
+    const metadata = record?.metadata as Record<string, unknown> | undefined;
+    const approvalArtifactId = metadata?.approvalArtifactId;
+    return typeof approvalArtifactId === 'string' && approvalArtifactId.length > 0
+      ? approvalArtifactId
+      : undefined;
+  }
+
   async function resolveCodexExecLiveRunRecords(
     store: CodexHubStore | undefined,
   ): Promise<CodexExecLiveRunRecord[]> {
@@ -5540,6 +5858,102 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createRealReadOnlyAdapterApprovalAuthorityTraceResponse(
+    record: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord,
+    details: {
+      evidenceRefs?: ReturnType<typeof createRealReadOnlyAdapterApprovalAuthorityTraceEvidenceRefs>;
+      auditEvents?: ReturnType<typeof createRealReadOnlyAdapterApprovalAuthorityTraceAuditEvents>;
+    } = {},
+  ) {
+    return {
+      record,
+      approvalAuthorityTraceRecord: record,
+      summary: summarizeRealReadOnlyAdapterApprovalAuthorityTraceRecord(record),
+      evidenceRefs: details.evidenceRefs ?? record.evidenceRefs,
+      auditEvents: details.auditEvents ?? [],
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      inputApprovalArtifactId: record.inputApprovalArtifactId,
+      resolvedApprovalRecordId: record.resolvedApprovalRecordId,
+      resolvedApprovalArtifactId: record.resolvedApprovalArtifactId,
+      exactLookupMatched: record.exactLookupMatched,
+      sourcePreparationMatched: record.sourcePreparationMatched,
+      prerequisiteMatched: record.prerequisiteMatched,
+      dryRunHashMatched: record.dryRunHashMatched,
+      policyHashMatched: record.policyHashMatched,
+      approvalApproved: record.approvalApproved,
+      approvalUnused: record.approvalUnused,
+      approvalNotRevoked: record.approvalNotRevoked,
+      approvalNotExpired: record.approvalNotExpired,
+      attemptPreflightWouldAccept: record.attemptPreflightWouldAccept,
+      checkedAt: record.checkedAt,
+      expiresAt: record.expiresAt,
+      reasonCodes: record.reasonCodes,
+      degraded: record.degraded,
+      notPersisted: record.notPersisted,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      authoritative: record.authoritative,
+      supervisorBacked: record.supervisorBacked,
+      persisted: record.persisted,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterApprovalAuthorityTraceListResponse(
+    records: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord[],
+    query: Partial<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuery>,
+  ) {
+    return {
+      records,
+      approvalAuthorityTraceRecords: records,
+      summaries: listRealReadOnlyAdapterApprovalAuthorityTraceSummaries(records, query),
+      count: records.length,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason,
+    };
+  }
+
+  function createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse(dryRunId?: string) {
+    return {
+      error: 'real read-only adapter approval authority trace store is unavailable',
+      dryRunId,
+      status: 'blocked',
+      authoritative: false,
+      supervisorBacked: false,
+      persisted: false,
+      degraded: true,
+      notPersisted: true,
+      exactLookupMatched: false,
+      sourcePreparationMatched: false,
+      prerequisiteMatched: false,
+      dryRunHashMatched: false,
+      policyHashMatched: false,
+      approvalApproved: false,
+      approvalUnused: false,
+      approvalNotRevoked: false,
+      approvalNotExpired: false,
+      attemptPreflightWouldAccept: false,
+      reasonCodes: ['approval_trace_store_unavailable'],
+      fallbackUsedAsAuthority: false,
+      pilotExecuted: false,
+      adapterAttemptInvoked: false,
+      ...realReadOnlyAdapterAttemptSafetyFlags,
+      reason: persistenceState.reason ?? 'store unavailable',
+    };
+  }
+
   function createRealReadOnlyAdapterPilotSourcePreparationResponse(
     record: CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
     details: {
@@ -5850,6 +6264,11 @@ const realReadOnlyAdapterReadinessReviewOutcomes = new Set([
 const realReadOnlyAdapterReadinessReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
 const realReadOnlyAdapterAttemptStatuses = new Set(['blocked', 'completed', 'failed', 'aborted']);
 const realReadOnlyAdapterPolicySourceStatuses = new Set([
+  'aligned',
+  'blocked',
+  'requires_review',
+]);
+const realReadOnlyAdapterApprovalAuthorityTraceStatuses = new Set([
   'aligned',
   'blocked',
   'requires_review',
@@ -6371,6 +6790,33 @@ function parseRealReadOnlyAdapterPolicySourceQuery(
     query: {
       dryRunId,
       status: status as CodexExecRealReadOnlyAdapterPolicySourceStatus | undefined,
+      limit: limitResult.limit,
+    },
+  };
+}
+
+function parseRealReadOnlyAdapterApprovalAuthorityTraceQuery(
+  query: unknown,
+):
+  | { allowed: true; query: Partial<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuery> }
+  | { allowed: false; reason: string } {
+  const dryRunId = readQueryValue(query, 'dryRunId');
+  const status = readQueryValue(query, 'status');
+  const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+  if (!limitResult.allowed) {
+    return limitResult;
+  }
+
+  if (status && !realReadOnlyAdapterApprovalAuthorityTraceStatuses.has(status)) {
+    return { allowed: false, reason: 'unsupported approval authority trace status' };
+  }
+
+  return {
+    allowed: true,
+    query: {
+      dryRunId,
+      status: status as CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatus | undefined,
       limit: limitResult.limit,
     },
   };

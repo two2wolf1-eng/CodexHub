@@ -65,6 +65,9 @@ import {
   CodexExecRealReadOnlyAdapterReadinessSummarySchema,
   CodexExecRealReadOnlyAdapterAuditSummarySchema,
   CodexExecRealReadOnlyAdapterApprovalAuthoritySummarySchema,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuerySchema,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecordSchema,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceSummarySchema,
   CodexExecRealReadOnlyAdapterAttemptQuerySchema,
   CodexExecRealReadOnlyAdapterAttemptRecordSchema,
   CodexExecRealReadOnlyAdapterAttemptSummarySchema,
@@ -2716,6 +2719,87 @@ describe('contracts schemas', () => {
       summary: 'Approval authority summary stores metadata and hashes only.',
       ...flagFields,
     });
+    const approvalAuthorityTrace =
+      CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecordSchema.parse({
+        id: 'codex_real_read_only_adapter_approval_authority_trace_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: request.dryRunId,
+        status: 'aligned',
+        sourcePreparationApprovalArtifactId: 'codex_approval_artifact_1',
+        prerequisiteApprovalArtifactId: 'codex_approval_artifact_1',
+        inputApprovalArtifactId: 'codex_approval_artifact_1',
+        resolvedApprovalRecordId: 'codex_approval_record_1',
+        resolvedApprovalArtifactId: 'codex_approval_artifact_1',
+        approvalArtifactHash: 'sha256:approval',
+        dryRunPlanHash: 'sha256:dry-run',
+        policyDecisionHash: 'sha256:policy',
+        expectedDryRunPlanHash: 'sha256:dry-run',
+        expectedPolicyDecisionHash: 'sha256:policy',
+        exactLookupMatched: true,
+        sourcePreparationMatched: true,
+        prerequisiteMatched: true,
+        approvalApproved: true,
+        approvalUnused: true,
+        approvalNotRevoked: true,
+        approvalNotExpired: true,
+        dryRunHashMatched: true,
+        policyHashMatched: true,
+        attemptPreflightWouldAccept: true,
+        checkedAt: createdAt,
+        expiresAt: '2026-05-01T00:00:00.000Z',
+        reasonCodes: [],
+        degraded: false,
+        notPersisted: false,
+        fallbackUsedAsAuthority: false,
+        pilotExecuted: false,
+        adapterAttemptInvoked: false,
+        authoritative: true,
+        supervisorBacked: true,
+        persisted: true,
+        evidenceRefs: [],
+        auditEventIds: [],
+        summary: 'Approval authority trace aligns source-prep, prerequisite, and attempt ids.',
+        ...flagFields,
+      });
+    const approvalAuthorityTraceSummary =
+      CodexExecRealReadOnlyAdapterApprovalAuthorityTraceSummarySchema.parse({
+        id: 'codex_real_read_only_adapter_approval_authority_trace_summary_1',
+        schemaVersion,
+        createdAt,
+        recordId: approvalAuthorityTrace.id,
+        dryRunId: approvalAuthorityTrace.dryRunId,
+        status: approvalAuthorityTrace.status,
+        inputApprovalArtifactId: approvalAuthorityTrace.inputApprovalArtifactId,
+        resolvedApprovalRecordId: approvalAuthorityTrace.resolvedApprovalRecordId,
+        resolvedApprovalArtifactId: approvalAuthorityTrace.resolvedApprovalArtifactId,
+        sourcePreparationMatched: true,
+        prerequisiteMatched: true,
+        exactLookupMatched: true,
+        dryRunHashMatched: true,
+        policyHashMatched: true,
+        attemptPreflightWouldAccept: true,
+        checkedAt: createdAt,
+        expiresAt: approvalAuthorityTrace.expiresAt,
+        reasonCodes: [],
+        degraded: false,
+        notPersisted: false,
+        fallbackUsedAsAuthority: false,
+        pilotExecuted: false,
+        adapterAttemptInvoked: false,
+        summary: approvalAuthorityTrace.summary,
+        ...flagFields,
+      });
+    const approvalAuthorityTraceQuery =
+      CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuerySchema.parse({
+        id: 'codex_real_read_only_adapter_approval_authority_trace_query_1',
+        schemaVersion,
+        createdAt,
+        dryRunId: request.dryRunId,
+        status: 'aligned',
+        limit: 10,
+        ...flagFields,
+      });
     const postRunSkipReason =
       CodexExecRealReadOnlyAdapterPostRunVerificationSkipReasonSchema.parse(
         'attempt_not_completed',
@@ -2906,7 +2990,11 @@ describe('contracts schemas', () => {
     expect(attemptRecord.stdoutBodyStored).toBe(false);
     expect(attemptRecord.stderrBodyStored).toBe(false);
     expect(approvalAuthority.status).toBe('resolved');
+    expect(approvalAuthorityTrace.status).toBe('aligned');
+    expect(approvalAuthorityTraceSummary.attemptPreflightWouldAccept).toBe(true);
+    expect(approvalAuthorityTraceQuery.status).toBe('aligned');
     expect(JSON.stringify(approvalAuthority)).not.toContain('raw prompt body');
+    expect(JSON.stringify(approvalAuthorityTrace)).not.toContain('raw stdout body');
     expect(JSON.stringify(approvalAuthority)).not.toContain('raw stdout body');
     expect(JSON.stringify(approvalAuthority)).not.toContain('"argv"');
     expect(JSON.stringify(approvalAuthority)).not.toContain('"executablePath":');

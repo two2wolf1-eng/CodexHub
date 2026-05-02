@@ -41,6 +41,7 @@ import {
   REAL_READ_ONLY_ADAPTER_READINESS_RECOMMENDATION,
   REAL_READ_ONLY_ADAPTER_READINESS_REVIEW_RECOMMENDATION,
   summarizeRealReadOnlyAdapterAttempt,
+  summarizeRealReadOnlyAdapterApprovalAuthorityTraceRecord,
   summarizeRealReadOnlyAdapterPolicySourceRecord,
   summarizeRealReadOnlyAdapterPilotSourcePreparationRecord,
   summarizeRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -133,6 +134,8 @@ import type {
   CodexExecRealReadOnlyAdapterAttemptRecord,
   CodexExecRealReadOnlyAdapterAttemptStatus,
   CodexExecRealReadOnlyAdapterAttemptTimelineSummary,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatus,
   CodexExecRealReadOnlyAdapterPolicySourceRecord,
   CodexExecRealReadOnlyAdapterPolicySourceStatus,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
@@ -322,6 +325,17 @@ export interface CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions
   extends CodexExecRealReadOnlyAdapterAttemptListCliOptions {
   includeEvidence?: boolean;
   includeAudit?: boolean;
+}
+
+export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceCliOptions
+  extends CodexExecJsonCliOptions {
+  approval?: string;
+}
+
+export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions
+  extends CodexExecJsonCliOptions {
+  dryRun?: string;
+  status?: string;
 }
 
 export type CodexExecRealReadOnlyAdapterPolicySourcePrepareCliOptions =
@@ -1136,6 +1150,69 @@ export function buildProgram(): Command {
         console.log(formatRealReadOnlyAdapterAttemptTimelineOutput(result, options));
       },
     );
+
+  const approvalAuthorityCommand = realReadOnlyAdapterCommand
+    .command('approval-authority')
+    .description('Trace read-only adapter approval authority without running a pilot')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Approval-authority rules:',
+        '  - traces compare source-prep, prerequisite, CLI input, and exact approval lookup',
+        '  - degraded or notPersisted fallback output is display-only and never aligned',
+        '  - this command does not create approvals, consume approvals, invoke attempts, or run a pilot',
+      ].join('\n'),
+    );
+
+  approvalAuthorityCommand
+    .command('trace')
+    .argument('<dryRunId>')
+    .requiredOption('--approval <approvalArtifactId>', 'Existing approval artifact id to trace')
+    .option('--json', 'Print full JSON output')
+    .description('Create persisted approval authority trace metadata from existing inputs only')
+    .action(
+      async (
+        dryRunId: string,
+        options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceCliOptions,
+      ) => {
+        const result = await traceRealReadOnlyAdapterApprovalAuthorityCommand(dryRunId, options);
+        console.log(formatRealReadOnlyAdapterApprovalAuthorityTraceOutput(result, options));
+      },
+    );
+
+  approvalAuthorityCommand
+    .command('get')
+    .argument('<recordId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read one approval authority trace record')
+    .action(async (recordId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getRealReadOnlyAdapterApprovalAuthorityTraceCommand(recordId);
+      console.log(formatRealReadOnlyAdapterApprovalAuthorityTraceOutput(result, options));
+    });
+
+  approvalAuthorityCommand
+    .command('list')
+    .option('--dry-run <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by trace status')
+    .option('--json', 'Print full JSON output')
+    .description('List approval authority trace records')
+    .action(
+      async (options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions) => {
+        const result = await listRealReadOnlyAdapterApprovalAuthorityTracesCommand(options);
+        console.log(formatRealReadOnlyAdapterApprovalAuthorityTraceListOutput(result, options));
+      },
+    );
+
+  approvalAuthorityCommand
+    .command('latest')
+    .argument('<dryRunId>')
+    .option('--json', 'Print full JSON output')
+    .description('Read the latest approval authority trace for a dry-run id')
+    .action(async (dryRunId: string, options: CodexExecJsonCliOptions) => {
+      const result = await getLatestRealReadOnlyAdapterApprovalAuthorityTraceCommand(dryRunId);
+      console.log(formatRealReadOnlyAdapterApprovalAuthorityTraceOutput(result, options));
+    });
 
   const policySourceCommand = realReadOnlyAdapterCommand
     .command('policy-sources')
@@ -3393,6 +3470,104 @@ export async function getRealReadOnlyAdapterAttemptTimelineCommand(
   }
 }
 
+export async function traceRealReadOnlyAdapterApprovalAuthorityCommand(
+  dryRunId: string,
+  options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/approval-authority-traces`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRunId,
+          approvalArtifactId: options.approval,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
+      `supervisor unavailable or rejected approval authority trace for ${dryRunId}; fallback is display-only and cannot be aligned`,
+      dryRunId,
+    );
+  }
+}
+
+export async function getRealReadOnlyAdapterApprovalAuthorityTraceCommand(
+  recordId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/approval-authority-traces/${encodeURIComponent(
+        recordId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
+      `supervisor unavailable; approval authority trace ${recordId} was not read from an authoritative store`,
+    );
+  }
+}
+
+export async function listRealReadOnlyAdapterApprovalAuthorityTracesCommand(
+  options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const query = createRealReadOnlyAdapterApprovalAuthorityTraceQueryString(options);
+
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/approval-authority-traces${query}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterApprovalAuthorityTraceListFallback(
+      'supervisor unavailable; approval authority trace list fallback is display-only and not authoritative',
+      options.dryRun,
+    );
+  }
+}
+
+export async function getLatestRealReadOnlyAdapterApprovalAuthorityTraceCommand(
+  dryRunId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(
+      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/approval-authority-trace/latest/${encodeURIComponent(
+        dryRunId,
+      )}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`supervisor returned ${response.status}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
+      `supervisor unavailable; latest approval authority trace for ${dryRunId} is display-only and not authoritative`,
+      dryRunId,
+    );
+  }
+}
+
 export async function prepareRealReadOnlyAdapterPolicySourceCommand(
   dryRunId: string,
 ): Promise<Record<string, unknown>> {
@@ -5195,6 +5370,23 @@ function createRealReadOnlyAdapterPolicySourceQueryString(
   return queryString ? `?${queryString}` : '';
 }
 
+function createRealReadOnlyAdapterApprovalAuthorityTraceQueryString(
+  options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions,
+): string {
+  const params = new URLSearchParams();
+
+  if (options.dryRun) {
+    params.set('dryRunId', options.dryRun);
+  }
+
+  if (options.status) {
+    params.set('status', normalizeRealReadOnlyAdapterApprovalAuthorityTraceStatus(options.status));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 function createRealReadOnlyAdapterPilotPrerequisiteQueryString(
   options: CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions,
 ): string {
@@ -5537,6 +5729,16 @@ function normalizeRealReadOnlyAdapterPolicySourceStatus(
 ): CodexExecRealReadOnlyAdapterPolicySourceStatus {
   if (['aligned', 'blocked', 'requires_review'].includes(status)) {
     return status as CodexExecRealReadOnlyAdapterPolicySourceStatus;
+  }
+
+  return 'blocked';
+}
+
+function normalizeRealReadOnlyAdapterApprovalAuthorityTraceStatus(
+  status: string,
+): CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatus {
+  if (['aligned', 'blocked', 'requires_review'].includes(status)) {
+    return status as CodexExecRealReadOnlyAdapterApprovalAuthorityTraceStatus;
   }
 
   return 'blocked';
@@ -6095,6 +6297,69 @@ function createRealReadOnlyAdapterPolicySourceListFallback(
     ...createRealReadOnlyAdapterPolicySourceReadFallback(reason, dryRunId),
     records: [],
     policySourceRecords: [],
+    summaries: [],
+    count: 0,
+  };
+}
+
+function createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    record: undefined,
+    approvalAuthorityTraceRecord: undefined,
+    summary: undefined,
+    records: [],
+    approvalAuthorityTraceRecords: [],
+    summaries: [],
+    count: 0,
+    dryRunId,
+    status: 'blocked',
+    inputApprovalArtifactId: undefined,
+    resolvedApprovalRecordId: undefined,
+    resolvedApprovalArtifactId: undefined,
+    exactLookupMatched: false,
+    sourcePreparationMatched: false,
+    prerequisiteMatched: false,
+    dryRunHashMatched: false,
+    policyHashMatched: false,
+    approvalApproved: false,
+    approvalUnused: false,
+    approvalNotRevoked: false,
+    approvalNotExpired: false,
+    attemptPreflightWouldAccept: false,
+    reasonCodes: ['approval_trace_fallback_not_authoritative'],
+    authoritative: false,
+    supervisorBacked: false,
+    persisted: false,
+    degraded: true,
+    notPersisted: true,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    processAdapterStarted: false,
+    implementationApproved: false,
+    processAdapterApproved: false,
+    recommendationGrantsExecution: false,
+    workspaceWriteAllowed: false,
+    dangerFullAccessAllowed: false,
+    dashboardTriggerAllowed: false,
+    reason,
+  };
+}
+
+function createRealReadOnlyAdapterApprovalAuthorityTraceListFallback(
+  reason: string,
+  dryRunId = 'unknown',
+): Record<string, unknown> {
+  return {
+    ...createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(reason, dryRunId),
+    records: [],
+    approvalAuthorityTraceRecords: [],
     summaries: [],
     count: 0,
   };
@@ -6972,6 +7237,96 @@ export function formatRealReadOnlyAdapterPolicySourceListOutput(
     noLiveFlagsText(result),
     summaries.length > 0 ? 'records:' : 'records: none',
     ...summaries.map((summary) => `- ${summary.recordId}: ${summary.status}`),
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterApprovalAuthorityTraceOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = (result.record ?? result.approvalAuthorityTraceRecord) as
+    | CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord
+    | undefined;
+  const reasonCodes = Array.isArray(result.reasonCodes)
+    ? (result.reasonCodes as string[])
+    : (record?.reasonCodes ?? []);
+
+  return [
+    'Real read-only adapter approval authority trace',
+    `recordId: ${record?.id ?? result.recordId ?? 'not-persisted'}`,
+    `dryRunId: ${record?.dryRunId ?? result.dryRunId ?? 'unknown'}`,
+    `status: ${record?.status ?? result.status ?? 'blocked'}`,
+    `inputApprovalArtifactId=${record?.inputApprovalArtifactId ?? result.inputApprovalArtifactId ?? 'unknown'}`,
+    `resolvedApprovalRecordId=${record?.resolvedApprovalRecordId ?? result.resolvedApprovalRecordId ?? 'unknown'}`,
+    `resolvedApprovalArtifactId=${record?.resolvedApprovalArtifactId ?? result.resolvedApprovalArtifactId ?? 'unknown'}`,
+    `exactLookupMatched=${String(record?.exactLookupMatched ?? result.exactLookupMatched ?? false)}`,
+    `sourcePreparationMatched=${String(
+      record?.sourcePreparationMatched ?? result.sourcePreparationMatched ?? false,
+    )}`,
+    `prerequisiteMatched=${String(record?.prerequisiteMatched ?? result.prerequisiteMatched ?? false)}`,
+    `approvalApproved=${String(record?.approvalApproved ?? result.approvalApproved ?? false)}`,
+    `approvalUnused=${String(record?.approvalUnused ?? result.approvalUnused ?? false)}`,
+    `approvalNotRevoked=${String(record?.approvalNotRevoked ?? result.approvalNotRevoked ?? false)}`,
+    `approvalNotExpired=${String(record?.approvalNotExpired ?? result.approvalNotExpired ?? false)}`,
+    `dryRunHashMatched=${String(record?.dryRunHashMatched ?? result.dryRunHashMatched ?? false)}`,
+    `policyHashMatched=${String(record?.policyHashMatched ?? result.policyHashMatched ?? false)}`,
+    `attemptPreflightWouldAccept=${String(
+      record?.attemptPreflightWouldAccept ?? result.attemptPreflightWouldAccept ?? false,
+    )}`,
+    `degraded=${String(record?.degraded ?? result.degraded ?? true)}`,
+    `notPersisted=${String(record?.notPersisted ?? result.notPersisted ?? true)}`,
+    `fallbackUsedAsAuthority=${String(
+      record?.fallbackUsedAsAuthority ?? result.fallbackUsedAsAuthority ?? false,
+    )}`,
+    `pilotExecuted=${String(record?.pilotExecuted ?? result.pilotExecuted ?? false)}`,
+    `adapterAttemptInvoked=${String(
+      record?.adapterAttemptInvoked ?? result.adapterAttemptInvoked ?? false,
+    )}`,
+    `dashboardTriggerAllowed=${String(result.dashboardTriggerAllowed ?? false)}`,
+    `workspaceWriteAllowed=${String(result.workspaceWriteAllowed ?? false)}`,
+    `dangerFullAccessAllowed=${String(result.dangerFullAccessAllowed ?? false)}`,
+    'aligned requires exact persisted approval authority accepted by source-prep, prerequisite, and attempt preflight.',
+    'This approval-authority command does not create approvals, consume approvals, invoke attempts, or run a pilot.',
+    noLiveFlagsText(result),
+    reasonCodes.length > 0 ? 'reason codes:' : 'reason codes: none',
+    ...reasonCodes.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
+export function formatRealReadOnlyAdapterApprovalAuthorityTraceListOutput(
+  result: Record<string, unknown>,
+  options: CodexExecJsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = Array.isArray(result.records)
+    ? (result.records as CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord[])
+    : [];
+  const summaries = records.map((record) =>
+    summarizeRealReadOnlyAdapterApprovalAuthorityTraceRecord(record),
+  );
+
+  return [
+    'Real read-only adapter approval authority trace records',
+    `count=${String(result.count ?? records.length)}`,
+    `degraded=${String(result.degraded ?? true)}`,
+    `notPersisted=${String(result.notPersisted ?? true)}`,
+    `fallbackUsedAsAuthority=${String(result.fallbackUsedAsAuthority ?? false)}`,
+    'Approval-authority traces are metadata-only and do not run pilots.',
+    noLiveFlagsText(result),
+    summaries.length > 0 ? 'records:' : 'records: none',
+    ...summaries.map(
+      (summary) =>
+        `- ${summary.recordId}: ${summary.status} attemptPreflightWouldAccept=${String(
+          summary.attemptPreflightWouldAccept,
+        )}`,
+    ),
   ].join('\n');
 }
 

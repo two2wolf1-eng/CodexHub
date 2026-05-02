@@ -13,6 +13,7 @@ import {
   type CodexExecRealReadOnlyAdapterReadinessPackage,
   type CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord,
   type CodexExecRealReadOnlyAdapterAttemptRecord,
+  type CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord,
   type CodexExecRealReadOnlyAdapterPilotSourcePreparationRecord,
   type CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
@@ -200,6 +201,11 @@ describe('store-sqlite migration initialization', () => {
     await first.codexExecRealReadOnlyAdapterAttempts.saveAttempt(
       realReadOnlyAdapterFailedAttempt,
     );
+    const realReadOnlyAdapterApprovalAuthorityTrace: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord =
+      createRealReadOnlyAdapterApprovalAuthorityTraceFixture();
+    await first.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.saveApprovalAuthorityTrace(
+      realReadOnlyAdapterApprovalAuthorityTrace,
+    );
     const realReadOnlyAdapterPilotPrerequisite: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord =
       createRealReadOnlyAdapterPilotPrerequisiteFixture();
     await first.codexExecRealReadOnlyAdapterPilotPrerequisites.savePilotPrerequisite(
@@ -349,6 +355,20 @@ describe('store-sqlite migration initialization', () => {
       );
     const latestRealReadOnlyAdapterAttemptRecord =
       await second.codexExecRealReadOnlyAdapterAttempts.latestAttempt('codex_dry_run_1');
+    const realReadOnlyAdapterApprovalAuthorityTraces =
+      await second.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.listApprovalAuthorityTraces({
+        dryRunId: 'codex_dry_run_1',
+        status: 'aligned',
+        limit: 10,
+      });
+    const realReadOnlyAdapterApprovalAuthorityTraceRecord =
+      await second.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.getApprovalAuthorityTrace(
+        'codex_real_read_only_adapter_approval_authority_trace_1',
+      );
+    const latestRealReadOnlyAdapterApprovalAuthorityTraceRecord =
+      await second.codexExecRealReadOnlyAdapterApprovalAuthorityTraces.latestApprovalAuthorityTrace(
+        'codex_dry_run_1',
+      );
     const realReadOnlyAdapterPilotPrerequisites =
       await second.codexExecRealReadOnlyAdapterPilotPrerequisites.listPilotPrerequisites({
         dryRunId: 'codex_dry_run_1',
@@ -516,6 +536,29 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('raw stderr body');
     expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('"argv"');
     expect(JSON.stringify(realReadOnlyAdapterFailedAttemptRecord)).not.toContain('"executablePath":');
+    expect(realReadOnlyAdapterApprovalAuthorityTraces).toHaveLength(1);
+    expect(realReadOnlyAdapterApprovalAuthorityTraceRecord?.status).toBe('aligned');
+    expect(realReadOnlyAdapterApprovalAuthorityTraceRecord?.attemptPreflightWouldAccept).toBe(true);
+    expect(realReadOnlyAdapterApprovalAuthorityTraceRecord?.fallbackUsedAsAuthority).toBe(false);
+    expect(latestRealReadOnlyAdapterApprovalAuthorityTraceRecord?.id).toBe(
+      'codex_real_read_only_adapter_approval_authority_trace_1',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterApprovalAuthorityTraceRecord)).not.toContain(
+      'raw prompt body',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterApprovalAuthorityTraceRecord)).not.toContain(
+      'raw command body',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterApprovalAuthorityTraceRecord)).not.toContain(
+      'raw stdout body',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterApprovalAuthorityTraceRecord)).not.toContain(
+      'raw stderr body',
+    );
+    expect(JSON.stringify(realReadOnlyAdapterApprovalAuthorityTraceRecord)).not.toContain('"argv"');
+    expect(JSON.stringify(realReadOnlyAdapterApprovalAuthorityTraceRecord)).not.toContain(
+      '"executablePath":',
+    );
     expect(realReadOnlyAdapterPilotPrerequisites).toHaveLength(1);
     expect(realReadOnlyAdapterPilotPrerequisiteRecord?.status).toBe('blocked');
     expect(realReadOnlyAdapterPilotPrerequisiteRecord?.pilotExecuted).toBe(false);
@@ -1382,6 +1425,82 @@ function createRealReadOnlyAdapterFailedAttemptFixture(): CodexExecRealReadOnlyA
     outputHashCount: 2,
     metadataHash: 'sha256:attempt_failed_metadata',
     summary: 'Failed supervisor attempt stores boundary diagnostics metadata only.',
+  };
+}
+
+function createRealReadOnlyAdapterApprovalAuthorityTraceFixture(): CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord {
+  const createdAt = '2026-04-28T00:00:13.500Z';
+  const flags = {
+    metadataOnly: true as const,
+    bodyStored: false as const,
+    promptBodyStored: false as const,
+    commandBodyStored: false as const,
+    stdoutBodyStored: false as const,
+    stderrBodyStored: false as const,
+    agentMessageBodyStored: false as const,
+    reasoningBodyStored: false as const,
+    liveExecution: false as const,
+    externalProcessStarted: false as const,
+    executionDisabled: true as const,
+    processAdapterStarted: false as const,
+    implementationApproved: false as const,
+    processAdapterApproved: false as const,
+    dashboardTriggerAllowed: false as const,
+    recommendationGrantsExecution: false as const,
+    workspaceWriteAllowed: false as const,
+    dangerFullAccessAllowed: false as const,
+  };
+
+  return {
+    id: 'codex_real_read_only_adapter_approval_authority_trace_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'codex_dry_run_1',
+    status: 'aligned',
+    sourcePreparationApprovalArtifactId: 'codex_approval_artifact_1',
+    prerequisiteApprovalArtifactId: 'codex_approval_artifact_1',
+    inputApprovalArtifactId: 'codex_approval_artifact_1',
+    resolvedApprovalRecordId: 'codex_approval_record_1',
+    resolvedApprovalArtifactId: 'codex_approval_artifact_1',
+    approvalArtifactHash: 'sha256:approval',
+    dryRunPlanHash: 'sha256:dry-run',
+    policyDecisionHash: 'sha256:policy',
+    expectedDryRunPlanHash: 'sha256:dry-run',
+    expectedPolicyDecisionHash: 'sha256:policy',
+    exactLookupMatched: true,
+    sourcePreparationMatched: true,
+    prerequisiteMatched: true,
+    approvalApproved: true,
+    approvalUnused: true,
+    approvalNotRevoked: true,
+    approvalNotExpired: true,
+    dryRunHashMatched: true,
+    policyHashMatched: true,
+    attemptPreflightWouldAccept: true,
+    checkedAt: createdAt,
+    expiresAt: '2026-04-28T01:00:00.000Z',
+    reasonCodes: [],
+    degraded: false,
+    notPersisted: false,
+    fallbackUsedAsAuthority: false,
+    pilotExecuted: false,
+    adapterAttemptInvoked: false,
+    authoritative: true,
+    supervisorBacked: true,
+    persisted: true,
+    evidenceRefs: [],
+    auditEventIds: ['audit_real_read_only_adapter_approval_authority_trace_1'],
+    summary: 'Approval authority trace stores metadata only.',
+    metadata: {
+      source: 'store-sqlite-test',
+      metadataOnly: true,
+      promptBodyStored: false,
+      commandBodyStored: false,
+      stdoutBodyStored: false,
+      stderrBodyStored: false,
+      worktreePathStored: false,
+    },
+    ...flags,
   };
 }
 

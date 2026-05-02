@@ -18,6 +18,8 @@ import type {
   CodexExecRealReadOnlyAdapterReadinessReviewQuery,
   CodexExecRealReadOnlyAdapterAttemptQuery,
   CodexExecRealReadOnlyAdapterAttemptRecord,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuery,
+  CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord,
   CodexExecRealReadOnlyAdapterPolicySourceQuery,
   CodexExecRealReadOnlyAdapterPolicySourceRecord,
   CodexExecRealReadOnlyAdapterPilotSourcePreparationQuery,
@@ -225,6 +227,21 @@ export interface CodexExecRealReadOnlyAdapterPolicySourceRepository {
   ): Promise<CodexExecRealReadOnlyAdapterPolicySourceRecord | undefined>;
 }
 
+export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRepository {
+  saveApprovalAuthorityTrace(
+    record: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord,
+  ): Promise<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord>;
+  getApprovalAuthorityTrace(
+    id: string,
+  ): Promise<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord | undefined>;
+  listApprovalAuthorityTraces(
+    query?: Partial<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceQuery>,
+  ): Promise<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord[]>;
+  latestApprovalAuthorityTrace(
+    dryRunId: string,
+  ): Promise<CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRecord | undefined>;
+}
+
 export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository {
   savePilotPrerequisite(
     record: CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord,
@@ -274,6 +291,7 @@ export interface CodexHubStore {
   codexExecRealReadOnlyAdapterReadinessReviews: CodexExecRealReadOnlyAdapterReadinessReviewRepository;
   codexExecRealReadOnlyAdapterAttempts: CodexExecRealReadOnlyAdapterAttemptRepository;
   codexExecRealReadOnlyAdapterPolicySources: CodexExecRealReadOnlyAdapterPolicySourceRepository;
+  codexExecRealReadOnlyAdapterApprovalAuthorityTraces: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRepository;
   codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
   codexExecRealReadOnlyAdapterPilotSourcePreparations: CodexExecRealReadOnlyAdapterPilotSourcePreparationRepository;
   close(): Promise<void>;
