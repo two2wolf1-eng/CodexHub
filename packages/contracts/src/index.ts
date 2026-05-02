@@ -3228,6 +3228,17 @@ export type CodexExecRealReadOnlyAdapterBoundaryFailureCode = z.infer<
   typeof CodexExecRealReadOnlyAdapterBoundaryFailureCodeSchema
 >;
 
+export const CodexExecRealReadOnlyAdapterNonzeroExitKindSchema = z.enum([
+  'codex_cli_usage_error_suspected',
+  'codex_cli_input_missing_suspected',
+  'codex_cli_auth_or_config_error_suspected',
+  'codex_cli_runtime_error_suspected',
+  'unknown',
+]);
+export type CodexExecRealReadOnlyAdapterNonzeroExitKind = z.infer<
+  typeof CodexExecRealReadOnlyAdapterNonzeroExitKindSchema
+>;
+
 export const CodexExecRealReadOnlyAdapterBoundaryStartFailureKindSchema = z.enum([
   'none',
   'enoent',
@@ -3362,6 +3373,7 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsSchema = createdEnti
     envAllowlistKeyCount: z.number().int().nonnegative().optional(),
     envAllowlistKeyHash: z.string().min(1).optional(),
     exitCode: z.number().int().optional(),
+    nonzeroExitKind: CodexExecRealReadOnlyAdapterNonzeroExitKindSchema.optional(),
     signal: z.string().min(1).optional(),
     timedOut: z.boolean(),
     cancelled: z.boolean(),
@@ -3401,6 +3413,7 @@ export const CodexExecRealReadOnlyAdapterBoundaryDiagnosticsMissingFieldSchema =
   'envAllowlistKeyCount',
   'envAllowlistKeyHash',
   'exitCode',
+  'nonzeroExitKind',
   'signal',
   'timedOut',
   'cancelled',

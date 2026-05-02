@@ -51,6 +51,13 @@ export type CodexExecRealReadOnlyAdapterDependencyResolutionStatus =
   | 'spawn_target_mismatch_suspected'
   | 'unknown';
 
+export type CodexExecRealReadOnlyAdapterNonzeroExitKind =
+  | 'codex_cli_usage_error_suspected'
+  | 'codex_cli_input_missing_suspected'
+  | 'codex_cli_auth_or_config_error_suspected'
+  | 'codex_cli_runtime_error_suspected'
+  | 'unknown';
+
 export type CodexExecRealReadOnlyAdapterBoundaryStartFailureKind =
   | 'none'
   | 'enoent'
@@ -171,6 +178,8 @@ export interface CodexExecRealReadOnlyAdapterProcessPlan {
   stderrBodyStored: false;
   agentMessageBodyStored: false;
   reasoningBodyStored: false;
+  stdinBodyStored: false;
+  stdinClosedWithoutBody: true;
   dashboardTriggerAllowed: false;
   workspaceWriteAllowed: false;
   dangerFullAccessAllowed: false;
@@ -203,6 +212,7 @@ export interface CodexExecRealReadOnlyAdapterProcessBoundaryResult {
   completedAt: string;
   durationMs: number;
   exitCode?: number;
+  nonzeroExitKind?: CodexExecRealReadOnlyAdapterNonzeroExitKind;
   signal?: string;
   timedOut: boolean;
   cancelled: boolean;
@@ -711,13 +721,10 @@ export function createRealReadOnlyAdapterProcessPlan(
     executablePath: input.executablePath,
     argv: [
       'exec',
-      '--jsonl',
+      '--json',
       '--sandbox',
-      'read_only',
-      '--dry-run-id',
-      input.dryRunId,
-      '--approval-artifact-id',
-      input.approvalArtifactId,
+      'read-only',
+      '--ephemeral',
     ],
     cwd: input.worktreePath,
     env: input.env ?? {},
@@ -731,6 +738,8 @@ export function createRealReadOnlyAdapterProcessPlan(
     stderrBodyStored: false,
     agentMessageBodyStored: false,
     reasoningBodyStored: false,
+    stdinBodyStored: false,
+    stdinClosedWithoutBody: true,
     dashboardTriggerAllowed: false,
     workspaceWriteAllowed: false,
     dangerFullAccessAllowed: false,
@@ -740,6 +749,8 @@ export function createRealReadOnlyAdapterProcessPlan(
       executablePolicyLabel: input.executablePolicyLabel ?? codexCliExecutablePolicyLabel,
       shell: false,
       readOnly: true,
+      stdinBodyStored: false,
+      stdinClosedWithoutBody: true,
       envPlanStored: false,
       platform: executableResolution?.platform ?? process.platform,
       resolvedExecutableKind,
@@ -864,6 +875,10 @@ export async function runRealReadOnlyAdapterProcessBoundary(
       : runnerResult.exitCode === 0
         ? 'completed'
         : 'failed';
+  const nonzeroExitKind =
+    status === 'failed' && startFailureKind === 'none' && runnerResult.exitCode !== undefined
+      ? classifyNonzeroExitKind(runnerResult)
+      : undefined;
 
   return {
     status,
@@ -875,6 +890,7 @@ export async function runRealReadOnlyAdapterProcessBoundary(
         ? Math.max(0, completedMs - startedMs)
         : 0,
     exitCode: runnerResult.exitCode,
+    nonzeroExitKind,
     signal: runnerResult.signal,
     timedOut,
     cancelled,
@@ -914,6 +930,7 @@ export async function runRealReadOnlyAdapterProcessBoundary(
       outputBodyStored: false,
       startFailureKind,
       enoentKind,
+      nonzeroExitKind,
       platform,
       resolvedExecutableKind,
       spawnTargetKind,
@@ -1091,6 +1108,8 @@ export const nodeRealReadOnlyAdapterProcessRunner: CodexExecRealReadOnlyAdapterP
           shell: false,
           windowsHide: true,
         });
+        child.stdin.on('error', () => undefined);
+        child.stdin.end();
       } catch (error) {
         const startFailureKind = classifyProcessStartError(error);
         finish({
@@ -1156,6 +1175,60 @@ function appendBounded(current: string, chunk: Buffer): string {
   }
 
   return next.slice(0, maxCapturedBytes);
+}
+
+function classifyNonzeroExitKind(
+  result: Pick<
+    CodexExecRealReadOnlyAdapterProcessRunnerResult,
+    'exitCode' | 'stdout' | 'stderr'
+  >,
+): CodexExecRealReadOnlyAdapterNonzeroExitKind {
+  if (result.exitCode === undefined || result.exitCode === 0) {
+    return 'unknown';
+  }
+
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.toLowerCase();
+  const codexExecUsageText = ['usage:', 'codex', 'exec'].join(' ');
+
+  if (
+    output.includes('unexpected argument') ||
+    output.includes('unrecognized option') ||
+    output.includes('unknown option') ||
+    output.includes('invalid value') ||
+    output.includes('found argument') ||
+    output.includes(codexExecUsageText) ||
+    output.includes('--dry-run-id') ||
+    output.includes('--approval-artifact-id') ||
+    output.includes('--jsonl') ||
+    output.includes('read_only')
+  ) {
+    return 'codex_cli_usage_error_suspected';
+  }
+
+  if (
+    output.includes('no prompt') ||
+    output.includes('prompt is required') ||
+    output.includes('missing prompt') ||
+    output.includes('input required') ||
+    output.includes('instructions are read from stdin')
+  ) {
+    return 'codex_cli_input_missing_suspected';
+  }
+
+  if (
+    output.includes('auth') ||
+    output.includes('login') ||
+    output.includes('api key') ||
+    output.includes('credential') ||
+    output.includes('profile') ||
+    output.includes('config')
+  ) {
+    return 'codex_cli_auth_or_config_error_suspected';
+  }
+
+  return result.exitCode === 2
+    ? 'codex_cli_usage_error_suspected'
+    : 'codex_cli_runtime_error_suspected';
 }
 
 function readEnvironmentEntry(

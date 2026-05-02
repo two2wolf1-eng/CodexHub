@@ -749,6 +749,7 @@ describe('cli development mock-run fallback', () => {
           envAllowlistKeyCount: 5,
           envAllowlistKeyHash: 'sha256:safe-env-keys-hash',
           exitCode: 2,
+          nonzeroExitKind: 'codex_cli_usage_error_suspected',
           signal: 'SIGTERM',
           timedOut: false,
           cancelled: false,
@@ -923,6 +924,9 @@ describe('cli development mock-run fallback', () => {
     expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
     expect(diagnosticOutput).toContain('boundaryStartFailureKind=none');
     expect(diagnosticOutput).toContain('boundaryEnoentKind=none');
+    expect(diagnosticOutput).toContain(
+      'boundaryNonzeroExitKind=codex_cli_usage_error_suspected',
+    );
     expect(diagnosticOutput).toContain('boundaryPlatform=win32');
     expect(diagnosticOutput).toContain('boundaryResolvedExecutableKind=native_exe');
     expect(diagnosticOutput).toContain('boundarySpawnTargetKind=native_exe');

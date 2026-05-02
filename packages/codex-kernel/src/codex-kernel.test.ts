@@ -2270,18 +2270,17 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(plan.workspaceWriteAllowed).toBe(false);
     expect(plan.dangerFullAccessAllowed).toBe(false);
     expect(plan.dashboardTriggerAllowed).toBe(false);
-    expect(plan.argv).toEqual([
-      'exec',
-      '--jsonl',
-      '--sandbox',
-      'read_only',
-      '--dry-run-id',
-      'codex_dry_run_process_boundary',
-      '--approval-artifact-id',
-      'codex_approval_artifact_process_boundary',
-    ]);
+    expect(plan.argv).toEqual(['exec', '--json', '--sandbox', 'read-only', '--ephemeral']);
     expect(plan.argv).not.toContain('--unsafe');
+    expect(plan.argv).not.toContain('--jsonl');
+    expect(plan.argv).not.toContain('read_only');
+    expect(plan.argv).not.toContain('--dry-run-id');
+    expect(plan.argv).not.toContain('codex_dry_run_process_boundary');
+    expect(plan.argv).not.toContain('--approval-artifact-id');
+    expect(plan.argv).not.toContain('codex_approval_artifact_process_boundary');
     expect(plan.commandBodyStored).toBe(false);
+    expect(plan.stdinBodyStored).toBe(false);
+    expect(plan.stdinClosedWithoutBody).toBe(true);
     expect(plan.stdoutBodyStored).toBe(false);
     expect(plan.stderrBodyStored).toBe(false);
   });
@@ -2959,6 +2958,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     const serialized = JSON.stringify(diagnostics);
 
     expect(diagnostics.nonzero.failureCode).toBe('process_exit_nonzero');
+    expect(diagnostics.nonzero.nonzeroExitKind).toBe('codex_cli_usage_error_suspected');
     expect(diagnostics.startFailure.failureCode).toBe('process_start_failed');
     expect(diagnostics.startFailure.startFailureKind).toBe('enoent');
     expect(diagnostics.startFailure.enoentKind).toBe(
@@ -3262,6 +3262,9 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(failedRecord.resultErrorCode).toBe('boundary_failed');
     expect(failedRecord.boundaryDiagnostics?.failureCode).toBe('process_exit_nonzero');
     expect(failedRecord.boundaryDiagnostics?.exitCode).toBe(2);
+    expect(failedRecord.boundaryDiagnostics?.nonzeroExitKind).toBe(
+      'codex_cli_usage_error_suspected',
+    );
     expect(failedRecord.boundaryDiagnostics?.stdoutByteLength).toBeGreaterThan(0);
     expect(failedRecord.boundaryDiagnostics?.stderrByteLength).toBeGreaterThan(0);
     expect(failedRecord.boundaryDiagnostics?.stdoutHash).toMatch(/^sha256:/);

@@ -6966,6 +6966,7 @@ export function formatRealReadOnlyAdapterAttemptOutput(
           failureCode?: string;
           startFailureKind?: string;
           enoentKind?: string;
+          nonzeroExitKind?: string;
           platform?: string;
           resolvedExecutableKind?: string;
           spawnTargetKind?: string;
@@ -7049,6 +7050,7 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `boundaryFailureCode=${attempt?.boundaryDiagnostics?.failureCode ?? 'none'}`,
     `boundaryStartFailureKind=${attempt?.boundaryDiagnostics?.startFailureKind ?? 'none'}`,
     `boundaryEnoentKind=${attempt?.boundaryDiagnostics?.enoentKind ?? 'none'}`,
+    `boundaryNonzeroExitKind=${attempt?.boundaryDiagnostics?.nonzeroExitKind ?? 'none'}`,
     `boundaryPlatform=${attempt?.boundaryDiagnostics?.platform ?? 'unknown'}`,
     `boundaryResolvedExecutableKind=${
       attempt?.boundaryDiagnostics?.resolvedExecutableKind ?? 'unknown'
@@ -7132,7 +7134,7 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
         boundaryDeferredReasonCode?: string;
         boundaryDeferredReasonCodes?: string[];
         boundaryDiagnosticsComplete?: boolean;
-        boundaryDiagnostics?: { failureCode?: string };
+        boundaryDiagnostics?: { failureCode?: string; nonzeroExitKind?: string };
       }>)
     : (attemptRecords ?? []).map((attempt) => summarizeRealReadOnlyAdapterAttempt(attempt));
   const lines = summaries
@@ -7145,6 +7147,8 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
           summary.boundaryDeferredReasonCode ?? 'none'
         } boundaryFailureCode=${
           summary.boundaryDiagnostics?.failureCode ?? 'none'
+        } boundaryNonzeroExitKind=${
+          summary.boundaryDiagnostics?.nonzeroExitKind ?? 'none'
         } boundaryDiagnosticsComplete=${String(summary.boundaryDiagnosticsComplete ?? false)}`,
     );
 
@@ -7194,7 +7198,7 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           boundaryDeferredReasonCode?: string;
           boundaryDeferredReasonCodes?: string[];
           boundaryDiagnosticsComplete?: boolean;
-          boundaryDiagnostics?: { failureCode?: string };
+          boundaryDiagnostics?: { failureCode?: string; nonzeroExitKind?: string };
         }>;
       }
     | undefined;
@@ -7210,6 +7214,8 @@ export function formatRealReadOnlyAdapterAttemptTimelineOutput(
           entry.processBoundaryInvoked ?? false,
         )} boundaryDeferredReasonCode=${entry.boundaryDeferredReasonCode ?? 'none'} boundaryFailureCode=${
           entry.boundaryDiagnostics?.failureCode ?? 'none'
+        } boundaryNonzeroExitKind=${
+          entry.boundaryDiagnostics?.nonzeroExitKind ?? 'none'
         } boundaryDiagnosticsComplete=${String(entry.boundaryDiagnosticsComplete ?? false)}`,
     );
 

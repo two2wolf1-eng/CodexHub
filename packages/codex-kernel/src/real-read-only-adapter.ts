@@ -679,14 +679,15 @@ export function createRealReadOnlyAdapterResultFromBoundary(input: {
         requestId: input.request.id,
         preflightId: input.preflight.id,
         boundaryStatus: input.boundaryResult.status,
-    boundaryFailureCode: boundaryDiagnostics.failureCode,
-    boundaryStartFailureKind: boundaryDiagnostics.startFailureKind,
-    boundaryPlatform: boundaryDiagnostics.platform,
-    boundaryResolvedExecutableKind: boundaryDiagnostics.resolvedExecutableKind,
-    boundaryExitCode: boundaryDiagnostics.exitCode,
-    boundarySignal: boundaryDiagnostics.signal,
-    boundaryTimedOut: boundaryDiagnostics.timedOut,
-    boundaryCancelled: boundaryDiagnostics.cancelled,
+        boundaryFailureCode: boundaryDiagnostics.failureCode,
+        boundaryStartFailureKind: boundaryDiagnostics.startFailureKind,
+        boundaryNonzeroExitKind: boundaryDiagnostics.nonzeroExitKind,
+        boundaryPlatform: boundaryDiagnostics.platform,
+        boundaryResolvedExecutableKind: boundaryDiagnostics.resolvedExecutableKind,
+        boundaryExitCode: boundaryDiagnostics.exitCode,
+        boundarySignal: boundaryDiagnostics.signal,
+        boundaryTimedOut: boundaryDiagnostics.timedOut,
+        boundaryCancelled: boundaryDiagnostics.cancelled,
         boundaryDurationMs: boundaryDiagnostics.durationMs,
         boundaryPlanId: input.preflight.boundaryPlan?.id,
         outputBodyStored: false,
@@ -725,6 +726,7 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
     envAllowlistKeyCount: boundaryResult.envAllowlistKeyCount,
     envAllowlistKeyHash: boundaryResult.envAllowlistKeyHash,
     exitCode: boundaryResult.exitCode,
+    nonzeroExitKind: boundaryResult.nonzeroExitKind,
     signal: boundaryResult.signal,
     timedOut: boundaryResult.timedOut,
     cancelled: boundaryResult.cancelled,
@@ -761,6 +763,7 @@ export function createRealReadOnlyAdapterBoundaryDiagnostics(
         dependencyResolutionStatus: boundaryResult.dependencyResolutionStatus,
         envAllowlistKeyCount: boundaryResult.envAllowlistKeyCount,
         envAllowlistKeyHash: boundaryResult.envAllowlistKeyHash,
+        nonzeroExitKind: boundaryResult.nonzeroExitKind,
         outputBodyStored: false,
         source: 'codex-kernel.real-read-only-adapter.boundary-diagnostics',
       },
@@ -848,11 +851,13 @@ export function getRealReadOnlyAdapterBoundaryDiagnosticsMissingFields(
       }
     }
 
-    if (
-      record.boundaryDiagnostics.failureCode === 'process_exit_nonzero' &&
-      record.boundaryDiagnostics.exitCode === undefined
-    ) {
-      missingFields.push('exitCode');
+    if (record.boundaryDiagnostics.failureCode === 'process_exit_nonzero') {
+      if (record.boundaryDiagnostics.exitCode === undefined) {
+        missingFields.push('exitCode');
+      }
+      if (record.boundaryDiagnostics.nonzeroExitKind === undefined) {
+        missingFields.push('nonzeroExitKind');
+      }
     }
 
     if (
@@ -1071,6 +1076,7 @@ export function createRealReadOnlyAdapterAttemptEvidenceRefs(
           dependencyResolutionStatus: boundaryDiagnostics.dependencyResolutionStatus,
           envAllowlistKeyCount: boundaryDiagnostics.envAllowlistKeyCount,
           envAllowlistKeyHash: boundaryDiagnostics.envAllowlistKeyHash,
+          nonzeroExitKind: boundaryDiagnostics.nonzeroExitKind,
           durationMs: boundaryDiagnostics.durationMs,
           stdoutHash: boundaryResult.stdoutSummary.contentHash,
           stderrHash: boundaryResult.stderrSummary.contentHash,
@@ -1356,6 +1362,7 @@ export function createRealReadOnlyAdapterAttemptRecord(
     boundaryExecutableAccessible: boundaryDiagnostics?.executableAccessible,
     boundaryEnvAllowlistKeyCount: boundaryDiagnostics?.envAllowlistKeyCount,
     boundaryEnvAllowlistKeyHash: boundaryDiagnostics?.envAllowlistKeyHash,
+    boundaryNonzeroExitKind: boundaryDiagnostics?.nonzeroExitKind,
     boundaryExitCode: boundaryDiagnostics?.exitCode,
     boundarySignal: boundaryDiagnostics?.signal,
     boundaryTimedOut: boundaryDiagnostics?.timedOut,
@@ -1457,6 +1464,7 @@ export function createRealReadOnlyAdapterAttemptRecord(
         boundaryDependencyResolutionStatus: boundaryDiagnostics?.dependencyResolutionStatus,
         boundaryEnvAllowlistKeyCount: boundaryDiagnostics?.envAllowlistKeyCount,
         boundaryEnvAllowlistKeyHash: boundaryDiagnostics?.envAllowlistKeyHash,
+        boundaryNonzeroExitKind: boundaryDiagnostics?.nonzeroExitKind,
         boundaryExitCode: boundaryDiagnostics?.exitCode,
         boundarySignal: boundaryDiagnostics?.signal,
         boundaryTimedOut: boundaryDiagnostics?.timedOut,
@@ -1561,6 +1569,7 @@ export function summarizeRealReadOnlyAdapterAttempt(
         alignedRecord.boundaryDiagnostics?.dependencyResolutionStatus,
       boundaryEnvAllowlistKeyCount: alignedRecord.boundaryDiagnostics?.envAllowlistKeyCount,
       boundaryEnvAllowlistKeyHash: alignedRecord.boundaryDiagnostics?.envAllowlistKeyHash,
+      boundaryNonzeroExitKind: alignedRecord.boundaryDiagnostics?.nonzeroExitKind,
       boundaryDiagnosticsComplete: alignedRecord.boundaryDiagnosticsComplete,
       boundaryDiagnosticsMissingFields: alignedRecord.boundaryDiagnosticsMissingFields,
       postRunVerificationStatus: alignedRecord.postRunVerificationStatus,
@@ -1669,6 +1678,7 @@ export function createRealReadOnlyAdapterAttemptTimeline(
       boundaryDependencyResolutionStatus: record.boundaryDiagnostics?.dependencyResolutionStatus,
       boundaryEnvAllowlistKeyCount: record.boundaryDiagnostics?.envAllowlistKeyCount,
       boundaryEnvAllowlistKeyHash: record.boundaryDiagnostics?.envAllowlistKeyHash,
+      boundaryNonzeroExitKind: record.boundaryDiagnostics?.nonzeroExitKind,
       boundaryDiagnosticsComplete: record.boundaryDiagnosticsComplete,
       boundaryDiagnosticsMissingFields: record.boundaryDiagnosticsMissingFields,
       postRunVerificationStatus: record.postRunVerificationStatus,

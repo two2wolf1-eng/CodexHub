@@ -2405,6 +2405,7 @@ describe('supervisor mock development API', () => {
           envAllowlistKeyCount: 2,
           envAllowlistKeyHash: 'sha256:supervisor-test-env-keys',
           exitCode: 2,
+          nonzeroExitKind: 'codex_cli_usage_error_suspected',
           timedOut: false,
           cancelled: false,
           stdoutHash: expect.stringMatching(/^sha256:/),
@@ -2430,6 +2431,7 @@ describe('supervisor mock development API', () => {
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
+          nonzeroExitKind: 'codex_cli_usage_error_suspected',
         },
       },
     });
@@ -2454,6 +2456,7 @@ describe('supervisor mock development API', () => {
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
+          nonzeroExitKind: 'codex_cli_usage_error_suspected',
           startFailureKind: 'none',
           platform: 'win32',
           resolvedExecutableKind: 'native_exe',
@@ -2484,6 +2487,7 @@ describe('supervisor mock development API', () => {
         boundaryDiagnostics: {
           failureCode: 'process_exit_nonzero',
           exitCode: 2,
+          nonzeroExitKind: 'codex_cli_usage_error_suspected',
           startFailureKind: 'none',
           resolvedExecutableKind: 'native_exe',
           stdoutHash: expect.stringMatching(/^sha256:/),
@@ -2507,6 +2511,7 @@ describe('supervisor mock development API', () => {
       boundaryDiagnostics: {
         failureCode: 'process_exit_nonzero',
         exitCode: 2,
+        nonzeroExitKind: 'codex_cli_usage_error_suspected',
         startFailureKind: 'none',
         resolvedExecutableKind: 'native_exe',
       },

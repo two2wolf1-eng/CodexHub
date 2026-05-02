@@ -2685,6 +2685,7 @@ describe('contracts schemas', () => {
       envAllowlistKeyCount: 5,
       envAllowlistKeyHash: 'sha256:env-keys',
       exitCode: 2,
+      nonzeroExitKind: 'codex_cli_usage_error_suspected',
       timedOut: false,
       cancelled: false,
       durationMs: 35,
@@ -3041,6 +3042,9 @@ describe('contracts schemas', () => {
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.executableAccessible).toBe(true);
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.envAllowlistKeyHash).toBe(
       'sha256:env-keys',
+    );
+    expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.nonzeroExitKind).toBe(
+      'codex_cli_usage_error_suspected',
     );
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stdoutByteLength).toBe(12);
     expect(failedBoundaryAttemptRecord.boundaryDiagnostics?.stderrByteLength).toBe(14);
