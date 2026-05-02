@@ -43,16 +43,22 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
   }
 
   const riskLevel = input.riskLevel ?? inferRiskLevel(input.actionType);
+  const dryRunModeMisrepresentsRealWrite =
+    input.actionMode === 'dry-run' && isDryRunModeRepresentingRealWrite(input);
   const requiresDryRun = input.actionMode === 'write';
   const requiresApproval =
     riskLevel === 'high' ||
     riskLevel === 'critical' ||
+    input.actionMode === 'admin' ||
     (input.actionMode === 'write' && !isWriteApprovalExempt(input));
   const reasons: string[] = [];
 
   let outcome: PolicyDecision['outcome'] = 'allow';
 
-  if (requiresDryRun && input.dryRun !== true) {
+  if (dryRunModeMisrepresentsRealWrite) {
+    outcome = 'deny';
+    reasons.push('dry-run action mode must not represent a real write');
+  } else if (requiresDryRun && input.dryRun !== true) {
     outcome = 'deny';
     reasons.push('write action requires dry-run before execution');
   } else if (requiresApproval && input.approvalGranted !== true) {
@@ -60,6 +66,8 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
     reasons.push(
       input.actionMode === 'write'
         ? 'real write action requires explicit approval'
+        : input.actionMode === 'admin'
+          ? 'admin action requires explicit approval'
         : `${riskLevel} risk action requires explicit approval`,
     );
   } else {
@@ -80,6 +88,17 @@ export function evaluateAction(input: PolicyActionInput): PolicyDecision {
     requiresApproval,
     metadata: input.metadata,
   };
+}
+
+function isDryRunModeRepresentingRealWrite(input: PolicyActionInput): boolean {
+  const metadata = input.metadata ?? {};
+
+  return (
+    metadata.realWrite === true ||
+    metadata.noRealWrite === false ||
+    metadata.writeAllowed === true ||
+    metadata.externalMutation === true
+  );
 }
 
 function isWriteApprovalExempt(input: PolicyActionInput): boolean {

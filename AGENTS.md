@@ -20,6 +20,10 @@ Contracts are the only shared DTO/schema/type language. When shared contracts ch
 - All write operations must pass policy, approval, evidence, and audit gates.
 - No token, cookie, session, MFA, account, or credential collection is allowed.
 - New features must include focused tests.
+- Capability providers are not authority providers: adapters may execute or observe, but only CodexHub governance can allow execution.
+- All capability adapters must declare a manifest, produce a dry-run plan, receive an execution authority, and emit evidence plus audit.
+- Capability adapters must not be called directly by UI, CLI, MCP tools, or tests that bypass workflow/security kernels.
+- Browser act, Electron main inspector, workspace mutation, and real git write operations require explicit approval and are not foundation defaults.
 
 ## Package Boundaries
 

@@ -18,6 +18,8 @@ Process:
 - Do not connect to Electron.
 - Do not inspect Electron main process.
 - Default main-process inspector behavior to critical risk.
+- Require loopback-only debug endpoints and explicit userEnabled state before future observation.
+- Keep Runtime.evaluate, DOM mutation, click/type, and generic CDP command passthrough forbidden by default.
 - Represent command allowlists as placeholders until reviewed.
 
 Output:

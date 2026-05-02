@@ -4,6 +4,28 @@ defaults:
   writeAction: dry_run_and_approval_required
   highRiskAction: approval_required
   criticalRiskAction: approval_required
+  capabilityProviderAuthority: false
+  governanceCoreAuthority: true
+actionModes:
+  read:
+    approvalRequired: false
+    evidenceRequired: true
+    realWriteAllowed: false
+  dry-run:
+    approvalRequired: false
+    evidenceRequired: true
+    realWriteAllowed: false
+  write:
+    dryRunRequired: true
+    approvalRequired: true
+    persistedApprovalArtifactRequired: true
+    evidenceRequired: true
+    auditRequired: true
+  admin:
+    approvalRequired: true
+    persistedApprovalArtifactRequired: true
+    evidenceRequired: true
+    auditRequired: true
 writeActions:
   local_patch_dry_run:
     mode: dry_run_only
@@ -13,8 +35,41 @@ writeActions:
     mode: write
     dryRunRequired: true
     approvalRequired: true
+    persistedApprovalArtifactRequired: true
     evidenceRequired: true
     auditRequired: true
+specialRules:
+  realWriteRequiresApproval: true
+  requestBodyApprovalArtifactTrusted: false
+  persistedApprovalArtifactRequired: true
+  externalProcessBoundaryMustBeAudited: true
+  evidenceMetadataRecursiveRedaction: true
+  bodyForHashOnlyStoresRawBody: false
+  adapterExecuteRequiresExecutionAuthority: true
+  adapterExecuteOnlyViaWorkflowKernel: true
+  mcpToolsDeclareRiskActionEvidenceApproval: true
+  browserActRequiresApproval: true
+  electronMainInspectorRequiresApproval: true
+  capabilityProviderCanGrantAuthority: false
+  workspaceGovernanceNoAccountRotationOrMfaBypass: true
+capabilityAdapters:
+  requireManifest: true
+  requireDryRunPlan: true
+  requirePolicyDecision: true
+  requireEvidence: true
+  requireAudit: true
+  executeDirectlyFromUiCliOrMcp: false
+  externalProcessBoundaryRequiresAudit: true
+browserAutomation:
+  defaultMode: read-only
+  clickInputSubmitAllowedInFoundation: false
+  screenshotRequiresApproval: true
+  networkBodyStorage: forbidden
+electronCdp:
+  defaultMode: read-only
+  mainInspectorDefault: disabled
+  runtimeEvaluateDefault: forbidden
+  screenshotRequiresApproval: true
 blocked:
   - token_collection
   - cookie_collection

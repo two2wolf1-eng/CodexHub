@@ -18,6 +18,8 @@ Process:
 - Confirm no scope creep.
 - Confirm no-live boundaries still hold.
 - Confirm audits and tests passed.
+- Confirm integration dependencies, licenses, process boundaries, and rollback notes are documented before enabling adapters.
+- Confirm new adapters have contract tests for manifest, dry-run, execution authority, execution result, evidence, and audit.
 - Confirm git status before and after commit.
 - Summarize evidence without overstating coverage.
 

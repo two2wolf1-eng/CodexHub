@@ -48,6 +48,70 @@ describe('security-kernel policy evaluation', () => {
     expect(mockWriteDecision.requiresApproval).toBe(false);
   });
 
+  it('allows dry-run action mode without approval when no real write is represented', () => {
+    const decision = evaluateAction({
+      actionId: 'patch-dry-run',
+      actionType: 'workspace.patch.plan',
+      actionMode: 'dry-run',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        noRealWrite: true,
+      },
+    });
+
+    expect(decision.outcome).toBe('allow');
+    expect(decision.requiresDryRun).toBe(false);
+    expect(decision.requiresApproval).toBe(false);
+  });
+
+  it('denies dry-run action mode when metadata represents a real write', () => {
+    const decision = evaluateAction({
+      actionId: 'patch-dry-run-real-write',
+      actionType: 'workspace.patch.plan',
+      actionMode: 'dry-run',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        realWrite: true,
+      },
+    });
+
+    expect(decision.outcome).toBe('deny');
+    expect(decision.reasons.join(' ')).toContain('must not represent a real write');
+  });
+
+  it('requires approval for admin action mode by default', () => {
+    const decision = evaluateAction({
+      actionId: 'policy-admin',
+      actionType: 'policy.backend.configure',
+      actionMode: 'admin',
+      riskLevel: 'medium',
+      dryRun: true,
+    });
+
+    expect(decision.outcome).toBe('approval_required');
+    expect(decision.requiresApproval).toBe(true);
+  });
+
+  it('allows mock no-real-write write actions after dry-run', () => {
+    const decision = evaluateAction({
+      actionId: 'mock-write',
+      actionType: 'development.mock.write',
+      actionMode: 'write',
+      riskLevel: 'medium',
+      dryRun: true,
+      metadata: {
+        mockOnly: true,
+        noRealWrite: true,
+        dryRunOnly: true,
+      },
+    });
+
+    expect(decision.outcome).toBe('allow');
+    expect(decision.requiresApproval).toBe(false);
+  });
+
   it('requires approval for high-risk browser input placeholders', () => {
     const decision = evaluateAction({
       actionId: 'browser-input',

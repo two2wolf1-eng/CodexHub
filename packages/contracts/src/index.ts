@@ -26,8 +26,65 @@ const observedEntityBaseSchema = entityBaseSchema.extend({
 export const RiskLevelSchema = z.enum(['low', 'medium', 'high', 'critical']);
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 
-export const ActionModeSchema = z.enum(['read', 'write']);
+export const ActionModeSchema = z.enum(['read', 'dry-run', 'write', 'admin']);
 export type ActionMode = z.infer<typeof ActionModeSchema>;
+
+export const CapabilityKindSchema = z.enum([
+  'codex',
+  'mcp',
+  'verification',
+  'browser',
+  'electron',
+  'policy',
+  'telemetry',
+  'filesystem',
+  'git',
+]);
+export type CapabilityKind = z.infer<typeof CapabilityKindSchema>;
+
+export const CapabilityProviderSchema = z.enum([
+  'builtin',
+  'official-sdk',
+  'open-source',
+  'external-process',
+]);
+export type CapabilityProvider = z.infer<typeof CapabilityProviderSchema>;
+
+export const CapabilityBodyStoragePolicySchema = z.enum([
+  'forbidden',
+  'hash-only',
+  'allowed-with-approval',
+]);
+export type CapabilityBodyStoragePolicy = z.infer<typeof CapabilityBodyStoragePolicySchema>;
+
+export const CapabilityEvidencePolicySchema = z.object({
+  collect: z.boolean(),
+  redactMetadata: z.boolean(),
+  bodyStorage: CapabilityBodyStoragePolicySchema,
+});
+export type CapabilityEvidencePolicy = z.infer<typeof CapabilityEvidencePolicySchema>;
+
+export const CapabilityProcessBoundaryPolicySchema = z.object({
+  mayStartExternalProcess: z.boolean(),
+  requiresProcessAudit: z.boolean(),
+});
+export type CapabilityProcessBoundaryPolicy = z.infer<
+  typeof CapabilityProcessBoundaryPolicySchema
+>;
+
+export const CapabilityManifestSchema = createdEntityBaseSchema.extend({
+  name: z.string().min(1),
+  kind: CapabilityKindSchema,
+  version: z.string().min(1),
+  provider: CapabilityProviderSchema,
+  capabilities: z.array(z.string().min(1)),
+  defaultRisk: RiskLevelSchema,
+  defaultActionMode: ActionModeSchema,
+  requiresApprovalByDefault: z.boolean(),
+  evidencePolicy: CapabilityEvidencePolicySchema,
+  processBoundary: CapabilityProcessBoundaryPolicySchema,
+});
+export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
 
 export const PolicyOutcomeSchema = z.enum(['allow', 'deny', 'approval_required']);
 export type PolicyOutcome = z.infer<typeof PolicyOutcomeSchema>;
@@ -82,6 +139,52 @@ export const PolicyDecisionSchema = createdEntityBaseSchema.extend({
   requiresApproval: z.boolean(),
 });
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
+
+export const CapabilityPlannedActionSchema = z.object({
+  action: z.string().min(1),
+  actionMode: ActionModeSchema,
+  risk: RiskLevelSchema,
+  target: z.string().min(1),
+  requiresApproval: z.boolean(),
+});
+export type CapabilityPlannedAction = z.infer<typeof CapabilityPlannedActionSchema>;
+
+export const CapabilityDryRunSchema = createdEntityBaseSchema.extend({
+  adapterName: z.string().min(1),
+  inputSummary: z.unknown(),
+  plannedActions: z.array(CapabilityPlannedActionSchema),
+  requiredEvidence: z.array(z.string().min(1)).default([]),
+  warnings: z.array(z.string().min(1)).default([]),
+});
+export type CapabilityDryRun = z.infer<typeof CapabilityDryRunSchema>;
+
+export const ExecutionAuthoritySchema = createdEntityBaseSchema.extend({
+  policyDecisionId: z.string().min(1),
+  approvalArtifactId: z.string().min(1).optional(),
+  allowed: z.boolean(),
+  constraints: z.array(z.string().min(1)).default([]),
+  expiresAt: IsoDateTimeSchema.optional(),
+});
+export type ExecutionAuthority = z.infer<typeof ExecutionAuthoritySchema>;
+
+export const CapabilityExecutionStatusSchema = z.enum([
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type CapabilityExecutionStatus = z.infer<typeof CapabilityExecutionStatusSchema>;
+
+export const CapabilityExecutionResultSchema = createdEntityBaseSchema.extend({
+  status: CapabilityExecutionStatusSchema,
+  processBoundaryInvoked: z.boolean(),
+  externalProcessStarted: z.boolean(),
+  noRealWrite: z.boolean(),
+  evidenceRefs: z.array(z.string().min(1)).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+  summary: z.string().min(1),
+});
+export type CapabilityExecutionResult = z.infer<typeof CapabilityExecutionResultSchema>;
 
 export const WorkflowStepStatusSchema = z.enum([
   'pending',
@@ -145,11 +248,21 @@ export type DryRunPlan = z.infer<typeof DryRunPlanSchema>;
 export const AuditEventSchema = createdEntityBaseSchema.extend({
   actor: z.string().min(1),
   action: z.string().min(1),
+  target: z.string().min(1).optional(),
+  reason: z.string().min(1).optional(),
   outcome: z.string().min(1),
   evidenceRefs: z.array(EvidenceRefSchema).default([]),
   policyDecisionId: z.string().optional(),
 });
 export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
+export const CapabilityAuditEventSchema = AuditEventSchema.extend({
+  target: z.string().min(1),
+  reason: z.string().min(1),
+  policyDecisionId: z.string().min(1),
+  evidenceRefs: z.array(EvidenceRefSchema).min(1),
+});
+export type CapabilityAuditEvent = z.infer<typeof CapabilityAuditEventSchema>;
 
 export const ObservationSeveritySchema = z.enum(['info', 'warning', 'error']);
 export type ObservationSeverity = z.infer<typeof ObservationSeveritySchema>;

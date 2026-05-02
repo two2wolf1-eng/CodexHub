@@ -121,6 +121,12 @@ import {
   DevelopmentRequestSchema,
   CodexReplayRecordSchema,
   CodexExecReplayResultSchema,
+  ActionModeSchema,
+  CapabilityAuditEventSchema,
+  CapabilityDryRunSchema,
+  CapabilityExecutionResultSchema,
+  CapabilityManifestSchema,
+  ExecutionAuthoritySchema,
   EvidenceRefSchema,
   PolicyDecisionSchema,
   SchemaVersionSchema,
@@ -176,6 +182,223 @@ describe('contracts schemas', () => {
     expect(decision.outcome).toBe('allow');
     expect(run.workflowName).toBe('development.bootstrap');
     expect(request.constraints).toEqual([]);
+  });
+
+  it('parses integration-first capability contracts', () => {
+    expect(ActionModeSchema.options).toEqual(['read', 'dry-run', 'write', 'admin']);
+    expect(() => ActionModeSchema.parse('execute')).toThrow();
+
+    const manifests = [
+      {
+        id: 'capability_codex_cli',
+        schemaVersion,
+        createdAt,
+        name: 'codex-cli',
+        kind: 'codex',
+        version: 'foundation',
+        provider: 'external-process',
+        capabilities: ['codex.exec.jsonl'],
+        defaultRisk: 'medium',
+        defaultActionMode: 'dry-run',
+        requiresApprovalByDefault: true,
+        evidencePolicy: {
+          collect: true,
+          redactMetadata: true,
+          bodyStorage: 'hash-only',
+        },
+        processBoundary: {
+          mayStartExternalProcess: true,
+          requiresProcessAudit: true,
+        },
+      },
+      {
+        id: 'capability_nx_affected',
+        schemaVersion,
+        createdAt,
+        name: 'nx-affected',
+        kind: 'verification',
+        version: 'foundation',
+        provider: 'open-source',
+        capabilities: ['nx.affected.lint', 'nx.affected.test', 'nx.affected.build'],
+        defaultRisk: 'low',
+        defaultActionMode: 'read',
+        requiresApprovalByDefault: false,
+        evidencePolicy: {
+          collect: true,
+          redactMetadata: true,
+          bodyStorage: 'hash-only',
+        },
+        processBoundary: {
+          mayStartExternalProcess: true,
+          requiresProcessAudit: true,
+        },
+      },
+      {
+        id: 'capability_mcp_server',
+        schemaVersion,
+        createdAt,
+        name: 'codexhub-mcp-server',
+        kind: 'mcp',
+        version: 'foundation',
+        provider: 'official-sdk',
+        capabilities: ['codexhub.getPolicySummary'],
+        defaultRisk: 'low',
+        defaultActionMode: 'read',
+        requiresApprovalByDefault: false,
+        evidencePolicy: {
+          collect: true,
+          redactMetadata: true,
+          bodyStorage: 'forbidden',
+        },
+        processBoundary: {
+          mayStartExternalProcess: false,
+          requiresProcessAudit: false,
+        },
+      },
+      {
+        id: 'capability_browser_observer',
+        schemaVersion,
+        createdAt,
+        name: 'playwright-observer',
+        kind: 'browser',
+        version: 'foundation',
+        provider: 'open-source',
+        capabilities: ['browser.observe.title', 'browser.observe.aria'],
+        defaultRisk: 'medium',
+        defaultActionMode: 'read',
+        requiresApprovalByDefault: false,
+        evidencePolicy: {
+          collect: true,
+          redactMetadata: true,
+          bodyStorage: 'forbidden',
+        },
+        processBoundary: {
+          mayStartExternalProcess: true,
+          requiresProcessAudit: true,
+        },
+      },
+      {
+        id: 'capability_electron_cdp',
+        schemaVersion,
+        createdAt,
+        name: 'electron-cdp',
+        kind: 'electron',
+        version: 'foundation',
+        provider: 'open-source',
+        capabilities: ['electron.target.summary'],
+        defaultRisk: 'medium',
+        defaultActionMode: 'read',
+        requiresApprovalByDefault: false,
+        evidencePolicy: {
+          collect: true,
+          redactMetadata: true,
+          bodyStorage: 'forbidden',
+        },
+        processBoundary: {
+          mayStartExternalProcess: false,
+          requiresProcessAudit: true,
+        },
+      },
+    ];
+
+    for (const manifest of manifests) {
+      expect(CapabilityManifestSchema.parse(manifest).name).toBe(manifest.name);
+    }
+
+    const dryRun = CapabilityDryRunSchema.parse({
+      id: 'capability_dry_run_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'codex-cli',
+      inputSummary: {
+        inputHash: 'sha256:prompt',
+      },
+      plannedActions: [
+        {
+          action: 'codex.exec.jsonl',
+          actionMode: 'dry-run',
+          risk: 'medium',
+          target: 'workspace',
+          requiresApproval: false,
+        },
+      ],
+      requiredEvidence: ['dry-run-plan'],
+      warnings: ['process boundary is planned only'],
+    });
+
+    const authority = ExecutionAuthoritySchema.parse({
+      id: 'execution_authority_1',
+      schemaVersion,
+      createdAt,
+      policyDecisionId: 'policy_1',
+      approvalArtifactId: 'approval_1',
+      allowed: true,
+      constraints: ['read-only sandbox'],
+      expiresAt: '2026-05-28T00:00:00.000Z',
+    });
+
+    const results = ['blocked', 'completed', 'failed', 'aborted'].map((status) =>
+      CapabilityExecutionResultSchema.parse({
+        id: `capability_result_${status}`,
+        schemaVersion,
+        createdAt,
+        status,
+        processBoundaryInvoked: status !== 'blocked',
+        externalProcessStarted: status !== 'blocked',
+        noRealWrite: true,
+        evidenceRefs: ['evidence_1'],
+        auditEventIds: ['audit_1'],
+        summary: `${status} result`,
+      }),
+    );
+
+    expect(dryRun.plannedActions[0]?.actionMode).toBe('dry-run');
+    expect(authority.policyDecisionId).toBe('policy_1');
+    expect(results.map((result) => result.status)).toEqual([
+      'blocked',
+      'completed',
+      'failed',
+      'aborted',
+    ]);
+    expect(results[0]?.externalProcessStarted).toBe(false);
+    expect(results[1]?.processBoundaryInvoked).toBe(true);
+  });
+
+  it('requires capability audit events to carry authority context', () => {
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_capability_1',
+      schemaVersion,
+      createdAt,
+      kind: 'audit',
+      hash: 'sha256:evidence',
+      summary: 'Capability audit evidence',
+    });
+
+    const audit = CapabilityAuditEventSchema.parse({
+      id: 'audit_capability_1',
+      schemaVersion,
+      createdAt,
+      actor: 'supervisor',
+      action: 'capability.execute',
+      target: 'codex-cli',
+      reason: 'execution authority accepted by workflow gate',
+      outcome: 'completed',
+      evidenceRefs: [evidence],
+      policyDecisionId: 'policy_1',
+    });
+
+    expect(audit.target).toBe('codex-cli');
+    expect(() =>
+      CapabilityAuditEventSchema.parse({
+        id: 'audit_capability_invalid',
+        schemaVersion,
+        createdAt,
+        actor: 'supervisor',
+        action: 'capability.execute',
+        outcome: 'completed',
+        evidenceRefs: [evidence],
+      }),
+    ).toThrow();
   });
 
   it('parses skill resolution contract models', () => {

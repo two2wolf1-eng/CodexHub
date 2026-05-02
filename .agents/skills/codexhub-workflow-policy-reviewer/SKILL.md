@@ -16,8 +16,12 @@ Process:
 
 - Dangerous actions require dry-run first.
 - High and critical risk actions require explicit approval.
+- Real write action mode requires dry-run, persisted approval, evidence, and audit even when risk is medium.
+- Request-body approval artifacts are untrusted; resolve approval authority from the store.
 - Evidence must be metadata/hash-only when sensitive content may exist.
 - Audit events must state liveExecution and externalProcessStarted.
+- MCP tools and capability adapters must declare risk, action mode, evidence policy, and approval policy before execution.
+- Browser act and Electron main inspector remain approval-gated and disabled as foundation defaults.
 - Browser, Electron, workspace, account, and profile automation remains read-only or disabled unless separately approved.
 
 Output:

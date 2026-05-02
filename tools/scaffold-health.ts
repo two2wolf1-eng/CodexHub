@@ -28,12 +28,23 @@ const requiredGovernanceFiles = [
   '.codexhub/orchestration.yaml',
   '.codexhub/policies.yaml',
   '.codexhub/risk-matrix.yaml',
+  '.codexhub/integrations.yaml',
   '.codex/config.toml.example',
   '.codex/agents/architect.toml',
   '.codex/agents/implementer.toml',
   '.codex/agents/reviewer.toml',
   '.codex/agents/security.toml',
   '.codex/agents/qa.toml',
+  'docs/integration-decisions/0001-codex-cli-adapter.md',
+];
+
+const requiredContractExports = [
+  'CapabilityKindSchema',
+  'CapabilityManifestSchema',
+  'CapabilityDryRunSchema',
+  'ExecutionAuthoritySchema',
+  'CapabilityExecutionResultSchema',
+  'CapabilityAuditEventSchema',
 ];
 
 const projects = readNxProjects();
@@ -42,8 +53,14 @@ const extraProjects = projects.filter((project) => !expectedProjects.includes(pr
 const missingGovernanceFiles = requiredGovernanceFiles.filter(
   (file) => !existsSync(resolve(workspaceRoot, file)),
 );
+const missingContractExports = readMissingContractExports();
 
-if (missingProjects.length > 0 || extraProjects.length > 0 || missingGovernanceFiles.length > 0) {
+if (
+  missingProjects.length > 0 ||
+  extraProjects.length > 0 ||
+  missingGovernanceFiles.length > 0 ||
+  missingContractExports.length > 0
+) {
   console.error('Scaffold health failed.');
 
   for (const project of missingProjects) {
@@ -58,11 +75,15 @@ if (missingProjects.length > 0 || extraProjects.length > 0 || missingGovernanceF
     console.error(`- Missing governance file: ${file}`);
   }
 
+  for (const contractExport of missingContractExports) {
+    console.error(`- Missing contracts export: ${contractExport}`);
+  }
+
   process.exit(1);
 }
 
 console.log(
-  `Scaffold health passed: ${projects.length} Nx projects and ${requiredGovernanceFiles.length} governance files verified.`,
+  `Scaffold health passed: ${projects.length} Nx projects, ${requiredGovernanceFiles.length} governance files, and ${requiredContractExports.length} capability contracts verified.`,
 );
 
 function readNxProjects(): string[] {
@@ -92,4 +113,16 @@ function readNxProjects(): string[] {
   }
 
   return projects.sort();
+}
+
+function readMissingContractExports(): string[] {
+  const contractsPath = resolve(workspaceRoot, 'packages', 'contracts', 'src', 'index.ts');
+
+  if (!existsSync(contractsPath)) {
+    return requiredContractExports;
+  }
+
+  const text = readFileSync(contractsPath, 'utf8');
+
+  return requiredContractExports.filter((contractExport) => !text.includes(contractExport));
 }

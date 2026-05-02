@@ -1,4 +1,5 @@
 import type {
+  ActionMode,
   AgentRun,
   AuditEvent,
   CodexExecApprovalMode,
@@ -228,7 +229,7 @@ export interface CodexExecPolicyEngine {
   evaluateAction(input: {
     actionId: string;
     actionType: string;
-    actionMode: 'read' | 'write';
+    actionMode: ActionMode;
     riskLevel?: RiskLevel;
     dryRun?: boolean;
     approvalGranted?: boolean;

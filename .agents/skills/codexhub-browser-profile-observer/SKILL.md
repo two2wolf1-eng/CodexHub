@@ -17,6 +17,8 @@ Process:
 - Do not open or connect to real browser profiles.
 - Do not read cookies, tokens, sessions, accounts, or MFA data.
 - Do not perform browser input or click automation.
+- Prefer Playwright read-only observation plans that expose title, URL, accessibility snapshots, console summaries, and network metadata only.
+- Hash profile paths and forbid network body storage by default.
 - Keep workspace observation as interface-only until separately approved.
 
 Output:

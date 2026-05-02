@@ -1,4 +1,24 @@
 version: 1
+actionModes:
+  read:
+    approvalRequired: false
+    evidenceRequired: true
+    realWriteAllowed: false
+  dry-run:
+    approvalRequired: false
+    evidenceRequired: true
+    realWriteAllowed: false
+  write:
+    dryRunRequired: true
+    approvalRequired: true
+    persistedApprovalArtifactRequired: true
+    evidenceRequired: true
+    auditRequired: true
+  admin:
+    approvalRequired: true
+    multiApprovalRecommended: true
+    evidenceRequired: true
+    auditRequired: true
 writePolicy:
   local_patch_dry_run:
     approvalRequired: false
@@ -6,19 +26,35 @@ writePolicy:
   real_write:
     dryRunRequired: true
     approvalRequired: true
+    persistedApprovalArtifactRequired: true
     evidenceRequired: true
     auditRequired: true
+specialRules:
+  realWriteRequiresApproval: true
+  requestBodyApprovalArtifactTrusted: false
+  persistedApprovalArtifactRequired: true
+  externalProcessBoundaryMustBeAudited: true
+  evidenceMetadataRecursiveRedaction: true
+  browserActRequiresApproval: true
+  electronMainInspectorRequiresApproval: true
+  adapterManifestRequired: true
+  adapterExecuteRequiresExecutionAuthority: true
+  capabilityProviderCanGrantAuthority: false
 levels:
   low:
     approvalRequired: false
     examples:
       - health_read
       - mock_observation
+      - capability_manifest_read
   medium:
     approvalRequired: false
     examples:
       - local_patch_dry_run
       - local_patch_dry_run_no_real_write
+      - codex_exec_dry_run_plan
+      - browser_read_only_observation_plan
+      - electron_read_only_observation_plan
   high:
     approvalRequired: true
     examples:
@@ -27,9 +63,13 @@ levels:
       - browser_click_placeholder
       - browser_input_placeholder
       - browser_profile_observer_placeholder
+      - codex_exec_external_process_boundary
+      - mcp_write_tool_placeholder
   critical:
     approvalRequired: true
     examples:
       - workspace_invite_remove
       - electron_main_inspector
       - credential_or_session_access
+      - danger_full_access
+      - quota_or_mfa_bypass

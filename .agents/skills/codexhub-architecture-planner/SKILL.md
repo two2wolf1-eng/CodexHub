@@ -19,6 +19,8 @@ Process:
 - Preserve package public entrypoints.
 - Keep apps thin and move reusable logic into packages.
 - Prefer small, reversible architecture steps.
+- Treat capability providers as execution/observation providers only; CodexHub governance remains the authority provider.
+- Route every adapter through dry-run, policy, approval when required, evidence, and audit.
 - Do not add live automation paths.
 
 Output:

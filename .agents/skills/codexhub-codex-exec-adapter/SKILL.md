@@ -17,6 +17,9 @@ Process:
 - Do not start external processes.
 - Do not import process-launching modules.
 - Do not generate full executable commands.
+- Use an args allowlist for future Codex CLI adapters; never pass arbitrary flags through.
+- Parse `--json` output through fixtures before any live process boundary is enabled.
+- Audit processBoundaryInvoked and externalProcessStarted as authoritative boundary state.
 - Store prompt summaries, hashes, and lengths only.
 - Keep liveExecution false, externalProcessStarted false, and executionDisabled true unless a later human-approved round changes the boundary.
 

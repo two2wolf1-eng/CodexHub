@@ -1,0 +1,79 @@
+version: 1
+mode: foundation-readiness
+authority:
+  governanceCoreAuthoritative: true
+  capabilityProvidersAuthoritative: false
+  adapterExecuteOnlyViaWorkflowKernel: true
+integrations:
+  codex-cli:
+    enabled: false
+    plannedAdapter: codex-exec-adapter
+    provider: official-cli
+    providerType: external-process
+    processBoundary: true
+    argsAllowlist:
+      - exec
+      - --json
+      - --sandbox
+      - --approval-mode
+    forbiddenArgs:
+      - --danger-full-access
+      - --full-auto
+    defaultRisk: medium
+    defaultActionMode: dry-run
+    approvalRequiredForRealExecution: true
+    evidence:
+      stdout: hash-only
+      stderr: hash-only
+      jsonl: redacted
+      bodyStorage: hash-only
+  nx-affected:
+    enabled: false
+    plannedAdapter: nx-verification-adapter
+    provider: nx
+    providerType: external-process
+    processBoundary: true
+    allowedTargets:
+      - lint
+      - test
+      - build
+    defaultRisk: low
+    defaultActionMode: read
+    arbitraryShellAllowed: false
+    evidence:
+      output: hash-only
+  mcp-server:
+    enabled: false
+    plannedAdapter: codexhub-mcp-server
+    provider: official-sdk
+    providerType: official-sdk
+    defaultToolsMode: read-only
+    writeToolsRequireApproval: true
+    toolsMustDeclareRiskActionEvidenceApproval: true
+  playwright-observer:
+    enabled: false
+    plannedAdapter: playwright-observer-adapter
+    provider: playwright
+    providerType: open-source
+    mode: read-only
+    clickTypeSubmitAllowed: false
+    screenshotRequiresApproval: true
+    networkBodyStorage: forbidden
+    forbiddenByDefault:
+      - click
+      - type
+      - submit
+      - cookieExtraction
+      - tokenExtraction
+      - localStorageDump
+      - sessionStorageDump
+  electron-cdp:
+    enabled: false
+    plannedAdapter: electron-cdp-adapter
+    provider: electron-cdp
+    providerType: open-source
+    mode: read-only
+    mainInspectorDefault: disabled
+    runtimeEvaluateDefault: forbidden
+    screenshotRequiresApproval: true
+    loopbackOnlyRequired: true

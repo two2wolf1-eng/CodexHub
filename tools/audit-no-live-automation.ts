@@ -21,7 +21,9 @@ interface AllowlistEntry {
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scanRoots = ['apps', 'packages', 'tools'];
-const approvedProcessBoundaryFile = 'packages/codex-kernel/src/real-read-only-adapter-process.ts';
+const approvedProcessBoundaryFiles = new Set([
+  'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
 const executableTextTerms = [
@@ -119,7 +121,7 @@ function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: strin
 
   for (const importPath of collectModuleSpecifiers(sourceFile, sourceText)) {
     if (externalProcessModules.includes(importPath)) {
-      if (workspacePath === approvedProcessBoundaryFile && importPath === 'node:child_process') {
+      if (isApprovedExternalProcessBoundary(workspacePath) && importPath === 'node:child_process') {
         continue;
       }
 
@@ -142,7 +144,7 @@ function auditCallExpressions(file: string, sourceFile: ts.SourceFile): void {
       const callName = node.expression.text;
 
       if (callName === 'spawn' || callName === 'exec') {
-        if (workspacePath === approvedProcessBoundaryFile && callName === 'spawn') {
+        if (isApprovedExternalProcessBoundary(workspacePath) && callName === 'spawn') {
           ts.forEachChild(node, visit);
           return;
         }
@@ -238,6 +240,10 @@ function isAllowed(workspacePath: string, term: string): boolean {
         (entry.fileSuffix !== undefined && workspacePath.endsWith(entry.fileSuffix))) &&
       entry.terms.some((allowedTerm) => allowedTerm === term),
   );
+}
+
+function isApprovedExternalProcessBoundary(workspacePath: string): boolean {
+  return approvedProcessBoundaryFiles.has(workspacePath);
 }
 
 function listSourceFiles(root: string): string[] {
