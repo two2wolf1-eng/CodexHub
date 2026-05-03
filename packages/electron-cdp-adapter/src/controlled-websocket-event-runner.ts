@@ -121,19 +121,31 @@ async function observeWithControlledWebSocket(
     const target = selectTarget(listText, plan);
 
     if (!target) {
-      return createBlockedRunnerResult('target_hash_mismatch');
+      return createBlockedRunnerResult('target_hash_mismatch', {
+        cdpHttpBoundaryInvoked,
+        listText,
+      });
     }
 
     if (!target.webSocketDebuggerUrl) {
-      return createBlockedRunnerResult('websocket_debugger_url_missing');
+      return createBlockedRunnerResult('websocket_debugger_url_missing', {
+        cdpHttpBoundaryInvoked,
+        listText,
+      });
     }
 
     if (!isLoopbackElectronWebSocketUrl(target.webSocketDebuggerUrl)) {
-      return createBlockedRunnerResult('non_loopback_websocket_url_forbidden');
+      return createBlockedRunnerResult('non_loopback_websocket_url_forbidden', {
+        cdpHttpBoundaryInvoked,
+        listText,
+      });
     }
 
     if (!webSocketUrlMatchesEndpoint(target.webSocketDebuggerUrl, input.host, input.port)) {
-      return createBlockedRunnerResult('endpoint_hash_mismatch');
+      return createBlockedRunnerResult('endpoint_hash_mismatch', {
+        cdpHttpBoundaryInvoked,
+        listText,
+      });
     }
 
     const eventResult = await observeTargetEvents({
@@ -214,19 +226,21 @@ async function observeWithControlledWebSocket(
 
 function createBlockedRunnerResult(
   blockReason: ElectronCdpBlockReason,
+  boundary: { cdpHttpBoundaryInvoked?: boolean; listText?: string } = {},
 ): ElectronCdpFixtureRunnerResult {
   return {
     status: 'blocked',
     consoleSummary: createElectronCdpConsoleSummary(),
     networkSummary: createElectronCdpNetworkMetadataSummary(),
     eventSummary: createElectronCdpEventMetadataSummary(),
-    cdpHttpBoundaryInvoked: false,
+    cdpHttpBoundaryInvoked: boundary.cdpHttpBoundaryInvoked ?? false,
     cdpWebSocketBoundaryInvoked: false,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     sourceLabel: `${ELECTRON_CDP_ADAPTER_NAME}.controlled-websocket-events`,
     metadata: {
       blockReason,
+      ...(boundary.listText ? { listBodyHash: `sha256:${hashText(boundary.listText)}` } : {}),
       bodyStored: false,
       rawPathStored: false,
     },

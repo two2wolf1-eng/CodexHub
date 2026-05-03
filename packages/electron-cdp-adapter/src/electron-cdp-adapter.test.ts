@@ -388,7 +388,9 @@ describe('electron-cdp-adapter', () => {
     });
 
     expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
     expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.cdpHttpBoundaryInvoked).toBe(true);
     expect(result.auditEvents[0]?.metadata?.blockReason).toBe(
       'non_loopback_websocket_url_forbidden',
     );
@@ -433,8 +435,64 @@ describe('electron-cdp-adapter', () => {
     });
 
     expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
     expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.cdpHttpBoundaryInvoked).toBe(true);
     expect(result.auditEvents[0]?.metadata?.blockReason).toBe('endpoint_hash_mismatch');
+  });
+
+  it('preserves HTTP boundary truth when WebSocket execution blocks after target list read', async () => {
+    const target = createTargetSummary();
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+      targetIdHash: target.targetIdHash,
+      observationWindowMs: 10,
+    });
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledWebSocketEventRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash: target.targetIdHash,
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify([
+              {
+                id: 'target-1',
+                type: 'webview',
+                title: 'Codex Desktop',
+                url: 'app://codex/?secret=value',
+              },
+            ]);
+          },
+        }),
+        webSocketFactory: () => {
+          throw new Error('should not connect');
+        },
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
+    expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(result.electronRun.processBoundaryInvoked).toBe(false);
+    expect(result.electronRun.externalProcessStarted).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.blockReason).toBe('websocket_debugger_url_missing');
+    expect(result.auditEvents[0]?.metadata?.cdpHttpBoundaryInvoked).toBe(true);
+    expect(String(result.auditEvents[0]?.metadata?.listBodyHash)).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('Codex Desktop');
+    expect(serialized).not.toContain('app://codex');
+    expect(serialized).not.toContain('secret=value');
+    expect(serialized).not.toContain('ws://');
   });
 
   it('executes injected fixtures as metadata-only evidence and audit', async () => {

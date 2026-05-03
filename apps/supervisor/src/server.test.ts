@@ -660,6 +660,99 @@ describe('supervisor mock development API', () => {
     expect(runResponse.body).not.toContain('private event payload');
   });
 
+  it('preserves electron cdp HTTP boundary truth when WebSocket execution blocks after target list read', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-electron-events-blocked-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const targetIdHash = `sha256:${hashTestText('target-1')}`;
+    const server = buildSupervisorServer({
+      store,
+      electronCdpObserverEnabled: true,
+      electronCdpEventsEnabled: true,
+      electronCdpObserverRunner: {
+        async observe() {
+          return {
+            status: 'blocked',
+            cdpHttpBoundaryInvoked: true,
+            cdpWebSocketBoundaryInvoked: false,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            metadata: {
+              blockReason: 'websocket_debugger_url_missing',
+              listBodyHash: `sha256:${hashTestText('target list with missing debugger url')}`,
+              bodyStored: false,
+              rawPathStored: false,
+            },
+            summary:
+              'Injected Electron/CDP WebSocket event observation blocked after target list read.',
+          };
+        },
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        runnerMode: 'controlled-websocket-events',
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash,
+        observationWindowMs: 10,
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        host: '127.0.0.1',
+        port: 9222,
+      },
+    });
+    const usedApprovalsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/electron-cdp/observation/approvals?dryRunId=${dryRunId}&status=used`,
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'blocked',
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(usedApprovalsResponse.json().records).toHaveLength(1);
+    expect(runResponse.body).not.toContain('127.0.0.1');
+    expect(runResponse.body).not.toContain('9222');
+    expect(runResponse.body).not.toContain('target list with missing debugger url');
+  });
+
   it('blocks electron cdp execution when store or enablement is unavailable', async () => {
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({

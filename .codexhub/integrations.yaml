@@ -166,7 +166,7 @@ integrations:
       storesRawResponseBody: false
       storesWebSocketDebuggerUrl: false
       approvalRequired: true
-    cdpWebSocketClientEnabled: false
+    cdpWebSocketClientEnabled: true
     cdpWebSocketEvents:
       enabledByDefault: false
       explicitEnableRequired: true

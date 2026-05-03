@@ -109,6 +109,8 @@ const allowlistRules: AllowlistEntry[] = [
 ];
 const violations: Violation[] = [];
 
+validateBoundaryAllowlists();
+
 for (const root of scanRoots) {
   const absoluteRoot = resolve(workspaceRoot, root);
 
@@ -136,6 +138,33 @@ if (violations.length > 0) {
 console.log(
   `Live automation audit passed: checked ${scanRoots.join(', ')}; no live external automation paths found.`,
 );
+
+function validateBoundaryAllowlists(): void {
+  if (approvedCdpWebSocketBoundaryFiles.size !== 1) {
+    violations.push({
+      file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
+      line: 1,
+      term: 'approvedCdpWebSocketBoundaryFiles',
+      reason: 'Electron/CDP WebSocket observation must have exactly one audited boundary file.',
+    });
+  }
+
+  for (const workspacePath of [
+    ...approvedProcessBoundaryFiles,
+    ...approvedLiveAutomationBoundaryFiles,
+    ...approvedCdpHttpBoundaryFiles,
+    ...approvedCdpWebSocketBoundaryFiles,
+  ]) {
+    if (!existsSync(resolve(workspaceRoot, workspacePath))) {
+      violations.push({
+        file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
+        line: 1,
+        term: workspacePath,
+        reason: 'Approved live boundary allowlist entry must point to an existing file.',
+      });
+    }
+  }
+}
 
 function auditFile(file: string): void {
   const sourceText = readFileSync(file, 'utf8');

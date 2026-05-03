@@ -207,3 +207,49 @@ workflows:
       - newStoreSchema
       - worktreeCreation
       - pullRequestCreation
+  m5_5.electron-cdp-hardening-review:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: packages/electron-cdp-adapter
+      localControlRequired: false
+    chain:
+      - phase: boundary-truth-review
+        package: electron-cdp-adapter
+        validates:
+          - cdpHttpBoundaryInvokedAfterTargetListRead
+          - cdpWebSocketBoundaryInvokedOnlyAfterSocketConnect
+          - processBoundaryInvokedFalse
+          - externalProcessStartedFalse
+      - phase: supervisor-control-plane-review
+        app: supervisor
+        validates:
+          - persistedApprovalConsumedAfterBoundaryAttempt
+          - preBoundaryBlocksDoNotConsumeApproval
+          - publicResponsesMetadataOnly
+      - phase: governance-alignment
+        files:
+          - .codexhub/integrations.yaml
+          - docs/integration-decisions/0005-electron-cdp-boundary.md
+        validates:
+          - productDefaultDisabled
+          - eventsFlagRequired
+          - genericCommandPassthroughForbidden
+      - phase: regression-verification
+        commands:
+          - pnpm verify:foundation
+    forbidden:
+      - newSupervisorRoute
+      - newProcessBoundary
+      - newWebSocketBoundary
+      - dashboardWriteUi
+      - cliElectronExecuteCommand
+      - electronMainInspector
+      - runtimeEvaluate
+      - genericCdpCommandPassthrough
+      - screenshotCapture
+      - domSnapshotCapture
+      - networkBodyCapture
+      - electronClickType
+      - worktreeCreation
+      - pullRequestCreation

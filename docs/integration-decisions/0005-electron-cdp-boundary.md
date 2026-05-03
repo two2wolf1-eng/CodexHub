@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for M5c governed local HTTP metadata and WebSocket event observation.
+Accepted for M5.5 governed local HTTP metadata, WebSocket event observation,
+and read-only UX hardening.
 
 ## Purpose
 
@@ -135,9 +136,8 @@ Supervisor persists Electron/CDP dry-run records, approval artifacts, and run
 records through `store-core` and `store-sqlite`. Public responses expose only
 ids, hashes, counts, summaries, statuses, evidence refs, audit ids,
 `cdpHttpBoundaryInvoked`, `processBoundaryInvoked=false`,
-`cdpWebSocketBoundaryInvoked`, `processBoundaryInvoked=false`,
-`externalProcessStarted=false`, `bodyStored=false`, `rawPathStored=false`, and
-`noRealWrite=true`.
+`cdpWebSocketBoundaryInvoked`, `externalProcessStarted=false`,
+`bodyStored=false`, `rawPathStored=false`, and `noRealWrite=true`.
 
 ## M5d Read-Only UX
 
@@ -158,10 +158,26 @@ CDP connections, start WebSocket observation, or change the M5c approval model.
 Rendered output remains ids, hashes, counts, summaries, statuses, evidence refs,
 audit ids, and boundary booleans only.
 
+## M5.5 Hardening
+
+M5.5 adds no new capability. It tightens the truth model and regression coverage:
+
+- If WebSocket event observation reads `/json/list` and then blocks before a
+  WebSocket connection, `cdpHttpBoundaryInvoked=true` and
+  `cdpWebSocketBoundaryInvoked=false`.
+- Pre-boundary blocks keep both CDP boundary flags false and do not consume
+  approval.
+- Post-boundary attempts consume the persisted approval artifact, even when the
+  adapter returns blocked or failed.
+- `.codexhub/integrations.yaml` records the controlled WebSocket event client as
+  present while keeping `electron-cdp.enabled=false` and events disabled by
+  default.
+- Public responses and evidence remain metadata-only.
+
 ## Rollback
 
 Disable `CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED` and
 `CODEXHUB_ELECTRON_CDP_EVENTS_ENABLED`, keep `electron-cdp.enabled=false` in
-`.codexhub/integrations.yaml`, and revert the M5c WebSocket runner, contract
-event summary additions, Supervisor WebSocket mode handling, and audit allowlist
-entry. No external process or browser state is created by M5c.
+`.codexhub/integrations.yaml`, and revert the M5c WebSocket runner plus M5.5
+truth-model hardening if needed. No external process or browser state is created
+by M5.
