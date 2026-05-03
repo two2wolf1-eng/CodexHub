@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CapabilityAuditEventSchema,
   CapabilityManifestSchema,
   type ExecutionAuthority,
   SchemaVersionSchema,
@@ -8,7 +9,9 @@ import {
 } from '@codexhub/contracts';
 import { validateCapabilityExecutionEnvelope } from '@codexhub/capability-adapter-kernel';
 import {
+  createPolicyBackendAuditEvent,
   createPolicyBackendAdapterManifest,
+  createPolicyBackendPlanEvidence,
   executePolicyBackendEvaluation,
   planPolicyBackendEvaluation,
 } from './index';
@@ -54,7 +57,7 @@ describe('policy-backend-adapter', () => {
     expect(plan.plan.networkBoundaryPlanned).toBe(false);
     expect(plan.plan.rawPolicySourceStored).toBe(false);
     expect(plan.capabilityDryRun.plannedActions[0]?.actionMode).toBe('read');
-    expect(opaPlan.plan.blockReasons).toContain('opa runtime is plan-only in M7a');
+    expect(opaPlan.plan.blockReasons).toContain('opa backend is plan-only in M7a');
     expect(JSON.stringify(plan)).not.toContain('package codexhub.authz');
   });
 
@@ -141,5 +144,68 @@ describe('policy-backend-adapter', () => {
     expect(result.run.plan.rawPolicySourceStored).toBe(false);
     expect(JSON.stringify(result.run)).not.toContain('package codexhub.authz');
     expect(validation.ok).toBe(true);
+  });
+
+  it('keeps CodexHub approval requirements authoritative when backend allows a real write', async () => {
+    const planResult = planPolicyBackendEvaluation({
+      actionId: 'action_write_approval_1',
+      actionType: 'git.worktree.create',
+      actionMode: 'write',
+      riskLevel: 'medium',
+    });
+    const result = await executePolicyBackendEvaluation({
+      planResult,
+      authority,
+      policyInput: {
+        actionId: 'action_write_approval_1',
+        actionType: 'git.worktree.create',
+        actionMode: 'write',
+        riskLevel: 'medium',
+        dryRun: true,
+      },
+      evaluator: () => ({
+        rawOutcome: 'allow',
+        reasons: ['fixture backend allows but must not grant authority'],
+        matchedRuleCount: 1,
+      }),
+    });
+
+    expect(result.run.rawEvaluationSummary?.rawOutcome).toBe('allow');
+    expect(result.run.normalizedDecisionTrace?.normalizedOutcome).toBe('approval_required');
+    expect(result.run.normalizedDecisionTrace?.authorityProvider).toBe('codexhub');
+    expect(result.run.normalizedDecisionTrace?.backendAdvisoryOnly).toBe(true);
+    expect(JSON.stringify(result.run)).not.toContain('approvalArtifactId');
+    expect(JSON.stringify(result.run)).not.toContain('executionAuthority');
+  });
+
+  it('creates capability audit events with advisory-only metadata', () => {
+    const planResult = planPolicyBackendEvaluation({
+      actionId: 'action_audit_1',
+      actionType: 'workspace.read',
+      actionMode: 'read',
+    });
+    const planEvidence = createPolicyBackendPlanEvidence(planResult.plan);
+    const auditEvent = CapabilityAuditEventSchema.parse(
+      createPolicyBackendAuditEvent({
+        action: 'policy_backend.evaluate.fixture',
+        target: 'codexhub-policy-model',
+        reason: 'Validate M7.5 policy backend audit envelope.',
+        outcome: 'completed',
+        policyDecisionId: authority.policyDecisionId,
+        evidenceRefs: [planEvidence],
+        metadata: {
+          backendOutcome: 'deny',
+          normalizedOutcome: 'allow',
+        },
+      }),
+    );
+
+    expect(auditEvent.actor).toBe('codexhub.local');
+    expect(auditEvent.target).toBe('codexhub-policy-model');
+    expect(auditEvent.reason).toBe('Validate M7.5 policy backend audit envelope.');
+    expect(auditEvent.metadata?.liveExecution).toBe(false);
+    expect(auditEvent.metadata?.externalProcessStarted).toBe(false);
+    expect(auditEvent.metadata?.backendAdvisoryOnly).toBe(true);
+    expect(auditEvent.metadata?.authorityProvider).toBe('codexhub');
   });
 });

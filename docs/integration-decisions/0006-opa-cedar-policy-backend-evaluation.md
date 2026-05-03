@@ -38,6 +38,12 @@ The backend is advisory only. CodexHub `security-kernel` remains the authority p
 - Audit events must include actor, action, target, reason, policyDecisionId, evidenceRefs, `liveExecution=false`, and `externalProcessStarted=false`.
 - Evidence/Audit remain CodexHub-owned.
 
+## M7.5 Hardening
+
+- Production source is audited to reject real OPA process entrypoints and Cedar runtime imports.
+- Fixture backend output is tested as advisory even when it says allow or deny.
+- CodexHub `security-kernel` remains the only normalized policy authority.
+
 ## Rollback
 
-Remove the package, path mapping, integration config entry, scaffold health expectations, and contracts added for M7a. No persisted runtime data or process boundary exists in this stage.
+Remove the package, path mapping, integration config entry, scaffold health expectations, M7.5 audit terms, and contracts added for M7a. No persisted runtime data or process boundary exists in this stage.

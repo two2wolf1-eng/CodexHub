@@ -97,4 +97,43 @@ describe('otel-adapter', () => {
     expect(JSON.stringify(result.run)).not.toContain('{"token":"secret"}');
     expect(JSON.stringify(result.run)).not.toContain('Authorization');
   });
+
+  it('hashes sensitive span attributes without storing raw request, response, path, or credential fields', async () => {
+    const planResult = planTelemetryExport({
+      exporterKind: 'fixture',
+      spans: [
+        {
+          signalKind: 'trace',
+          spanKind: 'supervisor',
+          name: 'supervisor.request',
+          attributes: {
+            requestBody: '{"token":"secret"}',
+            responseBody: '{"session":"secret"}',
+            authorization: 'Bearer secret',
+            path: 'C:/Users/Thomas/CodexHub/.codexhub/private.trace',
+          },
+          eventCount: 1,
+        },
+      ],
+    });
+    const result = await executeTelemetryExport({
+      planResult,
+      authority,
+      exporter: () => ({ status: 'completed' }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.run.evidenceAuditAuthoritative).toBe(false);
+    expect(result.run.rawTracePayloadStored).toBe(false);
+    expect(result.run.bodyStored).toBe(false);
+    expect(result.run.rawPathStored).toBe(false);
+    expect(result.run.spans[0]?.attributeCount).toBe(4);
+    expect(serialized).not.toContain('requestBody');
+    expect(serialized).not.toContain('responseBody');
+    expect(serialized).not.toContain('authorization');
+    expect(serialized).not.toContain('Bearer secret');
+    expect(serialized).not.toContain('private.trace');
+    expect(serialized).not.toContain('session');
+    expect(serialized).not.toContain('token');
+  });
 });

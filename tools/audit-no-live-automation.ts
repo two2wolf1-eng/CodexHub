@@ -67,6 +67,22 @@ const gitBoundaryTerms = [
   ['diff', ' --name-only'].join(''),
   ['diff', ' --numstat'].join(''),
 ];
+const policyTelemetryRuntimeTerms = [
+  ['@open', 'telemetry/'].join(''),
+  ['OTLP', 'Trace', 'Exporter'].join(''),
+  ['OTLP', 'Metric', 'Exporter'].join(''),
+  ['OTLP', 'Log', 'Exporter'].join(''),
+  ['otlp', ' exporter'].join(''),
+  ['otlp', 'http'].join(''),
+  ['otlp', 'grpc'].join(''),
+  ['Batch', 'Span', 'Processor'].join(''),
+  ['opa', ' eval'].join(''),
+  ['opa', ' run'].join(''),
+  ['opa', '.exe'].join(''),
+  ['cedar', ' runtime'].join(''),
+  ['cedar', '-wasm'].join(''),
+  ['@cedar', '-policy'].join(''),
+];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
   ['to', 'ken'].join(''),
@@ -79,6 +95,7 @@ const allTextTerms = [
   ...cdpForbiddenTransportTerms,
   ...cdpCommandPassthroughTerms,
   ...gitBoundaryTerms,
+  ...policyTelemetryRuntimeTerms,
   ...sensitiveConceptTerms,
 ];
 const allowlistRules: AllowlistEntry[] = [
@@ -223,6 +240,16 @@ function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: strin
         reason: 'Live browser automation modules are allowed only in audited adapter boundary modules.',
       });
     }
+
+    if (isPolicyTelemetryRuntimeImport(importPath) && !isAllowed(workspacePath, importPath)) {
+      violations.push({
+        file,
+        line: 1,
+        term: importPath,
+        reason:
+          'Policy backend and telemetry foundation must not import OPA, Cedar, OpenTelemetry, or OTLP runtimes in production source.',
+      });
+    }
   }
 }
 
@@ -335,6 +362,18 @@ function auditTextTerms(file: string, sourceText: string): void {
       }
     }
 
+    for (const term of policyTelemetryRuntimeTerms) {
+      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Real policy backend runtimes and telemetry exporters are forbidden outside docs, tests, and audit vocabulary.',
+        });
+      }
+    }
+
     for (const term of sensitiveConceptTerms) {
       if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
         violations.push({
@@ -412,6 +451,19 @@ function isApprovedCdpWebSocketBoundary(workspacePath: string): boolean {
 
 function isApprovedGitBoundary(workspacePath: string): boolean {
   return approvedGitBoundaryFiles.has(workspacePath);
+}
+
+function isPolicyTelemetryRuntimeImport(importPath: string): boolean {
+  const normalized = importPath.toLowerCase();
+
+  return (
+    normalized.startsWith('@opentelemetry/') ||
+    normalized.includes('otlp') ||
+    normalized.includes('cedar-wasm') ||
+    normalized.startsWith('@cedar-policy') ||
+    normalized === 'opa' ||
+    normalized.endsWith('/opa')
+  );
 }
 
 function listSourceFiles(root: string): string[] {

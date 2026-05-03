@@ -45,7 +45,7 @@ export function planPolicyBackendEvaluation(
   )}`;
 
   if (backendKind !== 'fixture') {
-    blockReasons.push(`${backendKind} runtime is plan-only in M7a`);
+    blockReasons.push(`${backendKind} backend is plan-only in M7a`);
   }
 
   const plan = PolicyBackendEvaluationPlanSchema.parse({

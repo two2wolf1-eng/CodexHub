@@ -285,7 +285,7 @@ integrations:
     provider: builtin
     providerType: builtin
     mode: advisory-evaluation
-    stage: m7a-foundation-only
+    stage: m7_5-foundation-hardened
     defaultActionMode: read
     defaultRisk: low
     processBoundary: false
@@ -316,13 +316,16 @@ integrations:
       backendMayAdviseOnly: true
       requestBodyApprovalArtifactTrusted: false
       noRealPolicyRuntimeInM7a: true
+      auditForbidsRealOpaRuntimeInProductionSource: true
+      auditForbidsRealCedarRuntimeInProductionSource: true
+      auditForbidsBackendAuthorityTransfer: true
   otel-adapter:
     enabled: false
     adapter: otel-adapter
     provider: builtin
     providerType: builtin
     mode: noop-telemetry
-    stage: m7a-foundation-only
+    stage: m7_5-foundation-hardened
     defaultActionMode: read
     defaultRisk: low
     processBoundary: false
@@ -346,3 +349,6 @@ integrations:
       telemetryDoesNotReplaceEvidenceAudit: true
       otlpExportAllowed: false
       noRealTelemetryRuntimeInM7a: true
+      auditForbidsOpenTelemetrySdkInProductionSource: true
+      auditForbidsOtlpExporterInProductionSource: true
+      auditForbidsTelemetryAuthorityTransfer: true

@@ -37,6 +37,12 @@ Telemetry is observability metadata only. It does not replace CodexHub EvidenceR
 - Telemetry output may reference EvidenceRef and AuditEvent ids, but it cannot replace them.
 - Audit events must include actor, action, target, reason, policyDecisionId, evidenceRefs, `liveExecution=false`, and `externalProcessStarted=false`.
 
+## M7.5 Hardening
+
+- Production source is audited to reject OpenTelemetry SDK imports and OTLP exporter entrypoints.
+- Telemetry run tests cover raw request, response, path, and credential-like attribute redaction by omission.
+- `evidenceAuditAuthoritative=false` remains required for telemetry records.
+
 ## Rollback
 
-Remove the package, path mapping, integration config entry, scaffold health expectations, and contracts added for M7a. No persisted runtime data, SDK dependency, exporter, or process boundary exists in this stage.
+Remove the package, path mapping, integration config entry, scaffold health expectations, M7.5 audit terms, and contracts added for M7a. No persisted runtime data, SDK dependency, exporter, or process boundary exists in this stage.
