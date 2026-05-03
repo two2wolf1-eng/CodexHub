@@ -1,0 +1,17 @@
+{
+  "name": "@codexhub/codexhub-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@codexhub/contracts": "workspace:*",
+    "@codexhub/evidence-kernel": "workspace:*",
+    "@codexhub/mcp-tool-contracts": "workspace:*",
+    "@codexhub/nx-verification-adapter": "workspace:*",
+    "@codexhub/observer-kernel": "workspace:*",
+    "@codexhub/store-core": "workspace:*",
+    "@codexhub/store-sqlite": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "yaml": "2.8.4"
+  }
+}

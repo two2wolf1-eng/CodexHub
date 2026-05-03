@@ -128,6 +128,9 @@ import {
   CapabilityManifestSchema,
   ExecutionAuthoritySchema,
   EvidenceRefSchema,
+  McpToolDefinitionSchema,
+  McpToolInvocationSummarySchema,
+  McpToolNameSchema,
   AffectedProjectSchema,
   OrchestrationRunSchema,
   OrchestrationRunStatusSchema,
@@ -370,6 +373,78 @@ describe('contracts schemas', () => {
     ]);
     expect(results[0]?.externalProcessStarted).toBe(false);
     expect(results[1]?.processBoundaryInvoked).toBe(true);
+  });
+
+  it('parses read-only MCP tool contracts and evidence kinds', () => {
+    expect(McpToolNameSchema.options).toEqual([
+      'codexhub.getArchitectureMap',
+      'codexhub.getPolicySummary',
+      'codexhub.getRiskMatrix',
+      'codexhub.getEvidenceSummary',
+      'codexhub.getOpenDevelopmentRequests',
+      'codexhub.getAffectedProjectsDryRun',
+      'codexhub.readObservationSnapshot',
+    ]);
+
+    const definition = McpToolDefinitionSchema.parse({
+      id: 'mcp_tool_get_architecture',
+      schemaVersion,
+      createdAt,
+      name: 'codexhub.getArchitectureMap',
+      title: 'Get architecture map',
+      description: 'Return read-only project architecture metadata.',
+      enabled: true,
+      riskLevel: 'low',
+      actionMode: 'read',
+      approvalPolicy: 'not-required',
+      evidencePolicy: {
+        collect: true,
+        redactMetadata: true,
+        bodyStorage: 'hash-only',
+      },
+    });
+    const invocation = McpToolInvocationSummarySchema.parse({
+      id: 'mcp_invocation_1',
+      schemaVersion,
+      createdAt,
+      toolName: definition.name,
+      status: 'completed',
+      policyDecisionId: 'policy_mcp',
+      evidenceRefIds: ['evidence_mcp'],
+      auditEventIds: ['audit_mcp'],
+      inputHash: 'sha256:input',
+      outputHash: 'sha256:output',
+      summary: 'Read-only MCP tool completed.',
+    });
+    const manifestEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_mcp_manifest',
+      schemaVersion,
+      createdAt,
+      kind: 'mcp.tool_manifest',
+      hash: 'sha256:manifest',
+    });
+    const invocationEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_mcp_invocation',
+      schemaVersion,
+      createdAt,
+      kind: 'mcp.tool_invocation_summary',
+      hash: 'sha256:invocation',
+    });
+
+    expect(definition.actionMode).toBe('read');
+    expect(invocation.bodyStored).toBe(false);
+    expect(invocation.rawPathStored).toBe(false);
+    expect(manifestEvidence.kind).toBe('mcp.tool_manifest');
+    expect(invocationEvidence.kind).toBe('mcp.tool_invocation_summary');
+    expect(() =>
+      EvidenceRefSchema.parse({
+        id: 'evidence_bad',
+        schemaVersion,
+        createdAt,
+        kind: 'mcp.tool_raw_body',
+        hash: 'sha256:bad',
+      }),
+    ).toThrow();
   });
 
   it('requires capability audit events to carry authority context', () => {

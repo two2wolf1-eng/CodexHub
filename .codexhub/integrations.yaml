@@ -45,13 +45,39 @@ integrations:
     evidence:
       output: hash-only
   mcp-server:
-    enabled: false
-    plannedAdapter: codexhub-mcp-server
+    enabled: true
+    adapter: codexhub-mcp-server
     provider: official-sdk
     providerType: official-sdk
+    sdkPackage: '@modelcontextprotocol/sdk'
+    sdkVersion: 1.29.0
     defaultToolsMode: read-only
+    stdioDefault: true
+    httpTransport:
+      enabled: true
+      optInByCommandOrEnv: true
+      bindHost: 127.0.0.1
+      defaultPort: 3335
+      endpoint: /mcp
+      healthEndpoint: /health
+      localControlRequired: true
+      wildcardCorsAllowed: false
+      trustedOriginsLoopbackOnly: true
+      hostLoopbackOnly: true
+      stateless: true
+      sseEnabled: false
     writeToolsRequireApproval: true
     toolsMustDeclareRiskActionEvidenceApproval: true
+    storeRequiredForToolSuccess: true
+    unauditedSuccessAllowed: false
+    firstToolsReadOnly:
+      - codexhub.getArchitectureMap
+      - codexhub.getPolicySummary
+      - codexhub.getRiskMatrix
+      - codexhub.getEvidenceSummary
+      - codexhub.getOpenDevelopmentRequests
+      - codexhub.getAffectedProjectsDryRun
+      - codexhub.readObservationSnapshot
   playwright-observer:
     enabled: false
     plannedAdapter: playwright-observer-adapter

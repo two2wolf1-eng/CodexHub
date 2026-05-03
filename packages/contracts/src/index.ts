@@ -121,6 +121,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'verification.dry_run_plan',
     'verification.command_summary',
     'verification.run_summary',
+    'mcp.tool_manifest',
+    'mcp.tool_invocation_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -266,6 +268,64 @@ export const CapabilityAuditEventSchema = AuditEventSchema.extend({
   evidenceRefs: z.array(EvidenceRefSchema).min(1),
 });
 export type CapabilityAuditEvent = z.infer<typeof CapabilityAuditEventSchema>;
+
+export const McpToolNameSchema = z.enum([
+  'codexhub.getArchitectureMap',
+  'codexhub.getPolicySummary',
+  'codexhub.getRiskMatrix',
+  'codexhub.getEvidenceSummary',
+  'codexhub.getOpenDevelopmentRequests',
+  'codexhub.getAffectedProjectsDryRun',
+  'codexhub.readObservationSnapshot',
+]);
+export type McpToolName = z.infer<typeof McpToolNameSchema>;
+
+export const McpToolApprovalPolicySchema = z.enum([
+  'not-required',
+  'approval-gated',
+  'disabled',
+]);
+export type McpToolApprovalPolicy = z.infer<typeof McpToolApprovalPolicySchema>;
+
+export const McpToolDefinitionSchema = createdEntityBaseSchema.extend({
+  name: McpToolNameSchema,
+  title: z.string().min(1),
+  description: z.string().min(1),
+  enabled: z.boolean(),
+  riskLevel: RiskLevelSchema,
+  actionMode: ActionModeSchema,
+  approvalPolicy: McpToolApprovalPolicySchema,
+  evidencePolicy: CapabilityEvidencePolicySchema,
+  outputBodyStored: z.boolean().default(false),
+  processBoundaryInvoked: z.boolean().default(false),
+  externalProcessStarted: z.boolean().default(false),
+  noRealWrite: z.boolean().default(true),
+});
+export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
+
+export const McpToolInvocationStatusSchema = z.enum([
+  'completed',
+  'failed',
+  'blocked',
+]);
+export type McpToolInvocationStatus = z.infer<typeof McpToolInvocationStatusSchema>;
+
+export const McpToolInvocationSummarySchema = createdEntityBaseSchema.extend({
+  toolName: McpToolNameSchema,
+  status: McpToolInvocationStatusSchema,
+  policyDecisionId: z.string().min(1),
+  evidenceRefIds: z.array(z.string().min(1)).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+  inputHash: z.string().min(1),
+  outputHash: z.string().min(1),
+  summary: z.string().min(1),
+  bodyStored: z.boolean().default(false),
+  rawPathStored: z.boolean().default(false),
+  processBoundaryInvoked: z.boolean().default(false),
+  externalProcessStarted: z.boolean().default(false),
+  noRealWrite: z.boolean().default(true),
+});
+export type McpToolInvocationSummary = z.infer<typeof McpToolInvocationSummarySchema>;
 
 export const ObservationSeveritySchema = z.enum(['info', 'warning', 'error']);
 export type ObservationSeverity = z.infer<typeof ObservationSeveritySchema>;

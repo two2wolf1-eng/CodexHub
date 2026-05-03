@@ -1,0 +1,45 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "codexhub-mcp-server",
+  "projectType": "application",
+  "sourceRoot": "apps/codexhub-mcp-server/src",
+  "implicitDependencies": [
+    "contracts",
+    "evidence-kernel",
+    "mcp-tool-contracts",
+    "nx-verification-adapter",
+    "observer-kernel",
+    "store-core",
+    "store-sqlite"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p apps/codexhub-mcp-server/tsconfig.json",
+        "cwd": "."
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "apps/codexhub-mcp-server"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "apps/codexhub-mcp-server"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsx apps/codexhub-mcp-server/src/main.ts",
+        "cwd": "."
+      }
+    }
+  }
+}
