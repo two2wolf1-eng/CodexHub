@@ -33,6 +33,16 @@ export interface ControlledGitCommandResult {
   externalProcessStarted: boolean;
 }
 
+export interface ControlledGitCommandOutput extends ControlledGitCommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+export type ControlledGitCommandRunner = (
+  kind: ControlledGitCommandKind,
+  input: ControlledGitRuntimeInput,
+) => Promise<ControlledGitCommandOutput>;
+
 export function buildControlledGitCommand(
   kind: ControlledGitCommandKind,
   input: ControlledGitRuntimeInput,
@@ -86,7 +96,10 @@ export function hashControlledGitCommand(
   return `sha256:${hashText(JSON.stringify(sanitizedShape))}`;
 }
 
-export function createControlledGitWorktreeRunner(input: ControlledGitRuntimeInput) {
+export function createControlledGitWorktreeRunner(
+  input: ControlledGitRuntimeInput,
+  commandRunner: ControlledGitCommandRunner = runControlledGitCommand,
+) {
   return {
     async run(): Promise<WorktreeManagerFixtureRunnerResult> {
       const commandKinds: ControlledGitCommandKind[] = [
@@ -95,18 +108,21 @@ export function createControlledGitWorktreeRunner(input: ControlledGitRuntimeInp
         'diff-name-only',
         'diff-numstat',
       ];
-      const results: ControlledGitCommandResult[] = [];
+      const results: ControlledGitCommandOutput[] = [];
 
       for (const kind of commandKinds) {
-        const result = await runControlledGitCommand(kind, input);
+        const result = await commandRunner(kind, input);
         results.push(result);
         if (result.exitCode !== 0) {
           return createGitRunnerResult('failed', input, results, '');
         }
       }
 
-      const nameOnlyOutput = await runControlledGitCommandWithOutput('diff-name-only', input);
-      const numstatOutput = await runControlledGitCommandWithOutput('diff-numstat', input);
+      const nameOnlyOutput = results.find((result) => result.kind === 'diff-name-only');
+      const numstatOutput = results.find((result) => result.kind === 'diff-numstat');
+      if (!nameOnlyOutput || !numstatOutput) {
+        return createGitRunnerResult('failed', input, results, '');
+      }
       const changedFiles = parseChangedFiles(nameOnlyOutput.stdout);
 
       return {
@@ -122,7 +138,7 @@ export function createControlledGitWorktreeRunner(input: ControlledGitRuntimeInp
 async function runControlledGitCommand(
   kind: ControlledGitCommandKind,
   input: ControlledGitRuntimeInput,
-): Promise<ControlledGitCommandResult> {
+): Promise<ControlledGitCommandOutput> {
   const output = await runControlledGitCommandWithOutput(kind, input);
   return {
     kind,
@@ -132,6 +148,8 @@ async function runControlledGitCommand(
     stdoutLineCount: countLines(output.stdout),
     stderrLineCount: countLines(output.stderr),
     externalProcessStarted: output.externalProcessStarted,
+    stdout: output.stdout,
+    stderr: output.stderr,
   };
 }
 
@@ -184,6 +202,9 @@ function createGitRunnerResult(
   results: readonly ControlledGitCommandResult[],
   diffText: string,
 ): WorktreeManagerFixtureRunnerResult {
+  const cleanupRequired = results.some(
+    (result) => result.kind === 'worktree-add-detach' && result.externalProcessStarted,
+  );
   const commandSummaryHash = createHash('sha256')
     .update(
       JSON.stringify(
@@ -207,9 +228,9 @@ function createGitRunnerResult(
     gitProcessBoundaryInvoked: results.some((result) => result.externalProcessStarted),
     processBoundaryInvoked: results.some((result) => result.externalProcessStarted),
     externalProcessStarted: results.some((result) => result.externalProcessStarted),
-    noRealWrite: false,
-    cleanupRequired: true,
-    cleanupDeferred: true,
+    noRealWrite: !cleanupRequired,
+    cleanupRequired,
+    cleanupDeferred: cleanupRequired,
     summary:
       status === 'completed'
         ? `Controlled git worktree boundary completed with ${results.length} fixed commands.`

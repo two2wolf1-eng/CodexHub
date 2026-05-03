@@ -925,6 +925,102 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(runResponse.json())).not.toContain('diff --git');
   });
 
+  it('marks worktree approvals used when a controlled git attempt fails after the boundary', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-worktree-failed-'));
+    const repoRoot = join(dir, 'repo');
+    const worktreeRoot = join(dir, 'CodexHub-worktrees');
+    const worktreeSlug = 'feature-m6b-failed';
+    const branchName = 'codex/feature-m6b-failed';
+    const baseRef = 'HEAD';
+    mkdirSync(repoRoot, { recursive: true });
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      worktreeManagerEnabled: true,
+      worktreeManagerRunner: {
+        async run() {
+          return {
+            status: 'failed',
+            commandSummaryHash: 'sha256:command',
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            cleanupRequired: true,
+            cleanupDeferred: true,
+            summary: 'Injected controlled git run failed after boundary.',
+          };
+        },
+      },
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        repoRoot,
+        worktreeSlug,
+        branchName,
+        baseRef,
+        runnerMode: 'controlled-git-worktree',
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId, reason: 'hash-bound worktree approval' },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        repoRoot,
+        worktreeRoot,
+        worktreePath: join(worktreeRoot, worktreeSlug),
+        worktreeSlug,
+        branchName,
+        baseRef,
+      },
+    });
+    const usedApprovalsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/worktrees/approvals?dryRunId=${dryRunId}&status=used`,
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'failed',
+      gitProcessBoundaryInvoked: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      cleanupRequired: true,
+      cleanupDeferred: true,
+      noRealWrite: false,
+    });
+    expect(usedApprovalsResponse.json().records).toHaveLength(1);
+    expect(JSON.stringify(runResponse.json())).not.toContain(repoRoot);
+    expect(JSON.stringify(runResponse.json())).not.toContain('diff --git');
+  });
+
   it('blocks electron cdp execution when store or enablement is unavailable', async () => {
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({

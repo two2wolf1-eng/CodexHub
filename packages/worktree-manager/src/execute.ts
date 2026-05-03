@@ -241,7 +241,10 @@ export async function executeWorktreeManager(
       actor: input.actor,
       action: 'worktree-manager.execute',
       target: input.plan.worktreePathHash,
-      reason: 'execution authority accepted by workflow gate for fixture-only worktree summary',
+      reason:
+        input.plan.runnerMode === 'controlled-git-worktree'
+          ? 'execution authority accepted by workflow gate for controlled git worktree boundary'
+          : 'execution authority accepted by workflow gate for fixture-only worktree summary',
       outcome: status,
       policyDecisionId: input.authority?.policyDecisionId ?? 'missing-policy-decision',
       evidenceRefs,

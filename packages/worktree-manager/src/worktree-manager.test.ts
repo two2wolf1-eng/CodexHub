@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { CapabilityManifestSchema, type ExecutionAuthority } from '@codexhub/contracts';
 import {
   buildControlledGitCommand,
+  createControlledGitWorktreeRunner,
   createWorktreeManagerManifest,
   createWorktreeManagerPlan,
   executeWorktreeManager,
+  type ControlledGitCommandKind,
+  type ControlledGitCommandOutput,
 } from './index';
 
 const repoRoot = process.cwd();
@@ -334,6 +337,90 @@ describe('worktree-manager execute', () => {
     ]);
   });
 
+  it('runs each fixed controlled git command once while deriving diff metadata', async () => {
+    const observedKinds: ControlledGitCommandKind[] = [];
+    const runner = createControlledGitWorktreeRunner(
+      {
+        repoRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+        baseRef: 'HEAD',
+      },
+      async (kind) => {
+        observedKinds.push(kind);
+        return createGitCommandOutput(kind, {
+          stdout:
+            kind === 'diff-name-only'
+              ? 'packages/worktree-manager/src/execute.ts\n'
+              : kind === 'diff-numstat'
+                ? '1\t1\tpackages/worktree-manager/src/execute.ts\n'
+                : '',
+        });
+      },
+    );
+
+    const result = await runner.run();
+
+    expect(observedKinds).toEqual([
+      'repo-root-preflight',
+      'worktree-add-detach',
+      'diff-name-only',
+      'diff-numstat',
+    ]);
+    expect(result.status).toBe('completed');
+    expect(result.changedFiles).toEqual(['packages/worktree-manager/src/execute.ts']);
+    expect(result.diffLineCount).toBe(1);
+    expect(result.cleanupRequired).toBe(true);
+    expect(result.noRealWrite).toBe(false);
+  });
+
+  it('does not mark cleanup required when preflight fails before creation boundary', async () => {
+    const runner = createControlledGitWorktreeRunner(
+      {
+        repoRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+        baseRef: 'HEAD',
+      },
+      async (kind) => createGitCommandOutput(kind, { exitCode: 1 }),
+    );
+
+    const result = await runner.run();
+
+    expect(result.status).toBe('failed');
+    expect(result.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.cleanupRequired).toBe(false);
+    expect(result.cleanupDeferred).toBe(false);
+    expect(result.noRealWrite).toBe(true);
+  });
+
+  it('marks cleanup required once the worktree creation boundary is reached', async () => {
+    const observedKinds: ControlledGitCommandKind[] = [];
+    const runner = createControlledGitWorktreeRunner(
+      {
+        repoRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+        baseRef: 'HEAD',
+      },
+      async (kind) => {
+        observedKinds.push(kind);
+        return createGitCommandOutput(kind, {
+          exitCode: kind === 'diff-name-only' ? 1 : 0,
+        });
+      },
+    );
+
+    const result = await runner.run();
+
+    expect(observedKinds).toEqual([
+      'repo-root-preflight',
+      'worktree-add-detach',
+      'diff-name-only',
+    ]);
+    expect(result.status).toBe('failed');
+    expect(result.cleanupRequired).toBe(true);
+    expect(result.cleanupDeferred).toBe(true);
+    expect(result.noRealWrite).toBe(false);
+  });
+
   it('does not persist invalid changed file paths from fixtures', async () => {
     const plan = createWorktreeManagerPlan({
       repoRoot,
@@ -359,3 +446,23 @@ describe('worktree-manager execute', () => {
     expect(JSON.stringify(result)).not.toContain('../outside.ts');
   });
 });
+
+function createGitCommandOutput(
+  kind: ControlledGitCommandKind,
+  overrides: Partial<ControlledGitCommandOutput> = {},
+): ControlledGitCommandOutput {
+  const stdout = overrides.stdout ?? '';
+  const stderr = overrides.stderr ?? '';
+
+  return {
+    kind,
+    exitCode: overrides.exitCode ?? 0,
+    stdoutHash: overrides.stdoutHash ?? `sha256:${kind}:stdout`,
+    stderrHash: overrides.stderrHash ?? `sha256:${kind}:stderr`,
+    stdoutLineCount: overrides.stdoutLineCount ?? (stdout.length === 0 ? 0 : 1),
+    stderrLineCount: overrides.stderrLineCount ?? (stderr.length === 0 ? 0 : 1),
+    externalProcessStarted: overrides.externalProcessStarted ?? true,
+    stdout,
+    stderr,
+  };
+}
