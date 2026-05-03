@@ -1,5 +1,5 @@
 {
-  "name": "@codexhub/electron-cdp-kernel",
+  "name": "@codexhub/electron-cdp-adapter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,9 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@codexhub/capability-adapter-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
+    "@codexhub/electron-cdp-kernel": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*"
   }
 }

@@ -146,6 +146,22 @@ import {
   BrowserPageObservationSummarySchema,
   BrowserProfileReadinessSchema,
   BrowserProfileRefSchema,
+  ElectronCdpAllowedCommandSchema,
+  ElectronCdpBlockReasonSchema,
+  ElectronCdpCommandAllowlistDecisionSchema,
+  ElectronCdpConsoleSummarySchema,
+  ElectronCdpForbiddenActionSchema,
+  ElectronCdpNetworkMetadataSummarySchema,
+  ElectronCdpObservationCapabilitySchema,
+  ElectronCdpObservationPlanSchema,
+  ElectronCdpObservationRunSchema,
+  ElectronCdpObservationRunStatusSchema,
+  ElectronCdpObservationSummarySchema,
+  ElectronDebugEndpointSummarySchema,
+  ElectronProcessKindSchema,
+  ElectronProcessSummarySchema,
+  ElectronTargetSummarySchema,
+  ElectronTargetTypeSchema,
   OrchestrationRunSchema,
   OrchestrationRunStatusSchema,
   OrchestrationTimelineEventSchema,
@@ -757,6 +773,233 @@ describe('contracts schemas', () => {
       BrowserPageObservationSummarySchema.parse({
         ...pageSummary,
         cookies: ['session=secret'],
+      }),
+    ).toThrow();
+  });
+
+  it('parses electron cdp read-only contracts without raw paths or live actions', () => {
+    expect(ElectronProcessKindSchema.options).toContain('renderer');
+    expect(ElectronTargetTypeSchema.options).toContain('webview');
+    expect(ElectronCdpObservationCapabilitySchema.options).toEqual([
+      'process_summary',
+      'debug_endpoint_summary',
+      'target_summary',
+      'console_summary',
+      'network_metadata_summary',
+    ]);
+    expect(ElectronCdpForbiddenActionSchema.options).toContain('runtime_evaluate');
+    expect(ElectronCdpBlockReasonSchema.options).toContain(
+      'non_loopback_endpoint_forbidden',
+    );
+    expect(ElectronCdpAllowedCommandSchema.options).toEqual([
+      'Browser.getVersion',
+      'Target.getTargets',
+      'Log.enable',
+    ]);
+    expect(ElectronCdpObservationRunStatusSchema.options).toEqual([
+      'planned',
+      'completed',
+      'failed',
+      'blocked',
+      'aborted',
+    ]);
+
+    const processSummary = ElectronProcessSummarySchema.parse({
+      id: 'electron_process_summary_1',
+      schemaVersion,
+      createdAt,
+      processIdHash: 'sha256:pid',
+      executablePathHash: 'sha256:exe-path',
+      commandLineHash: 'sha256:argv',
+      processKind: 'renderer',
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Electron process metadata stores hashes only.',
+    });
+    const endpoint = ElectronDebugEndpointSummarySchema.parse({
+      id: 'electron_endpoint_summary_1',
+      schemaVersion,
+      createdAt,
+      endpointIdHash: 'sha256:endpoint',
+      hostHash: 'sha256:loopback-host',
+      portHash: 'sha256:9222',
+      protocol: 'cdp',
+      loopbackOnly: true,
+      userEnabled: true,
+      mainInspectorEnabled: false,
+      runtimeEvaluateAllowed: false,
+      genericCommandPassthrough: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Loopback Electron debug endpoint summary.',
+    });
+    const target = ElectronTargetSummarySchema.parse({
+      id: 'electron_target_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      endpointIdHash: endpoint.endpointIdHash,
+      targetIdHash: 'sha256:target',
+      targetType: 'webview',
+      titleHash: 'sha256:title',
+      urlHash: 'sha256:url',
+      attached: false,
+      mainInspector: false,
+      runtimeEvaluateAllowed: false,
+      genericCommandPassthrough: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Renderer target summary is metadata-only.',
+    });
+    const commandDecision = ElectronCdpCommandAllowlistDecisionSchema.parse({
+      id: 'electron_command_decision_1',
+      schemaVersion,
+      createdAt,
+      command: 'Target.getTargets',
+      allowed: true,
+      riskLevel: 'low',
+      reason: 'Read-only target listing is allowlisted.',
+      runtimeEvaluateAllowed: false,
+      genericCommandPassthrough: false,
+      bodyStored: false,
+      noRealWrite: true,
+    });
+    const consoleSummary = ElectronCdpConsoleSummarySchema.parse({
+      messageCount: 2,
+      warningCount: 1,
+      errorCount: 0,
+      bodyStored: false,
+    });
+    const networkSummary = ElectronCdpNetworkMetadataSummarySchema.parse({
+      requestCount: 3,
+      responseCount: 3,
+      failedRequestCount: 0,
+      bodyStored: false,
+    });
+    const plan = ElectronCdpObservationPlanSchema.parse({
+      id: 'electron_observation_plan_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'electron-cdp',
+      processSummary,
+      debugEndpoint: endpoint,
+      targets: [target],
+      requestedCapabilities: ['target_summary', 'console_summary'],
+      forbiddenActions: ['runtime_evaluate', 'generic_cdp_command'],
+      blockReasons: [],
+      commandDecisions: [commandDecision],
+      mainInspectorEnabled: false,
+      runtimeEvaluateAllowed: false,
+      genericCommandPassthrough: false,
+      screenshotPlanned: false,
+      domSnapshotPlanned: false,
+      networkBodyStorage: 'forbidden',
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Plan Electron/CDP fixture-only read-only observation.',
+    });
+    const observationSummary = ElectronCdpObservationSummarySchema.parse({
+      id: 'electron_observation_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      source: 'electron-cdp.fixture',
+      kind: 'electron.cdp.summary',
+      severity: 'info',
+      planId: plan.id,
+      processSummary,
+      debugEndpoint: endpoint,
+      targets: [target],
+      consoleSummary,
+      networkSummary,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Fixture Electron/CDP observation completed.',
+    });
+    const evidence = EvidenceRefSchema.parse({
+      id: 'electron_evidence_summary_1',
+      schemaVersion,
+      createdAt,
+      kind: 'electron.observation_summary',
+      hash: 'sha256:electron-summary',
+    });
+    const run = ElectronCdpObservationRunSchema.parse({
+      id: 'electron_observation_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'completed',
+      plan,
+      observationSummary,
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_electron_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Electron/CDP fixture observation run completed.',
+    });
+
+    expect(run.status).toBe('completed');
+    expect(plan.mainInspectorEnabled).toBe(false);
+    expect(plan.runtimeEvaluateAllowed).toBe(false);
+    expect(plan.genericCommandPassthrough).toBe(false);
+    expect(target.urlHash).toBe('sha256:url');
+    expect(JSON.stringify(run)).not.toContain('C:\\');
+    expect(JSON.stringify(run)).not.toContain('Runtime.evaluate');
+    expect(() =>
+      ElectronProcessSummarySchema.parse({
+        ...processSummary,
+        executablePath: 'C:\\Users\\Thomas\\AppData\\Local\\Codex\\Codex.exe',
+      }),
+    ).toThrow();
+    expect(() =>
+      ElectronDebugEndpointSummarySchema.parse({
+        ...endpoint,
+        loopbackOnly: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      ElectronCdpObservationPlanSchema.parse({
+        ...plan,
+        mainInspectorEnabled: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      ElectronCdpCommandAllowlistDecisionSchema.parse({
+        ...commandDecision,
+        id: 'electron_command_decision_bad',
+        command: 'Runtime.evaluate',
+        runtimeEvaluateAllowed: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      ElectronTargetSummarySchema.parse({
+        ...target,
+        rawUrl: 'devtools://devtools/bundled/inspector.html?token=secret',
+      }),
+    ).toThrow();
+    expect(() =>
+      EvidenceRefSchema.parse({
+        id: 'electron_evidence_bad',
+        schemaVersion,
+        createdAt,
+        kind: 'electron.raw_body',
+        hash: 'sha256:bad',
       }),
     ).toThrow();
   });

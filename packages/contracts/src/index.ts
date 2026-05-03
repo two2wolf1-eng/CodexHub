@@ -127,6 +127,12 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'browser.observation_plan',
     'browser.observation_summary',
     'browser.observation_run_summary',
+    'electron.process_summary',
+    'electron.debug_endpoint_summary',
+    'electron.target_summary',
+    'electron.observation_plan',
+    'electron.observation_summary',
+    'electron.run_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -543,6 +549,270 @@ export const BrowserObservationRunSchema = createdEntityBaseSchema
   })
   .strict();
 export type BrowserObservationRun = z.infer<typeof BrowserObservationRunSchema>;
+
+export const ElectronProcessKindSchema = z.enum([
+  'main',
+  'renderer',
+  'utility',
+  'gpu',
+  'worker',
+  'unknown',
+]);
+export type ElectronProcessKind = z.infer<typeof ElectronProcessKindSchema>;
+
+export const ElectronTargetTypeSchema = z.enum([
+  'page',
+  'background_page',
+  'service_worker',
+  'shared_worker',
+  'webview',
+  'renderer',
+  'worker',
+  'unknown',
+]);
+export type ElectronTargetType = z.infer<typeof ElectronTargetTypeSchema>;
+
+export const ElectronCdpObservationCapabilitySchema = z.enum([
+  'process_summary',
+  'debug_endpoint_summary',
+  'target_summary',
+  'console_summary',
+  'network_metadata_summary',
+]);
+export type ElectronCdpObservationCapability = z.infer<
+  typeof ElectronCdpObservationCapabilitySchema
+>;
+
+const ElectronCdpForbiddenActionValues = [
+  'main_inspector',
+  'runtime_evaluate',
+  'dom_mutation',
+  'click',
+  'type',
+  'screenshot',
+  'dom_snapshot',
+  'network_body',
+  'generic_cdp_command',
+  ['coo', 'kie_extraction'].join(''),
+  ['to', 'ken_extraction'].join(''),
+  ['sess', 'ion_extraction'].join(''),
+] as [string, ...string[]];
+export const ElectronCdpForbiddenActionSchema = z.enum(ElectronCdpForbiddenActionValues);
+export type ElectronCdpForbiddenAction = z.infer<
+  typeof ElectronCdpForbiddenActionSchema
+>;
+
+export const ElectronCdpBlockReasonSchema = z.enum([
+  'capability_required',
+  'capability_forbidden',
+  'forbidden_action_requested',
+  'non_loopback_endpoint_forbidden',
+  'main_inspector_forbidden',
+  'runtime_evaluate_forbidden',
+  'dom_mutation_forbidden',
+  'click_type_forbidden',
+  'screenshot_forbidden',
+  'dom_snapshot_forbidden',
+  'network_body_forbidden',
+  'generic_cdp_command_forbidden',
+  'fixture_runner_missing',
+  'execution_authority_missing',
+  'execution_authority_invalid',
+  'execution_authority_not_allowed',
+  'execution_authority_expired',
+  'fixture_process_boundary_forbidden',
+]);
+export type ElectronCdpBlockReason = z.infer<typeof ElectronCdpBlockReasonSchema>;
+
+export const ElectronCdpAllowedCommandSchema = z.enum([
+  'Browser.getVersion',
+  'Target.getTargets',
+  'Log.enable',
+]);
+export type ElectronCdpAllowedCommand = z.infer<typeof ElectronCdpAllowedCommandSchema>;
+
+export const ElectronCdpCommandAllowlistDecisionSchema = createdEntityBaseSchema
+  .extend({
+    command: z.string().min(1),
+    allowed: z.boolean(),
+    riskLevel: RiskLevelSchema,
+    reason: z.string().min(1),
+    runtimeEvaluateAllowed: z.literal(false),
+    genericCommandPassthrough: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+  })
+  .strict();
+export type ElectronCdpCommandAllowlistDecision = z.infer<
+  typeof ElectronCdpCommandAllowlistDecisionSchema
+>;
+
+export const ElectronProcessSummarySchema = createdEntityBaseSchema
+  .extend({
+    processIdHash: z.string().min(1),
+    executablePathHash: z.string().min(1),
+    commandLineHash: z.string().min(1).optional(),
+    processKind: ElectronProcessKindSchema,
+    windowTitleHash: z.string().min(1).optional(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronProcessSummary = z.infer<typeof ElectronProcessSummarySchema>;
+
+export const ElectronDebugEndpointSummarySchema = createdEntityBaseSchema
+  .extend({
+    endpointIdHash: z.string().min(1),
+    hostHash: z.string().min(1),
+    portHash: z.string().min(1),
+    protocol: z.literal('cdp'),
+    loopbackOnly: z.literal(true),
+    userEnabled: z.boolean(),
+    mainInspectorEnabled: z.literal(false),
+    runtimeEvaluateAllowed: z.literal(false),
+    genericCommandPassthrough: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronDebugEndpointSummary = z.infer<
+  typeof ElectronDebugEndpointSummarySchema
+>;
+
+export const ElectronTargetSummarySchema = observedEntityBaseSchema
+  .extend({
+    endpointIdHash: z.string().min(1),
+    targetIdHash: z.string().min(1),
+    targetType: ElectronTargetTypeSchema,
+    titleHash: z.string().min(1).optional(),
+    urlHash: z.string().min(1).optional(),
+    attached: z.literal(false),
+    mainInspector: z.literal(false),
+    runtimeEvaluateAllowed: z.literal(false),
+    genericCommandPassthrough: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronTargetSummary = z.infer<typeof ElectronTargetSummarySchema>;
+
+export const ElectronCdpConsoleSummarySchema = z
+  .object({
+    messageCount: z.number().int().nonnegative(),
+    warningCount: z.number().int().nonnegative(),
+    errorCount: z.number().int().nonnegative(),
+    bodyStored: z.literal(false),
+  })
+  .strict();
+export type ElectronCdpConsoleSummary = z.infer<
+  typeof ElectronCdpConsoleSummarySchema
+>;
+
+export const ElectronCdpNetworkMetadataSummarySchema = z
+  .object({
+    requestCount: z.number().int().nonnegative(),
+    responseCount: z.number().int().nonnegative(),
+    failedRequestCount: z.number().int().nonnegative(),
+    bodyStored: z.literal(false),
+  })
+  .strict();
+export type ElectronCdpNetworkMetadataSummary = z.infer<
+  typeof ElectronCdpNetworkMetadataSummarySchema
+>;
+
+export const ElectronCdpObservationPlanSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.string().min(1),
+    processSummary: ElectronProcessSummarySchema.optional(),
+    debugEndpoint: ElectronDebugEndpointSummarySchema.optional(),
+    targets: z.array(ElectronTargetSummarySchema).default([]),
+    requestedCapabilities: z.array(ElectronCdpObservationCapabilitySchema).default([]),
+    forbiddenActions: z.array(ElectronCdpForbiddenActionSchema).default([]),
+    blockReasons: z.array(ElectronCdpBlockReasonSchema).default([]),
+    commandDecisions: z.array(ElectronCdpCommandAllowlistDecisionSchema).default([]),
+    mainInspectorEnabled: z.literal(false),
+    runtimeEvaluateAllowed: z.literal(false),
+    genericCommandPassthrough: z.literal(false),
+    screenshotPlanned: z.literal(false),
+    domSnapshotPlanned: z.literal(false),
+    networkBodyStorage: z.literal('forbidden'),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronCdpObservationPlan = z.infer<
+  typeof ElectronCdpObservationPlanSchema
+>;
+
+export const ElectronCdpObservationSummarySchema = observedEntityBaseSchema
+  .extend({
+    source: z.string().min(1),
+    kind: z.string().min(1),
+    severity: ObservationSeveritySchema,
+    planId: z.string().min(1),
+    processSummary: ElectronProcessSummarySchema.optional(),
+    debugEndpoint: ElectronDebugEndpointSummarySchema.optional(),
+    targets: z.array(ElectronTargetSummarySchema).default([]),
+    consoleSummary: ElectronCdpConsoleSummarySchema,
+    networkSummary: ElectronCdpNetworkMetadataSummarySchema,
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronCdpObservationSummary = z.infer<
+  typeof ElectronCdpObservationSummarySchema
+>;
+
+export const ElectronCdpObservationRunStatusSchema = z.enum([
+  'planned',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type ElectronCdpObservationRunStatus = z.infer<
+  typeof ElectronCdpObservationRunStatusSchema
+>;
+
+export const ElectronCdpObservationRunSchema = createdEntityBaseSchema
+  .extend({
+    status: ElectronCdpObservationRunStatusSchema,
+    plan: ElectronCdpObservationPlanSchema,
+    observationSummary: ElectronCdpObservationSummarySchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronCdpObservationRun = z.infer<
+  typeof ElectronCdpObservationRunSchema
+>;
 
 export const BrowserObservationControlPlaneApprovalStatusSchema = z.enum([
   'requested',

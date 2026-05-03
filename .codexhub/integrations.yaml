@@ -131,11 +131,36 @@ integrations:
       - sessionStorageDump
   electron-cdp:
     enabled: false
-    plannedAdapter: electron-cdp-adapter
-    provider: electron-cdp
-    providerType: open-source
+    adapter: electron-cdp-adapter
+    provider: electron-cdp-fixture
+    providerType: builtin
     mode: read-only
+    stage: m5a-contracts-and-fixture-adapter
+    fixtureRunnerOnly: true
+    realElectronConnectionEnabled: false
+    cdpHttpClientEnabled: false
+    cdpWebSocketClientEnabled: false
+    processDiscoveryEnabled: false
+    processBoundary: false
+    externalProcessBoundary: false
+    processBoundaryAllowlistChangeRequired: false
+    rawExecutablePathStorage: forbidden
+    rawCommandLineStorage: forbidden
+    rawEndpointStorage: forbidden
+    outputBodyStorage: hash-only
     mainInspectorDefault: disabled
+    mainInspectorConnectionAllowed: false
     runtimeEvaluateDefault: forbidden
+    runtimeEvaluateAllowed: false
+    genericCommandPassthroughAllowed: false
+    domMutationAllowed: false
+    clickTypeAllowed: false
+    domSnapshotRequiresApproval: true
     screenshotRequiresApproval: true
+    networkBodyStorage: forbidden
     loopbackOnlyRequired: true
+    userEnabledRequired: true
+    commandAllowlist:
+      - Browser.getVersion
+      - Target.getTargets
+      - Log.enable

@@ -7,6 +7,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const expectedProjects = [
   'browser-profile-kernel',
   'capability-adapter-kernel',
+  'electron-cdp-adapter',
   'electron-cdp-kernel',
   'orchestrator-kernel',
   'evidence-kernel',
@@ -45,6 +46,7 @@ const requiredGovernanceFiles = [
   'docs/integration-decisions/0002-mcp-typescript-sdk.md',
   'docs/integration-decisions/0003-nx-affected-adapter.md',
   'docs/integration-decisions/0004-playwright-observer.md',
+  'docs/integration-decisions/0005-electron-cdp-boundary.md',
   'docs/integration-decisions/0008-minimal-orchestrator.md',
 ];
 
@@ -69,6 +71,13 @@ const requiredContractExports = [
   'BrowserPageObservationPlanSchema',
   'BrowserPageObservationSummarySchema',
   'BrowserObservationRunSchema',
+  'ElectronProcessSummarySchema',
+  'ElectronDebugEndpointSummarySchema',
+  'ElectronTargetSummarySchema',
+  'ElectronCdpCommandAllowlistDecisionSchema',
+  'ElectronCdpObservationPlanSchema',
+  'ElectronCdpObservationSummarySchema',
+  'ElectronCdpObservationRunSchema',
 ];
 
 const projects = readNxProjects();
