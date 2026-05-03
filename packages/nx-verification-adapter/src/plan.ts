@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
   type CapabilityDryRun,
@@ -10,10 +11,7 @@ import {
   foundationTimestamp,
 } from '@codexhub/contracts';
 import { hashText, redactMetadata } from '@codexhub/evidence-kernel';
-import {
-  NX_VERIFICATION_ADAPTER_NAME,
-  createNxVerificationAdapterManifest,
-} from './manifest';
+import { NX_VERIFICATION_ADAPTER_NAME, createNxVerificationAdapterManifest } from './manifest';
 
 export const NX_VERIFICATION_ALLOWED_TARGETS = ['lint', 'test', 'build'] as const;
 
@@ -103,8 +101,7 @@ export function createNxVerificationAdapterPlan(
   const verificationArgv = createVerificationArgv({ targets, baseRef, headRef });
   const affectedProjectsCommandHash = `sha256:${hashText(affectedProjectsArgv.join('\u0000'))}`;
   const verificationCommandHash = `sha256:${hashText(verificationArgv.join('\u0000'))}`;
-  const status: NxVerificationAdapterPlanStatus =
-    blockReasons.length === 0 ? 'ready' : 'blocked';
+  const status: NxVerificationAdapterPlanStatus = blockReasons.length === 0 ? 'ready' : 'blocked';
   const verificationPlan = VerificationPlanSchema.parse({
     id: foundationId('verification_plan'),
     schemaVersion: SchemaVersionSchema.value,
@@ -283,22 +280,36 @@ function isVerificationTarget(value: string): value is VerificationTarget {
 }
 
 function createRefArgs(baseRef: string | undefined, headRef: string | undefined): string[] {
-  return [
-    ...(baseRef ? [`--base=${baseRef}`] : []),
-    ...(headRef ? [`--head=${headRef}`] : []),
-  ];
+  return [...(baseRef ? [`--base=${baseRef}`] : []), ...(headRef ? [`--head=${headRef}`] : [])];
 }
 
 function isPathInsideAnyRoot(path: string, roots: readonly string[]): boolean {
   return roots.some((root) => {
     const resolvedRoot = resolve(root);
     const pathRelativeToRoot = relative(resolvedRoot, path);
-
-    return (
+    const lexicallyInside =
       path === resolvedRoot ||
       (pathRelativeToRoot.length > 0 &&
         !pathRelativeToRoot.startsWith('..') &&
-        !isAbsolute(pathRelativeToRoot))
+        !isAbsolute(pathRelativeToRoot));
+
+    if (!lexicallyInside) {
+      return false;
+    }
+
+    if (!existsSync(path)) {
+      return true;
+    }
+
+    const realPath = realpathSync(path);
+    const realRoot = existsSync(resolvedRoot) ? realpathSync(resolvedRoot) : resolvedRoot;
+    const realPathRelativeToRoot = relative(realRoot, realPath);
+
+    return (
+      realPath === realRoot ||
+      (realPathRelativeToRoot.length > 0 &&
+        !realPathRelativeToRoot.startsWith('..') &&
+        !isAbsolute(realPathRelativeToRoot))
     );
   });
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
@@ -92,6 +92,29 @@ describe('nx-verification-adapter plan', () => {
     );
   });
 
+  it('rejects symlink cwd escapes from the allowlisted root', () => {
+    const root = createWorkspaceRoot();
+    const outsideRoot = createWorkspaceRoot();
+    const linkPath = resolve(root, 'linked-outside');
+
+    try {
+      symlinkSync(outsideRoot, linkPath, 'dir');
+
+      const plan = createNxVerificationAdapterPlan({
+        dryRunId: 'dry_run_symlink_escape',
+        cwd: linkPath,
+        allowedCwdRoots: [root],
+        targets: ['test'],
+      });
+
+      expect(plan.status).toBe('blocked');
+      expect(plan.blockReasons).toContain('cwd_outside_allowlist');
+    } finally {
+      rmSync(linkPath, { force: true, recursive: true });
+      rmSync(outsideRoot, { force: true, recursive: true });
+    }
+  });
+
   it('rejects unsafe refs', () => {
     const root = createWorkspaceRoot();
     const plan = createNxVerificationAdapterPlan({
@@ -135,13 +158,15 @@ describe('nx-verification-adapter plan', () => {
 
 describe('nx-verification-adapter output parser', () => {
   it('parses affected projects from nx show output', () => {
-    const projects = parseAffectedProjects([
-      'contracts',
-      'nx-verification-adapter',
-      '',
-      '> nx show projects --affected',
-      'contracts',
-    ].join('\n'));
+    const projects = parseAffectedProjects(
+      [
+        'contracts',
+        'nx-verification-adapter',
+        '',
+        '> nx show projects --affected',
+        'contracts',
+      ].join('\n'),
+    );
 
     expect(projects.map((project) => project.name)).toEqual([
       'contracts',
@@ -154,9 +179,9 @@ describe('nx-verification-adapter output parser', () => {
     expect(parseVerificationOutput('NX Successfully ran target lint for 1 project').status).toBe(
       'passed',
     );
-    expect(parseVerificationOutput('NX Running target test failed\nFailed tasks: app:test').status).toBe(
-      'failed',
-    );
+    expect(
+      parseVerificationOutput('NX Running target test failed\nFailed tasks: app:test').status,
+    ).toBe('failed');
     expect(parseVerificationOutput('some unrelated output').status).toBe('unknown');
   });
 });
@@ -244,7 +269,11 @@ describe('nx-verification-adapter execute', () => {
       'failed',
       [
         { exitCode: 0, stdout: 'contracts\n', stderr: '' },
-        { exitCode: 1, stdout: 'NX Running target test failed\nFailed tasks: contracts:test', stderr: 'failed' },
+        {
+          exitCode: 1,
+          stdout: 'NX Running target test failed\nFailed tasks: contracts:test',
+          stderr: 'failed',
+        },
       ],
     ],
     [
@@ -275,9 +304,9 @@ describe('nx-verification-adapter execute', () => {
     expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
     expect(result.capabilityResult.externalProcessStarted).toBe(true);
     expect(result.capabilityResult.noRealWrite).toBe(true);
-    expect(result.commandResults.every((commandResult) => commandResult.outputBodyStored === false)).toBe(
-      true,
-    );
+    expect(
+      result.commandResults.every((commandResult) => commandResult.outputBodyStored === false),
+    ).toBe(true);
     expect(result.evidenceRefs.some((ref) => ref.kind === 'verification.run_summary')).toBe(true);
     expect(result.auditEvents[0].policyDecisionId).toBe('policy_nx');
     expect(CapabilityExecutionResultSchema.parse(result.capabilityResult)).toBeTruthy();

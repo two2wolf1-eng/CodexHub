@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,6 +141,37 @@ describe('codex-exec-adapter plan', () => {
     expect(plan.status).toBe('blocked');
     expect(plan.blockReasons).toContain('cwd_outside_allowlist');
     expect(plan.blockReasons).toContain('governed_input_blocked');
+  });
+
+  it('rejects symlink cwd escapes from the allowlisted root', () => {
+    const fixture = createGovernedInputFixture();
+    const outsideRoot = mkdtempSync(resolve(tmpdir(), 'codexhub-codex-exec-outside-'));
+    const linkPath = resolve(fixture.root, 'linked-outside');
+    const content = 'Summarize repository metadata only.';
+
+    try {
+      mkdirSync(resolve(outsideRoot, '.codexhub', 'requests'), { recursive: true });
+      writeFileSync(resolve(outsideRoot, fixture.relativePath), content);
+      symlinkSync(outsideRoot, linkPath, 'dir');
+
+      const plan = createCodexExecAdapterPlan({
+        dryRunId: 'dry_run_symlink_escape',
+        cwd: linkPath,
+        allowedCwdRoots: [fixture.root],
+        governedInput: {
+          sourceKind: 'governed_file',
+          relativePath: fixture.relativePath,
+          expectedContentHash: `sha256:${hashText(content)}`,
+        },
+      });
+
+      expect(plan.status).toBe('blocked');
+      expect(plan.blockReasons).toContain('cwd_outside_allowlist');
+      expect(plan.governedInput.status).toBe('verified');
+    } finally {
+      rmSync(linkPath, { force: true, recursive: true });
+      rmSync(outsideRoot, { force: true, recursive: true });
+    }
   });
 
   it('summarizes caller metadata without preserving raw secrets or paths', () => {
@@ -404,14 +435,7 @@ function createGovernedInputFixture(): {
 
 function readFixture(name: string): string {
   return readFileSync(
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      '..',
-      '..',
-      'codex-kernel',
-      'fixtures',
-      name,
-    ),
+    resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'codex-kernel', 'fixtures', name),
     'utf8',
   );
 }

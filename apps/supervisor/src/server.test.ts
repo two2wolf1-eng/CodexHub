@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createDefaultCodexExecConfigLoadResult,
@@ -137,6 +137,38 @@ describe('supervisor mock development API', () => {
     expect(preflightResponse.statusCode).toBe(204);
     expect(preflightResponse.headers['access-control-allow-origin']).toBe('http://localhost:4173');
     expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
+  });
+
+  it('blocks symlink cwd escapes when creating codex dry-runs', async () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-cwd-escape-'));
+    const workspaceRoot = resolve(process.cwd(), '..', '..');
+    const linkDir = join(workspaceRoot, 'tmp');
+    const linkPath = join(linkDir, 'supervisor-cwd-escape-link');
+    const server = buildSupervisorServer({ localControlKey: localControlToken });
+
+    try {
+      mkdirSync(linkDir, { recursive: true });
+      rmSync(linkPath, { force: true, recursive: true });
+      symlinkSync(outsideDir, linkPath, 'dir');
+
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/codex/exec/dry-run',
+        headers: localControlHeaders,
+        payload: {
+          title: 'Blocked cwd symlink escape',
+          prompt: 'metadata-only dry-run',
+          cwd: 'tmp/supervisor-cwd-escape-link',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error).toBe('cwd must resolve within the repository root');
+    } finally {
+      await server.close();
+      rmSync(linkPath, { force: true, recursive: true });
+      rmSync(outsideDir, { force: true, recursive: true });
+    }
   });
 
   it('runs and lists mock development orchestrations', async () => {

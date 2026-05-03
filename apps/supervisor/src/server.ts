@@ -7612,6 +7612,18 @@ function resolveAllowedCwd(
     return { allowed: false, reason: 'cwd must stay within the repository root' };
   }
 
+  if (existsSync(requestedPath)) {
+    const workspaceRootRealPath = realpathSync(workspaceRoot);
+    const requestedRealPath = realpathSync(requestedPath);
+
+    if (
+      requestedRealPath !== workspaceRootRealPath &&
+      !isPathInside(requestedRealPath, workspaceRootRealPath)
+    ) {
+      return { allowed: false, reason: 'cwd must resolve within the repository root' };
+    }
+  }
+
   return {
     allowed: true,
     path: requestedPath,

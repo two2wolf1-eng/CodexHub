@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
   REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
@@ -70,9 +71,7 @@ export interface CodexExecAdapterPlan {
   metadata?: Record<string, unknown>;
 }
 
-export function createCodexExecAdapterPlan(
-  input: CodexExecAdapterPlanInput,
-): CodexExecAdapterPlan {
+export function createCodexExecAdapterPlan(input: CodexExecAdapterPlanInput): CodexExecAdapterPlan {
   const manifest = input.manifest ?? createCodexExecAdapterManifest();
   const blockReasons: CodexExecAdapterPlanBlockReason[] = [];
   const warnings: string[] = [];
@@ -123,8 +122,7 @@ export function createCodexExecAdapterPlan(
     warnings.push(`governed input blocked: ${governedInput.reasonCode}`);
   }
 
-  const status: CodexExecAdapterPlanStatus =
-    blockReasons.length === 0 ? 'ready' : 'blocked';
+  const status: CodexExecAdapterPlanStatus = blockReasons.length === 0 ? 'ready' : 'blocked';
 
   const capabilityDryRun: CapabilityDryRun = {
     id: foundationId('capability_dry_run'),
@@ -207,12 +205,29 @@ function isPathInsideAnyRoot(path: string, roots: readonly string[]): boolean {
   return roots.some((root) => {
     const resolvedRoot = resolve(root);
     const pathRelativeToRoot = relative(resolvedRoot, path);
-
-    return (
+    const lexicallyInside =
       path === resolvedRoot ||
       (pathRelativeToRoot.length > 0 &&
         !pathRelativeToRoot.startsWith('..') &&
-        !isAbsolute(pathRelativeToRoot))
+        !isAbsolute(pathRelativeToRoot));
+
+    if (!lexicallyInside) {
+      return false;
+    }
+
+    if (!existsSync(path)) {
+      return true;
+    }
+
+    const realPath = realpathSync(path);
+    const realRoot = existsSync(resolvedRoot) ? realpathSync(resolvedRoot) : resolvedRoot;
+    const realPathRelativeToRoot = relative(realRoot, realPath);
+
+    return (
+      realPath === realRoot ||
+      (realPathRelativeToRoot.length > 0 &&
+        !realPathRelativeToRoot.startsWith('..') &&
+        !isAbsolute(realPathRelativeToRoot))
     );
   });
 }
