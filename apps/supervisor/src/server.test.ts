@@ -149,6 +149,7 @@ describe('supervisor mock development API', () => {
         async observe() {
           return {
             status: 'completed',
+            targetUrlHash: `sha256:${hashTestText('http://127.0.0.1:4173/#/browser-profiles')}`,
             pageTitle: 'Local Browser Target',
             pageUrl: 'http://127.0.0.1:4173/#/browser-profiles',
             consoleSummary: {

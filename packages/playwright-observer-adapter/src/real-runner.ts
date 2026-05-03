@@ -2,6 +2,7 @@ import {
   type BrowserConsoleSummary,
   type BrowserNetworkMetadataSummary,
 } from '@codexhub/contracts';
+import { hashText } from '@codexhub/evidence-kernel';
 import { type PlaywrightObserverRunner, type PlaywrightObserverFixtureRunnerResult } from './execute';
 import { PLAYWRIGHT_OBSERVER_ADAPTER_NAME } from './manifest';
 import { type PlaywrightObserverAdapterPlan, isAllowedReadOnlyTargetUrl } from './plan';
@@ -57,9 +58,12 @@ async function observeWithControlledLocalBrowser(
   input: PlaywrightReadOnlyRealRunnerInput,
   plan: PlaywrightObserverAdapterPlan,
 ): Promise<PlaywrightObserverFixtureRunnerResult> {
+  const targetUrlHash = `sha256:${hashText(input.targetUrl)}`;
+
   if (plan.runnerMode !== 'controlled-local-browser' || !isAllowedReadOnlyTargetUrl(input.targetUrl)) {
     return {
       status: 'failed',
+      targetUrlHash,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       sourceLabel: `${PLAYWRIGHT_OBSERVER_ADAPTER_NAME}.controlled-local-browser`,
@@ -93,6 +97,7 @@ async function observeWithControlledLocalBrowser(
 
     return {
       status: 'completed',
+      targetUrlHash,
       pageTitle,
       pageUrl,
       accessibilitySnapshot,
@@ -107,6 +112,7 @@ async function observeWithControlledLocalBrowser(
   } catch (error) {
     return {
       status: 'failed',
+      targetUrlHash,
       consoleSummary,
       networkSummary,
       processBoundaryInvoked: boundaryInvoked,

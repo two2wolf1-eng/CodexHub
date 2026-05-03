@@ -9,6 +9,7 @@ import {
   createBrowserProfileReadiness,
   createBrowserProfileRef,
 } from '@codexhub/browser-profile-kernel';
+import { hashText } from '@codexhub/evidence-kernel';
 import {
   createPlaywrightObserverAdapterManifest,
   createPlaywrightObserverAdapterPlan,
@@ -18,6 +19,10 @@ import {
 } from './index';
 
 const createdAt = '2026-05-03T00:00:00.000Z';
+
+function sha256Ref(value: string): string {
+  return `sha256:${hashText(value)}`;
+}
 
 function createAuthority(overrides: Partial<ExecutionAuthority> = {}): ExecutionAuthority {
   return {
@@ -282,6 +287,7 @@ describe('playwright-observer-adapter', () => {
         async observe() {
           return {
             status: 'completed',
+            targetUrlHash: sha256Ref('http://localhost:4173/#/overview'),
             pageTitle: 'CodexHub',
             pageUrl: 'http://localhost:4173/#/overview',
             networkSummary: {
@@ -320,6 +326,65 @@ describe('playwright-observer-adapter', () => {
     expect(result.auditEvents[0]?.metadata?.processBoundaryInvoked).toBe(true);
     expect(serialized).not.toContain('http://localhost:4173/#/overview');
     expect(serialized).not.toContain('CodexHub');
+  });
+
+  it('fails controlled browser execution when runner output is not bound to the approved target hash', async () => {
+    const profileRef = createProfileRef();
+    const plan = createPlaywrightObserverAdapterPlan({
+      dryRunId: 'browser_dry_run_target_mismatch',
+      profileRef,
+      runnerMode: 'controlled-local-browser',
+      targetUrl: 'http://localhost:4173/#/approved',
+      requestedCapabilities: ['title', 'url'],
+    });
+    const missingHash = await executePlaywrightObserverAdapter({
+      plan,
+      authority: createAuthority({
+        approvalArtifactId: 'approval_browser_boundary_2',
+      }),
+      runner: {
+        async observe() {
+          return {
+            status: 'completed',
+            pageTitle: 'Wrong target',
+            pageUrl: 'http://localhost:4173/#/other',
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+          };
+        },
+      },
+    });
+    const mismatch = await executePlaywrightObserverAdapter({
+      plan,
+      authority: createAuthority({
+        approvalArtifactId: 'approval_browser_boundary_3',
+      }),
+      runner: {
+        async observe() {
+          return {
+            status: 'completed',
+            targetUrlHash: sha256Ref('http://localhost:4173/#/other'),
+            pageTitle: 'Wrong target',
+            pageUrl: 'http://localhost:4173/#/other',
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+          };
+        },
+      },
+    });
+    const serialized = JSON.stringify({ missingHash, mismatch });
+
+    expect(missingHash.status).toBe('failed');
+    expect(missingHash.pageSummary).toBeUndefined();
+    expect(missingHash.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(missingHash.capabilityResult.externalProcessStarted).toBe(true);
+    expect(missingHash.browserRun.summary).toContain('runner_target_hash_missing');
+    expect(mismatch.status).toBe('failed');
+    expect(mismatch.pageSummary).toBeUndefined();
+    expect(mismatch.browserRun.summary).toContain('runner_target_hash_mismatch');
+    expect(serialized).not.toContain('http://localhost:4173/#/approved');
+    expect(serialized).not.toContain('http://localhost:4173/#/other');
+    expect(serialized).not.toContain('Wrong target');
   });
 
   it('maps injected fixture failed and aborted statuses without storing bodies', async () => {
@@ -430,6 +495,7 @@ describe('playwright-observer-adapter', () => {
     const result = await runner.observe(plan);
 
     expect(result.status).toBe('completed');
+    expect(result.targetUrlHash).toBe(sha256Ref('http://127.0.0.1:4173/'));
     expect(result.processBoundaryInvoked).toBe(true);
     expect(result.externalProcessStarted).toBe(true);
     expect(result.consoleSummary?.warningCount).toBe(1);

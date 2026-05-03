@@ -32,6 +32,7 @@ import { PLAYWRIGHT_OBSERVER_ADAPTER_NAME } from './manifest';
 
 export interface PlaywrightObserverFixtureRunnerResult {
   status: 'completed' | 'failed' | 'aborted';
+  targetUrlHash?: string;
   pageTitle?: string;
   pageUrl?: string;
   accessibilitySnapshot?: string;
@@ -92,6 +93,12 @@ export async function executePlaywrightObserverAdapter(
   try {
     const runnerResult = await runner.observe(input.plan);
     const boundaryTruth = getBoundaryTruth(runnerResult);
+    const targetBindingFailure = getTargetBindingFailure(input.plan, runnerResult, boundaryTruth);
+
+    if (targetBindingFailure) {
+      return createFailedRunnerIntegrityResult(input, targetBindingFailure, boundaryTruth);
+    }
+
     const pageSummary =
       runnerResult.status === 'completed'
         ? createPageObservationSummary(input.plan, runnerResult)
@@ -324,6 +331,79 @@ function createFailedFixtureResult(
   };
 }
 
+function createFailedRunnerIntegrityResult(
+  input: PlaywrightObserverAdapterExecuteInput,
+  reason: string,
+  boundaryTruth: {
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+  },
+): PlaywrightObserverAdapterExecuteResult {
+  const evidenceRefs = createEvidenceRefs(input);
+  const auditEvents = [
+    createPlaywrightObserverAuditEvent({
+      actor: input.actor,
+      action: 'browser.observe.read_only',
+      target: input.plan.profileRef.profilePathHash,
+      reason: 'browser observation runner output did not match the approved dry-run target',
+      outcome: 'failed',
+      policyDecisionId: input.authority?.policyDecisionId ?? 'missing-policy-decision',
+      evidenceRefs,
+      metadata: {
+        dryRunId: input.plan.dryRunId,
+        runnerMode: input.plan.runnerMode,
+        targetBindingFailure: reason,
+        targetUrlHash: input.plan.targetUrlHash,
+        processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+        externalProcessStarted: boundaryTruth.externalProcessStarted,
+      },
+      processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+      externalProcessStarted: boundaryTruth.externalProcessStarted,
+      liveExecution: boundaryTruth.processBoundaryInvoked,
+    }),
+  ];
+  const browserRun = createBrowserRun({
+    input,
+    status: 'failed',
+    evidenceRefs,
+    auditEvents,
+    summary: `Browser observation runner failed target binding: ${reason}.`,
+    processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+    externalProcessStarted: boundaryTruth.externalProcessStarted,
+  });
+  const finalEvidenceRefs = [...evidenceRefs, createBrowserObservationRunEvidence(browserRun)];
+  const finalBrowserRun = createBrowserRun({
+    input,
+    status: 'failed',
+    evidenceRefs: finalEvidenceRefs,
+    auditEvents,
+    summary: browserRun.summary,
+    processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+    externalProcessStarted: boundaryTruth.externalProcessStarted,
+  });
+  const finalAuditEvents = [
+    {
+      ...auditEvents[0],
+      evidenceRefs: finalEvidenceRefs,
+    },
+  ];
+
+  return {
+    status: 'failed',
+    capabilityResult: createCapabilityExecutionResult({
+      status: 'failed',
+      evidenceRefs: finalEvidenceRefs,
+      auditEvents: finalAuditEvents,
+      summary: finalBrowserRun.summary,
+      processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+      externalProcessStarted: boundaryTruth.externalProcessStarted,
+    }),
+    browserRun: finalBrowserRun,
+    evidenceRefs: finalEvidenceRefs,
+    auditEvents: finalAuditEvents,
+  };
+}
+
 function createEvidenceRefs(
   input: PlaywrightObserverAdapterExecuteInput,
   pageSummary?: BrowserPageObservationSummary,
@@ -426,6 +506,33 @@ function createCapabilityExecutionResult(input: {
     auditEventIds: input.auditEvents.map((event) => event.id),
     summary: input.summary,
   };
+}
+
+function getTargetBindingFailure(
+  plan: PlaywrightObserverAdapterPlan,
+  result: PlaywrightObserverFixtureRunnerResult,
+  boundaryTruth: {
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+  },
+): string | undefined {
+  if (!plan.processBoundaryPlanned || !boundaryTruth.processBoundaryInvoked) {
+    return undefined;
+  }
+
+  if (!plan.targetUrlHash) {
+    return 'approved_target_hash_missing_from_plan';
+  }
+
+  if (!result.targetUrlHash) {
+    return 'runner_target_hash_missing';
+  }
+
+  if (result.targetUrlHash !== plan.targetUrlHash) {
+    return 'runner_target_hash_mismatch';
+  }
+
+  return undefined;
 }
 
 function getBoundaryTruth(result: PlaywrightObserverFixtureRunnerResult): {
