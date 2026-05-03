@@ -12,8 +12,10 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@codexhub/codex-exec-adapter": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*",
+    "@codexhub/nx-verification-adapter": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/skill-registry": "workspace:*",
     "@codexhub/store-core": "workspace:*",

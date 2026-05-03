@@ -5,8 +5,10 @@
   "sourceRoot": "packages/orchestrator-kernel/src",
   "implicitDependencies": [
     "contracts",
+    "codex-exec-adapter",
     "workflow-kernel",
     "security-kernel",
+    "nx-verification-adapter",
     "skill-registry",
     "evidence-kernel",
     "store-core"

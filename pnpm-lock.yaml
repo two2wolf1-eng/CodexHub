@@ -130,6 +130,15 @@ importers:
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
+      '@codexhub/store-core':
+        specifier: workspace:*
+        version: link:../../packages/store-core
+      '@codexhub/store-sqlite':
+        specifier: workspace:*
+        version: link:../../packages/store-sqlite
+      fastify:
+        specifier: ^5.2.1
+        version: 5.8.5
 
   apps/supervisor:
     dependencies:
@@ -226,12 +235,18 @@ importers:
 
   packages/orchestrator-kernel:
     dependencies:
+      '@codexhub/codex-exec-adapter':
+        specifier: workspace:*
+        version: link:../codex-exec-adapter
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../contracts
       '@codexhub/evidence-kernel':
         specifier: workspace:*
         version: link:../evidence-kernel
+      '@codexhub/nx-verification-adapter':
+        specifier: workspace:*
+        version: link:../nx-verification-adapter
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../security-kernel

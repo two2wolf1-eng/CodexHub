@@ -3,7 +3,14 @@
   "name": "orchestrator",
   "projectType": "application",
   "sourceRoot": "apps/orchestrator/src",
-  "implicitDependencies": ["contracts", "orchestrator-kernel"],
+  "implicitDependencies": [
+    "contracts",
+    "orchestrator-kernel",
+    "store-core",
+    "store-sqlite",
+    "codex-exec-adapter",
+    "nx-verification-adapter"
+  ],
   "targets": {
     "build": {
       "executor": "nx:run-commands",

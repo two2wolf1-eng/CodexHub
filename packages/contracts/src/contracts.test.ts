@@ -129,6 +129,9 @@ import {
   ExecutionAuthoritySchema,
   EvidenceRefSchema,
   AffectedProjectSchema,
+  OrchestrationRunSchema,
+  OrchestrationRunStatusSchema,
+  OrchestrationTimelineEventSchema,
   PolicyDecisionSchema,
   SchemaVersionSchema,
   SkillResolutionResultSchema,
@@ -482,6 +485,83 @@ describe('contracts schemas', () => {
     expect(plan.targets).toEqual(['lint', 'test']);
     expect(run.status).toBe('passed');
     expect(run.commandResults?.[0]?.outputBodyStored).toBe(false);
+  });
+
+  it('parses minimal orchestration run contract models without raw bodies', () => {
+    expect(OrchestrationRunStatusSchema.options).toEqual([
+      'planned',
+      'running',
+      'passed',
+      'failed',
+      'blocked',
+      'aborted',
+    ]);
+
+    const event = OrchestrationTimelineEventSchema.parse({
+      id: 'orchestration_timeline_event_1',
+      schemaVersion,
+      createdAt,
+      runId: 'orchestration_run_1',
+      phase: 'codex',
+      status: 'passed',
+      summary: 'Codex adapter completed from governed input.',
+      evidenceRefIds: ['evidence_1'],
+      auditEventIds: ['audit_1'],
+    });
+    const run = OrchestrationRunSchema.parse({
+      id: 'orchestration_run_1',
+      schemaVersion,
+      createdAt,
+      requestId: 'development_request_1',
+      orchestrationPlanId: 'orchestration_plan_1',
+      status: 'passed',
+      codexRun: {
+        adapterName: 'codex-cli',
+        status: 'passed',
+        capabilityResultId: 'capability_result_codex',
+        processBoundaryInvoked: true,
+        externalProcessStarted: true,
+        noRealWrite: true,
+        evidenceRefIds: ['evidence_1'],
+        auditEventIds: ['audit_1'],
+        summary: 'Codex CLI adapter completed.',
+      },
+      verificationRun: {
+        adapterName: 'nx-affected',
+        status: 'passed',
+        capabilityResultId: 'capability_result_nx',
+        processBoundaryInvoked: true,
+        externalProcessStarted: true,
+        noRealWrite: true,
+        evidenceRefIds: ['evidence_2'],
+        auditEventIds: ['audit_2'],
+        summary: 'Nx verification passed.',
+      },
+      timeline: [event],
+      evidenceRefIds: ['evidence_1', 'evidence_2'],
+      auditEventIds: ['audit_1', 'audit_2'],
+      policyDecisionIds: ['policy_1', 'policy_2'],
+      summary: {
+        requestTitle: 'Minimal governed orchestration',
+        status: 'passed',
+        codexStatus: 'passed',
+        verificationStatus: 'passed',
+        affectedProjectCount: 2,
+        commandResultCount: 2,
+        evidenceCount: 2,
+        auditEventCount: 2,
+        policyDecisionCount: 2,
+        processBoundaryInvoked: true,
+        externalProcessStarted: true,
+        noRealWrite: true,
+        bodyStored: false,
+        rawPathStored: false,
+      },
+    });
+
+    expect(run.timeline[0]?.phase).toBe('codex');
+    expect(JSON.stringify(run)).not.toContain('stdout body');
+    expect(JSON.stringify(run)).not.toContain('C:\\Users\\Thomas');
   });
 
   it('parses skill resolution contract models', () => {

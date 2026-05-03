@@ -5,7 +5,9 @@
   "type": "module",
   "dependencies": {
     "@codexhub/contracts": "workspace:*",
-    "@codexhub/orchestrator-kernel": "workspace:*"
+    "@codexhub/orchestrator-kernel": "workspace:*",
+    "@codexhub/store-core": "workspace:*",
+    "@codexhub/store-sqlite": "workspace:*",
+    "fastify": "^5.2.1"
   }
 }
-

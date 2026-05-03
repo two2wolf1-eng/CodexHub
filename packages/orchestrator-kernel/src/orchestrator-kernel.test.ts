@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { AuditEvent, EvidenceRef } from '@codexhub/contracts';
+import { hashText } from '@codexhub/evidence-kernel';
+import type { CodexHubStore } from '@codexhub/store-core';
 import {
+  runMinimalGovernedOrchestration,
   runGovernedDevelopmentOrchestration,
   runMockDevelopmentOrchestration,
 } from './index';
@@ -103,3 +109,223 @@ describe('orchestrator-kernel governed development orchestration', () => {
     expect(result.summary.executionDisabled).toBe(true);
   });
 });
+
+describe('orchestrator-kernel minimal governed orchestration', () => {
+  it('blocks before adapter boundaries when authority and executable config are missing', async () => {
+    let codexStarts = 0;
+    let nxStarts = 0;
+    const result = await runMinimalGovernedOrchestration({
+      title: 'Run minimal governed orchestration',
+      description: 'Should block before process boundaries.',
+      dryRunId: 'codex_dry_run_1',
+      worktreePath: process.cwd(),
+      governedInput: createGovernedInputFixture(),
+      codexRunner: {
+        async start() {
+          codexStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start() {
+          nxStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.run.status).toBe('blocked');
+    expect(result.run.summary.processBoundaryInvoked).toBe(false);
+    expect(result.run.summary.externalProcessStarted).toBe(false);
+    expect(codexStarts).toBe(0);
+    expect(nxStarts).toBe(0);
+  });
+
+  it('runs Codex then Nx with persisted approval and injected runners', async () => {
+    let codexStarts = 0;
+    let nxStarts = 0;
+    const result = await runMinimalGovernedOrchestration({
+      title: 'Run minimal governed orchestration',
+      description: 'Use governed Codex input and verify affected projects.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      worktreePath: process.cwd(),
+      allowedCwdRoots: [process.cwd()],
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      codexRunner: {
+        async start() {
+          codexStarts += 1;
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          nxStarts += 1;
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'contracts\norchestrator-kernel\n', stderr: '' }
+            : { exitCode: 0, stdout: 'Successfully ran target lint,test,build', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.run.status).toBe('passed');
+    expect(result.run.summary.codexStatus).toBe('passed');
+    expect(result.run.summary.verificationStatus).toBe('passed');
+    expect(result.run.summary.affectedProjectCount).toBe(2);
+    expect(result.run.summary.commandResultCount).toBe(2);
+    expect(result.run.summary.processBoundaryInvoked).toBe(true);
+    expect(result.run.summary.externalProcessStarted).toBe(true);
+    expect(result.run.summary.bodyStored).toBe(false);
+    expect(result.run.summary.rawPathStored).toBe(false);
+    expect(result.run.evidenceRefIds.length).toBeGreaterThan(0);
+    expect(result.run.auditEventIds.length).toBeGreaterThan(0);
+    expect(codexStarts).toBe(1);
+    expect(nxStarts).toBe(2);
+    expect(JSON.stringify(result.run)).not.toContain(process.cwd());
+    expect(JSON.stringify(result.run)).not.toContain('Successfully ran target');
+  });
+
+  it('does not run Nx when Codex fails', async () => {
+    let nxStarts = 0;
+    const result = await runMinimalGovernedOrchestration({
+      title: 'Run minimal governed orchestration',
+      description: 'Codex failure should stop verification.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      worktreePath: process.cwd(),
+      allowedCwdRoots: [process.cwd()],
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      codexRunner: {
+        async start() {
+          return { exitCode: 1, stdout: '', stderr: 'failed without body persistence' };
+        },
+      },
+      nxRunner: {
+        async start() {
+          nxStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.run.status).toBe('failed');
+    expect(result.run.summary.codexStatus).toBe('failed');
+    expect(result.run.summary.verificationStatus).toBeUndefined();
+    expect(nxStarts).toBe(0);
+  });
+
+  it('marks orchestration failed when Nx verification fails', async () => {
+    const result = await runMinimalGovernedOrchestration({
+      title: 'Run minimal governed orchestration',
+      description: 'Failed verification should fail the run.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      worktreePath: process.cwd(),
+      allowedCwdRoots: [process.cwd()],
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'contracts\n', stderr: '' }
+            : { exitCode: 1, stdout: '', stderr: 'verification failed' };
+        },
+      },
+    });
+
+    expect(result.run.status).toBe('failed');
+    expect(result.run.summary.codexStatus).toBe('passed');
+    expect(result.run.summary.verificationStatus).toBe('failed');
+  });
+
+  it('rejects request-body authority artifacts before adapter execution', async () => {
+    let codexStarts = 0;
+    const result = await runMinimalGovernedOrchestration({
+      title: 'Run minimal governed orchestration',
+      description: 'Untrusted authority object should block.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      worktreePath: process.cwd(),
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      store: createApprovalStore(),
+      approvalArtifact: { id: 'untrusted' },
+      codexRunner: {
+        async start() {
+          codexStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.run.status).toBe('blocked');
+    expect(result.run.timeline.at(-1)?.summary).toContain('untrusted_approval_artifact_body');
+    expect(result.run.summary.processBoundaryInvoked).toBe(false);
+    expect(codexStarts).toBe(0);
+  });
+});
+
+function createGovernedInputFixture() {
+  const relativePath = 'package.json';
+  const text = readFileSync(resolve(process.cwd(), relativePath), 'utf8');
+
+  return {
+    relativePath,
+    expectedContentHash: `sha256:${hashText(text)}`,
+  };
+}
+
+function createApprovalStore(): CodexHubStore {
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+  return {
+    codexExecApprovals: {
+      async getCodexExecApprovalRecordByArtifactId() {
+        return {
+          approvalArtifact: {
+            id: 'approval_artifact_1',
+            schemaVersion: '2026-04-28.foundation',
+            createdAt: '2026-04-28T00:00:00.000Z',
+            dryRunPlanId: 'codex_dry_run_1',
+            dryRunPlanHash: 'sha256:dry-run',
+            policyDecisionId: 'policy_approved_1',
+            policyDecisionHash: 'sha256:policy',
+            scope: 'single_run',
+            status: 'approved',
+            expiresAt,
+            singleUse: true,
+            revoked: false,
+            summary: 'Approved test artifact.',
+            liveExecution: false,
+            externalProcessStarted: false,
+            executionDisabled: true,
+          },
+        };
+      },
+    },
+    evidenceRefs: {
+      async create(ref: EvidenceRef) {
+        return ref;
+      },
+    },
+    auditEvents: {
+      async append(event: AuditEvent) {
+        return event;
+      },
+    },
+    async close() {},
+  } as unknown as CodexHubStore;
+}

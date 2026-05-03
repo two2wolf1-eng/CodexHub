@@ -25,6 +25,8 @@ import {
   createMockWorkflowDefinition,
 } from '@codexhub/workflow-kernel';
 
+export * from './minimal-runner';
+
 export interface MockDevelopmentOrchestrationInput {
   title: string;
   description: string;

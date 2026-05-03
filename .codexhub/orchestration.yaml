@@ -6,7 +6,41 @@ rules:
   requirePolicyDecision: true
   requireEvidence: true
   requireAudit: true
+  adapterExecutionOnly: true
+  noNewProcessBoundaryInM2c: true
 development:
   affectedCommand: pnpm nx affected
   qualityGate: pnpm nx run-many -t lint,test,build
-
+workflows:
+  m2c.minimal-governed-orchestrator:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: apps/orchestrator
+      localControlRequired: true
+    chain:
+      - phase: request
+        model: DevelopmentRequest
+      - phase: codex
+        adapter: codex-exec-adapter
+        authority: persistedApprovalArtifact
+        input: governedFileHash
+        rawBodyStorage: forbidden
+      - phase: verification
+        adapter: nx-verification-adapter
+        authority: policyDecision
+        targets:
+          - lint
+          - test
+          - build
+        rawBodyStorage: forbidden
+      - phase: summary
+        output: evidenceAndAuditIdsOnly
+    forbidden:
+      - dashboardWriteUi
+      - mcpTools
+      - browserAutomation
+      - electronAutomation
+      - worktreeCreation
+      - gitPush
+      - pullRequestCreation

@@ -39,6 +39,7 @@ const requiredGovernanceFiles = [
   '.codex/agents/qa.toml',
   'docs/integration-decisions/0001-codex-cli-adapter.md',
   'docs/integration-decisions/0003-nx-affected-adapter.md',
+  'docs/integration-decisions/0008-minimal-orchestrator.md',
 ];
 
 const requiredContractExports = [
@@ -50,6 +51,9 @@ const requiredContractExports = [
   'CapabilityAuditEventSchema',
   'VerificationPlanSchema',
   'VerificationCommandResultSchema',
+  'OrchestrationRunStatusSchema',
+  'OrchestrationTimelineEventSchema',
+  'OrchestrationRunSchema',
 ];
 
 const projects = readNxProjects();

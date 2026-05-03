@@ -444,6 +444,82 @@ export const VerificationRunSchema = createdEntityBaseSchema.extend({
 });
 export type VerificationRun = z.infer<typeof VerificationRunSchema>;
 
+export const OrchestrationRunStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type OrchestrationRunStatus = z.infer<typeof OrchestrationRunStatusSchema>;
+
+export const OrchestrationTimelinePhaseSchema = z.enum([
+  'request',
+  'plan',
+  'codex',
+  'verification',
+  'summary',
+]);
+export type OrchestrationTimelinePhase = z.infer<typeof OrchestrationTimelinePhaseSchema>;
+
+export const OrchestrationTimelineEventSchema = createdEntityBaseSchema.extend({
+  runId: z.string().min(1),
+  phase: OrchestrationTimelinePhaseSchema,
+  status: OrchestrationRunStatusSchema,
+  summary: z.string().min(1),
+  evidenceRefIds: z.array(z.string().min(1)).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+});
+export type OrchestrationTimelineEvent = z.infer<typeof OrchestrationTimelineEventSchema>;
+
+export const OrchestrationAdapterRunSummarySchema = z.object({
+  adapterName: z.string().min(1),
+  status: OrchestrationRunStatusSchema,
+  capabilityResultId: z.string().min(1).optional(),
+  processBoundaryInvoked: z.boolean(),
+  externalProcessStarted: z.boolean(),
+  noRealWrite: z.literal(true),
+  evidenceRefIds: z.array(z.string().min(1)).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+  summary: z.string().min(1),
+});
+export type OrchestrationAdapterRunSummary = z.infer<
+  typeof OrchestrationAdapterRunSummarySchema
+>;
+
+export const OrchestrationRunSummarySchema = z.object({
+  requestTitle: z.string().min(1),
+  status: OrchestrationRunStatusSchema,
+  codexStatus: OrchestrationRunStatusSchema.optional(),
+  verificationStatus: OrchestrationRunStatusSchema.optional(),
+  affectedProjectCount: z.number().int().nonnegative(),
+  commandResultCount: z.number().int().nonnegative(),
+  evidenceCount: z.number().int().nonnegative(),
+  auditEventCount: z.number().int().nonnegative(),
+  policyDecisionCount: z.number().int().nonnegative(),
+  processBoundaryInvoked: z.boolean(),
+  externalProcessStarted: z.boolean(),
+  noRealWrite: z.literal(true),
+  bodyStored: z.literal(false),
+  rawPathStored: z.literal(false),
+});
+export type OrchestrationRunSummary = z.infer<typeof OrchestrationRunSummarySchema>;
+
+export const OrchestrationRunSchema = createdEntityBaseSchema.extend({
+  requestId: z.string().min(1),
+  orchestrationPlanId: z.string().min(1),
+  status: OrchestrationRunStatusSchema,
+  codexRun: OrchestrationAdapterRunSummarySchema.optional(),
+  verificationRun: OrchestrationAdapterRunSummarySchema.optional(),
+  timeline: z.array(OrchestrationTimelineEventSchema).default([]),
+  evidenceRefIds: z.array(z.string().min(1)).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+  policyDecisionIds: z.array(z.string().min(1)).default([]),
+  summary: OrchestrationRunSummarySchema,
+});
+export type OrchestrationRun = z.infer<typeof OrchestrationRunSchema>;
+
 export const MockDevelopmentRunSummarySchema = z.object({
   requestTitle: z.string().min(1),
   taskCount: z.number().int().nonnegative(),

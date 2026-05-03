@@ -1,10 +1,7 @@
-import { runGovernedDevelopmentOrchestration } from '@codexhub/orchestrator-kernel';
+import { buildOrchestratorServer } from './server';
 
-const result = await runGovernedDevelopmentOrchestration({
-  title: 'Prepare governed Codex control-plane handoff',
-  description: 'Create a metadata-only Orchestrator handoff summary.',
-  constraints: ['governed-input-required', 'dry-run-first', 'supervisor-owned-boundary'],
-  metadata: { source: 'apps/orchestrator demo', noLiveAutomation: true },
-});
+const host = process.env.CODEXHUB_ORCHESTRATOR_HOST ?? '127.0.0.1';
+const port = Number.parseInt(process.env.CODEXHUB_ORCHESTRATOR_PORT ?? '3334', 10);
+const server = buildOrchestratorServer();
 
-console.log(JSON.stringify(result.summary, null, 2));
+await server.listen({ host, port });
