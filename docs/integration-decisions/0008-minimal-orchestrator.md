@@ -26,6 +26,12 @@ The Orchestrator is an authority-aware coordinator. It does not become a new exe
   - `packages/codex-kernel/src/real-read-only-adapter-process.ts`
   - `packages/nx-verification-adapter/src/process-boundary.ts`
 
+## License / Supply Chain
+
+- License: CodexHub project code only; M2c does not add a third-party runtime provider.
+- Version strategy: the Orchestrator depends on public CodexHub package entrypoints and existing pinned adapter dependencies.
+- Sensitive data handling: the Orchestrator only returns summaries, counts, hashes, evidence IDs, audit IDs, and policy decision IDs.
+
 ## Authority Rules
 
 - Codex execution requires a server-resolved persisted approval artifact.
@@ -51,4 +57,3 @@ The Orchestrator is an authority-aware coordinator. It does not become a new exe
 ## Rollback
 
 Disable the Orchestrator app route surface and keep the M2a/M2b adapters available independently. No persisted migration is required for M2c because the run buffer is in memory.
-

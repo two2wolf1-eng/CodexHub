@@ -48,6 +48,7 @@ const requiredGovernanceFiles = [
   'docs/integration-decisions/0004-playwright-observer.md',
   'docs/integration-decisions/0005-electron-cdp-boundary.md',
   'docs/integration-decisions/0008-minimal-orchestrator.md',
+  'docs/integration-decisions/0009-capability-adapter-kernel.md',
 ];
 
 const requiredContractExports = [

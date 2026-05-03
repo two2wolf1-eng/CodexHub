@@ -106,6 +106,62 @@ describe('orchestrator local control server', () => {
     }
   });
 
+  it('blocks request-body approval artifacts and execution authorities at the route boundary', async () => {
+    let codexStarts = 0;
+    const server = buildOrchestratorServer({
+      disableStore: true,
+      localControlKey: localControlToken,
+      workspaceRoot: process.cwd(),
+      codexRunner: {
+        async start() {
+          codexStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/orchestrator/minimal-runs',
+        headers: localControlHeaders,
+        payload: {
+          title: 'Untrusted authority route fixture',
+          description: 'Caller-supplied authority objects must not become execution authority.',
+          dryRunId: 'codex_dry_run_untrusted_route_fixture',
+          approvalArtifactId: 'approval_artifact_untrusted_route_fixture',
+          governedInput: {
+            relativePath: 'package.json',
+            expectedContentHash: 'sha256:not-used-because-untrusted-authority-blocks',
+          },
+          approvalArtifact: {
+            id: 'request-body-approval-artifact',
+            status: 'approved',
+          },
+          executionAuthority: {
+            id: 'request-body-execution-authority',
+            allowed: true,
+            policyDecisionId: 'request-body-policy-decision',
+          },
+        },
+      });
+      const body = response.json();
+      const serialized = JSON.stringify(body);
+
+      expect(response.statusCode).toBe(200);
+      expect(body.run.status).toBe('blocked');
+      expect(body.run.timeline.at(-1)?.summary).toContain('untrusted_approval_artifact_body');
+      expect(body.run.timeline.at(-1)?.summary).toContain('untrusted_execution_authority_body');
+      expect(body.run.summary.processBoundaryInvoked).toBe(false);
+      expect(body.run.summary.externalProcessStarted).toBe(false);
+      expect(serialized).not.toContain('request-body-execution-authority');
+      expect(serialized).not.toContain('request-body-policy-decision');
+      expect(codexStarts).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('returns metadata-only run list and detail records', async () => {
     const server = buildOrchestratorServer({
       disableStore: true,

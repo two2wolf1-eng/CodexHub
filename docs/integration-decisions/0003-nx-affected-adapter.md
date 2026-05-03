@@ -13,6 +13,12 @@ CodexHub remains the authority provider; Nx is only a verification capability pr
 - Adapter: `nx-verification-adapter`
 - Product default: disabled until Supervisor/Orchestrator wiring is reviewed
 
+## License / Supply Chain
+
+- License: MIT, tracked through the workspace package lock and existing Nx dev dependency.
+- Version strategy: use the pinned workspace dependency; adapter fixtures cover command output parsing so upgrades can be reviewed without widening command input.
+- Sensitive data handling: command output is treated as evidence input only and stored as hashes, counts, affected project names, exit code, status, and summaries.
+
 ## Process Boundary
 
 - The adapter may start one audited local process boundary in

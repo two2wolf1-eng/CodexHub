@@ -19,6 +19,12 @@ The kernel keeps adapter behavior aligned before M5 adds Electron/CDP. It valida
 
 The kernel does not start processes, connect browsers, inspect Electron, execute shell commands, mutate files, or store evidence. It only validates envelopes that other governed packages already produce.
 
+## License / Supply Chain
+
+- License: CodexHub project code only; no external capability provider is introduced by this package.
+- Version strategy: depend on public CodexHub contracts and evidence/security abstractions already pinned by the workspace.
+- Sensitive data handling: the package validates metadata-only envelopes and does not ingest or persist raw runtime bodies.
+
 ## Authority Model
 
 Capability providers remain non-authoritative. The kernel does not decide whether an action is allowed; it verifies that any adapter execution envelope carries a CodexHub `ExecutionAuthority`, evidence, and audit shape that downstream control planes can trust.
