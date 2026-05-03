@@ -119,7 +119,7 @@ describe('playwright-observer-adapter', () => {
     expect(externalTarget.status).toBe('blocked');
     expect(externalTarget.blockReasons).toContain('target_url_forbidden');
     expect(isAllowedReadOnlyTargetUrl('about:blank')).toBe(true);
-    expect(isAllowedReadOnlyTargetUrl('data:text/html,<main>ok</main>')).toBe(true);
+    expect(isAllowedReadOnlyTargetUrl('data:text/html,<main>ok</main>')).toBe(false);
     expect(isAllowedReadOnlyTargetUrl('http://localhost:3000')).toBe(true);
     expect(isAllowedReadOnlyTargetUrl('https://localhost:3000')).toBe(false);
     expect(isAllowedReadOnlyTargetUrl('http://user:pass@localhost:3000')).toBe(false);
@@ -328,6 +328,45 @@ describe('playwright-observer-adapter', () => {
     expect(serialized).not.toContain('CodexHub');
   });
 
+  it('fails controlled browser execution when final page URL leaves the read-only target policy', async () => {
+    const profileRef = createProfileRef();
+    const plan = createPlaywrightObserverAdapterPlan({
+      dryRunId: 'browser_dry_run_final_url_forbidden',
+      profileRef,
+      runnerMode: 'controlled-local-browser',
+      targetUrl: 'http://localhost:4173/#/approved',
+      requestedCapabilities: ['title', 'url'],
+    });
+    const result = await executePlaywrightObserverAdapter({
+      plan,
+      authority: createAuthority({
+        approvalArtifactId: 'approval_browser_boundary_final_url',
+      }),
+      runner: {
+        async observe() {
+          return {
+            status: 'completed',
+            targetUrlHash: sha256Ref('http://localhost:4173/#/approved'),
+            pageTitle: 'External redirect',
+            pageUrl: 'https://example.test/redirected?token=secret',
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+          };
+        },
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('failed');
+    expect(result.pageSummary).toBeUndefined();
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(result.capabilityResult.externalProcessStarted).toBe(true);
+    expect(result.browserRun.summary).toContain('runner_final_url_forbidden');
+    expect(serialized).not.toContain('https://example.test');
+    expect(serialized).not.toContain('secret');
+    expect(serialized).not.toContain('External redirect');
+  });
+
   it('fails controlled browser execution when runner output is not bound to the approved target hash', async () => {
     const profileRef = createProfileRef();
     const plan = createPlaywrightObserverAdapterPlan({
@@ -502,5 +541,78 @@ describe('playwright-observer-adapter', () => {
     expect(result.networkSummary?.requestCount).toBe(1);
     expect(result.accessibilityNodeCount).toBe(1);
     expect(closed).toEqual(['context', 'browser']);
+  });
+
+  it('blocks final external URL inside the real runner before reading page metadata', async () => {
+    const profileRef = createProfileRef();
+    const plan = createPlaywrightObserverAdapterPlan({
+      dryRunId: 'browser_dry_run_real_runner_redirect',
+      profileRef,
+      runnerMode: 'controlled-local-browser',
+      targetUrl: 'http://localhost:4173/start',
+    });
+    const closed: string[] = [];
+    let titleRead = false;
+    let accessibilityRead = false;
+    const runner = createPlaywrightReadOnlyRealRunner({
+      targetUrl: 'http://localhost:4173/start',
+      loadPlaywright: async () => ({
+        chromium: {
+          async launch() {
+            return {
+              async newContext() {
+                return {
+                  async newPage() {
+                    return {
+                      on() {
+                        return undefined;
+                      },
+                      async goto() {
+                        return undefined;
+                      },
+                      async title() {
+                        titleRead = true;
+                        return 'External target';
+                      },
+                      url() {
+                        return 'https://example.test/redirected?token=secret';
+                      },
+                      locator() {
+                        return {
+                          async ariaSnapshot() {
+                            accessibilityRead = true;
+                            return 'main: External target';
+                          },
+                        };
+                      },
+                    };
+                  },
+                  async close() {
+                    closed.push('context');
+                  },
+                };
+              },
+              async close() {
+                closed.push('browser');
+              },
+            };
+          },
+        },
+      }),
+    });
+    const result = await runner.observe(plan);
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('failed');
+    expect(result.targetUrlHash).toBe(sha256Ref('http://localhost:4173/start'));
+    expect(result.processBoundaryInvoked).toBe(true);
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.summary).toContain('final URL policy');
+    expect(titleRead).toBe(false);
+    expect(accessibilityRead).toBe(false);
+    expect(closed).toEqual(['context', 'browser']);
+    expect(serialized).not.toContain('https://example.test');
+    expect(serialized).not.toContain('secret');
+    expect(serialized).not.toContain('External target');
   });
 });

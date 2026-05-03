@@ -27,6 +27,7 @@ import {
 } from './evidence';
 import {
   type PlaywrightObserverAdapterPlan,
+  isAllowedReadOnlyTargetUrl,
 } from './plan';
 import { PLAYWRIGHT_OBSERVER_ADAPTER_NAME } from './manifest';
 
@@ -97,6 +98,16 @@ export async function executePlaywrightObserverAdapter(
 
     if (targetBindingFailure) {
       return createFailedRunnerIntegrityResult(input, targetBindingFailure, boundaryTruth);
+    }
+
+    const finalUrlPolicyFailure = getFinalUrlPolicyFailure(
+      input.plan,
+      runnerResult,
+      boundaryTruth,
+    );
+
+    if (finalUrlPolicyFailure) {
+      return createFailedRunnerIntegrityResult(input, finalUrlPolicyFailure, boundaryTruth);
     }
 
     const pageSummary =
@@ -533,6 +544,26 @@ function getTargetBindingFailure(
   }
 
   return undefined;
+}
+
+function getFinalUrlPolicyFailure(
+  plan: PlaywrightObserverAdapterPlan,
+  result: PlaywrightObserverFixtureRunnerResult,
+  boundaryTruth: {
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+  },
+): string | undefined {
+  if (
+    !plan.processBoundaryPlanned ||
+    !boundaryTruth.processBoundaryInvoked ||
+    result.status !== 'completed' ||
+    result.pageUrl === undefined
+  ) {
+    return undefined;
+  }
+
+  return isAllowedReadOnlyTargetUrl(result.pageUrl) ? undefined : 'runner_final_url_forbidden';
 }
 
 function getBoundaryTruth(result: PlaywrightObserverFixtureRunnerResult): {

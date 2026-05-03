@@ -91,8 +91,22 @@ async function observeWithControlledLocalBrowser(
       waitUntil: 'domcontentloaded',
       timeout: input.timeoutMs ?? 5000,
     });
-    const pageTitle = await page.title();
     const pageUrl = page.url();
+
+    if (!isAllowedReadOnlyTargetUrl(pageUrl)) {
+      return {
+        status: 'failed',
+        targetUrlHash,
+        consoleSummary,
+        networkSummary,
+        processBoundaryInvoked: boundaryInvoked,
+        externalProcessStarted: processStarted,
+        sourceLabel: `${PLAYWRIGHT_OBSERVER_ADAPTER_NAME}.controlled-local-browser`,
+        summary: 'Controlled local browser observation failed final URL policy.',
+      };
+    }
+
+    const pageTitle = await page.title();
     const accessibilitySnapshot = await readAccessibilitySnapshot(page);
 
     return {

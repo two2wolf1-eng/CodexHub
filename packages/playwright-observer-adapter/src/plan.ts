@@ -257,10 +257,6 @@ export function isAllowedReadOnlyTargetUrl(value: string): boolean {
     return true;
   }
 
-  if (value.startsWith('data:text/html,') || value.startsWith('data:text/html;')) {
-    return true;
-  }
-
   try {
     const parsed = new URL(value);
 
