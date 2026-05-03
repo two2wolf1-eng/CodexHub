@@ -13,6 +13,7 @@ import {
 } from '@codexhub/electron-cdp-kernel';
 import { describe, expect, it } from 'vitest';
 
+import { createElectronCdpControlledHttpRunner } from './controlled-http-runner';
 import { executeElectronCdpAdapter } from './execute';
 import { createElectronCdpFixtureRunner } from './fixture';
 import { createElectronCdpAdapterManifest } from './manifest';
@@ -36,7 +37,8 @@ describe('electron-cdp-adapter', () => {
     expect(manifest.kind).toBe('electron');
     expect(manifest.provider).toBe('builtin');
     expect(manifest.processBoundary.mayStartExternalProcess).toBe(false);
-    expect(manifest.metadata?.fixtureOnly).toBe(true);
+    expect(manifest.metadata?.integrationStage).toBe('m5b');
+    expect(manifest.metadata?.controlledLocalHttpSupported).toBe(true);
   });
 
   it('plans read-only fixture observations without process boundaries', () => {
@@ -46,15 +48,39 @@ describe('electron-cdp-adapter', () => {
       targets: [createTargetSummary()],
       requestedCommands: ['Target.getTargets'],
       requestedCapabilities: ['target_summary', 'console_summary'],
+      metadata: {
+        targetUrl: 'app://codex/?secret=value',
+        cwd: 'C:\\Users\\Thomas\\CodexHub',
+      },
     });
     const validation = validateCapabilityPlanEnvelope(plan);
+    const serialized = JSON.stringify(plan);
 
     expect(validation.ok).toBe(true);
     expect(plan.status).toBe('ready');
     expect(plan.processBoundaryPlanned).toBe(false);
     expect(plan.externalProcessStarted).toBe(false);
     expect(plan.observationPlan.commandDecisions[0]?.allowed).toBe(true);
-    expect(JSON.stringify(plan)).not.toContain('Codex.exe');
+    expect(plan.observationPlan.runnerMode).toBe('fixture');
+    expect(serialized).not.toContain('Codex.exe');
+    expect(serialized).not.toContain('app://codex');
+    expect(serialized).not.toContain('C:\\Users\\Thomas');
+  });
+
+  it('plans controlled HTTP observations as approval-gated without process boundaries', () => {
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-local-http',
+      debugEndpoint: createEndpointSummary(),
+      requestedCapabilities: ['debug_endpoint_summary', 'target_summary'],
+    });
+
+    expect(plan.status).toBe('ready');
+    expect(plan.observationPlan.runnerMode).toBe('controlled-local-http');
+    expect(plan.observationPlan.cdpHttpBoundaryPlanned).toBe(true);
+    expect(plan.observationPlan.cdpHttpBoundaryInvoked).toBe(false);
+    expect(plan.capabilityDryRun.plannedActions[0]?.requiresApproval).toBe(true);
+    expect(plan.processBoundaryPlanned).toBe(false);
+    expect(plan.externalProcessStarted).toBe(false);
   });
 
   it('blocks forbidden Electron/CDP and UI actions at plan time', () => {
@@ -107,6 +133,91 @@ describe('electron-cdp-adapter', () => {
     expect(result.capabilityResult.status).toBe('blocked');
     expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
     expect(result.capabilityResult.externalProcessStarted).toBe(false);
+  });
+
+  it('requires persisted approval for controlled HTTP execution', async () => {
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-local-http',
+      debugEndpoint: createEndpointSummary(),
+    });
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority,
+      runner: createElectronCdpControlledHttpRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return '{}';
+          },
+        }),
+      }),
+    });
+
+    expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.electronRun.plan.blockReasons).toContain('approval_artifact_missing');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(false);
+  });
+
+  it('executes controlled HTTP metadata reads with endpoint hash binding', async () => {
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-local-http',
+      debugEndpoint: createEndpointSummary(),
+      requestedCapabilities: ['debug_endpoint_summary', 'target_summary'],
+    });
+    const requestedUrls: string[] = [];
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledHttpRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        fetch: async (url) => {
+          requestedUrls.push(url);
+
+          return {
+            ok: true,
+            status: 200,
+            async text() {
+              return url.endsWith('/json/list')
+                ? JSON.stringify([
+                    {
+                      id: 'target-1',
+                      type: 'page',
+                      title: 'Codex Desktop',
+                      url: 'app://codex/?secret=value',
+                      webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/page/target-1',
+                    },
+                  ])
+                : JSON.stringify({ Browser: 'Electron test' });
+            },
+          };
+        },
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.capabilityResult.status).toBe('completed');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
+    expect(result.electronRun.processBoundaryInvoked).toBe(false);
+    expect(result.electronRun.externalProcessStarted).toBe(false);
+    expect(result.electronRun.observationSummary?.targets).toHaveLength(1);
+    expect(result.electronRun.observationSummary?.targets[0]?.urlHash).toMatch(/^sha256:/);
+    expect(result.auditEvents[0]?.metadata?.cdpHttpBoundaryInvoked).toBe(true);
+    expect(requestedUrls).toEqual([
+      'http://127.0.0.1:9222/json/version',
+      'http://127.0.0.1:9222/json/list',
+    ]);
+    expect(serialized).not.toContain('Codex Desktop');
+    expect(serialized).not.toContain('app://codex');
+    expect(serialized).not.toContain('ws://');
+    expect(serialized).not.toContain('secret=value');
   });
 
   it('executes injected fixtures as metadata-only evidence and audit', async () => {

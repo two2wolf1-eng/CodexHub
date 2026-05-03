@@ -221,6 +221,11 @@ import type {
   CodexExecTimelineFilter,
   CodexReplaySummary,
   CodexReplayRecord,
+  ElectronCdpObservationApprovalArtifactRecord,
+  ElectronCdpObservationControlPlaneRun,
+  ElectronCdpObservationDryRunRecord,
+  ElectronCdpObservationRunStatus,
+  ElectronDebugEndpointSummary,
   EvidenceRef,
 } from '@codexhub/contracts';
 import {
@@ -228,7 +233,12 @@ import {
   BrowserObservationControlPlaneRunSchema,
   BrowserObservationDryRunRecordSchema,
   BrowserObservationTimelineEventSchema,
+  ElectronCdpObservationApprovalArtifactRecordSchema,
+  ElectronCdpObservationControlPlaneRunSchema,
+  ElectronCdpObservationDryRunRecordSchema,
+  ElectronCdpObservationTimelineEventSchema,
   ExecutionAuthoritySchema,
+  PolicyDecisionSchema,
   SchemaVersionSchema,
   foundationId,
   foundationTimestamp,
@@ -237,6 +247,16 @@ import {
   createBrowserProfileReadiness,
   createBrowserProfileRef,
 } from '@codexhub/browser-profile-kernel';
+import {
+  createElectronDebugEndpointSummary,
+  isLoopbackElectronEndpointHost,
+} from '@codexhub/electron-cdp-kernel';
+import {
+  createElectronCdpControlledHttpRunner,
+  executeElectronCdpAdapter,
+  planElectronCdpObservation,
+} from '@codexhub/electron-cdp-adapter';
+import type { ElectronCdpObservationRunner } from '@codexhub/electron-cdp-adapter';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
   type MockDevelopmentOrchestrationResult,
@@ -264,6 +284,8 @@ interface SupervisorServerOptions {
   realReadOnlyAdapterPostRunWorktreeState?: CodexExecRealReadOnlyAdapterPostRunWorktreeState;
   playwrightObserverEnabled?: boolean;
   playwrightObserverRunner?: PlaywrightObserverRunner;
+  electronCdpObserverEnabled?: boolean;
+  electronCdpObserverRunner?: ElectronCdpObservationRunner;
 }
 
 interface PersistenceState {
@@ -307,6 +329,51 @@ interface BrowserObservationManualApprovalRequestBody {
 interface BrowserObservationRunRequestBody {
   dryRunId?: string;
   approvalArtifactId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ElectronCdpObservationDryRunRequestBody {
+  host?: string;
+  port?: number;
+  runnerMode?: 'fixture' | 'controlled-local-http';
+  capabilities?: string[];
+  requestedActions?: string[];
+  requestedCommands?: string[];
+  mainInspectorRequested?: boolean;
+  runtimeEvaluateRequested?: boolean;
+  screenshotRequested?: boolean;
+  domSnapshotRequested?: boolean;
+  networkBodyRequested?: boolean;
+  domMutationRequested?: boolean;
+  clickTypeRequested?: boolean;
+  genericCommandPassthroughRequested?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+interface ElectronCdpObservationApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ElectronCdpObservationManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: 'approved' | 'denied' | 'revoked';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ElectronCdpObservationRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  host?: string;
+  port?: number;
   approvalArtifact?: unknown;
   authority?: unknown;
 }
@@ -359,6 +426,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const browserObservationDryRunRecords: BrowserObservationDryRunRecord[] = [];
   const browserObservationApprovalRecords: BrowserObservationApprovalArtifactRecord[] = [];
   const browserObservationRunRecords: BrowserObservationControlPlaneRun[] = [];
+  const electronCdpObservationDryRunRecords: ElectronCdpObservationDryRunRecord[] = [];
+  const electronCdpObservationApprovalRecords: ElectronCdpObservationApprovalArtifactRecord[] =
+    [];
+  const electronCdpObservationRunRecords: ElectronCdpObservationControlPlaneRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -735,6 +806,250 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createBrowserObservationRunResponse(record);
+  });
+
+  server.post('/api/electron-cdp/observation/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createElectronCdpObservationStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as ElectronCdpObservationDryRunRequestBody | undefined;
+    const dryRunRecord = createElectronCdpObservationDryRunRecordFromRequest(body);
+
+    await persistElectronCdpObservationDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistElectronCdpAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+    );
+
+    return createElectronCdpObservationDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/electron-cdp/observation/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseElectronCdpObservationQuery(request.query);
+    const records = await listElectronCdpObservationDryRuns(query, store);
+
+    return {
+      records: records.map(createElectronCdpObservationDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/electron-cdp/observation/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createElectronCdpObservationStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ElectronCdpObservationApprovalRequestBody | undefined;
+
+    if (body?.approvalArtifact || body?.authority) {
+      return reply
+        .code(400)
+        .send(createElectronCdpObservationUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveElectronCdpObservationDryRunRecord(
+      body?.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return reply
+        .code(404)
+        .send({ error: 'electron cdp observation dry-run record was not found' });
+    }
+
+    const approvalRecord = createElectronCdpObservationApprovalRecord({
+      dryRunRecord,
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+      status: 'requested',
+    });
+
+    await persistElectronCdpObservationApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistElectronCdpAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createElectronCdpObservationApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/electron-cdp/observation/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createElectronCdpObservationStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ElectronCdpObservationManualApprovalRequestBody | undefined;
+
+    if (body?.approvalArtifact || body?.authority) {
+      return reply
+        .code(400)
+        .send(createElectronCdpObservationUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveElectronCdpObservationDryRunRecord(
+      body?.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return reply
+        .code(404)
+        .send({ error: 'electron cdp observation dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveElectronCdpObservationApprovalRecord(body.approvalRequestId, store)
+      : (
+          await listElectronCdpObservationApprovals({
+            dryRunId: dryRunRecord.dryRunId,
+            limit: 1,
+          }, store)
+        )[0];
+
+    if (!approvalRequest) {
+      return reply
+        .code(404)
+        .send({ error: 'electron cdp observation approval request was not found' });
+    }
+
+    const approvalRecord = createElectronCdpObservationApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistElectronCdpObservationApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistElectronCdpAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createElectronCdpObservationApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/electron-cdp/observation/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseElectronCdpObservationQuery(request.query);
+    const records = await listElectronCdpObservationApprovals(query, store);
+
+    return {
+      records: records.map(createElectronCdpObservationApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/electron-cdp/observation/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createElectronCdpObservationStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as ElectronCdpObservationRunRequestBody | undefined;
+
+    if (body?.approvalArtifact || body?.authority) {
+      return reply
+        .code(400)
+        .send(createElectronCdpObservationUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveElectronCdpObservationDryRunRecord(
+      body?.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return reply
+        .code(404)
+        .send({ error: 'electron cdp observation dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveElectronCdpObservationApprovalRecordByArtifactId(
+          body.approvalArtifactId,
+          store,
+        )
+      : undefined;
+    const runRecord = await executeElectronCdpObservationRun({
+      dryRunRecord,
+      approvalRecord,
+      store,
+      host: body?.host,
+      port: body?.port,
+    });
+
+    return createElectronCdpObservationRunResponse(runRecord);
+  });
+
+  server.get('/api/electron-cdp/observation/runs', async (request) => {
+    const store = await getStore();
+    const query = parseElectronCdpObservationQuery(request.query);
+    const records = await listElectronCdpObservationRuns(query, store);
+
+    return {
+      records: records.map(createElectronCdpObservationRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      cdpHttpBoundaryInvoked: records.some((record) => record.cdpHttpBoundaryInvoked),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/electron-cdp/observation/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id
+      ? await resolveElectronCdpObservationRun(params.id, store)
+      : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'electron cdp observation run was not found' });
+    }
+
+    return createElectronCdpObservationRunResponse(record);
   });
 
   server.post('/api/development/mock-run', async (request) => {
@@ -7279,6 +7594,847 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       redacted: true,
       labels: [input.label],
       metadata,
+    };
+  }
+
+  function createElectronCdpObservationDryRunRecordFromRequest(
+    body: ElectronCdpObservationDryRunRequestBody | undefined,
+  ): ElectronCdpObservationDryRunRecord {
+    const dryRunId = foundationId('electron_cdp_observation_dry_run');
+    const endpointInput = resolveElectronCdpEndpointInput(body?.host, body?.port);
+    const plan = planElectronCdpObservation({
+      id: foundationId('electron_cdp_observation_plan'),
+      debugEndpoint: endpointInput.endpoint,
+      runnerMode: body?.runnerMode ?? 'controlled-local-http',
+      requestedCapabilities: body?.capabilities,
+      requestedActions: body?.requestedActions,
+      requestedCommands: body?.requestedCommands,
+      mainInspectorRequested: body?.mainInspectorRequested,
+      runtimeEvaluateRequested: body?.runtimeEvaluateRequested,
+      screenshotRequested: body?.screenshotRequested,
+      domSnapshotRequested: body?.domSnapshotRequested,
+      networkBodyRequested: body?.networkBodyRequested,
+      domMutationRequested: body?.domMutationRequested,
+      clickTypeRequested: body?.clickTypeRequested,
+      genericCommandPassthroughRequested: body?.genericCommandPassthroughRequested,
+      metadata: body?.metadata,
+    });
+    const blockReasons = [...new Set([...plan.blockReasons, ...endpointInput.blockReasons])];
+    const observationPlan = {
+      ...plan.observationPlan,
+      blockReasons,
+      summary:
+        blockReasons.length > 0
+          ? 'Electron/CDP observation plan blocked by read-only safety policy.'
+          : plan.observationPlan.summary,
+    };
+    const status = blockReasons.length > 0 ? 'blocked' : plan.status;
+    const basePolicyDecision = policyEngine.evaluateAction({
+      actionId: observationPlan.id,
+      actionType: 'electron.cdp.observe.read_only',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      dryRun: true,
+      approvalGranted: false,
+      metadata: {
+        noRealWrite: true,
+        dryRunOnly: true,
+        cdpHttpBoundaryPlanned: observationPlan.cdpHttpBoundaryPlanned,
+        processBoundaryPlanned: false,
+        endpointIdHash: observationPlan.debugEndpoint?.endpointIdHash,
+        rawPathStored: false,
+        bodyStored: false,
+      },
+    });
+    const policyDecision = PolicyDecisionSchema.parse(
+      observationPlan.cdpHttpBoundaryPlanned
+        ? {
+            ...basePolicyDecision,
+            outcome: 'approval_required',
+            reasons: [
+              ...basePolicyDecision.reasons,
+              'controlled local CDP HTTP observation requires explicit approval',
+            ],
+            requiresDryRun: true,
+            requiresApproval: true,
+          }
+        : basePolicyDecision,
+    );
+    const evidenceRefs = [
+      createElectronCdpControlEvidence({
+        kind: 'electron.observation_plan',
+        label: 'electron.cdp.observation.dry_run',
+        summary: observationPlan.summary,
+        metadata: {
+          dryRunId,
+          planId: observationPlan.id,
+          status,
+          policyDecisionId: policyDecision.id,
+          policyOutcome: policyDecision.outcome,
+          endpointIdHash: observationPlan.debugEndpoint?.endpointIdHash,
+          endpointHostHash: observationPlan.debugEndpoint?.hostHash,
+          endpointPortHash: observationPlan.debugEndpoint?.portHash,
+          cdpHttpBoundaryPlanned: observationPlan.cdpHttpBoundaryPlanned,
+          cdpHttpBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+    const timeline = [
+      ElectronCdpObservationTimelineEventSchema.parse({
+        id: foundationId('electron_cdp_observation_timeline_event'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        phase: 'dry-run',
+        status: status === 'ready' ? 'planned' : 'blocked',
+        summary: observationPlan.summary,
+        evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+        auditEventIds: [auditEventId],
+        bodyStored: false,
+        rawPathStored: false,
+        noRealWrite: true,
+        cdpHttpBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      }),
+    ];
+
+    return ElectronCdpObservationDryRunRecordSchema.parse({
+      id: dryRunId,
+      dryRunId,
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      status,
+      plan: observationPlan,
+      capabilityDryRun: {
+        ...plan.capabilityDryRun,
+        plannedActions: plan.capabilityDryRun.plannedActions.map((action) => ({
+          ...action,
+          requiresApproval: observationPlan.cdpHttpBoundaryPlanned,
+        })),
+      },
+      policyDecision,
+      endpointIdHash: observationPlan.debugEndpoint?.endpointIdHash,
+      endpointHostHash: observationPlan.debugEndpoint?.hostHash,
+      endpointPortHash: observationPlan.debugEndpoint?.portHash,
+      blockReasons,
+      timeline,
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryPlanned: observationPlan.cdpHttpBoundaryPlanned,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: observationPlan.summary,
+    });
+  }
+
+  function createElectronCdpObservationApprovalRecord(input: {
+    dryRunRecord: ElectronCdpObservationDryRunRecord;
+    baseRecord?: ElectronCdpObservationApprovalArtifactRecord;
+    status: 'requested' | 'approved' | 'denied' | 'revoked' | 'used';
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  }): ElectronCdpObservationApprovalArtifactRecord {
+    const now = foundationTimestamp();
+    const status = input.status;
+    const approvalArtifactId =
+      status === 'approved'
+        ? (input.baseRecord?.approvalArtifactId ??
+            foundationId('electron_cdp_observation_approval_artifact'))
+        : input.baseRecord?.approvalArtifactId;
+    const requestedAt = input.baseRecord?.requestedAt ?? now;
+    const expiresAt =
+      status === 'approved'
+        ? new Date(Date.parse(now) + 60 * 60 * 1000).toISOString()
+        : input.baseRecord?.expiresAt;
+    const evidenceRefs = [
+      createElectronCdpControlEvidence({
+        kind: 'electron.observation_plan',
+        label: `electron.cdp.observation.approval.${status}`,
+        summary: `Electron/CDP observation approval ${status}.`,
+        metadata: {
+          dryRunId: input.dryRunRecord.dryRunId,
+          dryRunRecordId: input.dryRunRecord.id,
+          status,
+          approvalArtifactId,
+          reasonHash: input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined,
+          cdpHttpBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          bodyStored: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+    const timeline = [
+      ...(input.baseRecord?.timeline ?? []),
+      ElectronCdpObservationTimelineEventSchema.parse({
+        id: foundationId('electron_cdp_observation_timeline_event'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        phase: status === 'requested' ? 'approval-request' : 'approval-decision',
+        status,
+        summary: `Electron/CDP observation approval ${status}.`,
+        evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+        auditEventIds: [auditEventId],
+        bodyStored: false,
+        rawPathStored: false,
+        noRealWrite: true,
+        cdpHttpBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      }),
+    ];
+
+    return ElectronCdpObservationApprovalArtifactRecordSchema.parse({
+      id: input.baseRecord?.id ?? foundationId('electron_cdp_observation_approval_record'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.baseRecord?.createdAt ?? now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      approvalRequestId:
+        input.baseRecord?.approvalRequestId ??
+        foundationId('electron_cdp_observation_approval_request'),
+      approvalArtifactId,
+      status,
+      requestedBy: input.baseRecord?.requestedBy ?? input.requestedBy ?? 'local-operator',
+      decidedBy: status === 'requested' ? undefined : (input.decidedBy ?? 'local-operator'),
+      reasonHash:
+        input.baseRecord?.reasonHash ??
+        (input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined),
+      decisionReasonHash:
+        status === 'requested' || !input.reason
+          ? undefined
+          : hashLocalMetadata({ reason: input.reason }),
+      dryRunPlanHash: hashLocalMetadata(input.dryRunRecord.plan),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      policyDecisionHash: hashLocalMetadata(input.dryRunRecord.policyDecision),
+      approved: status === 'approved',
+      requestedAt,
+      decidedAt: status === 'requested' ? undefined : now,
+      expiresAt,
+      usedAt: status === 'used' ? now : input.baseRecord?.usedAt,
+      revokedAt: status === 'revoked' ? now : input.baseRecord?.revokedAt,
+      timeline,
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: `Electron/CDP observation approval ${status}.`,
+    });
+  }
+
+  async function executeElectronCdpObservationRun(input: {
+    dryRunRecord: ElectronCdpObservationDryRunRecord;
+    approvalRecord?: ElectronCdpObservationApprovalArtifactRecord;
+    store: CodexHubStore;
+    host?: string;
+    port?: number;
+  }): Promise<ElectronCdpObservationControlPlaneRun> {
+    const enableControlledHttp =
+      options.electronCdpObserverEnabled === true ||
+      process.env.CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED === 'true';
+    const approvalState = classifyElectronCdpObservationApproval(input.approvalRecord);
+    const endpointMatch = verifyElectronCdpTransientEndpoint(
+      input.dryRunRecord.plan.debugEndpoint,
+      input.host,
+      input.port,
+    );
+    const blockedReason =
+      input.dryRunRecord.status === 'blocked'
+        ? 'dry_run_blocked'
+        : input.dryRunRecord.cdpHttpBoundaryPlanned && !enableControlledHttp
+          ? 'controlled_http_disabled'
+          : input.dryRunRecord.cdpHttpBoundaryPlanned && endpointMatch !== 'ready'
+            ? endpointMatch
+            : input.dryRunRecord.cdpHttpBoundaryPlanned && approvalState !== 'ready'
+              ? approvalState
+              : input.dryRunRecord.cdpHttpBoundaryPlanned &&
+                  !options.electronCdpObserverRunner &&
+                  (!input.host || input.port === undefined)
+                ? 'controlled_http_runner_missing'
+                : undefined;
+
+    if (blockedReason) {
+      const evidenceRefs = [
+        createElectronCdpControlEvidence({
+          kind: 'electron.run_summary',
+          label: 'electron.cdp.observation.run.blocked',
+          summary: `Electron/CDP observation execution blocked: ${blockedReason}.`,
+          metadata: {
+            dryRunId: input.dryRunRecord.dryRunId,
+            blockedReason,
+            cdpHttpBoundaryInvoked: false,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            bodyStored: false,
+          },
+        }),
+      ];
+      const auditEventIds = [foundationId('audit')];
+      const record = createElectronCdpObservationControlPlaneRunRecord({
+        dryRunRecord: input.dryRunRecord,
+        approvalRecord: input.approvalRecord,
+        status: 'blocked',
+        summary: `Electron/CDP observation execution blocked: ${blockedReason}.`,
+        evidenceRefs,
+        auditEventIds,
+        cdpHttpBoundaryInvoked: false,
+      });
+      await persistElectronCdpObservationRunRecord(record, input.store);
+      await persistEvidenceRefs(evidenceRefs, input.store);
+      await persistElectronCdpAuditEvents(
+        auditEventIds,
+        evidenceRefs,
+        input.store,
+        input.dryRunRecord.policyDecision.id,
+      );
+      return record;
+    }
+
+    const runner =
+      options.electronCdpObserverRunner ??
+      createElectronCdpControlledHttpRunner({
+        host: input.host ?? '127.0.0.1',
+        port: input.port ?? 0,
+      });
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('execution_authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      allowed: true,
+      constraints: [
+        'read-only electron cdp observation',
+        'loopback devtools HTTP metadata only',
+        'no remote socket connections',
+        'no cdp commands',
+        'no main inspector',
+        'no runtime evaluation',
+        'no screenshot or dom snapshot',
+      ],
+      expiresAt: input.approvalRecord?.expiresAt,
+    });
+    const adapterPlan = planElectronCdpObservation({
+      id: input.dryRunRecord.plan.id,
+      debugEndpoint: input.dryRunRecord.plan.debugEndpoint,
+      targets: input.dryRunRecord.plan.targets,
+      runnerMode: input.dryRunRecord.plan.runnerMode,
+      requestedCapabilities: input.dryRunRecord.plan.requestedCapabilities,
+      metadata: {
+        supervisorDryRunRecordId: input.dryRunRecord.id,
+        endpointIdHash: input.dryRunRecord.endpointIdHash,
+      },
+    });
+    const adapterResult = await executeElectronCdpAdapter({
+      plan: {
+        ...adapterPlan,
+        status: input.dryRunRecord.status,
+        observationPlan: input.dryRunRecord.plan,
+        capabilityDryRun: input.dryRunRecord.capabilityDryRun,
+        blockReasons: input.dryRunRecord.blockReasons,
+      },
+      authority,
+      runner,
+      actor: 'codexhub-supervisor',
+    });
+    const record = createElectronCdpObservationControlPlaneRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalRecord: input.approvalRecord,
+      status: adapterResult.electronRun.status,
+      summary: adapterResult.electronRun.summary,
+      electronRun: adapterResult.electronRun,
+      evidenceRefs: adapterResult.evidenceRefs,
+      auditEventIds: adapterResult.auditEvents.map((event) => event.id),
+      cdpHttpBoundaryInvoked: adapterResult.electronRun.cdpHttpBoundaryInvoked,
+    });
+
+    await persistElectronCdpObservationRunRecord(record, input.store);
+    await persistEvidenceRefs(adapterResult.evidenceRefs, input.store);
+    for (const auditEvent of adapterResult.auditEvents) {
+      await input.store.auditEvents.append(auditEvent);
+    }
+    if (input.approvalRecord?.status === 'approved') {
+      const consumedApprovalRecord = createElectronCdpObservationApprovalRecord({
+        dryRunRecord: input.dryRunRecord,
+        baseRecord: input.approvalRecord,
+        status: 'used',
+        reason: 'execution attempt consumed approval',
+      });
+      await persistElectronCdpObservationApprovalRecord(consumedApprovalRecord, input.store);
+      await persistEvidenceRefs(consumedApprovalRecord.evidenceRefs, input.store);
+      await persistElectronCdpAuditEvents(
+        consumedApprovalRecord.auditEventIds,
+        consumedApprovalRecord.evidenceRefs,
+        input.store,
+        consumedApprovalRecord.policyDecisionId,
+      );
+    }
+
+    return record;
+  }
+
+  function createElectronCdpObservationControlPlaneRunRecord(input: {
+    dryRunRecord: ElectronCdpObservationDryRunRecord;
+    approvalRecord?: ElectronCdpObservationApprovalArtifactRecord;
+    status: ElectronCdpObservationRunStatus;
+    summary: string;
+    electronRun?: ElectronCdpObservationControlPlaneRun['electronRun'];
+    evidenceRefs: EvidenceRef[];
+    auditEventIds: string[];
+    cdpHttpBoundaryInvoked: boolean;
+  }): ElectronCdpObservationControlPlaneRun {
+    const now = foundationTimestamp();
+
+    return ElectronCdpObservationControlPlaneRunSchema.parse({
+      id: foundationId('electron_cdp_observation_control_plane_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      status: input.status,
+      planId: input.dryRunRecord.plan.id,
+      endpointIdHash: input.dryRunRecord.endpointIdHash,
+      electronRun: input.electronRun,
+      timeline: [
+        ElectronCdpObservationTimelineEventSchema.parse({
+          id: foundationId('electron_cdp_observation_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: now,
+          phase: 'execution',
+          status: input.status,
+          summary: input.summary,
+          evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+          auditEventIds: input.auditEventIds,
+          bodyStored: false,
+          rawPathStored: false,
+          noRealWrite: true,
+          cdpHttpBoundaryInvoked: input.cdpHttpBoundaryInvoked,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        }),
+      ],
+      evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: input.auditEventIds,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryInvoked: input.cdpHttpBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: input.summary,
+    });
+  }
+
+  function classifyElectronCdpObservationApproval(
+    record: ElectronCdpObservationApprovalArtifactRecord | undefined,
+  ):
+    | 'ready'
+    | 'approval_artifact_missing'
+    | 'approval_denied'
+    | 'approval_artifact_revoked'
+    | 'approval_artifact_used'
+    | 'approval_artifact_expired'
+    | 'approval_artifact_invalid' {
+    if (!record?.approvalArtifactId) {
+      return 'approval_artifact_missing';
+    }
+
+    if (record.status === 'denied') {
+      return 'approval_denied';
+    }
+
+    if (record.status === 'revoked') {
+      return 'approval_artifact_revoked';
+    }
+
+    if (record.status === 'used') {
+      return 'approval_artifact_used';
+    }
+
+    if (record.status === 'expired' || (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())) {
+      return 'approval_artifact_expired';
+    }
+
+    if (record.status !== 'approved' || !record.approved) {
+      return 'approval_artifact_invalid';
+    }
+
+    return 'ready';
+  }
+
+  function createElectronCdpControlEvidence(input: {
+    kind: EvidenceRef['kind'];
+    label: string;
+    summary: string;
+    metadata: Record<string, unknown>;
+  }): EvidenceRef {
+    const metadata = {
+      ...input.metadata,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    };
+
+    return {
+      id: foundationId('evidence'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      kind: input.kind,
+      summary: input.summary,
+      hash: hashLocalMetadata(metadata),
+      redacted: true,
+      labels: [input.label],
+      metadata,
+    };
+  }
+
+  function resolveElectronCdpEndpointInput(
+    host: string | undefined,
+    port: number | undefined,
+  ): {
+    endpoint?: ElectronDebugEndpointSummary;
+    blockReasons: Array<'non_loopback_endpoint_forbidden' | 'capability_required'>;
+  } {
+    if (!host || port === undefined) {
+      return { blockReasons: ['capability_required'] };
+    }
+
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      return { blockReasons: ['capability_required'] };
+    }
+
+    if (!isLoopbackElectronEndpointHost(host)) {
+      return { blockReasons: ['non_loopback_endpoint_forbidden'] };
+    }
+
+    return {
+      endpoint: createElectronDebugEndpointSummary({ host, port, userEnabled: true }),
+      blockReasons: [],
+    };
+  }
+
+  function verifyElectronCdpTransientEndpoint(
+    persistedEndpoint: ElectronDebugEndpointSummary | undefined,
+    host: string | undefined,
+    port: number | undefined,
+  ): 'ready' | 'endpoint_hash_mismatch' {
+    if (!persistedEndpoint || !host || port === undefined) {
+      return 'endpoint_hash_mismatch';
+    }
+
+    if (!Number.isInteger(port) || !isLoopbackElectronEndpointHost(host)) {
+      return 'endpoint_hash_mismatch';
+    }
+
+    const transientEndpoint = createElectronDebugEndpointSummary({
+      host,
+      port,
+      userEnabled: persistedEndpoint.userEnabled,
+    });
+
+    return transientEndpoint.endpointIdHash === persistedEndpoint.endpointIdHash &&
+      transientEndpoint.hostHash === persistedEndpoint.hostHash &&
+      transientEndpoint.portHash === persistedEndpoint.portHash
+      ? 'ready'
+      : 'endpoint_hash_mismatch';
+  }
+
+  async function persistElectronCdpAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId = 'electron-cdp-observation-control-plane',
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'electron.cdp.observation.control_plane',
+        target: 'electron.cdp.observation',
+        reason: 'electron cdp observation control-plane metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawPathStored: false,
+          noRealWrite: true,
+          liveExecution: false,
+          cdpHttpBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      });
+    }
+  }
+
+  async function persistElectronCdpObservationDryRunRecord(
+    record: ElectronCdpObservationDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.electronCdpObservationDryRuns.saveDryRun(record);
+      return;
+    }
+
+    electronCdpObservationDryRunRecords.unshift(record);
+  }
+
+  async function persistElectronCdpObservationApprovalRecord(
+    record: ElectronCdpObservationApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.electronCdpObservationApprovals.saveApproval(record);
+      return;
+    }
+
+    const index = electronCdpObservationApprovalRecords.findIndex(
+      (candidate) => candidate.id === record.id,
+    );
+    if (index >= 0) {
+      electronCdpObservationApprovalRecords.splice(index, 1, record);
+    } else {
+      electronCdpObservationApprovalRecords.unshift(record);
+    }
+  }
+
+  async function persistElectronCdpObservationRunRecord(
+    record: ElectronCdpObservationControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.electronCdpObservationRuns.saveRun(record);
+      return;
+    }
+
+    electronCdpObservationRunRecords.unshift(record);
+  }
+
+  async function resolveElectronCdpObservationDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+
+    return store
+      ? await store.electronCdpObservationDryRuns.getDryRun(dryRunId)
+      : electronCdpObservationDryRunRecords.find(
+          (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+        );
+  }
+
+  async function resolveElectronCdpObservationApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord =
+        await store.electronCdpObservationApprovals.getApproval(approvalRequestId);
+
+      if (directRecord) {
+        return directRecord;
+      }
+
+      return (await store.electronCdpObservationApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+
+    return electronCdpObservationApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveElectronCdpObservationApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.electronCdpObservationApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : electronCdpObservationApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveElectronCdpObservationRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationControlPlaneRun | undefined> {
+    return store
+      ? await store.electronCdpObservationRuns.getRun(runId)
+      : electronCdpObservationRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listElectronCdpObservationDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationDryRunRecord[]> {
+    return store
+      ? await store.electronCdpObservationDryRuns.listDryRuns(query)
+      : electronCdpObservationDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listElectronCdpObservationApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord[]> {
+    return store
+      ? await store.electronCdpObservationApprovals.listApprovals(query)
+      : electronCdpObservationApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listElectronCdpObservationRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ElectronCdpObservationControlPlaneRun[]> {
+    return store
+      ? await store.electronCdpObservationRuns.listRuns(query)
+      : electronCdpObservationRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  function createElectronCdpObservationDryRunResponse(
+    record: ElectronCdpObservationDryRunRecord,
+  ) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      planId: record.plan.id,
+      endpointIdHash: record.endpointIdHash,
+      endpointHostHash: record.endpointHostHash,
+      endpointPortHash: record.endpointPortHash,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.policyDecision.requiresApproval,
+      runnerMode: record.plan.runnerMode,
+      requestedCapabilities: record.plan.requestedCapabilities,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      cdpHttpBoundaryPlanned: record.cdpHttpBoundaryPlanned,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createElectronCdpObservationApprovalResponse(
+    record: ElectronCdpObservationApprovalArtifactRecord,
+  ) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createElectronCdpObservationRunResponse(
+    record: ElectronCdpObservationControlPlaneRun,
+  ) {
+    return {
+      runId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      planId: record.planId,
+      endpointIdHash: record.endpointIdHash,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      cdpHttpBoundaryInvoked: record.cdpHttpBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createElectronCdpObservationStoreUnavailableResponse(phase: string) {
+    return {
+      error: 'electron_cdp_observation_store_unavailable',
+      phase,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function createElectronCdpObservationUntrustedAuthorityResponse(
+    dryRunId: string | undefined,
+  ) {
+    return {
+      error: 'untrusted_electron_cdp_observation_authority_body',
+      dryRunId,
+      status: 'blocked',
+      liveExecution: false,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function parseElectronCdpObservationQuery(query: unknown): {
+    dryRunId?: string;
+    status?: string;
+    limit?: number;
+  } {
+    const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+    return {
+      dryRunId: readQueryValue(query, 'dryRunId'),
+      status: readQueryValue(query, 'status'),
+      limit: limitResult.allowed ? limitResult.limit : undefined,
     };
   }
 

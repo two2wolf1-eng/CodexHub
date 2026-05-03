@@ -12,6 +12,7 @@ import {
   type ElectronCdpObservationRun,
   type ElectronCdpObservationRunStatus,
   type ElectronCdpObservationSummary,
+  type ElectronTargetSummary,
   type EvidenceRef,
   type ExecutionAuthority,
   type Metadata,
@@ -40,19 +41,24 @@ export interface ElectronCdpFixtureRunnerResult {
   consoleSummary?: ElectronCdpConsoleSummary;
   networkSummary?: ElectronCdpNetworkMetadataSummary;
   summary?: string;
+  targets?: ElectronTargetSummary[];
+  cdpHttpBoundaryInvoked?: boolean;
+  sourceLabel?: string;
   processBoundaryInvoked?: boolean;
   externalProcessStarted?: boolean;
   metadata?: Metadata;
 }
 
-export interface ElectronCdpFixtureRunner {
+export interface ElectronCdpObservationRunner {
   observe(plan: ElectronCdpAdapterPlan): Promise<ElectronCdpFixtureRunnerResult>;
 }
+
+export type ElectronCdpFixtureRunner = ElectronCdpObservationRunner;
 
 export interface ExecuteElectronCdpAdapterInput {
   plan: ElectronCdpAdapterPlan;
   authority?: ExecutionAuthority;
-  runner?: ElectronCdpFixtureRunner;
+  runner?: ElectronCdpObservationRunner;
   actor?: string;
 }
 
@@ -63,7 +69,7 @@ export interface ExecuteElectronCdpAdapterResult {
   electronRun: ElectronCdpObservationRun;
   evidenceRefs: EvidenceRef[];
   auditEvents: CapabilityAuditEvent[];
-  approvalRequired: false;
+  approvalRequired: boolean;
 }
 
 export async function executeElectronCdpAdapter(
@@ -105,10 +111,23 @@ export async function executeElectronCdpAdapter(
     });
   }
 
+  if (input.plan.observationPlan.runnerMode === 'controlled-local-http' && !authority.approvalArtifactId) {
+    return createBlockedExecution(input.plan, manifest, authority, actor, {
+      reason: 'Electron/CDP controlled HTTP observation requires persisted approval.',
+      blockReason: 'approval_artifact_missing',
+    });
+  }
+
   if (!input.runner) {
     return createBlockedExecution(input.plan, manifest, authority, actor, {
-      reason: 'Electron/CDP fixture runner is required for M5a execution.',
-      blockReason: 'fixture_runner_missing',
+      reason:
+        input.plan.observationPlan.runnerMode === 'controlled-local-http'
+          ? 'Electron/CDP controlled HTTP runner is required for M5b execution.'
+          : 'Electron/CDP fixture runner is required for execution.',
+      blockReason:
+        input.plan.observationPlan.runnerMode === 'controlled-local-http'
+          ? 'controlled_http_runner_missing'
+          : 'fixture_runner_missing',
     });
   }
 
@@ -116,7 +135,7 @@ export async function executeElectronCdpAdapter(
 
   if (fixture.processBoundaryInvoked || fixture.externalProcessStarted) {
     return createFailedExecution(input.plan, manifest, authority, actor, {
-      reason: 'Electron/CDP fixture runner attempted to cross a process boundary.',
+      reason: 'Electron/CDP runner attempted to cross a process boundary.',
       blockReason: 'fixture_process_boundary_forbidden',
       status: 'failed',
     });
@@ -150,7 +169,11 @@ function createObservedExecution(
     outcome: status === 'completed' ? 'completed' : status,
     policyDecisionId: authority.policyDecisionId,
     evidenceRefs: allEvidence,
-    metadata: fixture.metadata,
+    metadata: {
+      ...(fixture.metadata ?? {}),
+      runnerMode: plan.observationPlan.runnerMode,
+      cdpHttpBoundaryInvoked: fixture.cdpHttpBoundaryInvoked ?? false,
+    },
   });
   const completeRun = ElectronCdpObservationRunSchema.parse({
     ...run,
@@ -170,7 +193,7 @@ function createObservedExecution(
     electronRun: completeRun,
     evidenceRefs: allEvidence,
     auditEvents: [auditEvent],
-    approvalRequired: false,
+    approvalRequired: plan.observationPlan.runnerMode === 'controlled-local-http',
   };
 }
 
@@ -222,7 +245,7 @@ function createBlockedExecution(
     electronRun: completeRun,
     evidenceRefs: allEvidence,
     auditEvents: [auditEvent],
-    approvalRequired: false,
+    approvalRequired: plan.observationPlan.runnerMode === 'controlled-local-http',
   };
 }
 
@@ -282,7 +305,7 @@ function createFailedExecution(
     electronRun: completeRun,
     evidenceRefs: allEvidence,
     auditEvents: [auditEvent],
-    approvalRequired: false,
+    approvalRequired: plan.observationPlan.runnerMode === 'controlled-local-http',
   };
 }
 
@@ -294,18 +317,23 @@ function createObservationSummary(
     id: `electron_summary_${plan.observationPlan.id}`,
     schemaVersion,
     observedAt: new Date().toISOString(),
-    source: 'electron-cdp.fixture',
+    source:
+      fixture.sourceLabel ??
+      (plan.observationPlan.runnerMode === 'controlled-local-http'
+        ? 'electron-cdp.controlled-local-http'
+        : 'electron-cdp.fixture'),
     kind: 'electron.cdp.summary',
     severity: fixture.status === 'failed' ? 'error' : 'info',
     planId: plan.observationPlan.id,
     processSummary: plan.observationPlan.processSummary,
     debugEndpoint: plan.observationPlan.debugEndpoint,
-    targets: plan.observationPlan.targets,
+    targets: fixture.targets ?? plan.observationPlan.targets,
     consoleSummary: fixture.consoleSummary ?? createElectronCdpConsoleSummary(),
     networkSummary: fixture.networkSummary ?? createElectronCdpNetworkMetadataSummary(),
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
+    cdpHttpBoundaryInvoked: fixture.cdpHttpBoundaryInvoked ?? false,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary: fixture.summary ?? 'Electron/CDP fixture observation completed.',
@@ -349,6 +377,7 @@ function createRun(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
+    cdpHttpBoundaryInvoked: observationSummary?.cdpHttpBoundaryInvoked ?? false,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary:

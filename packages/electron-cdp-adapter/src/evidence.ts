@@ -132,7 +132,7 @@ function createEvidenceRef(input: {
     summary: input.summary,
     hash: hashText(JSON.stringify(metadata)),
     redacted: true,
-    labels: ['electron-cdp', 'm5a', 'metadata-only'],
+    labels: ['electron-cdp', 'm5b', 'metadata-only'],
     metadata,
   });
 }

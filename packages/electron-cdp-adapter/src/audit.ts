@@ -40,7 +40,7 @@ export function createElectronCdpAuditEvent(input: {
       rawPathStored: false,
       noRealWrite: true,
       adapterName: 'electron-cdp',
-      integrationStage: 'm5a',
+      integrationStage: 'm5b',
     }),
   });
 }

@@ -583,6 +583,14 @@ export type ElectronCdpObservationCapability = z.infer<
   typeof ElectronCdpObservationCapabilitySchema
 >;
 
+export const ElectronCdpObservationRunnerModeSchema = z.enum([
+  'fixture',
+  'controlled-local-http',
+]);
+export type ElectronCdpObservationRunnerMode = z.infer<
+  typeof ElectronCdpObservationRunnerModeSchema
+>;
+
 const ElectronCdpForbiddenActionValues = [
   'main_inspector',
   'runtime_evaluate',
@@ -621,6 +629,16 @@ export const ElectronCdpBlockReasonSchema = z.enum([
   'execution_authority_not_allowed',
   'execution_authority_expired',
   'fixture_process_boundary_forbidden',
+  'approval_artifact_missing',
+  'approval_artifact_invalid',
+  'approval_artifact_expired',
+  'approval_artifact_used',
+  'approval_artifact_revoked',
+  'controlled_http_disabled',
+  'controlled_http_runner_missing',
+  'endpoint_hash_mismatch',
+  'cdp_http_boundary_failed',
+  'malformed_devtools_json',
 ]);
 export type ElectronCdpBlockReason = z.infer<typeof ElectronCdpBlockReasonSchema>;
 
@@ -735,6 +753,7 @@ export type ElectronCdpNetworkMetadataSummary = z.infer<
 export const ElectronCdpObservationPlanSchema = createdEntityBaseSchema
   .extend({
     adapterName: z.string().min(1),
+    runnerMode: ElectronCdpObservationRunnerModeSchema.default('fixture'),
     processSummary: ElectronProcessSummarySchema.optional(),
     debugEndpoint: ElectronDebugEndpointSummarySchema.optional(),
     targets: z.array(ElectronTargetSummarySchema).default([]),
@@ -751,6 +770,8 @@ export const ElectronCdpObservationPlanSchema = createdEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
+    cdpHttpBoundaryPlanned: z.boolean().default(false),
+    cdpHttpBoundaryInvoked: z.literal(false).default(false),
     processBoundaryPlanned: z.literal(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
@@ -775,6 +796,7 @@ export const ElectronCdpObservationSummarySchema = observedEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),
@@ -805,6 +827,7 @@ export const ElectronCdpObservationRunSchema = createdEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),
@@ -812,6 +835,146 @@ export const ElectronCdpObservationRunSchema = createdEntityBaseSchema
   .strict();
 export type ElectronCdpObservationRun = z.infer<
   typeof ElectronCdpObservationRunSchema
+>;
+
+export const ElectronCdpControlPlaneApprovalStatusSchema = z.enum([
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type ElectronCdpControlPlaneApprovalStatus = z.infer<
+  typeof ElectronCdpControlPlaneApprovalStatusSchema
+>;
+
+export const ElectronCdpObservationTimelineEventSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.enum(['dry-run', 'approval-request', 'approval-decision', 'execution']),
+    status: ElectronCdpObservationRunStatusSchema.or(
+      ElectronCdpControlPlaneApprovalStatusSchema,
+    ),
+    summary: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    bodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    cdpHttpBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+  })
+  .strict();
+export type ElectronCdpObservationTimelineEvent = z.infer<
+  typeof ElectronCdpObservationTimelineEventSchema
+>;
+
+export const ElectronCdpObservationDryRunRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['ready', 'blocked']),
+    plan: ElectronCdpObservationPlanSchema,
+    capabilityDryRun: CapabilityDryRunSchema,
+    policyDecision: PolicyDecisionSchema,
+    endpointIdHash: z.string().min(1).optional(),
+    endpointHostHash: z.string().min(1).optional(),
+    endpointPortHash: z.string().min(1).optional(),
+    blockReasons: z.array(ElectronCdpBlockReasonSchema).default([]),
+    timeline: z.array(ElectronCdpObservationTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    cdpHttpBoundaryPlanned: z.boolean(),
+    cdpHttpBoundaryInvoked: z.literal(false),
+    processBoundaryPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronCdpObservationDryRunRecord = z.infer<
+  typeof ElectronCdpObservationDryRunRecordSchema
+>;
+
+export const ElectronCdpObservationApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: ElectronCdpControlPlaneApprovalStatusSchema,
+    requestedBy: z.string().min(1),
+    decidedBy: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    decisionReasonHash: z.string().min(1).optional(),
+    dryRunPlanHash: z.string().min(1),
+    policyDecisionId: z.string().min(1),
+    policyDecisionHash: z.string().min(1),
+    approved: z.boolean(),
+    requestedAt: IsoDateTimeSchema,
+    decidedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    timeline: z.array(ElectronCdpObservationTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    cdpHttpBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (record.status === 'approved' && (!record.approvalArtifactId || !record.expiresAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved electron cdp approvals require artifact id and expiry',
+        path: ['status'],
+      });
+    }
+
+    if (record.status !== 'approved' && record.approved) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only approved electron cdp approvals can set approved=true',
+        path: ['approved'],
+      });
+    }
+  });
+export type ElectronCdpObservationApprovalArtifactRecord = z.infer<
+  typeof ElectronCdpObservationApprovalArtifactRecordSchema
+>;
+
+export const ElectronCdpObservationControlPlaneRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: ElectronCdpObservationRunStatusSchema,
+    planId: z.string().min(1),
+    endpointIdHash: z.string().min(1).optional(),
+    electronRun: ElectronCdpObservationRunSchema.optional(),
+    timeline: z.array(ElectronCdpObservationTimelineEventSchema).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    cdpHttpBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ElectronCdpObservationControlPlaneRun = z.infer<
+  typeof ElectronCdpObservationControlPlaneRunSchema
 >;
 
 export const BrowserObservationControlPlaneApprovalStatusSchema = z.enum([

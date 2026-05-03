@@ -5,7 +5,7 @@ import {
 } from '@codexhub/contracts';
 
 export const ELECTRON_CDP_ADAPTER_NAME = 'electron-cdp';
-export const ELECTRON_CDP_ADAPTER_VERSION = '0.1.0-m5a';
+export const ELECTRON_CDP_ADAPTER_VERSION = '0.2.0-m5b';
 
 export function createElectronCdpAdapterManifest(): CapabilityManifest {
   return CapabilityManifestSchema.parse({
@@ -23,6 +23,8 @@ export function createElectronCdpAdapterManifest(): CapabilityManifest {
       'electron.console.summary',
       'electron.network_metadata.summary',
       'electron.cdp.command_allowlist.fixture',
+      'electron.cdp.controlled_http.version_summary',
+      'electron.cdp.controlled_http.target_summary',
       'electron.fixture_runner_only',
       'electron.main_inspector.disabled',
       'electron.runtime_evaluate.forbidden',
@@ -43,9 +45,10 @@ export function createElectronCdpAdapterManifest(): CapabilityManifest {
     metadata: {
       authorityProvider: 'codexhub',
       capabilityProvider: 'electron-cdp-adapter',
-      integrationStage: 'm5a',
+      integrationStage: 'm5b',
       productDefaultEnabled: false,
-      fixtureOnly: true,
+      fixtureOnly: false,
+      controlledLocalHttpSupported: true,
       realElectronConnectionEnabled: false,
       mainInspectorEnabled: false,
       runtimeEvaluateAllowed: false,

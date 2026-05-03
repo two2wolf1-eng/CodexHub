@@ -22,6 +22,9 @@ import {
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
+  type ElectronCdpObservationApprovalArtifactRecord,
+  type ElectronCdpObservationControlPlaneRun,
+  type ElectronCdpObservationDryRunRecord,
   type EvidenceRef,
   type MockDevelopmentRun,
   SchemaVersionSchema,
@@ -173,6 +176,12 @@ describe('store-sqlite migration initialization', () => {
     await first.browserObservationApprovals.saveApproval(browserApproval);
     const browserRun = createBrowserObservationRunFixture();
     await first.browserObservationRuns.saveRun(browserRun);
+    const electronDryRun = createElectronCdpObservationDryRunFixture();
+    await first.electronCdpObservationDryRuns.saveDryRun(electronDryRun);
+    const electronApproval = createElectronCdpObservationApprovalFixture();
+    await first.electronCdpObservationApprovals.saveApproval(electronApproval);
+    const electronRun = createElectronCdpObservationRunFixture();
+    await first.electronCdpObservationRuns.saveRun(electronRun);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -280,6 +289,31 @@ describe('store-sqlite migration initialization', () => {
       limit: 10,
     });
     const browserRunRecord = await second.browserObservationRuns.getRun('browser_control_run_1');
+    const electronDryRuns = await second.electronCdpObservationDryRuns.listDryRuns({
+      dryRunId: 'electron_dry_run_1',
+      status: 'ready',
+      limit: 10,
+    });
+    const electronDryRunRecord =
+      await second.electronCdpObservationDryRuns.getDryRun('electron_dry_run_record_1');
+    const electronApprovals = await second.electronCdpObservationApprovals.listApprovals({
+      dryRunId: 'electron_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const electronApprovalRecord =
+      await second.electronCdpObservationApprovals.getApproval('electron_approval_record_1');
+    const electronApprovalByArtifact =
+      await second.electronCdpObservationApprovals.getApprovalByArtifactId(
+        'electron_approval_artifact_1',
+      );
+    const electronRuns = await second.electronCdpObservationRuns.listRuns({
+      dryRunId: 'electron_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const electronRunRecord =
+      await second.electronCdpObservationRuns.getRun('electron_control_run_1');
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -473,6 +507,17 @@ describe('store-sqlite migration initialization', () => {
     );
     expect(JSON.stringify({ browserDryRunRecord, browserApprovalRecord, browserRunRecord })).not.toContain(
       'C:\\Users',
+    );
+    expect(electronDryRuns).toHaveLength(1);
+    expect(electronDryRunRecord?.endpointIdHash).toBe('sha256:endpoint');
+    expect(electronApprovals).toHaveLength(1);
+    expect(electronApprovalRecord?.approvalArtifactId).toBe('electron_approval_artifact_1');
+    expect(electronApprovalByArtifact?.id).toBe('electron_approval_record_1');
+    expect(electronRuns).toHaveLength(1);
+    expect(electronRunRecord?.cdpHttpBoundaryInvoked).toBe(true);
+    expect(electronRunRecord?.processBoundaryInvoked).toBe(false);
+    expect(JSON.stringify({ electronDryRunRecord, electronApprovalRecord, electronRunRecord })).not.toContain(
+      '127.0.0.1',
     );
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
@@ -973,6 +1018,189 @@ function createBrowserObservationRunFixture(): BrowserObservationControlPlaneRun
     processBoundaryInvoked: true,
     externalProcessStarted: true,
     summary: 'Browser observation control-plane run completed with boundary truth metadata.',
+  };
+}
+
+function createElectronCdpObservationDryRunFixture(): ElectronCdpObservationDryRunRecord {
+  const createdAt = '2026-04-28T00:00:04.400Z';
+  const debugEndpoint = {
+    id: 'electron_endpoint_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    endpointIdHash: 'sha256:endpoint',
+    hostHash: 'sha256:host',
+    portHash: 'sha256:port',
+    protocol: 'cdp' as const,
+    loopbackOnly: true as const,
+    userEnabled: true,
+    mainInspectorEnabled: false as const,
+    runtimeEvaluateAllowed: false as const,
+    genericCommandPassthrough: false as const,
+    rawPathStored: false as const,
+    bodyStored: false as const,
+    noRealWrite: true as const,
+    processBoundaryInvoked: false as const,
+    externalProcessStarted: false as const,
+    summary: 'Electron debug endpoint summary stores hashes only.',
+  };
+  const plan = {
+    id: 'electron_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    adapterName: 'electron-cdp',
+    runnerMode: 'controlled-local-http' as const,
+    debugEndpoint,
+    targets: [],
+    requestedCapabilities: ['debug_endpoint_summary' as const, 'target_summary' as const],
+    forbiddenActions: [],
+    blockReasons: [],
+    commandDecisions: [],
+    mainInspectorEnabled: false as const,
+    runtimeEvaluateAllowed: false as const,
+    genericCommandPassthrough: false as const,
+    screenshotPlanned: false as const,
+    domSnapshotPlanned: false as const,
+    networkBodyStorage: 'forbidden' as const,
+    rawPathStored: false as const,
+    bodyStored: false as const,
+    noRealWrite: true as const,
+    cdpHttpBoundaryPlanned: true,
+    cdpHttpBoundaryInvoked: false as const,
+    processBoundaryPlanned: false as const,
+    processBoundaryInvoked: false as const,
+    externalProcessStarted: false as const,
+    summary: 'Electron/CDP controlled HTTP dry-run stores endpoint hashes only.',
+  };
+  const evidenceRef: EvidenceRef = {
+    id: 'electron_evidence_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    kind: 'electron.observation_plan',
+    hash: 'sha256:electron-plan',
+    summary: 'Electron/CDP dry-run metadata only.',
+    labels: ['electron.cdp.observation.dry_run'],
+    redacted: true,
+  };
+
+  return {
+    id: 'electron_dry_run_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'electron_dry_run_1',
+    status: 'ready',
+    plan,
+    capabilityDryRun: {
+      id: 'electron_capability_dry_run_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      adapterName: 'electron-cdp',
+      inputSummary: {
+        endpointIdHash: 'sha256:endpoint',
+        bodyStored: false,
+      },
+      plannedActions: [
+        {
+          action: 'electron.cdp.observe.read_only',
+          actionMode: 'read',
+          risk: 'medium',
+          target: 'sha256:endpoint',
+          requiresApproval: true,
+        },
+      ],
+      requiredEvidence: [],
+      warnings: [],
+    },
+    policyDecision: {
+      id: 'electron_policy_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      actionId: 'electron_plan_1',
+      actionType: 'electron.cdp.observe.read_only',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      outcome: 'approval_required',
+      reasons: ['controlled local CDP HTTP observation requires explicit approval'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    },
+    endpointIdHash: 'sha256:endpoint',
+    endpointHostHash: 'sha256:host',
+    endpointPortHash: 'sha256:port',
+    blockReasons: [],
+    timeline: [],
+    evidenceRefs: [evidenceRef],
+    auditEventIds: ['electron_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    cdpHttpBoundaryPlanned: true,
+    cdpHttpBoundaryInvoked: false,
+    processBoundaryPlanned: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Electron/CDP observation dry-run persisted as metadata only.',
+  };
+}
+
+function createElectronCdpObservationApprovalFixture(): ElectronCdpObservationApprovalArtifactRecord {
+  const createdAt = '2026-04-28T00:00:04.500Z';
+
+  return {
+    id: 'electron_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'electron_dry_run_1',
+    dryRunRecordId: 'electron_dry_run_record_1',
+    approvalRequestId: 'electron_approval_request_1',
+    approvalArtifactId: 'electron_approval_artifact_1',
+    status: 'approved',
+    requestedBy: 'local-operator',
+    decidedBy: 'local-operator',
+    reasonHash: 'sha256:reason',
+    decisionReasonHash: 'sha256:decision',
+    dryRunPlanHash: 'sha256:electron-dry-run',
+    policyDecisionId: 'electron_policy_1',
+    policyDecisionHash: 'sha256:electron-policy',
+    approved: true,
+    requestedAt: createdAt,
+    decidedAt: createdAt,
+    expiresAt: '2026-04-28T01:00:00.000Z',
+    timeline: [],
+    evidenceRefs: [],
+    auditEventIds: ['electron_approval_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    cdpHttpBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Electron/CDP approval stores hashes and ids only.',
+  };
+}
+
+function createElectronCdpObservationRunFixture(): ElectronCdpObservationControlPlaneRun {
+  const createdAt = '2026-04-28T00:00:04.600Z';
+
+  return {
+    id: 'electron_control_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'electron_dry_run_1',
+    dryRunRecordId: 'electron_dry_run_record_1',
+    approvalArtifactId: 'electron_approval_artifact_1',
+    status: 'completed',
+    planId: 'electron_plan_1',
+    endpointIdHash: 'sha256:endpoint',
+    timeline: [],
+    evidenceRefIds: ['electron_evidence_1'],
+    auditEventIds: ['electron_run_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    cdpHttpBoundaryInvoked: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Electron/CDP control-plane run completed with HTTP boundary metadata.',
   };
 }
 

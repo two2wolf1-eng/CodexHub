@@ -78,6 +78,12 @@ const requiredContractExports = [
   'ElectronCdpObservationPlanSchema',
   'ElectronCdpObservationSummarySchema',
   'ElectronCdpObservationRunSchema',
+  'ElectronCdpObservationRunnerModeSchema',
+  'ElectronCdpObservationDryRunRecordSchema',
+  'ElectronCdpObservationApprovalArtifactRecordSchema',
+  'ElectronCdpObservationControlPlaneRunSchema',
+  'ElectronCdpObservationTimelineEventSchema',
+  'ElectronCdpControlPlaneApprovalStatusSchema',
 ];
 
 const projects = readNxProjects();

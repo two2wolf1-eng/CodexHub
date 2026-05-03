@@ -152,11 +152,17 @@ import {
   ElectronCdpConsoleSummarySchema,
   ElectronCdpForbiddenActionSchema,
   ElectronCdpNetworkMetadataSummarySchema,
+  ElectronCdpControlPlaneApprovalStatusSchema,
+  ElectronCdpObservationApprovalArtifactRecordSchema,
   ElectronCdpObservationCapabilitySchema,
+  ElectronCdpObservationControlPlaneRunSchema,
+  ElectronCdpObservationDryRunRecordSchema,
   ElectronCdpObservationPlanSchema,
+  ElectronCdpObservationRunnerModeSchema,
   ElectronCdpObservationRunSchema,
   ElectronCdpObservationRunStatusSchema,
   ElectronCdpObservationSummarySchema,
+  ElectronCdpObservationTimelineEventSchema,
   ElectronDebugEndpointSummarySchema,
   ElectronProcessKindSchema,
   ElectronProcessSummarySchema,
@@ -1000,6 +1006,216 @@ describe('contracts schemas', () => {
         createdAt,
         kind: 'electron.raw_body',
         hash: 'sha256:bad',
+      }),
+    ).toThrow();
+  });
+
+  it('parses electron cdp controlled HTTP control-plane records as metadata only', () => {
+    expect(ElectronCdpObservationRunnerModeSchema.options).toEqual([
+      'fixture',
+      'controlled-local-http',
+    ]);
+    expect(ElectronCdpControlPlaneApprovalStatusSchema.options).toEqual([
+      'requested',
+      'approved',
+      'denied',
+      'expired',
+      'used',
+      'revoked',
+    ]);
+
+    const endpoint = ElectronDebugEndpointSummarySchema.parse({
+      id: 'electron_endpoint_summary_control_1',
+      schemaVersion,
+      createdAt,
+      endpointIdHash: 'sha256:endpoint',
+      hostHash: 'sha256:host',
+      portHash: 'sha256:port',
+      protocol: 'cdp',
+      loopbackOnly: true,
+      userEnabled: true,
+      mainInspectorEnabled: false,
+      runtimeEvaluateAllowed: false,
+      genericCommandPassthrough: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Loopback endpoint metadata only.',
+    });
+    const policyDecision = PolicyDecisionSchema.parse({
+      id: 'policy_electron_control_1',
+      schemaVersion,
+      createdAt,
+      actionId: 'electron_cdp_observe_1',
+      actionType: 'electron.cdp.observe.read_only',
+      actionMode: 'read',
+      riskLevel: 'medium',
+      outcome: 'allow',
+      reasons: ['read-only with explicit approval for live local HTTP'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    });
+    const evidence = EvidenceRefSchema.parse({
+      id: 'electron_evidence_control_1',
+      schemaVersion,
+      createdAt,
+      kind: 'electron.observation_plan',
+      hash: 'sha256:evidence',
+    });
+    const plan = ElectronCdpObservationPlanSchema.parse({
+      id: 'electron_observation_plan_control_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'electron-cdp',
+      runnerMode: 'controlled-local-http',
+      debugEndpoint: endpoint,
+      requestedCapabilities: ['debug_endpoint_summary', 'target_summary'],
+      forbiddenActions: [],
+      blockReasons: [],
+      commandDecisions: [],
+      mainInspectorEnabled: false,
+      runtimeEvaluateAllowed: false,
+      genericCommandPassthrough: false,
+      screenshotPlanned: false,
+      domSnapshotPlanned: false,
+      networkBodyStorage: 'forbidden',
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryPlanned: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Controlled HTTP Electron/CDP dry-run stores endpoint hashes only.',
+    });
+    const timelineEvent = ElectronCdpObservationTimelineEventSchema.parse({
+      id: 'electron_timeline_control_1',
+      schemaVersion,
+      createdAt,
+      phase: 'dry-run',
+      status: 'planned',
+      summary: 'Electron/CDP dry-run planned.',
+      evidenceRefIds: [evidence.id],
+      auditEventIds: ['audit_electron_control_1'],
+      bodyStored: false,
+      rawPathStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    const dryRunRecord = ElectronCdpObservationDryRunRecordSchema.parse({
+      id: 'electron_dry_run_record_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'electron_dry_run_1',
+      status: 'ready',
+      plan,
+      capabilityDryRun: {
+        id: 'electron_capability_dry_run_1',
+        schemaVersion,
+        createdAt,
+        adapterName: 'electron-cdp',
+        inputSummary: { endpointIdHash: endpoint.endpointIdHash },
+        plannedActions: [
+          {
+            action: 'electron.cdp.observe.read_only',
+            actionMode: 'read',
+            risk: 'medium',
+            target: endpoint.endpointIdHash,
+            requiresApproval: true,
+          },
+        ],
+      },
+      policyDecision,
+      endpointIdHash: endpoint.endpointIdHash,
+      endpointHostHash: endpoint.hostHash,
+      endpointPortHash: endpoint.portHash,
+      blockReasons: [],
+      timeline: [timelineEvent],
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_electron_control_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryPlanned: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Electron/CDP dry-run record stores hashes only.',
+    });
+    const approvalRecord = ElectronCdpObservationApprovalArtifactRecordSchema.parse({
+      id: 'electron_approval_record_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalRequestId: 'electron_approval_request_1',
+      approvalArtifactId: 'electron_approval_artifact_1',
+      status: 'approved',
+      requestedBy: 'local-operator',
+      decidedBy: 'local-operator',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: policyDecision.id,
+      policyDecisionHash: 'sha256:policy',
+      approved: true,
+      requestedAt: createdAt,
+      decidedAt: createdAt,
+      expiresAt: '2026-04-28T01:00:00.000Z',
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_electron_approval_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Electron/CDP approval stores hashes and ids only.',
+    });
+    const runRecord = ElectronCdpObservationControlPlaneRunSchema.parse({
+      id: 'electron_control_run_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalArtifactId: approvalRecord.approvalArtifactId,
+      status: 'completed',
+      planId: plan.id,
+      endpointIdHash: endpoint.endpointIdHash,
+      evidenceRefIds: [evidence.id],
+      auditEventIds: ['audit_electron_run_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      cdpHttpBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Electron/CDP controlled HTTP run completed.',
+    });
+    const serialized = JSON.stringify({ dryRunRecord, approvalRecord, runRecord });
+
+    expect(dryRunRecord.cdpHttpBoundaryPlanned).toBe(true);
+    expect(approvalRecord.approved).toBe(true);
+    expect(runRecord.cdpHttpBoundaryInvoked).toBe(true);
+    expect(runRecord.processBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('127.0.0.1');
+    expect(serialized).not.toContain('localhost');
+    expect(serialized).not.toContain('ws://');
+    expect(serialized).not.toContain('session=secret');
+    expect(() =>
+      ElectronCdpObservationDryRunRecordSchema.parse({
+        ...dryRunRecord,
+        host: '127.0.0.1',
+      }),
+    ).toThrow();
+    expect(() =>
+      ElectronCdpObservationControlPlaneRunSchema.parse({
+        ...runRecord,
+        body: '{"targets":[]}',
       }),
     ).toThrow();
   });

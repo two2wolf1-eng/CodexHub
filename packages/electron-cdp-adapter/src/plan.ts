@@ -8,6 +8,7 @@ import {
   type ElectronCdpForbiddenAction,
   type ElectronCdpObservationCapability,
   type ElectronCdpObservationPlan,
+  type ElectronCdpObservationRunnerMode,
   type ElectronDebugEndpointSummary,
   type ElectronProcessSummary,
   type ElectronTargetSummary,
@@ -31,6 +32,7 @@ export interface ElectronCdpAdapterPlanInput {
   processSummary?: ElectronProcessSummary;
   debugEndpoint?: ElectronDebugEndpointSummary;
   targets?: readonly ElectronTargetSummary[];
+  runnerMode?: ElectronCdpObservationRunnerMode;
   requestedCapabilities?: readonly string[];
   requestedActions?: readonly string[];
   requestedCommands?: readonly string[];
@@ -84,9 +86,15 @@ export function planElectronCdpObservation(
   const commandDecisions = (input.requestedCommands ?? []).map((command) =>
     createElectronCdpCommandAllowlistDecision(command),
   );
+  const runnerMode = input.runnerMode ?? 'fixture';
+  const cdpHttpBoundaryPlanned = runnerMode === 'controlled-local-http';
 
   if (input.debugEndpoint && input.debugEndpoint.loopbackOnly !== true) {
     blockReasons.push('non_loopback_endpoint_forbidden');
+  }
+
+  if (cdpHttpBoundaryPlanned && !input.debugEndpoint) {
+    blockReasons.push('capability_required');
   }
 
   for (const decision of commandDecisions) {
@@ -108,8 +116,9 @@ export function planElectronCdpObservation(
     id,
     schemaVersion,
     createdAt,
-    metadata: input.metadata,
+    metadata: createSafePlanMetadata(input.metadata),
     adapterName: ELECTRON_CDP_ADAPTER_NAME,
+    runnerMode,
     processSummary: input.processSummary,
     debugEndpoint:
       input.debugEndpoint?.loopbackOnly === true ? input.debugEndpoint : undefined,
@@ -127,6 +136,8 @@ export function planElectronCdpObservation(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
+    cdpHttpBoundaryPlanned,
+    cdpHttpBoundaryInvoked: false,
     processBoundaryPlanned: false,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
@@ -153,6 +164,7 @@ export function planElectronCdpObservation(
       commandDecisionCount: observationPlan.commandDecisions.length,
       rawPathStored: false,
       bodyStored: false,
+      cdpHttpBoundaryPlanned,
       processBoundaryPlanned: false,
     },
     plannedActions: [
@@ -161,7 +173,7 @@ export function planElectronCdpObservation(
         actionMode: 'read',
         risk: 'medium',
         target,
-        requiresApproval: false,
+        requiresApproval: cdpHttpBoundaryPlanned,
       },
     ],
     requiredEvidence: ['electron.observation_plan'],
@@ -266,4 +278,16 @@ function mapForbiddenActionsToBlockReasons(
 
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
+}
+
+function createSafePlanMetadata(metadata: Metadata | undefined): Metadata | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+
+  return {
+    inputMetadataHash: hashElectronLocalMetadata(JSON.stringify(metadata)),
+    rawMetadataStored: false,
+    bodyStored: false,
+  };
 }

@@ -11,6 +11,9 @@ import type {
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
+  ElectronCdpObservationApprovalArtifactRecord,
+  ElectronCdpObservationControlPlaneRun,
+  ElectronCdpObservationDryRunRecord,
   CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
@@ -66,6 +69,10 @@ import type {
   CodexReplayRepository,
   CodexReportReviewRepository,
   DevelopmentRunRepository,
+  ElectronCdpObservationApprovalRepository,
+  ElectronCdpObservationDryRunRepository,
+  ElectronCdpObservationQuery,
+  ElectronCdpObservationRunRepository,
   EvidenceRefQuery,
   EvidenceRefRepository,
   ObservationRepository,
@@ -127,6 +134,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly browserObservationDryRuns: BrowserObservationDryRunRepository;
   readonly browserObservationApprovals: BrowserObservationApprovalRepository;
   readonly browserObservationRuns: BrowserObservationRunRepository;
+  readonly electronCdpObservationDryRuns: ElectronCdpObservationDryRunRepository;
+  readonly electronCdpObservationApprovals: ElectronCdpObservationApprovalRepository;
+  readonly electronCdpObservationRuns: ElectronCdpObservationRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -161,6 +171,11 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.browserObservationDryRuns = new SqliteBrowserObservationDryRunRepository(database);
     this.browserObservationApprovals = new SqliteBrowserObservationApprovalRepository(database);
     this.browserObservationRuns = new SqliteBrowserObservationRunRepository(database);
+    this.electronCdpObservationDryRuns = new SqliteElectronCdpObservationDryRunRepository(database);
+    this.electronCdpObservationApprovals = new SqliteElectronCdpObservationApprovalRepository(
+      database,
+    );
+    this.electronCdpObservationRuns = new SqliteElectronCdpObservationRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -530,6 +545,122 @@ class SqliteBrowserObservationRunRepository implements BrowserObservationRunRepo
     return listBrowserObservationRecords<BrowserObservationControlPlaneRun>(
       this.database,
       'browser_observation_runs',
+      query,
+    );
+  }
+}
+
+class SqliteElectronCdpObservationDryRunRepository
+  implements ElectronCdpObservationDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<ElectronCdpObservationDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ElectronCdpObservationDryRunRecord>(
+      database,
+      'electron_cdp_observation_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(
+    record: ElectronCdpObservationDryRunRecord,
+  ): Promise<ElectronCdpObservationDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<ElectronCdpObservationDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: ElectronCdpObservationQuery = {},
+  ): Promise<ElectronCdpObservationDryRunRecord[]> {
+    return listObservationControlPlaneRecords<ElectronCdpObservationDryRunRecord>(
+      this.database,
+      'electron_cdp_observation_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteElectronCdpObservationApprovalRepository
+  implements ElectronCdpObservationApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<ElectronCdpObservationApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ElectronCdpObservationApprovalArtifactRecord>(
+      database,
+      'electron_cdp_observation_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: ElectronCdpObservationApprovalArtifactRecord,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM electron_cdp_observation_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as ElectronCdpObservationApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: ElectronCdpObservationQuery = {},
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<ElectronCdpObservationApprovalArtifactRecord>(
+      this.database,
+      'electron_cdp_observation_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteElectronCdpObservationRunRepository implements ElectronCdpObservationRunRepository {
+  private readonly repository: JsonEntityRepository<ElectronCdpObservationControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ElectronCdpObservationControlPlaneRun>(
+      database,
+      'electron_cdp_observation_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: ElectronCdpObservationControlPlaneRun,
+  ): Promise<ElectronCdpObservationControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<ElectronCdpObservationControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: ElectronCdpObservationQuery = {},
+  ): Promise<ElectronCdpObservationControlPlaneRun[]> {
+    return listObservationControlPlaneRecords<ElectronCdpObservationControlPlaneRun>(
+      this.database,
+      'electron_cdp_observation_runs',
       query,
     );
   }
@@ -1445,6 +1576,24 @@ function initializeDatabase(database: SqliteDatabase): void {
       payload TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS electron_cdp_observation_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS electron_cdp_observation_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS electron_cdp_observation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS codex_report_reviews (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
@@ -1540,6 +1689,14 @@ function listBrowserObservationRecords<T extends { dryRunId?: string; status?: s
   database: SqliteDatabase,
   tableName: string,
   query: BrowserObservationQuery,
+): T[] {
+  return listObservationControlPlaneRecords(database, tableName, query);
+}
+
+function listObservationControlPlaneRecords<T extends { dryRunId?: string; status?: string }>(
+  database: SqliteDatabase,
+  tableName: string,
+  query: BrowserObservationQuery | ElectronCdpObservationQuery,
 ): T[] {
   const safeLimit = normalizeLimit(query.limit);
   const rows = database

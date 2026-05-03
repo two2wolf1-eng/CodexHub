@@ -345,6 +345,269 @@ describe('supervisor mock development API', () => {
     });
   });
 
+  it('governs electron cdp dry-run, persisted approval, and injected HTTP execution', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-electron-cdp-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      electronCdpObserverEnabled: true,
+      electronCdpObserverRunner: {
+        async observe() {
+          return {
+            status: 'completed',
+            cdpHttpBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            metadata: {
+              versionBodyHash: `sha256:${hashTestText('version fixture')}`,
+              listBodyHash: `sha256:${hashTestText('list fixture')}`,
+              targetCount: 1,
+              bodyStored: false,
+              rawPathStored: false,
+            },
+            summary: 'Injected Electron/CDP controlled HTTP metadata observation completed.',
+          };
+        },
+      },
+    });
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/dry-runs',
+      payload: {},
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/dry-runs',
+      headers: {
+        ...localControlHeaders,
+        origin: 'https://evil.example',
+      },
+      payload: {},
+    });
+    const preflightResponse = await server.inject({
+      method: 'OPTIONS',
+      url: '/api/electron-cdp/observation/dry-runs',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        runnerMode: 'controlled-local-http',
+        host: '127.0.0.1',
+        port: 9222,
+        capabilities: ['debug_endpoint_summary', 'target_summary'],
+        metadata: {
+          targetUrl: 'app://codex/?secret=value',
+          cwd: 'C:\\Users\\Thomas\\CodexHub',
+        },
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const persistedDryRun =
+      await store.electronCdpObservationDryRuns.getDryRun(dryRunId);
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        requestedBy: 'local-operator',
+        reason: 'private electron approval reason',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'private electron approval reason',
+      },
+    });
+    const forgedRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifact: approvalResponse.json(),
+      },
+    });
+    const mismatchRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        host: '127.0.0.1',
+        port: 9333,
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        host: '127.0.0.1',
+        port: 9222,
+      },
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/electron-cdp/observation/runs',
+    });
+    const showResponse = await server.inject({
+      method: 'GET',
+      url: `/api/electron-cdp/observation/runs/${runResponse.json().runId}`,
+    });
+    const usedApprovalsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/electron-cdp/observation/approvals?dryRunId=${dryRunId}&status=used`,
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(preflightResponse.statusCode).toBe(401);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      status: 'ready',
+      runnerMode: 'controlled-local-http',
+      cdpHttpBoundaryPlanned: true,
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(JSON.stringify(persistedDryRun)).not.toContain('app://codex');
+    expect(JSON.stringify(persistedDryRun)).not.toContain('C:\\Users\\Thomas');
+    expect(JSON.stringify(persistedDryRun)).not.toContain('secret=value');
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(approvalResponse.json().status).toBe('approved');
+    expect(forgedRunResponse.statusCode).toBe(400);
+    expect(forgedRunResponse.json().error).toBe(
+      'untrusted_electron_cdp_observation_authority_body',
+    );
+    expect(mismatchRunResponse.statusCode).toBe(200);
+    expect(mismatchRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'completed',
+      cdpHttpBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(listResponse.json().records.length).toBeGreaterThanOrEqual(2);
+    expect(showResponse.statusCode).toBe(200);
+    expect(showResponse.json().runId).toBe(runResponse.json().runId);
+    expect(usedApprovalsResponse.json().records).toHaveLength(1);
+    expect(
+      JSON.stringify({
+        dryRun: dryRunResponse.json(),
+        approval: approvalResponse.json(),
+        run: runResponse.json(),
+      }),
+    ).not.toContain('127.0.0.1');
+    expect(runResponse.body).not.toContain('9222');
+    expect(approvalResponse.body).not.toContain('private electron approval reason');
+  });
+
+  it('blocks electron cdp execution when store or enablement is unavailable', async () => {
+    const disabledStoreServer = buildSupervisorServer({ disableStore: true });
+    const disabledStoreResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/electron-cdp/observation/dry-runs',
+      payload: {},
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-electron-disabled-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/electron-cdp/observation/dry-runs',
+      payload: {
+        runnerMode: 'controlled-local-http',
+        host: 'localhost',
+        port: 9222,
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/electron-cdp/observation/approval-requests',
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/electron-cdp/observation/manual-approvals',
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const blockedRunResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/electron-cdp/observation/runs',
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        host: 'localhost',
+        port: 9222,
+      },
+    });
+
+    await disabledStoreServer.close();
+    await server.close();
+    await store.close();
+
+    expect(disabledStoreResponse.statusCode).toBe(503);
+    expect(disabledStoreResponse.json()).toMatchObject({
+      status: 'blocked',
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(blockedRunResponse.statusCode).toBe(200);
+    expect(blockedRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      cdpHttpBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+    });
+  });
+
   it('blocks symlink cwd escapes when creating codex dry-runs', async () => {
     const outsideDir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-cwd-escape-'));
     const workspaceRoot = resolve(process.cwd(), '..', '..');

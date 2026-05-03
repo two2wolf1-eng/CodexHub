@@ -196,6 +196,12 @@ importers:
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@codexhub/electron-cdp-adapter':
+        specifier: workspace:*
+        version: link:../../packages/electron-cdp-adapter
+      '@codexhub/electron-cdp-kernel':
+        specifier: workspace:*
+        version: link:../../packages/electron-cdp-kernel
       '@codexhub/observer-kernel':
         specifier: workspace:*
         version: link:../../packages/observer-kernel

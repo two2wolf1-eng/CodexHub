@@ -4,6 +4,9 @@ import type {
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
   CodexExecLiveRunRecord,
+  ElectronCdpObservationApprovalArtifactRecord,
+  ElectronCdpObservationControlPlaneRun,
+  ElectronCdpObservationDryRunRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecManualApprovalRecord,
@@ -51,6 +54,12 @@ export interface EvidenceRefQuery {
 }
 
 export interface BrowserObservationQuery {
+  dryRunId?: string;
+  status?: string;
+  limit?: number;
+}
+
+export interface ElectronCdpObservationQuery {
   dryRunId?: string;
   status?: string;
   limit?: number;
@@ -139,6 +148,37 @@ export interface BrowserObservationRunRepository {
   saveRun(record: BrowserObservationControlPlaneRun): Promise<BrowserObservationControlPlaneRun>;
   getRun(id: string): Promise<BrowserObservationControlPlaneRun | undefined>;
   listRuns(query?: BrowserObservationQuery): Promise<BrowserObservationControlPlaneRun[]>;
+}
+
+export interface ElectronCdpObservationDryRunRepository {
+  saveDryRun(
+    record: ElectronCdpObservationDryRunRecord,
+  ): Promise<ElectronCdpObservationDryRunRecord>;
+  getDryRun(id: string): Promise<ElectronCdpObservationDryRunRecord | undefined>;
+  listDryRuns(query?: ElectronCdpObservationQuery): Promise<ElectronCdpObservationDryRunRecord[]>;
+}
+
+export interface ElectronCdpObservationApprovalRepository {
+  saveApproval(
+    record: ElectronCdpObservationApprovalArtifactRecord,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord>;
+  getApproval(id: string): Promise<ElectronCdpObservationApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: ElectronCdpObservationQuery,
+  ): Promise<ElectronCdpObservationApprovalArtifactRecord[]>;
+}
+
+export interface ElectronCdpObservationRunRepository {
+  saveRun(
+    record: ElectronCdpObservationControlPlaneRun,
+  ): Promise<ElectronCdpObservationControlPlaneRun>;
+  getRun(id: string): Promise<ElectronCdpObservationControlPlaneRun | undefined>;
+  listRuns(
+    query?: ElectronCdpObservationQuery,
+  ): Promise<ElectronCdpObservationControlPlaneRun[]>;
 }
 
 export interface CodexReportReviewRepository {
@@ -318,6 +358,9 @@ export interface CodexHubStore {
   browserObservationDryRuns: BrowserObservationDryRunRepository;
   browserObservationApprovals: BrowserObservationApprovalRepository;
   browserObservationRuns: BrowserObservationRunRepository;
+  electronCdpObservationDryRuns: ElectronCdpObservationDryRunRepository;
+  electronCdpObservationApprovals: ElectronCdpObservationApprovalRepository;
+  electronCdpObservationRuns: ElectronCdpObservationRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

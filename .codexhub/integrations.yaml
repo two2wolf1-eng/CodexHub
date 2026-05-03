@@ -132,13 +132,38 @@ integrations:
   electron-cdp:
     enabled: false
     adapter: electron-cdp-adapter
-    provider: electron-cdp-fixture
+    provider: electron-cdp-controlled-http
     providerType: builtin
     mode: read-only
-    stage: m5a-contracts-and-fixture-adapter
-    fixtureRunnerOnly: true
+    stage: m5b-supervisor-gated-controlled-http
+    fixtureRunnerOnly: false
+    controlledLocalHttpRunner: true
+    supervisorControlPlane:
+      enabledByDefault: false
+      explicitEnableRequired: true
+      enablementEnv: CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED
+      localControlRequiredForPost: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      transientEndpointInputOnly: true
+      endpointHashBindingRequired: true
+      readOnlyDashboardUx: true
+      cliExecuteCommandEnabled: false
     realElectronConnectionEnabled: false
-    cdpHttpClientEnabled: false
+    cdpHttpClientEnabled: true
+    cdpHttpBoundary:
+      allowedMethods:
+        - GET
+      allowedEndpoints:
+        - /json/version
+        - /json/list
+      loopbackOnly: true
+      storesRawHostPort: false
+      storesRawResponseBody: false
+      storesWebSocketDebuggerUrl: false
+      approvalRequired: true
     cdpWebSocketClientEnabled: false
     processDiscoveryEnabled: false
     processBoundary: false

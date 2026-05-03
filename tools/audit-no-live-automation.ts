@@ -28,6 +28,9 @@ const approvedProcessBoundaryFiles = new Set([
 const approvedLiveAutomationBoundaryFiles = new Set([
   'packages/playwright-observer-adapter/src/real-runner.ts',
 ]);
+const approvedCdpHttpBoundaryFiles = new Set([
+  'packages/electron-cdp-adapter/src/controlled-http-runner.ts',
+]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
 const liveAutomationModules = ['playwright'];
@@ -37,13 +40,31 @@ const executableTextTerms = [
   ['chromium', '.', 'launch'].join(''),
   ['connect', 'Over', 'CDP'].join(''),
 ];
+const cdpHttpBoundaryTerms = ['/json/version', '/json/list'];
+const cdpForbiddenTransportTerms = [
+  ['web', 'socket'].join(''),
+  ['ws', '://'].join(''),
+  ['web', 'Socket', 'Debugger', 'Url'].join(''),
+];
+const cdpCommandPassthroughTerms = [
+  ['cdp', '.', 'send'].join(''),
+  ['client', '.', 'send'].join(''),
+  ['send', 'Command'].join(''),
+  ['execute', 'Cdp', 'Command'].join(''),
+];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
   ['to', 'ken'].join(''),
   ['sess', 'ion'].join(''),
   ['M', 'F', 'A'].join(''),
 ];
-const allTextTerms = [...executableTextTerms, ...sensitiveConceptTerms];
+const allTextTerms = [
+  ...executableTextTerms,
+  ...cdpHttpBoundaryTerms,
+  ...cdpForbiddenTransportTerms,
+  ...cdpCommandPassthroughTerms,
+  ...sensitiveConceptTerms,
+];
 const allowlistRules: AllowlistEntry[] = [
   {
     scope: 'production-source',
@@ -197,6 +218,44 @@ function auditTextTerms(file: string, sourceText: string): void {
       }
     }
 
+    for (const term of cdpHttpBoundaryTerms) {
+      if (
+        line.includes(term) &&
+        !isApprovedCdpHttpBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'DevTools HTTP metadata endpoint text is allowed only in the audited Electron/CDP HTTP boundary module.',
+        });
+      }
+    }
+
+    for (const term of cdpForbiddenTransportTerms) {
+      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason: 'Electron/CDP WebSocket transport text is forbidden outside docs and tests.',
+        });
+      }
+    }
+
+    for (const term of cdpCommandPassthroughTerms) {
+      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason: 'Generic CDP command passthrough text is forbidden outside docs and tests.',
+        });
+      }
+    }
+
     for (const term of sensitiveConceptTerms) {
       if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
         violations.push({
@@ -262,6 +321,10 @@ function isApprovedExternalProcessBoundary(workspacePath: string): boolean {
 
 function isApprovedLiveAutomationBoundary(workspacePath: string): boolean {
   return approvedLiveAutomationBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedCdpHttpBoundary(workspacePath: string): boolean {
+  return approvedCdpHttpBoundaryFiles.has(workspacePath);
 }
 
 function listSourceFiles(root: string): string[] {

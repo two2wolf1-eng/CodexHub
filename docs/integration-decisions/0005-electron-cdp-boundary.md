@@ -2,53 +2,75 @@
 
 ## Status
 
-Accepted for M5a foundation implementation.
+Accepted for M5b governed local HTTP observation.
 
 ## Purpose
 
 CodexHub needs an Electron/CDP observation surface for future Codex Desktop
-read-only diagnostics. M5a only defines contracts, kernel helpers, and a
-fixture-only adapter. It does not connect to a real Electron application, DevTools
-HTTP endpoint, WebSocket target, or operating system process list.
+read-only diagnostics. M5a established contracts and a fixture adapter. M5b adds
+a Supervisor-gated, approval-required local DevTools HTTP metadata boundary that
+can read only loopback `/json/version` and `/json/list` endpoints.
+
+M5b still does not open WebSocket CDP sessions, execute CDP commands, connect to
+the Electron main inspector, inspect operating system processes, import Electron,
+take screenshots, read DOM snapshots, capture network bodies, or perform UI
+actions.
 
 ## Provider
 
-- Provider name: Electron/CDP fixture adapter
+- Provider name: Electron/CDP controlled HTTP observer
 - Adapter package: `@codexhub/electron-cdp-adapter`
 - Kernel package: `@codexhub/electron-cdp-kernel`
 - Provider type: builtin
-- License: project license only for M5a; no Electron/CDP runtime dependency is
-  introduced in this slice.
-- Version pinning: no new external runtime package to pin in M5a.
+- License: project license only; no Electron or CDP client runtime dependency is
+  introduced in M5b.
+- Version pinning: no new external runtime package to pin in M5b.
 
-## Process And Network Boundary
+## Runtime Boundary
 
 - Starts external process: no
 - Reads process list: no
-- Connects to CDP HTTP/WebSocket: no
 - Imports Electron: no
 - Imports CDP client: no
 - Imports `node:child_process`: no
-- Requires `audit:no-live-automation` allowlist change: no
+- Uses WebSocket CDP transport: no
+- Uses CDP command passthrough: no
+- Uses DevTools HTTP metadata endpoints: yes, only with explicit enablement and
+  approval
+- Allowed HTTP method: `GET`
+- Allowed paths:
+  - `/json/version`
+  - `/json/list`
+- Requires `audit:no-live-automation` allowlist change: yes, for exactly
+  `packages/electron-cdp-adapter/src/controlled-http-runner.ts`.
 
-Future real observation must be a separate M5b/M5c decision and must preserve
-loopback-only endpoint rules, explicit user enablement, and process-boundary
-truth fields.
+## Enablement And Authority
 
-## Allowed Fixture Capabilities
+- Product default: disabled
+- Enablement variable: `CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED=true`
+- Supervisor routes require local-control token and trusted loopback Origin for
+  every mutating request.
+- Dry-run records are persisted before execution.
+- Controlled HTTP execution requires a persisted approved, unexpired, unused, and
+  unrevoked approval artifact.
+- Request-body approval artifacts and execution authority objects are untrusted.
+- Runtime host and port are transient input only; they must hash-match the
+  persisted dry-run endpoint summary before any HTTP request is attempted.
 
-- Electron process summary with hashes only
-- Debug endpoint summary with `loopbackOnly=true`
-- Renderer target summary with title and URL hashes only
-- Console summary counts only
-- Network metadata summary counts only
-- Narrow command allowlist decisions for:
-  - `Browser.getVersion`
-  - `Target.getTargets`
-  - `Log.enable`
+## Allowed M5b Capabilities
+
+- Loopback endpoint summary with hashes only
+- DevTools version metadata body hash
+- DevTools target-list body hash
+- Target count and target summaries with target id, title, and URL hashes only
+- Console and network metadata counts only
+- `cdpHttpBoundaryInvoked` truth tracking
+- `processBoundaryInvoked=false` and `externalProcessStarted=false`
 
 ## Forbidden By Default
 
+- Non-loopback endpoint access
+- WebSocket CDP sessions
 - Main process inspector connection
 - `Runtime.evaluate`
 - Generic CDP command passthrough
@@ -58,14 +80,16 @@ truth fields.
 - Network body capture
 - Click/type/UI control
 - Token, cookie, session, credential, MFA, or account data extraction
+- Raw host, port, target title, target URL, response body, or debugger URL
+  storage
 
 ## Evidence Policy
 
 - Evidence is metadata-only.
-- Raw executable paths, command lines, endpoint hosts, target IDs, titles, URLs,
-  console bodies, network bodies, cookies, and tokens are not stored.
-- Local paths and potentially identifying fields are represented as stable
-  hashes.
+- Raw executable paths, command lines, endpoint hosts, ports, target IDs, titles,
+  URLs, console bodies, network bodies, cookies, and tokens are not stored.
+- Runtime HTTP response bodies are hashed only.
+- Endpoint identity, host, and port are represented as stable hashes.
 - Evidence kinds:
   - `electron.process_summary`
   - `electron.debug_endpoint_summary`
@@ -74,18 +98,19 @@ truth fields.
   - `electron.observation_summary`
   - `electron.run_summary`
 
-## Policy And Authority
+## Store And Public Responses
 
-- Capability provider is not an authority provider.
-- The adapter declares a `CapabilityManifest`.
-- Planning is read-only and never starts a process.
-- Execution requires `ExecutionAuthority.allowed=true`.
-- Fixture execution emits evidence and capability audit events.
-- `processBoundaryInvoked=false` and `externalProcessStarted=false` are invariant
-  for M5a.
+Supervisor persists Electron/CDP dry-run records, approval artifacts, and run
+records through `store-core` and `store-sqlite`. Public responses expose only
+ids, hashes, counts, summaries, statuses, evidence refs, audit ids,
+`cdpHttpBoundaryInvoked`, `processBoundaryInvoked=false`,
+`externalProcessStarted=false`, `bodyStored=false`, `rawPathStored=false`, and
+`noRealWrite=true`.
 
 ## Rollback
 
-Remove `packages/electron-cdp-adapter`, revert the M5a Electron contract exports
-and tests, remove the Electron/CDP integration stanza additions, and remove this
-decision record. No external runtime state is created by M5a.
+Disable `CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED`, keep `electron-cdp.enabled=false`
+in `.codexhub/integrations.yaml`, and revert the M5b Supervisor routes, store
+repositories, adapter controlled HTTP runner, contract control-plane records, and
+the audit allowlist entry. No external process or browser state is created by
+M5b.

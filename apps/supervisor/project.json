@@ -6,6 +6,8 @@
   "implicitDependencies": [
     "contracts",
     "codex-kernel",
+    "electron-cdp-kernel",
+    "electron-cdp-adapter",
     "observer-kernel",
     "workflow-kernel",
     "orchestrator-kernel",
