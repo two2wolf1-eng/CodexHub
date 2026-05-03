@@ -196,6 +196,15 @@ describe('supervisor mock development API', () => {
       },
     });
     const dryRunId = dryRunResponse.json().dryRunId as string;
+    const nullArtifactApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifact: null,
+      },
+    });
     const approvalRequestResponse = await server.inject({
       method: 'POST',
       url: '/api/browser/observation/approval-requests',
@@ -224,6 +233,16 @@ describe('supervisor mock development API', () => {
       payload: {
         dryRunId,
         approvalArtifact: approvalResponse.json(),
+      },
+    });
+    const nullAuthorityRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        authority: null,
       },
     });
     const runResponse = await server.inject({
@@ -256,10 +275,18 @@ describe('supervisor mock development API', () => {
       rawPathStored: false,
     });
     expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(nullArtifactApprovalRequestResponse.statusCode).toBe(400);
+    expect(nullArtifactApprovalRequestResponse.json().error).toBe(
+      'untrusted_browser_observation_authority_body',
+    );
     expect(approvalResponse.statusCode).toBe(200);
     expect(approvalResponse.json().status).toBe('approved');
     expect(forgedRunResponse.statusCode).toBe(400);
     expect(forgedRunResponse.json().error).toBe('untrusted_browser_observation_authority_body');
+    expect(nullAuthorityRunResponse.statusCode).toBe(400);
+    expect(nullAuthorityRunResponse.json().error).toBe(
+      'untrusted_browser_observation_authority_body',
+    );
     expect(runResponse.statusCode).toBe(200);
     expect(runResponse.json()).toMatchObject({
       status: 'completed',
@@ -411,6 +438,15 @@ describe('supervisor mock development API', () => {
     const dryRunId = dryRunResponse.json().dryRunId as string;
     const persistedDryRun =
       await store.electronCdpObservationDryRuns.getDryRun(dryRunId);
+    const nullArtifactApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifact: null,
+      },
+    });
     const approvalRequestResponse = await server.inject({
       method: 'POST',
       url: '/api/electron-cdp/observation/approval-requests',
@@ -439,6 +475,18 @@ describe('supervisor mock development API', () => {
       payload: {
         dryRunId,
         approvalArtifact: approvalResponse.json(),
+      },
+    });
+    const nullAuthorityRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        authority: null,
+        host: '127.0.0.1',
+        port: 9222,
       },
     });
     const mismatchRunResponse = await server.inject({
@@ -497,11 +545,19 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(persistedDryRun)).not.toContain('app://codex');
     expect(JSON.stringify(persistedDryRun)).not.toContain('C:\\Users\\Thomas');
     expect(JSON.stringify(persistedDryRun)).not.toContain('secret=value');
+    expect(nullArtifactApprovalRequestResponse.statusCode).toBe(400);
+    expect(nullArtifactApprovalRequestResponse.json().error).toBe(
+      'untrusted_electron_cdp_observation_authority_body',
+    );
     expect(approvalRequestResponse.statusCode).toBe(200);
     expect(approvalResponse.statusCode).toBe(200);
     expect(approvalResponse.json().status).toBe('approved');
     expect(forgedRunResponse.statusCode).toBe(400);
     expect(forgedRunResponse.json().error).toBe(
+      'untrusted_electron_cdp_observation_authority_body',
+    );
+    expect(nullAuthorityRunResponse.statusCode).toBe(400);
+    expect(nullAuthorityRunResponse.json().error).toBe(
       'untrusted_electron_cdp_observation_authority_body',
     );
     expect(mismatchRunResponse.statusCode).toBe(200);

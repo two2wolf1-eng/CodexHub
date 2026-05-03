@@ -399,6 +399,21 @@ const LOCAL_CONTROL_NOT_CONFIGURED_ERROR = [
 const INVALID_LOCAL_CONTROL_ERROR = ['invalid_local_control', LOCAL_CONTROL_KEY_KIND].join('_');
 const DEFAULT_TRUSTED_ORIGIN_PORTS = new Set(['3000', '3001', '4173', '5173', '5174']);
 
+function hasRequestBodyProperty(body: unknown, key: string): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    Object.prototype.hasOwnProperty.call(body, key)
+  );
+}
+
+function hasUntrustedAuthorityBody(body: unknown): boolean {
+  return (
+    hasRequestBodyProperty(body, 'approvalArtifact') ||
+    hasRequestBodyProperty(body, 'authority')
+  );
+}
+
 export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const server = Fastify({ logger: true });
   const localControlKey = options.localControlKey ?? process.env[LOCAL_CONTROL_ENV_VAR];
@@ -661,7 +676,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const body = request.body as BrowserObservationApprovalRequestBody | undefined;
 
-    if (body?.approvalArtifact || body?.authority) {
+    if (hasUntrustedAuthorityBody(body)) {
       return reply.code(400).send(createBrowserObservationUntrustedAuthorityResponse(body?.dryRunId));
     }
 
@@ -699,7 +714,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const body = request.body as BrowserObservationManualApprovalRequestBody | undefined;
 
-    if (body?.approvalArtifact || body?.authority) {
+    if (hasUntrustedAuthorityBody(body)) {
       return reply.code(400).send(createBrowserObservationUntrustedAuthorityResponse(body?.dryRunId));
     }
 
@@ -762,7 +777,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const body = request.body as BrowserObservationRunRequestBody | undefined;
 
-    if (body?.approvalArtifact || body?.authority) {
+    if (hasUntrustedAuthorityBody(body)) {
       return reply.code(400).send(createBrowserObservationUntrustedAuthorityResponse(body?.dryRunId));
     }
 
@@ -865,7 +880,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const body = request.body as ElectronCdpObservationApprovalRequestBody | undefined;
 
-    if (body?.approvalArtifact || body?.authority) {
+    if (hasUntrustedAuthorityBody(body)) {
       return reply
         .code(400)
         .send(createElectronCdpObservationUntrustedAuthorityResponse(body?.dryRunId));
@@ -912,7 +927,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const body = request.body as ElectronCdpObservationManualApprovalRequestBody | undefined;
 
-    if (body?.approvalArtifact || body?.authority) {
+    if (hasUntrustedAuthorityBody(body)) {
       return reply
         .code(400)
         .send(createElectronCdpObservationUntrustedAuthorityResponse(body?.dryRunId));
@@ -992,7 +1007,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const body = request.body as ElectronCdpObservationRunRequestBody | undefined;
 
-    if (body?.approvalArtifact || body?.authority) {
+    if (hasUntrustedAuthorityBody(body)) {
       return reply
         .code(400)
         .send(createElectronCdpObservationUntrustedAuthorityResponse(body?.dryRunId));
