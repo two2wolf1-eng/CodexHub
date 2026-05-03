@@ -3,6 +3,7 @@ import {
   createElectronCdpReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
+  createWorktreeReadOnlySummary,
   getDashboardHash,
   getDashboardViewFromHash,
   summarizeDegradedState,
@@ -14,6 +15,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/mcp-tools')).toBe('mcp-tools');
     expect(getDashboardViewFromHash('#/browser-profiles')).toBe('browser-profiles');
     expect(getDashboardViewFromHash('#/electron')).toBe('electron');
+    expect(getDashboardViewFromHash('#/worktrees')).toBe('worktrees');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -103,6 +105,41 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('9222');
     expect(serialized).not.toContain('Codex Desktop');
     expect(serialized).not.toContain('app://');
+    expect(serialized).not.toContain('payload');
+  });
+
+  it('summarizes worktree control-plane metadata without raw paths or git commands', () => {
+    const summary = createWorktreeReadOnlySummary({
+      dryRunCount: 1,
+      approvalCount: 1,
+      runCount: 1,
+      cleanupDryRunCount: 1,
+      cleanupApprovalCount: 1,
+      cleanupRunCount: 1,
+      latestRunStatus: 'completed',
+      latestCleanupStatus: 'blocked',
+      runnerModes: ['controlled-git-worktree'],
+      gitBoundaryInvoked: true,
+      cleanupRequiredCount: 1,
+      cleanupCompletedCount: 0,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.manifestName).toBe('worktree-manager');
+    expect(summary.manifestVersion).toContain('m6d');
+    expect(summary.runCount).toBe(1);
+    expect(summary.cleanupRunCount).toBe(1);
+    expect(summary.approvalRequired).toBe(true);
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.gitBoundaryInvoked).toBe(true);
+    expect(summary.processBoundaryInvoked).toBe(true);
+    expect(summary.externalProcessStarted).toBe(true);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('../CodexHub-worktrees');
+    expect(serialized).not.toContain('git worktree remove');
+    expect(serialized).not.toContain('diff --numstat');
     expect(serialized).not.toContain('payload');
   });
 });

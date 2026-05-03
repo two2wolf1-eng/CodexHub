@@ -14,6 +14,7 @@ export const DASHBOARD_VIEWS = [
   'mcp-tools',
   'browser-profiles',
   'electron',
+  'worktrees',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -97,6 +98,34 @@ export interface ElectronCdpReadOnlySummary {
   processBoundaryInvoked: false;
   externalProcessStarted: false;
   noRealWrite: true;
+  rawPathStored: false;
+  bodyStored: false;
+  summary: string;
+}
+
+export interface WorktreeReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  cleanupDryRunCount: number;
+  cleanupApprovalCount: number;
+  cleanupRunCount: number;
+  latestRunStatus: string;
+  latestCleanupStatus: string;
+  runnerModes: string[];
+  productDefaultEnabled: false;
+  approvalRequired: true;
+  cleanupApprovalRequired: true;
+  gitBoundaryInvoked: boolean;
+  cleanupRequiredCount: number;
+  cleanupCompletedCount: number;
+  allowedOperations: string[];
+  blockedOperations: string[];
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: boolean;
+  noRealWrite: boolean;
   rawPathStored: false;
   bodyStored: false;
   summary: string;
@@ -254,6 +283,55 @@ export function createElectronCdpReadOnlySummary(input: {
     bodyStored: false,
     summary:
       'Electron/CDP M5d shows Supervisor-gated metadata only. Dashboard remains read-only and cannot execute Electron observation.',
+  };
+}
+
+export function createWorktreeReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  cleanupDryRunCount?: number;
+  cleanupApprovalCount?: number;
+  cleanupRunCount?: number;
+  latestRunStatus?: string;
+  latestCleanupStatus?: string;
+  runnerModes?: readonly string[];
+  gitBoundaryInvoked?: boolean;
+  cleanupRequiredCount?: number;
+  cleanupCompletedCount?: number;
+} = {}): WorktreeReadOnlySummary {
+  return {
+    manifestName: 'worktree-manager',
+    manifestVersion: '0.2.0-m6d',
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount: input.runCount ?? 0,
+    cleanupDryRunCount: input.cleanupDryRunCount ?? 0,
+    cleanupApprovalCount: input.cleanupApprovalCount ?? 0,
+    cleanupRunCount: input.cleanupRunCount ?? 0,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    latestCleanupStatus: input.latestCleanupStatus ?? 'none',
+    runnerModes: uniqueSorted([...(input.runnerModes ?? ['controlled-git-worktree'])]),
+    productDefaultEnabled: false,
+    approvalRequired: true,
+    cleanupApprovalRequired: true,
+    gitBoundaryInvoked: input.gitBoundaryInvoked ?? false,
+    cleanupRequiredCount: input.cleanupRequiredCount ?? 0,
+    cleanupCompletedCount: input.cleanupCompletedCount ?? 0,
+    allowedOperations: [['work', 'tree add'].join(''), 'diff summary', 'worktree cleanup non-force'],
+    blockedOperations: [
+      ['git ', 'push'].join(''),
+      'open PR',
+      'force cleanup',
+      'generic git command',
+    ],
+    processBoundaryInvoked: input.gitBoundaryInvoked ?? false,
+    externalProcessStarted: input.gitBoundaryInvoked ?? false,
+    noRealWrite: !(input.gitBoundaryInvoked ?? false),
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      'Worktree M6d shows Supervisor-gated create and cleanup metadata only. Dashboard remains read-only and cannot create, approve, run, remove, push, or open PRs.',
   };
 }
 

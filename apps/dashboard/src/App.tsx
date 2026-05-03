@@ -36,6 +36,7 @@ import {
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createVerificationReadinessPreview,
+  createWorktreeReadOnlySummary,
   getDashboardHash,
   getDashboardViewFromHash,
   summarizeDegradedState,
@@ -81,6 +82,12 @@ interface OverviewState {
   electronCdpObservationDryRuns: ElectronCdpObservationControlSummary[];
   electronCdpObservationApprovals: ElectronCdpObservationControlSummary[];
   electronCdpObservationRuns: ElectronCdpObservationControlSummary[];
+  worktreeDryRuns: WorktreeControlSummary[];
+  worktreeApprovals: WorktreeControlSummary[];
+  worktreeRuns: WorktreeControlSummary[];
+  worktreeCleanupDryRuns: WorktreeControlSummary[];
+  worktreeCleanupApprovals: WorktreeControlSummary[];
+  worktreeCleanupRuns: WorktreeControlSummary[];
   message?: string;
 }
 
@@ -127,6 +134,37 @@ interface ElectronCdpObservationControlSummary {
   bodyStored?: boolean;
 }
 
+interface WorktreeControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  sourceRunId?: string;
+  status?: string;
+  runnerMode?: string;
+  operationMode?: string;
+  repoRootHash?: string;
+  worktreeRootHash?: string;
+  worktreePathHash?: string;
+  baseRefHash?: string;
+  branchSlugHash?: string;
+  changedFileCount?: number;
+  diffHash?: string;
+  cleanupRequired?: boolean;
+  cleanupDeferred?: boolean;
+  cleanupCompleted?: boolean;
+  gitProcessBoundaryPlanned?: boolean;
+  gitProcessBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
 const supervisorUrl = import.meta.env.VITE_CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
 
 export function App() {
@@ -164,6 +202,12 @@ export function App() {
     electronCdpObservationDryRuns: [],
     electronCdpObservationApprovals: [],
     electronCdpObservationRuns: [],
+    worktreeDryRuns: [],
+    worktreeApprovals: [],
+    worktreeRuns: [],
+    worktreeCleanupDryRuns: [],
+    worktreeCleanupApprovals: [],
+    worktreeCleanupRuns: [],
   });
   const [activeView, setActiveView] = useState<DashboardView>(() =>
     getDashboardViewFromHash(window.location.hash),
@@ -190,6 +234,31 @@ export function App() {
     cdpWebSocketBoundaryInvoked: overview.electronCdpObservationRuns.some(
       (record) => record.cdpWebSocketBoundaryInvoked === true,
     ),
+  });
+  const worktreeSummary = createWorktreeReadOnlySummary({
+    dryRunCount: overview.worktreeDryRuns.length,
+    approvalCount: overview.worktreeApprovals.length,
+    runCount: overview.worktreeRuns.length,
+    cleanupDryRunCount: overview.worktreeCleanupDryRuns.length,
+    cleanupApprovalCount: overview.worktreeCleanupApprovals.length,
+    cleanupRunCount: overview.worktreeCleanupRuns.length,
+    latestRunStatus: overview.worktreeRuns[0]?.status,
+    latestCleanupStatus: overview.worktreeCleanupRuns[0]?.status,
+    runnerModes: [...overview.worktreeDryRuns, ...overview.worktreeRuns]
+      .map((record) => record.runnerMode)
+      .filter((runnerMode): runnerMode is string => runnerMode !== undefined),
+    gitBoundaryInvoked: [...overview.worktreeRuns, ...overview.worktreeCleanupRuns].some(
+      (record) =>
+        record.gitProcessBoundaryInvoked === true ||
+        record.processBoundaryInvoked === true ||
+        record.externalProcessStarted === true,
+    ),
+    cleanupRequiredCount: overview.worktreeRuns.filter(
+      (record) => record.cleanupRequired === true,
+    ).length,
+    cleanupCompletedCount: overview.worktreeCleanupRuns.filter(
+      (record) => record.cleanupCompleted === true,
+    ).length,
   });
 
   useEffect(() => {
@@ -470,6 +539,12 @@ export function App() {
           electronCdpObservationDryRunsResponse,
           electronCdpObservationApprovalsResponse,
           electronCdpObservationRunsResponse,
+          worktreeDryRunsResponse,
+          worktreeApprovalsResponse,
+          worktreeRunsResponse,
+          worktreeCleanupDryRunsResponse,
+          worktreeCleanupApprovalsResponse,
+          worktreeCleanupRunsResponse,
         ] = await Promise.all([
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
             '/api/browser/observation/dry-runs',
@@ -493,6 +568,27 @@ export function App() {
           ),
           getOptionalJson<{ records: ElectronCdpObservationControlSummary[] }>(
             '/api/electron-cdp/observation/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
+            records: [],
+          }),
+          getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/approvals', {
+            records: [],
+          }),
+          getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/runs', {
+            records: [],
+          }),
+          getOptionalJson<{ records: WorktreeControlSummary[] }>(
+            '/api/worktrees/cleanup/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: WorktreeControlSummary[] }>(
+            '/api/worktrees/cleanup/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: WorktreeControlSummary[] }>(
+            '/api/worktrees/cleanup/runs',
             { records: [] },
           ),
         ]);
@@ -544,6 +640,12 @@ export function App() {
             electronCdpObservationDryRuns: electronCdpObservationDryRunsResponse.records,
             electronCdpObservationApprovals: electronCdpObservationApprovalsResponse.records,
             electronCdpObservationRuns: electronCdpObservationRunsResponse.records,
+            worktreeDryRuns: worktreeDryRunsResponse.records,
+            worktreeApprovals: worktreeApprovalsResponse.records,
+            worktreeRuns: worktreeRunsResponse.records,
+            worktreeCleanupDryRuns: worktreeCleanupDryRunsResponse.records,
+            worktreeCleanupApprovals: worktreeCleanupApprovalsResponse.records,
+            worktreeCleanupRuns: worktreeCleanupRunsResponse.records,
           });
         }
       } catch (error) {
@@ -582,6 +684,12 @@ export function App() {
             electronCdpObservationDryRuns: [],
             electronCdpObservationApprovals: [],
             electronCdpObservationRuns: [],
+            worktreeDryRuns: [],
+            worktreeApprovals: [],
+            worktreeRuns: [],
+            worktreeCleanupDryRuns: [],
+            worktreeCleanupApprovals: [],
+            worktreeCleanupRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -1748,6 +1856,7 @@ export function App() {
           verificationPreview,
           browserProfilesSummary,
           electronCdpSummary,
+          worktreeSummary,
         )
       )}
     </main>
@@ -1761,6 +1870,7 @@ function renderReadOnlyDashboardView(
   verificationPreview: ReturnType<typeof createVerificationReadinessPreview>,
   browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
+  worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -2187,6 +2297,172 @@ function renderReadOnlyDashboardView(
             <p>
               No Electron/CDP observation run metadata is available. This view is read-only and
               never sends local-control credentials.
+            </p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'worktrees') {
+    return (
+      <section className="grid">
+        <Panel title="Worktree Readiness">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>
+                {worktreeSummary.manifestName} {worktreeSummary.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>create records</strong>
+              <span>
+                dry-runs {worktreeSummary.dryRunCount}, approvals{' '}
+                {worktreeSummary.approvalCount}, runs {worktreeSummary.runCount}
+              </span>
+            </li>
+            <li>
+              <strong>cleanup records</strong>
+              <span>
+                dry-runs {worktreeSummary.cleanupDryRunCount}, approvals{' '}
+                {worktreeSummary.cleanupApprovalCount}, runs {worktreeSummary.cleanupRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest statuses</strong>
+              <span>
+                create {worktreeSummary.latestRunStatus}, cleanup{' '}
+                {worktreeSummary.latestCleanupStatus}
+              </span>
+            </li>
+            <li>
+              <strong>runner modes</strong>
+              <span>{worktreeSummary.runnerModes.join(', ')}</span>
+            </li>
+            <li>
+              <strong>approval</strong>
+              <span>
+                create {String(worktreeSummary.approvalRequired)}, cleanup{' '}
+                {String(worktreeSummary.cleanupApprovalRequired)}
+              </span>
+            </li>
+            <li>
+              <strong>enablement</strong>
+              <span>default {String(worktreeSummary.productDefaultEnabled)}</span>
+            </li>
+          </ul>
+          <p>{worktreeSummary.summary}</p>
+        </Panel>
+        <Panel title="Worktree Boundaries">
+          <ul>
+            <li>
+              <strong>allowed operations</strong>
+              <span>{worktreeSummary.allowedOperations.join(', ')}</span>
+            </li>
+            <li>
+              <strong>blocked operations</strong>
+              <span>{worktreeSummary.blockedOperations.join(', ')}</span>
+            </li>
+            <li>
+              <strong>git boundary</strong>
+              <span>
+                invoked {String(worktreeSummary.gitBoundaryInvoked)}, process{' '}
+                {String(worktreeSummary.processBoundaryInvoked)}, external{' '}
+                {String(worktreeSummary.externalProcessStarted)}
+              </span>
+            </li>
+            <li>
+              <strong>cleanup state</strong>
+              <span>
+                required {worktreeSummary.cleanupRequiredCount}, completed{' '}
+                {worktreeSummary.cleanupCompletedCount}
+              </span>
+            </li>
+            <li>
+              <strong>storage safety</strong>
+              <span>
+                bodyStored {String(worktreeSummary.bodyStored)}, rawPathStored{' '}
+                {String(worktreeSummary.rawPathStored)}
+              </span>
+            </li>
+          </ul>
+        </Panel>
+        <Panel title="Worktree Create Runs">
+          {overview.worktreeRuns.length > 0 ? (
+            <ul>
+              {overview.worktreeRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'worktree_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    worktree {run.worktreePathHash ?? 'unavailable'}, base{' '}
+                    {run.baseRefHash ?? 'unavailable'}, slug {run.branchSlugHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    changed files {run.changedFileCount ?? 0}, diff{' '}
+                    {run.diffHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    cleanupRequired {String(run.cleanupRequired ?? false)}, cleanupDeferred{' '}
+                    {String(run.cleanupDeferred ?? false)}
+                  </span>
+                  <span>
+                    git {String(run.gitProcessBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No worktree create run metadata is available. This view is read-only and never sends
+              local-control credentials.
+            </p>
+          )}
+        </Panel>
+        <Panel title="Worktree Cleanup Runs">
+          {overview.worktreeCleanupRuns.length > 0 ? (
+            <ul>
+              {overview.worktreeCleanupRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'worktree_cleanup_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, source {run.sourceRunId ?? 'unknown'}
+                  </span>
+                  <span>
+                    worktree {run.worktreePathHash ?? 'unavailable'}, root{' '}
+                    {run.worktreeRootHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    cleanupCompleted {String(run.cleanupCompleted ?? false)}, cleanupRequired{' '}
+                    {String(run.cleanupRequired ?? false)}
+                  </span>
+                  <span>
+                    git {String(run.gitProcessBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No worktree cleanup run metadata is available. Cleanup remains Supervisor-gated and
+              cannot be triggered from the Dashboard.
             </p>
           )}
         </Panel>

@@ -220,6 +220,14 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/worktrees/cleanup/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/worktrees/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
       return new Response(JSON.stringify({}), { status: 404 });
     });
     const { formatReadOnlyRunsListOutput, listReadOnlyRuns, showReadOnlyRun } = await import(
@@ -238,7 +246,7 @@ describe('cli development mock-run fallback', () => {
     });
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
-    expect(fetchCalls).toHaveLength(10);
+    expect(fetchCalls).toHaveLength(14);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -385,6 +393,275 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('Codex Desktop');
     expect(serialized).not.toContain('app://');
     expect(serialized).not.toContain('payload');
+  });
+
+  it('lists worktree create and cleanup metadata using GET requests only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/worktrees/cleanup/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'worktree_cleanup_dry_run_record_1',
+                dryRunId: 'worktree_cleanup_dry_run_1',
+                sourceRunId: 'worktree_run_1',
+                status: 'ready',
+                operationMode: 'cleanup',
+                worktreePathHash: 'sha256:worktree',
+                rawPathStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/worktrees/cleanup/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'worktree_cleanup_approval_record_1',
+                dryRunId: 'worktree_cleanup_dry_run_1',
+                approvalArtifactId: 'worktree_cleanup_approval_1',
+                status: 'approved',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/worktrees/cleanup/runs/worktree_cleanup_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'worktree_cleanup_run_1',
+            dryRunId: 'worktree_cleanup_dry_run_1',
+            sourceRunId: 'worktree_run_1',
+            status: 'completed',
+            operationMode: 'cleanup',
+            worktreePathHash: 'sha256:worktree',
+            cleanupCompleted: true,
+            cleanupRequired: false,
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            bodyStored: false,
+            rawPathStored: false,
+            evidenceRefIds: ['cleanup_evidence_1'],
+            auditEventIds: ['cleanup_audit_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/worktrees/cleanup/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'worktree_cleanup_run_1',
+                dryRunId: 'worktree_cleanup_dry_run_1',
+                sourceRunId: 'worktree_run_1',
+                status: 'completed',
+                operationMode: 'cleanup',
+                worktreePathHash: 'sha256:worktree',
+                cleanupCompleted: true,
+                cleanupRequired: false,
+                gitProcessBoundaryInvoked: true,
+                processBoundaryInvoked: true,
+                externalProcessStarted: true,
+                noRealWrite: false,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['cleanup_evidence_1'],
+                auditEventIds: ['cleanup_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/worktrees/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'worktree_dry_run_record_1',
+                dryRunId: 'worktree_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-git-worktree',
+                operationMode: 'create',
+                worktreePathHash: 'sha256:worktree',
+                baseRefHash: 'sha256:base',
+                branchSlugHash: 'sha256:slug',
+                gitProcessBoundaryPlanned: true,
+                rawPathStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/worktrees/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'worktree_approval_record_1',
+                dryRunId: 'worktree_dry_run_1',
+                approvalArtifactId: 'worktree_approval_1',
+                status: 'approved',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/worktrees/runs/worktree_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'worktree_run_1',
+            dryRunId: 'worktree_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-git-worktree',
+            operationMode: 'create',
+            worktreePathHash: 'sha256:worktree',
+            baseRefHash: 'sha256:base',
+            branchSlugHash: 'sha256:slug',
+            changedFileCount: 2,
+            diffHash: 'sha256:diff',
+            cleanupRequired: true,
+            cleanupDeferred: true,
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            bodyStored: false,
+            rawPathStored: false,
+            evidenceRefIds: ['worktree_evidence_1'],
+            auditEventIds: ['worktree_audit_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/worktrees/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'worktree_run_1',
+                dryRunId: 'worktree_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-git-worktree',
+                operationMode: 'create',
+                worktreePathHash: 'sha256:worktree',
+                baseRefHash: 'sha256:base',
+                branchSlugHash: 'sha256:slug',
+                changedFileCount: 2,
+                diffHash: 'sha256:diff',
+                cleanupRequired: true,
+                cleanupDeferred: true,
+                gitProcessBoundaryInvoked: true,
+                processBoundaryInvoked: true,
+                externalProcessStarted: true,
+                noRealWrite: false,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['worktree_evidence_1'],
+                auditEventIds: ['worktree_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    });
+    const {
+      formatReadOnlyRunsListOutput,
+      formatWorktreeApprovalsListOutput,
+      formatWorktreeCleanupApprovalsListOutput,
+      formatWorktreeCleanupDryRunsListOutput,
+      formatWorktreeCleanupRunDetailOutput,
+      formatWorktreeCleanupRunsListOutput,
+      formatWorktreeDryRunsListOutput,
+      formatWorktreeRunDetailOutput,
+      formatWorktreeRunsListOutput,
+      listReadOnlyRuns,
+      listWorktreeApprovals,
+      listWorktreeCleanupApprovals,
+      listWorktreeCleanupDryRuns,
+      listWorktreeCleanupRuns,
+      listWorktreeDryRuns,
+      listWorktreeRuns,
+      showWorktreeCleanupRun,
+      showWorktreeRun,
+    } = await import('./main');
+    const dryRuns = await listWorktreeDryRuns();
+    const approvals = await listWorktreeApprovals({
+      dryRunId: 'worktree_dry_run_1',
+      status: 'approved',
+    });
+    const runs = await listWorktreeRuns();
+    const detail = await showWorktreeRun('worktree_run_1');
+    const cleanupDryRuns = await listWorktreeCleanupDryRuns();
+    const cleanupApprovals = await listWorktreeCleanupApprovals({
+      dryRunId: 'worktree_cleanup_dry_run_1',
+      status: 'approved',
+    });
+    const cleanupRuns = await listWorktreeCleanupRuns();
+    const cleanupDetail = await showWorktreeCleanupRun('worktree_cleanup_run_1');
+    const genericRuns = await listReadOnlyRuns();
+    const serialized = JSON.stringify({
+      dryRuns,
+      approvals,
+      runs,
+      detail,
+      cleanupDryRuns,
+      cleanupApprovals,
+      cleanupRuns,
+      cleanupDetail,
+      genericRuns,
+    });
+
+    expect(formatWorktreeDryRunsListOutput(dryRuns)).toContain('Worktree dry-runs');
+    expect(formatWorktreeApprovalsListOutput(approvals)).toContain('worktree_approval_1');
+    expect(formatWorktreeRunsListOutput(runs)).toContain('worktree_run_1');
+    expect(formatWorktreeRunDetailOutput(detail)).toContain('gitProcessBoundaryInvoked=true');
+    expect(formatWorktreeCleanupDryRunsListOutput(cleanupDryRuns)).toContain(
+      'Worktree cleanup dry-runs',
+    );
+    expect(formatWorktreeCleanupApprovalsListOutput(cleanupApprovals)).toContain(
+      'worktree_cleanup_approval_1',
+    );
+    expect(formatWorktreeCleanupRunsListOutput(cleanupRuns)).toContain(
+      'worktree_cleanup_run_1',
+    );
+    expect(formatWorktreeCleanupRunDetailOutput(cleanupDetail)).toContain(
+      'cleanupCompleted=true',
+    );
+    expect(formatReadOnlyRunsListOutput(genericRuns)).toContain('worktree_run_1');
+    expect(formatReadOnlyRunsListOutput(genericRuns)).toContain('worktree_cleanup_run_1');
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('../CodexHub-worktrees');
+    expect(serialized).not.toContain('git worktree');
+    expect(serialized).not.toContain('diff --numstat');
+    expect(serialized).not.toContain('token');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
   });
 
   it('lists browser observation runs using GET requests only', async () => {

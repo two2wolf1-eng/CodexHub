@@ -410,3 +410,53 @@ workflows:
       - browserAutomation
       - electronAutomation
       - mcpWriteTool
+  m6d.worktree-read-only-control-ux:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: apps/dashboard apps/cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard-read-only-view
+        route: '#/worktrees'
+        reads:
+          - GET /api/worktrees/dry-runs
+          - GET /api/worktrees/approvals
+          - GET /api/worktrees/runs
+          - GET /api/worktrees/cleanup/dry-runs
+          - GET /api/worktrees/cleanup/approvals
+          - GET /api/worktrees/cleanup/runs
+        output: hashesCountsSummariesEvidenceAndAuditIdsOnly
+        localControlTokenUsed: false
+      - phase: cli-read-only-commands
+        commands:
+          - codexhub worktrees dry-runs list
+          - codexhub worktrees approvals list
+          - codexhub worktrees runs list
+          - codexhub worktrees runs show
+          - codexhub worktrees cleanup dry-runs list
+          - codexhub worktrees cleanup approvals list
+          - codexhub worktrees cleanup runs list
+          - codexhub worktrees cleanup runs show
+        methodsAllowed:
+          - GET
+        localControlTokenRead: false
+      - phase: generic-run-summary
+        command: codexhub runs list/show
+        includes:
+          - worktree_run
+          - worktree_cleanup_run
+    forbidden:
+      - dashboardWriteUi
+      - dashboardApprovalButton
+      - dashboardExecuteButton
+      - cliWorktreeExecuteCommand
+      - cliWorktreeCleanupExecuteCommand
+      - localControlTokenInDashboard
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
+      - rawWorktreePathRendering
+      - rawGitCommandRendering
+      - rawDiffRendering
+      - gitPush
+      - openPullRequest

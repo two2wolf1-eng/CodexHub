@@ -212,7 +212,7 @@ integrations:
     adapter: worktree-manager
     provider: builtin
     mode: controlled-git-worktree
-    stage: m6c-supervisor-gated-controlled-git-and-cleanup
+    stage: m6d-read-only-control-ux
     defaultWorktreeRoot: ../CodexHub-worktrees
     defaultActionMode: dry-run
     defaultRisk: high
@@ -241,6 +241,14 @@ integrations:
       executionAuthorityBodyTrusted: false
       transientPathInputOnly: true
       pathAndRefHashBindingRequired: true
+    readOnlyUx:
+      dashboardRoute: '#/worktrees'
+      dashboardPostAllowed: false
+      dashboardLocalControlTokenAllowed: false
+      cliPostAllowed: false
+      cliLocalControlTokenReadAllowed: false
+      adapterExecuteFromUiOrCliAllowed: false
+      metadataOnly: true
     evidence:
       worktreePlan: hash-only
       changedFiles: metadata-only

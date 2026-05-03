@@ -238,7 +238,9 @@ export interface ReadOnlyRunSummary {
     | 'development'
     | 'codex_exec_dry_run'
     | 'browser_observation'
-    | 'electron_cdp_observation';
+    | 'electron_cdp_observation'
+    | 'worktree_run'
+    | 'worktree_cleanup_run';
   title: string;
   status: string;
   summary: string;
@@ -294,6 +296,42 @@ interface ElectronCdpObservationApiRecord {
 }
 
 export interface ElectronCdpApprovalListCliOptions extends JsonCliOptions {
+  dryRunId?: string;
+  status?: string;
+}
+
+interface WorktreeApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  sourceRunId?: string;
+  status?: string;
+  runnerMode?: string;
+  operationMode?: string;
+  repoRootHash?: string;
+  worktreeRootHash?: string;
+  worktreePathHash?: string;
+  baseRefHash?: string;
+  branchSlugHash?: string;
+  changedFileCount?: number;
+  diffHash?: string;
+  cleanupRequired?: boolean;
+  cleanupDeferred?: boolean;
+  cleanupCompleted?: boolean;
+  gitProcessBoundaryPlanned?: boolean;
+  gitProcessBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  bodyStored?: boolean;
+  rawPathStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+export interface WorktreeApprovalListCliOptions extends JsonCliOptions {
   dryRunId?: string;
   status?: string;
 }
@@ -703,6 +741,116 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showElectronCdpObservationRun(runId);
       console.log(formatElectronCdpObservationRunDetailOutput(result, options));
+    });
+
+  const worktreesCommand = program
+    .command('worktrees')
+    .description('Read-only worktree create and cleanup metadata commands');
+
+  const worktreeDryRunsCommand = worktreesCommand
+    .command('dry-runs')
+    .description('Read worktree dry-run metadata from Supervisor GET endpoints');
+
+  worktreeDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List worktree dry-runs without creating worktrees')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listWorktreeDryRuns();
+      console.log(formatWorktreeDryRunsListOutput(result, options));
+    });
+
+  const worktreeApprovalsCommand = worktreesCommand
+    .command('approvals')
+    .description('Read worktree approval metadata from Supervisor GET endpoints');
+
+  worktreeApprovalsCommand
+    .command('list')
+    .option('--dry-run-id <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by approval status')
+    .option('--json', 'Print full JSON output')
+    .description('List worktree approvals without creating approval state')
+    .action(async (options: WorktreeApprovalListCliOptions) => {
+      const result = await listWorktreeApprovals(options);
+      console.log(formatWorktreeApprovalsListOutput(result, options));
+    });
+
+  const worktreeRunsCommand = worktreesCommand
+    .command('runs')
+    .description('Read worktree run metadata from Supervisor GET endpoints');
+
+  worktreeRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List worktree runs without executing git')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listWorktreeRuns();
+      console.log(formatWorktreeRunsListOutput(result, options));
+    });
+
+  worktreeRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show worktree run metadata without executing git')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showWorktreeRun(runId);
+      console.log(formatWorktreeRunDetailOutput(result, options));
+    });
+
+  const worktreeCleanupCommand = worktreesCommand
+    .command('cleanup')
+    .description('Read-only worktree cleanup metadata commands');
+
+  const worktreeCleanupDryRunsCommand = worktreeCleanupCommand
+    .command('dry-runs')
+    .description('Read cleanup dry-run metadata from Supervisor GET endpoints');
+
+  worktreeCleanupDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List cleanup dry-runs without removing worktrees')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listWorktreeCleanupDryRuns();
+      console.log(formatWorktreeCleanupDryRunsListOutput(result, options));
+    });
+
+  const worktreeCleanupApprovalsCommand = worktreeCleanupCommand
+    .command('approvals')
+    .description('Read cleanup approval metadata from Supervisor GET endpoints');
+
+  worktreeCleanupApprovalsCommand
+    .command('list')
+    .option('--dry-run-id <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by approval status')
+    .option('--json', 'Print full JSON output')
+    .description('List cleanup approvals without creating approval state')
+    .action(async (options: WorktreeApprovalListCliOptions) => {
+      const result = await listWorktreeCleanupApprovals(options);
+      console.log(formatWorktreeCleanupApprovalsListOutput(result, options));
+    });
+
+  const worktreeCleanupRunsCommand = worktreeCleanupCommand
+    .command('runs')
+    .description('Read cleanup run metadata from Supervisor GET endpoints');
+
+  worktreeCleanupRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List cleanup runs without executing cleanup')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listWorktreeCleanupRuns();
+      console.log(formatWorktreeCleanupRunsListOutput(result, options));
+    });
+
+  worktreeCleanupRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show cleanup run metadata without executing cleanup')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showWorktreeCleanupRun(runId);
+      console.log(formatWorktreeCleanupRunDetailOutput(result, options));
     });
 
   program
@@ -1866,6 +2014,8 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     codexDryRunResult,
     browserObservationResult,
     electronCdpObservationResult,
+    worktreeRunResult,
+    worktreeCleanupRunResult,
   ] =
     await Promise.allSettled([
       getSupervisorJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
@@ -1879,6 +2029,8 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: ElectronCdpObservationApiRecord[] }>(
         '/api/electron-cdp/observation/runs',
       ),
+      getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
+      getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
     ]);
   const runs = [
     ...summarizeWorkflowRuns(settledValue(workflowResult)?.runs ?? []),
@@ -1890,6 +2042,11 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ...summarizeElectronCdpObservationRunRecords(
       settledValue(electronCdpObservationResult)?.records ?? [],
     ),
+    ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
+    ...summarizeWorktreeRunRecords(
+      settledValue(worktreeCleanupRunResult)?.records ?? [],
+      true,
+    ),
   ];
   const degradedReasons = [
     settledError(workflowResult),
@@ -1897,10 +2054,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(codexDryRunResult),
     settledError(browserObservationResult),
     settledError(electronCdpObservationResult),
+    settledError(worktreeRunResult),
+    settledError(worktreeCleanupRunResult),
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 5 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 7 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -2103,6 +2262,76 @@ export async function showElectronCdpObservationRun(
   }
 }
 
+export async function listWorktreeDryRuns(): Promise<Record<string, unknown>> {
+  return listWorktreeCollection(
+    '/api/worktrees/dry-runs',
+    'Worktree dry-runs are read from Supervisor GET endpoints only.',
+    'Worktree dry-run source is unavailable; no git command was attempted.',
+  );
+}
+
+export async function listWorktreeApprovals(
+  options: WorktreeApprovalListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  return listWorktreeCollection(
+    `/api/worktrees/approvals${createReadOnlyFilterQuery(options)}`,
+    'Worktree approvals are read from Supervisor GET endpoints only.',
+    'Worktree approval source is unavailable; no approval state was created.',
+  );
+}
+
+export async function listWorktreeRuns(): Promise<Record<string, unknown>> {
+  return listWorktreeCollection(
+    '/api/worktrees/runs',
+    'Worktree runs are read from Supervisor GET endpoints only.',
+    'Worktree run source is unavailable; no git command was attempted.',
+  );
+}
+
+export async function showWorktreeRun(runId: string): Promise<Record<string, unknown>> {
+  return showWorktreeRecord(
+    `/api/worktrees/runs/${encodeURIComponent(runId)}`,
+    runId,
+    'Worktree run detail is metadata-only.',
+    'Worktree run unavailable',
+  );
+}
+
+export async function listWorktreeCleanupDryRuns(): Promise<Record<string, unknown>> {
+  return listWorktreeCollection(
+    '/api/worktrees/cleanup/dry-runs',
+    'Worktree cleanup dry-runs are read from Supervisor GET endpoints only.',
+    'Worktree cleanup dry-run source is unavailable; no cleanup was attempted.',
+  );
+}
+
+export async function listWorktreeCleanupApprovals(
+  options: WorktreeApprovalListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  return listWorktreeCollection(
+    `/api/worktrees/cleanup/approvals${createReadOnlyFilterQuery(options)}`,
+    'Worktree cleanup approvals are read from Supervisor GET endpoints only.',
+    'Worktree cleanup approval source is unavailable; no approval state was created.',
+  );
+}
+
+export async function listWorktreeCleanupRuns(): Promise<Record<string, unknown>> {
+  return listWorktreeCollection(
+    '/api/worktrees/cleanup/runs',
+    'Worktree cleanup runs are read from Supervisor GET endpoints only.',
+    'Worktree cleanup run source is unavailable; no cleanup was attempted.',
+  );
+}
+
+export async function showWorktreeCleanupRun(runId: string): Promise<Record<string, unknown>> {
+  return showWorktreeRecord(
+    `/api/worktrees/cleanup/runs/${encodeURIComponent(runId)}`,
+    runId,
+    'Worktree cleanup run detail is metadata-only.',
+    'Worktree cleanup run unavailable',
+  );
+}
+
 async function getSupervisorJson<T>(path: string): Promise<T> {
   const response = await fetch(`${supervisorUrl}${path}`);
 
@@ -2195,6 +2424,108 @@ function summarizeElectronCdpObservationRunRecords(
     noRealWrite: true,
     bodyStored: false,
   }));
+}
+
+function summarizeWorktreeRunRecords(
+  runs: WorktreeApiRecord[],
+  cleanup: boolean,
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? (cleanup ? 'worktree_cleanup_run' : 'worktree_run'),
+    source: cleanup ? 'worktree_cleanup_run' : 'worktree_run',
+    title: cleanup
+      ? `Worktree cleanup ${run.status ?? 'unknown'}`
+      : `Worktree run ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary:
+      run.summary ??
+      (cleanup ? 'Worktree cleanup metadata summary.' : 'Worktree create metadata summary.'),
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+async function listWorktreeCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: WorktreeApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message: error instanceof Error ? error.message : 'worktree metadata source unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function showWorktreeRecord(
+  path: string,
+  runId: string,
+  note: string,
+  unavailableMessage: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<WorktreeApiRecord>(path);
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : unavailableMessage,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'No worktree action was attempted.',
+    };
+  }
+}
+
+function createReadOnlyFilterQuery(options: WorktreeApprovalListCliOptions): string {
+  const params = new URLSearchParams();
+  if (options.dryRunId) params.set('dryRunId', options.dryRunId);
+  if (options.status) params.set('status', options.status);
+  return params.size > 0 ? `?${params.toString()}` : '';
 }
 
 function createReadOnlyElectronCdpCollectionResult(
@@ -5236,6 +5567,62 @@ export function formatElectronCdpObservationRunDetailOutput(
     .join('\n');
 }
 
+export function formatWorktreeDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeCollectionOutput('Worktree dry-runs', result, options);
+}
+
+export function formatWorktreeApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeCollectionOutput('Worktree approvals', result, options);
+}
+
+export function formatWorktreeRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeCollectionOutput('Worktree runs', result, options);
+}
+
+export function formatWorktreeRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeRunDetail('Worktree run', result, options);
+}
+
+export function formatWorktreeCleanupDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeCollectionOutput('Worktree cleanup dry-runs', result, options);
+}
+
+export function formatWorktreeCleanupApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeCollectionOutput('Worktree cleanup approvals', result, options);
+}
+
+export function formatWorktreeCleanupRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeCollectionOutput('Worktree cleanup runs', result, options);
+}
+
+export function formatWorktreeCleanupRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatWorktreeRunDetail('Worktree cleanup run', result, options);
+}
+
 function formatElectronCdpObservationCollectionOutput(
   title: string,
   result: Record<string, unknown>,
@@ -5271,6 +5658,87 @@ function formatElectronCdpObservationCollectionOutput(
         ].join(' '),
       ),
   ].join('\n');
+}
+
+function formatWorktreeCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as WorktreeApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `operation=${record.operationMode ?? 'create'}`,
+          `worktree=${record.worktreePathHash ?? 'unavailable'}`,
+          `base=${record.baseRefHash ?? 'unavailable'}`,
+          `git=${String(record.gitProcessBoundaryInvoked ?? false)}`,
+          `cleanupRequired=${String(record.cleanupRequired ?? false)}`,
+          `cleanupCompleted=${String(record.cleanupCompleted ?? false)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatWorktreeRunDetail(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as WorktreeApiRecord | undefined;
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    run?.sourceRunId ? `sourceRunId: ${run.sourceRunId}` : undefined,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `operationMode: ${run?.operationMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.repoRootHash ? `repoRootHash: ${run.repoRootHash}` : undefined,
+    run?.worktreeRootHash ? `worktreeRootHash: ${run.worktreeRootHash}` : undefined,
+    run?.worktreePathHash ? `worktreePathHash: ${run.worktreePathHash}` : undefined,
+    run?.baseRefHash ? `baseRefHash: ${run.baseRefHash}` : undefined,
+    run?.branchSlugHash ? `branchSlugHash: ${run.branchSlugHash}` : undefined,
+    run?.diffHash ? `diffHash: ${run.diffHash}` : undefined,
+    `changedFileCount=${String(run?.changedFileCount ?? 0)}`,
+    `cleanupRequired=${String(run?.cleanupRequired ?? false)}`,
+    `cleanupDeferred=${String(run?.cleanupDeferred ?? false)}`,
+    `cleanupCompleted=${String(run?.cleanupCompleted ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+    `gitProcessBoundaryInvoked=${String(run?.gitProcessBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
 }
 
 export function formatCodexExecAuditListOutput(

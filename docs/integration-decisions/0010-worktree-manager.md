@@ -2,7 +2,7 @@
 
 ## Decision
 
-M6a introduced `@codexhub/worktree-manager` as a fixture-only git capability provider. M6b upgraded it to a Supervisor-gated control plane with one audited controlled git boundary for worktree creation and diff metadata collection. M6c extends the same audited boundary file with non-force cleanup under a separate dry-run, approval, and run control plane.
+M6a introduced `@codexhub/worktree-manager` as a fixture-only git capability provider. M6b upgraded it to a Supervisor-gated control plane with one audited controlled git boundary for worktree creation and diff metadata collection. M6c extends the same audited boundary file with non-force cleanup under a separate dry-run, approval, and run control plane. M6d adds read-only Dashboard and CLI views over the persisted create and cleanup metadata.
 
 The boundary is intentionally narrow: it can create a detached local worktree, summarize changed files, and remove a clean approved worktree. It cannot force-remove dirty worktrees, push, open pull requests, run arbitrary git commands, use shell mode, fall back to filesystem deletion, or persist raw paths, commands, diffs, or PR text.
 
@@ -12,6 +12,7 @@ The boundary is intentionally narrow: it can create a detached local worktree, s
 - Adapter: `worktree-manager`
 - Capability kind: `git`
 - Stage: `m6c-supervisor-gated-controlled-git-and-cleanup`
+- Read-only UX stage: `m6d-read-only-control-ux`
 - Default root: repository sibling `../CodexHub-worktrees`
 - Product default: disabled
 - Enablement flag: `CODEXHUB_WORKTREE_MANAGER_ENABLED=true`
@@ -47,6 +48,22 @@ The boundary is intentionally narrow: it can create a detached local worktree, s
 - Cleanup requires the source M6b run to exist in Supervisor store with `cleanupRequired=true`.
 - Dirty cleanup status blocks removal after git prechecks; because the git boundary was reached, the cleanup approval is marked used.
 - Codex and Nx handoff continues to use existing governed adapter paths; M6b/M6c do not widen those process boundaries.
+- M6d Dashboard and CLI read only existing GET endpoints. They do not send local-control tokens, create approvals, execute git, call adapters, push, open PRs, or render raw paths, commands, diffs, or PR bodies.
+
+## Read-Only UX
+
+- Dashboard route: `#/worktrees`
+- CLI commands:
+  - `codexhub worktrees dry-runs list`
+  - `codexhub worktrees approvals list`
+  - `codexhub worktrees runs list`
+  - `codexhub worktrees runs show <runId>`
+  - `codexhub worktrees cleanup dry-runs list`
+  - `codexhub worktrees cleanup approvals list`
+  - `codexhub worktrees cleanup runs list`
+  - `codexhub worktrees cleanup runs show <runId>`
+- Generic run commands include `worktree_run` and `worktree_cleanup_run` summaries.
+- UX output is limited to ids, statuses, hashes, counts, boundary booleans, evidence ids, audit ids, and summaries.
 
 ## Evidence Policy
 
