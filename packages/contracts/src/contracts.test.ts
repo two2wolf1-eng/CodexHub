@@ -150,6 +150,7 @@ import {
   ElectronCdpBlockReasonSchema,
   ElectronCdpCommandAllowlistDecisionSchema,
   ElectronCdpConsoleSummarySchema,
+  ElectronCdpEventMetadataSummarySchema,
   ElectronCdpForbiddenActionSchema,
   ElectronCdpNetworkMetadataSummarySchema,
   ElectronCdpControlPlaneApprovalStatusSchema,
@@ -801,6 +802,8 @@ describe('contracts schemas', () => {
       'Browser.getVersion',
       'Target.getTargets',
       'Log.enable',
+      'Runtime.enable',
+      'Network.enable',
     ]);
     expect(ElectronCdpObservationRunStatusSchema.options).toEqual([
       'planned',
@@ -890,6 +893,16 @@ describe('contracts schemas', () => {
       failedRequestCount: 0,
       bodyStored: false,
     });
+    const eventSummary = ElectronCdpEventMetadataSummarySchema.parse({
+      observationWindowMs: 5_000,
+      eventCount: 2,
+      consoleEventCount: 1,
+      networkEventCount: 1,
+      payloadHashes: ['sha256:event'],
+      bodyStored: false,
+      rawPathStored: false,
+      noRealWrite: true,
+    });
     const plan = ElectronCdpObservationPlanSchema.parse({
       id: 'electron_observation_plan_1',
       schemaVersion,
@@ -929,6 +942,7 @@ describe('contracts schemas', () => {
       targets: [target],
       consoleSummary,
       networkSummary,
+      eventSummary,
       rawPathStored: false,
       bodyStored: false,
       noRealWrite: true,
@@ -1014,6 +1028,7 @@ describe('contracts schemas', () => {
     expect(ElectronCdpObservationRunnerModeSchema.options).toEqual([
       'fixture',
       'controlled-local-http',
+      'controlled-websocket-events',
     ]);
     expect(ElectronCdpControlPlaneApprovalStatusSchema.options).toEqual([
       'requested',

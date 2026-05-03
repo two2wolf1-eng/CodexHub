@@ -14,6 +14,7 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { createElectronCdpControlledHttpRunner } from './controlled-http-runner';
+import { createElectronCdpControlledWebSocketEventRunner } from './controlled-websocket-event-runner';
 import { executeElectronCdpAdapter } from './execute';
 import { createElectronCdpFixtureRunner } from './fixture';
 import { createElectronCdpAdapterManifest } from './manifest';
@@ -37,8 +38,9 @@ describe('electron-cdp-adapter', () => {
     expect(manifest.kind).toBe('electron');
     expect(manifest.provider).toBe('builtin');
     expect(manifest.processBoundary.mayStartExternalProcess).toBe(false);
-    expect(manifest.metadata?.integrationStage).toBe('m5b');
+    expect(manifest.metadata?.integrationStage).toBe('m5c');
     expect(manifest.metadata?.controlledLocalHttpSupported).toBe(true);
+    expect(manifest.metadata?.controlledWebSocketEventsSupported).toBe(true);
   });
 
   it('plans read-only fixture observations without process boundaries', () => {
@@ -81,6 +83,45 @@ describe('electron-cdp-adapter', () => {
     expect(plan.capabilityDryRun.plannedActions[0]?.requiresApproval).toBe(true);
     expect(plan.processBoundaryPlanned).toBe(false);
     expect(plan.externalProcessStarted).toBe(false);
+  });
+
+  it('plans controlled WebSocket event observations with fixed read subscription commands', () => {
+    const target = createTargetSummary();
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+      targetIdHash: target.targetIdHash,
+      observationWindowMs: 1_500,
+      requestedCapabilities: ['console_summary', 'network_metadata_summary'],
+    });
+
+    expect(plan.status).toBe('ready');
+    expect(plan.observationPlan.runnerMode).toBe('controlled-websocket-events');
+    expect(plan.observationPlan.targetIdHash).toBe(target.targetIdHash);
+    expect(plan.observationPlan.observationWindowMs).toBe(1_500);
+    expect(plan.observationPlan.cdpHttpBoundaryPlanned).toBe(true);
+    expect(plan.observationPlan.cdpWebSocketBoundaryPlanned).toBe(true);
+    expect(plan.observationPlan.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(plan.capabilityDryRun.plannedActions[0]?.requiresApproval).toBe(true);
+    expect(plan.observationPlan.commandDecisions.map((decision) => decision.command)).toEqual([
+      'Log.enable',
+      'Runtime.enable',
+      'Network.enable',
+    ]);
+    expect(plan.observationPlan.commandDecisions.every((decision) => decision.allowed)).toBe(
+      true,
+    );
+  });
+
+  it('blocks controlled WebSocket event plans without a target hash', () => {
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+    });
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.observationPlan.blockReasons).toContain('target_hash_required');
+    expect(plan.observationPlan.cdpWebSocketBoundaryPlanned).toBe(true);
   });
 
   it('blocks forbidden Electron/CDP and UI actions at plan time', () => {
@@ -218,6 +259,182 @@ describe('electron-cdp-adapter', () => {
     expect(serialized).not.toContain('app://codex');
     expect(serialized).not.toContain('ws://');
     expect(serialized).not.toContain('secret=value');
+  });
+
+  it('executes controlled WebSocket event observations with metadata-only summaries', async () => {
+    const target = createTargetSummary();
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+      targetIdHash: target.targetIdHash,
+      observationWindowMs: 10,
+    });
+    const sentCommands: string[] = [];
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledWebSocketEventRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash: target.targetIdHash,
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify([
+              {
+                id: 'target-1',
+                type: 'webview',
+                title: 'Codex Desktop',
+                url: 'app://codex/?secret=value',
+                webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/page/target-1',
+              },
+            ]);
+          },
+        }),
+        webSocketFactory: () => {
+          const socket = {
+            onopen: null as (() => void) | null,
+            onmessage: null as ((event: { data?: unknown }) => void) | null,
+            onerror: null as (() => void) | null,
+            onclose: null as (() => void) | null,
+            send(data: string) {
+              sentCommands.push(JSON.parse(data).method as string);
+              if (sentCommands.length === 3) {
+                queueMicrotask(() => {
+                  socket.onmessage?.({
+                    data: JSON.stringify({
+                      method: 'Log.entryAdded',
+                      params: { entry: { level: 'warning', text: 'private' } },
+                    }),
+                  });
+                  socket.onmessage?.({
+                    data: JSON.stringify({
+                      method: 'Network.requestWillBeSent',
+                      params: { request: { url: 'https://example.test/private' } },
+                    }),
+                  });
+                  socket.onmessage?.({
+                    data: JSON.stringify({ method: 'Network.responseReceived' }),
+                  });
+                  socket.onclose?.();
+                });
+              }
+            },
+            close() {},
+          };
+          queueMicrotask(() => socket.onopen?.());
+          return socket;
+        },
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.capabilityResult.status).toBe('completed');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
+    expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(true);
+    expect(result.electronRun.observationSummary?.eventSummary?.eventCount).toBe(3);
+    expect(result.electronRun.observationSummary?.consoleSummary.warningCount).toBe(1);
+    expect(result.electronRun.observationSummary?.networkSummary.requestCount).toBe(1);
+    expect(sentCommands).toEqual(['Log.enable', 'Runtime.enable', 'Network.enable']);
+    expect(result.auditEvents[0]?.metadata?.cdpWebSocketBoundaryInvoked).toBe(true);
+    expect(serialized).not.toContain('Codex Desktop');
+    expect(serialized).not.toContain('app://codex');
+    expect(serialized).not.toContain('ws://');
+    expect(serialized).not.toContain('https://example.test/private');
+    expect(serialized).not.toContain('secret=value');
+  });
+
+  it('blocks controlled WebSocket event execution when the debugger URL is not loopback', async () => {
+    const target = createTargetSummary();
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+      targetIdHash: target.targetIdHash,
+      observationWindowMs: 10,
+    });
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledWebSocketEventRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash: target.targetIdHash,
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify([
+              {
+                id: 'target-1',
+                type: 'webview',
+                webSocketDebuggerUrl: 'ws://192.168.1.10:9222/devtools/page/target-1',
+              },
+            ]);
+          },
+        }),
+        webSocketFactory: () => {
+          throw new Error('should not connect');
+        },
+      }),
+    });
+
+    expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.blockReason).toBe(
+      'non_loopback_websocket_url_forbidden',
+    );
+  });
+
+  it('blocks controlled WebSocket event execution when debugger URL does not match the endpoint', async () => {
+    const target = createTargetSummary();
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+      targetIdHash: target.targetIdHash,
+      observationWindowMs: 10,
+    });
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledWebSocketEventRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash: target.targetIdHash,
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify([
+              {
+                id: 'target-1',
+                type: 'webview',
+                webSocketDebuggerUrl: 'ws://127.0.0.1:9223/devtools/page/target-1',
+              },
+            ]);
+          },
+        }),
+        webSocketFactory: () => {
+          throw new Error('should not connect');
+        },
+      }),
+    });
+
+    expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.blockReason).toBe('endpoint_hash_mismatch');
   });
 
   it('executes injected fixtures as metadata-only evidence and audit', async () => {

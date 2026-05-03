@@ -32,7 +32,9 @@ export interface ElectronCdpAdapterPlanInput {
   processSummary?: ElectronProcessSummary;
   debugEndpoint?: ElectronDebugEndpointSummary;
   targets?: readonly ElectronTargetSummary[];
+  targetIdHash?: string;
   runnerMode?: ElectronCdpObservationRunnerMode;
+  observationWindowMs?: number;
   requestedCapabilities?: readonly string[];
   requestedActions?: readonly string[];
   requestedCommands?: readonly string[];
@@ -83,18 +85,31 @@ export function planElectronCdpObservation(
     input.requestedCapabilities,
     blockReasons,
   );
-  const commandDecisions = (input.requestedCommands ?? []).map((command) =>
+  const runnerMode = input.runnerMode ?? 'fixture';
+  const cdpWebSocketBoundaryPlanned = runnerMode === 'controlled-websocket-events';
+  const cdpHttpBoundaryPlanned =
+    runnerMode === 'controlled-local-http' || cdpWebSocketBoundaryPlanned;
+  const observationWindowMs = normalizeObservationWindowMs(input.observationWindowMs);
+  const requestedCommands = [
+    ...(input.requestedCommands ?? []),
+    ...(cdpWebSocketBoundaryPlanned
+      ? ['Log.enable', 'Runtime.enable', 'Network.enable']
+      : []),
+  ];
+  const commandDecisions = unique(requestedCommands).map((command) =>
     createElectronCdpCommandAllowlistDecision(command),
   );
-  const runnerMode = input.runnerMode ?? 'fixture';
-  const cdpHttpBoundaryPlanned = runnerMode === 'controlled-local-http';
 
   if (input.debugEndpoint && input.debugEndpoint.loopbackOnly !== true) {
     blockReasons.push('non_loopback_endpoint_forbidden');
   }
 
-  if (cdpHttpBoundaryPlanned && !input.debugEndpoint) {
+  if ((cdpHttpBoundaryPlanned || cdpWebSocketBoundaryPlanned) && !input.debugEndpoint) {
     blockReasons.push('capability_required');
+  }
+
+  if (cdpWebSocketBoundaryPlanned && !input.targetIdHash) {
+    blockReasons.push('target_hash_required');
   }
 
   for (const decision of commandDecisions) {
@@ -123,6 +138,7 @@ export function planElectronCdpObservation(
     debugEndpoint:
       input.debugEndpoint?.loopbackOnly === true ? input.debugEndpoint : undefined,
     targets: [...(input.targets ?? [])],
+    targetIdHash: input.targetIdHash,
     requestedCapabilities,
     forbiddenActions,
     blockReasons: uniqueBlockReasons,
@@ -136,15 +152,20 @@ export function planElectronCdpObservation(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
+    observationWindowMs,
     cdpHttpBoundaryPlanned,
     cdpHttpBoundaryInvoked: false,
+    cdpWebSocketBoundaryPlanned,
+    cdpWebSocketBoundaryInvoked: false,
     processBoundaryPlanned: false,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary:
       uniqueBlockReasons.length > 0
         ? 'Electron/CDP observation plan blocked by read-only safety policy.'
-        : 'Electron/CDP observation plan is fixture-only and metadata-only.',
+        : cdpWebSocketBoundaryPlanned
+          ? 'Electron/CDP WebSocket event observation plan is approval-gated and metadata-only.'
+          : 'Electron/CDP observation plan is fixture-only and metadata-only.',
   });
   const status: ElectronCdpAdapterPlanStatus =
     uniqueBlockReasons.length > 0 ? 'blocked' : 'ready';
@@ -165,6 +186,7 @@ export function planElectronCdpObservation(
       rawPathStored: false,
       bodyStored: false,
       cdpHttpBoundaryPlanned,
+      cdpWebSocketBoundaryPlanned,
       processBoundaryPlanned: false,
     },
     plannedActions: [
@@ -173,7 +195,7 @@ export function planElectronCdpObservation(
         actionMode: 'read',
         risk: 'medium',
         target,
-        requiresApproval: cdpHttpBoundaryPlanned,
+        requiresApproval: cdpHttpBoundaryPlanned || cdpWebSocketBoundaryPlanned,
       },
     ],
     requiredEvidence: ['electron.observation_plan'],
@@ -195,6 +217,18 @@ export function planElectronCdpObservation(
     blockReasons: uniqueBlockReasons,
     warnings,
   };
+}
+
+function normalizeObservationWindowMs(value: number | undefined): number {
+  if (value === undefined) {
+    return 5_000;
+  }
+
+  if (!Number.isInteger(value) || value <= 0) {
+    return 5_000;
+  }
+
+  return Math.min(value, 30_000);
 }
 
 function normalizeCapabilities(

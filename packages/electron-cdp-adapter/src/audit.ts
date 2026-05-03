@@ -34,13 +34,21 @@ export function createElectronCdpAuditEvent(input: {
     metadata: redactMetadata({
       ...(input.metadata ?? {}),
       liveExecution: false,
+      cdpHttpBoundaryInvoked:
+        typeof input.metadata?.cdpHttpBoundaryInvoked === 'boolean'
+          ? input.metadata.cdpHttpBoundaryInvoked
+          : false,
+      cdpWebSocketBoundaryInvoked:
+        typeof input.metadata?.cdpWebSocketBoundaryInvoked === 'boolean'
+          ? input.metadata.cdpWebSocketBoundaryInvoked
+          : false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       bodyStored: false,
       rawPathStored: false,
       noRealWrite: true,
       adapterName: 'electron-cdp',
-      integrationStage: 'm5b',
+      integrationStage: 'm5c',
     }),
   });
 }

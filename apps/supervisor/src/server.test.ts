@@ -536,6 +536,130 @@ describe('supervisor mock development API', () => {
     expect(approvalResponse.body).not.toContain('private electron approval reason');
   });
 
+  it('governs electron cdp WebSocket event dry-run, approval, and injected execution', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-electron-events-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const targetIdHash = `sha256:${hashTestText('target-1')}`;
+    const server = buildSupervisorServer({
+      store,
+      electronCdpObserverEnabled: true,
+      electronCdpEventsEnabled: true,
+      electronCdpObserverRunner: {
+        async observe() {
+          return {
+            status: 'completed',
+            cdpHttpBoundaryInvoked: true,
+            cdpWebSocketBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            eventSummary: {
+              observationWindowMs: 10,
+              eventCount: 3,
+              consoleEventCount: 1,
+              networkEventCount: 2,
+              payloadHashes: [`sha256:${hashTestText('private event payload')}`],
+              bodyStored: false,
+              rawPathStored: false,
+              noRealWrite: true,
+            },
+            metadata: {
+              cdpHttpBoundaryInvoked: true,
+              cdpWebSocketBoundaryInvoked: true,
+              payloadHashes: [`sha256:${hashTestText('private event payload')}`],
+              bodyStored: false,
+              rawPathStored: false,
+            },
+            summary: 'Injected Electron/CDP WebSocket event metadata observation completed.',
+          };
+        },
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        runnerMode: 'controlled-websocket-events',
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash,
+        observationWindowMs: 10,
+        capabilities: ['console_summary', 'network_metadata_summary'],
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const persistedDryRun =
+      await store.electronCdpObservationDryRuns.getDryRun(dryRunId);
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/electron-cdp/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        host: '127.0.0.1',
+        port: 9222,
+      },
+    });
+    const usedApprovalsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/electron-cdp/observation/approvals?dryRunId=${dryRunId}&status=used`,
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      status: 'ready',
+      runnerMode: 'controlled-websocket-events',
+      targetIdHash,
+      cdpHttpBoundaryPlanned: true,
+      cdpWebSocketBoundaryPlanned: true,
+      cdpWebSocketBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(persistedDryRun?.targetIdHash).toBe(targetIdHash);
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'completed',
+      targetIdHash,
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(usedApprovalsResponse.json().records).toHaveLength(1);
+    expect(JSON.stringify({ dryRun: dryRunResponse.json(), run: runResponse.json() })).not.toContain(
+      '127.0.0.1',
+    );
+    expect(runResponse.body).not.toContain('9222');
+    expect(runResponse.body).not.toContain('private event payload');
+  });
+
   it('blocks electron cdp execution when store or enablement is unavailable', async () => {
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({

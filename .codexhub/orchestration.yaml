@@ -124,3 +124,48 @@ workflows:
       - networkBodyCapture
       - browserClickTypeSubmit
       - cookieTokenSessionStorageExtraction
+  m5c.governed-electron-cdp-websocket-events:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: apps/supervisor
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/electron-cdp/observation/dry-runs
+        adapter: electron-cdp-adapter
+        runnerMode: controlled-websocket-events
+        targetHashRequired: true
+        rawEndpointStorage: forbidden
+        rawTargetStorage: forbidden
+      - phase: approval-request
+        route: POST /api/electron-cdp/observation/approval-requests
+        authority: supervisor-store
+      - phase: manual-approval
+        route: POST /api/electron-cdp/observation/manual-approvals
+        authority: persistedApprovalArtifact
+      - phase: execution
+        route: POST /api/electron-cdp/observation/runs
+        authority: persistedApprovalArtifact
+        productDefaultEnabled: false
+        requiredEnv:
+          - CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED
+          - CODEXHUB_ELECTRON_CDP_EVENTS_ENABLED
+        adapterExecution: supervisor-gated
+      - phase: summary
+        output: hashesCountsSummariesEvidenceAndAuditIdsOnly
+    forbidden:
+      - dashboardWriteUi
+      - cliElectronExecuteCommand
+      - rawEndpointPersistence
+      - rawWebSocketUrlPersistence
+      - rawEventPayloadPersistence
+      - processDiscovery
+      - electronImport
+      - mainInspectorConnection
+      - runtimeEvaluate
+      - genericCdpCommandPassthrough
+      - screenshotCapture
+      - domSnapshotCapture
+      - networkBodyCapture
+      - electronClickType

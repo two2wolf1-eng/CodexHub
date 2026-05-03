@@ -132,16 +132,18 @@ integrations:
   electron-cdp:
     enabled: false
     adapter: electron-cdp-adapter
-    provider: electron-cdp-controlled-http
+    provider: electron-cdp-controlled-events
     providerType: builtin
     mode: read-only
-    stage: m5b-supervisor-gated-controlled-http
+    stage: m5c-supervisor-gated-controlled-events
     fixtureRunnerOnly: false
     controlledLocalHttpRunner: true
+    controlledWebSocketEventRunner: true
     supervisorControlPlane:
       enabledByDefault: false
       explicitEnableRequired: true
       enablementEnv: CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED
+      eventsEnablementEnv: CODEXHUB_ELECTRON_CDP_EVENTS_ENABLED
       localControlRequiredForPost: true
       dryRunPersistedBySupervisor: true
       persistedApprovalRequired: true
@@ -165,6 +167,20 @@ integrations:
       storesWebSocketDebuggerUrl: false
       approvalRequired: true
     cdpWebSocketClientEnabled: false
+    cdpWebSocketEvents:
+      enabledByDefault: false
+      explicitEnableRequired: true
+      targetHashBindingRequired: true
+      loopbackOnly: true
+      maxObservationWindowMs: 30000
+      defaultObservationWindowMs: 5000
+      storesRawWebSocketUrl: false
+      storesRawEventPayload: false
+      approvalRequired: true
+      allowedCommands:
+        - Log.enable
+        - Runtime.enable
+        - Network.enable
     processDiscoveryEnabled: false
     processBoundary: false
     externalProcessBoundary: false
@@ -189,3 +205,5 @@ integrations:
       - Browser.getVersion
       - Target.getTargets
       - Log.enable
+      - Runtime.enable
+      - Network.enable

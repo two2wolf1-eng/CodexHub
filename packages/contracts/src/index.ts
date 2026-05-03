@@ -586,6 +586,7 @@ export type ElectronCdpObservationCapability = z.infer<
 export const ElectronCdpObservationRunnerModeSchema = z.enum([
   'fixture',
   'controlled-local-http',
+  'controlled-websocket-events',
 ]);
 export type ElectronCdpObservationRunnerMode = z.infer<
   typeof ElectronCdpObservationRunnerModeSchema
@@ -636,8 +637,16 @@ export const ElectronCdpBlockReasonSchema = z.enum([
   'approval_artifact_revoked',
   'controlled_http_disabled',
   'controlled_http_runner_missing',
+  'controlled_websocket_events_disabled',
+  'controlled_websocket_runner_missing',
   'endpoint_hash_mismatch',
+  'target_hash_required',
+  'target_hash_mismatch',
   'cdp_http_boundary_failed',
+  'cdp_websocket_boundary_failed',
+  'non_loopback_websocket_url_forbidden',
+  'websocket_debugger_url_missing',
+  'event_observation_timeout',
   'malformed_devtools_json',
 ]);
 export type ElectronCdpBlockReason = z.infer<typeof ElectronCdpBlockReasonSchema>;
@@ -646,6 +655,8 @@ export const ElectronCdpAllowedCommandSchema = z.enum([
   'Browser.getVersion',
   'Target.getTargets',
   'Log.enable',
+  'Runtime.enable',
+  'Network.enable',
 ]);
 export type ElectronCdpAllowedCommand = z.infer<typeof ElectronCdpAllowedCommandSchema>;
 
@@ -750,6 +761,22 @@ export type ElectronCdpNetworkMetadataSummary = z.infer<
   typeof ElectronCdpNetworkMetadataSummarySchema
 >;
 
+export const ElectronCdpEventMetadataSummarySchema = z
+  .object({
+    observationWindowMs: z.number().int().positive().max(30_000),
+    eventCount: z.number().int().nonnegative(),
+    consoleEventCount: z.number().int().nonnegative(),
+    networkEventCount: z.number().int().nonnegative(),
+    payloadHashes: z.array(z.string().min(1)).default([]),
+    bodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    noRealWrite: z.literal(true),
+  })
+  .strict();
+export type ElectronCdpEventMetadataSummary = z.infer<
+  typeof ElectronCdpEventMetadataSummarySchema
+>;
+
 export const ElectronCdpObservationPlanSchema = createdEntityBaseSchema
   .extend({
     adapterName: z.string().min(1),
@@ -757,6 +784,7 @@ export const ElectronCdpObservationPlanSchema = createdEntityBaseSchema
     processSummary: ElectronProcessSummarySchema.optional(),
     debugEndpoint: ElectronDebugEndpointSummarySchema.optional(),
     targets: z.array(ElectronTargetSummarySchema).default([]),
+    targetIdHash: z.string().min(1).optional(),
     requestedCapabilities: z.array(ElectronCdpObservationCapabilitySchema).default([]),
     forbiddenActions: z.array(ElectronCdpForbiddenActionSchema).default([]),
     blockReasons: z.array(ElectronCdpBlockReasonSchema).default([]),
@@ -770,8 +798,11 @@ export const ElectronCdpObservationPlanSchema = createdEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
+    observationWindowMs: z.number().int().positive().max(30_000).default(5_000),
     cdpHttpBoundaryPlanned: z.boolean().default(false),
     cdpHttpBoundaryInvoked: z.literal(false).default(false),
+    cdpWebSocketBoundaryPlanned: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.literal(false).default(false),
     processBoundaryPlanned: z.literal(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
@@ -793,10 +824,12 @@ export const ElectronCdpObservationSummarySchema = observedEntityBaseSchema
     targets: z.array(ElectronTargetSummarySchema).default([]),
     consoleSummary: ElectronCdpConsoleSummarySchema,
     networkSummary: ElectronCdpNetworkMetadataSummarySchema,
+    eventSummary: ElectronCdpEventMetadataSummarySchema.optional(),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
     cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),
@@ -828,6 +861,7 @@ export const ElectronCdpObservationRunSchema = createdEntityBaseSchema
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
     cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),
@@ -862,6 +896,7 @@ export const ElectronCdpObservationTimelineEventSchema = createdEntityBaseSchema
     rawPathStored: z.literal(false),
     noRealWrite: z.literal(true),
     cdpHttpBoundaryInvoked: z.boolean(),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
   })
@@ -880,6 +915,7 @@ export const ElectronCdpObservationDryRunRecordSchema = createdEntityBaseSchema
     endpointIdHash: z.string().min(1).optional(),
     endpointHostHash: z.string().min(1).optional(),
     endpointPortHash: z.string().min(1).optional(),
+    targetIdHash: z.string().min(1).optional(),
     blockReasons: z.array(ElectronCdpBlockReasonSchema).default([]),
     timeline: z.array(ElectronCdpObservationTimelineEventSchema).default([]),
     evidenceRefs: z.array(EvidenceRefSchema).default([]),
@@ -889,6 +925,8 @@ export const ElectronCdpObservationDryRunRecordSchema = createdEntityBaseSchema
     noRealWrite: z.literal(true),
     cdpHttpBoundaryPlanned: z.boolean(),
     cdpHttpBoundaryInvoked: z.literal(false),
+    cdpWebSocketBoundaryPlanned: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.literal(false).default(false),
     processBoundaryPlanned: z.literal(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
@@ -926,6 +964,7 @@ export const ElectronCdpObservationApprovalArtifactRecordSchema = createdEntityB
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
     cdpHttpBoundaryInvoked: z.literal(false),
+    cdpWebSocketBoundaryInvoked: z.literal(false).default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),
@@ -960,6 +999,7 @@ export const ElectronCdpObservationControlPlaneRunSchema = createdEntityBaseSche
     status: ElectronCdpObservationRunStatusSchema,
     planId: z.string().min(1),
     endpointIdHash: z.string().min(1).optional(),
+    targetIdHash: z.string().min(1).optional(),
     electronRun: ElectronCdpObservationRunSchema.optional(),
     timeline: z.array(ElectronCdpObservationTimelineEventSchema).default([]),
     evidenceRefIds: z.array(z.string().min(1)).default([]),
@@ -968,6 +1008,7 @@ export const ElectronCdpObservationControlPlaneRunSchema = createdEntityBaseSche
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
     cdpHttpBoundaryInvoked: z.boolean(),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),

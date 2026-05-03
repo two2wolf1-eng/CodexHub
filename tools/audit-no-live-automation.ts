@@ -30,6 +30,10 @@ const approvedLiveAutomationBoundaryFiles = new Set([
 ]);
 const approvedCdpHttpBoundaryFiles = new Set([
   'packages/electron-cdp-adapter/src/controlled-http-runner.ts',
+  'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
+]);
+const approvedCdpWebSocketBoundaryFiles = new Set([
+  'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
 ]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
@@ -42,9 +46,9 @@ const executableTextTerms = [
 ];
 const cdpHttpBoundaryTerms = ['/json/version', '/json/list'];
 const cdpForbiddenTransportTerms = [
-  ['web', 'socket'].join(''),
   ['ws', '://'].join(''),
   ['web', 'Socket', 'Debugger', 'Url'].join(''),
+  ['globalThis', '.', 'Web', 'Socket'].join(''),
 ];
 const cdpCommandPassthroughTerms = [
   ['cdp', '.', 'send'].join(''),
@@ -208,7 +212,11 @@ function auditTextTerms(file: string, sourceText: string): void {
     const lowerLine = line.toLowerCase();
 
     for (const term of executableTextTerms) {
-      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+      if (
+        lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedCdpWebSocketBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
         violations.push({
           file,
           line: index + 1,
@@ -235,7 +243,11 @@ function auditTextTerms(file: string, sourceText: string): void {
     }
 
     for (const term of cdpForbiddenTransportTerms) {
-      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+      if (
+        lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedCdpWebSocketBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
         violations.push({
           file,
           line: index + 1,
@@ -325,6 +337,10 @@ function isApprovedLiveAutomationBoundary(workspacePath: string): boolean {
 
 function isApprovedCdpHttpBoundary(workspacePath: string): boolean {
   return approvedCdpHttpBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedCdpWebSocketBoundary(workspacePath: string): boolean {
+  return approvedCdpWebSocketBoundaryFiles.has(workspacePath);
 }
 
 function listSourceFiles(root: string): string[] {

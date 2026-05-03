@@ -137,7 +137,7 @@ function createBlockedRunnerResult(
   blockReason: ElectronCdpBlockReason,
 ): ElectronCdpFixtureRunnerResult {
   return {
-    status: 'failed',
+    status: 'blocked',
     consoleSummary: createElectronCdpConsoleSummary(),
     networkSummary: createElectronCdpNetworkMetadataSummary(),
     cdpHttpBoundaryInvoked: false,

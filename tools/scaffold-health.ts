@@ -75,6 +75,7 @@ const requiredContractExports = [
   'ElectronDebugEndpointSummarySchema',
   'ElectronTargetSummarySchema',
   'ElectronCdpCommandAllowlistDecisionSchema',
+  'ElectronCdpEventMetadataSummarySchema',
   'ElectronCdpObservationPlanSchema',
   'ElectronCdpObservationSummarySchema',
   'ElectronCdpObservationRunSchema',

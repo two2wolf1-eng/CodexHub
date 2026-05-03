@@ -1,6 +1,7 @@
 import {
   ElectronCdpCommandAllowlistDecisionSchema,
   ElectronCdpConsoleSummarySchema,
+  ElectronCdpEventMetadataSummarySchema,
   ElectronCdpNetworkMetadataSummarySchema,
   ElectronDebugEndpointSummarySchema,
   ElectronProcessSummarySchema,
@@ -9,6 +10,7 @@ import {
   type ElectronCdpAllowedCommand,
   type ElectronCdpCommandAllowlistDecision,
   type ElectronCdpConsoleSummary,
+  type ElectronCdpEventMetadataSummary,
   type ElectronCdpNetworkMetadataSummary,
   type ElectronDebugEndpointSummary,
   type ElectronProcessKind,
@@ -46,6 +48,8 @@ export const ELECTRON_CDP_COMMAND_ALLOWLIST = [
   'Browser.getVersion',
   'Target.getTargets',
   'Log.enable',
+  'Runtime.enable',
+  'Network.enable',
 ] as const satisfies ElectronCdpAllowedCommand[];
 
 const schemaVersion = SchemaVersionSchema.value;
@@ -97,6 +101,16 @@ export function isLoopbackElectronEndpointHost(host: string): boolean {
     normalized === '::1' ||
     normalized === '[::1]'
   );
+}
+
+export function isLoopbackElectronWebSocketUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+
+    return parsed.protocol === 'ws:' && isLoopbackElectronEndpointHost(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function createElectronProcessSummary(
@@ -230,6 +244,25 @@ export function createElectronCdpNetworkMetadataSummary(input?: {
     responseCount: input?.responseCount ?? 0,
     failedRequestCount: input?.failedRequestCount ?? 0,
     bodyStored: false,
+  });
+}
+
+export function createElectronCdpEventMetadataSummary(input: {
+  observationWindowMs?: number;
+  eventCount?: number;
+  consoleEventCount?: number;
+  networkEventCount?: number;
+  payloadHashes?: readonly string[];
+} = {}): ElectronCdpEventMetadataSummary {
+  return ElectronCdpEventMetadataSummarySchema.parse({
+    observationWindowMs: input.observationWindowMs ?? 5_000,
+    eventCount: input.eventCount ?? 0,
+    consoleEventCount: input.consoleEventCount ?? 0,
+    networkEventCount: input.networkEventCount ?? 0,
+    payloadHashes: [...(input.payloadHashes ?? [])],
+    bodyStored: false,
+    rawPathStored: false,
+    noRealWrite: true,
   });
 }
 

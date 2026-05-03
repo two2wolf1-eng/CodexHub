@@ -253,6 +253,7 @@ import {
 } from '@codexhub/electron-cdp-kernel';
 import {
   createElectronCdpControlledHttpRunner,
+  createElectronCdpControlledWebSocketEventRunner,
   executeElectronCdpAdapter,
   planElectronCdpObservation,
 } from '@codexhub/electron-cdp-adapter';
@@ -285,6 +286,7 @@ interface SupervisorServerOptions {
   playwrightObserverEnabled?: boolean;
   playwrightObserverRunner?: PlaywrightObserverRunner;
   electronCdpObserverEnabled?: boolean;
+  electronCdpEventsEnabled?: boolean;
   electronCdpObserverRunner?: ElectronCdpObservationRunner;
 }
 
@@ -336,7 +338,9 @@ interface BrowserObservationRunRequestBody {
 interface ElectronCdpObservationDryRunRequestBody {
   host?: string;
   port?: number;
-  runnerMode?: 'fixture' | 'controlled-local-http';
+  runnerMode?: 'fixture' | 'controlled-local-http' | 'controlled-websocket-events';
+  targetIdHash?: string;
+  observationWindowMs?: number;
   capabilities?: string[];
   requestedActions?: string[];
   requestedCommands?: string[];
@@ -843,6 +847,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       degraded: persistenceState.status !== 'ok',
       notPersisted: !store,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -1032,6 +1037,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       degraded: persistenceState.status !== 'ok',
       notPersisted: !store,
       cdpHttpBoundaryInvoked: records.some((record) => record.cdpHttpBoundaryInvoked),
+      cdpWebSocketBoundaryInvoked: records.some(
+        (record) => record.cdpWebSocketBoundaryInvoked,
+      ),
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -7606,6 +7614,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       id: foundationId('electron_cdp_observation_plan'),
       debugEndpoint: endpointInput.endpoint,
       runnerMode: body?.runnerMode ?? 'controlled-local-http',
+      targetIdHash: body?.targetIdHash,
+      observationWindowMs: body?.observationWindowMs,
       requestedCapabilities: body?.capabilities,
       requestedActions: body?.requestedActions,
       requestedCommands: body?.requestedCommands,
@@ -7642,6 +7652,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         cdpHttpBoundaryPlanned: observationPlan.cdpHttpBoundaryPlanned,
         processBoundaryPlanned: false,
         endpointIdHash: observationPlan.debugEndpoint?.endpointIdHash,
+        targetIdHash: observationPlan.targetIdHash,
         rawPathStored: false,
         bodyStored: false,
       },
@@ -7653,7 +7664,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
             outcome: 'approval_required',
             reasons: [
               ...basePolicyDecision.reasons,
-              'controlled local CDP HTTP observation requires explicit approval',
+              observationPlan.cdpWebSocketBoundaryPlanned
+                ? 'controlled local CDP WebSocket event observation requires explicit approval'
+                : 'controlled local CDP HTTP observation requires explicit approval',
             ],
             requiresDryRun: true,
             requiresApproval: true,
@@ -7674,8 +7687,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           endpointIdHash: observationPlan.debugEndpoint?.endpointIdHash,
           endpointHostHash: observationPlan.debugEndpoint?.hostHash,
           endpointPortHash: observationPlan.debugEndpoint?.portHash,
+          targetIdHash: observationPlan.targetIdHash,
           cdpHttpBoundaryPlanned: observationPlan.cdpHttpBoundaryPlanned,
           cdpHttpBoundaryInvoked: false,
+          cdpWebSocketBoundaryPlanned: observationPlan.cdpWebSocketBoundaryPlanned,
+          cdpWebSocketBoundaryInvoked: false,
           processBoundaryInvoked: false,
           externalProcessStarted: false,
         },
@@ -7696,6 +7712,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         rawPathStored: false,
         noRealWrite: true,
         cdpHttpBoundaryInvoked: false,
+        cdpWebSocketBoundaryInvoked: false,
         processBoundaryInvoked: false,
         externalProcessStarted: false,
       }),
@@ -7719,6 +7736,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       endpointIdHash: observationPlan.debugEndpoint?.endpointIdHash,
       endpointHostHash: observationPlan.debugEndpoint?.hostHash,
       endpointPortHash: observationPlan.debugEndpoint?.portHash,
+      targetIdHash: observationPlan.targetIdHash,
       blockReasons,
       timeline,
       evidenceRefs,
@@ -7728,6 +7746,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       noRealWrite: true,
       cdpHttpBoundaryPlanned: observationPlan.cdpHttpBoundaryPlanned,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryPlanned: observationPlan.cdpWebSocketBoundaryPlanned,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryPlanned: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
@@ -7767,6 +7787,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           approvalArtifactId,
           reasonHash: input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined,
           cdpHttpBoundaryInvoked: false,
+          cdpWebSocketBoundaryInvoked: false,
           processBoundaryInvoked: false,
           externalProcessStarted: false,
           bodyStored: false,
@@ -7789,6 +7810,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         rawPathStored: false,
         noRealWrite: true,
         cdpHttpBoundaryInvoked: false,
+        cdpWebSocketBoundaryInvoked: false,
         processBoundaryInvoked: false,
         externalProcessStarted: false,
       }),
@@ -7830,6 +7852,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       bodyStored: false,
       noRealWrite: true,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       summary: `Electron/CDP observation approval ${status}.`,
@@ -7846,6 +7869,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const enableControlledHttp =
       options.electronCdpObserverEnabled === true ||
       process.env.CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED === 'true';
+    const enableControlledEvents =
+      options.electronCdpEventsEnabled === true ||
+      process.env.CODEXHUB_ELECTRON_CDP_EVENTS_ENABLED === 'true';
     const approvalState = classifyElectronCdpObservationApproval(input.approvalRecord);
     const endpointMatch = verifyElectronCdpTransientEndpoint(
       input.dryRunRecord.plan.debugEndpoint,
@@ -7855,6 +7881,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const blockedReason =
       input.dryRunRecord.status === 'blocked'
         ? 'dry_run_blocked'
+        : input.dryRunRecord.plan.cdpWebSocketBoundaryPlanned && !enableControlledEvents
+          ? 'controlled_websocket_events_disabled'
         : input.dryRunRecord.cdpHttpBoundaryPlanned && !enableControlledHttp
           ? 'controlled_http_disabled'
           : input.dryRunRecord.cdpHttpBoundaryPlanned && endpointMatch !== 'ready'
@@ -7865,6 +7893,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
                   !options.electronCdpObserverRunner &&
                   (!input.host || input.port === undefined)
                 ? 'controlled_http_runner_missing'
+                : input.dryRunRecord.plan.cdpWebSocketBoundaryPlanned &&
+                    !options.electronCdpObserverRunner &&
+                    !input.dryRunRecord.plan.targetIdHash
+                  ? 'target_hash_required'
                 : undefined;
 
     if (blockedReason) {
@@ -7877,6 +7909,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
             dryRunId: input.dryRunRecord.dryRunId,
             blockedReason,
             cdpHttpBoundaryInvoked: false,
+            cdpWebSocketBoundaryInvoked: false,
             processBoundaryInvoked: false,
             externalProcessStarted: false,
             bodyStored: false,
@@ -7892,6 +7925,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         evidenceRefs,
         auditEventIds,
         cdpHttpBoundaryInvoked: false,
+        cdpWebSocketBoundaryInvoked: false,
       });
       await persistElectronCdpObservationRunRecord(record, input.store);
       await persistEvidenceRefs(evidenceRefs, input.store);
@@ -7906,10 +7940,16 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     const runner =
       options.electronCdpObserverRunner ??
-      createElectronCdpControlledHttpRunner({
-        host: input.host ?? '127.0.0.1',
-        port: input.port ?? 0,
-      });
+      (input.dryRunRecord.plan.runnerMode === 'controlled-websocket-events'
+        ? createElectronCdpControlledWebSocketEventRunner({
+            host: input.host ?? '127.0.0.1',
+            port: input.port ?? 0,
+            targetIdHash: input.dryRunRecord.plan.targetIdHash ?? '',
+          })
+        : createElectronCdpControlledHttpRunner({
+            host: input.host ?? '127.0.0.1',
+            port: input.port ?? 0,
+          }));
     const authority = ExecutionAuthoritySchema.parse({
       id: foundationId('execution_authority'),
       schemaVersion: SchemaVersionSchema.value,
@@ -7920,8 +7960,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       constraints: [
         'read-only electron cdp observation',
         'loopback devtools HTTP metadata only',
-        'no remote socket connections',
-        'no cdp commands',
+        input.dryRunRecord.plan.runnerMode === 'controlled-websocket-events'
+          ? 'loopback websocket event metadata only'
+          : 'no websocket event connection',
+        input.dryRunRecord.plan.runnerMode === 'controlled-websocket-events'
+          ? 'fixed cdp event subscription commands only'
+          : 'no cdp commands',
         'no main inspector',
         'no runtime evaluation',
         'no screenshot or dom snapshot',
@@ -7933,7 +7977,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       debugEndpoint: input.dryRunRecord.plan.debugEndpoint,
       targets: input.dryRunRecord.plan.targets,
       runnerMode: input.dryRunRecord.plan.runnerMode,
+      targetIdHash: input.dryRunRecord.plan.targetIdHash,
+      observationWindowMs: input.dryRunRecord.plan.observationWindowMs,
       requestedCapabilities: input.dryRunRecord.plan.requestedCapabilities,
+      requestedCommands: input.dryRunRecord.plan.commandDecisions.map(
+        (decision) => decision.command,
+      ),
       metadata: {
         supervisorDryRunRecordId: input.dryRunRecord.id,
         endpointIdHash: input.dryRunRecord.endpointIdHash,
@@ -7960,6 +8009,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       evidenceRefs: adapterResult.evidenceRefs,
       auditEventIds: adapterResult.auditEvents.map((event) => event.id),
       cdpHttpBoundaryInvoked: adapterResult.electronRun.cdpHttpBoundaryInvoked,
+      cdpWebSocketBoundaryInvoked: adapterResult.electronRun.cdpWebSocketBoundaryInvoked,
     });
 
     await persistElectronCdpObservationRunRecord(record, input.store);
@@ -7996,6 +8046,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     evidenceRefs: EvidenceRef[];
     auditEventIds: string[];
     cdpHttpBoundaryInvoked: boolean;
+    cdpWebSocketBoundaryInvoked: boolean;
   }): ElectronCdpObservationControlPlaneRun {
     const now = foundationTimestamp();
 
@@ -8009,6 +8060,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       status: input.status,
       planId: input.dryRunRecord.plan.id,
       endpointIdHash: input.dryRunRecord.endpointIdHash,
+      targetIdHash: input.dryRunRecord.targetIdHash,
       electronRun: input.electronRun,
       timeline: [
         ElectronCdpObservationTimelineEventSchema.parse({
@@ -8024,6 +8076,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           rawPathStored: false,
           noRealWrite: true,
           cdpHttpBoundaryInvoked: input.cdpHttpBoundaryInvoked,
+          cdpWebSocketBoundaryInvoked: input.cdpWebSocketBoundaryInvoked,
           processBoundaryInvoked: false,
           externalProcessStarted: false,
         }),
@@ -8034,6 +8087,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       bodyStored: false,
       noRealWrite: true,
       cdpHttpBoundaryInvoked: input.cdpHttpBoundaryInvoked,
+      cdpWebSocketBoundaryInvoked: input.cdpWebSocketBoundaryInvoked,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       summary: input.summary,
@@ -8178,6 +8232,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           noRealWrite: true,
           liveExecution: false,
           cdpHttpBoundaryInvoked: false,
+          cdpWebSocketBoundaryInvoked: false,
           processBoundaryInvoked: false,
           externalProcessStarted: false,
         },
@@ -8323,6 +8378,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       endpointIdHash: record.endpointIdHash,
       endpointHostHash: record.endpointHostHash,
       endpointPortHash: record.endpointPortHash,
+      targetIdHash: record.targetIdHash,
       policyDecisionId: record.policyDecision.id,
       policyOutcome: record.policyDecision.outcome,
       requiresApproval: record.policyDecision.requiresApproval,
@@ -8333,6 +8389,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       auditEventIds: record.auditEventIds,
       cdpHttpBoundaryPlanned: record.cdpHttpBoundaryPlanned,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryPlanned: record.cdpWebSocketBoundaryPlanned,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
@@ -8357,6 +8415,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
       auditEventIds: record.auditEventIds,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
@@ -8377,9 +8436,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       status: record.status,
       planId: record.planId,
       endpointIdHash: record.endpointIdHash,
+      targetIdHash: record.targetIdHash,
       evidenceRefIds: record.evidenceRefIds,
       auditEventIds: record.auditEventIds,
       cdpHttpBoundaryInvoked: record.cdpHttpBoundaryInvoked,
+      cdpWebSocketBoundaryInvoked: record.cdpWebSocketBoundaryInvoked,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
@@ -8397,6 +8458,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       degraded: true,
       notPersisted: true,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -8415,6 +8477,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       status: 'blocked',
       liveExecution: false,
       cdpHttpBoundaryInvoked: false,
+      cdpWebSocketBoundaryInvoked: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       executionDisabled: true,

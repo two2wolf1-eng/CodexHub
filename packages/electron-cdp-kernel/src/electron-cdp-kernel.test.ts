@@ -5,12 +5,14 @@ import {
   ELECTRON_CDP_READ_ONLY_CAPABILITIES,
   createElectronCdpCommandAllowlistDecision,
   createElectronCdpConsoleSummary,
+  createElectronCdpEventMetadataSummary,
   createElectronCdpNetworkMetadataSummary,
   createElectronDebugEndpointSummary,
   createElectronProcessSummary,
   createElectronTargetSummary,
   hashElectronLocalMetadata,
   isLoopbackElectronEndpointHost,
+  isLoopbackElectronWebSocketUrl,
 } from './index';
 
 describe('electron-cdp-kernel', () => {
@@ -67,6 +69,12 @@ describe('electron-cdp-kernel', () => {
     expect(isLoopbackElectronEndpointHost('127.0.0.1')).toBe(true);
     expect(isLoopbackElectronEndpointHost('::1')).toBe(true);
     expect(isLoopbackElectronEndpointHost('192.168.1.10')).toBe(false);
+    expect(isLoopbackElectronWebSocketUrl('ws://127.0.0.1:9222/devtools/page/1')).toBe(
+      true,
+    );
+    expect(isLoopbackElectronWebSocketUrl('ws://192.168.1.10:9222/devtools/page/1')).toBe(
+      false,
+    );
     expect(() =>
       createElectronDebugEndpointSummary({
         host: '192.168.1.10',
@@ -89,6 +97,8 @@ describe('electron-cdp-kernel', () => {
       'Browser.getVersion',
       'Target.getTargets',
       'Log.enable',
+      'Runtime.enable',
+      'Network.enable',
     ]);
 
     const allowed = createElectronCdpCommandAllowlistDecision('Target.getTargets');
@@ -120,5 +130,17 @@ describe('electron-cdp-kernel', () => {
     expect(consoleSummary.bodyStored).toBe(false);
     expect(networkSummary.bodyStored).toBe(false);
     expect(networkSummary.requestCount).toBe(5);
+
+    const eventSummary = createElectronCdpEventMetadataSummary({
+      observationWindowMs: 1_000,
+      eventCount: 2,
+      consoleEventCount: 1,
+      networkEventCount: 1,
+      payloadHashes: ['sha256:event'],
+    });
+
+    expect(eventSummary.bodyStored).toBe(false);
+    expect(eventSummary.rawPathStored).toBe(false);
+    expect(eventSummary.payloadHashes).toEqual(['sha256:event']);
   });
 });
