@@ -43,6 +43,13 @@ Telemetry is observability metadata only. It does not replace CodexHub EvidenceR
 - Telemetry run tests cover raw request, response, path, and credential-like attribute redaction by omission.
 - `evidenceAuditAuthoritative=false` remains required for telemetry records.
 
+## M7c Local Projection
+
+- Local projection is metadata-only and consumes existing CodexHub workflow, adapter, supervisor, verification, and policy summaries.
+- Projection emits `TelemetrySpanSummary` and noop `TelemetryExportRun` summaries with hashes, counts, statuses, EvidenceRef ids, and AuditEvent ids only.
+- `networkExportAttempted=false`, `processBoundaryInvoked=false`, and `externalProcessStarted=false` remain mandatory.
+- Projection is observability only. It cannot create `ExecutionAuthority`, cannot replace EvidenceRef or AuditEvent records, and cannot export over OTLP.
+
 ## Rollback
 
-Remove the package, path mapping, integration config entry, scaffold health expectations, M7.5 audit terms, and contracts added for M7a. No persisted runtime data, SDK dependency, exporter, or process boundary exists in this stage.
+Remove the package, path mapping, integration config entry, scaffold health expectations, M7.5 audit terms, M7c projection helper, and contracts added for M7a. No persisted runtime data, SDK dependency, exporter, network call, or process boundary exists in this stage.

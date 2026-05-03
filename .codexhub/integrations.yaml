@@ -332,8 +332,8 @@ integrations:
     adapter: otel-adapter
     provider: builtin
     providerType: builtin
-    mode: noop-telemetry
-    stage: m7_5-foundation-hardened
+    mode: local-telemetry-projection
+    stage: m7c-local-telemetry-projection
     defaultActionMode: read
     defaultRisk: low
     processBoundary: false
@@ -344,6 +344,13 @@ integrations:
     exporterKinds:
       - noop
       - fixture
+    localProjection:
+      enabled: true
+      input: existing-metadata-summaries-only
+      output: spans-and-export-run-metadata-only
+      networkExportAttempted: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
     evidence:
       tracePlan: hash-only
       spanSummary: metadata-only
@@ -356,7 +363,7 @@ integrations:
     rules:
       telemetryDoesNotReplaceEvidenceAudit: true
       otlpExportAllowed: false
-      noRealTelemetryRuntimeInM7a: true
+      noRealTelemetryRuntimeInM7c: true
       auditForbidsOpenTelemetrySdkInProductionSource: true
       auditForbidsOtlpExporterInProductionSource: true
       auditForbidsTelemetryAuthorityTransfer: true

@@ -32,7 +32,7 @@ export function createTelemetryAuditEvent(input: {
     metadata: redactMetadata({
       ...(input.metadata ?? {}),
       adapterName: OTEL_ADAPTER_NAME,
-      integrationStage: 'm7a',
+      integrationStage: 'm7c',
       liveExecution: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,

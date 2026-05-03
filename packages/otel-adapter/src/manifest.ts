@@ -7,7 +7,7 @@ import {
 } from '@codexhub/contracts';
 
 export const OTEL_ADAPTER_NAME = 'otel-adapter';
-export const OTEL_ADAPTER_VERSION = '0.1.0-m7a';
+export const OTEL_ADAPTER_VERSION = '0.2.0-m7c';
 
 export function createOtelAdapterManifest(): CapabilityManifest {
   return CapabilityManifestSchema.parse({
@@ -21,6 +21,7 @@ export function createOtelAdapterManifest(): CapabilityManifest {
     capabilities: [
       'telemetry.noop_trace_plan',
       'telemetry.fixture_span_summary',
+      'telemetry.local_projection',
       'telemetry.metadata_only_export_summary',
       'telemetry.evidence_audit_not_authoritative',
     ],
@@ -37,8 +38,9 @@ export function createOtelAdapterManifest(): CapabilityManifest {
       requiresProcessAudit: false,
     },
     metadata: {
-      integrationStage: 'm7a',
+      integrationStage: 'm7c',
       productDefaultEnabled: false,
+      localProjectionEnabled: true,
       authorityProvider: 'codexhub',
       capabilityProvider: OTEL_ADAPTER_NAME,
       openTelemetrySdkLoaded: false,

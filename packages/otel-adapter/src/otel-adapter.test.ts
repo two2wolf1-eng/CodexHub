@@ -8,7 +8,9 @@ import {
 } from '@codexhub/contracts';
 import {
   createOtelAdapterManifest,
+  executeLocalTelemetryProjection,
   executeTelemetryExport,
+  planLocalTelemetryProjection,
   planTelemetryExport,
 } from './index';
 
@@ -135,5 +137,51 @@ describe('otel-adapter', () => {
     expect(serialized).not.toContain('private.trace');
     expect(serialized).not.toContain('session');
     expect(serialized).not.toContain('token');
+  });
+
+  it('projects local workflow metadata into span summaries without network or raw payload storage', async () => {
+    const projectionPlan = planLocalTelemetryProjection([
+      {
+        sourceKind: 'workflow',
+        sourceId: 'workflow-run-123',
+        status: 'completed',
+        evidenceRefIds: ['evidence-local-1'],
+        auditEventIds: ['audit-local-1'],
+        summary: 'Completed request with token=secret at C:/Users/Thomas/CodexHub/private.trace',
+        count: 2,
+      },
+      {
+        sourceKind: 'policy',
+        sourceId: 'policy-decision-123',
+        status: 'approval_required',
+        evidenceRefIds: ['evidence-policy-1', 'evidence-policy-2'],
+        auditEventIds: ['audit-policy-1'],
+      },
+    ]);
+
+    expect(projectionPlan.projectionSummary.sourceCount).toBe(2);
+    expect(projectionPlan.projectionSummary.spanCount).toBe(2);
+    expect(projectionPlan.projectionSummary.networkExportAttempted).toBe(false);
+    expect(projectionPlan.projectionSummary.evidenceAuditAuthoritative).toBe(false);
+    expect(projectionPlan.planResult.plan.networkExportPlanned).toBe(false);
+    expect(projectionPlan.planResult.spans[0]?.rawTracePayloadStored).toBe(false);
+
+    const result = await executeLocalTelemetryProjection({
+      projectionPlan,
+      authority,
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.run.status).toBe('completed');
+    expect(result.run.exporterKind).toBe('noop');
+    expect(result.run.networkExportAttempted).toBe(false);
+    expect(result.run.processBoundaryInvoked).toBe(false);
+    expect(result.run.externalProcessStarted).toBe(false);
+    expect(result.run.evidenceAuditAuthoritative).toBe(false);
+    expect(result.projectionSummary.projectionHash).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('workflow-run-123');
+    expect(serialized).not.toContain('policy-decision-123');
+    expect(serialized).not.toContain('token=secret');
+    expect(serialized).not.toContain('private.trace');
   });
 });
