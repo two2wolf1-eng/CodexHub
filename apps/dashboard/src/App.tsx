@@ -35,6 +35,7 @@ import {
   type DashboardView,
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
   createWorktreeReadOnlySummary,
   getDashboardHash,
@@ -260,6 +261,7 @@ export function App() {
       (record) => record.cleanupCompleted === true,
     ).length,
   });
+  const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
 
   useEffect(() => {
     function onHashChange() {
@@ -1857,6 +1859,7 @@ export function App() {
           browserProfilesSummary,
           electronCdpSummary,
           worktreeSummary,
+          policyTelemetrySummary,
         )
       )}
     </main>
@@ -1871,6 +1874,7 @@ function renderReadOnlyDashboardView(
   browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
+  policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -2465,6 +2469,96 @@ function renderReadOnlyDashboardView(
               cannot be triggered from the Dashboard.
             </p>
           )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'policy-telemetry') {
+    return (
+      <section className="grid">
+        <Panel title="Policy Backend">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>
+                {policyTelemetrySummary.policyBackend.manifestName}{' '}
+                {policyTelemetrySummary.policyBackend.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>enablement</strong>
+              <span>default {String(policyTelemetrySummary.policyBackend.productDefaultEnabled)}</span>
+            </li>
+            <li>
+              <strong>backend kinds</strong>
+              <span>{policyTelemetrySummary.policyBackend.backendKinds.join(', ')}</span>
+            </li>
+            <li>
+              <strong>evaluators</strong>
+              <span>{policyTelemetrySummary.policyBackend.evaluatorSources.join(', ')}</span>
+            </li>
+            <li>
+              <strong>authority</strong>
+              <span>
+                advisoryOnly {String(policyTelemetrySummary.policyBackend.advisoryOnly)}, provider{' '}
+                {policyTelemetrySummary.policyBackend.authorityProvider}
+              </span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                process {String(policyTelemetrySummary.policyBackend.processBoundaryInvoked)},
+                network {String(policyTelemetrySummary.policyBackend.networkBoundaryInvoked)}
+              </span>
+            </li>
+          </ul>
+          <p>{policyTelemetrySummary.policyBackend.summary}</p>
+        </Panel>
+        <Panel title="Telemetry Projection">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>
+                {policyTelemetrySummary.telemetry.manifestName}{' '}
+                {policyTelemetrySummary.telemetry.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>enablement</strong>
+              <span>default {String(policyTelemetrySummary.telemetry.productDefaultEnabled)}</span>
+            </li>
+            <li>
+              <strong>exporters</strong>
+              <span>{policyTelemetrySummary.telemetry.exporterKinds.join(', ')}</span>
+            </li>
+            <li>
+              <strong>projection</strong>
+              <span>
+                local {String(policyTelemetrySummary.telemetry.localProjectionEnabled)}, spans{' '}
+                {policyTelemetrySummary.telemetry.projectionSpanCount}
+              </span>
+            </li>
+            <li>
+              <strong>projection hash</strong>
+              <span>{policyTelemetrySummary.telemetry.projectionHash}</span>
+            </li>
+            <li>
+              <strong>runtime</strong>
+              <span>
+                sdk {String(policyTelemetrySummary.telemetry.openTelemetrySdkLoaded)}, network{' '}
+                {String(policyTelemetrySummary.telemetry.networkExportAttempted)}
+              </span>
+            </li>
+            <li>
+              <strong>fact chain</strong>
+              <span>
+                evidenceAuditAuthoritative{' '}
+                {String(policyTelemetrySummary.telemetry.evidenceAuditAuthoritative)}
+              </span>
+            </li>
+          </ul>
+          <p>{policyTelemetrySummary.telemetry.summary}</p>
         </Panel>
       </section>
     );

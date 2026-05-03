@@ -161,16 +161,25 @@ import {
   type JsonCliOptions,
   type VerifyAffectedDryRunCliOptions,
   type BrowserObserveDryRunCliOptions,
+  type PolicyBackendPlanCliOptions,
   createBrowserObserveDryRunForCli,
   createVerifyAffectedDryRunForCli,
   formatBrowserObserveDryRunOutput,
   formatBrowserProfilesListOutput,
+  formatPolicyBackendPlanOutput,
+  formatPolicyBackendStatusOutput,
+  formatTelemetryProjectionOutput,
+  formatTelemetryStatusOutput,
   formatMcpToolDetailOutput,
   formatMcpToolsListOutput,
   formatVerifyAffectedDryRunOutput,
+  getPolicyBackendStatusForCli,
+  getTelemetryStatusForCli,
   getMcpToolForCli,
   listBrowserProfilesForCli,
   listMcpToolsForCli,
+  createPolicyBackendPlanForCli,
+  showTelemetryProjectionForCli,
 } from './m3b-readonly';
 
 const supervisorUrl = process.env.CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
@@ -240,7 +249,9 @@ export interface ReadOnlyRunSummary {
     | 'browser_observation'
     | 'electron_cdp_observation'
     | 'worktree_run'
-    | 'worktree_cleanup_run';
+    | 'worktree_cleanup_run'
+    | 'policy_backend_projection'
+    | 'telemetry_projection';
   title: string;
   status: string;
   summary: string;
@@ -605,6 +616,55 @@ export function buildProgram(): Command {
     .description('Show one read-only MCP tool definition without invoking MCP')
     .action((toolName: string, options: JsonCliOptions) => {
       console.log(formatMcpToolDetailOutput(getMcpToolForCli(toolName), options));
+    });
+
+  const policyBackendCommand = program
+    .command('policy-backend')
+    .description('Read-only policy backend metadata commands');
+
+  policyBackendCommand
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show policy backend manifest and advisory-only status')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getPolicyBackendStatusForCli();
+      console.log(formatPolicyBackendStatusOutput(result, options));
+    });
+
+  policyBackendCommand
+    .command('plan')
+    .requiredOption('--action <type>', 'Action type to evaluate in fixture planning')
+    .requiredOption('--mode <mode>', 'Action mode: read, dry-run, write, or admin')
+    .option('--risk <level>', 'Risk level', 'low')
+    .option('--json', 'Print full JSON output')
+    .description('Create a read-only policy backend fixture plan without authority')
+    .action(async (options: PolicyBackendPlanCliOptions) => {
+      const result = await createPolicyBackendPlanForCli(options);
+      console.log(formatPolicyBackendPlanOutput(result, options));
+    });
+
+  const telemetryCommand = program
+    .command('telemetry')
+    .description('Read-only telemetry projection metadata commands');
+
+  telemetryCommand
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show telemetry manifest and no-network projection status')
+    .action((options: JsonCliOptions) => {
+      console.log(formatTelemetryStatusOutput(getTelemetryStatusForCli(), options));
+    });
+
+  const telemetryProjectionCommand = telemetryCommand
+    .command('projection')
+    .description('Read local telemetry projection summaries');
+
+  telemetryProjectionCommand
+    .command('show')
+    .option('--json', 'Print full JSON output')
+    .description('Show local telemetry projection without exporting telemetry')
+    .action((options: JsonCliOptions) => {
+      console.log(formatTelemetryProjectionOutput(showTelemetryProjectionForCli(), options));
     });
 
   const verifyCommand = program
@@ -2047,6 +2107,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       settledValue(worktreeCleanupRunResult)?.records ?? [],
       true,
     ),
+    ...summarizePolicyTelemetryLocalRuns(),
   ];
   const degradedReasons = [
     settledError(workflowResult),
@@ -2447,6 +2508,39 @@ function summarizeWorktreeRunRecords(
     noRealWrite: true,
     bodyStored: false,
   }));
+}
+
+function summarizePolicyTelemetryLocalRuns(): ReadOnlyRunSummary[] {
+  const telemetryProjection = showTelemetryProjectionForCli();
+
+  return [
+    {
+      id: 'policy_backend_projection_local',
+      source: 'policy_backend_projection',
+      title: 'Policy backend advisory projection',
+      status: 'ready',
+      summary: 'Local policy backend fixture state is advisory-only and read-only.',
+      evidenceCount: 0,
+      auditEventCount: 0,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+    },
+    {
+      id: 'telemetry_projection_local',
+      source: 'telemetry_projection',
+      title: 'Telemetry local projection',
+      status: 'ready',
+      summary: `Local telemetry projection spans=${telemetryProjection.projection.spanCount}.`,
+      evidenceCount: telemetryProjection.projection.evidenceRefCount,
+      auditEventCount: telemetryProjection.projection.auditEventCount,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+    },
+  ];
 }
 
 async function listWorktreeCollection(

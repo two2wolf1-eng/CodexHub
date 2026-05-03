@@ -63,6 +63,59 @@ describe('cli development mock-run fallback', () => {
     expect(output).not.toContain('stderr');
   });
 
+  it('shows policy backend and telemetry read-only status without creating authority or export', async () => {
+    const {
+      createPolicyBackendPlanForCli,
+      formatPolicyBackendPlanOutput,
+      formatPolicyBackendStatusOutput,
+      formatTelemetryProjectionOutput,
+      formatTelemetryStatusOutput,
+      getPolicyBackendStatusForCli,
+      getTelemetryStatusForCli,
+      showTelemetryProjectionForCli,
+    } = await import('./m3b-readonly');
+    const policyStatus = await getPolicyBackendStatusForCli();
+    const policyPlan = await createPolicyBackendPlanForCli({
+      action: 'workspace.write',
+      mode: 'write',
+      risk: 'medium',
+    });
+    const telemetryStatus = getTelemetryStatusForCli();
+    const telemetryProjection = showTelemetryProjectionForCli();
+    const serialized = JSON.stringify({
+      policyStatus,
+      policyPlan,
+      telemetryStatus,
+      telemetryProjection,
+    });
+
+    expect(policyStatus.advisoryOnly).toBe(true);
+    expect(policyStatus.processBoundaryInvoked).toBe(false);
+    expect(policyPlan.actionMode).toBe('write');
+    expect(policyPlan.advisoryOnly).toBe(true);
+    expect(policyPlan.authorityCreated).toBe(false);
+    expect(policyPlan.processBoundaryPlanned).toBe(false);
+    expect(telemetryStatus.openTelemetrySdkLoaded).toBe(false);
+    expect(telemetryStatus.networkExportAttempted).toBe(false);
+    expect(telemetryStatus.evidenceAuditAuthoritative).toBe(false);
+    expect(telemetryProjection.projection.networkExportAttempted).toBe(false);
+    expect(telemetryProjection.projection.processBoundaryInvoked).toBe(false);
+    expect(telemetryProjection.projection.evidenceAuditAuthoritative).toBe(false);
+    expect(formatPolicyBackendStatusOutput(policyStatus)).toContain('advisoryOnly=true');
+    expect(formatPolicyBackendPlanOutput(policyPlan)).toContain('authorityCreated=false');
+    expect(formatTelemetryStatusOutput(telemetryStatus)).toContain('networkExportAttempted=false');
+    expect(formatTelemetryProjectionOutput(telemetryProjection)).toContain(
+      'evidenceAuditAuthoritative=false',
+    );
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL');
+    expect(serialized).not.toContain('.codexhub/policy-backend.fixture.json');
+    expect(serialized).not.toContain('requestBody');
+    expect(serialized).not.toContain('responseBody');
+    expect(serialized).not.toContain('token');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
+  });
+
   it('creates an Nx verification dry-run summary without starting a process', async () => {
     const { createVerifyAffectedDryRunForCli, formatVerifyAffectedDryRunOutput } = await import(
       './m3b-readonly'
@@ -239,13 +292,15 @@ describe('cli development mock-run fallback', () => {
 
     expect(result).toMatchObject({
       status: 'ready',
-      count: 1,
+      count: 3,
       liveExecution: false,
       externalProcessStarted: false,
       noRealWrite: true,
     });
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
+    expect(output).toContain('policy_backend_projection_local');
+    expect(output).toContain('telemetry_projection_local');
     expect(fetchCalls).toHaveLength(14);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });

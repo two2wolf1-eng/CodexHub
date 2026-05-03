@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createElectronCdpReadOnlySummary,
+  createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
   createWorktreeReadOnlySummary,
@@ -16,6 +17,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/browser-profiles')).toBe('browser-profiles');
     expect(getDashboardViewFromHash('#/electron')).toBe('electron');
     expect(getDashboardViewFromHash('#/worktrees')).toBe('worktrees');
+    expect(getDashboardViewFromHash('#/policy-telemetry')).toBe('policy-telemetry');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -141,5 +143,31 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('git worktree remove');
     expect(serialized).not.toContain('diff --numstat');
     expect(serialized).not.toContain('payload');
+  });
+
+  it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {
+    const summary = createPolicyTelemetryReadOnlySummary({ projectionSpanCount: 4 });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.policyBackend.manifestName).toBe('policy-backend-adapter');
+    expect(summary.policyBackend.productDefaultEnabled).toBe(false);
+    expect(summary.policyBackend.advisoryOnly).toBe(true);
+    expect(summary.policyBackend.authorityProvider).toBe('codexhub');
+    expect(summary.policyBackend.processBoundaryInvoked).toBe(false);
+    expect(summary.policyBackend.networkBoundaryInvoked).toBe(false);
+    expect(summary.policyBackend.rawPolicySourceStored).toBe(false);
+    expect(summary.telemetry.manifestName).toBe('otel-adapter');
+    expect(summary.telemetry.localProjectionEnabled).toBe(true);
+    expect(summary.telemetry.projectionSpanCount).toBe(4);
+    expect(summary.telemetry.projectionHash).toMatch(/^sha256:/);
+    expect(summary.telemetry.networkExportAttempted).toBe(false);
+    expect(summary.telemetry.openTelemetrySdkLoaded).toBe(false);
+    expect(summary.telemetry.evidenceAuditAuthoritative).toBe(false);
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('requestBody');
+    expect(serialized).not.toContain('responseBody');
+    expect(serialized).not.toContain('token');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
   });
 });

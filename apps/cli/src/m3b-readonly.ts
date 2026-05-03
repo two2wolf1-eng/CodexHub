@@ -5,6 +5,16 @@ import {
   createCodexHubMcpToolDefinitions,
   getCodexHubMcpToolDefinition,
 } from '@codexhub/mcp-tool-contracts';
+import { ActionModeSchema, RiskLevelSchema } from '@codexhub/contracts';
+import {
+  createPolicyBackendAdapterManifest,
+  loadPolicyBackendFixtureConfig,
+  planPolicyBackendEvaluation,
+} from '@codexhub/policy-backend-adapter';
+import {
+  createOtelAdapterManifest,
+  planLocalTelemetryProjection,
+} from '@codexhub/otel-adapter';
 import { createNxVerificationAdapterPlan } from '@codexhub/nx-verification-adapter';
 import {
   createBrowserProfileReadiness,
@@ -42,6 +52,12 @@ export interface BrowserObserveDryRunCliOptions extends JsonCliOptions {
   bodyStorage?: boolean;
 }
 
+export interface PolicyBackendPlanCliOptions extends JsonCliOptions {
+  action?: string;
+  mode?: string;
+  risk?: string;
+}
+
 export function listMcpToolsForCli() {
   const manifest = createCodexHubMcpServerManifest();
   const tools = createCodexHubMcpToolDefinitions();
@@ -70,6 +86,183 @@ export function listMcpToolsForCli() {
       externalProcessStarted: tool.externalProcessStarted,
     })),
     note: 'Registry display only; this is not an MCP invocation and creates no MCP audit event.',
+  };
+}
+
+export async function getPolicyBackendStatusForCli() {
+  const manifest = createPolicyBackendAdapterManifest();
+  const workspaceRoot = findCliWorkspaceRoot(process.cwd());
+  const fixtureConfig = await loadPolicyBackendFixtureConfigSummary(workspaceRoot);
+
+  return {
+    manifest: {
+      name: manifest.name,
+      kind: manifest.kind,
+      provider: manifest.provider,
+      version: manifest.version,
+      processBoundary: manifest.processBoundary,
+      evidencePolicy: manifest.evidencePolicy,
+    },
+    enabled: false,
+    backendKinds: ['fixture', 'opa-plan-only', 'cedar-plan-only'],
+    evaluatorSources: ['fixture-inline', 'fixture-config'],
+    advisoryOnly: true,
+    authorityProvider: 'codexhub',
+    fixtureConfig: {
+      status: fixtureConfig.status,
+      configHash: fixtureConfig.configHash,
+      ruleCount: fixtureConfig.ruleCount,
+      rawConfigStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: fixtureConfig.summary,
+    },
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    note:
+      'Policy backend status is read-only. Backend outcomes are advisory and cannot create execution authority.',
+  };
+}
+
+export async function createPolicyBackendPlanForCli(options: PolicyBackendPlanCliOptions) {
+  if (!options.action) {
+    throw new Error('policy-backend plan requires --action');
+  }
+
+  const workspaceRoot = findCliWorkspaceRoot(process.cwd());
+  const fixtureConfig = await loadPolicyBackendFixtureConfigSummary(workspaceRoot);
+  const actionMode = ActionModeSchema.parse(options.mode ?? 'read');
+  const riskLevel = options.risk ? RiskLevelSchema.parse(options.risk) : 'low';
+  const planResult = planPolicyBackendEvaluation({
+    actionId: `cli-policy-backend-${options.action}-${actionMode}`,
+    actionType: options.action,
+    actionMode,
+    riskLevel,
+    evaluatorSource: fixtureConfig.status === 'loaded' ? 'fixture-config' : 'fixture-inline',
+    fixtureConfigHash: fixtureConfig.configHash,
+    fixtureRuleCount: fixtureConfig.ruleCount,
+    metadata: {
+      requestedBy: 'cli',
+      m7dReadOnlyUx: true,
+    },
+  });
+
+  return {
+    planId: planResult.plan.id,
+    adapterName: planResult.plan.adapterName,
+    backendKind: planResult.plan.backendKind,
+    evaluatorSource: planResult.plan.evaluatorSource,
+    actionIdHash: planResult.plan.actionIdHash,
+    actionType: planResult.plan.actionType,
+    actionMode: planResult.plan.actionMode,
+    riskLevel: planResult.plan.riskLevel,
+    inputHash: planResult.plan.inputHash,
+    fixtureConfigHash: planResult.plan.fixtureConfigHash,
+    fixtureRuleCount: planResult.plan.fixtureRuleCount,
+    blockReasons: planResult.plan.blockReasons,
+    processBoundaryPlanned: planResult.plan.processBoundaryPlanned,
+    networkBoundaryPlanned: planResult.plan.networkBoundaryPlanned,
+    rawPolicySourceStored: planResult.plan.rawPolicySourceStored,
+    rawPathStored: planResult.plan.rawPathStored,
+    bodyStored: planResult.plan.bodyStored,
+    noRealWrite: planResult.plan.noRealWrite,
+    advisoryOnly: true,
+    authorityCreated: false,
+    summary: planResult.plan.summary,
+  };
+}
+
+export function getTelemetryStatusForCli() {
+  const manifest = createOtelAdapterManifest();
+
+  return {
+    manifest: {
+      name: manifest.name,
+      kind: manifest.kind,
+      provider: manifest.provider,
+      version: manifest.version,
+      processBoundary: manifest.processBoundary,
+      evidencePolicy: manifest.evidencePolicy,
+    },
+    enabled: false,
+    exporterKinds: ['noop', 'fixture'],
+    localProjectionEnabled: true,
+    openTelemetrySdkLoaded: false,
+    networkExporterEnabled: false,
+    networkExportAttempted: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    evidenceAuditAuthoritative: false,
+    note:
+      'Telemetry is local metadata projection only. Evidence and audit remain the authoritative fact chain.',
+  };
+}
+
+export function showTelemetryProjectionForCli() {
+  const projectionPlan = planLocalTelemetryProjection([
+    {
+      sourceKind: 'workflow',
+      sourceId: 'cli-local-workflow-summary',
+      status: 'available',
+      evidenceRefIds: ['cli-evidence-summary'],
+      auditEventIds: ['cli-audit-summary'],
+      summary: 'CLI local workflow summary projection.',
+      count: 1,
+    },
+    {
+      sourceKind: 'adapter',
+      sourceId: 'cli-local-adapter-summary',
+      status: 'available',
+      summary: 'CLI local adapter summary projection.',
+      count: 1,
+    },
+    {
+      sourceKind: 'policy',
+      sourceId: 'cli-local-policy-summary',
+      status: 'advisory-only',
+      evidenceRefIds: ['cli-policy-evidence-summary'],
+      summary: 'CLI local policy backend summary projection.',
+      count: 1,
+    },
+  ]);
+
+  return {
+    projection: projectionPlan.projectionSummary,
+    plan: {
+      id: projectionPlan.planResult.plan.id,
+      exporterKind: projectionPlan.planResult.plan.exporterKind,
+      signalKinds: projectionPlan.planResult.plan.signalKinds,
+      spanCount: projectionPlan.planResult.plan.spanCount,
+      tracePlanHash: projectionPlan.planResult.plan.tracePlanHash,
+      networkExportPlanned: projectionPlan.planResult.plan.networkExportPlanned,
+      processBoundaryPlanned: projectionPlan.planResult.plan.processBoundaryPlanned,
+      rawTracePayloadStored: projectionPlan.planResult.plan.rawTracePayloadStored,
+      rawPathStored: projectionPlan.planResult.plan.rawPathStored,
+      bodyStored: projectionPlan.planResult.plan.bodyStored,
+      noRealWrite: projectionPlan.planResult.plan.noRealWrite,
+      evidenceAuditAuthoritative: projectionPlan.planResult.plan.evidenceAuditAuthoritative,
+      summary: projectionPlan.planResult.plan.summary,
+    },
+    spans: projectionPlan.planResult.spans.map((span) => ({
+      id: span.id,
+      signalKind: span.signalKind,
+      spanKind: span.spanKind,
+      traceIdHash: span.traceIdHash,
+      spanIdHash: span.spanIdHash,
+      nameHash: span.nameHash,
+      attributeCount: span.attributeCount,
+      eventCount: span.eventCount,
+      linkCount: span.linkCount,
+      payloadHash: span.payloadHash,
+      rawTracePayloadStored: span.rawTracePayloadStored,
+      rawPathStored: span.rawPathStored,
+      bodyStored: span.bodyStored,
+      noRealWrite: span.noRealWrite,
+      evidenceAuditAuthoritative: span.evidenceAuditAuthoritative,
+      summary: span.summary,
+    })),
+    note: 'Projection preview only; no exporter, process, network, or Supervisor write path is used.',
   };
 }
 
@@ -361,6 +554,119 @@ export function formatBrowserObserveDryRunOutput(
     .join('\n');
 }
 
+export function formatPolicyBackendStatusOutput(
+  result: Awaited<ReturnType<typeof getPolicyBackendStatusForCli>>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Policy backend status',
+    `manifest: ${result.manifest.name} ${result.manifest.version}`,
+    `enabled=${String(result.enabled)}`,
+    `backendKinds: ${result.backendKinds.join(', ')}`,
+    `evaluatorSources: ${result.evaluatorSources.join(', ')}`,
+    `advisoryOnly=${String(result.advisoryOnly)}`,
+    `authorityProvider: ${result.authorityProvider}`,
+    `fixtureConfig: ${result.fixtureConfig.status}`,
+    result.fixtureConfig.configHash ? `fixtureConfigHash: ${result.fixtureConfig.configHash}` : undefined,
+    `fixtureRuleCount: ${result.fixtureConfig.ruleCount}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `note: ${result.note}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatPolicyBackendPlanOutput(
+  result: Awaited<ReturnType<typeof createPolicyBackendPlanForCli>>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Policy backend plan',
+    `planId: ${result.planId}`,
+    `backend: ${result.backendKind}`,
+    `evaluator: ${result.evaluatorSource}`,
+    `action: ${result.actionType}/${result.actionMode}`,
+    `risk: ${result.riskLevel ?? 'none'}`,
+    `actionIdHash: ${result.actionIdHash}`,
+    `inputHash: ${result.inputHash}`,
+    result.fixtureConfigHash ? `fixtureConfigHash: ${result.fixtureConfigHash}` : undefined,
+    result.fixtureRuleCount !== undefined
+      ? `fixtureRuleCount: ${result.fixtureRuleCount}`
+      : undefined,
+    `advisoryOnly=${String(result.advisoryOnly)}`,
+    `authorityCreated=${String(result.authorityCreated)}`,
+    `processBoundaryPlanned=${String(result.processBoundaryPlanned)}`,
+    `networkBoundaryPlanned=${String(result.networkBoundaryPlanned)}`,
+    `rawPolicySourceStored=${String(result.rawPolicySourceStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    result.blockReasons.length > 0
+      ? `blockReasons: ${result.blockReasons.join(', ')}`
+      : 'blockReasons: none',
+    `summary: ${result.summary}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatTelemetryStatusOutput(
+  result: ReturnType<typeof getTelemetryStatusForCli>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Telemetry status',
+    `manifest: ${result.manifest.name} ${result.manifest.version}`,
+    `enabled=${String(result.enabled)}`,
+    `exporterKinds: ${result.exporterKinds.join(', ')}`,
+    `localProjectionEnabled=${String(result.localProjectionEnabled)}`,
+    `openTelemetrySdkLoaded=${String(result.openTelemetrySdkLoaded)}`,
+    `networkExporterEnabled=${String(result.networkExporterEnabled)}`,
+    `networkExportAttempted=${String(result.networkExportAttempted)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `evidenceAuditAuthoritative=${String(result.evidenceAuditAuthoritative)}`,
+    `note: ${result.note}`,
+  ].join('\n');
+}
+
+export function formatTelemetryProjectionOutput(
+  result: ReturnType<typeof showTelemetryProjectionForCli>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Telemetry projection',
+    `sources: ${result.projection.sourceCount}`,
+    `spans: ${result.projection.spanCount}`,
+    `projectionHash: ${result.projection.projectionHash}`,
+    `tracePlanHash: ${result.plan.tracePlanHash}`,
+    `exporter: ${result.plan.exporterKind}`,
+    `networkExportPlanned=${String(result.plan.networkExportPlanned)}`,
+    `networkExportAttempted=${String(result.projection.networkExportAttempted)}`,
+    `processBoundaryInvoked=${String(result.projection.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.projection.externalProcessStarted)}`,
+    `evidenceAuditAuthoritative=${String(result.projection.evidenceAuditAuthoritative)}`,
+    `bodyStored=${String(result.projection.bodyStored)}`,
+    `note: ${result.note}`,
+  ].join('\n');
+}
+
 function parseTargets(targets: string | undefined): string[] {
   return (targets ?? 'lint,test,build')
     .split(',')
@@ -391,5 +697,41 @@ function findCliWorkspaceRoot(startDirectory: string): string {
     }
 
     current = parent;
+  }
+}
+
+async function loadPolicyBackendFixtureConfigSummary(workspaceRoot: string): Promise<{
+  status: 'loaded' | 'unavailable';
+  configHash?: string;
+  ruleCount: number;
+  rawConfigStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  summary: string;
+}> {
+  try {
+    const result = await loadPolicyBackendFixtureConfig({ workspaceRoot });
+
+    return {
+      status: 'loaded',
+      configHash: result.configHash,
+      ruleCount: result.ruleCount,
+      rawConfigStored: result.rawConfigStored,
+      rawPathStored: result.rawPathStored,
+      bodyStored: result.bodyStored,
+      summary: 'Fixture policy backend config loaded as hash/count metadata.',
+    };
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      ruleCount: 0,
+      rawConfigStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary:
+        error instanceof Error
+          ? 'Fixture policy backend config unavailable; using inline fixture planning.'
+          : 'Fixture policy backend config unavailable.',
+    };
   }
 }

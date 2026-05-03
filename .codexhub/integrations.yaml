@@ -285,7 +285,7 @@ integrations:
     provider: builtin
     providerType: builtin
     mode: advisory-evaluation
-    stage: m7b-controlled-fixture-experiment
+    stage: m7d-read-only-ux
     defaultActionMode: read
     defaultRisk: low
     processBoundary: false
@@ -306,6 +306,13 @@ integrations:
       rawPathStorage: forbidden
       configHashRequired: true
       ruleCountSummaryOnly: true
+    readOnlyUx:
+      dashboardRoute: '#/policy-telemetry'
+      cliCommands:
+        - codexhub policy-backend status
+        - codexhub policy-backend plan
+      supervisorPostAllowed: false
+      localControlTokenRequired: false
     authority:
       backendResultAuthoritative: false
       codexhubPolicyDecisionAuthoritative: true
@@ -333,7 +340,7 @@ integrations:
     provider: builtin
     providerType: builtin
     mode: local-telemetry-projection
-    stage: m7c-local-telemetry-projection
+    stage: m7d-read-only-ux
     defaultActionMode: read
     defaultRisk: low
     processBoundary: false
@@ -351,6 +358,13 @@ integrations:
       networkExportAttempted: false
       processBoundaryInvoked: false
       externalProcessStarted: false
+    readOnlyUx:
+      dashboardRoute: '#/policy-telemetry'
+      cliCommands:
+        - codexhub telemetry status
+        - codexhub telemetry projection show
+      supervisorPostAllowed: false
+      localControlTokenRequired: false
     evidence:
       tracePlan: hash-only
       spanSummary: metadata-only

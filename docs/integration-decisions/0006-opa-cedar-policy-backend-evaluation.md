@@ -51,6 +51,12 @@ The backend is advisory only. CodexHub `security-kernel` remains the authority p
 - Raw config body and raw config path are not stored in public records, evidence, or audit.
 - Fixture config outcomes remain advisory; they cannot create or replace an `ExecutionAuthority`.
 
+## M7d Read-Only UX
+
+- Dashboard route `#/policy-telemetry` shows policy backend manifest metadata, disabled default state, backend kinds, evaluator sources, and advisory-only status.
+- CLI commands `codexhub policy-backend status` and `codexhub policy-backend plan` are read-only helpers. They do not create `ExecutionAuthority`, do not call Supervisor POST routes, and do not execute backend runtimes.
+- UX output remains hashes, counts, statuses, and summaries only.
+
 ## Rollback
 
-Remove the package, path mapping, integration config entry, fixture config file, scaffold health expectations, M7.5 audit terms, and contracts added for M7a/M7b. No persisted runtime data or process boundary exists in this stage.
+Remove the package, path mapping, integration config entry, fixture config file, scaffold health expectations, M7.5 audit terms, M7d read-only UX, and contracts added for M7a/M7b. No persisted runtime data or process boundary exists in this stage.

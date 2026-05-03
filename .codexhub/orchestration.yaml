@@ -460,3 +460,45 @@ workflows:
       - rawDiffRendering
       - gitPush
       - openPullRequest
+  m7d.policy-telemetry-read-only-ux:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: apps/dashboard apps/cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard-read-only-view
+        route: '#/policy-telemetry'
+        reads:
+          - policy-backend manifest metadata
+          - telemetry manifest metadata
+          - local projection summary metadata
+        output: hashesCountsStatusesSummariesOnly
+        localControlTokenUsed: false
+      - phase: cli-read-only-commands
+        commands:
+          - codexhub policy-backend status
+          - codexhub policy-backend plan
+          - codexhub telemetry status
+          - codexhub telemetry projection show
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+      - phase: generic-run-summary
+        command: codexhub runs list/show
+        includes:
+          - policy_backend_projection
+          - telemetry_projection
+    forbidden:
+      - dashboardWriteUi
+      - dashboardApprovalButton
+      - dashboardExecuteButton
+      - cliPolicyBackendExecuteCommand
+      - cliTelemetryExportCommand
+      - localControlTokenInDashboard
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
+      - rawPolicySourceRendering
+      - rawTracePayloadRendering
+      - otlpNetworkExport
+      - opaRuntime
+      - cedarRuntime

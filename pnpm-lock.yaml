@@ -90,9 +90,15 @@ importers:
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
+      '@codexhub/otel-adapter':
+        specifier: workspace:*
+        version: link:../../packages/otel-adapter
       '@codexhub/playwright-observer-adapter':
         specifier: workspace:*
         version: link:../../packages/playwright-observer-adapter
+      '@codexhub/policy-backend-adapter':
+        specifier: workspace:*
+        version: link:../../packages/policy-backend-adapter
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../../packages/security-kernel

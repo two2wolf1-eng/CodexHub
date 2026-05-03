@@ -15,6 +15,7 @@ export const DASHBOARD_VIEWS = [
   'browser-profiles',
   'electron',
   'worktrees',
+  'policy-telemetry',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -129,6 +130,43 @@ export interface WorktreeReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   summary: string;
+}
+
+export interface PolicyTelemetryReadOnlySummary {
+  policyBackend: {
+    manifestName: string;
+    manifestVersion: string;
+    productDefaultEnabled: false;
+    backendKinds: string[];
+    evaluatorSources: string[];
+    advisoryOnly: true;
+    authorityProvider: 'codexhub';
+    processBoundaryInvoked: false;
+    externalProcessStarted: false;
+    networkBoundaryInvoked: false;
+    rawPolicySourceStored: false;
+    rawPathStored: false;
+    bodyStored: false;
+    summary: string;
+  };
+  telemetry: {
+    manifestName: string;
+    manifestVersion: string;
+    productDefaultEnabled: false;
+    exporterKinds: string[];
+    localProjectionEnabled: true;
+    projectionSpanCount: number;
+    projectionHash: string;
+    networkExportAttempted: false;
+    processBoundaryInvoked: false;
+    externalProcessStarted: false;
+    openTelemetrySdkLoaded: false;
+    rawTracePayloadStored: false;
+    rawPathStored: false;
+    bodyStored: false;
+    evidenceAuditAuthoritative: false;
+    summary: string;
+  };
 }
 
 export function getDashboardViewFromHash(hash: string | undefined): DashboardView {
@@ -332,6 +370,51 @@ export function createWorktreeReadOnlySummary(input: {
     bodyStored: false,
     summary:
       'Worktree M6d shows Supervisor-gated create and cleanup metadata only. Dashboard remains read-only and cannot create, approve, run, remove, push, or open PRs.',
+  };
+}
+
+export function createPolicyTelemetryReadOnlySummary(input: {
+  projectionSpanCount?: number;
+} = {}): PolicyTelemetryReadOnlySummary {
+  const projectionSpanCount = input.projectionSpanCount ?? 5;
+
+  return {
+    policyBackend: {
+      manifestName: 'policy-backend-adapter',
+      manifestVersion: '0.2.0-m7b',
+      productDefaultEnabled: false,
+      backendKinds: ['fixture', 'opa-plan-only', 'cedar-plan-only'],
+      evaluatorSources: ['fixture-inline', 'fixture-config'],
+      advisoryOnly: true,
+      authorityProvider: 'codexhub',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      rawPolicySourceStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary:
+        'Policy backend output is advisory only. CodexHub security-kernel remains the authority provider.',
+    },
+    telemetry: {
+      manifestName: 'otel-adapter',
+      manifestVersion: '0.2.0-m7c',
+      productDefaultEnabled: false,
+      exporterKinds: ['noop', 'fixture'],
+      localProjectionEnabled: true,
+      projectionSpanCount,
+      projectionHash: stableSha256LikeHash(`policy-telemetry-projection:${projectionSpanCount}`),
+      networkExportAttempted: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      openTelemetrySdkLoaded: false,
+      rawTracePayloadStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceAuditAuthoritative: false,
+      summary:
+        'Telemetry projection is local metadata only. It can reference Evidence/Audit ids but cannot replace the fact chain.',
+    },
   };
 }
 
