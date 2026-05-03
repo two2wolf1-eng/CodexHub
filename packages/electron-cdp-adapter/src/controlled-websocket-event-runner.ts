@@ -52,6 +52,12 @@ interface CdpEventJson {
   method?: unknown;
 }
 
+interface HttpObservationTracker {
+  requestCount: number;
+  responseCount: number;
+  failedRequestCount: number;
+}
+
 export interface ElectronCdpControlledWebSocketEventRunnerInput {
   host: string;
   port: number;
@@ -111,12 +117,19 @@ async function observeWithControlledWebSocket(
 
   let cdpHttpBoundaryInvoked = false;
   let cdpWebSocketBoundaryInvoked = false;
+  const httpTracker: HttpObservationTracker = {
+    requestCount: 0,
+    responseCount: 0,
+    failedRequestCount: 0,
+  };
+  let listText: string | undefined;
 
   try {
     cdpHttpBoundaryInvoked = true;
-    const listText = await readEndpointText(
+    listText = await readEndpointText(
       fetchImpl,
       `${createDevToolsHttpBaseUrl(input.host, input.port)}/json/list`,
+      httpTracker,
     );
     const target = selectTarget(listText, plan);
 
@@ -124,6 +137,7 @@ async function observeWithControlledWebSocket(
       return createBlockedRunnerResult('target_hash_mismatch', {
         cdpHttpBoundaryInvoked,
         listText,
+        httpTracker,
       });
     }
 
@@ -131,6 +145,7 @@ async function observeWithControlledWebSocket(
       return createBlockedRunnerResult('websocket_debugger_url_missing', {
         cdpHttpBoundaryInvoked,
         listText,
+        httpTracker,
       });
     }
 
@@ -138,6 +153,7 @@ async function observeWithControlledWebSocket(
       return createBlockedRunnerResult('non_loopback_websocket_url_forbidden', {
         cdpHttpBoundaryInvoked,
         listText,
+        httpTracker,
       });
     }
 
@@ -145,6 +161,7 @@ async function observeWithControlledWebSocket(
       return createBlockedRunnerResult('endpoint_hash_mismatch', {
         cdpHttpBoundaryInvoked,
         listText,
+        httpTracker,
       });
     }
 
@@ -199,9 +216,11 @@ async function observeWithControlledWebSocket(
       status: error instanceof SyntaxError ? 'failed' : 'failed',
       consoleSummary: createElectronCdpConsoleSummary(),
       networkSummary: createElectronCdpNetworkMetadataSummary({
-        requestCount: cdpHttpBoundaryInvoked ? 1 : 0,
-        responseCount: 0,
-        failedRequestCount: cdpHttpBoundaryInvoked ? 1 : 0,
+        requestCount: httpTracker.requestCount,
+        responseCount: httpTracker.responseCount,
+        failedRequestCount:
+          httpTracker.failedRequestCount ||
+          (cdpHttpBoundaryInvoked && httpTracker.requestCount === 0 ? 1 : 0),
       }),
       eventSummary: createElectronCdpEventMetadataSummary({
         observationWindowMs: plan.observationPlan.observationWindowMs,
@@ -213,6 +232,7 @@ async function observeWithControlledWebSocket(
       sourceLabel: `${ELECTRON_CDP_ADAPTER_NAME}.controlled-websocket-events`,
       metadata: {
         errorName: error instanceof Error ? error.name : 'UnknownError',
+        ...(listText ? { listBodyHash: `sha256:${hashText(listText)}` } : {}),
         bodyStored: false,
         rawPathStored: false,
       },
@@ -226,12 +246,20 @@ async function observeWithControlledWebSocket(
 
 function createBlockedRunnerResult(
   blockReason: ElectronCdpBlockReason,
-  boundary: { cdpHttpBoundaryInvoked?: boolean; listText?: string } = {},
+  boundary: {
+    cdpHttpBoundaryInvoked?: boolean;
+    listText?: string;
+    httpTracker?: HttpObservationTracker;
+  } = {},
 ): ElectronCdpFixtureRunnerResult {
   return {
     status: 'blocked',
     consoleSummary: createElectronCdpConsoleSummary(),
-    networkSummary: createElectronCdpNetworkMetadataSummary(),
+    networkSummary: createElectronCdpNetworkMetadataSummary({
+      requestCount: boundary.httpTracker?.requestCount ?? 0,
+      responseCount: boundary.httpTracker?.responseCount ?? 0,
+      failedRequestCount: boundary.httpTracker?.failedRequestCount ?? 0,
+    }),
     eventSummary: createElectronCdpEventMetadataSummary(),
     cdpHttpBoundaryInvoked: boundary.cdpHttpBoundaryInvoked ?? false,
     cdpWebSocketBoundaryInvoked: false,
@@ -248,11 +276,33 @@ function createBlockedRunnerResult(
   };
 }
 
-async function readEndpointText(fetchImpl: FetchLike, url: string): Promise<string> {
-  const response = await fetchImpl(url, { method: 'GET' });
-  const text = await response.text();
+async function readEndpointText(
+  fetchImpl: FetchLike,
+  url: string,
+  tracker: HttpObservationTracker,
+): Promise<string> {
+  tracker.requestCount += 1;
+
+  let response: FetchResponseLike;
+  try {
+    response = await fetchImpl(url, { method: 'GET' });
+  } catch (error) {
+    tracker.failedRequestCount += 1;
+    throw error;
+  }
+
+  tracker.responseCount += 1;
+
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    tracker.failedRequestCount += 1;
+    throw error;
+  }
 
   if (!response.ok) {
+    tracker.failedRequestCount += 1;
     throw new Error(`DevTools metadata endpoint returned ${response.status}.`);
   }
 

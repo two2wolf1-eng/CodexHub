@@ -30,6 +30,12 @@ interface DevToolsTargetJson {
   url?: unknown;
 }
 
+interface HttpObservationTracker {
+  requestCount: number;
+  responseCount: number;
+  failedRequestCount: number;
+}
+
 export interface ElectronCdpControlledHttpRunnerInput {
   host: string;
   port: number;
@@ -78,11 +84,18 @@ async function observeWithControlledHttp(
 
   const baseUrl = createDevToolsHttpBaseUrl(input.host, input.port);
   let cdpHttpBoundaryInvoked = false;
+  const httpTracker: HttpObservationTracker = {
+    requestCount: 0,
+    responseCount: 0,
+    failedRequestCount: 0,
+  };
+  let versionText: string | undefined;
+  let listText: string | undefined;
 
   try {
     cdpHttpBoundaryInvoked = true;
-    const versionText = await readEndpointText(fetchImpl, `${baseUrl}/json/version`);
-    const listText = await readEndpointText(fetchImpl, `${baseUrl}/json/list`);
+    versionText = await readEndpointText(fetchImpl, `${baseUrl}/json/version`, httpTracker);
+    listText = await readEndpointText(fetchImpl, `${baseUrl}/json/list`, httpTracker);
     const targets = parseTargetList(listText, plan.observationPlan.debugEndpoint.endpointIdHash);
 
     return {
@@ -90,9 +103,9 @@ async function observeWithControlledHttp(
       targets,
       consoleSummary: createElectronCdpConsoleSummary(),
       networkSummary: createElectronCdpNetworkMetadataSummary({
-        requestCount: 2,
-        responseCount: 2,
-        failedRequestCount: 0,
+        requestCount: httpTracker.requestCount,
+        responseCount: httpTracker.responseCount,
+        failedRequestCount: httpTracker.failedRequestCount,
       }),
       cdpHttpBoundaryInvoked,
       processBoundaryInvoked: false,
@@ -112,9 +125,11 @@ async function observeWithControlledHttp(
       status: 'failed',
       consoleSummary: createElectronCdpConsoleSummary(),
       networkSummary: createElectronCdpNetworkMetadataSummary({
-        requestCount: cdpHttpBoundaryInvoked ? 1 : 0,
-        responseCount: 0,
-        failedRequestCount: cdpHttpBoundaryInvoked ? 1 : 0,
+        requestCount: httpTracker.requestCount,
+        responseCount: httpTracker.responseCount,
+        failedRequestCount:
+          httpTracker.failedRequestCount ||
+          (cdpHttpBoundaryInvoked && httpTracker.requestCount === 0 ? 1 : 0),
       }),
       cdpHttpBoundaryInvoked,
       processBoundaryInvoked: false,
@@ -122,6 +137,8 @@ async function observeWithControlledHttp(
       sourceLabel: `${ELECTRON_CDP_ADAPTER_NAME}.controlled-local-http`,
       metadata: {
         errorName: error instanceof Error ? error.name : 'UnknownError',
+        ...(versionText ? { versionBodyHash: `sha256:${hashText(versionText)}` } : {}),
+        ...(listText ? { listBodyHash: `sha256:${hashText(listText)}` } : {}),
         bodyStored: false,
         rawPathStored: false,
       },
@@ -153,11 +170,33 @@ function createBlockedRunnerResult(
   };
 }
 
-async function readEndpointText(fetchImpl: FetchLike, url: string): Promise<string> {
-  const response = await fetchImpl(url, { method: 'GET' });
-  const text = await response.text();
+async function readEndpointText(
+  fetchImpl: FetchLike,
+  url: string,
+  tracker: HttpObservationTracker,
+): Promise<string> {
+  tracker.requestCount += 1;
+
+  let response: FetchResponseLike;
+  try {
+    response = await fetchImpl(url, { method: 'GET' });
+  } catch (error) {
+    tracker.failedRequestCount += 1;
+    throw error;
+  }
+
+  tracker.responseCount += 1;
+
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    tracker.failedRequestCount += 1;
+    throw error;
+  }
 
   if (!response.ok) {
+    tracker.failedRequestCount += 1;
     throw new Error(`DevTools metadata endpoint returned ${response.status}.`);
   }
 

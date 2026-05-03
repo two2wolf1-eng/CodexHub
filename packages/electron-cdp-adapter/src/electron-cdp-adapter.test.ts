@@ -261,6 +261,47 @@ describe('electron-cdp-adapter', () => {
     expect(serialized).not.toContain('secret=value');
   });
 
+  it('preserves controlled HTTP metadata hashes when target parsing fails', async () => {
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-local-http',
+      debugEndpoint: createEndpointSummary(),
+      requestedCapabilities: ['debug_endpoint_summary', 'target_summary'],
+    });
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledHttpRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        fetch: async (url) => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return url.endsWith('/json/list')
+              ? '{"privateTargetUrl":"app://codex/?token=secret"'
+              : '{"Browser":"Electron test"}';
+          },
+        }),
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.capabilityResult.status).toBe('failed');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
+    expect(result.electronRun.observationSummary?.networkSummary.requestCount).toBe(2);
+    expect(result.electronRun.observationSummary?.networkSummary.responseCount).toBe(2);
+    expect(result.electronRun.observationSummary?.networkSummary.failedRequestCount).toBe(0);
+    expect(String(result.auditEvents[0]?.metadata?.versionBodyHash)).toMatch(/^sha256:/);
+    expect(String(result.auditEvents[0]?.metadata?.listBodyHash)).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('privateTargetUrl');
+    expect(serialized).not.toContain('app://codex');
+    expect(serialized).not.toContain('token=secret');
+  });
+
   it('executes controlled WebSocket event observations with metadata-only summaries', async () => {
     const target = createTargetSummary();
     const plan = planElectronCdpObservation({
@@ -493,6 +534,51 @@ describe('electron-cdp-adapter', () => {
     expect(serialized).not.toContain('app://codex');
     expect(serialized).not.toContain('secret=value');
     expect(serialized).not.toContain('ws://');
+  });
+
+  it('preserves WebSocket HTTP metadata hashes when target list parsing fails', async () => {
+    const target = createTargetSummary();
+    const plan = planElectronCdpObservation({
+      runnerMode: 'controlled-websocket-events',
+      debugEndpoint: createEndpointSummary(),
+      targetIdHash: target.targetIdHash,
+      observationWindowMs: 10,
+    });
+    const approvedAuthority: ExecutionAuthority = {
+      ...authority,
+      approvalArtifactId: 'electron_approval_artifact_1',
+    };
+    const result = await executeElectronCdpAdapter({
+      plan,
+      authority: approvedAuthority,
+      runner: createElectronCdpControlledWebSocketEventRunner({
+        host: '127.0.0.1',
+        port: 9222,
+        targetIdHash: target.targetIdHash,
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async text() {
+            return '{"webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/private"';
+          },
+        }),
+        webSocketFactory: () => {
+          throw new Error('should not connect');
+        },
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.capabilityResult.status).toBe('failed');
+    expect(result.electronRun.cdpHttpBoundaryInvoked).toBe(true);
+    expect(result.electronRun.cdpWebSocketBoundaryInvoked).toBe(false);
+    expect(result.electronRun.observationSummary?.networkSummary.requestCount).toBe(1);
+    expect(result.electronRun.observationSummary?.networkSummary.responseCount).toBe(1);
+    expect(result.electronRun.observationSummary?.networkSummary.failedRequestCount).toBe(0);
+    expect(String(result.auditEvents[0]?.metadata?.listBodyHash)).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('webSocketDebuggerUrl');
+    expect(serialized).not.toContain('ws://127.0.0.1');
+    expect(serialized).not.toContain('private');
   });
 
   it('executes injected fixtures as metadata-only evidence and audit', async () => {
