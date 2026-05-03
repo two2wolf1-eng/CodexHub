@@ -11,6 +11,7 @@ import {
   type CapabilityExecutionResult,
   type EvidenceRef,
   type ExecutionAuthority,
+  ExecutionAuthoritySchema,
   SchemaVersionSchema,
   foundationId,
   foundationTimestamp,
@@ -48,7 +49,11 @@ export interface CodexExecAdapterExecuteResult {
 export async function executeCodexExecAdapter(
   input: CodexExecAdapterExecuteInput,
 ): Promise<CodexExecAdapterExecuteResult> {
-  const authorityBlockReason = validateAuthority(input.authority, input.approvalArtifactId);
+  const authorityBlockReason = validateAuthority(
+    input.authority,
+    input.approvalArtifactId,
+    input.now,
+  );
   const planBlockReasons = input.plan.status === 'blocked' ? input.plan.blockReasons : [];
 
   if (authorityBlockReason || planBlockReasons.length > 0) {
@@ -143,9 +148,18 @@ export async function executeCodexExecAdapter(
 function validateAuthority(
   authority: ExecutionAuthority | undefined,
   approvalArtifactId: string | undefined,
+  now: (() => string) | undefined,
 ): string | undefined {
+  const parsedAuthority = authority
+    ? ExecutionAuthoritySchema.safeParse(authority)
+    : undefined;
+
   if (!authority) {
     return 'execution_authority_missing';
+  }
+
+  if (parsedAuthority?.success === false) {
+    return 'execution_authority_invalid';
   }
 
   if (!authority.allowed) {
@@ -162,6 +176,13 @@ function validateAuthority(
 
   if (approvalArtifactId !== undefined && approvalArtifactId !== authority.approvalArtifactId) {
     return 'approval_artifact_mismatch';
+  }
+
+  if (
+    authority.expiresAt &&
+    Date.parse(authority.expiresAt) <= Date.parse((now ?? foundationTimestamp)())
+  ) {
+    return 'execution_authority_expired';
   }
 
   return undefined;

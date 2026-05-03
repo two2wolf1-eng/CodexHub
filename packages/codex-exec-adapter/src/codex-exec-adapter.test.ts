@@ -142,6 +142,32 @@ describe('codex-exec-adapter plan', () => {
     expect(plan.blockReasons).toContain('cwd_outside_allowlist');
     expect(plan.blockReasons).toContain('governed_input_blocked');
   });
+
+  it('summarizes caller metadata without preserving raw secrets or paths', () => {
+    const fixture = createGovernedInputFixture();
+    const plan = createCodexExecAdapterPlan({
+      dryRunId: 'dry_run_metadata',
+      cwd: fixture.root,
+      allowedCwdRoots: [fixture.root],
+      governedInput: fixture.governedInput,
+      metadata: {
+        token: 'private-token',
+        path: 'C:\\private\\codexhub',
+        nested: {
+          authorization: 'Bearer secret',
+        },
+      },
+    });
+    const serializedMetadata = JSON.stringify(plan.metadata);
+
+    expect(plan.metadata?.adapterMetadataProvided).toBe(true);
+    expect(plan.metadata?.adapterMetadataHash).toMatch(/^sha256:/);
+    expect(plan.metadata?.bodyStored).toBe(false);
+    expect(plan.metadata?.rawPathStored).toBe(false);
+    expect(serializedMetadata).not.toContain('private-token');
+    expect(serializedMetadata).not.toContain('C:\\private\\codexhub');
+    expect(serializedMetadata).not.toContain('Bearer secret');
+  });
 });
 
 describe('codex-exec-adapter JSONL normalization', () => {
@@ -216,6 +242,45 @@ describe('codex-exec-adapter execute', () => {
     expect(result.capabilityResult.status).toBe('blocked');
     expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
     expect(result.capabilityResult.summary).toContain('persisted_approval_missing');
+  });
+
+  it('blocks expired execution authority before a process boundary', async () => {
+    const fixture = createGovernedInputFixture();
+    const plan = createCodexExecAdapterPlan({
+      dryRunId: 'dry_run_expired_authority',
+      cwd: fixture.root,
+      allowedCwdRoots: [fixture.root],
+      governedInput: fixture.governedInput,
+    });
+    let starts = 0;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: 'authority_expired',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: '2026-04-28T00:00:00.000Z',
+      policyDecisionId: 'policy_expired',
+      approvalArtifactId: 'approval_expired',
+      allowed: true,
+      constraints: ['read-only'],
+      expiresAt: '2026-04-28T00:00:00.000Z',
+    });
+    const result = await executeCodexExecAdapter({
+      plan,
+      authority,
+      executablePath: 'codex',
+      timeoutMs: 1000,
+      now: () => '2026-04-28T00:00:01.000Z',
+      runner: {
+        async start() {
+          starts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.capabilityResult.status).toBe('blocked');
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
+    expect(result.capabilityResult.summary).toContain('execution_authority_expired');
+    expect(starts).toBe(0);
   });
 
   it.each([

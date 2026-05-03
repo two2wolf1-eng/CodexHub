@@ -6,6 +6,7 @@ import {
   type VerificationCommandResult,
   type VerificationRun,
   type AffectedProject,
+  ExecutionAuthoritySchema,
   SchemaVersionSchema,
   VerificationRunSchema,
   foundationId,
@@ -53,7 +54,7 @@ export interface NxVerificationAdapterExecuteResult {
 export async function executeNxVerificationAdapter(
   input: NxVerificationAdapterExecuteInput,
 ): Promise<NxVerificationAdapterExecuteResult> {
-  const authorityBlockReason = validateAuthority(input.authority);
+  const authorityBlockReason = validateAuthority(input.authority, input.now);
   const planBlockReasons = input.plan.status === 'blocked' ? input.plan.blockReasons : [];
 
   if (authorityBlockReason || planBlockReasons.length > 0) {
@@ -171,9 +172,20 @@ export async function executeNxVerificationAdapter(
   };
 }
 
-function validateAuthority(authority: ExecutionAuthority | undefined): string | undefined {
+function validateAuthority(
+  authority: ExecutionAuthority | undefined,
+  now: (() => string) | undefined,
+): string | undefined {
+  const parsedAuthority = authority
+    ? ExecutionAuthoritySchema.safeParse(authority)
+    : undefined;
+
   if (!authority) {
     return 'execution_authority_missing';
+  }
+
+  if (parsedAuthority?.success === false) {
+    return 'execution_authority_invalid';
   }
 
   if (!authority.allowed) {
@@ -182,6 +194,13 @@ function validateAuthority(authority: ExecutionAuthority | undefined): string | 
 
   if (authority.policyDecisionId.trim().length === 0) {
     return 'policy_decision_missing';
+  }
+
+  if (
+    authority.expiresAt &&
+    Date.parse(authority.expiresAt) <= Date.parse((now ?? foundationTimestamp)())
+  ) {
+    return 'execution_authority_expired';
   }
 
   return undefined;

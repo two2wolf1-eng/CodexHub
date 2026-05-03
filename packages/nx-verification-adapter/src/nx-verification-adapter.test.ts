@@ -105,6 +105,32 @@ describe('nx-verification-adapter plan', () => {
     expect(plan.status).toBe('blocked');
     expect(plan.blockReasons).toContain('ref_forbidden');
   });
+
+  it('summarizes caller metadata without preserving raw secrets or paths', () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_metadata',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['lint'],
+      metadata: {
+        token: 'private-token',
+        path: 'C:\\private\\workspace',
+        nested: {
+          authorization: 'Bearer secret',
+        },
+      },
+    });
+    const serializedMetadata = JSON.stringify(plan.metadata);
+
+    expect(plan.metadata?.adapterMetadataProvided).toBe(true);
+    expect(plan.metadata?.adapterMetadataHash).toMatch(/^sha256:/);
+    expect(plan.metadata?.bodyStored).toBe(false);
+    expect(plan.metadata?.rawPathStored).toBe(false);
+    expect(serializedMetadata).not.toContain('private-token');
+    expect(serializedMetadata).not.toContain('C:\\private\\workspace');
+    expect(serializedMetadata).not.toContain('Bearer secret');
+  });
 });
 
 describe('nx-verification-adapter output parser', () => {
@@ -175,6 +201,35 @@ describe('nx-verification-adapter execute', () => {
 
     expect(result.status).toBe('blocked');
     expect(result.capabilityResult.summary).toContain('execution_authority_not_allowed');
+  });
+
+  it('blocks expired execution authority before a process boundary', async () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_expired_authority',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['test'],
+    });
+    let starts = 0;
+    const result = await executeNxVerificationAdapter({
+      plan,
+      authority: createAuthority({ expiresAt: '2026-04-28T00:00:00.000Z' }),
+      executablePath: 'pnpm',
+      timeoutMs: 1000,
+      now: () => '2026-04-28T00:00:01.000Z',
+      runner: {
+        async start() {
+          starts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
+    expect(result.capabilityResult.summary).toContain('execution_authority_expired');
+    expect(starts).toBe(0);
   });
 
   it.each([
@@ -256,7 +311,7 @@ function createWorkspaceRoot(): string {
   return mkdtempSync(resolve(tmpdir(), 'codexhub-nx-verification-adapter-'));
 }
 
-function createAuthority(input: { allowed?: boolean } = {}) {
+function createAuthority(input: { allowed?: boolean; expiresAt?: string } = {}) {
   return ExecutionAuthoritySchema.parse({
     id: 'authority_nx',
     schemaVersion: '2026-04-28.foundation',
@@ -264,6 +319,7 @@ function createAuthority(input: { allowed?: boolean } = {}) {
     policyDecisionId: 'policy_nx',
     allowed: input.allowed ?? true,
     constraints: ['read-only'],
+    expiresAt: input.expiresAt,
   });
 }
 

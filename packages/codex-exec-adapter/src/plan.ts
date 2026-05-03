@@ -14,7 +14,7 @@ import {
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
-import { hashText } from '@codexhub/evidence-kernel';
+import { hashText, redactMetadata } from '@codexhub/evidence-kernel';
 import { CODEX_EXEC_ADAPTER_NAME, createCodexExecAdapterManifest } from './manifest';
 
 export type CodexExecAdapterPlanStatus = 'ready' | 'blocked';
@@ -183,7 +183,23 @@ export function createCodexExecAdapterPlan(
     warnings,
     manifest,
     capabilityDryRun,
-    metadata: input.metadata,
+    metadata: summarizePlanMetadata(input.metadata),
+  };
+}
+
+function summarizePlanMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+
+  return {
+    adapterMetadataProvided: true,
+    adapterMetadataKeyCount: Object.keys(metadata).length,
+    adapterMetadataHash: `sha256:${hashText(JSON.stringify(redactMetadata(metadata)))}`,
+    bodyStored: false,
+    rawPathStored: false,
   };
 }
 
