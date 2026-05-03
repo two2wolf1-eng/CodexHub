@@ -54,7 +54,7 @@ export async function executePolicyBackendEvaluation(
   }
 
   if (!input.evaluator) {
-    return createBlockedRun(input.planResult, 'Policy backend fixture evaluator is required in M7a.');
+    return createBlockedRun(input.planResult, 'Policy backend fixture evaluator is required in M7b.');
   }
 
   const backendEvaluation = await input.evaluator();
@@ -65,12 +65,15 @@ export async function executePolicyBackendEvaluation(
     createdAt: foundationTimestamp(),
     planId: input.planResult.plan.id,
     backendKind: input.planResult.plan.backendKind,
+    evaluatorSource: input.planResult.plan.evaluatorSource,
     status,
     rawOutcome: backendEvaluation.rawOutcome,
     rawEvaluationHash: `sha256:${hashText(JSON.stringify(backendEvaluation))}`,
     reasonCount: backendEvaluation.reasons?.length ?? 0,
     matchedRuleCount: backendEvaluation.matchedRuleCount ?? 0,
     policySourceHash: input.planResult.plan.policySourceHash,
+    fixtureConfigHash: input.planResult.plan.fixtureConfigHash,
+    fixtureRuleCount: input.planResult.plan.fixtureRuleCount,
     rawPolicySourceStored: false,
     rawPathStored: false,
     bodyStored: false,
@@ -87,6 +90,7 @@ export async function executePolicyBackendEvaluation(
     codexhubPolicyDecisionId: codexhubDecision.id,
     policyDecisionHash: `sha256:${hashText(JSON.stringify(codexhubDecision))}`,
     backendKind: input.planResult.plan.backendKind,
+    evaluatorSource: input.planResult.plan.evaluatorSource,
     backendOutcome: rawEvaluation.rawOutcome,
     normalizedOutcome: codexhubDecision.outcome,
     authorityProvider: 'codexhub',

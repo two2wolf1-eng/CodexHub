@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "2026-04-28.foundation",
+  "description": "M7b local fixture policy backend config. Outcomes are advisory only.",
+  "rules": [
+    {
+      "id": "fixture-read-allow",
+      "match": {
+        "actionMode": "read"
+      },
+      "rawOutcome": "allow",
+      "reasons": ["fixture allows read metadata"],
+      "matchedRuleCount": 1,
+      "summary": "Fixture backend allows read metadata as advisory input."
+    },
+    {
+      "id": "fixture-write-review",
+      "match": {
+        "actionMode": "write"
+      },
+      "rawOutcome": "allow",
+      "reasons": ["fixture allows write but CodexHub policy remains authoritative"],
+      "matchedRuleCount": 1,
+      "summary": "Fixture backend allows write as advisory input only."
+    }
+  ]
+}

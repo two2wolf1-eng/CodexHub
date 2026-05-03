@@ -32,7 +32,7 @@ export function createPolicyBackendAuditEvent(input: {
     metadata: redactMetadata({
       ...(input.metadata ?? {}),
       adapterName: POLICY_BACKEND_ADAPTER_NAME,
-      integrationStage: 'm7a',
+      integrationStage: 'm7b',
       liveExecution: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,

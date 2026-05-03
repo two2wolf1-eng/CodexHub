@@ -285,7 +285,7 @@ integrations:
     provider: builtin
     providerType: builtin
     mode: advisory-evaluation
-    stage: m7_5-foundation-hardened
+    stage: m7b-controlled-fixture-experiment
     defaultActionMode: read
     defaultRisk: low
     processBoundary: false
@@ -299,6 +299,13 @@ integrations:
       - fixture
       - opa-plan-only
       - cedar-plan-only
+    fixtureConfig:
+      enabled: true
+      defaultPath: .codexhub/policy-backend.fixture.json
+      rawConfigStorage: forbidden
+      rawPathStorage: forbidden
+      configHashRequired: true
+      ruleCountSummaryOnly: true
     authority:
       backendResultAuthoritative: false
       codexhubPolicyDecisionAuthoritative: true
@@ -315,10 +322,11 @@ integrations:
     rules:
       backendMayAdviseOnly: true
       requestBodyApprovalArtifactTrusted: false
-      noRealPolicyRuntimeInM7a: true
+      noRealPolicyRuntimeInM7b: true
       auditForbidsRealOpaRuntimeInProductionSource: true
       auditForbidsRealCedarRuntimeInProductionSource: true
       auditForbidsBackendAuthorityTransfer: true
+      fixtureConfigOutcomeAdvisoryOnly: true
   otel-adapter:
     enabled: false
     adapter: otel-adapter

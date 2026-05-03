@@ -3,6 +3,7 @@ import {
   CapabilityDryRunSchema,
   PolicyBackendEvaluationPlanSchema,
   type PolicyBackendEvaluationPlan,
+  type PolicyBackendEvaluatorSource,
   type PolicyBackendKind,
   type RiskLevel,
   SchemaVersionSchema,
@@ -20,6 +21,9 @@ export interface PolicyBackendPlanInput {
   riskLevel?: RiskLevel;
   metadata?: Record<string, unknown>;
   policySourceHash?: string;
+  evaluatorSource?: PolicyBackendEvaluatorSource;
+  fixtureConfigHash?: string;
+  fixtureRuleCount?: number;
 }
 
 export interface PolicyBackendPlanResult {
@@ -31,21 +35,25 @@ export function planPolicyBackendEvaluation(
   input: PolicyBackendPlanInput,
 ): PolicyBackendPlanResult {
   const backendKind = input.backendKind ?? 'fixture';
+  const evaluatorSource = input.evaluatorSource ?? 'fixture-inline';
   const blockReasons: string[] = [];
   const inputHash = `sha256:${hashText(
     JSON.stringify({
       backendKind,
+      evaluatorSource,
       actionId: input.actionId,
       actionType: input.actionType,
       actionMode: input.actionMode,
       riskLevel: input.riskLevel,
       metadata: input.metadata ?? {},
       policySourceHash: input.policySourceHash,
+      fixtureConfigHash: input.fixtureConfigHash,
+      fixtureRuleCount: input.fixtureRuleCount,
     }),
   )}`;
 
   if (backendKind !== 'fixture') {
-    blockReasons.push(`${backendKind} backend is plan-only in M7a`);
+    blockReasons.push(`${backendKind} backend is plan-only in M7b`);
   }
 
   const plan = PolicyBackendEvaluationPlanSchema.parse({
@@ -54,12 +62,15 @@ export function planPolicyBackendEvaluation(
     createdAt: foundationTimestamp(),
     adapterName: POLICY_BACKEND_ADAPTER_NAME,
     backendKind,
+    evaluatorSource,
     actionIdHash: `sha256:${hashText(input.actionId)}`,
     actionType: input.actionType,
     actionMode: input.actionMode,
     riskLevel: input.riskLevel,
     inputHash,
     policySourceHash: input.policySourceHash,
+    fixtureConfigHash: input.fixtureConfigHash,
+    fixtureRuleCount: input.fixtureRuleCount,
     blockReasons,
     processBoundaryPlanned: false,
     networkBoundaryPlanned: false,
@@ -69,7 +80,7 @@ export function planPolicyBackendEvaluation(
     noRealWrite: true,
     summary:
       blockReasons.length > 0
-        ? `Policy backend ${backendKind} plan is blocked in M7a.`
+        ? `Policy backend ${backendKind} plan is blocked in M7b.`
         : 'Fixture policy backend evaluation plan is metadata-only.',
   });
   const capabilityDryRun = CapabilityDryRunSchema.parse({
@@ -79,9 +90,12 @@ export function planPolicyBackendEvaluation(
     adapterName: POLICY_BACKEND_ADAPTER_NAME,
     inputSummary: {
       backendKind,
+      evaluatorSource,
       actionIdHash: plan.actionIdHash,
       actionType: input.actionType,
       inputHash,
+      fixtureConfigHash: input.fixtureConfigHash,
+      fixtureRuleCount: input.fixtureRuleCount,
       rawPolicySourceStored: false,
       bodyStored: false,
     },

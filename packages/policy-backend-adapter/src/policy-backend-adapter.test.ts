@@ -11,8 +11,10 @@ import { validateCapabilityExecutionEnvelope } from '@codexhub/capability-adapte
 import {
   createPolicyBackendAuditEvent,
   createPolicyBackendAdapterManifest,
+  createPolicyBackendFixtureConfigEvaluator,
   createPolicyBackendPlanEvidence,
   executePolicyBackendEvaluation,
+  parsePolicyBackendFixtureConfig,
   planPolicyBackendEvaluation,
 } from './index';
 
@@ -57,7 +59,7 @@ describe('policy-backend-adapter', () => {
     expect(plan.plan.networkBoundaryPlanned).toBe(false);
     expect(plan.plan.rawPolicySourceStored).toBe(false);
     expect(plan.capabilityDryRun.plannedActions[0]?.actionMode).toBe('read');
-    expect(opaPlan.plan.blockReasons).toContain('opa backend is plan-only in M7a');
+    expect(opaPlan.plan.blockReasons).toContain('opa backend is plan-only in M7b');
     expect(JSON.stringify(plan)).not.toContain('package codexhub.authz');
   });
 
@@ -207,5 +209,70 @@ describe('policy-backend-adapter', () => {
     expect(auditEvent.metadata?.externalProcessStarted).toBe(false);
     expect(auditEvent.metadata?.backendAdvisoryOnly).toBe(true);
     expect(auditEvent.metadata?.authorityProvider).toBe('codexhub');
+  });
+
+  it('uses config-backed fixture rules without storing raw config or path bodies', async () => {
+    const configText = JSON.stringify({
+      schemaVersion: SchemaVersionSchema.value,
+      description: 'local fixture policy rules',
+      rules: [
+        {
+          id: 'write-allow-advisory',
+          match: {
+            actionType: 'git.worktree.create',
+            actionMode: 'write',
+            riskLevel: 'medium',
+          },
+          rawOutcome: 'allow',
+          reasons: ['config-backed fixture allows but remains advisory'],
+          matchedRuleCount: 1,
+          summary: 'Config fixture matched write action.',
+        },
+      ],
+    });
+    const configLoad = parsePolicyBackendFixtureConfig(configText);
+    const policyInput = {
+      actionId: 'action_config_write_1',
+      actionType: 'git.worktree.create',
+      actionMode: 'write' as const,
+      riskLevel: 'medium' as const,
+      dryRun: true,
+    };
+    const planResult = planPolicyBackendEvaluation({
+      backendKind: 'fixture',
+      evaluatorSource: 'fixture-config',
+      actionId: policyInput.actionId,
+      actionType: policyInput.actionType,
+      actionMode: policyInput.actionMode,
+      riskLevel: policyInput.riskLevel,
+      fixtureConfigHash: configLoad.configHash,
+      fixtureRuleCount: configLoad.ruleCount,
+    });
+    const result = await executePolicyBackendEvaluation({
+      planResult,
+      authority,
+      policyInput,
+      evaluator: createPolicyBackendFixtureConfigEvaluator({
+        config: configLoad.config,
+        policyInput,
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(configLoad.rawConfigStored).toBe(false);
+    expect(configLoad.rawPathStored).toBe(false);
+    expect(configLoad.bodyStored).toBe(false);
+    expect(planResult.plan.evaluatorSource).toBe('fixture-config');
+    expect(planResult.plan.fixtureConfigHash).toBe(configLoad.configHash);
+    expect(planResult.plan.fixtureRuleCount).toBe(1);
+    expect(result.run.rawEvaluationSummary?.rawOutcome).toBe('allow');
+    expect(result.run.rawEvaluationSummary?.evaluatorSource).toBe('fixture-config');
+    expect(result.run.rawEvaluationSummary?.fixtureConfigHash).toBe(configLoad.configHash);
+    expect(result.run.normalizedDecisionTrace?.normalizedOutcome).toBe('approval_required');
+    expect(result.run.normalizedDecisionTrace?.authorityProvider).toBe('codexhub');
+    expect(result.run.normalizedDecisionTrace?.backendAdvisoryOnly).toBe(true);
+    expect(serialized).not.toContain('local fixture policy rules');
+    expect(serialized).not.toContain('.codexhub/policy-backend.fixture.json');
+    expect(serialized).not.toContain('rawConfig');
   });
 });

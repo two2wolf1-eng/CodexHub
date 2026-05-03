@@ -176,6 +176,7 @@ import {
   PatchSummarySchema,
   PolicyBackendEvaluationPlanSchema,
   PolicyBackendEvaluationRunSchema,
+  PolicyBackendEvaluatorSourceSchema,
   PolicyBackendKindSchema,
   PolicyBackendNormalizedDecisionTraceSchema,
   PolicyBackendRawEvaluationSummarySchema,
@@ -1849,6 +1850,10 @@ describe('contracts schemas', () => {
 
   it('parses M7 policy backend and telemetry foundation contracts as metadata-only', () => {
     expect(PolicyBackendKindSchema.options).toEqual(['opa', 'cedar', 'fixture']);
+    expect(PolicyBackendEvaluatorSourceSchema.options).toEqual([
+      'fixture-inline',
+      'fixture-config',
+    ]);
     expect(TelemetryExporterKindSchema.options).toEqual(['noop', 'fixture']);
     expect(TelemetrySignalKindSchema.options).toEqual(['trace', 'metric', 'log']);
 
@@ -1880,12 +1885,15 @@ describe('contracts schemas', () => {
       createdAt,
       adapterName: 'policy-backend-adapter',
       backendKind: 'fixture',
+      evaluatorSource: 'fixture-config',
       actionIdHash: 'sha256:action',
       actionType: 'git.worktree.create',
       actionMode: 'read',
       riskLevel: 'low',
       inputHash: 'sha256:input',
       policySourceHash: 'sha256:policy-source',
+      fixtureConfigHash: 'sha256:fixture-config',
+      fixtureRuleCount: 2,
       processBoundaryPlanned: false,
       networkBoundaryPlanned: false,
       rawPolicySourceStored: false,
@@ -1900,12 +1908,15 @@ describe('contracts schemas', () => {
       createdAt,
       planId: policyPlan.id,
       backendKind: 'fixture',
+      evaluatorSource: 'fixture-config',
       status: 'completed',
       rawOutcome: 'deny',
       rawEvaluationHash: 'sha256:raw-eval',
       reasonCount: 1,
       matchedRuleCount: 1,
       policySourceHash: 'sha256:policy-source',
+      fixtureConfigHash: 'sha256:fixture-config',
+      fixtureRuleCount: 2,
       rawPolicySourceStored: false,
       rawPathStored: false,
       bodyStored: false,
@@ -1921,6 +1932,7 @@ describe('contracts schemas', () => {
       codexhubPolicyDecisionId: 'policy_codexhub_1',
       policyDecisionHash: 'sha256:codexhub-policy',
       backendKind: 'fixture',
+      evaluatorSource: 'fixture-config',
       backendOutcome: 'deny',
       normalizedOutcome: 'allow',
       authorityProvider: 'codexhub',

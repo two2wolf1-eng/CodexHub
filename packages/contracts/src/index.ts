@@ -1718,6 +1718,14 @@ export type ReleaseAuditDraft = z.infer<typeof ReleaseAuditDraftSchema>;
 export const PolicyBackendKindSchema = z.enum(['opa', 'cedar', 'fixture']);
 export type PolicyBackendKind = z.infer<typeof PolicyBackendKindSchema>;
 
+export const PolicyBackendEvaluatorSourceSchema = z.enum([
+  'fixture-inline',
+  'fixture-config',
+]);
+export type PolicyBackendEvaluatorSource = z.infer<
+  typeof PolicyBackendEvaluatorSourceSchema
+>;
+
 export const PolicyBackendEvaluationStatusSchema = z.enum([
   'planned',
   'completed',
@@ -1743,12 +1751,15 @@ export const PolicyBackendEvaluationPlanSchema = createdEntityBaseSchema
   .extend({
     adapterName: z.string().min(1),
     backendKind: PolicyBackendKindSchema,
+    evaluatorSource: PolicyBackendEvaluatorSourceSchema.default('fixture-inline'),
     actionIdHash: z.string().min(1),
     actionType: z.string().min(1),
     actionMode: ActionModeSchema,
     riskLevel: RiskLevelSchema.optional(),
     inputHash: z.string().min(1),
     policySourceHash: z.string().min(1).optional(),
+    fixtureConfigHash: z.string().min(1).optional(),
+    fixtureRuleCount: z.number().int().nonnegative().optional(),
     blockReasons: z.array(z.string().min(1)).default([]),
     processBoundaryPlanned: z.literal(false),
     networkBoundaryPlanned: z.literal(false),
@@ -1767,12 +1778,15 @@ export const PolicyBackendRawEvaluationSummarySchema = createdEntityBaseSchema
   .extend({
     planId: z.string().min(1),
     backendKind: PolicyBackendKindSchema,
+    evaluatorSource: PolicyBackendEvaluatorSourceSchema.default('fixture-inline'),
     status: PolicyBackendEvaluationStatusSchema,
     rawOutcome: PolicyBackendRawEvaluationOutcomeSchema,
     rawEvaluationHash: z.string().min(1),
     reasonCount: z.number().int().nonnegative(),
     matchedRuleCount: z.number().int().nonnegative(),
     policySourceHash: z.string().min(1).optional(),
+    fixtureConfigHash: z.string().min(1).optional(),
+    fixtureRuleCount: z.number().int().nonnegative().optional(),
     rawPolicySourceStored: z.literal(false),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
@@ -1791,6 +1805,7 @@ export const PolicyBackendNormalizedDecisionTraceSchema = createdEntityBaseSchem
     codexhubPolicyDecisionId: z.string().min(1),
     policyDecisionHash: z.string().min(1),
     backendKind: PolicyBackendKindSchema,
+    evaluatorSource: PolicyBackendEvaluatorSourceSchema.default('fixture-inline'),
     backendOutcome: PolicyBackendRawEvaluationOutcomeSchema,
     normalizedOutcome: PolicyOutcomeSchema,
     authorityProvider: z.literal('codexhub'),

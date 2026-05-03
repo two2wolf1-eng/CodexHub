@@ -44,6 +44,13 @@ The backend is advisory only. CodexHub `security-kernel` remains the authority p
 - Fixture backend output is tested as advisory even when it says allow or deny.
 - CodexHub `security-kernel` remains the only normalized policy authority.
 
+## M7b Controlled Fixture Experiment
+
+- A repo-local JSON fixture config is available at `.codexhub/policy-backend.fixture.json`.
+- The config is parsed only as fixture rules and stores config hash, rule count, match count, and summaries.
+- Raw config body and raw config path are not stored in public records, evidence, or audit.
+- Fixture config outcomes remain advisory; they cannot create or replace an `ExecutionAuthority`.
+
 ## Rollback
 
-Remove the package, path mapping, integration config entry, scaffold health expectations, M7.5 audit terms, and contracts added for M7a. No persisted runtime data or process boundary exists in this stage.
+Remove the package, path mapping, integration config entry, fixture config file, scaffold health expectations, M7.5 audit terms, and contracts added for M7a/M7b. No persisted runtime data or process boundary exists in this stage.

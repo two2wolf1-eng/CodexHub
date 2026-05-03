@@ -7,7 +7,7 @@ import {
 } from '@codexhub/contracts';
 
 export const POLICY_BACKEND_ADAPTER_NAME = 'policy-backend-adapter';
-export const POLICY_BACKEND_ADAPTER_VERSION = '0.1.0-m7a';
+export const POLICY_BACKEND_ADAPTER_VERSION = '0.2.0-m7b';
 
 export function createPolicyBackendAdapterManifest(): CapabilityManifest {
   return CapabilityManifestSchema.parse({
@@ -20,6 +20,7 @@ export function createPolicyBackendAdapterManifest(): CapabilityManifest {
     provider: 'builtin',
     capabilities: [
       'policy_backend.fixture_raw_evaluation',
+      'policy_backend.fixture_config_evaluation',
       'policy_backend.opa_plan_only',
       'policy_backend.cedar_plan_only',
       'policy_backend.normalized_decision_trace',
@@ -38,11 +39,12 @@ export function createPolicyBackendAdapterManifest(): CapabilityManifest {
       requiresProcessAudit: false,
     },
     metadata: {
-      integrationStage: 'm7a',
+      integrationStage: 'm7b',
       productDefaultEnabled: false,
       authorityProvider: 'codexhub',
       capabilityProvider: POLICY_BACKEND_ADAPTER_NAME,
       backendAdvisoryOnly: true,
+      fixtureConfigEvaluatorEnabled: true,
       realOpaRuntimeEnabled: false,
       realCedarRuntimeEnabled: false,
       processBoundaryInvoked: false,
