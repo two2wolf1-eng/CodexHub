@@ -1,0 +1,35 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "policy-backend-adapter",
+  "projectType": "library",
+  "sourceRoot": "packages/policy-backend-adapter/src",
+  "implicitDependencies": [
+    "capability-adapter-kernel",
+    "contracts",
+    "evidence-kernel",
+    "security-kernel"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json",
+        "cwd": "packages/policy-backend-adapter"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "packages/policy-backend-adapter"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "packages/policy-backend-adapter"
+      }
+    }
+  }
+}

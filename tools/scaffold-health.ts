@@ -12,6 +12,8 @@ const expectedProjects = [
   'orchestrator-kernel',
   'evidence-kernel',
   'observer-kernel',
+  'otel-adapter',
+  'policy-backend-adapter',
   'security-kernel',
   'workflow-kernel',
   'skill-registry',
@@ -48,6 +50,8 @@ const requiredGovernanceFiles = [
   'docs/integration-decisions/0003-nx-affected-adapter.md',
   'docs/integration-decisions/0004-playwright-observer.md',
   'docs/integration-decisions/0005-electron-cdp-boundary.md',
+  'docs/integration-decisions/0006-opa-cedar-policy-backend-evaluation.md',
+  'docs/integration-decisions/0007-opentelemetry-trace-boundary.md',
   'docs/integration-decisions/0008-minimal-orchestrator.md',
   'docs/integration-decisions/0009-capability-adapter-kernel.md',
   'docs/integration-decisions/0010-worktree-manager.md',
@@ -94,6 +98,15 @@ const requiredContractExports = [
   'PatchSummarySchema',
   'PullRequestSummaryDraftSchema',
   'ReleaseAuditDraftSchema',
+  'PolicyBackendKindSchema',
+  'PolicyBackendEvaluationPlanSchema',
+  'PolicyBackendRawEvaluationSummarySchema',
+  'PolicyBackendNormalizedDecisionTraceSchema',
+  'PolicyBackendEvaluationRunSchema',
+  'TelemetrySignalKindSchema',
+  'TelemetrySpanSummarySchema',
+  'TelemetryTraceExportPlanSchema',
+  'TelemetryExportRunSchema',
 ];
 
 const projects = readNxProjects();

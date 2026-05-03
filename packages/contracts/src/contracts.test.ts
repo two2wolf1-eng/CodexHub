@@ -174,11 +174,21 @@ import {
   OrchestrationTimelineEventSchema,
   PatchRunSchema,
   PatchSummarySchema,
+  PolicyBackendEvaluationPlanSchema,
+  PolicyBackendEvaluationRunSchema,
+  PolicyBackendKindSchema,
+  PolicyBackendNormalizedDecisionTraceSchema,
+  PolicyBackendRawEvaluationSummarySchema,
   PolicyDecisionSchema,
   PullRequestSummaryDraftSchema,
   ReleaseAuditDraftSchema,
   SchemaVersionSchema,
   SkillResolutionResultSchema,
+  TelemetryExportRunSchema,
+  TelemetryExporterKindSchema,
+  TelemetrySignalKindSchema,
+  TelemetrySpanSummarySchema,
+  TelemetryTraceExportPlanSchema,
   VerificationCommandResultSchema,
   VerificationPlanSchema,
   VerificationRunSchema,
@@ -1833,6 +1843,199 @@ describe('contracts schemas', () => {
       WorktreeCleanupDryRunRecordSchema.parse({
         ...dryRun,
         rawWorktreePath: 'C:\\Users\\Thomas\\CodexHub-worktrees\\feature',
+      }),
+    ).toThrow();
+  });
+
+  it('parses M7 policy backend and telemetry foundation contracts as metadata-only', () => {
+    expect(PolicyBackendKindSchema.options).toEqual(['opa', 'cedar', 'fixture']);
+    expect(TelemetryExporterKindSchema.options).toEqual(['noop', 'fixture']);
+    expect(TelemetrySignalKindSchema.options).toEqual(['trace', 'metric', 'log']);
+
+    const policyEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_policy_backend_1',
+      schemaVersion,
+      createdAt,
+      kind: 'policy_backend.raw_evaluation_summary',
+      hash: 'sha256:policy-raw',
+    });
+    const normalizedEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_policy_backend_normalized_1',
+      schemaVersion,
+      createdAt,
+      kind: 'policy_backend.normalized_decision_trace',
+      hash: 'sha256:policy-normalized',
+    });
+    const telemetryEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_telemetry_span_1',
+      schemaVersion,
+      createdAt,
+      kind: 'telemetry.span_summary',
+      hash: 'sha256:span',
+    });
+
+    const policyPlan = PolicyBackendEvaluationPlanSchema.parse({
+      id: 'policy_backend_plan_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'policy-backend-adapter',
+      backendKind: 'fixture',
+      actionIdHash: 'sha256:action',
+      actionType: 'git.worktree.create',
+      actionMode: 'read',
+      riskLevel: 'low',
+      inputHash: 'sha256:input',
+      policySourceHash: 'sha256:policy-source',
+      processBoundaryPlanned: false,
+      networkBoundaryPlanned: false,
+      rawPolicySourceStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Fixture policy backend evaluation plan.',
+    });
+    const rawEvaluation = PolicyBackendRawEvaluationSummarySchema.parse({
+      id: 'policy_backend_raw_1',
+      schemaVersion,
+      createdAt,
+      planId: policyPlan.id,
+      backendKind: 'fixture',
+      status: 'completed',
+      rawOutcome: 'deny',
+      rawEvaluationHash: 'sha256:raw-eval',
+      reasonCount: 1,
+      matchedRuleCount: 1,
+      policySourceHash: 'sha256:policy-source',
+      rawPolicySourceStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Raw backend evaluation is advisory.',
+    });
+    const normalizedTrace = PolicyBackendNormalizedDecisionTraceSchema.parse({
+      id: 'policy_backend_trace_1',
+      schemaVersion,
+      createdAt,
+      planId: policyPlan.id,
+      rawEvaluationSummaryId: rawEvaluation.id,
+      codexhubPolicyDecisionId: 'policy_codexhub_1',
+      policyDecisionHash: 'sha256:codexhub-policy',
+      backendKind: 'fixture',
+      backendOutcome: 'deny',
+      normalizedOutcome: 'allow',
+      authorityProvider: 'codexhub',
+      backendAdvisoryOnly: true,
+      evidenceRefs: [normalizedEvidence],
+      auditEventIds: ['audit_policy_backend_1'],
+      rawPolicySourceStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'CodexHub policy decision remains authoritative.',
+    });
+    const policyRun = PolicyBackendEvaluationRunSchema.parse({
+      id: 'policy_backend_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'completed',
+      plan: policyPlan,
+      rawEvaluationSummary: rawEvaluation,
+      normalizedDecisionTrace: normalizedTrace,
+      evidenceRefs: [policyEvidence, normalizedEvidence],
+      auditEventIds: ['audit_policy_backend_1'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Policy backend fixture evaluation completed.',
+    });
+    const span = TelemetrySpanSummarySchema.parse({
+      id: 'telemetry_span_1',
+      schemaVersion,
+      createdAt,
+      signalKind: 'trace',
+      spanKind: 'workflow',
+      traceIdHash: 'sha256:trace',
+      spanIdHash: 'sha256:span',
+      nameHash: 'sha256:name',
+      durationMs: 12,
+      attributeCount: 3,
+      eventCount: 1,
+      linkCount: 0,
+      payloadHash: 'sha256:payload',
+      rawTracePayloadStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      evidenceAuditAuthoritative: false,
+      summary: 'Workflow span metadata only.',
+    });
+    const tracePlan = TelemetryTraceExportPlanSchema.parse({
+      id: 'telemetry_plan_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'otel-adapter',
+      exporterKind: 'noop',
+      signalKinds: ['trace'],
+      spanCount: 1,
+      tracePlanHash: 'sha256:trace-plan',
+      networkExportPlanned: false,
+      processBoundaryPlanned: false,
+      rawTracePayloadStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      evidenceAuditAuthoritative: false,
+      summary: 'Noop trace export plan.',
+    });
+    const telemetryRun = TelemetryExportRunSchema.parse({
+      id: 'telemetry_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'completed',
+      planId: tracePlan.id,
+      exporterKind: 'noop',
+      spans: [span],
+      exportedSpanCount: 1,
+      exportSummaryHash: 'sha256:export',
+      evidenceRefs: [telemetryEvidence],
+      auditEventIds: ['audit_telemetry_1'],
+      networkExportAttempted: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawTracePayloadStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      evidenceAuditAuthoritative: false,
+      summary: 'Noop telemetry export completed.',
+    });
+
+    expect(policyRun.normalizedDecisionTrace?.authorityProvider).toBe('codexhub');
+    expect(policyRun.normalizedDecisionTrace?.backendAdvisoryOnly).toBe(true);
+    expect(telemetryRun.evidenceAuditAuthoritative).toBe(false);
+    expect(telemetryRun.networkExportAttempted).toBe(false);
+    expect(() =>
+      PolicyBackendEvaluationPlanSchema.parse({
+        ...policyPlan,
+        rawPolicySource: 'package codexhub.authz',
+      }),
+    ).toThrow();
+    expect(() =>
+      TelemetrySpanSummarySchema.parse({
+        ...span,
+        rawTracePayload: '{"token":"secret"}',
+      }),
+    ).toThrow();
+    expect(() =>
+      EvidenceRefSchema.parse({
+        id: 'evidence_bad_m7',
+        schemaVersion,
+        createdAt,
+        kind: 'telemetry.raw_payload',
+        hash: 'sha256:bad',
       }),
     ).toThrow();
   });

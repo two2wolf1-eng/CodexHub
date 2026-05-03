@@ -140,6 +140,12 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'patch.diff_summary',
     'pr.draft_summary',
     'release.audit_draft',
+    'policy_backend.evaluation_plan',
+    'policy_backend.raw_evaluation_summary',
+    'policy_backend.normalized_decision_trace',
+    'telemetry.trace_plan',
+    'telemetry.span_summary',
+    'telemetry.export_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -1708,6 +1714,205 @@ export const ReleaseAuditDraftSchema = createdEntityBaseSchema
   })
   .strict();
 export type ReleaseAuditDraft = z.infer<typeof ReleaseAuditDraftSchema>;
+
+export const PolicyBackendKindSchema = z.enum(['opa', 'cedar', 'fixture']);
+export type PolicyBackendKind = z.infer<typeof PolicyBackendKindSchema>;
+
+export const PolicyBackendEvaluationStatusSchema = z.enum([
+  'planned',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type PolicyBackendEvaluationStatus = z.infer<
+  typeof PolicyBackendEvaluationStatusSchema
+>;
+
+export const PolicyBackendRawEvaluationOutcomeSchema = z.enum([
+  'allow',
+  'deny',
+  'unknown',
+  'error',
+]);
+export type PolicyBackendRawEvaluationOutcome = z.infer<
+  typeof PolicyBackendRawEvaluationOutcomeSchema
+>;
+
+export const PolicyBackendEvaluationPlanSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.string().min(1),
+    backendKind: PolicyBackendKindSchema,
+    actionIdHash: z.string().min(1),
+    actionType: z.string().min(1),
+    actionMode: ActionModeSchema,
+    riskLevel: RiskLevelSchema.optional(),
+    inputHash: z.string().min(1),
+    policySourceHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    processBoundaryPlanned: z.literal(false),
+    networkBoundaryPlanned: z.literal(false),
+    rawPolicySourceStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type PolicyBackendEvaluationPlan = z.infer<
+  typeof PolicyBackendEvaluationPlanSchema
+>;
+
+export const PolicyBackendRawEvaluationSummarySchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    backendKind: PolicyBackendKindSchema,
+    status: PolicyBackendEvaluationStatusSchema,
+    rawOutcome: PolicyBackendRawEvaluationOutcomeSchema,
+    rawEvaluationHash: z.string().min(1),
+    reasonCount: z.number().int().nonnegative(),
+    matchedRuleCount: z.number().int().nonnegative(),
+    policySourceHash: z.string().min(1).optional(),
+    rawPolicySourceStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type PolicyBackendRawEvaluationSummary = z.infer<
+  typeof PolicyBackendRawEvaluationSummarySchema
+>;
+
+export const PolicyBackendNormalizedDecisionTraceSchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    rawEvaluationSummaryId: z.string().min(1),
+    codexhubPolicyDecisionId: z.string().min(1),
+    policyDecisionHash: z.string().min(1),
+    backendKind: PolicyBackendKindSchema,
+    backendOutcome: PolicyBackendRawEvaluationOutcomeSchema,
+    normalizedOutcome: PolicyOutcomeSchema,
+    authorityProvider: z.literal('codexhub'),
+    backendAdvisoryOnly: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPolicySourceStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type PolicyBackendNormalizedDecisionTrace = z.infer<
+  typeof PolicyBackendNormalizedDecisionTraceSchema
+>;
+
+export const PolicyBackendEvaluationRunSchema = createdEntityBaseSchema
+  .extend({
+    status: PolicyBackendEvaluationStatusSchema,
+    plan: PolicyBackendEvaluationPlanSchema,
+    rawEvaluationSummary: PolicyBackendRawEvaluationSummarySchema.optional(),
+    normalizedDecisionTrace: PolicyBackendNormalizedDecisionTraceSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    noRealWrite: z.literal(true),
+    bodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type PolicyBackendEvaluationRun = z.infer<
+  typeof PolicyBackendEvaluationRunSchema
+>;
+
+export const TelemetrySignalKindSchema = z.enum(['trace', 'metric', 'log']);
+export type TelemetrySignalKind = z.infer<typeof TelemetrySignalKindSchema>;
+
+export const TelemetryExporterKindSchema = z.enum(['noop', 'fixture']);
+export type TelemetryExporterKind = z.infer<typeof TelemetryExporterKindSchema>;
+
+export const TelemetrySpanKindSchema = z.enum([
+  'workflow',
+  'adapter',
+  'supervisor',
+  'verification',
+  'policy',
+  'worktree',
+  'browser',
+  'electron',
+  'mcp',
+]);
+export type TelemetrySpanKind = z.infer<typeof TelemetrySpanKindSchema>;
+
+export const TelemetrySpanSummarySchema = createdEntityBaseSchema
+  .extend({
+    signalKind: TelemetrySignalKindSchema,
+    spanKind: TelemetrySpanKindSchema,
+    traceIdHash: z.string().min(1),
+    spanIdHash: z.string().min(1),
+    parentSpanIdHash: z.string().min(1).optional(),
+    nameHash: z.string().min(1),
+    durationMs: z.number().nonnegative().optional(),
+    attributeCount: z.number().int().nonnegative(),
+    eventCount: z.number().int().nonnegative(),
+    linkCount: z.number().int().nonnegative(),
+    payloadHash: z.string().min(1),
+    rawTracePayloadStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    evidenceAuditAuthoritative: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type TelemetrySpanSummary = z.infer<typeof TelemetrySpanSummarySchema>;
+
+export const TelemetryTraceExportPlanSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.string().min(1),
+    exporterKind: TelemetryExporterKindSchema,
+    signalKinds: z.array(TelemetrySignalKindSchema).default(['trace']),
+    spanCount: z.number().int().nonnegative(),
+    tracePlanHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    networkExportPlanned: z.literal(false),
+    processBoundaryPlanned: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    evidenceAuditAuthoritative: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type TelemetryTraceExportPlan = z.infer<typeof TelemetryTraceExportPlanSchema>;
+
+export const TelemetryExportRunSchema = createdEntityBaseSchema
+  .extend({
+    status: CapabilityExecutionStatusSchema,
+    planId: z.string().min(1),
+    exporterKind: TelemetryExporterKindSchema,
+    spans: z.array(TelemetrySpanSummarySchema).default([]),
+    exportedSpanCount: z.number().int().nonnegative(),
+    exportSummaryHash: z.string().min(1),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkExportAttempted: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    evidenceAuditAuthoritative: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type TelemetryExportRun = z.infer<typeof TelemetryExportRunSchema>;
 
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;

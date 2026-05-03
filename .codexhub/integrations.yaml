@@ -279,3 +279,70 @@ integrations:
       genericShellAllowed: false
       worktreeRemoveAllowed: true
       worktreeRemoveForceAllowed: false
+  policy-backend:
+    enabled: false
+    adapter: policy-backend-adapter
+    provider: builtin
+    providerType: builtin
+    mode: advisory-evaluation
+    stage: m7a-foundation-only
+    defaultActionMode: read
+    defaultRisk: low
+    processBoundary: false
+    externalProcessBoundary: false
+    networkBoundary: false
+    realOpaRuntimeEnabled: false
+    realCedarRuntimeEnabled: false
+    opaProcessAllowed: false
+    cedarRuntimeAllowed: false
+    backendKinds:
+      - fixture
+      - opa-plan-only
+      - cedar-plan-only
+    authority:
+      backendResultAuthoritative: false
+      codexhubPolicyDecisionAuthoritative: true
+      normalizedPolicyDecisionRequired: true
+    evidence:
+      evaluationPlan: hash-only
+      rawEvaluationSummary: hash-only
+      normalizedDecisionTrace: metadata-only
+    storage:
+      rawPolicySource: forbidden
+      rawRequestBody: forbidden
+      rawResponseBody: forbidden
+      rawPath: forbidden
+    rules:
+      backendMayAdviseOnly: true
+      requestBodyApprovalArtifactTrusted: false
+      noRealPolicyRuntimeInM7a: true
+  otel-adapter:
+    enabled: false
+    adapter: otel-adapter
+    provider: builtin
+    providerType: builtin
+    mode: noop-telemetry
+    stage: m7a-foundation-only
+    defaultActionMode: read
+    defaultRisk: low
+    processBoundary: false
+    externalProcessBoundary: false
+    networkBoundary: false
+    openTelemetrySdkEnabled: false
+    networkExporterEnabled: false
+    exporterKinds:
+      - noop
+      - fixture
+    evidence:
+      tracePlan: hash-only
+      spanSummary: metadata-only
+      exportSummary: hash-only
+    storage:
+      rawTracePayload: forbidden
+      rawRequestBody: forbidden
+      rawResponseBody: forbidden
+      rawPath: forbidden
+    rules:
+      telemetryDoesNotReplaceEvidenceAudit: true
+      otlpExportAllowed: false
+      noRealTelemetryRuntimeInM7a: true
