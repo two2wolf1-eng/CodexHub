@@ -13,6 +13,7 @@ export const DASHBOARD_VIEWS = [
   'policies',
   'mcp-tools',
   'browser-profiles',
+  'electron',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -69,6 +70,30 @@ export interface BrowserProfilesReadOnlySummary {
   planStatus: string;
   planBlockReasons: string[];
   processBoundaryPlanned: boolean;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  rawPathStored: false;
+  bodyStored: false;
+  summary: string;
+}
+
+export interface ElectronCdpReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  latestRunStatus: string;
+  runnerModes: string[];
+  allowedCommands: string[];
+  blockedActions: string[];
+  productDefaultEnabled: false;
+  approvalRequired: true;
+  httpFlagRequired: true;
+  eventFlagRequired: true;
+  cdpHttpBoundaryInvoked: boolean;
+  cdpWebSocketBoundaryInvoked: boolean;
   processBoundaryInvoked: false;
   externalProcessStarted: false;
   noRealWrite: true;
@@ -183,6 +208,52 @@ export function createBrowserProfilesReadOnlySummary(input: {
     bodyStored: false,
     summary:
       'Browser Profile M4c shows Supervisor-gated metadata only. Dashboard remains read-only and cannot execute browser observation.',
+  };
+}
+
+export function createElectronCdpReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  latestRunStatus?: string;
+  runnerModes?: readonly string[];
+  cdpHttpBoundaryInvoked?: boolean;
+  cdpWebSocketBoundaryInvoked?: boolean;
+} = {}): ElectronCdpReadOnlySummary {
+  return {
+    manifestName: 'electron-cdp-adapter',
+    manifestVersion: '0.3.0-m5c',
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount: input.runCount ?? 0,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    runnerModes: uniqueSorted([
+      ...(input.runnerModes ?? ['controlled-local-http', 'controlled-websocket-events']),
+    ]),
+    allowedCommands: ['Log.enable', 'Network.enable', 'Runtime.enable'],
+    blockedActions: [
+      'main_inspector',
+      'runtime_evaluate',
+      'generic_cdp_command',
+      'dom_snapshot',
+      'screenshot',
+      'network_body',
+      'click',
+      'type',
+    ],
+    productDefaultEnabled: false,
+    approvalRequired: true,
+    httpFlagRequired: true,
+    eventFlagRequired: true,
+    cdpHttpBoundaryInvoked: input.cdpHttpBoundaryInvoked ?? false,
+    cdpWebSocketBoundaryInvoked: input.cdpWebSocketBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      'Electron/CDP M5d shows Supervisor-gated metadata only. Dashboard remains read-only and cannot execute Electron observation.',
   };
 }
 

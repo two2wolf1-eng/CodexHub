@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createElectronCdpReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
   getDashboardHash,
@@ -12,6 +13,7 @@ describe('dashboard read-only UX helpers', () => {
   it('selects stable hash routes with overview fallback', () => {
     expect(getDashboardViewFromHash('#/mcp-tools')).toBe('mcp-tools');
     expect(getDashboardViewFromHash('#/browser-profiles')).toBe('browser-profiles');
+    expect(getDashboardViewFromHash('#/electron')).toBe('electron');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -70,5 +72,37 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.rawPathStored).toBe(false);
     expect(summary.bodyStored).toBe(false);
     expect(serialized).not.toContain('codexhub-fixture-browser-profile');
+  });
+
+  it('summarizes Electron CDP control-plane metadata without raw endpoint data', () => {
+    const summary = createElectronCdpReadOnlySummary({
+      dryRunCount: 2,
+      approvalCount: 1,
+      runCount: 1,
+      latestRunStatus: 'completed',
+      runnerModes: ['controlled-websocket-events'],
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: true,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.manifestName).toBe('electron-cdp-adapter');
+    expect(summary.manifestVersion).toContain('m5c');
+    expect(summary.runnerModes).toEqual(['controlled-websocket-events']);
+    expect(summary.allowedCommands).toEqual(['Log.enable', 'Network.enable', 'Runtime.enable']);
+    expect(summary.approvalRequired).toBe(true);
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.cdpHttpBoundaryInvoked).toBe(true);
+    expect(summary.cdpWebSocketBoundaryInvoked).toBe(true);
+    expect(summary.processBoundaryInvoked).toBe(false);
+    expect(summary.externalProcessStarted).toBe(false);
+    expect(summary.noRealWrite).toBe(true);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('127.0.0.1');
+    expect(serialized).not.toContain('9222');
+    expect(serialized).not.toContain('Codex Desktop');
+    expect(serialized).not.toContain('app://');
+    expect(serialized).not.toContain('payload');
   });
 });

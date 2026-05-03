@@ -216,6 +216,10 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/electron-cdp/observation/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
       return new Response(JSON.stringify({}), { status: 404 });
     });
     const { formatReadOnlyRunsListOutput, listReadOnlyRuns, showReadOnlyRun } = await import(
@@ -234,8 +238,153 @@ describe('cli development mock-run fallback', () => {
     });
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
-    expect(fetchCalls).toHaveLength(8);
+    expect(fetchCalls).toHaveLength(10);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+  });
+
+  it('lists Electron CDP observation metadata using GET requests only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/electron-cdp/observation/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'electron_dry_run_record_1',
+                dryRunId: 'electron_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-websocket-events',
+                endpointIdHash: 'sha256:endpoint',
+                targetIdHash: 'sha256:target',
+                cdpHttpBoundaryPlanned: true,
+                cdpWebSocketBoundaryPlanned: true,
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/electron-cdp/observation/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'electron_approval_record_1',
+                dryRunId: 'electron_dry_run_1',
+                approvalArtifactId: 'electron_approval_1',
+                status: 'approved',
+                cdpHttpBoundaryInvoked: false,
+                cdpWebSocketBoundaryInvoked: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/electron-cdp/observation/runs/electron_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'electron_run_1',
+            dryRunId: 'electron_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-websocket-events',
+            endpointIdHash: 'sha256:endpoint',
+            targetIdHash: 'sha256:target',
+            evidenceRefIds: ['evidence_1'],
+            auditEventIds: ['audit_1'],
+            eventSummary: {
+              eventCount: 3,
+              consoleEventCount: 1,
+              networkEventCount: 2,
+            },
+            cdpHttpBoundaryInvoked: true,
+            cdpWebSocketBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: true,
+            bodyStored: false,
+            rawPathStored: false,
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          records: [
+            {
+              runId: 'electron_run_1',
+              dryRunId: 'electron_dry_run_1',
+              status: 'completed',
+              runnerMode: 'controlled-websocket-events',
+              endpointIdHash: 'sha256:endpoint',
+              targetIdHash: 'sha256:target',
+              evidenceRefIds: ['evidence_1'],
+              auditEventIds: ['audit_1'],
+              eventSummary: {
+                eventCount: 3,
+                consoleEventCount: 1,
+                networkEventCount: 2,
+              },
+              cdpHttpBoundaryInvoked: true,
+              cdpWebSocketBoundaryInvoked: true,
+              processBoundaryInvoked: false,
+              externalProcessStarted: false,
+              noRealWrite: true,
+              bodyStored: false,
+              rawPathStored: false,
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    const {
+      formatElectronCdpObservationApprovalsListOutput,
+      formatElectronCdpObservationDryRunsListOutput,
+      formatElectronCdpObservationRunDetailOutput,
+      formatElectronCdpObservationRunsListOutput,
+      formatReadOnlyRunsListOutput,
+      listElectronCdpObservationApprovals,
+      listElectronCdpObservationDryRuns,
+      listElectronCdpObservationRuns,
+      listReadOnlyRuns,
+      showElectronCdpObservationRun,
+    } = await import('./main');
+    const dryRuns = await listElectronCdpObservationDryRuns();
+    const approvals = await listElectronCdpObservationApprovals({
+      dryRunId: 'electron_dry_run_1',
+      status: 'approved',
+    });
+    const runs = await listElectronCdpObservationRuns();
+    const detail = await showElectronCdpObservationRun('electron_run_1');
+    const genericRuns = await listReadOnlyRuns();
+    const serialized = JSON.stringify({ dryRuns, approvals, runs, detail, genericRuns });
+
+    expect(formatElectronCdpObservationDryRunsListOutput(dryRuns)).toContain(
+      'Electron/CDP observation dry-runs',
+    );
+    expect(formatElectronCdpObservationApprovalsListOutput(approvals)).toContain(
+      'electron_approval_1',
+    );
+    expect(formatElectronCdpObservationRunsListOutput(runs)).toContain('electron_run_1');
+    expect(formatElectronCdpObservationRunDetailOutput(detail)).toContain(
+      'cdpWebSocketBoundaryInvoked=true',
+    );
+    expect(formatReadOnlyRunsListOutput(genericRuns)).toContain('electron_run_1');
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('127.0.0.1');
+    expect(serialized).not.toContain('9222');
+    expect(serialized).not.toContain('Codex Desktop');
+    expect(serialized).not.toContain('app://');
+    expect(serialized).not.toContain('payload');
   });
 
   it('lists browser observation runs using GET requests only', async () => {

@@ -169,3 +169,41 @@ workflows:
       - domSnapshotCapture
       - networkBodyCapture
       - electronClickType
+  m5d.electron-cdp-read-only-ux:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: apps/dashboard
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: '#/electron'
+        reads:
+          - GET /api/electron-cdp/observation/dry-runs
+          - GET /api/electron-cdp/observation/approvals
+          - GET /api/electron-cdp/observation/runs
+        output: hashesCountsSummariesStatusesEvidenceAndAuditIdsOnly
+      - phase: cli
+        commands:
+          - codexhub electron dry-runs list
+          - codexhub electron approvals list
+          - codexhub electron runs list
+          - codexhub electron runs show
+        method: GET-only
+      - phase: generic-runs
+        commands:
+          - codexhub runs list
+          - codexhub runs show
+        includes: electron_cdp_observation
+    forbidden:
+      - dashboardWriteUi
+      - cliElectronExecuteCommand
+      - localControlCredentialInDashboard
+      - postRequests
+      - adapterExecute
+      - electronCdpConnection
+      - websocketRunnerStart
+      - newSupervisorRoute
+      - newStoreSchema
+      - worktreeCreation
+      - pullRequestCreation

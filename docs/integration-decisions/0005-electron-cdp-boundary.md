@@ -139,6 +139,25 @@ ids, hashes, counts, summaries, statuses, evidence refs, audit ids,
 `externalProcessStarted=false`, `bodyStored=false`, `rawPathStored=false`, and
 `noRealWrite=true`.
 
+## M5d Read-Only UX
+
+M5d adds human review surfaces only:
+
+- Dashboard route: `#/electron`
+- CLI commands:
+  - `codexhub electron dry-runs list`
+  - `codexhub electron approvals list`
+  - `codexhub electron runs list`
+  - `codexhub electron runs show <runId>`
+  - `codexhub runs list`
+  - `codexhub runs show <runId>`
+
+These views use existing Supervisor GET endpoints only. They do not send local
+control credentials, create dry-runs, create approvals, execute adapters, open
+CDP connections, start WebSocket observation, or change the M5c approval model.
+Rendered output remains ids, hashes, counts, summaries, statuses, evidence refs,
+audit ids, and boundary booleans only.
+
 ## Rollback
 
 Disable `CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED` and

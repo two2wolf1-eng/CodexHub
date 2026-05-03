@@ -233,7 +233,12 @@ export interface CodexExecJsonCliOptions {
 
 export interface ReadOnlyRunSummary {
   id: string;
-  source: 'workflow' | 'development' | 'codex_exec_dry_run' | 'browser_observation';
+  source:
+    | 'workflow'
+    | 'development'
+    | 'codex_exec_dry_run'
+    | 'browser_observation'
+    | 'electron_cdp_observation';
   title: string;
   status: string;
   summary: string;
@@ -258,6 +263,39 @@ interface BrowserObservationRunApiRecord {
   noRealWrite?: boolean;
   bodyStored?: boolean;
   rawPathStored?: boolean;
+}
+
+interface ElectronCdpObservationApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  endpointIdHash?: string;
+  targetIdHash?: string;
+  summary?: string;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  eventSummary?: {
+    eventCount?: number;
+    consoleEventCount?: number;
+    networkEventCount?: number;
+  };
+  cdpHttpBoundaryPlanned?: boolean;
+  cdpHttpBoundaryInvoked?: boolean;
+  cdpWebSocketBoundaryPlanned?: boolean;
+  cdpWebSocketBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  bodyStored?: boolean;
+  rawPathStored?: boolean;
+}
+
+export interface ElectronCdpApprovalListCliOptions extends JsonCliOptions {
+  dryRunId?: string;
+  status?: string;
 }
 
 export interface CodexExecReportCliOptions {
@@ -610,6 +648,61 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showBrowserObservationRun(runId);
       console.log(formatBrowserObservationRunDetailOutput(result, options));
+    });
+
+  const electronCommand = program
+    .command('electron')
+    .description('Read-only Electron/CDP observation metadata commands');
+
+  const electronDryRunsCommand = electronCommand
+    .command('dry-runs')
+    .description('Read Electron/CDP dry-run metadata from Supervisor GET endpoints');
+
+  electronDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List Electron/CDP observation dry-runs without executing observation')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listElectronCdpObservationDryRuns();
+      console.log(formatElectronCdpObservationDryRunsListOutput(result, options));
+    });
+
+  const electronApprovalsCommand = electronCommand
+    .command('approvals')
+    .description('Read Electron/CDP approval metadata from Supervisor GET endpoints');
+
+  electronApprovalsCommand
+    .command('list')
+    .option('--dry-run-id <dryRunId>', 'Filter by dry-run id')
+    .option('--status <status>', 'Filter by approval status')
+    .option('--json', 'Print full JSON output')
+    .description('List Electron/CDP observation approvals without creating approval state')
+    .action(async (options: ElectronCdpApprovalListCliOptions) => {
+      const result = await listElectronCdpObservationApprovals(options);
+      console.log(formatElectronCdpObservationApprovalsListOutput(result, options));
+    });
+
+  const electronRunsCommand = electronCommand
+    .command('runs')
+    .description('Read Electron/CDP observation run metadata from Supervisor GET endpoints');
+
+  electronRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List Electron/CDP observation runs without executing observation')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listElectronCdpObservationRuns();
+      console.log(formatElectronCdpObservationRunsListOutput(result, options));
+    });
+
+  electronRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show Electron/CDP observation run metadata without executing observation')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showElectronCdpObservationRun(runId);
+      console.log(formatElectronCdpObservationRunDetailOutput(result, options));
     });
 
   program
@@ -1767,7 +1860,13 @@ export async function getSupervisorHealth(): Promise<Record<string, unknown>> {
 }
 
 export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
-  const [workflowResult, developmentResult, codexDryRunResult, browserObservationResult] =
+  const [
+    workflowResult,
+    developmentResult,
+    codexDryRunResult,
+    browserObservationResult,
+    electronCdpObservationResult,
+  ] =
     await Promise.allSettled([
       getSupervisorJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
       getSupervisorJson<{ runs: MockDevelopmentOrchestrationResult[] }>(
@@ -1777,6 +1876,9 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: BrowserObservationRunApiRecord[] }>(
         '/api/browser/observation/runs',
       ),
+      getSupervisorJson<{ records: ElectronCdpObservationApiRecord[] }>(
+        '/api/electron-cdp/observation/runs',
+      ),
     ]);
   const runs = [
     ...summarizeWorkflowRuns(settledValue(workflowResult)?.runs ?? []),
@@ -1785,16 +1887,20 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ...summarizeBrowserObservationRunRecords(
       settledValue(browserObservationResult)?.records ?? [],
     ),
+    ...summarizeElectronCdpObservationRunRecords(
+      settledValue(electronCdpObservationResult)?.records ?? [],
+    ),
   ];
   const degradedReasons = [
     settledError(workflowResult),
     settledError(developmentResult),
     settledError(codexDryRunResult),
     settledError(browserObservationResult),
+    settledError(electronCdpObservationResult),
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 4 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 5 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -1888,6 +1994,115 @@ export async function showBrowserObservationRun(runId: string): Promise<Record<s
   }
 }
 
+export async function listElectronCdpObservationDryRuns(): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: ElectronCdpObservationApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>('/api/electron-cdp/observation/dry-runs');
+
+    return createReadOnlyElectronCdpCollectionResult(
+      response.records,
+      response.count,
+      response.degraded,
+      response.notPersisted,
+      'Electron/CDP dry-runs are read from Supervisor GET endpoints only.',
+    );
+  } catch (error) {
+    return createDegradedElectronCdpCollectionResult(
+      error,
+      'Electron/CDP dry-run source is unavailable; no observation was attempted.',
+    );
+  }
+}
+
+export async function listElectronCdpObservationApprovals(
+  options: ElectronCdpApprovalListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  try {
+    const params = new URLSearchParams();
+    if (options.dryRunId) params.set('dryRunId', options.dryRunId);
+    if (options.status) params.set('status', options.status);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const response = await getSupervisorJson<{
+      records: ElectronCdpObservationApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(`/api/electron-cdp/observation/approvals${suffix}`);
+
+    return createReadOnlyElectronCdpCollectionResult(
+      response.records,
+      response.count,
+      response.degraded,
+      response.notPersisted,
+      'Electron/CDP approvals are read from Supervisor GET endpoints only.',
+    );
+  } catch (error) {
+    return createDegradedElectronCdpCollectionResult(
+      error,
+      'Electron/CDP approval source is unavailable; no approval state was created.',
+    );
+  }
+}
+
+export async function listElectronCdpObservationRuns(): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: ElectronCdpObservationApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>('/api/electron-cdp/observation/runs');
+
+    return createReadOnlyElectronCdpCollectionResult(
+      response.records,
+      response.count,
+      response.degraded,
+      response.notPersisted,
+      'Electron/CDP runs are read from Supervisor GET endpoints only.',
+    );
+  } catch (error) {
+    return createDegradedElectronCdpCollectionResult(
+      error,
+      'Electron/CDP run source is unavailable; no observation was attempted.',
+    );
+  }
+}
+
+export async function showElectronCdpObservationRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<ElectronCdpObservationApiRecord>(
+      `/api/electron-cdp/observation/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'Electron/CDP observation run detail is metadata-only.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'Electron/CDP observation run unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'No Electron/CDP observation execution was attempted.',
+    };
+  }
+}
+
 async function getSupervisorJson<T>(path: string): Promise<T> {
   const response = await fetch(`${supervisorUrl}${path}`);
 
@@ -1962,6 +2177,62 @@ function summarizeBrowserObservationRunRecords(
     noRealWrite: true,
     bodyStored: false,
   }));
+}
+
+function summarizeElectronCdpObservationRunRecords(
+  runs: ElectronCdpObservationApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'electron_cdp_observation_run',
+    source: 'electron_cdp_observation',
+    title: `Electron/CDP observation ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'Electron/CDP observation metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function createReadOnlyElectronCdpCollectionResult(
+  records: ElectronCdpObservationApiRecord[],
+  count: number | undefined,
+  degraded: boolean | undefined,
+  notPersisted: boolean | undefined,
+  note: string,
+): Record<string, unknown> {
+  return {
+    status: 'ready',
+    count: count ?? records.length,
+    records,
+    degraded: degraded ?? false,
+    notPersisted: notPersisted ?? false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    note,
+  };
+}
+
+function createDegradedElectronCdpCollectionResult(
+  error: unknown,
+  note: string,
+): Record<string, unknown> {
+  return {
+    status: 'degraded',
+    count: 0,
+    records: [],
+    message: error instanceof Error ? error.message : 'Electron/CDP observation source unavailable',
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    note,
+  };
 }
 
 function settledValue<T>(result: PromiseSettledResult<T>): T | undefined {
@@ -4895,6 +5166,111 @@ export function formatBrowserObservationRunDetailOutput(
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');
+}
+
+export function formatElectronCdpObservationDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatElectronCdpObservationCollectionOutput(
+    'Electron/CDP observation dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatElectronCdpObservationApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatElectronCdpObservationCollectionOutput(
+    'Electron/CDP observation approvals',
+    result,
+    options,
+  );
+}
+
+export function formatElectronCdpObservationRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatElectronCdpObservationCollectionOutput(
+    'Electron/CDP observation runs',
+    result,
+    options,
+  );
+}
+
+export function formatElectronCdpObservationRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as ElectronCdpObservationApiRecord | undefined;
+
+  return [
+    'Electron/CDP observation run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.endpointIdHash ? `endpointIdHash: ${run.endpointIdHash}` : undefined,
+    run?.targetIdHash ? `targetIdHash: ${run.targetIdHash}` : undefined,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+    `cdpHttpBoundaryInvoked=${String(run?.cdpHttpBoundaryInvoked ?? false)}`,
+    `cdpWebSocketBoundaryInvoked=${String(run?.cdpWebSocketBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `eventCount=${String(run?.eventSummary?.eventCount ?? 0)}`,
+    `consoleEventCount=${String(run?.eventSummary?.consoleEventCount ?? 0)}`,
+    `networkEventCount=${String(run?.eventSummary?.networkEventCount ?? 0)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+function formatElectronCdpObservationCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as ElectronCdpObservationApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `endpoint=${record.endpointIdHash ?? 'unavailable'}`,
+          `target=${record.targetIdHash ?? 'unavailable'}`,
+          `http=${String(record.cdpHttpBoundaryInvoked ?? false)}`,
+          `events=${String(record.cdpWebSocketBoundaryInvoked ?? false)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
 }
 
 export function formatCodexExecAuditListOutput(

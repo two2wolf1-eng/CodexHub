@@ -34,6 +34,7 @@ import {
   DASHBOARD_VIEWS,
   type DashboardView,
   createBrowserProfilesReadOnlySummary,
+  createElectronCdpReadOnlySummary,
   createVerificationReadinessPreview,
   getDashboardHash,
   getDashboardViewFromHash,
@@ -77,6 +78,9 @@ interface OverviewState {
   browserObservationDryRuns: BrowserObservationControlSummary[];
   browserObservationApprovals: BrowserObservationControlSummary[];
   browserObservationRuns: BrowserObservationControlSummary[];
+  electronCdpObservationDryRuns: ElectronCdpObservationControlSummary[];
+  electronCdpObservationApprovals: ElectronCdpObservationControlSummary[];
+  electronCdpObservationRuns: ElectronCdpObservationControlSummary[];
   message?: string;
 }
 
@@ -88,6 +92,34 @@ interface BrowserObservationControlSummary {
   summary?: string;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+}
+
+interface ElectronCdpObservationControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  endpointIdHash?: string;
+  targetIdHash?: string;
+  summary?: string;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  eventSummary?: {
+    eventCount?: number;
+    consoleEventCount?: number;
+    networkEventCount?: number;
+  };
+  cdpHttpBoundaryPlanned?: boolean;
+  cdpHttpBoundaryInvoked?: boolean;
+  cdpWebSocketBoundaryPlanned?: boolean;
+  cdpWebSocketBoundaryInvoked?: boolean;
   processBoundaryInvoked?: boolean;
   externalProcessStarted?: boolean;
   noRealWrite?: boolean;
@@ -129,6 +161,9 @@ export function App() {
     browserObservationDryRuns: [],
     browserObservationApprovals: [],
     browserObservationRuns: [],
+    electronCdpObservationDryRuns: [],
+    electronCdpObservationApprovals: [],
+    electronCdpObservationRuns: [],
   });
   const [activeView, setActiveView] = useState<DashboardView>(() =>
     getDashboardViewFromHash(window.location.hash),
@@ -140,6 +175,21 @@ export function App() {
     approvalCount: overview.browserObservationApprovals.length,
     runCount: overview.browserObservationRuns.length,
     latestRunStatus: overview.browserObservationRuns[0]?.status,
+  });
+  const electronCdpSummary = createElectronCdpReadOnlySummary({
+    dryRunCount: overview.electronCdpObservationDryRuns.length,
+    approvalCount: overview.electronCdpObservationApprovals.length,
+    runCount: overview.electronCdpObservationRuns.length,
+    latestRunStatus: overview.electronCdpObservationRuns[0]?.status,
+    runnerModes: overview.electronCdpObservationDryRuns
+      .map((record) => record.runnerMode)
+      .filter((runnerMode): runnerMode is string => runnerMode !== undefined),
+    cdpHttpBoundaryInvoked: overview.electronCdpObservationRuns.some(
+      (record) => record.cdpHttpBoundaryInvoked === true,
+    ),
+    cdpWebSocketBoundaryInvoked: overview.electronCdpObservationRuns.some(
+      (record) => record.cdpWebSocketBoundaryInvoked === true,
+    ),
   });
 
   useEffect(() => {
@@ -417,6 +467,9 @@ export function App() {
           browserObservationDryRunsResponse,
           browserObservationApprovalsResponse,
           browserObservationRunsResponse,
+          electronCdpObservationDryRunsResponse,
+          electronCdpObservationApprovalsResponse,
+          electronCdpObservationRunsResponse,
         ] = await Promise.all([
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
             '/api/browser/observation/dry-runs',
@@ -428,6 +481,18 @@ export function App() {
           ),
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
             '/api/browser/observation/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ElectronCdpObservationControlSummary[] }>(
+            '/api/electron-cdp/observation/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ElectronCdpObservationControlSummary[] }>(
+            '/api/electron-cdp/observation/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ElectronCdpObservationControlSummary[] }>(
+            '/api/electron-cdp/observation/runs',
             { records: [] },
           ),
         ]);
@@ -476,6 +541,9 @@ export function App() {
             browserObservationDryRuns: browserObservationDryRunsResponse.records,
             browserObservationApprovals: browserObservationApprovalsResponse.records,
             browserObservationRuns: browserObservationRunsResponse.records,
+            electronCdpObservationDryRuns: electronCdpObservationDryRunsResponse.records,
+            electronCdpObservationApprovals: electronCdpObservationApprovalsResponse.records,
+            electronCdpObservationRuns: electronCdpObservationRunsResponse.records,
           });
         }
       } catch (error) {
@@ -511,6 +579,9 @@ export function App() {
             browserObservationDryRuns: [],
             browserObservationApprovals: [],
             browserObservationRuns: [],
+            electronCdpObservationDryRuns: [],
+            electronCdpObservationApprovals: [],
+            electronCdpObservationRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -1676,6 +1747,7 @@ export function App() {
           mcpSummary,
           verificationPreview,
           browserProfilesSummary,
+          electronCdpSummary,
         )
       )}
     </main>
@@ -1688,6 +1760,7 @@ function renderReadOnlyDashboardView(
   mcpSummary: ReturnType<typeof summarizeMcpTools>,
   verificationPreview: ReturnType<typeof createVerificationReadinessPreview>,
   browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
+  electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -1993,6 +2066,127 @@ function renderReadOnlyDashboardView(
             <p>
               No browser observation run metadata is available. This view is read-only and never
               sends local-control credentials.
+            </p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'electron') {
+    return (
+      <section className="grid">
+        <Panel title="Electron/CDP Readiness">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>
+                {electronCdpSummary.manifestName} {electronCdpSummary.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>control-plane records</strong>
+              <span>
+                dry-runs {electronCdpSummary.dryRunCount}, approvals{' '}
+                {electronCdpSummary.approvalCount}, runs {electronCdpSummary.runCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>{electronCdpSummary.latestRunStatus}</span>
+            </li>
+            <li>
+              <strong>runner modes</strong>
+              <span>{electronCdpSummary.runnerModes.join(', ')}</span>
+            </li>
+            <li>
+              <strong>approval</strong>
+              <span>required {String(electronCdpSummary.approvalRequired)}</span>
+            </li>
+            <li>
+              <strong>enablement</strong>
+              <span>
+                default {String(electronCdpSummary.productDefaultEnabled)}, http flag{' '}
+                {String(electronCdpSummary.httpFlagRequired)}, event flag{' '}
+                {String(electronCdpSummary.eventFlagRequired)}
+              </span>
+            </li>
+          </ul>
+          <p>{electronCdpSummary.summary}</p>
+        </Panel>
+        <Panel title="Electron/CDP Boundaries">
+          <ul>
+            <li>
+              <strong>allowed commands</strong>
+              <span>{electronCdpSummary.allowedCommands.join(', ')}</span>
+            </li>
+            <li>
+              <strong>blocked actions</strong>
+              <span>{electronCdpSummary.blockedActions.join(', ')}</span>
+            </li>
+            <li>
+              <strong>CDP boundary truth</strong>
+              <span>
+                http {String(electronCdpSummary.cdpHttpBoundaryInvoked)}, events{' '}
+                {String(electronCdpSummary.cdpWebSocketBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>process boundary</strong>
+              <span>
+                invoked {String(electronCdpSummary.processBoundaryInvoked)}, external process{' '}
+                {String(electronCdpSummary.externalProcessStarted)}
+              </span>
+            </li>
+            <li>
+              <strong>write safety</strong>
+              <span>
+                noRealWrite {String(electronCdpSummary.noRealWrite)}, bodyStored{' '}
+                {String(electronCdpSummary.bodyStored)}, rawPathStored{' '}
+                {String(electronCdpSummary.rawPathStored)}
+              </span>
+            </li>
+          </ul>
+        </Panel>
+        <Panel title="Electron/CDP Runs">
+          {overview.electronCdpObservationRuns.length > 0 ? (
+            <ul>
+              {overview.electronCdpObservationRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'electron_cdp_observation_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    endpoint {run.endpointIdHash ?? 'unavailable'}, target{' '}
+                    {run.targetIdHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    http {String(run.cdpHttpBoundaryInvoked ?? false)}, events{' '}
+                    {String(run.cdpWebSocketBoundaryInvoked ?? false)}
+                  </span>
+                  <span>
+                    events {run.eventSummary?.eventCount ?? 0}, console{' '}
+                    {run.eventSummary?.consoleEventCount ?? 0}, network{' '}
+                    {run.eventSummary?.networkEventCount ?? 0}
+                  </span>
+                  <span>
+                    noRealWrite {String(run.noRealWrite ?? true)}, bodyStored{' '}
+                    {String(run.bodyStored ?? false)}, rawPathStored{' '}
+                    {String(run.rawPathStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No Electron/CDP observation run metadata is available. This view is read-only and
+              never sends local-control credentials.
             </p>
           )}
         </Panel>
