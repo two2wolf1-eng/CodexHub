@@ -137,6 +137,7 @@ describe('orchestrator-kernel minimal governed orchestration', () => {
     expect(result.run.status).toBe('blocked');
     expect(result.run.summary.processBoundaryInvoked).toBe(false);
     expect(result.run.summary.externalProcessStarted).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.liveExecution).toBe(false);
     expect(codexStarts).toBe(0);
     expect(nxStarts).toBe(0);
   });
@@ -274,6 +275,7 @@ describe('orchestrator-kernel minimal governed orchestration', () => {
     expect(result.run.status).toBe('blocked');
     expect(result.run.timeline.at(-1)?.summary).toContain('untrusted_approval_artifact_body');
     expect(result.run.summary.processBoundaryInvoked).toBe(false);
+    expect(result.auditEvents[0]?.metadata?.liveExecution).toBe(false);
     expect(codexStarts).toBe(0);
   });
 });

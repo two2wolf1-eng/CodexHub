@@ -1197,7 +1197,7 @@ export async function runRealReadOnlyAdapterProcessBoundary(
     stdoutBodyStored: false,
     stderrBodyStored: false,
     metadataOnly: true,
-    externalProcessStarted: true,
+    externalProcessStarted: startFailureKind === 'none',
     governedInputRequired: true,
     governedInputProvided: plan.governedInputProvided,
     governedInputVerified: plan.governedInputVerified,

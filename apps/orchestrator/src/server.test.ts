@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildOrchestratorServer } from './server';
 
@@ -150,5 +151,48 @@ describe('orchestrator local control server', () => {
       await server.close();
     }
   });
-});
 
+  it('does not silently rewrite outside worktree paths to the workspace root', async () => {
+    let codexStarts = 0;
+    const outsideWorktreePath = resolve(process.cwd(), '..', 'codexhub-outside-route-fixture');
+    const server = buildOrchestratorServer({
+      disableStore: true,
+      localControlKey: localControlToken,
+      workspaceRoot: process.cwd(),
+      codexRunner: {
+        async start() {
+          codexStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/orchestrator/minimal-runs',
+        headers: localControlHeaders,
+        payload: {
+          title: 'Outside worktree fixture',
+          description: 'Outside paths should be blocked by the adapter plan.',
+          dryRunId: 'codex_dry_run_outside_route_fixture',
+          worktreePath: outsideWorktreePath,
+          governedInput: {
+            relativePath: 'package.json',
+            expectedContentHash: 'sha256:not-used-because-cwd-is-outside',
+          },
+        },
+      });
+      const serialized = JSON.stringify(response.json());
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().run.status).toBe('blocked');
+      expect(response.json().run.codexRun.summary).toContain('cwd_outside_allowlist');
+      expect(response.json().run.summary.processBoundaryInvoked).toBe(false);
+      expect(serialized).not.toContain(outsideWorktreePath);
+      expect(codexStarts).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+});

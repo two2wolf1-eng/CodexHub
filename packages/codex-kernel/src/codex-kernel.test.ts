@@ -3018,6 +3018,7 @@ describe('codex-kernel live control-plane skeleton', () => {
     expect(diagnostics.nonzero.failureCode).toBe('process_exit_nonzero');
     expect(diagnostics.nonzero.nonzeroExitKind).toBe('codex_cli_usage_error_suspected');
     expect(diagnostics.startFailure.failureCode).toBe('process_start_failed');
+    expect(startFailure.externalProcessStarted).toBe(false);
     expect(diagnostics.startFailure.startFailureKind).toBe('enoent');
     expect(diagnostics.startFailure.enoentKind).toBe(
       'dependency_or_spawn_target_enoent',

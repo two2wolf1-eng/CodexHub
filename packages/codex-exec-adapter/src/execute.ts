@@ -1,8 +1,10 @@
 import {
   createRealReadOnlyAdapterProcessPlan,
+  nodeRealReadOnlyAdapterProcessRunner,
   runRealReadOnlyAdapterProcessBoundary,
   type CodexExecRealReadOnlyAdapterProcessBoundaryResult,
   type CodexExecRealReadOnlyAdapterProcessRunner,
+  type CodexExecRealReadOnlyAdapterProcessRunnerResult,
 } from '@codexhub/codex-kernel';
 import {
   type CapabilityAuditEvent,
@@ -77,12 +79,13 @@ export async function executeCodexExecAdapter(
     },
   });
 
+  const stdoutCapture = createInMemoryStdoutCaptureRunner(input.runner);
   const boundaryResult = await runRealReadOnlyAdapterProcessBoundary(boundaryPlan, {
-    runner: input.runner,
+    runner: stdoutCapture.runner,
     signal: input.signal,
     now: input.now,
   });
-  const parsed = parseCodexExecAdapterJsonl('');
+  const parsed = parseCodexExecAdapterJsonl(stdoutCapture.readStdout());
   const eventSummary = normalizeCodexExecAdapterEvents(parsed.lines);
   const evidenceRefs = [
     createCodexExecAdapterPlanEvidence(input.plan),
@@ -110,6 +113,7 @@ export async function executeCodexExecAdapter(
       policyDecisionId: input.authority?.policyDecisionId ?? 'missing-policy-decision',
       evidenceRefs,
       metadata: {
+        liveExecution: true,
         processBoundaryInvoked: true,
         externalProcessStarted: boundaryResult.externalProcessStarted,
         noRealWrite: true,
@@ -187,6 +191,7 @@ function createBlockedExecuteResult(
       policyDecisionId: input.authority?.policyDecisionId ?? 'blocked-before-policy',
       evidenceRefs,
       metadata: {
+        liveExecution: false,
         blockReasons,
         processBoundaryInvoked: false,
         externalProcessStarted: false,
@@ -207,6 +212,30 @@ function createBlockedExecuteResult(
     }),
     evidenceRefs,
     auditEvents,
+  };
+}
+
+function createInMemoryStdoutCaptureRunner(
+  runner: CodexExecRealReadOnlyAdapterProcessRunner | undefined,
+): {
+  runner: CodexExecRealReadOnlyAdapterProcessRunner;
+  readStdout: () => string;
+} {
+  const delegate = runner ?? nodeRealReadOnlyAdapterProcessRunner;
+  let stdout = '';
+
+  return {
+    runner: {
+      async start(
+        plan,
+        options,
+      ): Promise<CodexExecRealReadOnlyAdapterProcessRunnerResult> {
+        const result = await delegate.start(plan, options);
+        stdout = result.stdout ?? '';
+        return result;
+      },
+    },
+    readStdout: () => stdout,
   };
 }
 

@@ -253,10 +253,62 @@ describe('codex-exec-adapter execute', () => {
     expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
     expect(result.capabilityResult.externalProcessStarted).toBe(true);
     expect(result.capabilityResult.noRealWrite).toBe(true);
+    if (_label === 'aborted') {
+      expect(result.eventSummary?.eventCount).toBe(0);
+    } else {
+      expect(result.eventSummary?.eventCount).toBeGreaterThan(0);
+    }
+    expect(result.eventSummary?.rawPayloadStored).toBe(false);
+    expect(result.eventSummary?.finalStatus).toBe(
+      _label === 'completed' ? 'completed' : _label === 'failed' ? 'failed' : 'unknown',
+    );
     expect(result.evidenceRefs.length).toBeGreaterThanOrEqual(3);
     expect(result.auditEvents[0].policyDecisionId).toBe(authority.policyDecisionId);
+    expect(result.auditEvents[0].metadata?.liveExecution).toBe(true);
     expect(CapabilityExecutionResultSchema.parse(result.capabilityResult)).toBeTruthy();
     expect(CapabilityAuditEventSchema.parse(result.auditEvents[0])).toBeTruthy();
+  });
+
+  it('keeps externalProcessStarted false for process start failures', async () => {
+    const fixture = createGovernedInputFixture();
+    const plan = createCodexExecAdapterPlan({
+      dryRunId: 'dry_run_start_failure',
+      cwd: fixture.root,
+      allowedCwdRoots: [fixture.root],
+      governedInput: fixture.governedInput,
+    });
+    const authority = ExecutionAuthoritySchema.parse({
+      id: 'authority_start_failure',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: new Date().toISOString(),
+      policyDecisionId: 'policy_start_failure',
+      approvalArtifactId: 'approval_start_failure',
+      allowed: true,
+      constraints: ['read-only'],
+    });
+    const runner: CodexExecRealReadOnlyAdapterProcessRunner = {
+      start: async () => ({
+        stderr: 'start failure detail must remain hash-only',
+        startFailureKind: 'enoent',
+      }),
+    };
+    const result = await executeCodexExecAdapter({
+      plan,
+      authority,
+      executablePath: 'codex',
+      timeoutMs: 1000,
+      runner,
+    });
+
+    expect(result.capabilityResult.status).toBe('failed');
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(result.capabilityResult.externalProcessStarted).toBe(false);
+    expect(result.boundaryResult?.externalProcessStarted).toBe(false);
+    expect(result.auditEvents[0].metadata?.liveExecution).toBe(true);
+    expect(result.auditEvents[0].metadata?.externalProcessStarted).toBe(false);
+    expect(JSON.stringify(result.capabilityResult)).not.toContain(
+      'start failure detail must remain hash-only',
+    );
   });
 });
 

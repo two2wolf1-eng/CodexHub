@@ -1,4 +1,4 @@
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import Fastify from 'fastify';
 import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
 import {
@@ -301,14 +301,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function resolveWorktreePath(workspaceRoot: string, candidate: string | undefined): string {
-  const resolved = resolve(workspaceRoot, candidate ?? '.');
-  const relativePath = relative(workspaceRoot, resolved);
-
-  if (relativePath.startsWith('..') || relativePath === '..' || resolve(relativePath) === relativePath) {
-    return workspaceRoot;
-  }
-
-  return resolved;
+  return resolve(workspaceRoot, candidate ?? '.');
 }
 
 function rememberRun(
