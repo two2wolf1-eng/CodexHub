@@ -25,8 +25,12 @@ const approvedProcessBoundaryFiles = new Set([
   'packages/codex-kernel/src/real-read-only-adapter-process.ts',
   'packages/nx-verification-adapter/src/process-boundary.ts',
 ]);
+const approvedLiveAutomationBoundaryFiles = new Set([
+  'packages/playwright-observer-adapter/src/real-runner.ts',
+]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
+const liveAutomationModules = ['playwright'];
 const executableTextTerms = [
   ['codex', ' exec'].join(''),
   ['playwright', '.', 'chromium'].join(''),
@@ -132,6 +136,15 @@ function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: strin
         term: importPath,
         reason:
           'External process modules are allowed only in the audited read-only adapter boundary module.',
+      });
+    }
+
+    if (liveAutomationModules.includes(importPath) && !isApprovedLiveAutomationBoundary(workspacePath)) {
+      violations.push({
+        file,
+        line: 1,
+        term: importPath,
+        reason: 'Live browser automation modules are allowed only in audited adapter boundary modules.',
       });
     }
   }
@@ -245,6 +258,10 @@ function isAllowed(workspacePath: string, term: string): boolean {
 
 function isApprovedExternalProcessBoundary(workspacePath: string): boolean {
   return approvedProcessBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedLiveAutomationBoundary(workspacePath: string): boolean {
+  return approvedLiveAutomationBoundaryFiles.has(workspacePath);
 }
 
 function listSourceFiles(root: string): string[] {

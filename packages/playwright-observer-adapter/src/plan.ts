@@ -1,6 +1,7 @@
 import {
   type BrowserForbiddenAction,
   type BrowserObservationCapability,
+  type BrowserObservationRunnerMode,
   type BrowserPageObservationPlan,
   type BrowserProfileReadinessBlockReason,
   type BrowserProfileRef,
@@ -28,6 +29,8 @@ export interface PlaywrightObserverAdapterPlanInput {
   profileRef: BrowserProfileRef;
   requestedCapabilities?: readonly string[];
   requestedActions?: readonly string[];
+  runnerMode?: BrowserObservationRunnerMode;
+  targetUrl?: string;
   rawProfilePath?: string;
   screenshotRequested?: boolean;
   networkBodyRequested?: boolean;
@@ -45,11 +48,13 @@ export interface PlaywrightObserverAdapterPlan {
   dryRunId: string;
   profileRef: BrowserProfileRef;
   requestedCapabilities: BrowserObservationCapability[];
+  runnerMode: BrowserObservationRunnerMode;
+  targetUrlHash?: string;
   forbiddenActions: BrowserForbiddenAction[];
   blockReasons: BrowserProfileReadinessBlockReason[];
   screenshotPlanned: false;
   networkBodyStorage: 'forbidden';
-  processBoundaryPlanned: false;
+  processBoundaryPlanned: boolean;
   processBoundaryInvoked: false;
   externalProcessStarted: false;
   noRealWrite: true;
@@ -66,13 +71,17 @@ export function createPlaywrightObserverAdapterPlan(
 ): PlaywrightObserverAdapterPlan {
   const manifest = input.manifest ?? createPlaywrightObserverAdapterManifest();
   const blockReasons: BrowserProfileReadinessBlockReason[] = [];
+  const runnerMode = input.runnerMode ?? 'fixture';
+  const targetUrlHash = input.targetUrl ? `sha256:${hashText(input.targetUrl)}` : undefined;
   const requestedCapabilities = normalizeCapabilities(input.requestedCapabilities, blockReasons);
   const forbiddenActions = normalizeForbiddenActions(input, blockReasons);
+  normalizeRunnerMode(input, blockReasons);
   const status: PlaywrightObserverAdapterPlanStatus =
     blockReasons.length === 0 ? 'ready' : 'blocked';
+  const processBoundaryPlanned = status === 'ready' && runnerMode === 'controlled-local-browser';
   const summary =
     status === 'ready'
-      ? 'Plan browser read-only observation with fixture runner only.'
+      ? `Plan browser read-only observation with ${runnerMode} runner.`
       : `Blocked browser read-only observation plan: ${blockReasons.join(', ')}.`;
   const browserPlan = BrowserPageObservationPlanSchema.parse({
     id: foundationId('browser_page_observation_plan'),
@@ -81,6 +90,8 @@ export function createPlaywrightObserverAdapterPlan(
     adapterName: PLAYWRIGHT_OBSERVER_ADAPTER_NAME,
     profileRef: input.profileRef,
     requestedCapabilities,
+    runnerMode,
+    targetUrlHash,
     forbiddenActions,
     blockReasons,
     screenshotPlanned: false,
@@ -88,7 +99,7 @@ export function createPlaywrightObserverAdapterPlan(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
-    processBoundaryPlanned: false,
+    processBoundaryPlanned,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary,
@@ -101,6 +112,8 @@ export function createPlaywrightObserverAdapterPlan(
     inputSummary: {
       profilePathHash: input.profileRef.profilePathHash,
       requestedCapabilities,
+      runnerMode,
+      targetUrlHash,
       forbiddenActions,
       planHash: `sha256:${hashText(JSON.stringify(browserPlan))}`,
       rawPathStored: false,
@@ -110,23 +123,31 @@ export function createPlaywrightObserverAdapterPlan(
       {
         action: 'browser.observe.read_only',
         actionMode: 'read',
-        risk: 'medium',
+        risk: processBoundaryPlanned ? 'high' : 'medium',
         target: input.profileRef.profilePathHash,
-        requiresApproval: false,
+        requiresApproval: processBoundaryPlanned,
       },
     ],
     requiredEvidence: ['browser-profile-readiness', 'browser-observation-summary'],
     warnings:
       status === 'ready'
-        ? ['fixture runner only; no browser connection is opened in M4a']
+        ? [
+            processBoundaryPlanned
+              ? 'controlled local browser runner requires persisted approval before execution'
+              : 'fixture runner only; no browser boundary is opened',
+          ]
         : [`blocked: ${blockReasons.join(', ')}`],
     metadata: {
       dryRunId: input.dryRunId,
       status,
       blockReasons,
-      fixtureRunnerOnly: true,
+      runnerMode,
+      fixtureRunnerOnly: runnerMode === 'fixture',
+      controlledLocalBrowserRunner: runnerMode === 'controlled-local-browser',
+      targetUrlHash,
       rawPathStored: false,
       bodyStored: false,
+      processBoundaryPlanned,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
     },
@@ -141,11 +162,13 @@ export function createPlaywrightObserverAdapterPlan(
     dryRunId: input.dryRunId,
     profileRef: input.profileRef,
     requestedCapabilities,
+    runnerMode,
+    targetUrlHash,
     forbiddenActions,
     blockReasons,
     screenshotPlanned: false,
     networkBodyStorage: 'forbidden',
-    processBoundaryPlanned: false,
+    processBoundaryPlanned,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     noRealWrite: true,
@@ -207,6 +230,48 @@ function normalizeForbiddenActions(
   }
 
   return forbiddenActions;
+}
+
+function normalizeRunnerMode(
+  input: PlaywrightObserverAdapterPlanInput,
+  blockReasons: BrowserProfileReadinessBlockReason[],
+): void {
+  const runnerMode = input.runnerMode ?? 'fixture';
+
+  if (runnerMode !== 'controlled-local-browser') {
+    return;
+  }
+
+  if (!input.targetUrl) {
+    blockReasons.push('target_url_required');
+    return;
+  }
+
+  if (!isAllowedReadOnlyTargetUrl(input.targetUrl)) {
+    blockReasons.push('target_url_forbidden');
+  }
+}
+
+export function isAllowedReadOnlyTargetUrl(value: string): boolean {
+  if (value === 'about:blank') {
+    return true;
+  }
+
+  if (value.startsWith('data:text/html,') || value.startsWith('data:text/html;')) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(value);
+
+    if (parsed.protocol !== 'http:' || parsed.username || parsed.password) {
+      return false;
+    }
+
+    return ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function isBrowserObservationCapability(value: string): value is BrowserObservationCapability {

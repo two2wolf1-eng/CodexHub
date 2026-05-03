@@ -63,8 +63,11 @@ capabilityAdapters:
 browserAutomation:
   defaultMode: read-only
   m4aFixtureRunnerOnly: true
-  realBrowserConnectionEnabledInM4a: false
-  profileProbeEnabledInM4a: false
+  m4bControlledLocalBrowserRunnerAllowed: true
+  m4bControlledLocalBrowserRunnerRequiresApproval: true
+  m4bAllowedTargets: loopback_about_blank_or_data_html_only
+  realUserProfileConnectionEnabledInM4b: false
+  profileProbeEnabledInM4b: false
   rawProfilePathStorage: forbidden
   clickInputSubmitAllowedInFoundation: false
   screenshotRequiresApproval: true

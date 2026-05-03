@@ -134,6 +134,7 @@ import {
   AffectedProjectSchema,
   BrowserForbiddenActionSchema,
   BrowserObservationCapabilitySchema,
+  BrowserObservationRunnerModeSchema,
   BrowserObservationRunSchema,
   BrowserObservationRunStatusSchema,
   BrowserPageObservationPlanSchema,
@@ -463,6 +464,10 @@ describe('contracts schemas', () => {
       'console_summary',
       'network_metadata_summary',
     ]);
+    expect(BrowserObservationRunnerModeSchema.options).toEqual([
+      'fixture',
+      'controlled-local-browser',
+    ]);
     expect(BrowserForbiddenActionSchema.options).toContain('cookie_extraction');
     expect(BrowserObservationRunStatusSchema.options).toEqual([
       'planned',
@@ -504,6 +509,7 @@ describe('contracts schemas', () => {
       createdAt,
       adapterName: 'playwright-observer',
       profileRef,
+      runnerMode: 'fixture',
       requestedCapabilities: ['title', 'accessibility_snapshot', 'console_summary'],
       forbiddenActions: ['screenshot', 'network_body', 'click'],
       blockReasons: [],
@@ -516,6 +522,14 @@ describe('contracts schemas', () => {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       summary: 'Plan browser read-only observation with fixture runner only.',
+    });
+    const controlledPlan = BrowserPageObservationPlanSchema.parse({
+      ...plan,
+      id: 'browser_observation_plan_controlled_1',
+      runnerMode: 'controlled-local-browser',
+      targetUrlHash: 'sha256:target-url',
+      processBoundaryPlanned: true,
+      summary: 'Plan browser read-only observation with controlled local browser runner.',
     });
     const pageSummary = BrowserPageObservationSummarySchema.parse({
       id: 'browser_page_summary_1',
@@ -551,6 +565,14 @@ describe('contracts schemas', () => {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
     });
+    const controlledPageSummary = BrowserPageObservationSummarySchema.parse({
+      ...pageSummary,
+      id: 'browser_page_summary_controlled_1',
+      source: 'playwright-observer.controlled-local-browser',
+      planId: controlledPlan.id,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+    });
     const evidence = EvidenceRefSchema.parse({
       id: 'evidence_browser_summary',
       schemaVersion,
@@ -578,6 +600,8 @@ describe('contracts schemas', () => {
 
     expect(run.status).toBe('completed');
     expect(run.pageSummary?.pageUrlHash).toBe('sha256:url');
+    expect(controlledPlan.processBoundaryPlanned).toBe(true);
+    expect(controlledPageSummary.externalProcessStarted).toBe(true);
     expect(run.rawPathStored).toBe(false);
     expect(() =>
       BrowserProfileRefSchema.parse({

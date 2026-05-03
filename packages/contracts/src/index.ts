@@ -362,6 +362,12 @@ export const BrowserObservationCapabilitySchema = z.enum([
 ]);
 export type BrowserObservationCapability = z.infer<typeof BrowserObservationCapabilitySchema>;
 
+export const BrowserObservationRunnerModeSchema = z.enum([
+  'fixture',
+  'controlled-local-browser',
+]);
+export type BrowserObservationRunnerMode = z.infer<typeof BrowserObservationRunnerModeSchema>;
+
 const BrowserForbiddenActionValues = [
   'screenshot',
   'network_body',
@@ -404,6 +410,9 @@ export const BrowserProfileReadinessBlockReasonSchema = z.enum([
   'execution_authority_invalid',
   'execution_authority_not_allowed',
   'execution_authority_expired',
+  'approval_artifact_missing',
+  'target_url_required',
+  'target_url_forbidden',
 ]);
 export type BrowserProfileReadinessBlockReason = z.infer<
   typeof BrowserProfileReadinessBlockReasonSchema
@@ -464,6 +473,8 @@ export const BrowserPageObservationPlanSchema = createdEntityBaseSchema
     adapterName: z.string().min(1),
     profileRef: BrowserProfileRefSchema,
     requestedCapabilities: z.array(BrowserObservationCapabilitySchema).default([]),
+    runnerMode: BrowserObservationRunnerModeSchema.default('fixture'),
+    targetUrlHash: z.string().min(1).optional(),
     forbiddenActions: z.array(BrowserForbiddenActionSchema).default([]),
     blockReasons: z.array(BrowserProfileReadinessBlockReasonSchema).default([]),
     screenshotPlanned: z.literal(false),
@@ -471,7 +482,7 @@ export const BrowserPageObservationPlanSchema = createdEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
-    processBoundaryPlanned: z.literal(false),
+    processBoundaryPlanned: z.boolean(),
     processBoundaryInvoked: z.literal(false),
     externalProcessStarted: z.literal(false),
     summary: z.string().min(1),
@@ -497,8 +508,8 @@ export const BrowserPageObservationSummarySchema = observedEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
-    processBoundaryInvoked: z.literal(false),
-    externalProcessStarted: z.literal(false),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
     summary: z.string().min(1),
   })
   .strict();
@@ -526,8 +537,8 @@ export const BrowserObservationRunSchema = createdEntityBaseSchema
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
-    processBoundaryInvoked: z.literal(false),
-    externalProcessStarted: z.literal(false),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
     summary: z.string().min(1),
   })
   .strict();

@@ -38,18 +38,23 @@ export interface PlaywrightObserverFixtureRunnerResult {
   accessibilityNodeCount?: number;
   consoleSummary?: BrowserConsoleSummary;
   networkSummary?: BrowserNetworkMetadataSummary;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  sourceLabel?: string;
   summary?: string;
   observedAt?: string;
 }
 
-export interface PlaywrightObserverFixtureRunner {
+export interface PlaywrightObserverRunner {
   observe(plan: PlaywrightObserverAdapterPlan): Promise<PlaywrightObserverFixtureRunnerResult>;
 }
+
+export type PlaywrightObserverFixtureRunner = PlaywrightObserverRunner;
 
 export interface PlaywrightObserverAdapterExecuteInput {
   plan: PlaywrightObserverAdapterPlan;
   authority?: ExecutionAuthority;
-  runner?: PlaywrightObserverFixtureRunner;
+  runner?: PlaywrightObserverRunner;
   readiness?: BrowserProfileReadiness;
   now?: () => string;
   actor?: string;
@@ -67,7 +72,7 @@ export interface PlaywrightObserverAdapterExecuteResult {
 export async function executePlaywrightObserverAdapter(
   input: PlaywrightObserverAdapterExecuteInput,
 ): Promise<PlaywrightObserverAdapterExecuteResult> {
-  const authorityBlockReason = validateAuthority(input.authority, input.now);
+  const authorityBlockReason = validateAuthority(input.plan, input.authority, input.now);
   const blockReasons = [
     ...input.plan.blockReasons,
     ...(authorityBlockReason ? [authorityBlockReason] : []),
@@ -86,6 +91,7 @@ export async function executePlaywrightObserverAdapter(
 
   try {
     const runnerResult = await runner.observe(input.plan);
+    const boundaryTruth = getBoundaryTruth(runnerResult);
     const pageSummary =
       runnerResult.status === 'completed'
         ? createPageObservationSummary(input.plan, runnerResult)
@@ -97,15 +103,18 @@ export async function executePlaywrightObserverAdapter(
         actor: input.actor,
         action: 'browser.observe.read_only',
         target: input.plan.profileRef.profilePathHash,
-        reason: 'execution authority accepted for fixture-only browser observation',
+        reason: 'execution authority accepted for browser read-only observation',
         outcome: status,
         policyDecisionId: input.authority?.policyDecisionId ?? 'missing-policy-decision',
         evidenceRefs,
         metadata: {
           dryRunId: input.plan.dryRunId,
-          fixtureRunnerOnly: true,
+          runnerMode: input.plan.runnerMode,
           pageSummaryCreated: pageSummary !== undefined,
         },
+        processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+        externalProcessStarted: boundaryTruth.externalProcessStarted,
+        liveExecution: boundaryTruth.processBoundaryInvoked,
       }),
     ];
     const browserRun = createBrowserRun({
@@ -114,7 +123,9 @@ export async function executePlaywrightObserverAdapter(
       pageSummary,
       evidenceRefs,
       auditEvents,
-      summary: runnerResult.summary ?? `Browser observation fixture run ${status}.`,
+      summary: runnerResult.summary ?? `Browser observation run ${status}.`,
+      processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+      externalProcessStarted: boundaryTruth.externalProcessStarted,
     });
     const finalEvidenceRefs = [...evidenceRefs, createBrowserObservationRunEvidence(browserRun)];
     const finalBrowserRun = createBrowserRun({
@@ -123,7 +134,9 @@ export async function executePlaywrightObserverAdapter(
       pageSummary,
       evidenceRefs: finalEvidenceRefs,
       auditEvents,
-      summary: runnerResult.summary ?? `Browser observation fixture run ${status}.`,
+      summary: runnerResult.summary ?? `Browser observation run ${status}.`,
+      processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+      externalProcessStarted: boundaryTruth.externalProcessStarted,
     });
     const finalAuditEvents = [
       {
@@ -139,6 +152,8 @@ export async function executePlaywrightObserverAdapter(
         evidenceRefs: finalEvidenceRefs,
         auditEvents: finalAuditEvents,
         summary: finalBrowserRun.summary,
+        processBoundaryInvoked: boundaryTruth.processBoundaryInvoked,
+        externalProcessStarted: boundaryTruth.externalProcessStarted,
       }),
       browserRun: finalBrowserRun,
       pageSummary,
@@ -151,6 +166,7 @@ export async function executePlaywrightObserverAdapter(
 }
 
 function validateAuthority(
+  plan: PlaywrightObserverAdapterPlan,
   authority: ExecutionAuthority | undefined,
   now: (() => string) | undefined,
 ): BrowserProfileReadinessBlockReason | undefined {
@@ -175,6 +191,10 @@ function validateAuthority(
     return 'execution_authority_expired';
   }
 
+  if (plan.processBoundaryPlanned && !authority.approvalArtifactId) {
+    return 'approval_artifact_missing';
+  }
+
   return undefined;
 }
 
@@ -195,7 +215,7 @@ function createBlockedExecuteResult(
       metadata: {
         dryRunId: input.plan.dryRunId,
         blockReasons,
-        fixtureRunnerOnly: true,
+        runnerMode: input.plan.runnerMode,
       },
     }),
   ];
@@ -204,7 +224,9 @@ function createBlockedExecuteResult(
     status: 'blocked',
     evidenceRefs,
     auditEvents,
-    summary: `Browser observation fixture execution blocked: ${blockReasons.join(', ')}.`,
+    summary: `Browser observation execution blocked: ${blockReasons.join(', ')}.`,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
   });
   const finalEvidenceRefs = [...evidenceRefs, createBrowserObservationRunEvidence(browserRun)];
   const finalBrowserRun = createBrowserRun({
@@ -213,6 +235,8 @@ function createBlockedExecuteResult(
     evidenceRefs: finalEvidenceRefs,
     auditEvents,
     summary: browserRun.summary,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
   });
   const finalAuditEvents = [
     {
@@ -228,6 +252,8 @@ function createBlockedExecuteResult(
       evidenceRefs: finalEvidenceRefs,
       auditEvents: finalAuditEvents,
       summary: finalBrowserRun.summary,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
     }),
     browserRun: finalBrowserRun,
     evidenceRefs: finalEvidenceRefs,
@@ -245,14 +271,14 @@ function createFailedFixtureResult(
       actor: input.actor,
       action: 'browser.observe.read_only',
       target: input.plan.profileRef.profilePathHash,
-      reason: 'fixture runner failed before producing a metadata summary',
+      reason: 'browser observation runner failed before producing a metadata summary',
       outcome: 'failed',
       policyDecisionId: input.authority?.policyDecisionId ?? 'missing-policy-decision',
       evidenceRefs,
       metadata: {
         dryRunId: input.plan.dryRunId,
         errorName: error instanceof Error ? error.name : 'UnknownError',
-        fixtureRunnerOnly: true,
+        runnerMode: input.plan.runnerMode,
       },
     }),
   ];
@@ -261,7 +287,9 @@ function createFailedFixtureResult(
     status: 'failed',
     evidenceRefs,
     auditEvents,
-    summary: 'Browser observation fixture run failed without storing raw output.',
+    summary: 'Browser observation runner failed without storing raw output.',
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
   });
   const finalEvidenceRefs = [...evidenceRefs, createBrowserObservationRunEvidence(browserRun)];
   const finalBrowserRun = createBrowserRun({
@@ -270,6 +298,8 @@ function createFailedFixtureResult(
     evidenceRefs: finalEvidenceRefs,
     auditEvents,
     summary: browserRun.summary,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
   });
   const finalAuditEvents = [
     {
@@ -285,6 +315,8 @@ function createFailedFixtureResult(
       evidenceRefs: finalEvidenceRefs,
       auditEvents: finalAuditEvents,
       summary: finalBrowserRun.summary,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
     }),
     browserRun: finalBrowserRun,
     evidenceRefs: finalEvidenceRefs,
@@ -311,7 +343,7 @@ function createPageObservationSummary(
     id: foundationId('browser_page_observation_summary'),
     schemaVersion: SchemaVersionSchema.value,
     observedAt: result.observedAt ?? foundationTimestamp(),
-    source: `${PLAYWRIGHT_OBSERVER_ADAPTER_NAME}.fixture`,
+    source: result.sourceLabel ?? `${PLAYWRIGHT_OBSERVER_ADAPTER_NAME}.fixture`,
     kind: 'browser.page.summary',
     severity: 'info',
     planId: plan.browserPlan.id,
@@ -339,9 +371,9 @@ function createPageObservationSummary(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
-    processBoundaryInvoked: false,
-    externalProcessStarted: false,
-    summary: result.summary ?? 'Browser observation fixture summary completed.',
+    processBoundaryInvoked: result.processBoundaryInvoked ?? false,
+    externalProcessStarted: result.externalProcessStarted ?? false,
+    summary: result.summary ?? 'Browser observation summary completed.',
   });
 }
 
@@ -352,6 +384,8 @@ function createBrowserRun(input: {
   evidenceRefs: readonly EvidenceRef[];
   auditEvents: readonly CapabilityAuditEvent[];
   summary: string;
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: boolean;
 }): BrowserObservationRun {
   return BrowserObservationRunSchema.parse({
     id: foundationId('browser_observation_run'),
@@ -366,8 +400,8 @@ function createBrowserRun(input: {
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
-    processBoundaryInvoked: false,
-    externalProcessStarted: false,
+    processBoundaryInvoked: input.processBoundaryInvoked,
+    externalProcessStarted: input.externalProcessStarted,
     summary: input.summary,
   });
 }
@@ -377,17 +411,29 @@ function createCapabilityExecutionResult(input: {
   evidenceRefs: readonly EvidenceRef[];
   auditEvents: readonly CapabilityAuditEvent[];
   summary: string;
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: boolean;
 }): CapabilityExecutionResult {
   return {
     id: foundationId('capability_execution_result'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
     status: input.status,
-    processBoundaryInvoked: false,
-    externalProcessStarted: false,
+    processBoundaryInvoked: input.processBoundaryInvoked,
+    externalProcessStarted: input.externalProcessStarted,
     noRealWrite: true,
     evidenceRefs: input.evidenceRefs.map((ref) => ref.id),
     auditEventIds: input.auditEvents.map((event) => event.id),
     summary: input.summary,
+  };
+}
+
+function getBoundaryTruth(result: PlaywrightObserverFixtureRunnerResult): {
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: boolean;
+} {
+  return {
+    processBoundaryInvoked: result.processBoundaryInvoked ?? false,
+    externalProcessStarted: result.externalProcessStarted ?? false,
   };
 }

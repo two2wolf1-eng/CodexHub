@@ -1,6 +1,6 @@
 {
   "name": "@codexhub/playwright-observer-adapter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@codexhub/browser-profile-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
-    "@codexhub/evidence-kernel": "workspace:*"
+    "@codexhub/evidence-kernel": "workspace:*",
+    "playwright": "1.59.1"
   }
 }

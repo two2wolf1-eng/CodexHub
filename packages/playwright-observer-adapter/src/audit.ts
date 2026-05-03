@@ -15,6 +15,10 @@ export function createPlaywrightObserverAuditEvent(input: {
   policyDecisionId: string;
   evidenceRefs: readonly EvidenceRef[];
   metadata?: Record<string, unknown>;
+  liveExecution?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
 }): CapabilityAuditEvent {
   return {
     id: foundationId('audit'),
@@ -29,10 +33,10 @@ export function createPlaywrightObserverAuditEvent(input: {
     evidenceRefs: [...input.evidenceRefs],
     metadata: {
       ...(input.metadata ?? {}),
-      liveExecution: false,
-      processBoundaryInvoked: false,
-      externalProcessStarted: false,
-      noRealWrite: true,
+      liveExecution: input.liveExecution ?? false,
+      processBoundaryInvoked: input.processBoundaryInvoked ?? false,
+      externalProcessStarted: input.externalProcessStarted ?? false,
+      noRealWrite: input.noRealWrite ?? true,
     },
   };
 }

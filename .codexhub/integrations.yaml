@@ -84,10 +84,18 @@ integrations:
     provider: playwright
     providerType: open-source
     mode: read-only
-    stage: m4a-foundation
-    fixtureRunnerOnly: true
-    realBrowserConnectionEnabled: false
-    externalProcessBoundary: false
+    stage: m4b-controlled-local-runner
+    fixtureRunnerOnly: false
+    controlledLocalBrowserRunner: true
+    realUserProfileConnectionEnabled: false
+    externalProcessBoundary: true
+    processBoundaryRequiresApproval: true
+    allowedTargets:
+      - about:blank
+      - data:text/html
+      - http://localhost
+      - http://127.0.0.1
+      - http://[::1]
     profileProbeEnabled: false
     rawProfilePathStorage: forbidden
     outputBodyStorage: hash-only

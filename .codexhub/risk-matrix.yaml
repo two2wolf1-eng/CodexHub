@@ -66,6 +66,7 @@ levels:
       - browser_profile_observer_placeholder
       - browser_screenshot_capture
       - browser_network_body_capture
+      - playwright_observer_controlled_local_browser
       - codex_exec_external_process_boundary
       - mcp_write_tool_placeholder
   critical:

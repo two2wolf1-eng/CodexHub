@@ -64,6 +64,7 @@ const requiredContractExports = [
   'OrchestrationRunSchema',
   'BrowserProfileRefSchema',
   'BrowserProfileReadinessSchema',
+  'BrowserObservationRunnerModeSchema',
   'BrowserPageObservationPlanSchema',
   'BrowserPageObservationSummarySchema',
   'BrowserObservationRunSchema',

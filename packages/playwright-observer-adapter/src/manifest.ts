@@ -7,7 +7,7 @@ import {
 } from '@codexhub/contracts';
 
 export const PLAYWRIGHT_OBSERVER_ADAPTER_NAME = 'playwright-observer';
-export const PLAYWRIGHT_OBSERVER_ADAPTER_VERSION = '0.1.0-m4a';
+export const PLAYWRIGHT_OBSERVER_ADAPTER_VERSION = '0.2.0-m4b';
 
 export function createPlaywrightObserverAdapterManifest(): CapabilityManifest {
   return CapabilityManifestSchema.parse({
@@ -25,6 +25,9 @@ export function createPlaywrightObserverAdapterManifest(): CapabilityManifest {
       'browser.observe.console_summary',
       'browser.observe.network_metadata_summary',
       'browser.observe.fixture_runner_only',
+      'browser.observe.controlled_local_browser',
+      'browser.observe.loopback_or_data_url_only',
+      'browser.observe.non_persistent_context',
     ],
     defaultRisk: 'medium',
     defaultActionMode: 'read',
@@ -35,15 +38,17 @@ export function createPlaywrightObserverAdapterManifest(): CapabilityManifest {
       bodyStorage: 'hash-only',
     },
     processBoundary: {
-      mayStartExternalProcess: false,
-      requiresProcessAudit: false,
+      mayStartExternalProcess: true,
+      requiresProcessAudit: true,
     },
     metadata: {
-      integrationStage: 'm4a',
+      integrationStage: 'm4b',
       productDefaultEnabled: false,
       authorityProvider: 'codexhub',
       capabilityProvider: PLAYWRIGHT_OBSERVER_ADAPTER_NAME,
-      fixtureRunnerOnly: true,
+      fixtureRunnerOnly: false,
+      controlledLocalBrowserRunner: true,
+      realProfileConnectionEnabled: false,
       screenshotCaptureEnabled: false,
       networkPayloadStorage: 'forbidden',
       browserActEnabled: false,
