@@ -544,6 +544,139 @@ export const BrowserObservationRunSchema = createdEntityBaseSchema
   .strict();
 export type BrowserObservationRun = z.infer<typeof BrowserObservationRunSchema>;
 
+export const BrowserObservationControlPlaneApprovalStatusSchema = z.enum([
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type BrowserObservationControlPlaneApprovalStatus = z.infer<
+  typeof BrowserObservationControlPlaneApprovalStatusSchema
+>;
+
+export const BrowserObservationTimelineEventSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.enum(['dry-run', 'approval-request', 'approval-decision', 'execution']),
+    status: BrowserObservationRunStatusSchema.or(
+      BrowserObservationControlPlaneApprovalStatusSchema,
+    ),
+    summary: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    bodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+  })
+  .strict();
+export type BrowserObservationTimelineEvent = z.infer<
+  typeof BrowserObservationTimelineEventSchema
+>;
+
+export const BrowserObservationDryRunRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['ready', 'blocked']),
+    plan: BrowserPageObservationPlanSchema,
+    capabilityDryRun: CapabilityDryRunSchema,
+    policyDecision: PolicyDecisionSchema,
+    targetUrlHash: z.string().min(1).optional(),
+    blockReasons: z.array(BrowserProfileReadinessBlockReasonSchema).default([]),
+    timeline: z.array(BrowserObservationTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryPlanned: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type BrowserObservationDryRunRecord = z.infer<
+  typeof BrowserObservationDryRunRecordSchema
+>;
+
+export const BrowserObservationApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: BrowserObservationControlPlaneApprovalStatusSchema,
+    requestedBy: z.string().min(1),
+    decidedBy: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    decisionReasonHash: z.string().min(1).optional(),
+    dryRunPlanHash: z.string().min(1),
+    policyDecisionId: z.string().min(1),
+    policyDecisionHash: z.string().min(1),
+    approved: z.boolean(),
+    requestedAt: IsoDateTimeSchema,
+    decidedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    timeline: z.array(BrowserObservationTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (record.status === 'approved' && (!record.approvalArtifactId || !record.expiresAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved browser observation approvals require artifact id and expiry',
+        path: ['status'],
+      });
+    }
+
+    if (record.status !== 'approved' && record.approved) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only approved browser observation approvals can set approved=true',
+        path: ['approved'],
+      });
+    }
+  });
+export type BrowserObservationApprovalArtifactRecord = z.infer<
+  typeof BrowserObservationApprovalArtifactRecordSchema
+>;
+
+export const BrowserObservationControlPlaneRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: BrowserObservationRunStatusSchema,
+    planId: z.string().min(1),
+    targetUrlHash: z.string().min(1).optional(),
+    browserRun: BrowserObservationRunSchema.optional(),
+    timeline: z.array(BrowserObservationTimelineEventSchema).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type BrowserObservationControlPlaneRun = z.infer<
+  typeof BrowserObservationControlPlaneRunSchema
+>;
+
 export const DevelopmentRequestSchema = createdEntityBaseSchema.extend({
   title: z.string().min(1),
   description: z.string().min(1),

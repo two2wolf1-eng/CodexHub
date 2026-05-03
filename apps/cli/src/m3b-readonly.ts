@@ -33,6 +33,8 @@ export interface BrowserObserveDryRunCliOptions extends JsonCliOptions {
   profileId?: string;
   displayName?: string;
   profilePath?: string;
+  runnerMode?: 'fixture' | 'controlled-local-browser';
+  targetUrl?: string;
   capabilities?: string;
   requestedActions?: string;
   screenshot?: boolean;
@@ -166,7 +168,7 @@ export function listBrowserProfilesForCli() {
       bodyStored: readiness.bodyStored,
       rawPathStored: readiness.rawPathStored,
     },
-    note: 'Browser profile list is metadata-only; no profile is opened or probed in M4a.',
+    note: 'Browser profile list is metadata-only; no profile is opened or probed in M4c.',
   };
 }
 
@@ -174,7 +176,7 @@ export function createBrowserObserveDryRunForCli(
   options: BrowserObserveDryRunCliOptions = {},
 ) {
   if (options.dryRun !== true) {
-    throw new Error('browser observe is dry-run only in M4a; pass --dry-run');
+    throw new Error('browser observe is dry-run only in M4c; pass --dry-run');
   }
 
   const profileRef = createBrowserProfileRef({
@@ -185,6 +187,8 @@ export function createBrowserObserveDryRunForCli(
   const plan = createPlaywrightObserverAdapterPlan({
     dryRunId: 'cli_m4a_browser_observe_dry_run',
     profileRef,
+    runnerMode: options.runnerMode,
+    targetUrl: options.targetUrl,
     requestedCapabilities: parseCommaSeparated(options.capabilities, [
       'title',
       'url',
@@ -204,6 +208,8 @@ export function createBrowserObserveDryRunForCli(
     dryRunId: plan.dryRunId,
     adapterName: plan.adapterName,
     profilePathHash: plan.profileRef.profilePathHash,
+    runnerMode: plan.runnerMode,
+    targetUrlHash: plan.targetUrlHash,
     requestedCapabilities: plan.requestedCapabilities,
     forbiddenActionCount: plan.forbiddenActions.length,
     blockReasons: plan.blockReasons,
@@ -334,6 +340,8 @@ export function formatBrowserObserveDryRunOutput(
     `status: ${result.status}`,
     `adapter: ${result.adapterName}`,
     `profilePathHash: ${result.profilePathHash}`,
+    `runnerMode: ${result.runnerMode}`,
+    result.targetUrlHash ? `targetUrlHash: ${result.targetUrlHash}` : undefined,
     `capabilities: ${result.requestedCapabilities.join(', ') || 'none'}`,
     `forbiddenActionCount: ${result.forbiddenActionCount}`,
     `screenshotPlanned=${String(result.screenshotPlanned)}`,
@@ -348,7 +356,9 @@ export function formatBrowserObserveDryRunOutput(
       ? `blockReasons: ${result.blockReasons.join(', ')}`
       : 'blockReasons: none',
     `summary: ${result.summary}`,
-  ].join('\n');
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
 }
 
 function parseTargets(targets: string | undefined): string[] {

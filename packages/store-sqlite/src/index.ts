@@ -4,6 +4,9 @@ import { dirname, join, parse, resolve } from 'node:path';
 import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
+  BrowserObservationApprovalArtifactRecord,
+  BrowserObservationControlPlaneRun,
+  BrowserObservationDryRunRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
@@ -41,6 +44,10 @@ import type {
 import type {
   AuditEventQuery,
   AuditEventRepository,
+  BrowserObservationApprovalRepository,
+  BrowserObservationDryRunRepository,
+  BrowserObservationQuery,
+  BrowserObservationRunRepository,
   CodexExecLiveAdapterAdrDecisionRepository,
   CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
@@ -117,6 +124,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexReplays: CodexReplayRepository;
   readonly codexExecLiveRuns: CodexExecLiveRunRepository;
   readonly codexExecApprovals: CodexExecApprovalRepository;
+  readonly browserObservationDryRuns: BrowserObservationDryRunRepository;
+  readonly browserObservationApprovals: BrowserObservationApprovalRepository;
+  readonly browserObservationRuns: BrowserObservationRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -148,6 +158,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.codexReplays = new SqliteCodexReplayRepository(database);
     this.codexExecLiveRuns = new SqliteCodexExecLiveRunRepository(database);
     this.codexExecApprovals = new SqliteCodexExecApprovalRepository(database);
+    this.browserObservationDryRuns = new SqliteBrowserObservationDryRunRepository(database);
+    this.browserObservationApprovals = new SqliteBrowserObservationApprovalRepository(database);
+    this.browserObservationRuns = new SqliteBrowserObservationRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -413,6 +426,112 @@ class SqliteCodexExecApprovalRepository implements CodexExecApprovalRepository {
       .map((row) => JSON.parse(row.payload) as CodexExecManualApprovalRecord)
       .filter((record) => record.request.dryRunPlanId === dryRunPlanId)
       .slice(0, safeLimit);
+  }
+}
+
+class SqliteBrowserObservationDryRunRepository implements BrowserObservationDryRunRepository {
+  private readonly repository: JsonEntityRepository<BrowserObservationDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<BrowserObservationDryRunRecord>(
+      database,
+      'browser_observation_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: BrowserObservationDryRunRecord): Promise<BrowserObservationDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<BrowserObservationDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: BrowserObservationQuery = {},
+  ): Promise<BrowserObservationDryRunRecord[]> {
+    return listBrowserObservationRecords<BrowserObservationDryRunRecord>(
+      this.database,
+      'browser_observation_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteBrowserObservationApprovalRepository implements BrowserObservationApprovalRepository {
+  private readonly repository: JsonEntityRepository<BrowserObservationApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<BrowserObservationApprovalArtifactRecord>(
+      database,
+      'browser_observation_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: BrowserObservationApprovalArtifactRecord,
+  ): Promise<BrowserObservationApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<BrowserObservationApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<BrowserObservationApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM browser_observation_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as BrowserObservationApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: BrowserObservationQuery = {},
+  ): Promise<BrowserObservationApprovalArtifactRecord[]> {
+    return listBrowserObservationRecords<BrowserObservationApprovalArtifactRecord>(
+      this.database,
+      'browser_observation_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteBrowserObservationRunRepository implements BrowserObservationRunRepository {
+  private readonly repository: JsonEntityRepository<BrowserObservationControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<BrowserObservationControlPlaneRun>(
+      database,
+      'browser_observation_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: BrowserObservationControlPlaneRun,
+  ): Promise<BrowserObservationControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<BrowserObservationControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: BrowserObservationQuery = {},
+  ): Promise<BrowserObservationControlPlaneRun[]> {
+    return listBrowserObservationRecords<BrowserObservationControlPlaneRun>(
+      this.database,
+      'browser_observation_runs',
+      query,
+    );
   }
 }
 
@@ -1308,6 +1427,24 @@ function initializeDatabase(database: SqliteDatabase): void {
       payload TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS browser_observation_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS browser_observation_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS browser_observation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS codex_report_reviews (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
@@ -1397,6 +1534,32 @@ function normalizeLimit(limit: number | undefined): number {
   }
 
   return Math.min(200, Math.max(1, Math.trunc(limit)));
+}
+
+function listBrowserObservationRecords<T extends { dryRunId?: string; status?: string }>(
+  database: SqliteDatabase,
+  tableName: string,
+  query: BrowserObservationQuery,
+): T[] {
+  const safeLimit = normalizeLimit(query.limit);
+  const rows = database
+    .prepare(`SELECT payload FROM ${tableName} ORDER BY recorded_at DESC, id DESC`)
+    .all() as unknown as PayloadRow[];
+
+  return rows
+    .map((row) => JSON.parse(row.payload) as T)
+    .filter((record) => {
+      if (query.dryRunId && record.dryRunId !== query.dryRunId) {
+        return false;
+      }
+
+      if (query.status && record.status !== query.status) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, safeLimit);
 }
 
 function metadataMatchesDryRun(metadata: Record<string, unknown> | undefined, dryRunId: string) {

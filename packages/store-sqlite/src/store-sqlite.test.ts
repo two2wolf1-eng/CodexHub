@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   type AuditEvent,
+  type BrowserObservationApprovalArtifactRecord,
+  type BrowserObservationControlPlaneRun,
+  type BrowserObservationDryRunRecord,
   type CodexExecLiveAdapterAdrDecisionRecord,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
@@ -164,6 +167,12 @@ describe('store-sqlite migration initialization', () => {
     await first.auditEvents.append(auditEvent);
     const approvalRecord: CodexExecManualApprovalRecord = createCodexExecApprovalRecordFixture();
     await first.codexExecApprovals.saveCodexExecApprovalRecord(approvalRecord);
+    const browserDryRun = createBrowserObservationDryRunFixture();
+    await first.browserObservationDryRuns.saveDryRun(browserDryRun);
+    const browserApproval = createBrowserObservationApprovalFixture();
+    await first.browserObservationApprovals.saveApproval(browserApproval);
+    const browserRun = createBrowserObservationRunFixture();
+    await first.browserObservationRuns.saveRun(browserRun);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -249,6 +258,28 @@ describe('store-sqlite migration initialization', () => {
         'codex_dry_run_1',
         10,
       );
+    const browserDryRuns = await second.browserObservationDryRuns.listDryRuns({
+      dryRunId: 'browser_dry_run_1',
+      status: 'ready',
+      limit: 10,
+    });
+    const browserDryRunRecord =
+      await second.browserObservationDryRuns.getDryRun('browser_dry_run_record_1');
+    const browserApprovals = await second.browserObservationApprovals.listApprovals({
+      dryRunId: 'browser_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const browserApprovalRecord =
+      await second.browserObservationApprovals.getApproval('browser_approval_record_1');
+    const browserApprovalByArtifact =
+      await second.browserObservationApprovals.getApprovalByArtifactId('browser_approval_artifact_1');
+    const browserRuns = await second.browserObservationRuns.listRuns({
+      dryRunId: 'browser_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const browserRunRecord = await second.browserObservationRuns.getRun('browser_control_run_1');
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -430,6 +461,19 @@ describe('store-sqlite migration initialization', () => {
       'codex_approval_artifact_1',
     );
     expect(JSON.stringify(codexExecApprovalRecord)).not.toContain('manual private reason');
+    expect(browserDryRuns).toHaveLength(1);
+    expect(browserDryRunRecord?.targetUrlHash).toBe('sha256:target');
+    expect(browserApprovals).toHaveLength(1);
+    expect(browserApprovalRecord?.approvalArtifactId).toBe('browser_approval_artifact_1');
+    expect(browserApprovalByArtifact?.id).toBe('browser_approval_record_1');
+    expect(browserRuns).toHaveLength(1);
+    expect(browserRunRecord?.processBoundaryInvoked).toBe(true);
+    expect(JSON.stringify({ browserDryRunRecord, browserApprovalRecord, browserRunRecord })).not.toContain(
+      'http://localhost',
+    );
+    expect(JSON.stringify({ browserDryRunRecord, browserApprovalRecord, browserRunRecord })).not.toContain(
+      'C:\\Users',
+    );
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
     expect(JSON.stringify(reportReviewRecord)).not.toContain('full report markdown');
@@ -769,6 +813,166 @@ function createCodexExecLiveRunFixture(): CodexExecLiveRunRecord {
     liveExecution: false,
     externalProcessStarted: false,
     executionDisabled: true,
+  };
+}
+
+function createBrowserObservationDryRunFixture(): BrowserObservationDryRunRecord {
+  const createdAt = '2026-04-28T00:00:04.100Z';
+  const profileRef = {
+    id: 'browser_profile_ref_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    profileId: 'supervisor-profile',
+    displayName: 'Supervisor profile',
+    profilePathHash: 'sha256:profile',
+    rawPathStored: false as const,
+    readOnly: true as const,
+  };
+  const plan = {
+    id: 'browser_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    adapterName: 'playwright-observer',
+    profileRef,
+    requestedCapabilities: ['title' as const, 'url' as const],
+    runnerMode: 'controlled-local-browser' as const,
+    targetUrlHash: 'sha256:target',
+    forbiddenActions: ['click' as const, 'type' as const],
+    blockReasons: [],
+    screenshotPlanned: false as const,
+    networkBodyStorage: 'forbidden' as const,
+    rawPathStored: false as const,
+    bodyStored: false as const,
+    noRealWrite: true as const,
+    processBoundaryPlanned: true,
+    processBoundaryInvoked: false as const,
+    externalProcessStarted: false as const,
+    summary: 'Browser dry-run stores target URL hash only.',
+  };
+  const evidenceRef: EvidenceRef = {
+    id: 'browser_evidence_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    kind: 'browser.observation_plan',
+    hash: 'sha256:browser-plan',
+    summary: 'Browser dry-run metadata only.',
+    labels: ['browser.observation.dry_run'],
+    redacted: true,
+  };
+
+  return {
+    id: 'browser_dry_run_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'browser_dry_run_1',
+    status: 'ready',
+    plan,
+    capabilityDryRun: {
+      id: 'browser_capability_dry_run_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      adapterName: 'playwright-observer',
+      inputSummary: {
+        targetUrlHash: 'sha256:target',
+        bodyStored: false,
+      },
+      plannedActions: [
+        {
+          action: 'browser.observe.read_only',
+          actionMode: 'read',
+          risk: 'high',
+          target: 'sha256:profile',
+          requiresApproval: true,
+        },
+      ],
+      requiredEvidence: [],
+      warnings: [],
+    },
+    policyDecision: {
+      id: 'browser_policy_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      actionId: 'browser_plan_1',
+      actionType: 'browser.observe.read_only',
+      actionMode: 'read',
+      riskLevel: 'high',
+      outcome: 'approval_required',
+      reasons: ['high risk action requires explicit approval'],
+      requiresDryRun: false,
+      requiresApproval: true,
+    },
+    targetUrlHash: 'sha256:target',
+    blockReasons: [],
+    timeline: [],
+    evidenceRefs: [evidenceRef],
+    auditEventIds: ['browser_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    processBoundaryPlanned: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Browser observation dry-run persisted as metadata only.',
+  };
+}
+
+function createBrowserObservationApprovalFixture(): BrowserObservationApprovalArtifactRecord {
+  const createdAt = '2026-04-28T00:00:04.200Z';
+
+  return {
+    id: 'browser_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'browser_dry_run_1',
+    dryRunRecordId: 'browser_dry_run_record_1',
+    approvalRequestId: 'browser_approval_request_1',
+    approvalArtifactId: 'browser_approval_artifact_1',
+    status: 'approved',
+    requestedBy: 'local-operator',
+    decidedBy: 'local-operator',
+    reasonHash: 'sha256:reason',
+    decisionReasonHash: 'sha256:decision',
+    dryRunPlanHash: 'sha256:dry-run',
+    policyDecisionId: 'browser_policy_1',
+    policyDecisionHash: 'sha256:policy',
+    approved: true,
+    requestedAt: createdAt,
+    decidedAt: createdAt,
+    expiresAt: '2026-04-28T01:00:00.000Z',
+    timeline: [],
+    evidenceRefs: [],
+    auditEventIds: ['browser_approval_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Browser approval stores hashes and ids only.',
+  };
+}
+
+function createBrowserObservationRunFixture(): BrowserObservationControlPlaneRun {
+  const createdAt = '2026-04-28T00:00:04.300Z';
+
+  return {
+    id: 'browser_control_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'browser_dry_run_1',
+    dryRunRecordId: 'browser_dry_run_record_1',
+    approvalArtifactId: 'browser_approval_artifact_1',
+    status: 'completed',
+    planId: 'browser_plan_1',
+    targetUrlHash: 'sha256:target',
+    timeline: [],
+    evidenceRefIds: ['browser_evidence_1'],
+    auditEventIds: ['browser_run_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    processBoundaryInvoked: true,
+    externalProcessStarted: true,
+    summary: 'Browser observation control-plane run completed with boundary truth metadata.',
   };
 }
 

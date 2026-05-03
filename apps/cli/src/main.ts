@@ -233,7 +233,7 @@ export interface CodexExecJsonCliOptions {
 
 export interface ReadOnlyRunSummary {
   id: string;
-  source: 'workflow' | 'development' | 'codex_exec_dry_run';
+  source: 'workflow' | 'development' | 'codex_exec_dry_run' | 'browser_observation';
   title: string;
   status: string;
   summary: string;
@@ -243,6 +243,21 @@ export interface ReadOnlyRunSummary {
   externalProcessStarted: false;
   noRealWrite: true;
   bodyStored: false;
+}
+
+interface BrowserObservationRunApiRecord {
+  runId?: string;
+  recordId?: string;
+  dryRunId?: string;
+  status?: string;
+  summary?: string;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  bodyStored?: boolean;
+  rawPathStored?: boolean;
 }
 
 export interface CodexExecReportCliOptions {
@@ -552,24 +567,49 @@ export function buildProgram(): Command {
 
   browserCommand
     .command('observe')
-    .requiredOption('--dry-run', 'Plan only; required in M4a')
+    .requiredOption('--dry-run', 'Plan only; required in M4c')
     .option('--profile-id <profileId>', 'Metadata label for the profile ref', 'cli-observe-profile')
     .option('--display-name <displayName>', 'Metadata display name', 'CLI observe profile')
     .option('--profile-path <profilePath>', 'Path-like input used only to derive a hash')
+    .option('--runner-mode <mode>', 'fixture or controlled-local-browser', 'fixture')
+    .option('--target-url <url>', 'Hash-only target URL for controlled local browser planning')
     .option(
       '--capabilities <capabilities>',
       'Comma-separated read-only capabilities',
       'title,url,accessibility_snapshot,console_summary,network_metadata_summary',
     )
     .option('--requested-actions <actions>', 'Comma-separated blocked browser actions')
-    .option('--screenshot', 'Request screenshot capture; remains blocked in M4a')
-    .option('--network-body', 'Request network body storage; remains blocked in M4a')
-    .option('--body-storage', 'Request body storage; remains blocked in M4a')
+    .option('--screenshot', 'Request screenshot capture; remains blocked in M4c')
+    .option('--network-body', 'Request network body storage; remains blocked in M4c')
+    .option('--body-storage', 'Request body storage; remains blocked in M4c')
     .option('--json', 'Print full JSON output')
     .description('Plan browser read-only observation without opening a browser')
     .action((options: BrowserObserveDryRunCliOptions) => {
       const result = createBrowserObserveDryRunForCli(options);
       console.log(formatBrowserObserveDryRunOutput(result, options));
+    });
+
+  const browserRunsCommand = browserCommand
+    .command('runs')
+    .description('Read browser observation run metadata from Supervisor GET endpoints');
+
+  browserRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List browser observation runs without executing observation')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listBrowserObservationRuns();
+      console.log(formatBrowserObservationRunsListOutput(result, options));
+    });
+
+  browserRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show browser observation run metadata without executing observation')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showBrowserObservationRun(runId);
+      console.log(formatBrowserObservationRunDetailOutput(result, options));
     });
 
   program
@@ -1727,24 +1767,34 @@ export async function getSupervisorHealth(): Promise<Record<string, unknown>> {
 }
 
 export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
-  const [workflowResult, developmentResult, codexDryRunResult] = await Promise.allSettled([
-    getSupervisorJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
-    getSupervisorJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
-    getSupervisorJson<{ runs: CodexExecLiveRunRecord[] }>('/api/codex/exec/dry-runs'),
-  ]);
+  const [workflowResult, developmentResult, codexDryRunResult, browserObservationResult] =
+    await Promise.allSettled([
+      getSupervisorJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
+      getSupervisorJson<{ runs: MockDevelopmentOrchestrationResult[] }>(
+        '/api/development/mock-runs',
+      ),
+      getSupervisorJson<{ runs: CodexExecLiveRunRecord[] }>('/api/codex/exec/dry-runs'),
+      getSupervisorJson<{ records: BrowserObservationRunApiRecord[] }>(
+        '/api/browser/observation/runs',
+      ),
+    ]);
   const runs = [
     ...summarizeWorkflowRuns(settledValue(workflowResult)?.runs ?? []),
     ...summarizeDevelopmentRuns(settledValue(developmentResult)?.runs ?? []),
     ...summarizeCodexDryRuns(settledValue(codexDryRunResult)?.runs ?? []),
+    ...summarizeBrowserObservationRunRecords(
+      settledValue(browserObservationResult)?.records ?? [],
+    ),
   ];
   const degradedReasons = [
     settledError(workflowResult),
     settledError(developmentResult),
     settledError(codexDryRunResult),
+    settledError(browserObservationResult),
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 3 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 4 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -1771,6 +1821,71 @@ export async function showReadOnlyRun(runId: string): Promise<Record<string, unk
     bodyStored: false,
     note: 'Read-only run detail is resolved from metadata summaries only.',
   };
+}
+
+export async function listBrowserObservationRuns(): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: BrowserObservationRunApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>('/api/browser/observation/runs');
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'Browser observation runs are read from Supervisor GET endpoints only.',
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message: error instanceof Error ? error.message : 'browser observation runs unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'Browser observation run source is unavailable; no execution was attempted.',
+    };
+  }
+}
+
+export async function showBrowserObservationRun(runId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<BrowserObservationRunApiRecord>(
+      `/api/browser/observation/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'Browser observation run detail is metadata-only.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'browser observation run unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      note: 'No browser observation execution was attempted.',
+    };
+  }
 }
 
 async function getSupervisorJson<T>(path: string): Promise<T> {
@@ -1824,6 +1939,24 @@ function summarizeCodexDryRuns(runs: CodexExecLiveRunRecord[]): ReadOnlyRunSumma
     summary: `policy ${run.policyDecision.outcome}, sandbox ${run.sandboxMode}.`,
     evidenceCount: run.evidenceRefs.length,
     auditEventCount: run.auditEvents.length,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeBrowserObservationRunRecords(
+  runs: BrowserObservationRunApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'browser_observation_run',
+    source: 'browser_observation',
+    title: `Browser observation ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'Browser observation metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
     liveExecution: false,
     externalProcessStarted: false,
     noRealWrite: true,
@@ -4703,6 +4836,62 @@ export function formatReadOnlyRunDetailOutput(
     `liveExecution=${String(result.liveExecution ?? false)}`,
     `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
     `noRealWrite=${String(result.noRealWrite ?? true)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatBrowserObservationRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as BrowserObservationRunApiRecord[] | undefined) ?? [];
+
+  return [
+    'Browser observation runs',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map(
+        (record) =>
+          `- ${record.runId ?? record.recordId ?? 'unknown'} ${record.status ?? 'unknown'} evidence=${
+            record.evidenceRefIds?.length ?? 0
+          } audit=${record.auditEventIds?.length ?? 0}`,
+      ),
+  ].join('\n');
+}
+
+export function formatBrowserObservationRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as BrowserObservationRunApiRecord | undefined;
+
+  return [
+    'Browser observation run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');

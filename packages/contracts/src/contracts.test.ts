@@ -133,10 +133,15 @@ import {
   McpToolNameSchema,
   AffectedProjectSchema,
   BrowserForbiddenActionSchema,
+  BrowserObservationApprovalArtifactRecordSchema,
   BrowserObservationCapabilitySchema,
+  BrowserObservationControlPlaneApprovalStatusSchema,
+  BrowserObservationControlPlaneRunSchema,
+  BrowserObservationDryRunRecordSchema,
   BrowserObservationRunnerModeSchema,
   BrowserObservationRunSchema,
   BrowserObservationRunStatusSchema,
+  BrowserObservationTimelineEventSchema,
   BrowserPageObservationPlanSchema,
   BrowserPageObservationSummarySchema,
   BrowserProfileReadinessSchema,
@@ -597,12 +602,145 @@ describe('contracts schemas', () => {
       externalProcessStarted: false,
       summary: 'Browser observation fixture run completed.',
     });
+    const policyDecision = PolicyDecisionSchema.parse({
+      id: 'policy_browser_1',
+      schemaVersion,
+      createdAt,
+      actionId: controlledPlan.id,
+      actionType: 'browser.observe.read_only',
+      actionMode: 'read',
+      riskLevel: 'high',
+      outcome: 'approval_required',
+      requiresDryRun: false,
+      requiresApproval: true,
+    });
+    const capabilityDryRun = CapabilityDryRunSchema.parse({
+      id: 'capability_dry_run_browser_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'playwright-observer',
+      inputSummary: {
+        targetUrlHash: controlledPlan.targetUrlHash,
+        rawPathStored: false,
+        bodyStored: false,
+      },
+      plannedActions: [
+        {
+          action: 'browser.observe.read_only',
+          actionMode: 'read',
+          risk: 'high',
+          target: profileRef.profilePathHash,
+          requiresApproval: true,
+        },
+      ],
+    });
+    const timelineEvent = BrowserObservationTimelineEventSchema.parse({
+      id: 'browser_timeline_1',
+      schemaVersion,
+      createdAt,
+      phase: 'dry-run',
+      status: 'planned',
+      summary: 'Browser observation dry-run persisted.',
+      evidenceRefIds: [evidence.id],
+      auditEventIds: ['audit_browser_1'],
+      bodyStored: false,
+      rawPathStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    const dryRunRecord = BrowserObservationDryRunRecordSchema.parse({
+      id: 'browser_dry_run_record_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'browser_dry_run_1',
+      status: 'ready',
+      plan: controlledPlan,
+      capabilityDryRun,
+      policyDecision,
+      targetUrlHash: controlledPlan.targetUrlHash,
+      blockReasons: [],
+      timeline: [timelineEvent],
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_browser_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryPlanned: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Browser observation control-plane dry-run persisted.',
+    });
+    const approvalRecord = BrowserObservationApprovalArtifactRecordSchema.parse({
+      id: 'browser_approval_record_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalRequestId: 'browser_approval_request_1',
+      approvalArtifactId: 'browser_approval_artifact_1',
+      status: 'approved',
+      requestedBy: 'local-operator',
+      decidedBy: 'local-operator',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: policyDecision.id,
+      policyDecisionHash: 'sha256:policy',
+      approved: true,
+      requestedAt: createdAt,
+      decidedAt: createdAt,
+      expiresAt: '2026-04-28T01:00:00.000Z',
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_browser_approval_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Browser observation approval stores hashes and ids only.',
+    });
+    const controlRun = BrowserObservationControlPlaneRunSchema.parse({
+      id: 'browser_control_run_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalArtifactId: approvalRecord.approvalArtifactId,
+      status: 'completed',
+      planId: controlledPlan.id,
+      targetUrlHash: controlledPlan.targetUrlHash,
+      browserRun: {
+        ...run,
+        id: 'browser_observation_run_controlled_1',
+        plan: controlledPlan,
+        pageSummary: controlledPageSummary,
+        processBoundaryInvoked: true,
+        externalProcessStarted: true,
+      },
+      evidenceRefIds: [evidence.id],
+      auditEventIds: ['audit_browser_run_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      summary: 'Browser observation control-plane run completed.',
+    });
 
     expect(run.status).toBe('completed');
+    expect(BrowserObservationControlPlaneApprovalStatusSchema.options).toContain('used');
+    expect(dryRunRecord.targetUrlHash).toBe('sha256:target-url');
+    expect(approvalRecord.approved).toBe(true);
+    expect(controlRun.processBoundaryInvoked).toBe(true);
     expect(run.pageSummary?.pageUrlHash).toBe('sha256:url');
     expect(controlledPlan.processBoundaryPlanned).toBe(true);
     expect(controlledPageSummary.externalProcessStarted).toBe(true);
     expect(run.rawPathStored).toBe(false);
+    expect(JSON.stringify({ dryRunRecord, approvalRecord, controlRun })).not.toContain(
+      'http://localhost',
+    );
+    expect(JSON.stringify({ dryRunRecord, approvalRecord, controlRun })).not.toContain(
+      'session=secret',
+    );
     expect(() =>
       BrowserProfileRefSchema.parse({
         ...profileRef,

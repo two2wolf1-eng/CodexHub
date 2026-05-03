@@ -57,6 +57,10 @@ export interface BrowserProfilesReadOnlySummary {
   manifestName: string;
   manifestVersion: string;
   profileCount: number;
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  latestRunStatus: string;
   profilePathHashes: string[];
   readinessStatus: string;
   readinessBlockReasons: string[];
@@ -134,7 +138,12 @@ export function createVerificationReadinessPreview(
   };
 }
 
-export function createBrowserProfilesReadOnlySummary(): BrowserProfilesReadOnlySummary {
+export function createBrowserProfilesReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  latestRunStatus?: string;
+} = {}): BrowserProfilesReadOnlySummary {
   const allowedCapabilities = ['title', 'url', 'accessibility_snapshot', 'console_summary'];
   const forbiddenActions = [
     'screenshot',
@@ -153,8 +162,12 @@ export function createBrowserProfilesReadOnlySummary(): BrowserProfilesReadOnlyS
 
   return {
     manifestName: 'playwright-observer',
-    manifestVersion: '0.1.0-m4a',
+    manifestVersion: '0.3.0-m4c',
     profileCount: 1,
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount: input.runCount ?? 0,
+    latestRunStatus: input.latestRunStatus ?? 'none',
     profilePathHashes: [stableSha256LikeHash('codexhub-fixture-browser-profile')],
     readinessStatus: 'blocked',
     readinessBlockReasons: ['browser_connection_disabled', 'profile_probe_disabled'],
@@ -169,7 +182,7 @@ export function createBrowserProfilesReadOnlySummary(): BrowserProfilesReadOnlyS
     rawPathStored: false,
     bodyStored: false,
     summary:
-      'Browser Profile M4a is metadata-only. Real browser/profile probing remains disabled.',
+      'Browser Profile M4c shows Supervisor-gated metadata only. Dashboard remains read-only and cannot execute browser observation.',
   };
 }
 

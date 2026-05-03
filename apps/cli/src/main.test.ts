@@ -145,6 +145,8 @@ describe('cli development mock-run fallback', () => {
     );
     const ready = createBrowserObserveDryRunForCli({
       dryRun: true,
+      runnerMode: 'controlled-local-browser',
+      targetUrl: 'http://127.0.0.1:4173',
       capabilities: 'title,url,console_summary',
       profilePath: 'C:\\Users\\Thomas\\AppData\\Local\\Chrome\\Default',
     });
@@ -160,10 +162,14 @@ describe('cli development mock-run fallback', () => {
 
     expect(ready.status).toBe('ready');
     expect(ready.profilePathHash).toMatch(/^sha256:/);
+    expect(ready.runnerMode).toBe('controlled-local-browser');
+    expect(ready.targetUrlHash).toMatch(/^sha256:/);
+    expect(ready.processBoundaryPlanned).toBe(true);
     expect(ready.processBoundaryInvoked).toBe(false);
     expect(ready.externalProcessStarted).toBe(false);
     expect(ready.noRealWrite).toBe(true);
     expect(JSON.stringify(ready)).not.toContain('Chrome\\Default');
+    expect(JSON.stringify(ready)).not.toContain('http://127.0.0.1:4173');
     expect(blocked.status).toBe('blocked');
     expect(blocked.blockReasons).toEqual(
       expect.arrayContaining([
@@ -206,6 +212,10 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ runs: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/browser/observation/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
       return new Response(JSON.stringify({}), { status: 404 });
     });
     const { formatReadOnlyRunsListOutput, listReadOnlyRuns, showReadOnlyRun } = await import(
@@ -224,8 +234,77 @@ describe('cli development mock-run fallback', () => {
     });
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
-    expect(fetchCalls).toHaveLength(6);
+    expect(fetchCalls).toHaveLength(8);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+  });
+
+  it('lists browser observation runs using GET requests only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).endsWith('/api/browser/observation/runs/browser_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'browser_run_1',
+            dryRunId: 'browser_dry_run_1',
+            status: 'completed',
+            evidenceRefIds: ['evidence_1'],
+            auditEventIds: ['audit_1'],
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: true,
+            bodyStored: false,
+            rawPathStored: false,
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          records: [
+            {
+              runId: 'browser_run_1',
+              dryRunId: 'browser_dry_run_1',
+              status: 'completed',
+              evidenceRefIds: ['evidence_1'],
+              auditEventIds: ['audit_1'],
+              processBoundaryInvoked: true,
+              externalProcessStarted: true,
+              noRealWrite: true,
+              bodyStored: false,
+              rawPathStored: false,
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    const {
+      formatBrowserObservationRunDetailOutput,
+      formatBrowserObservationRunsListOutput,
+      listBrowserObservationRuns,
+      showBrowserObservationRun,
+    } = await import('./main');
+    const list = await listBrowserObservationRuns();
+    const detail = await showBrowserObservationRun('browser_run_1');
+    const listOutput = formatBrowserObservationRunsListOutput(list);
+    const detailOutput = formatBrowserObservationRunDetailOutput(detail);
+
+    expect(list).toMatchObject({
+      status: 'ready',
+      count: 1,
+      liveExecution: false,
+      noRealWrite: true,
+    });
+    expect(detail).toMatchObject({ status: 'found' });
+    expect(listOutput).toContain('browser_run_1');
+    expect(detailOutput).toContain('processBoundaryInvoked=true');
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(JSON.stringify({ list, detail })).not.toContain('http://');
+    expect(JSON.stringify({ list, detail })).not.toContain('Chrome');
   });
 
   it('top-level evidence helpers remain GET-only and metadata-only', async () => {

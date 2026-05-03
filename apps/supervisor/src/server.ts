@@ -153,6 +153,10 @@ import type {
 } from '@codexhub/codex-kernel';
 import type {
   AuditEvent,
+  BrowserObservationApprovalArtifactRecord,
+  BrowserObservationControlPlaneRun,
+  BrowserObservationDryRunRecord,
+  BrowserObservationRunStatus,
   CodexExecApprovalArtifact,
   CodexExecApprovalDecisionOutcome,
   CodexExecApprovalMode,
@@ -219,12 +223,30 @@ import type {
   CodexReplayRecord,
   EvidenceRef,
 } from '@codexhub/contracts';
-import { SchemaVersionSchema, foundationId, foundationTimestamp } from '@codexhub/contracts';
+import {
+  BrowserObservationApprovalArtifactRecordSchema,
+  BrowserObservationControlPlaneRunSchema,
+  BrowserObservationDryRunRecordSchema,
+  BrowserObservationTimelineEventSchema,
+  ExecutionAuthoritySchema,
+  SchemaVersionSchema,
+  foundationId,
+  foundationTimestamp,
+} from '@codexhub/contracts';
+import {
+  createBrowserProfileReadiness,
+  createBrowserProfileRef,
+} from '@codexhub/browser-profile-kernel';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
   type MockDevelopmentOrchestrationResult,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
+import {
+  createPlaywrightObserverAdapterPlan,
+  executePlaywrightObserverAdapter,
+} from '@codexhub/playwright-observer-adapter';
+import type { PlaywrightObserverRunner } from '@codexhub/playwright-observer-adapter';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -240,11 +262,53 @@ interface SupervisorServerOptions {
   realReadOnlyAdapterProcessRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
   realReadOnlyAdapterPostRunVerificationRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
   realReadOnlyAdapterPostRunWorktreeState?: CodexExecRealReadOnlyAdapterPostRunWorktreeState;
+  playwrightObserverEnabled?: boolean;
+  playwrightObserverRunner?: PlaywrightObserverRunner;
 }
 
 interface PersistenceState {
   status: 'ok' | 'degraded' | 'disabled';
   reason?: string;
+}
+
+interface BrowserObservationDryRunRequestBody {
+  profileId?: string;
+  displayName?: string;
+  profilePathLabel?: string;
+  targetUrl?: string;
+  runnerMode?: 'fixture' | 'controlled-local-browser';
+  capabilities?: string[];
+  requestedActions?: string[];
+  screenshotRequested?: boolean;
+  networkBodyRequested?: boolean;
+  bodyStorageRequested?: boolean;
+  rawProfilePath?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface BrowserObservationApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface BrowserObservationManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: 'approved' | 'denied' | 'revoked';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface BrowserObservationRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
 }
 
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
@@ -292,6 +356,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const realReadOnlyAdapterReadinessPackages: CodexExecRealReadOnlyAdapterReadinessPackage[] = [];
   const realReadOnlyAdapterReadinessReviewRecords: CodexExecRealReadOnlyAdapterReadinessReviewDecisionRecord[] =
     [];
+  const browserObservationDryRunRecords: BrowserObservationDryRunRecord[] = [];
+  const browserObservationApprovalRecords: BrowserObservationApprovalArtifactRecord[] = [];
+  const browserObservationRunRecords: BrowserObservationControlPlaneRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -470,6 +537,204 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       observations,
       sourceHealth,
     };
+  });
+
+  server.post('/api/browser/observation/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createBrowserObservationStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as BrowserObservationDryRunRequestBody | undefined;
+    const dryRunRecord = createBrowserObservationDryRunRecordFromRequest(body);
+
+    await persistBrowserObservationDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+    );
+
+    return createBrowserObservationDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/browser/observation/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseBrowserObservationQuery(request.query);
+    const records = await listBrowserObservationDryRuns(query, store);
+
+    return {
+      records: records.map(createBrowserObservationDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/browser/observation/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createBrowserObservationStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as BrowserObservationApprovalRequestBody | undefined;
+
+    if (body?.approvalArtifact || body?.authority) {
+      return reply.code(400).send(createBrowserObservationUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveBrowserObservationDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'browser observation dry-run record was not found' });
+    }
+
+    const approvalRecord = createBrowserObservationApprovalRecord({
+      dryRunRecord,
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+      status: 'requested',
+    });
+
+    await persistBrowserObservationApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createBrowserObservationApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/browser/observation/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createBrowserObservationStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as BrowserObservationManualApprovalRequestBody | undefined;
+
+    if (body?.approvalArtifact || body?.authority) {
+      return reply.code(400).send(createBrowserObservationUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveBrowserObservationDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'browser observation dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveBrowserObservationApprovalRecord(body.approvalRequestId, store)
+      : (await listBrowserObservationApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'browser observation approval request was not found' });
+    }
+
+    const approvalRecord = createBrowserObservationApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistBrowserObservationApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createBrowserObservationApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/browser/observation/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseBrowserObservationQuery(request.query);
+    const records = await listBrowserObservationApprovals(query, store);
+
+    return {
+      records: records.map(createBrowserObservationApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/browser/observation/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createBrowserObservationStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as BrowserObservationRunRequestBody | undefined;
+
+    if (body?.approvalArtifact || body?.authority) {
+      return reply.code(400).send(createBrowserObservationUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveBrowserObservationDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'browser observation dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveBrowserObservationApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const runRecord = await executeBrowserObservationRun({
+      dryRunRecord,
+      approvalRecord,
+      store,
+    });
+
+    return createBrowserObservationRunResponse(runRecord);
+  });
+
+  server.get('/api/browser/observation/runs', async (request) => {
+    const store = await getStore();
+    const query = parseBrowserObservationQuery(request.query);
+    const records = await listBrowserObservationRuns(query, store);
+
+    return {
+      records: records.map(createBrowserObservationRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: records.some((record) => record.processBoundaryInvoked),
+      externalProcessStarted: records.some((record) => record.externalProcessStarted),
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/browser/observation/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveBrowserObservationRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'browser observation run was not found' });
+    }
+
+    return createBrowserObservationRunResponse(record);
   });
 
   server.post('/api/development/mock-run', async (request) => {
@@ -6563,6 +6828,730 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     status: string,
   ): status is 'clean' | 'dirty' | 'missing' | 'unknown' {
     return ['clean', 'dirty', 'missing', 'unknown'].includes(status);
+  }
+
+  function createBrowserObservationDryRunRecordFromRequest(
+    body: BrowserObservationDryRunRequestBody | undefined,
+  ): BrowserObservationDryRunRecord {
+    const profileRef = createBrowserProfileRef({
+      profileId: body?.profileId ?? 'supervisor-browser-profile',
+      displayName: body?.displayName ?? 'Supervisor browser profile',
+      profilePath: body?.profilePathLabel ?? 'codexhub-supervisor-browser-profile',
+      metadata: { requestedBy: 'supervisor-browser-observation' },
+    });
+    const dryRunId = foundationId('browser_observation_dry_run');
+    const plan = createPlaywrightObserverAdapterPlan({
+      dryRunId,
+      profileRef,
+      requestedCapabilities: body?.capabilities,
+      requestedActions: body?.requestedActions,
+      runnerMode: body?.runnerMode,
+      targetUrl: body?.targetUrl,
+      rawProfilePath: body?.rawProfilePath,
+      screenshotRequested: body?.screenshotRequested,
+      networkBodyRequested: body?.networkBodyRequested,
+      bodyStorageRequested: body?.bodyStorageRequested,
+      metadata: body?.metadata,
+    });
+    const riskLevel = plan.processBoundaryPlanned ? 'high' : 'medium';
+    const policyDecision = policyEngine.evaluateAction({
+      actionId: plan.browserPlan.id,
+      actionType: 'browser.observe.read_only',
+      actionMode: 'read',
+      riskLevel,
+      dryRun: true,
+      approvalGranted: false,
+      metadata: {
+        noRealWrite: true,
+        dryRunOnly: true,
+        processBoundaryPlanned: plan.processBoundaryPlanned,
+        targetUrlHash: plan.targetUrlHash,
+        rawPathStored: false,
+        bodyStored: false,
+      },
+    });
+    const evidenceRefs = [
+      createBrowserControlEvidence({
+        kind: 'browser.observation_plan',
+        label: 'browser.observation.dry_run',
+        summary: plan.browserPlan.summary,
+        metadata: {
+          dryRunId,
+          planId: plan.browserPlan.id,
+          status: plan.status,
+          policyDecisionId: policyDecision.id,
+          policyOutcome: policyDecision.outcome,
+          targetUrlHash: plan.targetUrlHash,
+          processBoundaryPlanned: plan.processBoundaryPlanned,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+    const timeline = [
+      BrowserObservationTimelineEventSchema.parse({
+        id: foundationId('browser_observation_timeline_event'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        phase: 'dry-run',
+        status: plan.status === 'ready' ? 'planned' : 'blocked',
+        summary: plan.browserPlan.summary,
+        evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+        auditEventIds: [auditEventId],
+        bodyStored: false,
+        rawPathStored: false,
+        noRealWrite: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      }),
+    ];
+
+    return BrowserObservationDryRunRecordSchema.parse({
+      id: dryRunId,
+      dryRunId,
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      status: plan.status,
+      plan: plan.browserPlan,
+      capabilityDryRun: plan.capabilityDryRun,
+      policyDecision,
+      targetUrlHash: plan.targetUrlHash,
+      blockReasons: plan.blockReasons,
+      timeline,
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryPlanned: plan.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: plan.browserPlan.summary,
+    });
+  }
+
+  function createBrowserObservationApprovalRecord(input: {
+    dryRunRecord: BrowserObservationDryRunRecord;
+    baseRecord?: BrowserObservationApprovalArtifactRecord;
+    status: 'requested' | 'approved' | 'denied' | 'revoked' | 'used';
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  }): BrowserObservationApprovalArtifactRecord {
+    const now = foundationTimestamp();
+    const status = input.status;
+    const approvalArtifactId =
+      status === 'approved'
+        ? (input.baseRecord?.approvalArtifactId ?? foundationId('browser_observation_approval_artifact'))
+        : input.baseRecord?.approvalArtifactId;
+    const requestedAt = input.baseRecord?.requestedAt ?? now;
+    const expiresAt =
+      status === 'approved'
+        ? new Date(Date.parse(now) + 60 * 60 * 1000).toISOString()
+        : input.baseRecord?.expiresAt;
+    const evidenceRefs = [
+      createBrowserControlEvidence({
+        kind: 'browser.observation_plan',
+        label: `browser.observation.approval.${status}`,
+        summary: `Browser observation approval ${status}.`,
+        metadata: {
+          dryRunId: input.dryRunRecord.dryRunId,
+          dryRunRecordId: input.dryRunRecord.id,
+          status,
+          approvalArtifactId,
+          reasonHash: input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined,
+          bodyStored: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+    const timeline = [
+      ...(input.baseRecord?.timeline ?? []),
+      BrowserObservationTimelineEventSchema.parse({
+        id: foundationId('browser_observation_timeline_event'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: now,
+        phase: status === 'requested' ? 'approval-request' : 'approval-decision',
+        status,
+        summary: `Browser observation approval ${status}.`,
+        evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+        auditEventIds: [auditEventId],
+        bodyStored: false,
+        rawPathStored: false,
+        noRealWrite: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      }),
+    ];
+
+    return BrowserObservationApprovalArtifactRecordSchema.parse({
+      id: input.baseRecord?.id ?? foundationId('browser_observation_approval_record'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.baseRecord?.createdAt ?? now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      approvalRequestId: input.baseRecord?.approvalRequestId ?? foundationId('browser_observation_approval_request'),
+      approvalArtifactId,
+      status,
+      requestedBy: input.baseRecord?.requestedBy ?? input.requestedBy ?? 'local-operator',
+      decidedBy: status === 'requested' ? undefined : (input.decidedBy ?? 'local-operator'),
+      reasonHash: input.baseRecord?.reasonHash ?? (input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined),
+      decisionReasonHash:
+        status === 'requested' || !input.reason ? undefined : hashLocalMetadata({ reason: input.reason }),
+      dryRunPlanHash: hashLocalMetadata(input.dryRunRecord.plan),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      policyDecisionHash: hashLocalMetadata(input.dryRunRecord.policyDecision),
+      approved: status === 'approved',
+      requestedAt,
+      decidedAt: status === 'requested' ? undefined : now,
+      expiresAt,
+      usedAt: status === 'used' ? now : input.baseRecord?.usedAt,
+      revokedAt: status === 'revoked' ? now : input.baseRecord?.revokedAt,
+      timeline,
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: `Browser observation approval ${status}.`,
+    });
+  }
+
+  async function executeBrowserObservationRun(input: {
+    dryRunRecord: BrowserObservationDryRunRecord;
+    approvalRecord?: BrowserObservationApprovalArtifactRecord;
+    store: CodexHubStore;
+  }): Promise<BrowserObservationControlPlaneRun> {
+    const enableRealRunner =
+      options.playwrightObserverEnabled === true ||
+      process.env.CODEXHUB_PLAYWRIGHT_OBSERVER_ENABLED === 'true';
+    const approvalState = classifyBrowserObservationApproval(input.approvalRecord);
+    const blockedReason =
+      input.dryRunRecord.status === 'blocked'
+        ? 'dry_run_blocked'
+        : !enableRealRunner && input.dryRunRecord.processBoundaryPlanned
+          ? 'playwright_observer_disabled'
+          : approvalState !== 'ready'
+            ? approvalState
+          : !options.playwrightObserverRunner
+              ? 'runner_not_configured'
+              : undefined;
+
+    if (blockedReason) {
+      const evidenceRefs = [
+        createBrowserControlEvidence({
+          kind: 'browser.observation_run_summary',
+          label: 'browser.observation.run.blocked',
+          summary: `Browser observation execution blocked: ${blockedReason}.`,
+          metadata: {
+            dryRunId: input.dryRunRecord.dryRunId,
+            blockedReason,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            bodyStored: false,
+          },
+        }),
+      ];
+      const auditEventIds = [foundationId('audit')];
+      const record = createBrowserObservationControlPlaneRunRecord({
+        dryRunRecord: input.dryRunRecord,
+        approvalRecord: input.approvalRecord,
+        status: 'blocked',
+        summary: `Browser observation execution blocked: ${blockedReason}.`,
+        evidenceRefs,
+        auditEventIds,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      });
+      await persistBrowserObservationRunRecord(record, input.store);
+      await persistEvidenceRefs(evidenceRefs, input.store);
+      await persistAuditEvents(
+        auditEventIds,
+        evidenceRefs,
+        input.store,
+        input.dryRunRecord.policyDecision.id,
+      );
+      return record;
+    }
+
+    const adapterPlan = createPlaywrightObserverAdapterPlan({
+      dryRunId: input.dryRunRecord.dryRunId,
+      profileRef: input.dryRunRecord.plan.profileRef,
+      requestedCapabilities: input.dryRunRecord.plan.requestedCapabilities,
+      runnerMode: input.dryRunRecord.plan.runnerMode,
+      metadata: {
+        supervisorDryRunRecordId: input.dryRunRecord.id,
+        targetUrlHash: input.dryRunRecord.targetUrlHash,
+      },
+    });
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('execution_authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      allowed: true,
+      constraints: [
+        'read-only browser observation',
+        'no profile probing',
+        'no screenshot',
+        'no network body',
+        'no browser act',
+      ],
+      expiresAt: input.approvalRecord?.expiresAt,
+    });
+    const runner = options.playwrightObserverRunner;
+    const readiness = createBrowserProfileReadiness({
+      profileRef: input.dryRunRecord.plan.profileRef,
+      status: 'ready',
+      blockReasons: [],
+      summary: 'Supervisor resolved browser observation authority from persisted approval.',
+    });
+    const adapterResult = await executePlaywrightObserverAdapter({
+      plan: {
+        ...adapterPlan,
+        id: input.dryRunRecord.id,
+        status: input.dryRunRecord.status,
+        blockReasons: input.dryRunRecord.blockReasons,
+        runnerMode: input.dryRunRecord.plan.runnerMode,
+        requestedCapabilities: input.dryRunRecord.plan.requestedCapabilities,
+        browserPlan: input.dryRunRecord.plan,
+        capabilityDryRun: input.dryRunRecord.capabilityDryRun,
+        targetUrlHash: input.dryRunRecord.targetUrlHash,
+        processBoundaryPlanned: input.dryRunRecord.processBoundaryPlanned,
+      },
+      authority,
+      runner,
+      readiness,
+      actor: 'codexhub-supervisor',
+    });
+    const record = createBrowserObservationControlPlaneRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalRecord: input.approvalRecord,
+      status: adapterResult.status,
+      summary: adapterResult.browserRun.summary,
+      browserRun: adapterResult.browserRun,
+      evidenceRefs: adapterResult.evidenceRefs,
+      auditEventIds: adapterResult.auditEvents.map((event) => event.id),
+      processBoundaryInvoked: adapterResult.browserRun.processBoundaryInvoked,
+      externalProcessStarted: adapterResult.browserRun.externalProcessStarted,
+    });
+
+    await persistBrowserObservationRunRecord(record, input.store);
+    await persistEvidenceRefs(adapterResult.evidenceRefs, input.store);
+    for (const auditEvent of adapterResult.auditEvents) {
+      await input.store.auditEvents.append(auditEvent);
+    }
+    if (input.approvalRecord?.status === 'approved') {
+      const consumedApprovalRecord = createBrowserObservationApprovalRecord({
+        dryRunRecord: input.dryRunRecord,
+        baseRecord: input.approvalRecord,
+        status: 'used',
+        reason: 'execution attempt consumed approval',
+      });
+      await persistBrowserObservationApprovalRecord(consumedApprovalRecord, input.store);
+      await persistEvidenceRefs(consumedApprovalRecord.evidenceRefs, input.store);
+      await persistAuditEvents(
+        consumedApprovalRecord.auditEventIds,
+        consumedApprovalRecord.evidenceRefs,
+        input.store,
+        consumedApprovalRecord.policyDecisionId,
+      );
+    }
+
+    return record;
+  }
+
+  function createBrowserObservationControlPlaneRunRecord(input: {
+    dryRunRecord: BrowserObservationDryRunRecord;
+    approvalRecord?: BrowserObservationApprovalArtifactRecord;
+    status: BrowserObservationRunStatus;
+    summary: string;
+    browserRun?: BrowserObservationControlPlaneRun['browserRun'];
+    evidenceRefs: EvidenceRef[];
+    auditEventIds: string[];
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+  }): BrowserObservationControlPlaneRun {
+    const now = foundationTimestamp();
+
+    return BrowserObservationControlPlaneRunSchema.parse({
+      id: foundationId('browser_observation_control_plane_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      status: input.status,
+      planId: input.dryRunRecord.plan.id,
+      targetUrlHash: input.dryRunRecord.targetUrlHash,
+      browserRun: input.browserRun,
+      timeline: [
+        BrowserObservationTimelineEventSchema.parse({
+          id: foundationId('browser_observation_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: now,
+          phase: 'execution',
+          status: input.status,
+          summary: input.summary,
+          evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+          auditEventIds: input.auditEventIds,
+          bodyStored: false,
+          rawPathStored: false,
+          noRealWrite: true,
+          processBoundaryInvoked: input.processBoundaryInvoked,
+          externalProcessStarted: input.externalProcessStarted,
+        }),
+      ],
+      evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: input.auditEventIds,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: input.processBoundaryInvoked,
+      externalProcessStarted: input.externalProcessStarted,
+      summary: input.summary,
+    });
+  }
+
+  function classifyBrowserObservationApproval(
+    record: BrowserObservationApprovalArtifactRecord | undefined,
+  ):
+    | 'ready'
+    | 'approval_artifact_missing'
+    | 'approval_denied'
+    | 'approval_revoked'
+    | 'approval_used'
+    | 'approval_expired'
+    | 'approval_invalid' {
+    if (!record?.approvalArtifactId) {
+      return 'approval_artifact_missing';
+    }
+
+    if (record.status === 'denied') {
+      return 'approval_denied';
+    }
+
+    if (record.status === 'revoked') {
+      return 'approval_revoked';
+    }
+
+    if (record.status === 'used') {
+      return 'approval_used';
+    }
+
+    if (record.status === 'expired' || (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())) {
+      return 'approval_expired';
+    }
+
+    if (record.status !== 'approved' || !record.approved) {
+      return 'approval_invalid';
+    }
+
+    return 'ready';
+  }
+
+  function createBrowserControlEvidence(input: {
+    kind: EvidenceRef['kind'];
+    label: string;
+    summary: string;
+    metadata: Record<string, unknown>;
+  }): EvidenceRef {
+    const metadata = {
+      ...input.metadata,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    };
+
+    return {
+      id: foundationId('evidence'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      kind: input.kind,
+      summary: input.summary,
+      hash: hashLocalMetadata(metadata),
+      redacted: true,
+      labels: [input.label],
+      metadata,
+    };
+  }
+
+  async function persistEvidenceRefs(refs: EvidenceRef[], store: CodexHubStore): Promise<void> {
+    for (const ref of refs) {
+      await store.evidenceRefs.create(ref);
+    }
+  }
+
+  async function persistAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId = 'browser-observation-control-plane',
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'browser.observation.control_plane',
+        target: 'browser.observation',
+        reason: 'browser observation control-plane metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawPathStored: false,
+          noRealWrite: true,
+          liveExecution: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      });
+    }
+  }
+
+  async function persistBrowserObservationDryRunRecord(
+    record: BrowserObservationDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.browserObservationDryRuns.saveDryRun(record);
+      return;
+    }
+
+    browserObservationDryRunRecords.unshift(record);
+  }
+
+  async function persistBrowserObservationApprovalRecord(
+    record: BrowserObservationApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.browserObservationApprovals.saveApproval(record);
+      return;
+    }
+
+    const index = browserObservationApprovalRecords.findIndex((candidate) => candidate.id === record.id);
+    if (index >= 0) {
+      browserObservationApprovalRecords.splice(index, 1, record);
+    } else {
+      browserObservationApprovalRecords.unshift(record);
+    }
+  }
+
+  async function persistBrowserObservationRunRecord(
+    record: BrowserObservationControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.browserObservationRuns.saveRun(record);
+      return;
+    }
+
+    browserObservationRunRecords.unshift(record);
+  }
+
+  async function resolveBrowserObservationDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+
+    return store
+      ? await store.browserObservationDryRuns.getDryRun(dryRunId)
+      : browserObservationDryRunRecords.find(
+          (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+        );
+  }
+
+  async function resolveBrowserObservationApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.browserObservationApprovals.getApproval(approvalRequestId);
+
+      if (directRecord) {
+        return directRecord;
+      }
+
+      return (await store.browserObservationApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+
+    return browserObservationApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveBrowserObservationApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.browserObservationApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : browserObservationApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveBrowserObservationRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationControlPlaneRun | undefined> {
+    return store
+      ? await store.browserObservationRuns.getRun(runId)
+      : browserObservationRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listBrowserObservationDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationDryRunRecord[]> {
+    return store
+      ? await store.browserObservationDryRuns.listDryRuns(query)
+      : browserObservationDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listBrowserObservationApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationApprovalArtifactRecord[]> {
+    return store
+      ? await store.browserObservationApprovals.listApprovals(query)
+      : browserObservationApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listBrowserObservationRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<BrowserObservationControlPlaneRun[]> {
+    return store
+      ? await store.browserObservationRuns.listRuns(query)
+      : browserObservationRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  function createBrowserObservationDryRunResponse(record: BrowserObservationDryRunRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      planId: record.plan.id,
+      targetUrlHash: record.targetUrlHash,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.policyDecision.requiresApproval,
+      profilePathHash: record.plan.profileRef.profilePathHash,
+      requestedCapabilities: record.plan.requestedCapabilities,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryPlanned: record.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createBrowserObservationApprovalResponse(record: BrowserObservationApprovalArtifactRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createBrowserObservationRunResponse(record: BrowserObservationControlPlaneRun) {
+    return {
+      runId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      planId: record.planId,
+      targetUrlHash: record.targetUrlHash,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createBrowserObservationStoreUnavailableResponse(phase: string) {
+    return {
+      error: 'browser_observation_store_unavailable',
+      phase,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      liveExecution: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function createBrowserObservationUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_browser_observation_authority_body',
+      dryRunId,
+      status: 'blocked',
+      liveExecution: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function parseBrowserObservationQuery(query: unknown): {
+    dryRunId?: string;
+    status?: string;
+    limit?: number;
+  } {
+    const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+    return {
+      dryRunId: readQueryValue(query, 'dryRunId'),
+      status: readQueryValue(query, 'status'),
+      limit: limitResult.allowed ? limitResult.limit : undefined,
+    };
   }
 
   function hashLocalMetadata(value: unknown): string {

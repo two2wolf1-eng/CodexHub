@@ -44,3 +44,44 @@ workflows:
       - worktreeCreation
       - gitPush
       - pullRequestCreation
+  m4c.governed-browser-observation:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: apps/supervisor
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/browser/observation/dry-runs
+        adapter: playwright-observer-adapter
+        rawTargetUrlStorage: forbidden
+        rawProfilePathStorage: forbidden
+      - phase: approval-request
+        route: POST /api/browser/observation/approval-requests
+        authority: supervisor-store
+      - phase: manual-approval
+        route: POST /api/browser/observation/manual-approvals
+        authority: persistedApprovalArtifact
+      - phase: execution
+        route: POST /api/browser/observation/runs
+        authority: persistedApprovalArtifact
+        productDefaultEnabled: false
+        adapterExecution: supervisor-gated
+      - phase: summary
+        output: hashesCountsSummariesEvidenceAndAuditIdsOnly
+    readOnlyUx:
+      dashboardRoute: '#/browser-profiles'
+      cliCommands:
+        - codexhub browser profiles list
+        - codexhub browser observe --dry-run
+        - codexhub browser runs list
+        - codexhub browser runs show
+    forbidden:
+      - dashboardWriteUi
+      - cliBrowserExecuteCommand
+      - rawTargetUrlPersistence
+      - realProfileProbe
+      - screenshotCapture
+      - networkBodyCapture
+      - browserClickTypeSubmit
+      - cookieTokenSessionStorageExtraction

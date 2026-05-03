@@ -74,7 +74,25 @@ interface OverviewState {
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
   codexExecReviewerHandoffs: CodexExecReviewerHandoffSummary[];
   codexExecEvidenceSearch?: Record<string, unknown>;
+  browserObservationDryRuns: BrowserObservationControlSummary[];
+  browserObservationApprovals: BrowserObservationControlSummary[];
+  browserObservationRuns: BrowserObservationControlSummary[];
   message?: string;
+}
+
+interface BrowserObservationControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  runId?: string;
+  status?: string;
+  summary?: string;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
 }
 
 const supervisorUrl = import.meta.env.VITE_CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
@@ -108,13 +126,21 @@ export function App() {
     codexExecReportReviewHistories: [],
     codexExecReportReviewComparisons: [],
     codexExecReviewerHandoffs: [],
+    browserObservationDryRuns: [],
+    browserObservationApprovals: [],
+    browserObservationRuns: [],
   });
   const [activeView, setActiveView] = useState<DashboardView>(() =>
     getDashboardViewFromHash(window.location.hash),
   );
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
-  const browserProfilesSummary = createBrowserProfilesReadOnlySummary();
+  const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
+    dryRunCount: overview.browserObservationDryRuns.length,
+    approvalCount: overview.browserObservationApprovals.length,
+    runCount: overview.browserObservationRuns.length,
+    latestRunStatus: overview.browserObservationRuns[0]?.status,
+  });
 
   useEffect(() => {
     function onHashChange() {
@@ -387,6 +413,24 @@ export function App() {
           ): timeline is CodexExecRealReadOnlyAdapterAttemptTimelineSummary =>
             timeline !== undefined,
         );
+        const [
+          browserObservationDryRunsResponse,
+          browserObservationApprovalsResponse,
+          browserObservationRunsResponse,
+        ] = await Promise.all([
+          getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
+            '/api/browser/observation/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
+            '/api/browser/observation/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
+            '/api/browser/observation/runs',
+            { records: [] },
+          ),
+        ]);
 
         if (!cancelled) {
           setOverview({
@@ -429,6 +473,9 @@ export function App() {
             codexExecReportReviewComparisons,
             codexExecReviewerHandoffs,
             codexExecEvidenceSearch: codexExecEvidenceResponse,
+            browserObservationDryRuns: browserObservationDryRunsResponse.records,
+            browserObservationApprovals: browserObservationApprovalsResponse.records,
+            browserObservationRuns: browserObservationRunsResponse.records,
           });
         }
       } catch (error) {
@@ -461,6 +508,9 @@ export function App() {
             codexExecReportReviewHistories: [],
             codexExecReportReviewComparisons: [],
             codexExecReviewerHandoffs: [],
+            browserObservationDryRuns: [],
+            browserObservationApprovals: [],
+            browserObservationRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -1857,6 +1907,17 @@ function renderReadOnlyDashboardView(
               <span>{browserProfilesSummary.profileCount}</span>
             </li>
             <li>
+              <strong>control-plane records</strong>
+              <span>
+                dry-runs {browserProfilesSummary.dryRunCount}, approvals{' '}
+                {browserProfilesSummary.approvalCount}, runs {browserProfilesSummary.runCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>{browserProfilesSummary.latestRunStatus}</span>
+            </li>
+            <li>
               <strong>profile hashes</strong>
               <span>{browserProfilesSummary.profilePathHashes.join(', ')}</span>
             </li>
@@ -1904,6 +1965,36 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
           </ul>
+        </Panel>
+        <Panel title="Browser Observation Runs">
+          {overview.browserObservationRuns.length > 0 ? (
+            <ul>
+              {overview.browserObservationRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'browser_observation_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, evidence{' '}
+                    {run.evidenceRefIds?.length ?? 0}, audit {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    process boundary {String(run.processBoundaryInvoked ?? false)}, external
+                    process {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    noRealWrite {String(run.noRealWrite ?? true)}, bodyStored{' '}
+                    {String(run.bodyStored ?? false)}, rawPathStored{' '}
+                    {String(run.rawPathStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No browser observation run metadata is available. This view is read-only and never
+              sends local-control credentials.
+            </p>
+          )}
         </Panel>
       </section>
     );
@@ -2054,4 +2145,12 @@ async function getJson<T>(path: string): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+async function getOptionalJson<T>(path: string, fallback: T): Promise<T> {
+  try {
+    return await getJson<T>(path);
+  } catch {
+    return fallback;
+  }
 }

@@ -47,11 +47,21 @@ describe('dashboard read-only UX helpers', () => {
   });
 
   it('summarizes browser profiles without raw paths or browser execution', () => {
-    const summary = createBrowserProfilesReadOnlySummary();
+    const summary = createBrowserProfilesReadOnlySummary({
+      dryRunCount: 2,
+      approvalCount: 1,
+      runCount: 1,
+      latestRunStatus: 'completed',
+    });
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('playwright-observer');
     expect(summary.profileCount).toBe(1);
+    expect(summary.manifestVersion).toContain('m4c');
+    expect(summary.dryRunCount).toBe(2);
+    expect(summary.approvalCount).toBe(1);
+    expect(summary.runCount).toBe(1);
+    expect(summary.latestRunStatus).toBe('completed');
     expect(summary.profilePathHashes[0]).toMatch(/^sha256:/);
     expect(summary.readinessStatus).toBe('blocked');
     expect(summary.processBoundaryInvoked).toBe(false);

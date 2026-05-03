@@ -187,6 +187,9 @@ importers:
 
   apps/supervisor:
     dependencies:
+      '@codexhub/browser-profile-kernel':
+        specifier: workspace:*
+        version: link:../../packages/browser-profile-kernel
       '@codexhub/codex-kernel':
         specifier: workspace:*
         version: link:../../packages/codex-kernel
@@ -199,6 +202,9 @@ importers:
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
+      '@codexhub/playwright-observer-adapter':
+        specifier: workspace:*
+        version: link:../../packages/playwright-observer-adapter
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../../packages/security-kernel

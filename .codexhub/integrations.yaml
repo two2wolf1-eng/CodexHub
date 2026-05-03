@@ -84,9 +84,21 @@ integrations:
     provider: playwright
     providerType: open-source
     mode: read-only
-    stage: m4b-controlled-local-runner
+    stage: m4c-supervisor-gated-control-plane
     fixtureRunnerOnly: false
     controlledLocalBrowserRunner: true
+    supervisorControlPlane:
+      enabledByDefault: false
+      explicitEnableRequired: true
+      enablementEnv: CODEXHUB_PLAYWRIGHT_OBSERVER_ENABLED
+      localControlRequiredForPost: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      readOnlyDashboardUx: true
+      cliExecuteCommandEnabled: false
+      rawTargetUrlStorage: forbidden
     realUserProfileConnectionEnabled: false
     externalProcessBoundary: true
     processBoundaryRequiresApproval: true

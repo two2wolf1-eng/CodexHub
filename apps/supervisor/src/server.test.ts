@@ -139,6 +139,211 @@ describe('supervisor mock development API', () => {
     expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
   });
 
+  it('governs browser observation dry-run, persisted approval, and injected execution', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-browser-observation-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      playwrightObserverEnabled: true,
+      playwrightObserverRunner: {
+        async observe() {
+          return {
+            status: 'completed',
+            pageTitle: 'Local Browser Target',
+            pageUrl: 'http://127.0.0.1:4173/#/browser-profiles',
+            consoleSummary: {
+              messageCount: 1,
+              warningCount: 0,
+              errorCount: 0,
+              bodyStored: false,
+            },
+            networkSummary: {
+              requestCount: 1,
+              responseCount: 1,
+              failedRequestCount: 0,
+              bodyStored: false,
+            },
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            summary: 'Injected controlled browser observation completed.',
+          };
+        },
+      },
+    });
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/dry-runs',
+      payload: {},
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/dry-runs',
+      headers: {
+        ...localControlHeaders,
+        origin: 'https://evil.example',
+      },
+      payload: {},
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        runnerMode: 'controlled-local-browser',
+        targetUrl: 'http://127.0.0.1:4173/#/browser-profiles',
+        capabilities: ['title', 'url', 'console_summary', 'network_metadata_summary'],
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        requestedBy: 'local-operator',
+        reason: 'private approval reason',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'private approval reason',
+      },
+    });
+    const forgedRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifact: approvalResponse.json(),
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/browser/observation/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+      },
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/browser/observation/runs',
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      status: 'ready',
+      processBoundaryPlanned: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(approvalResponse.json().status).toBe('approved');
+    expect(forgedRunResponse.statusCode).toBe(400);
+    expect(forgedRunResponse.json().error).toBe('untrusted_browser_observation_authority_body');
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'completed',
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    expect(listResponse.json().records).toHaveLength(1);
+    expect(JSON.stringify({ dryRun: dryRunResponse.json(), approval: approvalResponse.json(), run: runResponse.json() })).not.toContain(
+      'http://127.0.0.1:4173',
+    );
+    expect(JSON.stringify({ approval: approvalResponse.json() })).not.toContain(
+      'private approval reason',
+    );
+  });
+
+  it('blocks browser observation execution when store or enablement is unavailable', async () => {
+    const disabledStoreServer = buildSupervisorServer({ disableStore: true });
+    const disabledStoreResponse = await disabledStoreServer.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/browser/observation/dry-runs',
+      payload: {},
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-browser-disabled-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/browser/observation/dry-runs',
+      payload: {
+        runnerMode: 'controlled-local-browser',
+        targetUrl: 'http://localhost:4173/',
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/browser/observation/approval-requests',
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/browser/observation/manual-approvals',
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const blockedRunResponse = await server.inject({
+      method: 'POST',
+      headers: localControlHeaders,
+      url: '/api/browser/observation/runs',
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+      },
+    });
+
+    await disabledStoreServer.close();
+    await server.close();
+    await store.close();
+
+    expect(disabledStoreResponse.statusCode).toBe(503);
+    expect(disabledStoreResponse.json()).toMatchObject({
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(blockedRunResponse.statusCode).toBe(200);
+    expect(blockedRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+    });
+  });
+
   it('blocks symlink cwd escapes when creating codex dry-runs', async () => {
     const outsideDir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-cwd-escape-'));
     const workspaceRoot = resolve(process.cwd(), '..', '..');

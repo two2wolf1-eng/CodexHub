@@ -83,8 +83,8 @@ export function createBrowserObservationSummaryEvidence(
       rawPathStored: false,
       bodyStored: false,
       noRealWrite: true,
-      processBoundaryInvoked: false,
-      externalProcessStarted: false,
+      processBoundaryInvoked: summary.processBoundaryInvoked,
+      externalProcessStarted: summary.externalProcessStarted,
     },
   });
 }
@@ -104,8 +104,8 @@ export function createBrowserObservationRunEvidence(run: BrowserObservationRun):
       rawPathStored: false,
       bodyStored: false,
       noRealWrite: true,
-      processBoundaryInvoked: false,
-      externalProcessStarted: false,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
     },
   });
 }

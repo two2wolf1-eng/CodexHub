@@ -1,5 +1,8 @@
 import type {
   AuditEvent,
+  BrowserObservationApprovalArtifactRecord,
+  BrowserObservationControlPlaneRun,
+  BrowserObservationDryRunRecord,
   CodexExecLiveRunRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
@@ -44,6 +47,12 @@ export interface AuditEventQuery {
 export interface EvidenceRefQuery {
   dryRunId?: string;
   kind?: EvidenceRef['kind'];
+  limit?: number;
+}
+
+export interface BrowserObservationQuery {
+  dryRunId?: string;
+  status?: string;
   limit?: number;
 }
 
@@ -105,6 +114,31 @@ export interface CodexExecApprovalRepository {
     dryRunPlanId: string,
     limit?: number,
   ): Promise<CodexExecManualApprovalRecord[]>;
+}
+
+export interface BrowserObservationDryRunRepository {
+  saveDryRun(record: BrowserObservationDryRunRecord): Promise<BrowserObservationDryRunRecord>;
+  getDryRun(id: string): Promise<BrowserObservationDryRunRecord | undefined>;
+  listDryRuns(query?: BrowserObservationQuery): Promise<BrowserObservationDryRunRecord[]>;
+}
+
+export interface BrowserObservationApprovalRepository {
+  saveApproval(
+    record: BrowserObservationApprovalArtifactRecord,
+  ): Promise<BrowserObservationApprovalArtifactRecord>;
+  getApproval(id: string): Promise<BrowserObservationApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<BrowserObservationApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: BrowserObservationQuery,
+  ): Promise<BrowserObservationApprovalArtifactRecord[]>;
+}
+
+export interface BrowserObservationRunRepository {
+  saveRun(record: BrowserObservationControlPlaneRun): Promise<BrowserObservationControlPlaneRun>;
+  getRun(id: string): Promise<BrowserObservationControlPlaneRun | undefined>;
+  listRuns(query?: BrowserObservationQuery): Promise<BrowserObservationControlPlaneRun[]>;
 }
 
 export interface CodexReportReviewRepository {
@@ -281,6 +315,9 @@ export interface CodexHubStore {
   codexReplays: CodexReplayRepository;
   codexExecLiveRuns: CodexExecLiveRunRepository;
   codexExecApprovals: CodexExecApprovalRepository;
+  browserObservationDryRuns: BrowserObservationDryRunRepository;
+  browserObservationApprovals: BrowserObservationApprovalRepository;
+  browserObservationRuns: BrowserObservationRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

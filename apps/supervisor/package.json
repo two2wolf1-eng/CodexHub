@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@codexhub/browser-profile-kernel": "workspace:*",
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/observer-kernel": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
+    "@codexhub/playwright-observer-adapter": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/store-core": "workspace:*",
     "@codexhub/store-sqlite": "workspace:*",
