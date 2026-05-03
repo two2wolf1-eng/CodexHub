@@ -13,6 +13,7 @@
     }
   },
   "dependencies": {
+    "@codexhub/capability-adapter-kernel": "workspace:*",
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*"

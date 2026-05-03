@@ -230,8 +230,17 @@ importers:
         specifier: workspace:*
         version: link:../evidence-kernel
 
+  packages/capability-adapter-kernel:
+    dependencies:
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/codex-exec-adapter:
     dependencies:
+      '@codexhub/capability-adapter-kernel':
+        specifier: workspace:*
+        version: link:../capability-adapter-kernel
       '@codexhub/codex-kernel':
         specifier: workspace:*
         version: link:../codex-kernel
@@ -280,6 +289,9 @@ importers:
 
   packages/nx-verification-adapter:
     dependencies:
+      '@codexhub/capability-adapter-kernel':
+        specifier: workspace:*
+        version: link:../capability-adapter-kernel
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -328,6 +340,9 @@ importers:
       '@codexhub/browser-profile-kernel':
         specifier: workspace:*
         version: link:../browser-profile-kernel
+      '@codexhub/capability-adapter-kernel':
+        specifier: workspace:*
+        version: link:../capability-adapter-kernel
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../contracts

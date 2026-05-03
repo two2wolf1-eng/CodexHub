@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import {
+  validateCapabilityExecutionEnvelope,
+  validateCapabilityManifest,
+  validateCapabilityPlanEnvelope,
+} from '@codexhub/capability-adapter-kernel';
 import { CapabilityManifestSchema, type ExecutionAuthority } from '@codexhub/contracts';
 import {
   createBrowserProfileReadiness,
@@ -45,6 +50,7 @@ describe('playwright-observer-adapter', () => {
     expect(manifest.processBoundary.mayStartExternalProcess).toBe(true);
     expect(manifest.processBoundary.requiresProcessAudit).toBe(true);
     expect(manifest.evidencePolicy.bodyStorage).toBe('hash-only');
+    expect(validateCapabilityManifest(manifest).ok).toBe(true);
   });
 
   it('plans only allowlisted read-only browser observation capabilities', () => {
@@ -56,6 +62,7 @@ describe('playwright-observer-adapter', () => {
     });
 
     expect(plan.status).toBe('ready');
+    expect(validateCapabilityPlanEnvelope(plan).ok).toBe(true);
     expect(plan.runnerMode).toBe('fixture');
     expect(plan.requestedCapabilities).toEqual(['title', 'url', 'console_summary']);
     expect(plan.processBoundaryPlanned).toBe(false);
@@ -150,6 +157,14 @@ describe('playwright-observer-adapter', () => {
     const result = await executePlaywrightObserverAdapter({ plan });
 
     expect(result.status).toBe('blocked');
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+      }).ok,
+    ).toBe(true);
     expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
     expect(result.capabilityResult.externalProcessStarted).toBe(false);
     expect(result.browserRun.bodyStored).toBe(false);
@@ -230,6 +245,15 @@ describe('playwright-observer-adapter', () => {
     const serialized = JSON.stringify(result);
 
     expect(result.status).toBe('completed');
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        authority: createAuthority(),
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+      }).ok,
+    ).toBe(true);
     expect(result.pageSummary?.pageTitleHash).toMatch(/^sha256:/);
     expect(result.pageSummary?.pageUrlHash).toMatch(/^sha256:/);
     expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
@@ -277,6 +301,18 @@ describe('playwright-observer-adapter', () => {
     const serialized = JSON.stringify(result);
 
     expect(result.status).toBe('completed');
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        authority: createAuthority({
+          approvalArtifactId: 'approval_browser_boundary_1',
+        }),
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+        approvalRequired: true,
+      }).ok,
+    ).toBe(true);
     expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
     expect(result.capabilityResult.externalProcessStarted).toBe(true);
     expect(result.browserRun.processBoundaryInvoked).toBe(true);

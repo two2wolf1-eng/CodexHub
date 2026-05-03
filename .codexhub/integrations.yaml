@@ -4,6 +4,13 @@ authority:
   governanceCoreAuthoritative: true
   capabilityProvidersAuthoritative: false
   adapterExecuteOnlyViaWorkflowKernel: true
+  capabilityAdapterKernelRequired: true
+  adapterKernelPackage: capability-adapter-kernel
+  adapterKernelValidates:
+    - manifest
+    - dry-run-plan
+    - execution-envelope
+    - evidence-audit-references
 integrations:
   codex-cli:
     enabled: false

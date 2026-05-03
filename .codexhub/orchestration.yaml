@@ -8,10 +8,49 @@ rules:
   requireAudit: true
   adapterExecutionOnly: true
   noNewProcessBoundaryInM2c: true
+  capabilityAdapterKernelRequired: true
 development:
   affectedCommand: pnpm nx affected
   qualityGate: pnpm nx run-many -t lint,test,build
 workflows:
+  m4_5.capability-adapter-kernel-readiness:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: packages/capability-adapter-kernel
+    chain:
+      - phase: manifest-validation
+        package: capability-adapter-kernel
+        validates:
+          - CapabilityManifest
+          - evidencePolicy
+          - processBoundaryAudit
+      - phase: dry-run-envelope-validation
+        package: capability-adapter-kernel
+        validates:
+          - CapabilityDryRun
+          - noProcessBoundaryInvoked
+          - noExternalProcessStarted
+          - noBodyStored
+      - phase: execution-envelope-validation
+        package: capability-adapter-kernel
+        validates:
+          - ExecutionAuthority
+          - CapabilityExecutionResult
+          - EvidenceRef
+          - CapabilityAuditEvent
+      - phase: existing-adapter-compatibility
+        adapters:
+          - codex-exec-adapter
+          - nx-verification-adapter
+          - playwright-observer-adapter
+        behaviorChanges: forbidden
+    forbidden:
+      - newProcessBoundary
+      - browserAct
+      - electronCdpConnection
+      - worktreeWrite
+      - pullRequestCreation
   m2c.minimal-governed-orchestrator:
     risk: high
     trigger:

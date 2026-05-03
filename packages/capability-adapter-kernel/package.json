@@ -1,5 +1,5 @@
 {
-  "name": "@codexhub/nx-verification-adapter",
+  "name": "@codexhub/capability-adapter-kernel",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,6 @@
     }
   },
   "dependencies": {
-    "@codexhub/capability-adapter-kernel": "workspace:*",
-    "@codexhub/contracts": "workspace:*",
-    "@codexhub/evidence-kernel": "workspace:*"
+    "@codexhub/contracts": "workspace:*"
   }
 }

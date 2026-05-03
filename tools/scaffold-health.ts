@@ -6,6 +6,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const expectedProjects = [
   'browser-profile-kernel',
+  'capability-adapter-kernel',
   'electron-cdp-kernel',
   'orchestrator-kernel',
   'evidence-kernel',

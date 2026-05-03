@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@codexhub/browser-profile-kernel": "workspace:*",
+    "@codexhub/capability-adapter-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*",
     "playwright": "1.59.1"

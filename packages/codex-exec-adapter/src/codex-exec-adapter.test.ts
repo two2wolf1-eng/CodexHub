@@ -2,6 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  validateCapabilityExecutionEnvelope,
+  validateCapabilityManifest,
+  validateCapabilityPlanEnvelope,
+} from '@codexhub/capability-adapter-kernel';
 import { type CodexExecRealReadOnlyAdapterProcessRunner } from '@codexhub/codex-kernel';
 import {
   CapabilityAuditEventSchema,
@@ -36,6 +41,7 @@ describe('codex-exec-adapter manifest', () => {
         requiresProcessAudit: true,
       },
     });
+    expect(validateCapabilityManifest(manifest).ok).toBe(true);
   });
 });
 
@@ -52,6 +58,7 @@ describe('codex-exec-adapter plan', () => {
     });
 
     expect(plan.status).toBe('ready');
+    expect(validateCapabilityPlanEnvelope(plan).ok).toBe(true);
     expect(plan.processBoundaryPlanned).toBe(true);
     expect(plan.externalProcessStarted).toBe(false);
     expect(plan.noRealWrite).toBe(true);
@@ -240,6 +247,14 @@ describe('codex-exec-adapter execute', () => {
     });
 
     expect(result.capabilityResult.status).toBe('blocked');
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+      }).ok,
+    ).toBe(true);
     expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
     expect(result.capabilityResult.externalProcessStarted).toBe(false);
     expect(result.evidenceRefs).toHaveLength(2);
@@ -347,6 +362,16 @@ describe('codex-exec-adapter execute', () => {
     });
 
     expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        authority,
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+        approvalRequired: true,
+      }).ok,
+    ).toBe(true);
     expect(result.capabilityResult.externalProcessStarted).toBe(true);
     expect(result.capabilityResult.noRealWrite).toBe(true);
     if (_label === 'aborted') {

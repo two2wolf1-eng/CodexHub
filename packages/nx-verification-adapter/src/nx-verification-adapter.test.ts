@@ -2,6 +2,11 @@ import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
+  validateCapabilityExecutionEnvelope,
+  validateCapabilityManifest,
+  validateCapabilityPlanEnvelope,
+} from '@codexhub/capability-adapter-kernel';
+import {
   CapabilityAuditEventSchema,
   CapabilityExecutionResultSchema,
   CapabilityManifestSchema,
@@ -33,6 +38,7 @@ describe('nx-verification-adapter manifest', () => {
         requiresProcessAudit: true,
       },
     });
+    expect(validateCapabilityManifest(manifest).ok).toBe(true);
   });
 });
 
@@ -49,6 +55,7 @@ describe('nx-verification-adapter plan', () => {
     });
 
     expect(plan.status).toBe('ready');
+    expect(validateCapabilityPlanEnvelope(plan).ok).toBe(true);
     expect(plan.targets).toEqual(['lint', 'test', 'build']);
     expect(plan.processBoundaryPlanned).toBe(true);
     expect(plan.externalProcessStarted).toBe(false);
@@ -202,6 +209,14 @@ describe('nx-verification-adapter execute', () => {
     });
 
     expect(result.status).toBe('blocked');
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+      }).ok,
+    ).toBe(true);
     expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
     expect(result.capabilityResult.externalProcessStarted).toBe(false);
     expect(result.boundaryResults).toHaveLength(0);
@@ -301,6 +316,15 @@ describe('nx-verification-adapter execute', () => {
     });
 
     expect(result.status).toBe(expectedStatus);
+    expect(
+      validateCapabilityExecutionEnvelope({
+        manifest: plan.manifest,
+        authority: createAuthority(),
+        capabilityResult: result.capabilityResult,
+        evidenceRefs: result.evidenceRefs,
+        auditEvents: result.auditEvents,
+      }).ok,
+    ).toBe(true);
     expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
     expect(result.capabilityResult.externalProcessStarted).toBe(true);
     expect(result.capabilityResult.noRealWrite).toBe(true);
