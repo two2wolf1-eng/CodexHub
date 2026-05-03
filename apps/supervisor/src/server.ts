@@ -249,8 +249,13 @@ interface PersistenceState {
 
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
 const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
-const LOCAL_CONTROL_ENV_VAR = ['CODEXHUB_SUPERVISOR_LOCAL_', LOCAL_CONTROL_KEY_KIND.toUpperCase()].join('');
-const LOCAL_CONTROL_REQUIRED_ERROR = ['local_control', LOCAL_CONTROL_KEY_KIND, 'required'].join('_');
+const LOCAL_CONTROL_ENV_VAR = [
+  'CODEXHUB_SUPERVISOR_LOCAL_',
+  LOCAL_CONTROL_KEY_KIND.toUpperCase(),
+].join('');
+const LOCAL_CONTROL_REQUIRED_ERROR = ['local_control', LOCAL_CONTROL_KEY_KIND, 'required'].join(
+  '_',
+);
 const LOCAL_CONTROL_NOT_CONFIGURED_ERROR = [
   'local_control',
   LOCAL_CONTROL_KEY_KIND,
@@ -261,8 +266,7 @@ const DEFAULT_TRUSTED_ORIGIN_PORTS = new Set(['3000', '3001', '4173', '5173', '5
 
 export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const server = Fastify({ logger: true });
-  const localControlKey =
-    options.localControlKey ?? process.env[LOCAL_CONTROL_ENV_VAR];
+  const localControlKey = options.localControlKey ?? process.env[LOCAL_CONTROL_ENV_VAR];
   const trustedOrigins = new Set(options.trustedOrigins ?? []);
   const workflowRunner = new WorkflowRunner();
   const observationSource = new MockObservationSource('codexhub.mock.supervisor');
@@ -423,10 +427,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       mock: true,
       realReadOnlyAdapterCodexCliInvocationContractVersion:
         REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
-      realReadOnlyAdapterCodexCliArgvCount:
-        REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length,
-      realReadOnlyAdapterCodexCliArgvHash:
-        REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
+      realReadOnlyAdapterCodexCliArgvCount: REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length,
+      realReadOnlyAdapterCodexCliArgvHash: REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
       realReadOnlyAdapterCodexCliStdinClosedWithoutBody: true,
       realReadOnlyAdapterCodexCliGovernedInputRequired: true,
       realReadOnlyAdapterCodexCliPromptArgumentStored: false,
@@ -1039,10 +1041,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         }
       | undefined;
 
-    if (
-      body !== undefined &&
-      Object.prototype.hasOwnProperty.call(body, 'approvalArtifact')
-    ) {
+    if (body !== undefined && Object.prototype.hasOwnProperty.call(body, 'approvalArtifact')) {
       const store = await getStore();
       const record = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
       const evidenceRefs = createUntrustedApprovalArtifactBodyEvidenceRefs(body.dryRunId);
@@ -2520,95 +2519,92 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
-  server.post(
-    '/api/codex/exec/real-read-only-adapter/policy-sources',
-    async (request, reply) => {
-      const body = request.body as { dryRunId?: string } | undefined;
+  server.post('/api/codex/exec/real-read-only-adapter/policy-sources', async (request, reply) => {
+    const body = request.body as { dryRunId?: string } | undefined;
 
-      if (!body?.dryRunId) {
-        return reply.code(400).send({
-          error: 'dryRunId is required',
-          liveExecution: false,
-          externalProcessStarted: false,
-          executionDisabled: true,
-        });
-      }
-
-      const store = await getStore();
-
-      if (!store) {
-        return reply
-          .code(503)
-          .send(createRealReadOnlyAdapterPolicySourceUnavailableResponse(body.dryRunId));
-      }
-
-      const configLoadResult = await getLiveConfigLoadResult();
-      const dryRunRecord = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
-      const readOnlyOnly =
-        configLoadResult.status === 'loaded' &&
-        configLoadResult.config.allowedSandboxModes.length === 1 &&
-        configLoadResult.config.allowedSandboxModes[0] === 'read_only' &&
-        configLoadResult.config.forbiddenSandboxModes.includes('workspace_write') &&
-        configLoadResult.config.forbiddenSandboxModes.includes('danger_full_access');
-      const alignedPolicyDecision = dryRunRecord
-        ? evaluateCodexExecDryRunPolicy(
-            {
-              ...dryRunRecord.dryRunPlan,
-              liveAdapterEnabled: configLoadResult.config.liveEnabled,
-            },
-            policyEngine,
-          )
-        : undefined;
-      const record = buildRealReadOnlyAdapterPolicySourceRecord({
-        dryRunId: body.dryRunId,
-        authoritative: true,
-        supervisorBacked: true,
-        persisted: true,
-        degraded: false,
-        notPersisted: false,
-        dryRunRecordPresent: dryRunRecord !== undefined,
-        configExplicitlyEnabled:
-          configLoadResult.status === 'loaded' && configLoadResult.config.liveEnabled === true,
-        readOnlyOnly,
-        policyDecision: alignedPolicyDecision,
-        dryRunPlan: dryRunRecord?.dryRunPlan,
-        evidenceAuditReady: persistenceState.status === 'ok',
-        fallbackUsedAsAuthority: false,
-        metadata: {
-          requestedBy: 'supervisor-api',
-          configLoadStatus: configLoadResult.status,
-          configSource: configLoadResult.source,
-          historicalPolicyDecisionId: dryRunRecord?.policyDecision.id,
-          historicalPolicyDecisionOutcome: dryRunRecord?.policyDecision.outcome,
-          historicalPolicyMutated: false,
-          source: 'apps.supervisor.real-read-only-adapter.policy-source',
-        },
+    if (!body?.dryRunId) {
+      return reply.code(400).send({
+        error: 'dryRunId is required',
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
       });
-      const evidenceRefs = createRealReadOnlyAdapterPolicySourceEvidenceRefs(record);
-      const auditEvents = createRealReadOnlyAdapterPolicySourceAuditEvents(record, evidenceRefs);
-      const recordWithRefs = {
-        ...record,
-        evidenceRefs,
-        auditEventIds: auditEvents.map((event) => event.id),
-      };
+    }
 
-      for (const evidenceRef of evidenceRefs) {
-        await store.evidenceRefs.create(evidenceRef);
-      }
+    const store = await getStore();
 
-      for (const auditEvent of auditEvents) {
-        await store.auditEvents.append(auditEvent);
-      }
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createRealReadOnlyAdapterPolicySourceUnavailableResponse(body.dryRunId));
+    }
 
-      const persistedRecord =
-        await store.codexExecRealReadOnlyAdapterPolicySources.savePolicySource(recordWithRefs);
+    const configLoadResult = await getLiveConfigLoadResult();
+    const dryRunRecord = await resolveCodexExecLiveRunRecord(body.dryRunId, store);
+    const readOnlyOnly =
+      configLoadResult.status === 'loaded' &&
+      configLoadResult.config.allowedSandboxModes.length === 1 &&
+      configLoadResult.config.allowedSandboxModes[0] === 'read_only' &&
+      configLoadResult.config.forbiddenSandboxModes.includes('workspace_write') &&
+      configLoadResult.config.forbiddenSandboxModes.includes('danger_full_access');
+    const alignedPolicyDecision = dryRunRecord
+      ? evaluateCodexExecDryRunPolicy(
+          {
+            ...dryRunRecord.dryRunPlan,
+            liveAdapterEnabled: configLoadResult.config.liveEnabled,
+          },
+          policyEngine,
+        )
+      : undefined;
+    const record = buildRealReadOnlyAdapterPolicySourceRecord({
+      dryRunId: body.dryRunId,
+      authoritative: true,
+      supervisorBacked: true,
+      persisted: true,
+      degraded: false,
+      notPersisted: false,
+      dryRunRecordPresent: dryRunRecord !== undefined,
+      configExplicitlyEnabled:
+        configLoadResult.status === 'loaded' && configLoadResult.config.liveEnabled === true,
+      readOnlyOnly,
+      policyDecision: alignedPolicyDecision,
+      dryRunPlan: dryRunRecord?.dryRunPlan,
+      evidenceAuditReady: persistenceState.status === 'ok',
+      fallbackUsedAsAuthority: false,
+      metadata: {
+        requestedBy: 'supervisor-api',
+        configLoadStatus: configLoadResult.status,
+        configSource: configLoadResult.source,
+        historicalPolicyDecisionId: dryRunRecord?.policyDecision.id,
+        historicalPolicyDecisionOutcome: dryRunRecord?.policyDecision.outcome,
+        historicalPolicyMutated: false,
+        source: 'apps.supervisor.real-read-only-adapter.policy-source',
+      },
+    });
+    const evidenceRefs = createRealReadOnlyAdapterPolicySourceEvidenceRefs(record);
+    const auditEvents = createRealReadOnlyAdapterPolicySourceAuditEvents(record, evidenceRefs);
+    const recordWithRefs = {
+      ...record,
+      evidenceRefs,
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
 
-      return createRealReadOnlyAdapterPolicySourceResponse(persistedRecord, {
-        evidenceRefs,
-        auditEvents,
-      });
-    },
-  );
+    for (const evidenceRef of evidenceRefs) {
+      await store.evidenceRefs.create(evidenceRef);
+    }
+
+    for (const auditEvent of auditEvents) {
+      await store.auditEvents.append(auditEvent);
+    }
+
+    const persistedRecord =
+      await store.codexExecRealReadOnlyAdapterPolicySources.savePolicySource(recordWithRefs);
+
+    return createRealReadOnlyAdapterPolicySourceResponse(persistedRecord, {
+      evidenceRefs,
+      auditEvents,
+    });
+  });
 
   server.get(
     '/api/codex/exec/real-read-only-adapter/policy-sources/:recordId',
@@ -2647,33 +2643,30 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
-  server.get(
-    '/api/codex/exec/real-read-only-adapter/policy-sources',
-    async (request, reply) => {
-      const queryResult = parseRealReadOnlyAdapterPolicySourceQuery(request.query);
+  server.get('/api/codex/exec/real-read-only-adapter/policy-sources', async (request, reply) => {
+    const queryResult = parseRealReadOnlyAdapterPolicySourceQuery(request.query);
 
-      if (!queryResult.allowed) {
-        return reply.code(400).send({
-          error: queryResult.reason,
-          liveExecution: false,
-          externalProcessStarted: false,
-          executionDisabled: true,
-        });
-      }
+    if (!queryResult.allowed) {
+      return reply.code(400).send({
+        error: queryResult.reason,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
 
-      const store = await getStore();
+    const store = await getStore();
 
-      if (!store) {
-        return reply.code(503).send(createRealReadOnlyAdapterPolicySourceUnavailableResponse());
-      }
+    if (!store) {
+      return reply.code(503).send(createRealReadOnlyAdapterPolicySourceUnavailableResponse());
+    }
 
-      const records = await store.codexExecRealReadOnlyAdapterPolicySources.listPolicySources(
-        queryResult.query,
-      );
+    const records = await store.codexExecRealReadOnlyAdapterPolicySources.listPolicySources(
+      queryResult.query,
+    );
 
-      return createRealReadOnlyAdapterPolicySourceListResponse(records, queryResult.query);
-    },
-  );
+    return createRealReadOnlyAdapterPolicySourceListResponse(records, queryResult.query);
+  });
 
   server.get(
     '/api/codex/exec/real-read-only-adapter/policy-source/latest/:dryRunId',
@@ -2772,7 +2765,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const store = await getStore();
 
       if (!store) {
-        return reply.code(503).send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse());
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse());
       }
 
       const record =
@@ -2810,7 +2805,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const store = await getStore();
 
       if (!store) {
-        return reply.code(503).send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse());
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse());
       }
 
       const records =
@@ -2844,7 +2841,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       if (!store) {
         return reply
           .code(503)
-          .send(createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse(params.dryRunId));
+          .send(
+            createRealReadOnlyAdapterApprovalAuthorityTraceUnavailableResponse(params.dryRunId),
+          );
       }
 
       const record =
@@ -2890,7 +2889,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const store = await getStore();
 
     if (!store) {
-      return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse(body.dryRunId));
+      return reply
+        .code(503)
+        .send(createRealReadOnlyAdapterAttemptUnavailableResponse(body.dryRunId));
     }
 
     const configLoadResult = await getLiveConfigLoadResult();
@@ -2920,9 +2921,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       await store.codexExecRealReadOnlyAdapterPilotPrerequisites.latestPilotPrerequisite(
         body.dryRunId,
       );
-    const latestPolicySource = await store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(
-      body.dryRunId,
-    );
+    const latestPolicySource =
+      await store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(body.dryRunId);
     const authoritativePolicySourcePresent =
       latestPolicySource?.status === 'aligned' &&
       latestPolicySource.authoritative === true &&
@@ -2990,11 +2990,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         ? hashRealReadOnlyAdapterRuntimeWorktreePath(body.worktreePath)
         : undefined;
     const worktreePathHashMatched =
-      expectedWorktreePathHash !== undefined && runtimeWorktreePathHash === expectedWorktreePathHash;
+      expectedWorktreePathHash !== undefined &&
+      runtimeWorktreePathHash === expectedWorktreePathHash;
     const governedInputSource =
-      body.worktreePath &&
-      body.governedInputRelativePath &&
-      body.governedInputContentHash
+      body.worktreePath && body.governedInputRelativePath && body.governedInputContentHash
         ? {
             sourceKind: 'governed_file' as const,
             relativePath: body.governedInputRelativePath,
@@ -3124,8 +3123,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
     const executableResolution =
       preflight.status === 'passed' && body.worktreePath && body.approvalArtifactId
-        ? (options.realReadOnlyAdapterExecutableResolver ?? (() =>
-            resolveRealReadOnlyAdapterExecutable({ policyLabel: 'codex_cli' })))()
+        ? (
+            options.realReadOnlyAdapterExecutableResolver ??
+            (() => resolveRealReadOnlyAdapterExecutable({ policyLabel: 'codex_cli' }))
+          )()
         : undefined;
     const cwdSelfCheck =
       preflight.status === 'passed' && body.worktreePath
@@ -3319,13 +3320,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
             }),
             {
               attemptStatus: boundaryResult.status,
-              worktreeState:
-                options.realReadOnlyAdapterPostRunWorktreeState ?? {
-                  beforeStatus: 'clean',
-                  afterStatus: 'unknown',
-                  unexpectedDiff: true,
-                  statusHash: expectedWorktreePathHash,
-                },
+              worktreeState: options.realReadOnlyAdapterPostRunWorktreeState ?? {
+                beforeStatus: 'clean',
+                afterStatus: 'unknown',
+                unexpectedDiff: true,
+                statusHash: expectedWorktreePathHash,
+              },
               runner: options.realReadOnlyAdapterPostRunVerificationRunner,
             },
           );
@@ -3373,9 +3373,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         executablePolicyLabel: 'codex_cli',
         executableResolutionStatus: executableResolution?.status,
         executableResolutionReasonCode:
-          executableResolution?.status === 'blocked'
-            ? executableResolution.reasonCode
-            : undefined,
+          executableResolution?.status === 'blocked' ? executableResolution.reasonCode : undefined,
         executableResolvedKind: executableResolution?.resolvedExecutableKind,
         executableExists: executableResolution?.executableExists,
         executableAccessible: executableResolution?.executableAccessible,
@@ -3462,9 +3460,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         executablePolicyLabel: 'codex_cli',
         executableResolutionStatus: executableResolution?.status,
         executableResolutionReasonCode:
-          executableResolution?.status === 'blocked'
-            ? executableResolution.reasonCode
-            : undefined,
+          executableResolution?.status === 'blocked' ? executableResolution.reasonCode : undefined,
         executableResolvedKind: executableResolution?.resolvedExecutableKind,
         executableExists: executableResolution?.executableExists,
         executableAccessible: executableResolution?.executableAccessible,
@@ -3596,7 +3592,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const store = await getStore();
 
       if (!store) {
-        return reply.code(503).send(createRealReadOnlyAdapterAttemptUnavailableResponse(params.dryRunId));
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterAttemptUnavailableResponse(params.dryRunId));
       }
 
       const attemptRecord = await store.codexExecRealReadOnlyAdapterAttempts.latestAttempt(
@@ -3757,15 +3755,16 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         expectedPolicyDecisionHash: latestPolicySource?.policyDecisionHash,
         store,
       });
-      const approvalAuthorityTrace = createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
-        dryRunId: body.dryRunId,
-        approvalAuthority: approvalAuthority.summary,
-        inputApprovalArtifactId: body.approvalArtifactId,
-        metadata: {
-          requestedBy: 'supervisor-api',
-          source: 'apps.supervisor.real-read-only-adapter.pilot-source-preparation',
-        },
-      });
+      const approvalAuthorityTrace =
+        createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
+          dryRunId: body.dryRunId,
+          approvalAuthority: approvalAuthority.summary,
+          inputApprovalArtifactId: body.approvalArtifactId,
+          metadata: {
+            requestedBy: 'supervisor-api',
+            source: 'apps.supervisor.real-read-only-adapter.pilot-source-preparation',
+          },
+        });
       const record = buildRealReadOnlyAdapterPilotSourcePreparationRecord({
         dryRunId: body.dryRunId,
         authoritative: true,
@@ -3780,7 +3779,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         validUnusedApprovalPresent: approvalAuthorityTrace.status === 'aligned',
         approvalArtifactId: approvalAuthorityTrace.resolvedApprovalArtifactId,
         approvalArtifactHash: approvalAuthorityTrace.approvalArtifactHash,
-        dryRunPlanHash: latestPolicySource?.dryRunPlanHash ?? approvalAuthority.summary.dryRunPlanHash,
+        dryRunPlanHash:
+          latestPolicySource?.dryRunPlanHash ?? approvalAuthority.summary.dryRunPlanHash,
         policyDecisionHash:
           latestPolicySource?.policyDecisionHash ?? approvalAuthority.summary.policyDecisionHash,
         isolatedCleanWorktreeMetadataPresent:
@@ -3936,7 +3936,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       if (!store) {
         return reply
           .code(503)
-          .send(createRealReadOnlyAdapterPilotSourcePreparationUnavailableResponse(params.dryRunId));
+          .send(
+            createRealReadOnlyAdapterPilotSourcePreparationUnavailableResponse(params.dryRunId),
+          );
       }
 
       const record =
@@ -3983,7 +3985,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
       if (body.worktreePath) {
         return reply.code(400).send({
-          error: 'raw worktree paths are not accepted; provide worktreeLabel, worktreeStatus, and worktreePathHash',
+          error:
+            'raw worktree paths are not accepted; provide worktreeLabel, worktreeStatus, and worktreePathHash',
           liveExecution: false,
           externalProcessStarted: false,
           executionDisabled: true,
@@ -4037,16 +4040,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         expectedPolicyDecisionHash: latestPolicySource?.policyDecisionHash,
         store,
       });
-      const approvalAuthorityTrace = createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
-        dryRunId: body.dryRunId,
-        approvalAuthority: approvalAuthority.summary,
-        inputApprovalArtifactId: body.approvalArtifactId,
-        latestSourcePreparation,
-        metadata: {
-          requestedBy: 'supervisor-api',
-          source: 'apps.supervisor.real-read-only-adapter.pilot-prerequisites',
-        },
-      });
+      const approvalAuthorityTrace =
+        createRealReadOnlyAdapterApprovalAuthorityTraceRecordForRequest({
+          dryRunId: body.dryRunId,
+          approvalAuthority: approvalAuthority.summary,
+          inputApprovalArtifactId: body.approvalArtifactId,
+          latestSourcePreparation,
+          metadata: {
+            requestedBy: 'supervisor-api',
+            source: 'apps.supervisor.real-read-only-adapter.pilot-prerequisites',
+          },
+        });
       const validUnusedApprovalPresent = approvalAuthorityTrace.status === 'aligned';
       const authoritativeAttemptEvidencePresent =
         latestAttempt?.authoritative === true &&
@@ -4164,12 +4168,15 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const store = await getStore();
 
       if (!store) {
-        return reply.code(503).send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse());
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse());
       }
 
-      const record = await store.codexExecRealReadOnlyAdapterPilotPrerequisites.getPilotPrerequisite(
-        params.recordId,
-      );
+      const record =
+        await store.codexExecRealReadOnlyAdapterPilotPrerequisites.getPilotPrerequisite(
+          params.recordId,
+        );
 
       if (!record) {
         return reply.code(404).send({
@@ -4184,31 +4191,36 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     },
   );
 
-  server.get('/api/codex/exec/real-read-only-adapter/pilot-prerequisites', async (request, reply) => {
-    const queryResult = parseRealReadOnlyAdapterPilotPrerequisiteQuery(request.query);
+  server.get(
+    '/api/codex/exec/real-read-only-adapter/pilot-prerequisites',
+    async (request, reply) => {
+      const queryResult = parseRealReadOnlyAdapterPilotPrerequisiteQuery(request.query);
 
-    if (!queryResult.allowed) {
-      return reply.code(400).send({
-        error: queryResult.reason,
-        liveExecution: false,
-        externalProcessStarted: false,
-        executionDisabled: true,
-      });
-    }
+      if (!queryResult.allowed) {
+        return reply.code(400).send({
+          error: queryResult.reason,
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
 
-    const store = await getStore();
+      const store = await getStore();
 
-    if (!store) {
-      return reply.code(503).send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse());
-    }
+      if (!store) {
+        return reply
+          .code(503)
+          .send(createRealReadOnlyAdapterPilotPrerequisiteUnavailableResponse());
+      }
 
-    const records =
-      await store.codexExecRealReadOnlyAdapterPilotPrerequisites.listPilotPrerequisites(
-        queryResult.query,
-      );
+      const records =
+        await store.codexExecRealReadOnlyAdapterPilotPrerequisites.listPilotPrerequisites(
+          queryResult.query,
+        );
 
-    return createRealReadOnlyAdapterPilotPrerequisiteListResponse(records, queryResult.query);
-  });
+      return createRealReadOnlyAdapterPilotPrerequisiteListResponse(records, queryResult.query);
+    },
+  );
 
   server.get(
     '/api/codex/exec/real-read-only-adapter/pilot-prerequisite/latest/:dryRunId',
@@ -5240,7 +5252,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         input.dryRunId,
       );
     const latestPolicySource =
-      await input.store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(input.dryRunId);
+      await input.store.codexExecRealReadOnlyAdapterPolicySources.latestPolicySource(
+        input.dryRunId,
+      );
     const expectedDryRunPlanHash =
       latestPolicySource?.dryRunPlanHash ?? latestSourcePreparation?.dryRunPlanHash;
     const expectedPolicyDecisionHash =
@@ -5420,11 +5434,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       reasonCodes.push('approval_artifact_exists');
     }
 
-    if (
-      input.approvalArtifactId &&
-      artifact &&
-      artifact.id !== input.approvalArtifactId
-    ) {
+    if (input.approvalArtifactId && artifact && artifact.id !== input.approvalArtifactId) {
       reasonCodes.push('approval_artifact_id_mismatch');
     }
 
@@ -6549,17 +6559,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
-function isPilotPrerequisiteWorktreeStatus(
-  status: string,
-): status is 'clean' | 'dirty' | 'missing' | 'unknown' {
-  return ['clean', 'dirty', 'missing', 'unknown'].includes(status);
-}
+  function isPilotPrerequisiteWorktreeStatus(
+    status: string,
+  ): status is 'clean' | 'dirty' | 'missing' | 'unknown' {
+    return ['clean', 'dirty', 'missing', 'unknown'].includes(status);
+  }
 
-function hashLocalMetadata(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
+  function hashLocalMetadata(value: unknown): string {
+    return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  }
 
-function approvalActionForOutcome(
+  function approvalActionForOutcome(
     outcome: CodexExecApprovalDecisionOutcome,
   ): 'approve' | 'deny' | 'revoke' {
     if (outcome === 'approved') {
@@ -6686,11 +6696,7 @@ const realReadOnlyAdapterReadinessReviewOutcomes = new Set([
 ]);
 const realReadOnlyAdapterReadinessReviewStatuses = new Set(['draft', 'recorded', 'superseded']);
 const realReadOnlyAdapterAttemptStatuses = new Set(['blocked', 'completed', 'failed', 'aborted']);
-const realReadOnlyAdapterPolicySourceStatuses = new Set([
-  'aligned',
-  'blocked',
-  'requires_review',
-]);
+const realReadOnlyAdapterPolicySourceStatuses = new Set(['aligned', 'blocked', 'requires_review']);
 const realReadOnlyAdapterApprovalAuthorityTraceStatuses = new Set([
   'aligned',
   'blocked',
@@ -6720,14 +6726,10 @@ const realReadOnlyAdapterAttemptSafetyFlags = {
 } as const;
 
 function createRealReadOnlyAdapterAttemptRuntimeFlags(
-  attempts:
-    | CodexExecRealReadOnlyAdapterAttemptRecord
-    | CodexExecRealReadOnlyAdapterAttemptRecord[],
+  attempts: CodexExecRealReadOnlyAdapterAttemptRecord | CodexExecRealReadOnlyAdapterAttemptRecord[],
 ) {
   const records = Array.isArray(attempts) ? attempts : [attempts];
-  const externalProcessStarted = records.some(
-    (record) => record.externalProcessStarted === true,
-  );
+  const externalProcessStarted = records.some((record) => record.externalProcessStarted === true);
 
   return {
     ...realReadOnlyAdapterAttemptSafetyFlags,
@@ -7201,7 +7203,8 @@ function parseRealReadOnlyAdapterAttemptTimelineQuery(
     query: {
       dryRunId,
       status: status as CodexExecRealReadOnlyAdapterAttemptStatus | undefined,
-      includeEvidence: parseBooleanQueryValue(readQueryValue(query, 'includeEvidence') ?? '') === true,
+      includeEvidence:
+        parseBooleanQueryValue(readQueryValue(query, 'includeEvidence') ?? '') === true,
       includeAudit: parseBooleanQueryValue(readQueryValue(query, 'includeAudit') ?? '') === true,
       limit: limitResult.limit,
     },
@@ -7630,6 +7633,7 @@ function isTrustedOrigin(origin: string, trustedOrigins: Set<string>): boolean {
     const hostname = parsed.hostname.toLowerCase();
 
     return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
       (hostname === 'localhost' ||
         hostname === '127.0.0.1' ||
         hostname === '[::1]' ||
@@ -7706,9 +7710,7 @@ function createUntrustedApprovalArtifactBodyAuditEvents(
 }
 
 function hashSupervisorMetadata(metadata: Record<string, unknown>): string {
-  return `sha256:${createHash('sha256')
-    .update(JSON.stringify(metadata))
-    .digest('hex')}`;
+  return `sha256:${createHash('sha256').update(JSON.stringify(metadata)).digest('hex')}`;
 }
 
 function findWorkspaceRoot(startDirectory: string): string {

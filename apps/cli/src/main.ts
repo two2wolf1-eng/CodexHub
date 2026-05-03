@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { Command } from 'commander';
@@ -160,21 +160,35 @@ import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow
 const supervisorUrl = process.env.CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
 const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
-const LOCAL_CONTROL_ENV_VAR = ['CODEXHUB_SUPERVISOR_LOCAL_', LOCAL_CONTROL_KEY_KIND.toUpperCase()].join('');
+const LOCAL_CONTROL_ENV_VAR = [
+  'CODEXHUB_SUPERVISOR_LOCAL_',
+  LOCAL_CONTROL_KEY_KIND.toUpperCase(),
+].join('');
+
+class MissingSupervisorLocalControlKeyError extends Error {
+  constructor() {
+    super(`${LOCAL_CONTROL_ENV_VAR} is required for Supervisor mutating requests`);
+    this.name = 'MissingSupervisorLocalControlKeyError';
+  }
+}
 
 function createSupervisorPostHeaders(): Record<string, string> {
   const localControlKey = process.env[LOCAL_CONTROL_ENV_VAR];
 
   if (!localControlKey) {
-    throw new Error(
-      `${LOCAL_CONTROL_ENV_VAR} is required for Supervisor mutating requests`,
-    );
+    throw new MissingSupervisorLocalControlKeyError();
   }
 
   return {
     'content-type': 'application/json',
     [LOCAL_CONTROL_HEADER]: localControlKey,
   };
+}
+
+function rethrowMissingLocalControlKey(error: unknown): void {
+  if (error instanceof MissingSupervisorLocalControlKeyError) {
+    throw error;
+  }
 }
 
 export interface CodexExecTimelineCliOptions {
@@ -342,34 +356,28 @@ export interface CodexExecRealReadOnlyAdapterAttemptListCliOptions extends Codex
   status?: string;
 }
 
-export interface CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions
-  extends CodexExecRealReadOnlyAdapterAttemptListCliOptions {
+export interface CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions extends CodexExecRealReadOnlyAdapterAttemptListCliOptions {
   includeEvidence?: boolean;
   includeAudit?: boolean;
 }
 
-export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceCliOptions extends CodexExecJsonCliOptions {
   approval?: string;
 }
 
-export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
 }
 
-export type CodexExecRealReadOnlyAdapterPolicySourcePrepareCliOptions =
-  CodexExecJsonCliOptions;
+export type CodexExecRealReadOnlyAdapterPolicySourcePrepareCliOptions = CodexExecJsonCliOptions;
 
-export interface CodexExecRealReadOnlyAdapterPolicySourceListCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterPolicySourceListCliOptions extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
 }
 
-export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions extends CodexExecJsonCliOptions {
   approval?: string;
   worktree?: string;
   worktreeLabel?: string;
@@ -378,14 +386,12 @@ export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteCheckCliOptions
   handoffContextComplete?: boolean;
 }
 
-export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterPilotPrerequisiteListCliOptions extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
 }
 
-export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOptions extends CodexExecJsonCliOptions {
   approval?: string;
   worktree?: string;
   worktreeLabel?: string;
@@ -393,8 +399,7 @@ export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationPrepareCliOpt
   worktreePathHash?: string;
 }
 
-export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationListCliOptions
-  extends CodexExecJsonCliOptions {
+export interface CodexExecRealReadOnlyAdapterPilotSourcePreparationListCliOptions extends CodexExecJsonCliOptions {
   dryRun?: string;
   status?: string;
 }
@@ -475,7 +480,10 @@ export function buildProgram(): Command {
     .command('approval-request')
     .argument('<dryRunId>')
     .option('-r, --reason <reason>', 'Approval request reason', 'Review disabled control-plane run')
-    .option('--policy-source <policySourceId>', 'Bind approval to an aligned read-only adapter policy source')
+    .option(
+      '--policy-source <policySourceId>',
+      'Bind approval to an aligned read-only adapter policy source',
+    )
     .description('Create a manual approval request for a dry-run record')
     .action(async (dryRunId: string, options: { reason: string; policySource?: string }) => {
       const result = await requestCodexExecApproval(dryRunId, options.reason, options.policySource);
@@ -1105,12 +1113,10 @@ export function buildProgram(): Command {
         '  Degraded local fallback is display-only and cannot create an authoritative record.',
       ].join('\n'),
     )
-    .action(
-      async (dryRunId: string, options: CodexExecRealReadOnlyAdapterAttemptCliOptions) => {
-        const result = await attemptRealReadOnlyAdapterCommand(dryRunId, options);
-        console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
-      },
-    );
+    .action(async (dryRunId: string, options: CodexExecRealReadOnlyAdapterAttemptCliOptions) => {
+      const result = await attemptRealReadOnlyAdapterCommand(dryRunId, options);
+      console.log(formatRealReadOnlyAdapterAttemptOutput(result, options));
+    });
 
   const attemptsCommand = realReadOnlyAdapterCommand
     .command('attempts')
@@ -1168,10 +1174,7 @@ export function buildProgram(): Command {
     .option('--json', 'Print full JSON output')
     .description('Read metadata-only attempt timeline for a dry-run id')
     .action(
-      async (
-        dryRunId: string,
-        options: CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions,
-      ) => {
+      async (dryRunId: string, options: CodexExecRealReadOnlyAdapterAttemptTimelineCliOptions) => {
         const result = await getRealReadOnlyAdapterAttemptTimelineCommand(dryRunId, options);
         console.log(formatRealReadOnlyAdapterAttemptTimelineOutput(result, options));
       },
@@ -1223,12 +1226,10 @@ export function buildProgram(): Command {
     .option('--status <status>', 'Filter by trace status')
     .option('--json', 'Print full JSON output')
     .description('List approval authority trace records')
-    .action(
-      async (options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions) => {
-        const result = await listRealReadOnlyAdapterApprovalAuthorityTracesCommand(options);
-        console.log(formatRealReadOnlyAdapterApprovalAuthorityTraceListOutput(result, options));
-      },
-    );
+    .action(async (options: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceListCliOptions) => {
+      const result = await listRealReadOnlyAdapterApprovalAuthorityTracesCommand(options);
+      console.log(formatRealReadOnlyAdapterApprovalAuthorityTraceListOutput(result, options));
+    });
 
   approvalAuthorityCommand
     .command('latest')
@@ -1321,7 +1322,10 @@ export function buildProgram(): Command {
     .option('--approval <approvalArtifactId>', 'Existing approval artifact id to verify')
     .option('--worktree <path>', 'Runtime worktree path used only to derive the sanitized hash')
     .option('--worktree-label <label>', 'Isolated worktree label, not a local path')
-    .option('--worktree-status <status>', 'Worktree metadata status: clean, dirty, missing, or unknown')
+    .option(
+      '--worktree-status <status>',
+      'Worktree metadata status: clean, dirty, missing, or unknown',
+    )
     .option('--worktree-path-hash <hash>', 'Hash for the isolated worktree path')
     .option('--json', 'Print full JSON output')
     .description('Create persisted source-preparation metadata from existing inputs only')
@@ -1387,7 +1391,10 @@ export function buildProgram(): Command {
     .option('--approval <approvalArtifactId>', 'Existing approval artifact id to verify')
     .option('--worktree <path>', 'Runtime worktree path used only to derive the sanitized hash')
     .option('--worktree-label <label>', 'Isolated worktree label, not a local path')
-    .option('--worktree-status <status>', 'Worktree metadata status: clean, dirty, missing, or unknown')
+    .option(
+      '--worktree-status <status>',
+      'Worktree metadata status: clean, dirty, missing, or unknown',
+    )
     .option('--worktree-path-hash <hash>', 'Hash for the isolated worktree path')
     .option('--handoff-context-complete', 'Mark operator handoff context metadata as complete')
     .option('--json', 'Print full JSON output')
@@ -1573,7 +1580,9 @@ async function assertSupervisorRealReadOnlyAdapterInvocationContract(): Promise<
     health.status !== 'ok' ||
     contractVersion !== REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION
   ) {
-    throw new Error('supervisor real read-only adapter invocation contract is stale or unavailable');
+    throw new Error(
+      'supervisor real read-only adapter invocation contract is stale or unavailable',
+    );
   }
 }
 
@@ -1590,7 +1599,8 @@ export async function dryRunWorkflow(workflowName: string): Promise<Record<strin
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const runner = new WorkflowRunner();
     return runner.dryRun(createMockWorkflowDefinition(workflowName), {
       requestedBy: 'cli-fallback',
@@ -1614,7 +1624,8 @@ export async function mockRunDevelopment(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return runMockDevelopmentOrchestration({
       title,
       description,
@@ -1637,7 +1648,8 @@ export async function replayCodexFixture(fixturePath: string): Promise<CodexRepl
     }
 
     return (await response.json()) as CodexReplaySummary;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const text = await readAllowedFixture(fixturePath);
     const result = await replayCodexExecFixture(text);
     return summarizeCodexExecReplay(
@@ -1656,7 +1668,8 @@ export async function getCodexExecConfig(): Promise<Record<string, unknown>> {
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const configLoadResult = await readLocalCodexExecConfig();
 
     return {
@@ -1692,7 +1705,8 @@ export async function dryRunCodexExec(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const intent = createCodexExecExecutionIntent({
       title: prompt,
       prompt,
@@ -1729,7 +1743,8 @@ export async function requestCodexExecApproval(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
     const liveConfig = createDefaultCodexExecLiveConfig();
     const approvalRequest = createCodexExecManualApprovalRequest(
@@ -1798,7 +1813,8 @@ export async function decideCodexExecApproval(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
     const liveConfig = createDefaultCodexExecLiveConfig();
     const approvalRequest = createCodexExecManualApprovalRequest(
@@ -1879,7 +1895,8 @@ export async function listCodexExecApprovals(): Promise<Record<string, unknown>>
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return {
       approvals: [],
       liveExecution: false,
@@ -1904,7 +1921,8 @@ export async function preflightCodexExec(dryRunId: string): Promise<Record<strin
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const { dryRunPlan } = createLocalCodexExecControlPlaneRecord(dryRunId);
     const liveConfig = createDefaultCodexExecLiveConfig();
     const preflightResult = runCodexExecPreflight(dryRunPlan, liveConfig);
@@ -1934,7 +1952,8 @@ export async function evaluateCodexExecGate(dryRunId: string): Promise<Record<st
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const { dryRunPlan, policyDecision } = createLocalCodexExecControlPlaneRecord(dryRunId);
     const liveConfig = createDefaultCodexExecLiveConfig();
     const executionGateResult = evaluateCodexExecExecutionGate(
@@ -1971,7 +1990,8 @@ export async function getCodexExecTimeline(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const timeline = createCodexExecControlPlaneTimeline({
       record,
@@ -2004,7 +2024,8 @@ export async function getCodexExecEvidence(evidenceId: string): Promise<Record<s
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord('codex_dry_run_fixture');
     const detail = getEvidenceDetail({
       evidenceRefId: evidenceId,
@@ -2035,7 +2056,8 @@ export async function listCodexExecEvidence(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(
       options.dryRun ?? 'codex_dry_run_fixture',
     );
@@ -2066,7 +2088,8 @@ export async function getCodexExecAudit(auditEventId: string): Promise<Record<st
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord('codex_dry_run_fixture');
     const detail = getAuditDetail({
       auditEventId,
@@ -2097,7 +2120,8 @@ export async function listCodexExecAudit(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(
       options.dryRun ?? 'codex_dry_run_fixture',
     );
@@ -2128,7 +2152,8 @@ export async function getCodexExecDrilldown(dryRunId: string): Promise<Record<st
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const drilldown = buildControlPlaneDrilldownView({
       dryRunId: record.dryRunPlanId,
@@ -2166,7 +2191,8 @@ export async function getCodexExecReport(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const report = buildCodexExecControlPlaneReport({
       dryRunId: record.dryRunPlanId,
@@ -2211,7 +2237,8 @@ export async function getCodexExecGovernancePackage(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const reviews = createLocalReportReviewRecords(record.dryRunPlanId);
     const governancePackage = buildCodexExecGovernanceReviewPackage({
@@ -2256,7 +2283,8 @@ export async function getCodexExecAdrDraft(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const reviews = createLocalReportReviewRecords(record.dryRunPlanId);
     const governancePackage = buildCodexExecGovernanceReviewPackage({
@@ -2323,7 +2351,8 @@ export async function createCodexExecAdrDecision(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const decisionRecord = createLocalLiveAdapterAdrDecisionRecord(dryRunId, {
       reviewer: options.reviewer,
       rationaleSummary: options.rationaleSummary,
@@ -2348,7 +2377,8 @@ export async function getCodexExecAdrDecision(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const decisionRecord = {
       ...createLocalLiveAdapterAdrDecisionRecord('codex_dry_run_fixture', {
         reviewer: 'cli-fallback',
@@ -2376,7 +2406,8 @@ export async function listCodexExecAdrDecisions(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const dryRunId = options.dryRun ?? 'codex_dry_run_fixture';
     const records = createLocalLiveAdapterAdrDecisionRecords(dryRunId).filter((record) => {
       const queryObject = createAdrDecisionQueryFromCliOptions(options, dryRunId);
@@ -2427,7 +2458,8 @@ export async function getLatestCodexExecAdrDecisionCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const records = createLocalLiveAdapterAdrDecisionRecords(dryRunId);
     const decisionRecord = getLatestCodexExecLiveAdapterAdrDecision(records, dryRunId);
 
@@ -2463,7 +2495,8 @@ export async function simulateReadOnlyAdapterPreflightCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const configLoadResult = await readLocalCodexExecConfig();
     const adrDecision = createLocalLiveAdapterAdrDecisionRecord(record.dryRunPlanId);
@@ -2535,7 +2568,8 @@ export async function createReadOnlyAdapterSimulatorReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviewRecord = await createLocalReadOnlyAdapterSimulatorReviewRecord(dryRunId, {
       reviewer: options.reviewer,
       outcome,
@@ -2562,7 +2596,8 @@ export async function getReadOnlyAdapterSimulatorReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviewRecord = {
       ...(await createLocalReadOnlyAdapterSimulatorReviewRecord('codex_dry_run_fixture', {
         reviewer: 'cli-fallback',
@@ -2590,7 +2625,8 @@ export async function listReadOnlyAdapterSimulatorReviewsCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const dryRunId = options.dryRun ?? 'codex_dry_run_fixture';
     const queryObject = createReadOnlyAdapterSimulatorReviewQueryFromCliOptions(options, dryRunId);
     const records = (await createLocalReadOnlyAdapterSimulatorReviewRecords(dryRunId)).filter(
@@ -2643,7 +2679,8 @@ export async function getLatestReadOnlyAdapterSimulatorReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const records = await createLocalReadOnlyAdapterSimulatorReviewRecords(dryRunId);
     const reviewRecord = getLatestReadOnlyAdapterSimulatorReview(records, dryRunId);
 
@@ -2686,7 +2723,8 @@ export async function createReadOnlyAdapterImplementationPlanReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviewRecord = createLocalReadOnlyAdapterImplementationPlanReviewRecord({
       reviewer: options.reviewer,
       outcome,
@@ -2713,7 +2751,8 @@ export async function getReadOnlyAdapterImplementationPlanReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviewRecord = {
       ...createLocalReadOnlyAdapterImplementationPlanReviewRecord({
         reviewer: 'cli-fallback',
@@ -2742,7 +2781,8 @@ export async function listReadOnlyAdapterImplementationPlanReviewsCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const queryObject = createReadOnlyAdapterImplementationPlanReviewQueryFromCliOptions(options);
     const records = createLocalReadOnlyAdapterImplementationPlanReviewRecords().filter((record) => {
       if (queryObject.status && record.status !== queryObject.status) {
@@ -2789,7 +2829,8 @@ export async function getLatestReadOnlyAdapterImplementationPlanReviewCommand():
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const records = createLocalReadOnlyAdapterImplementationPlanReviewRecords();
     const reviewRecord = getLatestReadOnlyAdapterImplementationPlanReview(records);
 
@@ -2812,7 +2853,8 @@ export async function getReadOnlyAdapterSkeletonPreviewCommand(): Promise<Record
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const preview = createReadOnlyAdapterSkeletonPreview({
       metadata: { cliFallback: true, persisted: false },
     });
@@ -2863,7 +2905,8 @@ export async function createReadOnlyAdapterSkeletonReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createReadOnlyAdapterSkeletonReviewResponse(
       createLocalReadOnlyAdapterSkeletonReviewRecord({ ...options, outcome, status }),
       true,
@@ -2886,7 +2929,8 @@ export async function getReadOnlyAdapterSkeletonReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviewRecord = {
       ...createLocalReadOnlyAdapterSkeletonReviewRecord({ outcome: 'no_go' }),
       id: reviewId,
@@ -2910,7 +2954,8 @@ export async function listReadOnlyAdapterSkeletonReviewsCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const queryObject = createReadOnlyAdapterSkeletonReviewQueryFromCliOptions(options);
     const records = createLocalReadOnlyAdapterSkeletonReviewRecords().filter((record) => {
       if (queryObject.status && record.status !== queryObject.status) {
@@ -2956,7 +3001,8 @@ export async function getLatestReadOnlyAdapterSkeletonReviewCommand(): Promise<
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const records = createLocalReadOnlyAdapterSkeletonReviewRecords();
     const reviewRecord = getLatestReadOnlyAdapterSkeletonReview(records);
     return createReadOnlyAdapterSkeletonReviewResponse(
@@ -2985,7 +3031,8 @@ export async function runReadOnlyAdapterFixtureBoundaryCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const fixtureText = await readAllowedFixture(fixturePath);
     const result = await runReadOnlyAdapterFixtureBoundary({
       fixturePath: toWorkspacePath(resolve(findWorkspaceRoot(process.cwd()), fixturePath)),
@@ -3042,7 +3089,8 @@ export async function createReadOnlyAdapterFinalReadinessCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createReadOnlyAdapterFinalReadinessResponse(
       await createLocalReadOnlyAdapterFinalReadinessRecord({ ...options, outcome, status }),
       true,
@@ -3065,7 +3113,8 @@ export async function listReadOnlyAdapterFinalReadinessCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const queryObject = createReadOnlyAdapterFinalReadinessQueryFromCliOptions(options);
     const records = [await createLocalReadOnlyAdapterFinalReadinessRecord({})].filter((record) => {
       if (queryObject.status && record.status !== queryObject.status) {
@@ -3111,7 +3160,8 @@ export async function getLatestReadOnlyAdapterFinalReadinessCommand(): Promise<
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createReadOnlyAdapterFinalReadinessResponse(
       await createLocalReadOnlyAdapterFinalReadinessRecord({}),
       true,
@@ -3137,7 +3187,8 @@ export async function createRealReadOnlyAdapterReadinessCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterReadinessFallback(dryRunId);
   }
 }
@@ -3157,7 +3208,8 @@ export async function getRealReadOnlyAdapterReadinessCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const fallback = createRealReadOnlyAdapterReadinessFallback('local-fallback');
     const packageRecord = fallback.package as CodexExecRealReadOnlyAdapterReadinessPackage;
 
@@ -3186,7 +3238,8 @@ export async function listRealReadOnlyAdapterReadinessCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const fallback = createRealReadOnlyAdapterReadinessFallback(options.dryRun ?? 'local-fallback');
     const packageRecord = fallback.package as CodexExecRealReadOnlyAdapterReadinessPackage;
 
@@ -3235,7 +3288,8 @@ export async function getLatestRealReadOnlyAdapterReadinessCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterReadinessFallback(dryRunId);
   }
 }
@@ -3276,7 +3330,8 @@ export async function createRealReadOnlyAdapterReadinessReviewCommand(
     }
 
     return payload;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createReadinessReviewUnavailableResponse(
       'supervisor unavailable; readiness review create fallback is display-only and was not persisted',
     );
@@ -3298,7 +3353,8 @@ export async function getRealReadOnlyAdapterReadinessReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createReadinessReviewUnavailableResponse(
       'supervisor unavailable; readiness review read fallback is display-only',
     );
@@ -3320,7 +3376,8 @@ export async function listRealReadOnlyAdapterReadinessReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return {
       reviews: [],
       summaries: [],
@@ -3357,7 +3414,8 @@ export async function getLatestRealReadOnlyAdapterReadinessReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createReadinessReviewUnavailableResponse(
       'supervisor unavailable; latest readiness review fallback is display-only',
     );
@@ -3370,28 +3428,26 @@ export async function attemptRealReadOnlyAdapterCommand(
 ): Promise<Record<string, unknown>> {
   try {
     await assertSupervisorRealReadOnlyAdapterInvocationContract();
-    const response = await fetch(
-      `${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt`,
-      {
-        method: 'POST',
-        headers: createSupervisorPostHeaders(),
-        body: JSON.stringify({
-          dryRunId,
-          approvalArtifactId: options.approval,
-          isolatedWorktreeProvided: options.worktree !== undefined,
-          worktreePath: options.worktree,
-          governedInputRelativePath: options.governedInput,
-          governedInputContentHash: options.governedInputHash,
-        }),
-      },
-    );
+    const response = await fetch(`${supervisorUrl}/api/codex/exec/real-read-only-adapter/attempt`, {
+      method: 'POST',
+      headers: createSupervisorPostHeaders(),
+      body: JSON.stringify({
+        dryRunId,
+        approvalArtifactId: options.approval,
+        isolatedWorktreeProvided: options.worktree !== undefined,
+        worktreePath: options.worktree,
+        governedInputRelativePath: options.governedInput,
+        governedInputContentHash: options.governedInputHash,
+      }),
+    });
 
     if (!response.ok) {
       throw new Error(`supervisor returned ${response.status}`);
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterAttemptRefusal(dryRunId, options);
   }
 }
@@ -3411,7 +3467,8 @@ export async function getRealReadOnlyAdapterAttemptCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterAttemptReadFallback(
       `supervisor unavailable; attempt ${attemptId} was not read from an authoritative store`,
     );
@@ -3433,7 +3490,8 @@ export async function listRealReadOnlyAdapterAttemptsCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return {
       attempts: [],
       attemptRecords: [],
@@ -3474,7 +3532,8 @@ export async function getLatestRealReadOnlyAdapterAttemptCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterAttemptReadFallback(
       `supervisor unavailable; latest attempt for ${dryRunId} is display-only and not authoritative`,
       dryRunId,
@@ -3503,7 +3562,8 @@ export async function getRealReadOnlyAdapterAttemptTimelineCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterAttemptTimelineReadFallback(
       `supervisor unavailable; attempt timeline for ${dryRunId} is display-only and not authoritative`,
       dryRunId,
@@ -3534,7 +3594,8 @@ export async function traceRealReadOnlyAdapterApprovalAuthorityCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
       `supervisor unavailable or rejected approval authority trace for ${dryRunId}; fallback is display-only and cannot be aligned`,
       dryRunId,
@@ -3557,7 +3618,8 @@ export async function getRealReadOnlyAdapterApprovalAuthorityTraceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
       `supervisor unavailable; approval authority trace ${recordId} was not read from an authoritative store`,
     );
@@ -3579,7 +3641,8 @@ export async function listRealReadOnlyAdapterApprovalAuthorityTracesCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterApprovalAuthorityTraceListFallback(
       'supervisor unavailable; approval authority trace list fallback is display-only and not authoritative',
       options.dryRun,
@@ -3602,7 +3665,8 @@ export async function getLatestRealReadOnlyAdapterApprovalAuthorityTraceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterApprovalAuthorityTraceReadFallback(
       `supervisor unavailable; latest approval authority trace for ${dryRunId} is display-only and not authoritative`,
       dryRunId,
@@ -3628,7 +3692,8 @@ export async function prepareRealReadOnlyAdapterPolicySourceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPolicySourceReadFallback(
       `supervisor unavailable or rejected policy source preparation for ${dryRunId}; fallback is display-only and cannot be aligned`,
       dryRunId,
@@ -3651,7 +3716,8 @@ export async function getRealReadOnlyAdapterPolicySourceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPolicySourceReadFallback(
       `supervisor unavailable; policy source record ${recordId} was not read from an authoritative store`,
     );
@@ -3673,7 +3739,8 @@ export async function listRealReadOnlyAdapterPolicySourcesCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPolicySourceListFallback(
       'supervisor unavailable; policy source list fallback is display-only and not authoritative',
       options.dryRun,
@@ -3696,7 +3763,8 @@ export async function getLatestRealReadOnlyAdapterPolicySourceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPolicySourceReadFallback(
       `supervisor unavailable; latest policy source for ${dryRunId} is display-only and not authoritative`,
       dryRunId,
@@ -3743,7 +3811,8 @@ export async function prepareRealReadOnlyAdapterPilotSourceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
       `supervisor unavailable or rejected source preparation for ${dryRunId}; fallback is display-only and cannot be prepared`,
       dryRunId,
@@ -3766,7 +3835,8 @@ export async function getRealReadOnlyAdapterPilotSourceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
       `supervisor unavailable; source-preparation record ${recordId} was not read from an authoritative store`,
     );
@@ -3788,7 +3858,8 @@ export async function listRealReadOnlyAdapterPilotSourcesCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotSourcePreparationListFallback(
       'supervisor unavailable; pilot source-preparation list fallback is display-only and not authoritative',
       options.dryRun,
@@ -3811,7 +3882,8 @@ export async function getLatestRealReadOnlyAdapterPilotSourceCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotSourcePreparationReadFallback(
       `supervisor unavailable; latest source-preparation record for ${dryRunId} is display-only and not authoritative`,
       dryRunId,
@@ -3847,7 +3919,8 @@ export async function checkRealReadOnlyAdapterPilotPrerequisitesCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
       `supervisor unavailable or rejected the prerequisite check for ${dryRunId}; fallback is display-only and cannot be ready`,
       dryRunId,
@@ -3870,7 +3943,8 @@ export async function getRealReadOnlyAdapterPilotPrerequisiteCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
       `supervisor unavailable; prerequisite record ${recordId} was not read from an authoritative store`,
     );
@@ -3892,7 +3966,8 @@ export async function listRealReadOnlyAdapterPilotPrerequisitesCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return {
       records: [],
       prerequisiteRecords: [],
@@ -3943,7 +4018,8 @@ export async function getLatestRealReadOnlyAdapterPilotPrerequisiteCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     return createRealReadOnlyAdapterPilotPrerequisiteReadFallback(
       `supervisor unavailable; latest prerequisite readiness for ${dryRunId} is display-only and not authoritative`,
       dryRunId,
@@ -3977,7 +4053,8 @@ export async function createCodexExecReportReview(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(dryRunId);
     const report = buildCodexExecControlPlaneReport({
       dryRunId: record.dryRunPlanId,
@@ -4009,7 +4086,8 @@ export async function getCodexExecReportReview(reviewId: string): Promise<Record
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviewRecord = {
       ...createCodexExecReportReviewDraft({
         dryRunId: 'codex_dry_run_fixture',
@@ -4036,7 +4114,8 @@ export async function listCodexExecReportReviews(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const record = createLocalCodexExecControlPlaneRecord(
       options.dryRun ?? 'codex_dry_run_fixture',
     );
@@ -4098,7 +4177,8 @@ export async function getLatestCodexExecReportReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviews = createLocalReportReviewRecords(dryRunId);
     const reviewRecord = getLatestCodexExecReportReview(reviews, reviews[0]?.dryRunId ?? dryRunId);
 
@@ -4127,7 +4207,8 @@ export async function getCodexExecReportReviewHistory(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviews = createLocalReportReviewRecords(options.dryRun ?? 'codex_dry_run_fixture');
     const queryObject = createReportReviewQueryFromCliOptions(options, reviews[0]?.dryRunId ?? '');
     const history = buildCodexExecReportReviewHistory(reviews, queryObject);
@@ -4161,7 +4242,8 @@ export async function compareCodexExecReportReviewCommand(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviews = createLocalReportReviewRecords('codex_dry_run_fixture');
     const left = { ...(reviews[1] ?? reviews[0]), id: leftReviewId };
     const right = { ...(reviews[0] ?? reviews[1]), id: rightReviewId };
@@ -4206,7 +4288,8 @@ export async function getCodexExecReportReviewHandoff(
     }
 
     return (await response.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    rethrowMissingLocalControlKey(error);
     const reviews = createLocalReportReviewRecords(dryRunId);
     const handoff = buildCodexExecReviewerHandoffSummary(
       reviews,
@@ -7104,7 +7187,8 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     )}`,
     `boundaryDiagnosticsComplete=${String(attempt?.boundaryDiagnosticsComplete ?? false)}`,
     `boundaryDiagnosticsMissingFields=${String(
-      attempt?.boundaryDiagnosticsMissingFields && attempt.boundaryDiagnosticsMissingFields.length > 0
+      attempt?.boundaryDiagnosticsMissingFields &&
+        attempt.boundaryDiagnosticsMissingFields.length > 0
         ? attempt.boundaryDiagnosticsMissingFields.join(',')
         : 'none',
     )}`,
@@ -7119,12 +7203,8 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `boundarySpawnTargetKind=${attempt?.boundaryDiagnostics?.spawnTargetKind ?? 'unknown'}`,
     `boundaryCwdHash=${attempt?.boundaryDiagnostics?.cwdHash ?? 'not-recorded'}`,
     `boundaryCwdExists=${String(attempt?.boundaryDiagnostics?.cwdExists ?? false)}`,
-    `boundaryCwdIsDirectory=${String(
-      attempt?.boundaryDiagnostics?.cwdIsDirectory ?? false,
-    )}`,
-    `boundaryExecutableExists=${String(
-      attempt?.boundaryDiagnostics?.executableExists ?? false,
-    )}`,
+    `boundaryCwdIsDirectory=${String(attempt?.boundaryDiagnostics?.cwdIsDirectory ?? false)}`,
+    `boundaryExecutableExists=${String(attempt?.boundaryDiagnostics?.executableExists ?? false)}`,
     `boundaryExecutableAccessible=${String(
       attempt?.boundaryDiagnostics?.executableAccessible ?? false,
     )}`,
@@ -7148,12 +7228,8 @@ export function formatRealReadOnlyAdapterAttemptOutput(
     `boundaryStdoutHash=${attempt?.boundaryDiagnostics?.stdoutHash ?? 'not-recorded'}`,
     `boundaryStderrHash=${attempt?.boundaryDiagnostics?.stderrHash ?? 'not-recorded'}`,
     `boundarySignal=${attempt?.boundaryDiagnostics?.signal ?? 'not-recorded'}`,
-    `boundaryStdoutByteLength=${String(
-      attempt?.boundaryDiagnostics?.stdoutByteLength ?? 0,
-    )}`,
-    `boundaryStderrByteLength=${String(
-      attempt?.boundaryDiagnostics?.stderrByteLength ?? 0,
-    )}`,
+    `boundaryStdoutByteLength=${String(attempt?.boundaryDiagnostics?.stdoutByteLength ?? 0)}`,
+    `boundaryStderrByteLength=${String(attempt?.boundaryDiagnostics?.stderrByteLength ?? 0)}`,
     `boundaryStdoutLineCount=${String(attempt?.boundaryDiagnostics?.stdoutLineCount ?? 0)}`,
     `boundaryStderrLineCount=${String(attempt?.boundaryDiagnostics?.stderrLineCount ?? 0)}`,
     `boundaryStdoutTruncated=${String(attempt?.boundaryDiagnostics?.stdoutTruncated ?? false)}`,
@@ -7182,9 +7258,9 @@ export function formatRealReadOnlyAdapterAttemptListOutput(
     return JSON.stringify(result, null, 2);
   }
 
-  const attemptRecords = (Array.isArray(result.attempts)
-    ? result.attempts
-    : result.attemptRecords) as CodexExecRealReadOnlyAdapterAttemptRecord[] | undefined;
+  const attemptRecords = (
+    Array.isArray(result.attempts) ? result.attempts : result.attemptRecords
+  ) as CodexExecRealReadOnlyAdapterAttemptRecord[] | undefined;
   const summaries = Array.isArray(result.summaries)
     ? (result.summaries as Array<{
         id?: string;
@@ -7513,9 +7589,7 @@ export function formatRealReadOnlyAdapterPilotSourcePreparationOutput(
       record?.configExplicitlyEnabled ?? result.configExplicitlyEnabled ?? false,
     )}`,
     `authoritativePolicySourcePresent=${String(
-      record?.authoritativePolicySourcePresent ??
-        result.authoritativePolicySourcePresent ??
-        false,
+      record?.authoritativePolicySourcePresent ?? result.authoritativePolicySourcePresent ?? false,
     )}`,
     `validUnusedApprovalPresent=${String(
       record?.validUnusedApprovalPresent ?? result.validUnusedApprovalPresent ?? false,
@@ -7612,9 +7686,7 @@ export function formatRealReadOnlyAdapterPilotPrerequisiteOutput(
         false,
     )}`,
     `authoritativePolicySourcePresent=${String(
-      record?.authoritativePolicySourcePresent ??
-        result.authoritativePolicySourcePresent ??
-        false,
+      record?.authoritativePolicySourcePresent ?? result.authoritativePolicySourcePresent ?? false,
     )}`,
     `authoritativeSourcePreparationPresent=${String(
       record?.authoritativeSourcePreparationPresent ??
@@ -7653,9 +7725,7 @@ export function formatRealReadOnlyAdapterPilotPrerequisiteListOutput(
     return JSON.stringify(result, null, 2);
   }
 
-  const records = (Array.isArray(result.records)
-    ? result.records
-    : result.prerequisiteRecords) as
+  const records = (Array.isArray(result.records) ? result.records : result.prerequisiteRecords) as
     | CodexExecRealReadOnlyAdapterPilotPrerequisiteRecord[]
     | undefined;
   const summaries = Array.isArray(result.summaries)
@@ -8034,7 +8104,17 @@ async function readAllowedFixture(fixturePath: string): Promise<string> {
     throw new Error('Fixture path must point to packages/codex-kernel/fixtures/*.jsonl');
   }
 
-  return readFile(requestedPath, 'utf8');
+  const fixturesRootRealPath = await realpath(fixturesRoot);
+  const requestedRealPath = await realpath(requestedPath);
+
+  if (
+    !isPathInside(requestedRealPath, fixturesRootRealPath) ||
+    extname(requestedRealPath) !== '.jsonl'
+  ) {
+    throw new Error('Fixture path must resolve inside packages/codex-kernel/fixtures/*.jsonl');
+  }
+
+  return readFile(requestedRealPath, 'utf8');
 }
 
 function findWorkspaceRoot(startDirectory: string): string {

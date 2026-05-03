@@ -24,6 +24,10 @@ describe('evidence-kernel metadata/hash-only evidence', () => {
         ],
         profilePath: ['C:\\Users\\Thomas\\AppData\\Local\\Chrome\\Profile 1'],
         worktreePath: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\private',
+        workspaceRoot: 'C:\\Users\\Thomas\\CodexHub',
+        dbPath: 'C:\\Users\\Thomas\\CodexHub\\.codexhub\\data\\codexhub.sqlite',
+        logDirectory: 'C:\\Users\\Thomas\\CodexHub\\.codexhub\\logs',
+        sourcePaths: ['C:\\Users\\Thomas\\CodexHub\\packages\\contracts\\src\\index.ts'],
         configPathHash: 'sha256:already-redacted',
       },
       bodyForHashOnly: 'do not store this body',
@@ -46,6 +50,10 @@ describe('evidence-kernel metadata/hash-only evidence', () => {
     expect(profilePath[0]).toMatch(/^sha256:/);
     expect(entries[0]?.value).toBe('kept');
     expect(metadata.worktreePath).toMatch(/^sha256:/);
+    expect(metadata.workspaceRoot).toMatch(/^sha256:/);
+    expect(metadata.dbPath).toMatch(/^sha256:/);
+    expect(metadata.logDirectory).toMatch(/^sha256:/);
+    expect((metadata.sourcePaths as string[])[0]).toMatch(/^sha256:/);
     expect(metadata.configPathHash).toBe('sha256:already-redacted');
     expect(JSON.stringify(evidence)).not.toContain('do not store this body');
     expect(JSON.stringify(evidence)).not.toContain('secret-token');

@@ -130,7 +130,7 @@ function isPathMetadataKey(key: string): boolean {
     return false;
   }
 
-  return /^(profilePath|worktreePath|configPath|executablePath|cwd|path)$/i.test(key);
+  return /^(cwd|path|paths|.*Path|.*Paths|.*Dir|.*Directory|.*Root)$/i.test(key);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

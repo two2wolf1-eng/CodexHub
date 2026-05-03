@@ -1,8 +1,51 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, parse, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const cliSymlinkEscapeFixturePath =
+  'packages/codex-kernel/fixtures/codexhub-cli-symlink-escape-test.jsonl';
+const cliSymlinkEscapeAbsolutePath = join(
+  findTestWorkspaceRoot(process.cwd()),
+  ...cliSymlinkEscapeFixturePath.split('/'),
+);
+
+function findTestWorkspaceRoot(startDirectory: string): string {
+  let current = resolve(startDirectory);
+  const root = parse(current).root;
+
+  while (true) {
+    if (existsSync(join(current, 'pnpm-workspace.yaml'))) {
+      return current;
+    }
+
+    const parent = dirname(current);
+
+    if (parent === current || current === root) {
+      return resolve(startDirectory);
+    }
+
+    current = parent;
+  }
+}
 
 describe('cli development mock-run fallback', () => {
   beforeEach(() => {
     process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
+  });
+
+  afterEach(() => {
+    rmSync(cliSymlinkEscapeAbsolutePath, { force: true });
+  });
+
+  it('does not create mutating fallback records when the local control token is missing', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    delete process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN;
+    const { dryRunWorkflow } = await import('./main');
+
+    await expect(dryRunWorkflow('development.bootstrap')).rejects.toThrow(
+      'CODEXHUB_SUPERVISOR_LOCAL_TOKEN is required',
+    );
   });
 
   it('falls back to local mock orchestration when supervisor is unavailable', async () => {
@@ -33,6 +76,23 @@ describe('cli development mock-run fallback', () => {
       liveExecution: false,
       externalProcessStarted: false,
     });
+  });
+
+  it('blocks symlink escapes for local codex fixture fallback', async () => {
+    process.env.CODEXHUB_SUPERVISOR_URL = 'http://127.0.0.1:9';
+    const escapedDir = mkdtempSync(join(tmpdir(), 'codexhub-cli-fixture-escape-'));
+    const escapedFile = join(escapedDir, 'outside.jsonl');
+    writeFileSync(escapedFile, '{"type":"thread.started","thread_id":"escaped"}\n');
+    symlinkSync(escapedFile, cliSymlinkEscapeAbsolutePath);
+    const { replayCodexFixture } = await import('./main');
+
+    try {
+      await expect(replayCodexFixture(cliSymlinkEscapeFixturePath)).rejects.toThrow(
+        'must resolve inside',
+      );
+    } finally {
+      rmSync(escapedDir, { recursive: true, force: true });
+    }
   });
 
   it('creates a local codex dry-run control-plane record when supervisor is unavailable', async () => {
@@ -499,9 +559,8 @@ describe('cli development mock-run fallback', () => {
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ url: String(url), init });
       if (String(url).endsWith('/health')) {
-        const { REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION } = await import(
-          '@codexhub/codex-kernel'
-        );
+        const { REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION } =
+          await import('@codexhub/codex-kernel');
 
         return new Response(
           JSON.stringify({
@@ -562,9 +621,7 @@ describe('cli development mock-run fallback', () => {
       const requestBody = JSON.parse(String(fetchCalls[1]?.init?.body));
 
       expect(fetchCalls[0]?.url).toContain('/health');
-      expect(fetchCalls[1]?.url).toContain(
-        '/api/codex/exec/real-read-only-adapter/attempt',
-      );
+      expect(fetchCalls[1]?.url).toContain('/api/codex/exec/real-read-only-adapter/attempt');
       expect(requestBody).toMatchObject({
         dryRunId: 'codex_dry_run_fixture',
         approvalArtifactId: 'codex_approval_fixture',
@@ -662,9 +719,7 @@ describe('cli development mock-run fallback', () => {
         checkRealReadOnlyAdapterPilotPrerequisitesCommand,
         prepareRealReadOnlyAdapterPilotSourceCommand,
       } = await import('./main');
-      const { hashRealReadOnlyAdapterRuntimeWorktreePath } = await import(
-        '@codexhub/codex-kernel'
-      );
+      const { hashRealReadOnlyAdapterRuntimeWorktreePath } = await import('@codexhub/codex-kernel');
       const expectedHash = hashRealReadOnlyAdapterRuntimeWorktreePath(rawWorktreePath);
 
       const sourceResult = await prepareRealReadOnlyAdapterPilotSourceCommand(
@@ -998,9 +1053,7 @@ describe('cli development mock-run fallback', () => {
     expect(diagnosticOutput).toContain('boundaryFailureCode=process_exit_nonzero');
     expect(diagnosticOutput).toContain('boundaryStartFailureKind=none');
     expect(diagnosticOutput).toContain('boundaryEnoentKind=none');
-    expect(diagnosticOutput).toContain(
-      'boundaryNonzeroExitKind=codex_cli_usage_error_suspected',
-    );
+    expect(diagnosticOutput).toContain('boundaryNonzeroExitKind=codex_cli_usage_error_suspected');
     expect(diagnosticOutput).toContain('boundaryPlatform=win32');
     expect(diagnosticOutput).toContain('boundaryResolvedExecutableKind=native_exe');
     expect(diagnosticOutput).toContain('boundarySpawnTargetKind=native_exe');
@@ -1011,13 +1064,9 @@ describe('cli development mock-run fallback', () => {
     expect(diagnosticOutput).toContain('boundaryExecutableAccessible=true');
     expect(diagnosticOutput).toContain('boundaryExecutableHash=sha256:safe-executable-hash');
     expect(diagnosticOutput).toContain('boundaryExecutableResolutionSource=direct_path');
-    expect(diagnosticOutput).toContain(
-      'boundaryDependencyResolutionStatus=not_applicable',
-    );
+    expect(diagnosticOutput).toContain('boundaryDependencyResolutionStatus=not_applicable');
     expect(diagnosticOutput).toContain('boundaryEnvAllowlistKeyCount=5');
-    expect(diagnosticOutput).toContain(
-      'boundaryEnvAllowlistKeyHash=sha256:safe-env-keys-hash',
-    );
+    expect(diagnosticOutput).toContain('boundaryEnvAllowlistKeyHash=sha256:safe-env-keys-hash');
     expect(diagnosticOutput).toContain('boundaryDiagnosticsComplete=true');
     expect(diagnosticOutput).toContain('boundaryDiagnosticsMissingFields=none');
     expect(diagnosticOutput).toContain('boundaryExitCode=2');
@@ -1030,12 +1079,8 @@ describe('cli development mock-run fallback', () => {
     expect(diagnosticOutput).toContain('boundaryStdoutTruncated=false');
     expect(diagnosticOutput).toContain('boundaryStderrTruncated=false');
     expect(diagnosticOutput).toContain('postRunVerificationSkipReason=attempt_not_completed');
-    expect(deferredOutput).toContain(
-      'boundaryDeferredReasonCode=executable_resolution_blocked',
-    );
-    expect(deferredOutput).toContain(
-      'boundaryDeferredReasonCodes=executable_resolution_blocked',
-    );
+    expect(deferredOutput).toContain('boundaryDeferredReasonCode=executable_resolution_blocked');
+    expect(deferredOutput).toContain('boundaryDeferredReasonCodes=executable_resolution_blocked');
     expect(deferredOutput).toContain('boundaryDeferredExecutableResolutionStatus=blocked');
     expect(deferredOutput).toContain(
       'boundaryDeferredExecutableResolutionReasonCode=executable_inaccessible',
@@ -1147,7 +1192,8 @@ describe('cli development mock-run fallback', () => {
     const latest =
       await getLatestRealReadOnlyAdapterPilotPrerequisiteCommand('codex_dry_run_fixture');
     const sourceOutput = formatRealReadOnlyAdapterPilotSourcePreparationOutput(preparedSource);
-    const sourceListOutput = formatRealReadOnlyAdapterPilotSourcePreparationListOutput(listedSources);
+    const sourceListOutput =
+      formatRealReadOnlyAdapterPilotSourcePreparationListOutput(listedSources);
     const policySourceOutput = formatRealReadOnlyAdapterPolicySourceOutput(preparedPolicySource);
     const policySourceListOutput =
       formatRealReadOnlyAdapterPolicySourceListOutput(listedPolicySources);

@@ -55,10 +55,8 @@ describe('supervisor mock development API', () => {
       metadata: {
         realReadOnlyAdapterCodexCliInvocationContractVersion:
           REAL_READ_ONLY_ADAPTER_CODEX_CLI_INVOCATION_CONTRACT_VERSION,
-        realReadOnlyAdapterCodexCliArgvCount:
-          REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length,
-        realReadOnlyAdapterCodexCliArgvHash:
-          REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
+        realReadOnlyAdapterCodexCliArgvCount: REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV.length,
+        realReadOnlyAdapterCodexCliArgvHash: REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
         realReadOnlyAdapterCodexCliStdinClosedWithoutBody: true,
         realReadOnlyAdapterCodexCliGovernedInputRequired: true,
         realReadOnlyAdapterCodexCliPromptArgumentStored: false,
@@ -97,6 +95,15 @@ describe('supervisor mock development API', () => {
       },
       payload: { workflowName: 'development.bootstrap' },
     });
+    const unsupportedProtocolResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      headers: {
+        ...localControlHeaders,
+        origin: 'ftp://localhost:5173',
+      },
+      payload: { workflowName: 'development.bootstrap' },
+    });
     const cliStyleResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/dry-run',
@@ -118,6 +125,8 @@ describe('supervisor mock development API', () => {
 
     expect(maliciousOriginResponse.statusCode).toBe(403);
     expect(maliciousOriginResponse.json().error).toBe('untrusted_origin');
+    expect(unsupportedProtocolResponse.statusCode).toBe(403);
+    expect(unsupportedProtocolResponse.json().error).toBe('untrusted_origin');
     expect(missingTokenResponse.statusCode).toBe(401);
     expect(missingTokenResponse.json().error).toBe('invalid_local_control_token');
     expect(trustedOriginResponse.statusCode).toBe(200);
@@ -126,9 +135,7 @@ describe('supervisor mock development API', () => {
     );
     expect(cliStyleResponse.statusCode).toBe(200);
     expect(preflightResponse.statusCode).toBe(204);
-    expect(preflightResponse.headers['access-control-allow-origin']).toBe(
-      'http://localhost:4173',
-    );
+    expect(preflightResponse.headers['access-control-allow-origin']).toBe('http://localhost:4173');
     expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
   });
 
@@ -2589,9 +2596,11 @@ describe('supervisor mock development API', () => {
       degraded: false,
       notPersisted: false,
     });
-    expect(attemptResponse.json().preflight.checks.every((check: { status: string }) => check.status === 'passed')).toBe(
-      true,
-    );
+    expect(
+      attemptResponse
+        .json()
+        .preflight.checks.every((check: { status: string }) => check.status === 'passed'),
+    ).toBe(true);
     expect(attemptResponse.json().attemptRecord.metadata).toMatchObject({
       approvalAuthorityStatus: 'resolved',
       approvalArtifactId,
@@ -2741,9 +2750,7 @@ describe('supervisor mock development API', () => {
     expect(failedAttemptLatestResponse.json().attemptRecord.boundaryDiagnostics.failureCode).toBe(
       'process_exit_nonzero',
     );
-    expect(failedAttemptLatestResponse.json().attemptRecord.boundaryDiagnosticsComplete).toBe(
-      true,
-    );
+    expect(failedAttemptLatestResponse.json().attemptRecord.boundaryDiagnosticsComplete).toBe(true);
     expect(failedAttemptTimelineResponse.json().timeline.entries[0]).toMatchObject({
       attemptId: failedAttemptId,
       processBoundaryInvoked: true,
@@ -3039,8 +3046,7 @@ describe('supervisor mock development API', () => {
         approvalArtifactId,
       },
     });
-    const approvalAuthorityTraceRecordId = approvalAuthorityTraceResponse.json()
-      .recordId as string;
+    const approvalAuthorityTraceRecordId = approvalAuthorityTraceResponse.json().recordId as string;
     const approvalAuthorityTraceGetResponse = await server.inject({
       method: 'GET',
       url: `/api/codex/exec/real-read-only-adapter/approval-authority-traces/${approvalAuthorityTraceRecordId}`,
@@ -3226,9 +3232,7 @@ describe('supervisor mock development API', () => {
       dashboardTriggerAllowed: false,
     });
     expect(approvalAuthorityTraceGetResponse.statusCode).toBe(200);
-    expect(approvalAuthorityTraceGetResponse.json().recordId).toBe(
-      approvalAuthorityTraceRecordId,
-    );
+    expect(approvalAuthorityTraceGetResponse.json().recordId).toBe(approvalAuthorityTraceRecordId);
     expect(approvalAuthorityTraceListResponse.statusCode).toBe(200);
     expect(approvalAuthorityTraceListResponse.json().summaries).toHaveLength(1);
     expect(approvalAuthorityTraceLatestResponse.statusCode).toBe(200);
@@ -3313,7 +3317,9 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('raw stdout body');
     expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('raw stderr body');
     expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('"argv"');
-    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain('"executablePath":');
+    expect(JSON.stringify(approvalAuthorityTraceResponse.json())).not.toContain(
+      '"executablePath":',
+    );
     expect(readyResponse.body).not.toContain(process.cwd());
   });
 
