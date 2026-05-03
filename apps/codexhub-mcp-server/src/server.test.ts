@@ -63,6 +63,15 @@ describe('codexhub MCP server', () => {
         [localControlHeader]: localControlValue,
         origin: 'http://localhost:5173',
       });
+      const mcpPrefixEscape = await requestJson(
+        base,
+        {
+          [localControlHeader]: localControlValue,
+          origin: 'http://localhost:5173',
+        },
+        'POST',
+        '/mcp-extra',
+      );
 
       expect(missing.statusCode).toBe(401);
       expect(bad.statusCode).toBe(401);
@@ -76,6 +85,7 @@ describe('codexhub MCP server', () => {
       );
       expect(trustedPreflight.headers['access-control-allow-origin']).not.toBe('*');
       expect(trusted.statusCode).toBe(200);
+      expect(mcpPrefixEscape.statusCode).toBe(404);
       expect(handled).toBe(1);
     } finally {
       await server.close();
@@ -117,6 +127,23 @@ describe('codexhub MCP server', () => {
 
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result)).toContain('audit_store_unavailable');
+  });
+
+  it('returns MCP tool errors when audit persistence fails', async () => {
+    const store = createFakeStore();
+    store.evidenceRefs.create = async () => {
+      throw new Error('store unavailable');
+    };
+
+    const result = await invokeReadOnlyMcpTool(
+      'codexhub.getArchitectureMap',
+      {},
+      { workspaceRoot: process.cwd(), store: store as unknown as CodexHubStore },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain('audit_store_unavailable');
+    expect(JSON.stringify(result)).not.toContain('apps');
   });
 
   it('returns JSON summaries and records evidence plus audit for read-only tools', async () => {

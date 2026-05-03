@@ -51,7 +51,16 @@ export async function invokeReadOnlyMcpTool(
       inputSummary,
       failureReason: 'policy_blocked',
     });
-    await persistInvocationRecords(context.store, records);
+    const persisted = await tryPersistInvocationRecords(context.store, records);
+
+    if (!persisted) {
+      return mcpError('audit_store_unavailable', {
+        toolName,
+        policyDecisionId: policyDecision.id,
+        audited: false,
+        bodyStored: false,
+      });
+    }
 
     return mcpError('policy_blocked', {
       toolName,
@@ -75,7 +84,16 @@ export async function invokeReadOnlyMcpTool(
       inputSummary,
       outputSummary,
     });
-    await persistInvocationRecords(context.store, records);
+    const persisted = await tryPersistInvocationRecords(context.store, records);
+
+    if (!persisted) {
+      return mcpError('audit_store_unavailable', {
+        toolName,
+        policyDecisionId: policyDecision.id,
+        audited: false,
+        bodyStored: false,
+      });
+    }
 
     return mcpResult({
       ...outputSummary,
@@ -90,7 +108,16 @@ export async function invokeReadOnlyMcpTool(
       inputSummary,
       failureReason: 'tool_execution_failed',
     });
-    await persistInvocationRecords(context.store, records);
+    const persisted = await tryPersistInvocationRecords(context.store, records);
+
+    if (!persisted) {
+      return mcpError('audit_store_unavailable', {
+        toolName,
+        policyDecisionId: policyDecision.id,
+        audited: false,
+        bodyStored: false,
+      });
+    }
 
     return mcpError('tool_execution_failed', {
       toolName,
@@ -122,6 +149,18 @@ async function executeTool(
       return getAffectedProjectsDryRun(context, args as AffectedProjectsDryRunArgs);
     case 'codexhub.readObservationSnapshot':
       return readObservationSnapshot();
+  }
+}
+
+async function tryPersistInvocationRecords(
+  store: CodexHubStore,
+  records: ReturnType<typeof createMcpToolInvocationRecords>,
+): Promise<boolean> {
+  try {
+    await persistInvocationRecords(store, records);
+    return true;
+  } catch {
+    return false;
   }
 }
 

@@ -145,7 +145,9 @@ export async function createCodexHubMcpHttpRequestHandler(
   let storeState = await resolveStore(options);
 
   return async (request, response) => {
-    if (request.url?.startsWith('/health')) {
+    const requestPath = readRequestPath(request);
+
+    if (requestPath === '/health') {
       const gate = authorizeMcpHttpMetadataRequest(request, {
         trustedOrigins: options.trustedOrigins,
       });
@@ -178,7 +180,7 @@ export async function createCodexHubMcpHttpRequestHandler(
       return;
     }
 
-    if (!request.url?.startsWith('/mcp')) {
+    if (requestPath !== '/mcp') {
       writeJson(response, 404, { error: 'not_found' });
       return;
     }
@@ -232,6 +234,14 @@ export async function createCodexHubMcpHttpRequestHandler(
     await mcpServer.connect(transport);
     await transport.handleRequest(request, response);
   };
+}
+
+function readRequestPath(request: IncomingMessage): string {
+  try {
+    return new URL(request.url ?? '/', 'http://localhost').pathname;
+  } catch {
+    return '/';
+  }
 }
 
 async function resolveStore(options: CodexHubMcpRuntimeOptions): Promise<StoreState> {

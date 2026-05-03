@@ -132,8 +132,8 @@ export function App() {
 
     async function loadOverview() {
       try {
+        const health = await getJson<Record<string, unknown>>('/health');
         const [
-          health,
           runsResponse,
           observationsResponse,
           developmentRunsResponse,
@@ -153,7 +153,6 @@ export function App() {
           codexExecReportReviewsResponse,
           codexExecEvidenceResponse,
         ] = await Promise.all([
-          getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
           getJson<{ sourceHealth: SourceHealth[] }>('/api/observations'),
           getJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),

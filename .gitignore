@@ -11,3 +11,4 @@ tmp/
 *.sqlite-shm
 *.log
 *.tsbuildinfo
+.gstack/
