@@ -12,6 +12,8 @@ import {
 } from '@codexhub/nx-verification-adapter';
 import {
   type AuditEvent,
+  type CodexExecManualApprovalRecord,
+  CodexExecManualApprovalRecordSchema,
   type CapabilityExecutionResult,
   type DevelopmentRequest,
   type EvidenceRef,
@@ -27,7 +29,7 @@ import {
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
-import { MetadataOnlyEvidenceCollector, hashText } from '@codexhub/evidence-kernel';
+import { MetadataOnlyEvidenceCollector, hashText, redactMetadata } from '@codexhub/evidence-kernel';
 import { DefaultPolicyEngine, type PolicyEngine } from '@codexhub/security-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 
@@ -190,17 +192,36 @@ export async function runMinimalGovernedOrchestration(
   });
   evidenceRefs.push(...codexResult.evidenceRefs);
   auditEvents.push(...codexResult.auditEvents);
+  const approvalUseArtifacts = await markCodexApprovalArtifactUsed({
+    store: input.store,
+    approvalRecord: codexAuthorityResolution.approvalRecord,
+    codexResult,
+    actor,
+    runId,
+    requestId: request.id,
+    now,
+  });
+  evidenceRefs.push(...approvalUseArtifacts.evidenceRefs);
+  auditEvents.push(...approvalUseArtifacts.auditEvents);
   const codexStatus = capabilityStatusToOrchestrationStatus(
     codexResult.capabilityResult.status,
   );
+  const codexTimelineEvidenceRefs = [
+    ...codexResult.evidenceRefs,
+    ...approvalUseArtifacts.evidenceRefs,
+  ];
+  const codexTimelineAuditEvents = [
+    ...codexResult.auditEvents,
+    ...approvalUseArtifacts.auditEvents,
+  ];
   timeline.push(
     createTimelineEvent({
       runId,
       phase: 'codex',
       status: codexStatus,
       summary: codexResult.capabilityResult.summary,
-      evidenceRefs: codexResult.evidenceRefs,
-      auditEvents: codexResult.auditEvents,
+      evidenceRefs: codexTimelineEvidenceRefs,
+      auditEvents: codexTimelineAuditEvents,
       now,
     }),
   );
@@ -344,6 +365,8 @@ function createMinimalDevelopmentRequest(
   input: Pick<MinimalOrchestratorRunInput, 'title' | 'description' | 'constraints' | 'metadata'>,
   now: () => string,
 ): DevelopmentRequest {
+  const metadataSummary = summarizeInputMetadata(input.metadata);
+
   return {
     id: foundationId('development_request'),
     schemaVersion: SchemaVersionSchema.value,
@@ -358,9 +381,9 @@ function createMinimalDevelopmentRequest(
     ],
     metadata: {
       source: 'orchestrator-kernel.minimal',
+      ...metadataSummary,
       bodyStored: false,
       rawPathStored: false,
-      ...(input.metadata ?? {}),
     },
   };
 }
@@ -384,6 +407,25 @@ function createMinimalOrchestrationPlan(
       bodyStored: false,
       rawPathStored: false,
     },
+  };
+}
+
+function summarizeInputMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!metadata) {
+    return {
+      userMetadataProvided: false,
+      userMetadataKeyCount: 0,
+    };
+  }
+
+  const redacted = redactMetadata(metadata);
+
+  return {
+    userMetadataProvided: true,
+    userMetadataKeyCount: Object.keys(metadata).length,
+    userMetadataHash: `sha256:${hashText(JSON.stringify(redacted))}`,
   };
 }
 
@@ -422,7 +464,12 @@ async function resolveCodexAuthority(input: {
   policyEngine: PolicyEngine;
   actionId: string;
   now: () => string;
-}): Promise<{ authority?: ExecutionAuthority; policyDecision: PolicyDecision; reasonCodes: string[] }> {
+}): Promise<{
+  authority?: ExecutionAuthority;
+  policyDecision: PolicyDecision;
+  reasonCodes: string[];
+  approvalRecord?: CodexExecManualApprovalRecord;
+}> {
   const reasonCodes: string[] = [];
 
   if (!input.approvalArtifactId) {
@@ -433,15 +480,23 @@ async function resolveCodexAuthority(input: {
     reasonCodes.push('approval_store_required');
   }
 
-  const approvalRecord =
+  const rawApprovalRecord =
     input.store && input.approvalArtifactId
       ? await input.store.codexExecApprovals.getCodexExecApprovalRecordByArtifactId(
           input.approvalArtifactId,
         )
       : undefined;
+  const parsedApprovalRecord = rawApprovalRecord
+    ? CodexExecManualApprovalRecordSchema.safeParse(rawApprovalRecord)
+    : undefined;
+  const approvalRecord = parsedApprovalRecord?.success ? parsedApprovalRecord.data : undefined;
   const artifact = approvalRecord?.approvalArtifact;
 
-  if (input.approvalArtifactId && !approvalRecord) {
+  if (rawApprovalRecord && parsedApprovalRecord?.success === false) {
+    reasonCodes.push('approval_record_invalid');
+  }
+
+  if (input.approvalArtifactId && !rawApprovalRecord) {
     reasonCodes.push('approval_artifact_not_found');
   }
 
@@ -481,17 +536,19 @@ async function resolveCodexAuthority(input: {
     metadata: {
       dryRunId: input.dryRunId,
       approvalArtifactPresent: Boolean(artifact),
+      approvalAuthorityReasonCodes: reasonCodes,
       noRealWrite: true,
     },
   });
 
   if (reasonCodes.length > 0 || policyDecision.outcome !== 'allow' || !artifact) {
-    return { policyDecision, reasonCodes };
+    return { policyDecision, reasonCodes, approvalRecord };
   }
 
   return {
     policyDecision,
     reasonCodes,
+    approvalRecord,
     authority: createExecutionAuthority({
       policyDecision,
       approvalArtifactId: artifact.id,
@@ -518,6 +575,111 @@ function createExecutionAuthority(input: {
     allowed: input.allowed,
     constraints: input.constraints,
   };
+}
+
+async function markCodexApprovalArtifactUsed(input: {
+  store?: CodexHubStore;
+  approvalRecord?: CodexExecManualApprovalRecord;
+  codexResult: CodexExecAdapterExecuteResult;
+  actor: string;
+  runId: string;
+  requestId: string;
+  now: () => string;
+}): Promise<{ evidenceRefs: EvidenceRef[]; auditEvents: AuditEvent[] }> {
+  const artifact = input.approvalRecord?.approvalArtifact;
+
+  if (
+    !input.store ||
+    !input.approvalRecord ||
+    !artifact?.singleUse ||
+    input.codexResult.capabilityResult.processBoundaryInvoked !== true
+  ) {
+    return { evidenceRefs: [], auditEvents: [] };
+  }
+
+  const usedAt = input.now();
+  const usedRecord: CodexExecManualApprovalRecord = {
+    ...input.approvalRecord,
+    status: 'used',
+    approvalArtifact: {
+      ...artifact,
+      status: 'used',
+      usedAt,
+    },
+    approvalState: input.approvalRecord.approvalState
+      ? {
+          ...input.approvalRecord.approvalState,
+          status: 'used',
+          artifactStatus: 'used',
+          terminal: true,
+          canDecide: false,
+          nextAllowedActions: [],
+          reasons: ['approval artifact consumed by minimal orchestration'],
+          summary: 'Approval artifact consumed by minimal orchestration.',
+        }
+      : input.approvalRecord.approvalState,
+    summary: `Manual approval used for ${input.approvalRecord.request.dryRunPlanId}`,
+    metadata: {
+      ...(input.approvalRecord.metadata ?? {}),
+      usedByRunId: input.runId,
+      usedAt,
+    },
+  };
+  const collector = new MetadataOnlyEvidenceCollector();
+  const evidence = await collector.collect({
+    kind: 'hash',
+    label: `orchestration-approval-used:${input.runId}`,
+    summary: 'Single-use Codex approval artifact was consumed by a boundary attempt.',
+    metadata: {
+      runId: input.runId,
+      requestId: input.requestId,
+      approvalRecordId: usedRecord.id,
+      approvalArtifactId: artifact.id,
+      approvalArtifactHash: `sha256:${hashText(artifact.id)}`,
+      bodyStored: false,
+      rawPathStored: false,
+      liveExecution: false,
+      processBoundaryInvoked: input.codexResult.capabilityResult.processBoundaryInvoked,
+      externalProcessStarted: input.codexResult.capabilityResult.externalProcessStarted,
+      noRealWrite: true,
+    },
+    bodyForHashOnly: JSON.stringify({
+      runId: input.runId,
+      requestId: input.requestId,
+      approvalRecordId: usedRecord.id,
+      approvalArtifactId: artifact.id,
+      usedAt,
+    }),
+  });
+  const audit: AuditEvent = {
+    id: foundationId('audit'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: usedAt,
+    actor: input.actor,
+    action: 'orchestrator.approval.mark_used',
+    target: 'codex-approval-artifact',
+    reason: 'single-use approval consumed by Codex adapter boundary attempt',
+    outcome: 'used',
+    policyDecisionId:
+      input.codexResult.auditEvents[0]?.policyDecisionId ?? 'missing-policy-decision',
+    evidenceRefs: [evidence],
+    metadata: {
+      runId: input.runId,
+      requestId: input.requestId,
+      approvalRecordId: usedRecord.id,
+      approvalArtifactId: artifact.id,
+      bodyStored: false,
+      rawPathStored: false,
+      liveExecution: false,
+      processBoundaryInvoked: input.codexResult.capabilityResult.processBoundaryInvoked,
+      externalProcessStarted: input.codexResult.capabilityResult.externalProcessStarted,
+      noRealWrite: true,
+    },
+  };
+
+  await input.store.codexExecApprovals.saveCodexExecApprovalRecord(usedRecord);
+
+  return { evidenceRefs: [evidence], auditEvents: [audit] };
 }
 
 function createTimelineEvent(input: {

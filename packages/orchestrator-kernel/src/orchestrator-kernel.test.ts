@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AuditEvent, EvidenceRef } from '@codexhub/contracts';
+import type { AuditEvent, CodexExecManualApprovalRecord, EvidenceRef } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import {
@@ -145,6 +145,7 @@ describe('orchestrator-kernel minimal governed orchestration', () => {
   it('runs Codex then Nx with persisted approval and injected runners', async () => {
     let codexStarts = 0;
     let nxStarts = 0;
+    const approvalStore = createApprovalStore();
     const result = await runMinimalGovernedOrchestration({
       title: 'Run minimal governed orchestration',
       description: 'Use governed Codex input and verify affected projects.',
@@ -155,7 +156,7 @@ describe('orchestrator-kernel minimal governed orchestration', () => {
       governedInput: createGovernedInputFixture(),
       codexExecutablePath: 'codex-test',
       nxExecutablePath: 'pnpm-test',
-      store: createApprovalStore(),
+      store: approvalStore,
       codexRunner: {
         async start() {
           codexStarts += 1;
@@ -185,8 +186,83 @@ describe('orchestrator-kernel minimal governed orchestration', () => {
     expect(result.run.auditEventIds.length).toBeGreaterThan(0);
     expect(codexStarts).toBe(1);
     expect(nxStarts).toBe(2);
+    expect(approvalStore.getSavedApprovalRecord()?.approvalArtifact?.status).toBe('used');
+    expect(approvalStore.getSavedApprovalRecord()?.approvalArtifact?.usedAt).toBeDefined();
+    expect(result.auditEvents.some((event) => event.action === 'orchestrator.approval.mark_used')).toBe(
+      true,
+    );
     expect(JSON.stringify(result.run)).not.toContain(process.cwd());
     expect(JSON.stringify(result.run)).not.toContain('Successfully ran target');
+  });
+
+  it('blocks reused single-use Codex approval artifacts', async () => {
+    const approvalStore = createApprovalStore();
+    const runInput = {
+      title: 'Run minimal governed orchestration',
+      description: 'Single-use approvals should be consumed.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      worktreePath: process.cwd(),
+      allowedCwdRoots: [process.cwd()],
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: approvalStore,
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'contracts\n', stderr: '' }
+            : { exitCode: 0, stdout: 'Successfully ran target lint,test,build', stderr: '' };
+        },
+      },
+    };
+
+    const firstResult = await runMinimalGovernedOrchestration(runInput);
+    const secondResult = await runMinimalGovernedOrchestration(runInput);
+
+    expect(firstResult.run.status).toBe('passed');
+    expect(secondResult.run.status).toBe('blocked');
+    expect(secondResult.policyDecisions[0]?.metadata?.approvalAuthorityReasonCodes).toContain(
+      'approval_already_used',
+    );
+    expect(secondResult.run.summary.processBoundaryInvoked).toBe(false);
+  });
+
+  it('summarizes request metadata without preserving caller-provided raw values', async () => {
+    const result = await runMinimalGovernedOrchestration({
+      title: 'Run minimal governed orchestration',
+      description: 'Metadata should be summarized only.',
+      dryRunId: 'codex_dry_run_1',
+      worktreePath: process.cwd(),
+      governedInput: createGovernedInputFixture(),
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+      metadata: {
+        bodyStored: true,
+        rawPathStored: true,
+        token: 'private-token',
+        path: 'C:\\private\\workspace',
+        nested: {
+          authorization: 'Bearer secret',
+        },
+      },
+    });
+
+    expect(result.request.metadata?.bodyStored).toBe(false);
+    expect(result.request.metadata?.rawPathStored).toBe(false);
+    expect(result.request.metadata?.userMetadataProvided).toBe(true);
+    expect(result.request.metadata?.userMetadataHash).toMatch(/^sha256:/);
+    expect(JSON.stringify(result.request.metadata)).not.toContain('private-token');
+    expect(JSON.stringify(result.request.metadata)).not.toContain('C:\\private\\workspace');
+    expect(JSON.stringify(result.request.metadata)).not.toContain('Bearer secret');
   });
 
   it('does not run Nx when Codex fails', async () => {
@@ -290,32 +366,21 @@ function createGovernedInputFixture() {
   };
 }
 
-function createApprovalStore(): CodexHubStore {
+function createApprovalStore(): CodexHubStore & {
+  getSavedApprovalRecord(): CodexExecManualApprovalRecord | undefined;
+} {
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  let currentRecord: CodexExecManualApprovalRecord | undefined =
+    createApprovalRecordFixture(expiresAt);
 
   return {
     codexExecApprovals: {
       async getCodexExecApprovalRecordByArtifactId() {
-        return {
-          approvalArtifact: {
-            id: 'approval_artifact_1',
-            schemaVersion: '2026-04-28.foundation',
-            createdAt: '2026-04-28T00:00:00.000Z',
-            dryRunPlanId: 'codex_dry_run_1',
-            dryRunPlanHash: 'sha256:dry-run',
-            policyDecisionId: 'policy_approved_1',
-            policyDecisionHash: 'sha256:policy',
-            scope: 'single_run',
-            status: 'approved',
-            expiresAt,
-            singleUse: true,
-            revoked: false,
-            summary: 'Approved test artifact.',
-            liveExecution: false,
-            externalProcessStarted: false,
-            executionDisabled: true,
-          },
-        };
+        return currentRecord;
+      },
+      async saveCodexExecApprovalRecord(record: CodexExecManualApprovalRecord) {
+        currentRecord = record;
+        return record;
       },
     },
     evidenceRefs: {
@@ -329,5 +394,81 @@ function createApprovalStore(): CodexHubStore {
       },
     },
     async close() {},
-  } as unknown as CodexHubStore;
+    getSavedApprovalRecord() {
+      return currentRecord;
+    },
+  } as unknown as CodexHubStore & {
+    getSavedApprovalRecord(): CodexExecManualApprovalRecord | undefined;
+  };
+}
+
+function createApprovalRecordFixture(expiresAt: string): CodexExecManualApprovalRecord {
+  const schemaVersion = '2026-04-28.foundation';
+  const createdAt = '2026-04-28T00:00:00.000Z';
+  const safetyFlags = {
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  } as const;
+
+  return {
+    id: 'approval_record_1',
+    schemaVersion,
+    createdAt,
+    request: {
+      id: 'approval_request_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: 'codex_dry_run_1',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: 'policy_approved_1',
+      policyDecisionHash: 'sha256:policy',
+      scope: 'read_only_plan',
+      status: 'approved',
+      riskLevel: 'high',
+      requestedBy: 'test',
+      reason: 'Approve test Codex run.',
+      expiresAt,
+      singleUse: true,
+      summary: 'Approved test request.',
+      ...safetyFlags,
+    },
+    decision: {
+      id: 'approval_decision_1',
+      schemaVersion,
+      createdAt,
+      approvalRequestId: 'approval_request_1',
+      dryRunPlanId: 'codex_dry_run_1',
+      policyDecisionId: 'policy_approved_1',
+      outcome: 'approved',
+      decidedBy: 'test',
+      reasonSummary: 'Approved fixture.',
+      decisionHash: 'sha256:decision',
+      approved: true,
+      approvalArtifactId: 'approval_artifact_1',
+      summary: 'Approved test decision.',
+      ...safetyFlags,
+    },
+    approvalArtifact: {
+      id: 'approval_artifact_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: 'codex_dry_run_1',
+      dryRunPlanHash: 'sha256:dry-run',
+      policyDecisionId: 'policy_approved_1',
+      policyDecisionHash: 'sha256:policy',
+      scope: 'read_only_plan',
+      status: 'approved',
+      expiresAt,
+      singleUse: true,
+      revoked: false,
+      summary: 'Approved test artifact.',
+      ...safetyFlags,
+    },
+    status: 'approved',
+    evidenceRefs: [],
+    auditEventIds: [],
+    summary: 'Approved test record.',
+    ...safetyFlags,
+  };
 }
