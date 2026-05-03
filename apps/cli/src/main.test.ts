@@ -122,6 +122,68 @@ describe('cli development mock-run fallback', () => {
     );
   });
 
+  it('lists browser profile metadata without raw paths or process state', async () => {
+    const { formatBrowserProfilesListOutput, listBrowserProfilesForCli } = await import(
+      './m3b-readonly'
+    );
+    const result = listBrowserProfilesForCli();
+    const output = formatBrowserProfilesListOutput(result);
+
+    expect(result.profileCount).toBe(1);
+    expect(result.profiles[0]?.profilePathHash).toMatch(/^sha256:/);
+    expect(result.readiness.processBoundaryInvoked).toBe(false);
+    expect(result.readiness.externalProcessStarted).toBe(false);
+    expect(result.readiness.noRealWrite).toBe(true);
+    expect(result.readiness.bodyStored).toBe(false);
+    expect(output).not.toContain('codexhub-cli-browser-profile');
+    expect(output).not.toContain('local-control');
+  });
+
+  it('creates browser observe dry-run plans and blocks browser act requests', async () => {
+    const { createBrowserObserveDryRunForCli, formatBrowserObserveDryRunOutput } = await import(
+      './m3b-readonly'
+    );
+    const ready = createBrowserObserveDryRunForCli({
+      dryRun: true,
+      capabilities: 'title,url,console_summary',
+      profilePath: 'C:\\Users\\Thomas\\AppData\\Local\\Chrome\\Default',
+    });
+    const blocked = createBrowserObserveDryRunForCli({
+      dryRun: true,
+      capabilities: 'title,storage_dump',
+      requestedActions: 'click,type,cookie_extraction,token_extraction',
+      screenshot: true,
+      networkBody: true,
+      bodyStorage: true,
+    });
+    const output = formatBrowserObserveDryRunOutput(ready);
+
+    expect(ready.status).toBe('ready');
+    expect(ready.profilePathHash).toMatch(/^sha256:/);
+    expect(ready.processBoundaryInvoked).toBe(false);
+    expect(ready.externalProcessStarted).toBe(false);
+    expect(ready.noRealWrite).toBe(true);
+    expect(JSON.stringify(ready)).not.toContain('Chrome\\Default');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.blockReasons).toEqual(
+      expect.arrayContaining([
+        'capability_forbidden',
+        'screenshot_requires_approval',
+        'network_body_forbidden',
+        'forbidden_action_requested',
+      ]),
+    );
+    expect(output).toContain('Browser observation dry-run');
+  });
+
+  it('rejects browser observation planning unless dry-run is explicit', async () => {
+    const { createBrowserObserveDryRunForCli } = await import('./m3b-readonly');
+
+    expect(() => createBrowserObserveDryRunForCli({ capabilities: 'title' })).toThrow(
+      'browser observe is dry-run only',
+    );
+  });
+
   it('lists read-only runs using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

@@ -33,6 +33,7 @@ import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-
 import {
   DASHBOARD_VIEWS,
   type DashboardView,
+  createBrowserProfilesReadOnlySummary,
   createVerificationReadinessPreview,
   getDashboardHash,
   getDashboardViewFromHash,
@@ -113,6 +114,7 @@ export function App() {
   );
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
+  const browserProfilesSummary = createBrowserProfilesReadOnlySummary();
 
   useEffect(() => {
     function onHashChange() {
@@ -1618,7 +1620,13 @@ export function App() {
         </Panel>
         </section>
       ) : (
-        renderReadOnlyDashboardView(activeView, overview, mcpSummary, verificationPreview)
+        renderReadOnlyDashboardView(
+          activeView,
+          overview,
+          mcpSummary,
+          verificationPreview,
+          browserProfilesSummary,
+        )
       )}
     </main>
   );
@@ -1629,6 +1637,7 @@ function renderReadOnlyDashboardView(
   overview: OverviewState,
   mcpSummary: ReturnType<typeof summarizeMcpTools>,
   verificationPreview: ReturnType<typeof createVerificationReadinessPreview>,
+  browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -1827,6 +1836,74 @@ function renderReadOnlyDashboardView(
         </Panel>
         <Panel title="Degraded State">
           <p>{summarizeDegradedState(overview.status, overview.message)}</p>
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'browser-profiles') {
+    return (
+      <section className="grid">
+        <Panel title="Browser Profile Readiness">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>
+                {browserProfilesSummary.manifestName} {browserProfilesSummary.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>profiles</strong>
+              <span>{browserProfilesSummary.profileCount}</span>
+            </li>
+            <li>
+              <strong>profile hashes</strong>
+              <span>{browserProfilesSummary.profilePathHashes.join(', ')}</span>
+            </li>
+            <li>
+              <strong>readiness</strong>
+              <span>{browserProfilesSummary.readinessStatus}</span>
+            </li>
+            <li>
+              <strong>block reasons</strong>
+              <span>
+                {browserProfilesSummary.readinessBlockReasons.length > 0
+                  ? browserProfilesSummary.readinessBlockReasons.join(', ')
+                  : 'none'}
+              </span>
+            </li>
+          </ul>
+          <p>{browserProfilesSummary.summary}</p>
+        </Panel>
+        <Panel title="Read-Only Observation Plan">
+          <ul>
+            <li>
+              <strong>plan status</strong>
+              <span>{browserProfilesSummary.planStatus}</span>
+            </li>
+            <li>
+              <strong>capabilities</strong>
+              <span>{browserProfilesSummary.allowedCapabilities.join(', ')}</span>
+            </li>
+            <li>
+              <strong>blocked actions</strong>
+              <span>{browserProfilesSummary.forbiddenActions.length}</span>
+            </li>
+            <li>
+              <strong>process boundary</strong>
+              <span>
+                planned {String(browserProfilesSummary.processBoundaryPlanned)}, invoked{' '}
+                {String(browserProfilesSummary.processBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>write safety</strong>
+              <span>
+                noRealWrite {String(browserProfilesSummary.noRealWrite)}, bodyStored{' '}
+                {String(browserProfilesSummary.bodyStored)}
+              </span>
+            </li>
+          </ul>
         </Panel>
       </section>
     );

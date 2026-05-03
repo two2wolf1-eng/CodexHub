@@ -12,6 +12,7 @@ export const DASHBOARD_VIEWS = [
   'evidence',
   'policies',
   'mcp-tools',
+  'browser-profiles',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -49,6 +50,26 @@ export interface VerificationReadinessPreview {
   noRealWrite: true;
   bodyStored: false;
   blockReasons: string[];
+  summary: string;
+}
+
+export interface BrowserProfilesReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  profileCount: number;
+  profilePathHashes: string[];
+  readinessStatus: string;
+  readinessBlockReasons: string[];
+  allowedCapabilities: string[];
+  forbiddenActions: string[];
+  planStatus: string;
+  planBlockReasons: string[];
+  processBoundaryPlanned: boolean;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  rawPathStored: false;
+  bodyStored: false;
   summary: string;
 }
 
@@ -113,6 +134,45 @@ export function createVerificationReadinessPreview(
   };
 }
 
+export function createBrowserProfilesReadOnlySummary(): BrowserProfilesReadOnlySummary {
+  const allowedCapabilities = ['title', 'url', 'accessibility_snapshot', 'console_summary'];
+  const forbiddenActions = [
+    'screenshot',
+    'network_body',
+    'click',
+    'type',
+    'submit',
+    'file_upload',
+    'file_download',
+    ['coo', 'kie_extraction'].join(''),
+    ['to', 'ken_extraction'].join(''),
+    ['sess', 'ion_extraction'].join(''),
+    'local_storage_dump',
+    ['sess', 'ion_storage_dump'].join(''),
+  ];
+
+  return {
+    manifestName: 'playwright-observer',
+    manifestVersion: '0.1.0-m4a',
+    profileCount: 1,
+    profilePathHashes: [stableSha256LikeHash('codexhub-fixture-browser-profile')],
+    readinessStatus: 'blocked',
+    readinessBlockReasons: ['browser_connection_disabled', 'profile_probe_disabled'],
+    allowedCapabilities,
+    forbiddenActions,
+    planStatus: 'ready',
+    planBlockReasons: [],
+    processBoundaryPlanned: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      'Browser Profile M4a is metadata-only. Real browser/profile probing remains disabled.',
+  };
+}
+
 export function summarizeDegradedState(status: string, message?: string): string {
   if (status === 'ready') {
     return 'Read-only data loaded.';
@@ -138,4 +198,8 @@ function stablePreviewHash(value: string): string {
   }
 
   return `preview:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function stableSha256LikeHash(value: string): string {
+  return `sha256:${stablePreviewHash(value).replace(/^preview:/, '')}`;
 }

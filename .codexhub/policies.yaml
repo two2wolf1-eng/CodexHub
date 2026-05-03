@@ -62,6 +62,10 @@ capabilityAdapters:
   externalProcessBoundaryRequiresAudit: true
 browserAutomation:
   defaultMode: read-only
+  m4aFixtureRunnerOnly: true
+  realBrowserConnectionEnabledInM4a: false
+  profileProbeEnabledInM4a: false
+  rawProfilePathStorage: forbidden
   clickInputSubmitAllowedInFoundation: false
   screenshotRequiresApproval: true
   networkBodyStorage: forbidden

@@ -7,11 +7,13 @@
     "codexhub": "./src/main.ts"
   },
   "dependencies": {
+    "@codexhub/browser-profile-kernel": "workspace:*",
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/mcp-tool-contracts": "workspace:*",
     "@codexhub/nx-verification-adapter": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
+    "@codexhub/playwright-observer-adapter": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "commander": "^12.1.0"

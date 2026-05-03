@@ -15,6 +15,7 @@ const expectedProjects = [
   'skill-registry',
   'mcp-tool-contracts',
   'nx-verification-adapter',
+  'playwright-observer-adapter',
   'codex-exec-adapter',
   'codex-kernel',
   'store-sqlite',
@@ -42,6 +43,7 @@ const requiredGovernanceFiles = [
   'docs/integration-decisions/0001-codex-cli-adapter.md',
   'docs/integration-decisions/0002-mcp-typescript-sdk.md',
   'docs/integration-decisions/0003-nx-affected-adapter.md',
+  'docs/integration-decisions/0004-playwright-observer.md',
   'docs/integration-decisions/0008-minimal-orchestrator.md',
 ];
 
@@ -60,6 +62,11 @@ const requiredContractExports = [
   'OrchestrationRunStatusSchema',
   'OrchestrationTimelineEventSchema',
   'OrchestrationRunSchema',
+  'BrowserProfileRefSchema',
+  'BrowserProfileReadinessSchema',
+  'BrowserPageObservationPlanSchema',
+  'BrowserPageObservationSummarySchema',
+  'BrowserObservationRunSchema',
 ];
 
 const projects = readNxProjects();

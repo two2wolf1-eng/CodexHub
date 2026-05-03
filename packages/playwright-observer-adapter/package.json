@@ -1,8 +1,10 @@
 {
-  "name": "@codexhub/browser-profile-kernel",
+  "name": "@codexhub/playwright-observer-adapter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -10,8 +12,8 @@
       "default": "./src/index.ts"
     }
   },
-  "types": "./src/index.ts",
   "dependencies": {
+    "@codexhub/browser-profile-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*"
   }

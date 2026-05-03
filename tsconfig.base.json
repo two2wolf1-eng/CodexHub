@@ -25,6 +25,7 @@
       "@codexhub/nx-verification-adapter": ["packages/nx-verification-adapter/src/index.ts"],
       "@codexhub/observer-kernel": ["packages/observer-kernel/src/index.ts"],
       "@codexhub/orchestrator-kernel": ["packages/orchestrator-kernel/src/index.ts"],
+      "@codexhub/playwright-observer-adapter": ["packages/playwright-observer-adapter/src/index.ts"],
       "@codexhub/security-kernel": ["packages/security-kernel/src/index.ts"],
       "@codexhub/skill-registry": ["packages/skill-registry/src/index.ts"],
       "@codexhub/store-core": ["packages/store-core/src/index.ts"],

@@ -160,11 +160,16 @@ import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow
 import {
   type JsonCliOptions,
   type VerifyAffectedDryRunCliOptions,
+  type BrowserObserveDryRunCliOptions,
+  createBrowserObserveDryRunForCli,
   createVerifyAffectedDryRunForCli,
+  formatBrowserObserveDryRunOutput,
+  formatBrowserProfilesListOutput,
   formatMcpToolDetailOutput,
   formatMcpToolsListOutput,
   formatVerifyAffectedDryRunOutput,
   getMcpToolForCli,
+  listBrowserProfilesForCli,
   listMcpToolsForCli,
 } from './m3b-readonly';
 
@@ -527,6 +532,44 @@ export function buildProgram(): Command {
     .action((options: VerifyAffectedDryRunCliOptions) => {
       const result = createVerifyAffectedDryRunForCli(options);
       console.log(formatVerifyAffectedDryRunOutput(result, options));
+    });
+
+  const browserCommand = program
+    .command('browser')
+    .description('Read-only browser profile metadata commands');
+
+  const browserProfilesCommand = browserCommand
+    .command('profiles')
+    .description('Read metadata-only browser profile readiness');
+
+  browserProfilesCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List browser profile refs without opening a profile')
+    .action((options: JsonCliOptions) => {
+      console.log(formatBrowserProfilesListOutput(listBrowserProfilesForCli(), options));
+    });
+
+  browserCommand
+    .command('observe')
+    .requiredOption('--dry-run', 'Plan only; required in M4a')
+    .option('--profile-id <profileId>', 'Metadata label for the profile ref', 'cli-observe-profile')
+    .option('--display-name <displayName>', 'Metadata display name', 'CLI observe profile')
+    .option('--profile-path <profilePath>', 'Path-like input used only to derive a hash')
+    .option(
+      '--capabilities <capabilities>',
+      'Comma-separated read-only capabilities',
+      'title,url,accessibility_snapshot,console_summary,network_metadata_summary',
+    )
+    .option('--requested-actions <actions>', 'Comma-separated blocked browser actions')
+    .option('--screenshot', 'Request screenshot capture; remains blocked in M4a')
+    .option('--network-body', 'Request network body storage; remains blocked in M4a')
+    .option('--body-storage', 'Request body storage; remains blocked in M4a')
+    .option('--json', 'Print full JSON output')
+    .description('Plan browser read-only observation without opening a browser')
+    .action((options: BrowserObserveDryRunCliOptions) => {
+      const result = createBrowserObserveDryRunForCli(options);
+      console.log(formatBrowserObserveDryRunOutput(result, options));
     });
 
   program

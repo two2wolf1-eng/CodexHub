@@ -84,6 +84,13 @@ integrations:
     provider: playwright
     providerType: open-source
     mode: read-only
+    stage: m4a-foundation
+    fixtureRunnerOnly: true
+    realBrowserConnectionEnabled: false
+    externalProcessBoundary: false
+    profileProbeEnabled: false
+    rawProfilePathStorage: forbidden
+    outputBodyStorage: hash-only
     clickTypeSubmitAllowed: false
     screenshotRequiresApproval: true
     networkBodyStorage: forbidden

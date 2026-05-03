@@ -132,6 +132,14 @@ import {
   McpToolInvocationSummarySchema,
   McpToolNameSchema,
   AffectedProjectSchema,
+  BrowserForbiddenActionSchema,
+  BrowserObservationCapabilitySchema,
+  BrowserObservationRunSchema,
+  BrowserObservationRunStatusSchema,
+  BrowserPageObservationPlanSchema,
+  BrowserPageObservationSummarySchema,
+  BrowserProfileReadinessSchema,
+  BrowserProfileRefSchema,
   OrchestrationRunSchema,
   OrchestrationRunStatusSchema,
   OrchestrationTimelineEventSchema,
@@ -443,6 +451,150 @@ describe('contracts schemas', () => {
         createdAt,
         kind: 'mcp.tool_raw_body',
         hash: 'sha256:bad',
+      }),
+    ).toThrow();
+  });
+
+  it('parses browser read-only observation contracts without raw bodies or paths', () => {
+    expect(BrowserObservationCapabilitySchema.options).toEqual([
+      'title',
+      'url',
+      'accessibility_snapshot',
+      'console_summary',
+      'network_metadata_summary',
+    ]);
+    expect(BrowserForbiddenActionSchema.options).toContain('cookie_extraction');
+    expect(BrowserObservationRunStatusSchema.options).toEqual([
+      'planned',
+      'completed',
+      'failed',
+      'blocked',
+      'aborted',
+    ]);
+
+    const profileRef = BrowserProfileRefSchema.parse({
+      id: 'browser_profile_ref_1',
+      schemaVersion,
+      createdAt,
+      profileId: 'default',
+      displayName: 'Default profile',
+      profilePathHash: 'sha256:profile-path',
+      rawPathStored: false,
+      readOnly: true,
+    });
+    const readiness = BrowserProfileReadinessSchema.parse({
+      id: 'browser_profile_readiness_1',
+      schemaVersion,
+      observedAt: createdAt,
+      profileRef,
+      status: 'blocked',
+      blockReasons: ['profile_probe_disabled'],
+      allowedCapabilities: ['title', 'url'],
+      forbiddenActions: ['click', 'type', 'cookie_extraction'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Profile readiness is metadata-only and probe-disabled.',
+    });
+    const plan = BrowserPageObservationPlanSchema.parse({
+      id: 'browser_observation_plan_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'playwright-observer',
+      profileRef,
+      requestedCapabilities: ['title', 'accessibility_snapshot', 'console_summary'],
+      forbiddenActions: ['screenshot', 'network_body', 'click'],
+      blockReasons: [],
+      screenshotPlanned: false,
+      networkBodyStorage: 'forbidden',
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Plan browser read-only observation with fixture runner only.',
+    });
+    const pageSummary = BrowserPageObservationSummarySchema.parse({
+      id: 'browser_page_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      source: 'playwright-observer.fixture',
+      kind: 'browser.page.summary',
+      summary: 'Fixture page observation completed.',
+      severity: 'info',
+      planId: plan.id,
+      profileRef,
+      titleObserved: true,
+      pageTitleHash: 'sha256:title',
+      urlObserved: true,
+      pageUrlHash: 'sha256:url',
+      accessibilitySnapshotHash: 'sha256:aria',
+      accessibilityNodeCount: 3,
+      consoleSummary: {
+        messageCount: 2,
+        warningCount: 1,
+        errorCount: 0,
+        bodyStored: false,
+      },
+      networkSummary: {
+        requestCount: 4,
+        responseCount: 4,
+        failedRequestCount: 0,
+        bodyStored: false,
+      },
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_browser_summary',
+      schemaVersion,
+      createdAt,
+      kind: 'browser.observation_summary',
+      hash: 'sha256:browser-summary',
+    });
+    const run = BrowserObservationRunSchema.parse({
+      id: 'browser_observation_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'completed',
+      plan,
+      readiness,
+      pageSummary,
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_browser_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Browser observation fixture run completed.',
+    });
+
+    expect(run.status).toBe('completed');
+    expect(run.pageSummary?.pageUrlHash).toBe('sha256:url');
+    expect(run.rawPathStored).toBe(false);
+    expect(() =>
+      BrowserProfileRefSchema.parse({
+        ...profileRef,
+        profilePath: 'C:\\Users\\Thomas\\AppData\\Local\\Chrome\\Default',
+      }),
+    ).toThrow();
+    expect(() =>
+      BrowserPageObservationSummarySchema.parse({
+        ...pageSummary,
+        rawUrl: 'https://example.test/?token=secret',
+      }),
+    ).toThrow();
+    expect(() =>
+      BrowserPageObservationSummarySchema.parse({
+        ...pageSummary,
+        cookies: ['session=secret'],
       }),
     ).toThrow();
   });

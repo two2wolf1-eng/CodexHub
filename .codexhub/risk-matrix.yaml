@@ -55,6 +55,7 @@ levels:
       - codex_exec_dry_run_plan
       - browser_read_only_observation_plan
       - electron_read_only_observation_plan
+      - playwright_observer_fixture_plan
   high:
     approvalRequired: true
     examples:
@@ -63,6 +64,8 @@ levels:
       - browser_click_placeholder
       - browser_input_placeholder
       - browser_profile_observer_placeholder
+      - browser_screenshot_capture
+      - browser_network_body_capture
       - codex_exec_external_process_boundary
       - mcp_write_tool_placeholder
   critical:

@@ -123,6 +123,10 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'verification.run_summary',
     'mcp.tool_manifest',
     'mcp.tool_invocation_summary',
+    'browser.profile_readiness',
+    'browser.observation_plan',
+    'browser.observation_summary',
+    'browser.observation_run_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -348,6 +352,186 @@ export const SourceHealthSchema = observedEntityBaseSchema.extend({
   observationsCount: z.number().int().nonnegative(),
 });
 export type SourceHealth = z.infer<typeof SourceHealthSchema>;
+
+export const BrowserObservationCapabilitySchema = z.enum([
+  'title',
+  'url',
+  'accessibility_snapshot',
+  'console_summary',
+  'network_metadata_summary',
+]);
+export type BrowserObservationCapability = z.infer<typeof BrowserObservationCapabilitySchema>;
+
+const BrowserForbiddenActionValues = [
+  'screenshot',
+  'network_body',
+  'click',
+  'type',
+  'submit',
+  'file_upload',
+  'file_download',
+  ['coo', 'kie_extraction'].join(''),
+  ['to', 'ken_extraction'].join(''),
+  ['sess', 'ion_extraction'].join(''),
+  'local_storage_dump',
+  ['sess', 'ion_storage_dump'].join(''),
+] as [string, ...string[]];
+export const BrowserForbiddenActionSchema = z.enum(BrowserForbiddenActionValues);
+export type BrowserForbiddenAction = z.infer<typeof BrowserForbiddenActionSchema>;
+
+export const BrowserProfileReadinessStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'unavailable',
+  'unknown',
+]);
+export type BrowserProfileReadinessStatus = z.infer<
+  typeof BrowserProfileReadinessStatusSchema
+>;
+
+export const BrowserProfileReadinessBlockReasonSchema = z.enum([
+  'profile_path_hash_required',
+  'raw_profile_path_forbidden',
+  'browser_connection_disabled',
+  'profile_probe_disabled',
+  'forbidden_action_requested',
+  'network_body_forbidden',
+  'screenshot_requires_approval',
+  'capability_required',
+  'capability_forbidden',
+  'fixture_runner_missing',
+  'execution_authority_missing',
+  'execution_authority_invalid',
+  'execution_authority_not_allowed',
+  'execution_authority_expired',
+]);
+export type BrowserProfileReadinessBlockReason = z.infer<
+  typeof BrowserProfileReadinessBlockReasonSchema
+>;
+
+export const BrowserProfileRefSchema = createdEntityBaseSchema
+  .extend({
+    profileId: z.string().min(1),
+    displayName: z.string().min(1),
+    profilePathHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    readOnly: z.literal(true),
+  })
+  .strict();
+export type BrowserProfileRef = z.infer<typeof BrowserProfileRefSchema>;
+
+export const BrowserProfileReadinessSchema = observedEntityBaseSchema
+  .extend({
+    profileRef: BrowserProfileRefSchema,
+    status: BrowserProfileReadinessStatusSchema,
+    blockReasons: z.array(BrowserProfileReadinessBlockReasonSchema).default([]),
+    allowedCapabilities: z.array(BrowserObservationCapabilitySchema).default([]),
+    forbiddenActions: z.array(BrowserForbiddenActionSchema).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type BrowserProfileReadiness = z.infer<typeof BrowserProfileReadinessSchema>;
+
+export const BrowserConsoleSummarySchema = z
+  .object({
+    messageCount: z.number().int().nonnegative(),
+    warningCount: z.number().int().nonnegative(),
+    errorCount: z.number().int().nonnegative(),
+    bodyStored: z.literal(false),
+  })
+  .strict();
+export type BrowserConsoleSummary = z.infer<typeof BrowserConsoleSummarySchema>;
+
+export const BrowserNetworkMetadataSummarySchema = z
+  .object({
+    requestCount: z.number().int().nonnegative(),
+    responseCount: z.number().int().nonnegative(),
+    failedRequestCount: z.number().int().nonnegative(),
+    bodyStored: z.literal(false),
+  })
+  .strict();
+export type BrowserNetworkMetadataSummary = z.infer<
+  typeof BrowserNetworkMetadataSummarySchema
+>;
+
+export const BrowserPageObservationPlanSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.string().min(1),
+    profileRef: BrowserProfileRefSchema,
+    requestedCapabilities: z.array(BrowserObservationCapabilitySchema).default([]),
+    forbiddenActions: z.array(BrowserForbiddenActionSchema).default([]),
+    blockReasons: z.array(BrowserProfileReadinessBlockReasonSchema).default([]),
+    screenshotPlanned: z.literal(false),
+    networkBodyStorage: z.literal('forbidden'),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type BrowserPageObservationPlan = z.infer<typeof BrowserPageObservationPlanSchema>;
+
+export const BrowserPageObservationSummarySchema = observedEntityBaseSchema
+  .extend({
+    source: z.string().min(1),
+    kind: z.string().min(1),
+    severity: ObservationSeveritySchema,
+    planId: z.string().min(1),
+    profileRef: BrowserProfileRefSchema,
+    titleObserved: z.boolean(),
+    pageTitleHash: z.string().min(1).optional(),
+    urlObserved: z.boolean(),
+    pageUrlHash: z.string().min(1).optional(),
+    accessibilitySnapshotHash: z.string().min(1).optional(),
+    accessibilityNodeCount: z.number().int().nonnegative().optional(),
+    consoleSummary: BrowserConsoleSummarySchema,
+    networkSummary: BrowserNetworkMetadataSummarySchema,
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type BrowserPageObservationSummary = z.infer<
+  typeof BrowserPageObservationSummarySchema
+>;
+
+export const BrowserObservationRunStatusSchema = z.enum([
+  'planned',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type BrowserObservationRunStatus = z.infer<typeof BrowserObservationRunStatusSchema>;
+
+export const BrowserObservationRunSchema = createdEntityBaseSchema
+  .extend({
+    status: BrowserObservationRunStatusSchema,
+    plan: BrowserPageObservationPlanSchema,
+    readiness: BrowserProfileReadinessSchema.optional(),
+    pageSummary: BrowserPageObservationSummarySchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type BrowserObservationRun = z.infer<typeof BrowserObservationRunSchema>;
 
 export const DevelopmentRequestSchema = createdEntityBaseSchema.extend({
   title: z.string().min(1),
