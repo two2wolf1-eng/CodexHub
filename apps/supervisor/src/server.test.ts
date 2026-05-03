@@ -1021,6 +1021,189 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(runResponse.json())).not.toContain('diff --git');
   });
 
+  it('governs worktree cleanup dry-run, approval, and injected controlled git cleanup', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-worktree-cleanup-'));
+    const repoRoot = join(dir, 'repo');
+    const worktreeRoot = join(dir, 'CodexHub-worktrees');
+    const worktreeSlug = 'feature-m6c-cleanup';
+    const branchName = 'codex/feature-m6c-cleanup';
+    const baseRef = 'HEAD';
+    mkdirSync(repoRoot, { recursive: true });
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      worktreeManagerEnabled: true,
+      worktreeCleanupEnabled: true,
+      worktreeManagerRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/worktree-manager/src/cleanup.ts'],
+            diffHash: 'sha256:diff',
+            diffLineCount: 3,
+            commandSummaryHash: 'sha256:command',
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            cleanupRequired: true,
+            cleanupDeferred: true,
+            summary: 'Injected controlled git run completed.',
+          };
+        },
+      },
+      worktreeCleanupRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            commandSummaryHash: 'sha256:cleanup-command',
+            dirtyFileCount: 0,
+            cleanupAttempted: true,
+            cleanupCompleted: true,
+            cleanupRequired: false,
+            cleanupDeferred: false,
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            summary: 'Injected controlled git cleanup completed.',
+          };
+        },
+      },
+    });
+
+    const worktreePath = join(worktreeRoot, worktreeSlug);
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        repoRoot,
+        worktreeSlug,
+        branchName,
+        baseRef,
+        runnerMode: 'controlled-git-worktree',
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId, reason: 'hash-bound worktree approval' },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const createRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        repoRoot,
+        worktreeRoot,
+        worktreePath,
+        worktreeSlug,
+        branchName,
+        baseRef,
+      },
+    });
+    const cleanupDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/cleanup/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sourceRunId: createRunResponse.json().runId,
+        repoRoot,
+        worktreeRoot,
+        worktreePath,
+      },
+    });
+    const cleanupDryRunId = cleanupDryRunResponse.json().dryRunId as string;
+    const cleanupApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/cleanup/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: cleanupDryRunId, reason: 'non-force cleanup approval' },
+    });
+    const cleanupApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/cleanup/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: cleanupDryRunId,
+        approvalRequestId: cleanupApprovalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const untrustedCleanupRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/cleanup/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: cleanupDryRunId,
+        approvalArtifact: cleanupApprovalResponse.json(),
+      },
+    });
+    const cleanupRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/cleanup/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: cleanupDryRunId,
+        approvalArtifactId: cleanupApprovalResponse.json().approvalArtifactId,
+        repoRoot,
+        worktreeRoot,
+        worktreePath,
+      },
+    });
+    const cleanupApprovalsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/worktrees/cleanup/approvals?dryRunId=${cleanupDryRunId}&status=used`,
+    });
+    const cleanupRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/worktrees/cleanup/runs',
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(cleanupDryRunResponse.statusCode).toBe(200);
+    expect(cleanupDryRunResponse.json()).toMatchObject({
+      status: 'ready',
+      cleanupRequired: true,
+      gitProcessBoundaryInvoked: false,
+    });
+    expect(untrustedCleanupRunResponse.statusCode).toBe(400);
+    expect(cleanupRunResponse.statusCode).toBe(200);
+    expect(cleanupRunResponse.json()).toMatchObject({
+      status: 'completed',
+      cleanupAttempted: true,
+      cleanupCompleted: true,
+      cleanupRequired: false,
+      cleanupDeferred: false,
+      gitProcessBoundaryInvoked: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      noRealWrite: false,
+    });
+    expect(cleanupApprovalsResponse.json().records).toHaveLength(1);
+    expect(cleanupRunsResponse.json().records).toHaveLength(1);
+    expect(JSON.stringify(cleanupRunResponse.json())).not.toContain(repoRoot);
+    expect(JSON.stringify(cleanupRunResponse.json())).not.toContain(worktreePath);
+    expect(JSON.stringify(cleanupRunResponse.json())).not.toContain('git worktree remove');
+  });
+
   it('blocks electron cdp execution when store or enablement is unavailable', async () => {
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({

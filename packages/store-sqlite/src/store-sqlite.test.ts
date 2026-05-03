@@ -28,6 +28,9 @@ import {
   type EvidenceRef,
   type MockDevelopmentRun,
   type WorktreeApprovalArtifactRecord,
+  type WorktreeCleanupApprovalArtifactRecord,
+  type WorktreeCleanupControlPlaneRun,
+  type WorktreeCleanupDryRunRecord,
   type WorktreeControlPlaneRun,
   type WorktreeDryRunRecord,
   SchemaVersionSchema,
@@ -191,6 +194,12 @@ describe('store-sqlite migration initialization', () => {
     await first.worktreeApprovals.saveApproval(worktreeApproval);
     const worktreeRun = createWorktreeRunFixture();
     await first.worktreeRuns.saveRun(worktreeRun);
+    const worktreeCleanupDryRun = createWorktreeCleanupDryRunFixture();
+    await first.worktreeCleanupDryRuns.saveDryRun(worktreeCleanupDryRun);
+    const worktreeCleanupApproval = createWorktreeCleanupApprovalFixture();
+    await first.worktreeCleanupApprovals.saveApproval(worktreeCleanupApproval);
+    const worktreeCleanupRun = createWorktreeCleanupRunFixture();
+    await first.worktreeCleanupRuns.saveRun(worktreeCleanupRun);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -345,6 +354,31 @@ describe('store-sqlite migration initialization', () => {
       limit: 10,
     });
     const worktreeRunRecord = await second.worktreeRuns.getRun('worktree_control_run_1');
+    const worktreeCleanupDryRuns = await second.worktreeCleanupDryRuns.listDryRuns({
+      dryRunId: 'worktree_cleanup_dry_run_1',
+      status: 'ready',
+      limit: 10,
+    });
+    const worktreeCleanupDryRunRecord =
+      await second.worktreeCleanupDryRuns.getDryRun('worktree_cleanup_dry_run_record_1');
+    const worktreeCleanupApprovals = await second.worktreeCleanupApprovals.listApprovals({
+      dryRunId: 'worktree_cleanup_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const worktreeCleanupApprovalRecord =
+      await second.worktreeCleanupApprovals.getApproval('worktree_cleanup_approval_record_1');
+    const worktreeCleanupApprovalByArtifact =
+      await second.worktreeCleanupApprovals.getApprovalByArtifactId(
+        'worktree_cleanup_approval_artifact_1',
+      );
+    const worktreeCleanupRuns = await second.worktreeCleanupRuns.listRuns({
+      dryRunId: 'worktree_cleanup_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const worktreeCleanupRunRecord =
+      await second.worktreeCleanupRuns.getRun('worktree_cleanup_control_run_1');
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -564,6 +598,30 @@ describe('store-sqlite migration initialization', () => {
     expect(JSON.stringify({ worktreeDryRunRecord, worktreeApprovalRecord, worktreeRunRecord })).not.toContain(
       'diff --git',
     );
+    expect(worktreeCleanupDryRuns).toHaveLength(1);
+    expect(worktreeCleanupDryRunRecord?.sourceRunId).toBe('worktree_control_run_1');
+    expect(worktreeCleanupApprovals).toHaveLength(1);
+    expect(worktreeCleanupApprovalRecord?.approvalArtifactId).toBe(
+      'worktree_cleanup_approval_artifact_1',
+    );
+    expect(worktreeCleanupApprovalByArtifact?.id).toBe('worktree_cleanup_approval_record_1');
+    expect(worktreeCleanupRuns).toHaveLength(1);
+    expect(worktreeCleanupRunRecord?.cleanupCompleted).toBe(true);
+    expect(worktreeCleanupRunRecord?.cleanupRequired).toBe(false);
+    expect(
+      JSON.stringify({
+        worktreeCleanupDryRunRecord,
+        worktreeCleanupApprovalRecord,
+        worktreeCleanupRunRecord,
+      }),
+    ).not.toContain('CodexHub-worktrees');
+    expect(
+      JSON.stringify({
+        worktreeCleanupDryRunRecord,
+        worktreeCleanupApprovalRecord,
+        worktreeCleanupRunRecord,
+      }),
+    ).not.toContain('git worktree remove');
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
     expect(JSON.stringify(reportReviewRecord)).not.toContain('full report markdown');
@@ -1419,6 +1477,167 @@ function createWorktreeRunFixture(): WorktreeControlPlaneRun {
     processBoundaryInvoked: true,
     externalProcessStarted: true,
     summary: 'Worktree control-plane run completed with git boundary metadata.',
+  };
+}
+
+function createWorktreeCleanupDryRunFixture(): WorktreeCleanupDryRunRecord {
+  const createdAt = '2026-04-28T00:00:05.000Z';
+  const plan: WorktreeCleanupDryRunRecord['plan'] = {
+    id: 'worktree_cleanup_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    adapterName: 'worktree-manager',
+    sourceRunId: 'worktree_control_run_1',
+    status: 'planned' as const,
+    repoRootHash: 'sha256:repo',
+    worktreeRootHash: 'sha256:root',
+    worktreePathHash: 'sha256:path',
+    sourceRunHash: 'sha256:source-run',
+    commandSummaryHash: 'sha256:cleanup-command',
+    blockReasons: [],
+    plannedActions: [
+      {
+        action: 'git.worktree.cleanup.remove',
+        actionMode: 'write' as const,
+        risk: 'high' as const,
+        target: 'sha256:path',
+        requiresApproval: true,
+      },
+    ],
+    dirtyCheckPlanned: true,
+    cleanupDeletePlanned: true,
+    cleanupRequired: true,
+    cleanupDeferred: true,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    gitProcessBoundaryPlanned: true,
+    gitProcessBoundaryInvoked: false,
+    processBoundaryPlanned: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Worktree cleanup dry-run stores hash metadata only.',
+  };
+
+  return {
+    id: 'worktree_cleanup_dry_run_record_1',
+    dryRunId: 'worktree_cleanup_dry_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    sourceRunId: 'worktree_control_run_1',
+    status: 'ready',
+    plan,
+    capabilityDryRun: {
+      id: 'worktree_cleanup_capability_dry_run_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      adapterName: 'worktree-manager',
+      inputSummary: {
+        worktreePathHash: 'sha256:path',
+      },
+      plannedActions: plan.plannedActions,
+      requiredEvidence: ['worktree.cleanup_plan'],
+      warnings: [],
+    },
+    policyDecision: {
+      id: 'worktree_cleanup_policy_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      actionId: 'worktree_cleanup_plan_1',
+      actionType: 'git.worktree.cleanup',
+      actionMode: 'write',
+      riskLevel: 'high',
+      outcome: 'approval_required',
+      reasons: ['cleanup requires approval'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    },
+    repoRootHash: 'sha256:repo',
+    worktreeRootHash: 'sha256:root',
+    worktreePathHash: 'sha256:path',
+    sourceRunHash: 'sha256:source-run',
+    blockReasons: [],
+    timeline: [],
+    evidenceRefs: [],
+    auditEventIds: ['worktree_cleanup_dry_run_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    gitProcessBoundaryPlanned: true,
+    gitProcessBoundaryInvoked: false,
+    processBoundaryPlanned: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Worktree cleanup dry-run stores hash metadata only.',
+  };
+}
+
+function createWorktreeCleanupApprovalFixture(): WorktreeCleanupApprovalArtifactRecord {
+  const createdAt = '2026-04-28T00:00:05.100Z';
+
+  return {
+    id: 'worktree_cleanup_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'worktree_cleanup_dry_run_1',
+    dryRunRecordId: 'worktree_cleanup_dry_run_record_1',
+    sourceRunId: 'worktree_control_run_1',
+    approvalRequestId: 'worktree_cleanup_approval_request_1',
+    approvalArtifactId: 'worktree_cleanup_approval_artifact_1',
+    status: 'approved',
+    requestedBy: 'local-operator',
+    decidedBy: 'local-operator',
+    dryRunPlanHash: 'sha256:cleanup-plan',
+    policyDecisionId: 'worktree_cleanup_policy_1',
+    policyDecisionHash: 'sha256:cleanup-policy',
+    approved: true,
+    requestedAt: createdAt,
+    decidedAt: createdAt,
+    expiresAt: '2026-04-28T01:00:05.100Z',
+    timeline: [],
+    evidenceRefs: [],
+    auditEventIds: ['worktree_cleanup_approval_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    gitProcessBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Worktree cleanup approval stores hashes and ids only.',
+  };
+}
+
+function createWorktreeCleanupRunFixture(): WorktreeCleanupControlPlaneRun {
+  const createdAt = '2026-04-28T00:00:05.200Z';
+
+  return {
+    id: 'worktree_cleanup_control_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'worktree_cleanup_dry_run_1',
+    dryRunRecordId: 'worktree_cleanup_dry_run_record_1',
+    sourceRunId: 'worktree_control_run_1',
+    approvalArtifactId: 'worktree_cleanup_approval_artifact_1',
+    status: 'completed',
+    planId: 'worktree_cleanup_plan_1',
+    repoRootHash: 'sha256:repo',
+    worktreeRootHash: 'sha256:root',
+    worktreePathHash: 'sha256:path',
+    sourceRunHash: 'sha256:source-run',
+    dirtyFileCount: 0,
+    cleanupAttempted: true,
+    cleanupCompleted: true,
+    cleanupRequired: false,
+    cleanupDeferred: false,
+    timeline: [],
+    evidenceRefIds: ['worktree_cleanup_evidence_1'],
+    auditEventIds: ['worktree_cleanup_run_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: false,
+    gitProcessBoundaryInvoked: true,
+    processBoundaryInvoked: true,
+    externalProcessStarted: true,
+    summary: 'Worktree cleanup completed with git boundary metadata.',
   };
 }
 

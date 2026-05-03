@@ -1,11 +1,18 @@
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CapabilityManifestSchema, type ExecutionAuthority } from '@codexhub/contracts';
+import {
+  CapabilityManifestSchema,
+  WorktreeControlPlaneRunSchema,
+  type ExecutionAuthority,
+} from '@codexhub/contracts';
 import {
   buildControlledGitCommand,
+  createControlledGitCleanupRunner,
   createControlledGitWorktreeRunner,
+  createWorktreeCleanupPlan,
   createWorktreeManagerManifest,
   createWorktreeManagerPlan,
+  executeWorktreeCleanup,
   executeWorktreeManager,
   type ControlledGitCommandKind,
   type ControlledGitCommandOutput,
@@ -335,6 +342,14 @@ describe('worktree-manager execute', () => {
       '--name-only',
       '--no-ext-diff',
     ]);
+    expect(buildControlledGitCommand('worktree-remove', runtime).args).toEqual([
+      '-C',
+      repoRoot,
+      'worktree',
+      'remove',
+      resolve(siblingRoot, 'feature-m6b'),
+    ]);
+    expect(buildControlledGitCommand('worktree-remove', runtime).args).not.toContain('--force');
   });
 
   it('runs each fixed controlled git command once while deriving diff metadata', async () => {
@@ -445,6 +460,145 @@ describe('worktree-manager execute', () => {
     expect(result.worktreeRun.changedFiles).toEqual(['packages/contracts/src/index.ts']);
     expect(JSON.stringify(result)).not.toContain('../outside.ts');
   });
+
+  it('plans cleanup only when source run cleanup hashes match', () => {
+    const sourceRun = createSourceWorktreeControlRun();
+    const plan = createWorktreeCleanupPlan({
+      sourceRun,
+      repoRoot,
+      worktreeRoot: siblingRoot,
+      worktreePath: resolve(siblingRoot, 'feature-m6b'),
+    });
+    const mismatch = createWorktreeCleanupPlan({
+      sourceRun,
+      repoRoot,
+      worktreeRoot: siblingRoot,
+      worktreePath: resolve(siblingRoot, 'other-feature'),
+    });
+
+    expect(plan.status).toBe('planned');
+    expect(plan.cleanupPlan.cleanupDeletePlanned).toBe(true);
+    expect(plan.cleanupPlan.gitProcessBoundaryInvoked).toBe(false);
+    expect(mismatch.status).toBe('blocked');
+    expect(mismatch.blockReasons).toContain('worktree_path_hash_mismatch');
+    expect(JSON.stringify(plan)).not.toContain(resolve(siblingRoot, 'feature-m6b'));
+    expect(JSON.stringify(plan)).not.toContain(repoRoot);
+  });
+
+  it('blocks dirty cleanup after fixed git prechecks without invoking remove', async () => {
+    const observedKinds: ControlledGitCommandKind[] = [];
+    const runner = createControlledGitCleanupRunner(
+      {
+        repoRoot,
+        worktreeRoot: siblingRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+      },
+      async (kind) => {
+        observedKinds.push(kind);
+        return createGitCommandOutput(kind, {
+          stdout: kind === 'worktree-status-porcelain' ? ' M package.json\n' : '',
+        });
+      },
+    );
+
+    const result = await runner.run();
+
+    expect(observedKinds).toEqual([
+      'repo-root-preflight',
+      'worktree-list-porcelain',
+      'worktree-status-porcelain',
+    ]);
+    expect(result.status).toBe('blocked');
+    expect(result.dirtyFileCount).toBe(1);
+    expect(result.cleanupAttempted).toBe(false);
+    expect(result.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.noRealWrite).toBe(true);
+  });
+
+  it('executes non-force cleanup with authority and metadata-only evidence', async () => {
+    const sourceRun = createSourceWorktreeControlRun();
+    const plan = createWorktreeCleanupPlan({
+      sourceRun,
+      repoRoot,
+      worktreeRoot: siblingRoot,
+      worktreePath: resolve(siblingRoot, 'feature-m6b'),
+    });
+    const result = await executeWorktreeCleanup({
+      plan,
+      authority: { ...authority, approvalArtifactId: 'cleanup_approval_1' },
+      cleanupEnabled: true,
+      runtime: {
+        repoRoot,
+        worktreeRoot: siblingRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+      },
+      runner: createControlledGitCleanupRunner(
+        {
+          repoRoot,
+          worktreeRoot: siblingRoot,
+          worktreePath: resolve(siblingRoot, 'feature-m6b'),
+        },
+        async (kind) => createGitCommandOutput(kind),
+      ),
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.cleanupRun.cleanupCompleted).toBe(true);
+    expect(result.cleanupRun.cleanupRequired).toBe(false);
+    expect(result.cleanupRun.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.evidenceRefs.map((ref) => ref.kind)).toEqual(
+      expect.arrayContaining(['worktree.cleanup_plan', 'worktree.cleanup_summary']),
+    );
+    expect(JSON.stringify(result)).not.toContain(resolve(siblingRoot, 'feature-m6b'));
+    expect(JSON.stringify(result)).not.toContain('worktree remove');
+  });
+
+  it('blocks cleanup without persisted approval, enablement, or hash-bound runtime', async () => {
+    const sourceRun = createSourceWorktreeControlRun();
+    const plan = createWorktreeCleanupPlan({
+      sourceRun,
+      repoRoot,
+      worktreeRoot: siblingRoot,
+      worktreePath: resolve(siblingRoot, 'feature-m6b'),
+    });
+    const noApproval = await executeWorktreeCleanup({
+      plan,
+      authority,
+      cleanupEnabled: true,
+      runtime: {
+        repoRoot,
+        worktreeRoot: siblingRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+      },
+      runner: { async run() { return { status: 'completed' }; } },
+    });
+    const disabled = await executeWorktreeCleanup({
+      plan,
+      authority: { ...authority, approvalArtifactId: 'cleanup_approval_1' },
+      runtime: {
+        repoRoot,
+        worktreeRoot: siblingRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+      },
+      runner: { async run() { return { status: 'completed' }; } },
+    });
+    const mismatch = await executeWorktreeCleanup({
+      plan,
+      authority: { ...authority, approvalArtifactId: 'cleanup_approval_1' },
+      cleanupEnabled: true,
+      runtime: {
+        repoRoot,
+        worktreeRoot: siblingRoot,
+        worktreePath: resolve(siblingRoot, 'other-feature'),
+      },
+      runner: { async run() { return { status: 'completed' }; } },
+    });
+
+    expect(noApproval.blockReasons).toContain('approval_artifact_missing');
+    expect(disabled.blockReasons).toContain('worktree_cleanup_disabled');
+    expect(mismatch.blockReasons).toContain('worktree_path_hash_mismatch');
+    expect(noApproval.cleanupRun.gitProcessBoundaryInvoked).toBe(false);
+  });
 });
 
 function createGitCommandOutput(
@@ -465,4 +619,45 @@ function createGitCommandOutput(
     stdout,
     stderr,
   };
+}
+
+function createSourceWorktreeControlRun() {
+  const plan = createWorktreeManagerPlan({
+    repoRoot,
+    worktreeSlug: 'feature-m6b',
+    branchName: 'codex/feature-m6b',
+    baseRef: 'HEAD',
+    runnerMode: 'controlled-git-worktree',
+  });
+
+  return WorktreeControlPlaneRunSchema.parse({
+    id: 'source_worktree_run_1',
+    schemaVersion: '2026-04-28.foundation',
+    createdAt: '2026-04-28T00:00:00.000Z',
+    dryRunId: plan.id,
+    dryRunRecordId: plan.id,
+    approvalArtifactId: 'worktree_approval_1',
+    status: 'completed',
+    planId: plan.id,
+    runnerMode: 'controlled-git-worktree',
+    repoRootHash: plan.repoRootHash,
+    worktreeRootHash: plan.worktreeRootHash,
+    worktreePathHash: plan.worktreePathHash,
+    branchNameHash: plan.branchNameHash,
+    worktreeSlugHash: plan.worktreeSlugHash,
+    baseRefHash: plan.baseRefHash,
+    changedFileCount: 1,
+    diffHash: 'sha256:diff',
+    evidenceRefIds: ['worktree_evidence_1'],
+    auditEventIds: ['worktree_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: false,
+    cleanupRequired: true,
+    cleanupDeferred: true,
+    gitProcessBoundaryInvoked: true,
+    processBoundaryInvoked: true,
+    externalProcessStarted: true,
+    summary: 'Source worktree creation requires cleanup.',
+  });
 }

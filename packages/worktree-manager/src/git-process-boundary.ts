@@ -9,12 +9,16 @@ export type ControlledGitCommandKind =
   | 'repo-root-preflight'
   | 'worktree-add-detach'
   | 'diff-name-only'
-  | 'diff-numstat';
+  | 'diff-numstat'
+  | 'worktree-list-porcelain'
+  | 'worktree-status-porcelain'
+  | 'worktree-remove';
 
 export interface ControlledGitRuntimeInput {
   repoRoot: string;
+  worktreeRoot?: string;
   worktreePath: string;
-  baseRef: string;
+  baseRef?: string;
 }
 
 export interface ControlledGitCommand {
@@ -61,7 +65,31 @@ export function buildControlledGitCommand(
   if (kind === 'worktree-add-detach') {
     return {
       command: 'git',
-      args: ['-C', repoRoot, 'worktree', 'add', '--detach', worktreePath, input.baseRef],
+      args: ['-C', repoRoot, 'worktree', 'add', '--detach', worktreePath, input.baseRef ?? 'HEAD'],
+      shell: false,
+    };
+  }
+
+  if (kind === 'worktree-list-porcelain') {
+    return {
+      command: 'git',
+      args: ['-C', repoRoot, 'worktree', 'list', '--porcelain'],
+      shell: false,
+    };
+  }
+
+  if (kind === 'worktree-status-porcelain') {
+    return {
+      command: 'git',
+      args: ['-C', worktreePath, 'status', '--porcelain', '--untracked-files=normal'],
+      shell: false,
+    };
+  }
+
+  if (kind === 'worktree-remove') {
+    return {
+      command: 'git',
+      args: ['-C', repoRoot, 'worktree', 'remove', worktreePath],
       shell: false,
     };
   }
@@ -135,7 +163,7 @@ export function createControlledGitWorktreeRunner(
   };
 }
 
-async function runControlledGitCommand(
+export async function runControlledGitCommand(
   kind: ControlledGitCommandKind,
   input: ControlledGitRuntimeInput,
 ): Promise<ControlledGitCommandOutput> {

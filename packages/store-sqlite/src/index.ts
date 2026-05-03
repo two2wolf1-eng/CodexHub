@@ -15,6 +15,9 @@ import type {
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
   WorktreeApprovalArtifactRecord,
+  WorktreeCleanupApprovalArtifactRecord,
+  WorktreeCleanupControlPlaneRun,
+  WorktreeCleanupDryRunRecord,
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
   CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
@@ -77,6 +80,9 @@ import type {
   ElectronCdpObservationQuery,
   ElectronCdpObservationRunRepository,
   WorktreeApprovalRepository,
+  WorktreeCleanupApprovalRepository,
+  WorktreeCleanupDryRunRepository,
+  WorktreeCleanupRunRepository,
   WorktreeControlPlaneQuery,
   WorktreeDryRunRepository,
   WorktreeRunRepository,
@@ -147,6 +153,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly worktreeDryRuns: WorktreeDryRunRepository;
   readonly worktreeApprovals: WorktreeApprovalRepository;
   readonly worktreeRuns: WorktreeRunRepository;
+  readonly worktreeCleanupDryRuns: WorktreeCleanupDryRunRepository;
+  readonly worktreeCleanupApprovals: WorktreeCleanupApprovalRepository;
+  readonly worktreeCleanupRuns: WorktreeCleanupRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -189,6 +198,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.worktreeDryRuns = new SqliteWorktreeDryRunRepository(database);
     this.worktreeApprovals = new SqliteWorktreeApprovalRepository(database);
     this.worktreeRuns = new SqliteWorktreeRunRepository(database);
+    this.worktreeCleanupDryRuns = new SqliteWorktreeCleanupDryRunRepository(database);
+    this.worktreeCleanupApprovals = new SqliteWorktreeCleanupApprovalRepository(database);
+    this.worktreeCleanupRuns = new SqliteWorktreeCleanupRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -778,6 +790,112 @@ class SqliteWorktreeRunRepository implements WorktreeRunRepository {
     return listObservationControlPlaneRecords<WorktreeControlPlaneRun>(
       this.database,
       'worktree_runs',
+      query,
+    );
+  }
+}
+
+class SqliteWorktreeCleanupDryRunRepository implements WorktreeCleanupDryRunRepository {
+  private readonly repository: JsonEntityRepository<WorktreeCleanupDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<WorktreeCleanupDryRunRecord>(
+      database,
+      'worktree_cleanup_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: WorktreeCleanupDryRunRecord): Promise<WorktreeCleanupDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<WorktreeCleanupDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: WorktreeControlPlaneQuery = {},
+  ): Promise<WorktreeCleanupDryRunRecord[]> {
+    return listObservationControlPlaneRecords<WorktreeCleanupDryRunRecord>(
+      this.database,
+      'worktree_cleanup_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteWorktreeCleanupApprovalRepository implements WorktreeCleanupApprovalRepository {
+  private readonly repository: JsonEntityRepository<WorktreeCleanupApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<WorktreeCleanupApprovalArtifactRecord>(
+      database,
+      'worktree_cleanup_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: WorktreeCleanupApprovalArtifactRecord,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<WorktreeCleanupApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM worktree_cleanup_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as WorktreeCleanupApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: WorktreeControlPlaneQuery = {},
+  ): Promise<WorktreeCleanupApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<WorktreeCleanupApprovalArtifactRecord>(
+      this.database,
+      'worktree_cleanup_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteWorktreeCleanupRunRepository implements WorktreeCleanupRunRepository {
+  private readonly repository: JsonEntityRepository<WorktreeCleanupControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<WorktreeCleanupControlPlaneRun>(
+      database,
+      'worktree_cleanup_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: WorktreeCleanupControlPlaneRun,
+  ): Promise<WorktreeCleanupControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<WorktreeCleanupControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: WorktreeControlPlaneQuery = {},
+  ): Promise<WorktreeCleanupControlPlaneRun[]> {
+    return listObservationControlPlaneRecords<WorktreeCleanupControlPlaneRun>(
+      this.database,
+      'worktree_cleanup_runs',
       query,
     );
   }
@@ -1724,6 +1842,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS worktree_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS worktree_cleanup_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS worktree_cleanup_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS worktree_cleanup_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

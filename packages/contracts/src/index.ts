@@ -135,6 +135,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'electron.run_summary',
     'worktree.plan',
     'worktree.run_summary',
+    'worktree.cleanup_plan',
+    'worktree.cleanup_summary',
     'patch.diff_summary',
     'pr.draft_summary',
     'release.audit_draft',
@@ -1359,7 +1361,16 @@ export type WorktreeApprovalStatus = z.infer<typeof WorktreeApprovalStatusSchema
 
 export const WorktreeControlPlaneTimelineEventSchema = createdEntityBaseSchema
   .extend({
-    phase: z.enum(['dry-run', 'approval-request', 'approval-decision', 'execution']),
+    phase: z.enum([
+      'dry-run',
+      'approval-request',
+      'approval-decision',
+      'execution',
+      'cleanup-dry-run',
+      'cleanup-approval-request',
+      'cleanup-approval-decision',
+      'cleanup-execution',
+    ]),
     status: WorktreeControlPlaneStatusSchema,
     summary: z.string().min(1),
     evidenceRefIds: z.array(z.string().min(1)).default([]),
@@ -1476,6 +1487,139 @@ export const WorktreeControlPlaneRunSchema = createdEntityBaseSchema
   })
   .strict();
 export type WorktreeControlPlaneRun = z.infer<typeof WorktreeControlPlaneRunSchema>;
+
+export const WorktreeCleanupPlanSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.string().min(1),
+    sourceRunId: z.string().min(1),
+    status: WorktreePlanStatusSchema,
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    sourceRunHash: z.string().min(1),
+    commandSummaryHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    plannedActions: z.array(CapabilityPlannedActionSchema).default([]),
+    dirtyCheckPlanned: z.boolean().default(true),
+    cleanupDeletePlanned: z.boolean().default(true),
+    cleanupRequired: z.boolean().default(true),
+    cleanupDeferred: z.boolean().default(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    gitProcessBoundaryPlanned: z.boolean().default(true),
+    gitProcessBoundaryInvoked: z.literal(false).default(false),
+    processBoundaryPlanned: z.boolean().default(true),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeCleanupPlan = z.infer<typeof WorktreeCleanupPlanSchema>;
+
+export const WorktreeCleanupRunSchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    sourceRunId: z.string().min(1),
+    status: WorktreeRunStatusSchema,
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    sourceRunHash: z.string().min(1),
+    commandSummaryHash: z.string().min(1).optional(),
+    dirtyFileCount: z.number().int().nonnegative().default(0),
+    dirtyStatusHash: z.string().min(1).optional(),
+    cleanupAttempted: z.boolean().default(false),
+    cleanupCompleted: z.boolean().default(false),
+    cleanupRequired: z.boolean().default(true),
+    cleanupDeferred: z.boolean().default(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.boolean(),
+    gitProcessBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeCleanupRun = z.infer<typeof WorktreeCleanupRunSchema>;
+
+export const WorktreeCleanupDryRunRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    sourceRunId: z.string().min(1),
+    status: z.enum(['ready', 'blocked']),
+    plan: WorktreeCleanupPlanSchema,
+    capabilityDryRun: CapabilityDryRunSchema,
+    policyDecision: PolicyDecisionSchema,
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    sourceRunHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    timeline: z.array(WorktreeControlPlaneTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    gitProcessBoundaryPlanned: z.boolean().default(true),
+    gitProcessBoundaryInvoked: z.literal(false).default(false),
+    processBoundaryPlanned: z.boolean().default(true),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeCleanupDryRunRecord = z.infer<
+  typeof WorktreeCleanupDryRunRecordSchema
+>;
+
+export const WorktreeCleanupApprovalArtifactRecordSchema =
+  WorktreeApprovalArtifactRecordSchema.extend({
+    sourceRunId: z.string().min(1),
+  }).strict();
+export type WorktreeCleanupApprovalArtifactRecord = z.infer<
+  typeof WorktreeCleanupApprovalArtifactRecordSchema
+>;
+
+export const WorktreeCleanupControlPlaneRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    sourceRunId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: WorktreeRunStatusSchema,
+    planId: z.string().min(1),
+    cleanupRun: WorktreeCleanupRunSchema.optional(),
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    sourceRunHash: z.string().min(1),
+    dirtyFileCount: z.number().int().nonnegative().default(0),
+    dirtyStatusHash: z.string().min(1).optional(),
+    cleanupAttempted: z.boolean().default(false),
+    cleanupCompleted: z.boolean().default(false),
+    cleanupRequired: z.boolean().default(true),
+    cleanupDeferred: z.boolean().default(true),
+    timeline: z.array(WorktreeControlPlaneTimelineEventSchema).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.boolean(),
+    gitProcessBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeCleanupControlPlaneRun = z.infer<
+  typeof WorktreeCleanupControlPlaneRunSchema
+>;
 
 export const PatchRunStatusSchema = z.enum([
   'planned',

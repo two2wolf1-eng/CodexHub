@@ -3,6 +3,8 @@ import {
   type PatchSummary,
   type PullRequestSummaryDraft,
   type ReleaseAuditDraft,
+  type WorktreeCleanupPlan,
+  type WorktreeCleanupRun,
   type WorktreePlan,
   type WorktreeRun,
 } from '@codexhub/contracts';
@@ -117,6 +119,65 @@ export function createReleaseAuditDraftEvidence(draft: ReleaseAuditDraft): Evide
       rawPathStored: false,
       bodyStored: false,
       noRealWrite: true,
+    },
+  });
+}
+
+export function createWorktreeCleanupPlanEvidence(plan: WorktreeCleanupPlan): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'worktree.cleanup_plan',
+    label: 'worktree-manager-cleanup-plan',
+    summary: plan.summary,
+    metadata: {
+      planId: plan.id,
+      sourceRunId: plan.sourceRunId,
+      status: plan.status,
+      repoRootHash: plan.repoRootHash,
+      worktreeRootHash: plan.worktreeRootHash,
+      worktreePathHash: plan.worktreePathHash,
+      sourceRunHash: plan.sourceRunHash,
+      commandSummaryHash: plan.commandSummaryHash,
+      blockReasons: plan.blockReasons,
+      dirtyCheckPlanned: plan.dirtyCheckPlanned,
+      cleanupDeletePlanned: plan.cleanupDeletePlanned,
+      cleanupRequired: plan.cleanupRequired,
+      cleanupDeferred: plan.cleanupDeferred,
+      gitProcessBoundaryPlanned: plan.gitProcessBoundaryPlanned,
+      processBoundaryPlanned: plan.processBoundaryPlanned,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    },
+  });
+}
+
+export function createWorktreeCleanupRunEvidence(run: WorktreeCleanupRun): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'worktree.cleanup_summary',
+    label: 'worktree-manager-cleanup-run',
+    summary: run.summary,
+    metadata: {
+      runId: run.id,
+      planId: run.planId,
+      sourceRunId: run.sourceRunId,
+      status: run.status,
+      repoRootHash: run.repoRootHash,
+      worktreeRootHash: run.worktreeRootHash,
+      worktreePathHash: run.worktreePathHash,
+      sourceRunHash: run.sourceRunHash,
+      commandSummaryHash: run.commandSummaryHash,
+      dirtyFileCount: run.dirtyFileCount,
+      dirtyStatusHash: run.dirtyStatusHash,
+      cleanupAttempted: run.cleanupAttempted,
+      cleanupCompleted: run.cleanupCompleted,
+      cleanupRequired: run.cleanupRequired,
+      cleanupDeferred: run.cleanupDeferred,
+      gitProcessBoundaryInvoked: run.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: run.noRealWrite,
     },
   });
 }

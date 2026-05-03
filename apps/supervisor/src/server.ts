@@ -228,6 +228,9 @@ import type {
   ElectronDebugEndpointSummary,
   EvidenceRef,
   WorktreeApprovalArtifactRecord,
+  WorktreeCleanupApprovalArtifactRecord,
+  WorktreeCleanupControlPlaneRun,
+  WorktreeCleanupDryRunRecord,
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
   WorktreeRunStatus,
@@ -245,6 +248,9 @@ import {
   PolicyDecisionSchema,
   SchemaVersionSchema,
   WorktreeApprovalArtifactRecordSchema,
+  WorktreeCleanupApprovalArtifactRecordSchema,
+  WorktreeCleanupControlPlaneRunSchema,
+  WorktreeCleanupDryRunRecordSchema,
   WorktreeControlPlaneRunSchema,
   WorktreeControlPlaneTimelineEventSchema,
   WorktreeDryRunRecordSchema,
@@ -281,8 +287,12 @@ import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 import {
+  createWorktreeCleanupPlan,
+  executeWorktreeCleanup,
   createWorktreeManagerPlan,
   executeWorktreeManager,
+  type WorktreeCleanupRunner,
+  type WorktreeCleanupPlanResult,
   type WorktreeManagerFixtureRunner,
   type WorktreeManagerPlanResult,
 } from '@codexhub/worktree-manager';
@@ -304,6 +314,8 @@ interface SupervisorServerOptions {
   electronCdpObserverRunner?: ElectronCdpObservationRunner;
   worktreeManagerEnabled?: boolean;
   worktreeManagerRunner?: WorktreeManagerFixtureRunner;
+  worktreeCleanupEnabled?: boolean;
+  worktreeCleanupRunner?: WorktreeCleanupRunner;
 }
 
 interface PersistenceState {
@@ -441,6 +453,43 @@ interface WorktreeRunRequestBody {
   authority?: unknown;
 }
 
+interface WorktreeCleanupDryRunRequestBody {
+  sourceRunId?: string;
+  repoRoot?: string;
+  worktreeRoot?: string;
+  worktreePath?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface WorktreeCleanupApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface WorktreeCleanupManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: 'approved' | 'denied' | 'revoked';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface WorktreeCleanupRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  repoRoot?: string;
+  worktreeRoot?: string;
+  worktreePath?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
 const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
 const LOCAL_CONTROL_ENV_VAR = [
@@ -511,6 +560,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const worktreeDryRunRecords: WorktreeDryRunRecord[] = [];
   const worktreeApprovalRecords: WorktreeApprovalArtifactRecord[] = [];
   const worktreeRunRecords: WorktreeControlPlaneRun[] = [];
+  const worktreeCleanupDryRunRecords: WorktreeCleanupDryRunRecord[] = [];
+  const worktreeCleanupApprovalRecords: WorktreeCleanupApprovalArtifactRecord[] = [];
+  const worktreeCleanupRunRecords: WorktreeCleanupControlPlaneRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -1354,6 +1406,237 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createWorktreeRunResponse(record);
+  });
+
+  server.post('/api/worktrees/cleanup/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('cleanup-dry-run'));
+    }
+
+    const body = request.body as WorktreeCleanupDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(undefined));
+    }
+
+    const sourceRun = body?.sourceRunId
+      ? await resolveWorktreeRun(body.sourceRunId, store)
+      : undefined;
+
+    if (!sourceRun) {
+      return reply.code(404).send({ error: 'source worktree run was not found' });
+    }
+
+    const dryRunRecord = createWorktreeCleanupDryRunRecordFromRequest(sourceRun, body);
+
+    await persistWorktreeCleanupDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+    );
+
+    return createWorktreeCleanupDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/worktrees/cleanup/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseWorktreeQuery(request.query);
+    const records = await listWorktreeCleanupDryRuns(query, store);
+
+    return {
+      records: records.map(createWorktreeCleanupDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/worktrees/cleanup/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('cleanup-approval'));
+    }
+
+    const body = request.body as WorktreeCleanupApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveWorktreeCleanupDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree cleanup dry-run record was not found' });
+    }
+
+    const approvalRecord = createWorktreeCleanupApprovalRecord({
+      dryRunRecord,
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+      status: 'requested',
+    });
+
+    await persistWorktreeCleanupApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createWorktreeCleanupApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/worktrees/cleanup/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('cleanup-approval'));
+    }
+
+    const body = request.body as WorktreeCleanupManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveWorktreeCleanupDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree cleanup dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveWorktreeCleanupApprovalRecord(body.approvalRequestId, store)
+      : (
+          await listWorktreeCleanupApprovals(
+            { dryRunId: dryRunRecord.dryRunId, limit: 1 },
+            store,
+          )
+        )[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'worktree cleanup approval request was not found' });
+    }
+
+    const approvalRecord = createWorktreeCleanupApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistWorktreeCleanupApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createWorktreeCleanupApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/worktrees/cleanup/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseWorktreeQuery(request.query);
+    const records = await listWorktreeCleanupApprovals(query, store);
+
+    return {
+      records: records.map(createWorktreeCleanupApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/worktrees/cleanup/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('cleanup-execution'));
+    }
+
+    const body = request.body as WorktreeCleanupRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveWorktreeCleanupDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree cleanup dry-run record was not found' });
+    }
+
+    const sourceRun = await resolveWorktreeRun(dryRunRecord.sourceRunId, store);
+
+    if (!sourceRun) {
+      return reply.code(404).send({ error: 'source worktree run was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveWorktreeCleanupApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const runRecord = await executeWorktreeCleanupControlPlaneRun({
+      dryRunRecord,
+      sourceRun,
+      approvalRecord,
+      store,
+      runtime: {
+        repoRoot: body?.repoRoot,
+        worktreeRoot: body?.worktreeRoot,
+        worktreePath: body?.worktreePath,
+      },
+    });
+
+    return createWorktreeCleanupRunResponse(runRecord);
+  });
+
+  server.get('/api/worktrees/cleanup/runs', async (request) => {
+    const store = await getStore();
+    const query = parseWorktreeQuery(request.query);
+    const records = await listWorktreeCleanupRuns(query, store);
+
+    return {
+      records: records.map(createWorktreeCleanupRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      gitProcessBoundaryInvoked: records.some((record) => record.gitProcessBoundaryInvoked),
+      processBoundaryInvoked: records.some((record) => record.processBoundaryInvoked),
+      externalProcessStarted: records.some((record) => record.externalProcessStarted),
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/worktrees/cleanup/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveWorktreeCleanupRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'worktree cleanup run was not found' });
+    }
+
+    return createWorktreeCleanupRunResponse(record);
   });
 
   server.post('/api/development/mock-run', async (request) => {
@@ -9255,8 +9538,435 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  function createWorktreeCleanupDryRunRecordFromRequest(
+    sourceRun: WorktreeControlPlaneRun,
+    body: WorktreeCleanupDryRunRequestBody | undefined,
+  ): WorktreeCleanupDryRunRecord {
+    const plan = createWorktreeCleanupPlan({
+      sourceRun,
+      repoRoot: body?.repoRoot ?? '',
+      worktreeRoot: body?.worktreeRoot ?? '',
+      worktreePath: body?.worktreePath ?? '',
+    });
+    const policyDecision = policyEngine.evaluateAction({
+      actionId: plan.id,
+      actionType: 'git.worktree.cleanup',
+      actionMode: 'write',
+      riskLevel: 'high',
+      dryRun: true,
+      approvalGranted: false,
+      metadata: {
+        sourceRunId: sourceRun.id,
+        realWrite: true,
+        noRealWrite: true,
+        worktreePathHash: plan.worktreePathHash,
+      },
+    });
+    const status = plan.status === 'blocked' || policyDecision.outcome === 'deny'
+      ? 'blocked'
+      : 'ready';
+    const evidenceRefs = [
+      createWorktreeControlEvidence({
+        kind: 'worktree.cleanup_plan',
+        label: 'worktree.cleanup.control-plane.dry-run',
+        summary: plan.cleanupPlan.summary,
+        metadata: {
+          dryRunId: plan.id,
+          sourceRunId: sourceRun.id,
+          status,
+          repoRootHash: plan.repoRootHash,
+          worktreeRootHash: plan.worktreeRootHash,
+          worktreePathHash: plan.worktreePathHash,
+          sourceRunHash: plan.sourceRunHash,
+          blockReasons: plan.blockReasons,
+          gitProcessBoundaryPlanned: true,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+
+    return WorktreeCleanupDryRunRecordSchema.parse({
+      id: plan.id,
+      dryRunId: plan.id,
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      sourceRunId: sourceRun.id,
+      status,
+      plan: plan.cleanupPlan,
+      capabilityDryRun: plan.capabilityDryRun,
+      policyDecision: PolicyDecisionSchema.parse(policyDecision),
+      repoRootHash: plan.repoRootHash,
+      worktreeRootHash: plan.worktreeRootHash,
+      worktreePathHash: plan.worktreePathHash,
+      sourceRunHash: plan.sourceRunHash,
+      blockReasons: plan.blockReasons,
+      timeline: [
+        WorktreeControlPlaneTimelineEventSchema.parse({
+          id: foundationId('worktree_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: foundationTimestamp(),
+          phase: 'cleanup-dry-run',
+          status: status === 'ready' ? 'planned' : 'blocked',
+          summary: plan.cleanupPlan.summary,
+          evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+          auditEventIds: [auditEventId],
+          rawPathStored: false,
+          bodyStored: false,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        }),
+      ],
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      gitProcessBoundaryPlanned: true,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryPlanned: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: plan.cleanupPlan.summary,
+    });
+  }
+
+  function createWorktreeCleanupApprovalRecord(input: {
+    dryRunRecord: WorktreeCleanupDryRunRecord;
+    baseRecord?: WorktreeCleanupApprovalArtifactRecord;
+    status: 'requested' | 'approved' | 'denied' | 'revoked' | 'used';
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  }): WorktreeCleanupApprovalArtifactRecord {
+    const now = foundationTimestamp();
+    const approvalArtifactId =
+      input.status === 'approved'
+        ? (input.baseRecord?.approvalArtifactId ?? foundationId('worktree_cleanup_approval_artifact'))
+        : input.baseRecord?.approvalArtifactId;
+    const evidenceRefs = [
+      createWorktreeControlEvidence({
+        kind: 'worktree.cleanup_plan',
+        label: `worktree.cleanup.control-plane.approval.${input.status}`,
+        summary: `Worktree cleanup approval ${input.status}.`,
+        metadata: {
+          dryRunId: input.dryRunRecord.dryRunId,
+          sourceRunId: input.dryRunRecord.sourceRunId,
+          status: input.status,
+          approvalArtifactId,
+          reasonHash: input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+    const requestedAt = input.baseRecord?.requestedAt ?? now;
+    const expiresAt =
+      input.status === 'approved'
+        ? new Date(Date.parse(now) + 60 * 60 * 1000).toISOString()
+        : input.baseRecord?.expiresAt;
+
+    return WorktreeCleanupApprovalArtifactRecordSchema.parse({
+      id: input.baseRecord?.id ?? foundationId('worktree_cleanup_approval_record'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.baseRecord?.createdAt ?? now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      sourceRunId: input.dryRunRecord.sourceRunId,
+      approvalRequestId:
+        input.baseRecord?.approvalRequestId ?? foundationId('worktree_cleanup_approval_request'),
+      approvalArtifactId,
+      status: input.status,
+      requestedBy: input.baseRecord?.requestedBy ?? input.requestedBy ?? 'local-operator',
+      decidedBy: input.status === 'requested' ? undefined : (input.decidedBy ?? 'local-operator'),
+      reasonHash:
+        input.baseRecord?.reasonHash ??
+        (input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined),
+      decisionReasonHash:
+        input.status === 'requested' || !input.reason
+          ? undefined
+          : hashLocalMetadata({ reason: input.reason }),
+      dryRunPlanHash: hashLocalMetadata(input.dryRunRecord.plan),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      policyDecisionHash: hashLocalMetadata(input.dryRunRecord.policyDecision),
+      approved: input.status === 'approved',
+      requestedAt,
+      decidedAt: input.status === 'requested' ? undefined : now,
+      expiresAt,
+      usedAt: input.status === 'used' ? now : input.baseRecord?.usedAt,
+      revokedAt: input.status === 'revoked' ? now : input.baseRecord?.revokedAt,
+      timeline: [
+        ...(input.baseRecord?.timeline ?? []),
+        WorktreeControlPlaneTimelineEventSchema.parse({
+          id: foundationId('worktree_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: now,
+          phase:
+            input.status === 'requested'
+              ? 'cleanup-approval-request'
+              : 'cleanup-approval-decision',
+          status: input.status,
+          summary: `Worktree cleanup approval ${input.status}.`,
+          evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+          auditEventIds: [auditEventId],
+          rawPathStored: false,
+          bodyStored: false,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        }),
+      ],
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: `Worktree cleanup approval ${input.status}.`,
+    });
+  }
+
+  async function executeWorktreeCleanupControlPlaneRun(input: {
+    dryRunRecord: WorktreeCleanupDryRunRecord;
+    sourceRun: WorktreeControlPlaneRun;
+    approvalRecord?: WorktreeCleanupApprovalArtifactRecord;
+    store: CodexHubStore;
+    runtime: {
+      repoRoot?: string;
+      worktreeRoot?: string;
+      worktreePath?: string;
+    };
+  }): Promise<WorktreeCleanupControlPlaneRun> {
+    const worktreeEnabled =
+      options.worktreeManagerEnabled === true ||
+      process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED === 'true';
+    const cleanupEnabled =
+      worktreeEnabled &&
+      (options.worktreeCleanupEnabled === true ||
+        process.env.CODEXHUB_WORKTREE_CLEANUP_ENABLED === 'true');
+    const approvalState = classifyWorktreeApproval(input.approvalRecord);
+    const blockedReason =
+      input.dryRunRecord.status === 'blocked'
+        ? 'dry_run_blocked'
+        : input.sourceRun.cleanupRequired !== true
+          ? 'source_run_cleanup_not_required'
+          : !cleanupEnabled
+            ? 'worktree_cleanup_disabled'
+            : approvalState !== 'ready'
+              ? approvalState
+              : undefined;
+
+    if (blockedReason) {
+      const evidenceRefs = [
+        createWorktreeControlEvidence({
+          kind: 'worktree.cleanup_summary',
+          label: 'worktree.cleanup.control-plane.run.blocked',
+          summary: `Worktree cleanup blocked: ${blockedReason}.`,
+          metadata: {
+            dryRunId: input.dryRunRecord.dryRunId,
+            sourceRunId: input.sourceRun.id,
+            blockedReason,
+            gitProcessBoundaryInvoked: false,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+          },
+        }),
+      ];
+      const record = createWorktreeCleanupControlPlaneRunRecord({
+        dryRunRecord: input.dryRunRecord,
+        approvalRecord: input.approvalRecord,
+        status: 'blocked',
+        summary: `Worktree cleanup blocked: ${blockedReason}.`,
+        evidenceRefs,
+        auditEventIds: [foundationId('audit')],
+        gitProcessBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        noRealWrite: true,
+      });
+      await persistWorktreeCleanupRunRecord(record, input.store);
+      await persistEvidenceRefs(evidenceRefs, input.store);
+      await persistWorktreeAuditEvents(
+        record.auditEventIds,
+        evidenceRefs,
+        input.store,
+        input.dryRunRecord.policyDecision.id,
+      );
+      return record;
+    }
+
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('execution_authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      allowed: true,
+      constraints: [
+        'controlled git worktree cleanup only',
+        'fixed git argv only',
+        'non-force cleanup',
+        'no filesystem delete fallback',
+        'metadata only',
+      ],
+      expiresAt: input.approvalRecord?.expiresAt,
+    });
+    const runtime = createWorktreeCleanupRuntimeInput(input.runtime);
+    const result = await executeWorktreeCleanup({
+      plan: createWorktreeCleanupPlanResultFromRecord(input.dryRunRecord),
+      authority,
+      runner: options.worktreeCleanupRunner,
+      cleanupEnabled,
+      runtime,
+      actor: 'codexhub-supervisor',
+    });
+    const record = createWorktreeCleanupControlPlaneRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalRecord: input.approvalRecord,
+      status: result.cleanupRun.status,
+      summary: result.cleanupRun.summary,
+      cleanupRun: result.cleanupRun,
+      evidenceRefs: result.evidenceRefs,
+      auditEventIds: result.auditEvents.map((event) => event.id),
+      gitProcessBoundaryInvoked: result.cleanupRun.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: result.cleanupRun.processBoundaryInvoked,
+      externalProcessStarted: result.cleanupRun.externalProcessStarted,
+      noRealWrite: result.cleanupRun.noRealWrite,
+    });
+
+    await persistWorktreeCleanupRunRecord(record, input.store);
+    await persistEvidenceRefs(result.evidenceRefs, input.store);
+    for (const auditEvent of result.auditEvents) {
+      await input.store.auditEvents.append(auditEvent);
+    }
+    if (
+      input.approvalRecord?.status === 'approved' &&
+      result.cleanupRun.gitProcessBoundaryInvoked
+    ) {
+      const usedApprovalRecord = createWorktreeCleanupApprovalRecord({
+        dryRunRecord: input.dryRunRecord,
+        baseRecord: input.approvalRecord,
+        status: 'used',
+        reason: 'cleanup attempt reached controlled git boundary',
+      });
+      await persistWorktreeCleanupApprovalRecord(usedApprovalRecord, input.store);
+      await persistEvidenceRefs(usedApprovalRecord.evidenceRefs, input.store);
+      await persistWorktreeAuditEvents(
+        usedApprovalRecord.auditEventIds,
+        usedApprovalRecord.evidenceRefs,
+        input.store,
+        usedApprovalRecord.policyDecisionId,
+      );
+    }
+
+    return record;
+  }
+
+  function createWorktreeCleanupRuntimeInput(input: {
+    repoRoot?: string;
+    worktreeRoot?: string;
+    worktreePath?: string;
+  }) {
+    if (!input.repoRoot || !input.worktreeRoot || !input.worktreePath) {
+      return undefined;
+    }
+
+    return {
+      repoRoot: input.repoRoot,
+      worktreeRoot: input.worktreeRoot,
+      worktreePath: input.worktreePath,
+    };
+  }
+
+  function createWorktreeCleanupPlanResultFromRecord(
+    record: WorktreeCleanupDryRunRecord,
+  ): WorktreeCleanupPlanResult {
+    return {
+      id: record.plan.id,
+      status: record.plan.status,
+      repoRootHash: record.repoRootHash,
+      worktreeRootHash: record.worktreeRootHash,
+      worktreePathHash: record.worktreePathHash,
+      sourceRunHash: record.sourceRunHash,
+      blockReasons: record.blockReasons,
+      capabilityDryRun: record.capabilityDryRun,
+      cleanupPlan: record.plan,
+    };
+  }
+
+  function createWorktreeCleanupControlPlaneRunRecord(input: {
+    dryRunRecord: WorktreeCleanupDryRunRecord;
+    approvalRecord?: WorktreeCleanupApprovalArtifactRecord;
+    status: WorktreeRunStatus;
+    summary: string;
+    cleanupRun?: WorktreeCleanupControlPlaneRun['cleanupRun'];
+    evidenceRefs: EvidenceRef[];
+    auditEventIds: string[];
+    gitProcessBoundaryInvoked: boolean;
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+    noRealWrite: boolean;
+  }): WorktreeCleanupControlPlaneRun {
+    const now = foundationTimestamp();
+
+    return WorktreeCleanupControlPlaneRunSchema.parse({
+      id: foundationId('worktree_cleanup_control_plane_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      sourceRunId: input.dryRunRecord.sourceRunId,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      status: input.status,
+      planId: input.dryRunRecord.plan.id,
+      cleanupRun: input.cleanupRun,
+      repoRootHash: input.dryRunRecord.repoRootHash,
+      worktreeRootHash: input.dryRunRecord.worktreeRootHash,
+      worktreePathHash: input.dryRunRecord.worktreePathHash,
+      sourceRunHash: input.dryRunRecord.sourceRunHash,
+      dirtyFileCount: input.cleanupRun?.dirtyFileCount ?? 0,
+      dirtyStatusHash: input.cleanupRun?.dirtyStatusHash,
+      cleanupAttempted: input.cleanupRun?.cleanupAttempted ?? false,
+      cleanupCompleted: input.cleanupRun?.cleanupCompleted ?? false,
+      cleanupRequired: input.cleanupRun?.cleanupRequired ?? true,
+      cleanupDeferred: input.cleanupRun?.cleanupDeferred ?? true,
+      timeline: [
+        WorktreeControlPlaneTimelineEventSchema.parse({
+          id: foundationId('worktree_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: now,
+          phase: 'cleanup-execution',
+          status: input.status,
+          summary: input.summary,
+          evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+          auditEventIds: input.auditEventIds,
+          rawPathStored: false,
+          bodyStored: false,
+          gitProcessBoundaryInvoked: input.gitProcessBoundaryInvoked,
+          processBoundaryInvoked: input.processBoundaryInvoked,
+          externalProcessStarted: input.externalProcessStarted,
+        }),
+      ],
+      evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: input.auditEventIds,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: input.noRealWrite,
+      gitProcessBoundaryInvoked: input.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: input.processBoundaryInvoked,
+      externalProcessStarted: input.externalProcessStarted,
+      summary: input.summary,
+    });
+  }
+
   function classifyWorktreeApproval(
-    record: WorktreeApprovalArtifactRecord | undefined,
+    record: WorktreeApprovalArtifactRecord | WorktreeCleanupApprovalArtifactRecord | undefined,
   ):
     | 'ready'
     | 'approval_artifact_missing'
@@ -9379,6 +10089,46 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     worktreeRunRecords.unshift(record);
   }
 
+  async function persistWorktreeCleanupDryRunRecord(
+    record: WorktreeCleanupDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.worktreeCleanupDryRuns.saveDryRun(record);
+      return;
+    }
+    worktreeCleanupDryRunRecords.unshift(record);
+  }
+
+  async function persistWorktreeCleanupApprovalRecord(
+    record: WorktreeCleanupApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.worktreeCleanupApprovals.saveApproval(record);
+      return;
+    }
+    const index = worktreeCleanupApprovalRecords.findIndex(
+      (candidate) => candidate.id === record.id,
+    );
+    if (index >= 0) {
+      worktreeCleanupApprovalRecords.splice(index, 1, record);
+    } else {
+      worktreeCleanupApprovalRecords.unshift(record);
+    }
+  }
+
+  async function persistWorktreeCleanupRunRecord(
+    record: WorktreeCleanupControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.worktreeCleanupRuns.saveRun(record);
+      return;
+    }
+    worktreeCleanupRunRecords.unshift(record);
+  }
+
   async function resolveWorktreeDryRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -9429,6 +10179,58 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : worktreeRunRecords.find((record) => record.id === runId);
   }
 
+  async function resolveWorktreeCleanupDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    return store
+      ? await store.worktreeCleanupDryRuns.getDryRun(dryRunId)
+      : worktreeCleanupDryRunRecords.find(
+          (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+        );
+  }
+
+  async function resolveWorktreeCleanupApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.worktreeCleanupApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.worktreeCleanupApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return worktreeCleanupApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveWorktreeCleanupApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.worktreeCleanupApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : worktreeCleanupApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveWorktreeCleanupRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupControlPlaneRun | undefined> {
+    return store
+      ? await store.worktreeCleanupRuns.getRun(runId)
+      : worktreeCleanupRunRecords.find((record) => record.id === runId);
+  }
+
   async function listWorktreeDryRuns(
     query: { dryRunId?: string; status?: string; limit?: number },
     store: CodexHubStore | undefined,
@@ -9454,6 +10256,33 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return store
       ? await store.worktreeRuns.listRuns(query)
       : worktreeRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listWorktreeCleanupDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupDryRunRecord[]> {
+    return store
+      ? await store.worktreeCleanupDryRuns.listDryRuns(query)
+      : worktreeCleanupDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listWorktreeCleanupApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord[]> {
+    return store
+      ? await store.worktreeCleanupApprovals.listApprovals(query)
+      : worktreeCleanupApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listWorktreeCleanupRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeCleanupControlPlaneRun[]> {
+    return store
+      ? await store.worktreeCleanupRuns.listRuns(query)
+      : worktreeCleanupRunRecords.slice(0, query.limit ?? 50);
   }
 
   function createWorktreeDryRunResponse(record: WorktreeDryRunRecord) {
@@ -9529,6 +10358,94 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       auditEventIds: record.auditEventIds,
       cleanupRequired: record.cleanupRequired,
       cleanupDeferred: record.cleanupDeferred,
+      gitProcessBoundaryInvoked: record.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createWorktreeCleanupDryRunResponse(record: WorktreeCleanupDryRunRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      sourceRunId: record.sourceRunId,
+      status: record.status,
+      planId: record.plan.id,
+      repoRootHash: record.repoRootHash,
+      worktreeRootHash: record.worktreeRootHash,
+      worktreePathHash: record.worktreePathHash,
+      sourceRunHash: record.sourceRunHash,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.policyDecision.requiresApproval,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      cleanupRequired: record.plan.cleanupRequired,
+      cleanupDeferred: record.plan.cleanupDeferred,
+      dirtyCheckPlanned: record.plan.dirtyCheckPlanned,
+      cleanupDeletePlanned: record.plan.cleanupDeletePlanned,
+      gitProcessBoundaryPlanned: record.gitProcessBoundaryPlanned,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryPlanned: record.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createWorktreeCleanupApprovalResponse(
+    record: WorktreeCleanupApprovalArtifactRecord,
+  ) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      sourceRunId: record.sourceRunId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createWorktreeCleanupRunResponse(record: WorktreeCleanupControlPlaneRun) {
+    return {
+      runId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      sourceRunId: record.sourceRunId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      planId: record.planId,
+      repoRootHash: record.repoRootHash,
+      worktreeRootHash: record.worktreeRootHash,
+      worktreePathHash: record.worktreePathHash,
+      sourceRunHash: record.sourceRunHash,
+      dirtyFileCount: record.dirtyFileCount,
+      dirtyStatusHash: record.dirtyStatusHash,
+      cleanupAttempted: record.cleanupAttempted,
+      cleanupCompleted: record.cleanupCompleted,
+      cleanupRequired: record.cleanupRequired,
+      cleanupDeferred: record.cleanupDeferred,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
       gitProcessBoundaryInvoked: record.gitProcessBoundaryInvoked,
       processBoundaryInvoked: record.processBoundaryInvoked,
       externalProcessStarted: record.externalProcessStarted,

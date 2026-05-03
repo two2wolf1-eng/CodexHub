@@ -8,6 +8,9 @@ import type {
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
   WorktreeApprovalArtifactRecord,
+  WorktreeCleanupApprovalArtifactRecord,
+  WorktreeCleanupControlPlaneRun,
+  WorktreeCleanupDryRunRecord,
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
@@ -215,6 +218,31 @@ export interface WorktreeRunRepository {
   listRuns(query?: WorktreeControlPlaneQuery): Promise<WorktreeControlPlaneRun[]>;
 }
 
+export interface WorktreeCleanupDryRunRepository {
+  saveDryRun(record: WorktreeCleanupDryRunRecord): Promise<WorktreeCleanupDryRunRecord>;
+  getDryRun(id: string): Promise<WorktreeCleanupDryRunRecord | undefined>;
+  listDryRuns(query?: WorktreeControlPlaneQuery): Promise<WorktreeCleanupDryRunRecord[]>;
+}
+
+export interface WorktreeCleanupApprovalRepository {
+  saveApproval(
+    record: WorktreeCleanupApprovalArtifactRecord,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord>;
+  getApproval(id: string): Promise<WorktreeCleanupApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: WorktreeControlPlaneQuery,
+  ): Promise<WorktreeCleanupApprovalArtifactRecord[]>;
+}
+
+export interface WorktreeCleanupRunRepository {
+  saveRun(record: WorktreeCleanupControlPlaneRun): Promise<WorktreeCleanupControlPlaneRun>;
+  getRun(id: string): Promise<WorktreeCleanupControlPlaneRun | undefined>;
+  listRuns(query?: WorktreeControlPlaneQuery): Promise<WorktreeCleanupControlPlaneRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -398,6 +426,9 @@ export interface CodexHubStore {
   worktreeDryRuns: WorktreeDryRunRepository;
   worktreeApprovals: WorktreeApprovalRepository;
   worktreeRuns: WorktreeRunRepository;
+  worktreeCleanupDryRuns: WorktreeCleanupDryRunRepository;
+  worktreeCleanupApprovals: WorktreeCleanupApprovalRepository;
+  worktreeCleanupRuns: WorktreeCleanupRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

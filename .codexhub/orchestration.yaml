@@ -357,3 +357,56 @@ workflows:
       - browserAutomation
       - electronAutomation
       - mcpWriteTool
+  m6c.governed-worktree-cleanup-control-plane:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: apps/supervisor
+      localControlRequired: true
+    chain:
+      - phase: cleanup-dry-run
+        route: POST /api/worktrees/cleanup/dry-runs
+        adapter: worktree-manager
+        sourceRunRequired: true
+        sourceRunCleanupRequired: true
+        output: sourceRunAndPathHashesOnly
+        gitProcessBoundaryPlanned: true
+        gitProcessBoundaryInvoked: false
+      - phase: cleanup-approval-request
+        route: POST /api/worktrees/cleanup/approval-requests
+        authority: supervisor-store
+      - phase: cleanup-manual-approval
+        route: POST /api/worktrees/cleanup/manual-approvals
+        authority: persistedApprovalArtifact
+      - phase: cleanup-execution
+        route: POST /api/worktrees/cleanup/runs
+        authority: persistedApprovalArtifact
+        productDefaultEnabled: false
+        requiredEnv:
+          - CODEXHUB_WORKTREE_MANAGER_ENABLED
+          - CODEXHUB_WORKTREE_CLEANUP_ENABLED
+        adapterExecution: supervisor-gated
+        allowedGitBoundary:
+          - rev-parse --show-toplevel
+          - worktree list --porcelain
+          - status --porcelain --untracked-files=normal
+          - worktree remove
+        nonForceOnly: true
+        filesystemDeleteFallbackAllowed: false
+      - phase: cleanup-summary
+        output: hashesCountsSummariesEvidenceAndAuditIdsOnly
+        cleanupCompletedProjectionOnly: true
+    forbidden:
+      - dashboardWriteUi
+      - cliWorktreeCleanupExecuteCommand
+      - rawWorktreePathPersistence
+      - rawGitCommandPersistence
+      - arbitraryGitCommand
+      - genericShell
+      - gitPush
+      - openPullRequest
+      - forceWorktreeRemove
+      - filesystemDeleteFallback
+      - browserAutomation
+      - electronAutomation
+      - mcpWriteTool

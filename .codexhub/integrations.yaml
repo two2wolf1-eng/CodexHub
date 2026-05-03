@@ -212,7 +212,7 @@ integrations:
     adapter: worktree-manager
     provider: builtin
     mode: controlled-git-worktree
-    stage: m6b-supervisor-gated-controlled-git
+    stage: m6c-supervisor-gated-controlled-git-and-cleanup
     defaultWorktreeRoot: ../CodexHub-worktrees
     defaultActionMode: dry-run
     defaultRisk: high
@@ -225,8 +225,12 @@ integrations:
     controlledGitRunner: true
     pushAllowed: false
     openPullRequestAllowed: false
-    cleanupDeleteAllowed: false
-    cleanupDeferredToM6c: true
+    cleanupDeleteAllowed: true
+    cleanupDeleteRequiresApproval: true
+    cleanupForceAllowed: false
+    cleanupFilesystemDeleteFallbackAllowed: false
+    cleanupDeferredToM6c: false
+    cleanupEnablementEnv: CODEXHUB_WORKTREE_CLEANUP_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       explicitEnableRequired: true
@@ -243,6 +247,8 @@ integrations:
       diff: hash-only
       prDraft: hash-only
       releaseAuditDraft: hash-only
+      cleanupPlan: hash-only
+      cleanupStatus: hash-only
     storage:
       rawWorktreePath: forbidden
       rawDiffBody: forbidden
@@ -256,8 +262,12 @@ integrations:
       allowedGitCommands:
         - rev-parse --show-toplevel
         - worktree add --detach
+        - worktree list --porcelain
+        - status --porcelain --untracked-files=normal
+        - worktree remove
         - diff --name-only --no-ext-diff
         - diff --numstat --no-ext-diff
       arbitraryGitCommandAllowed: false
       genericShellAllowed: false
-      worktreeRemoveAllowed: false
+      worktreeRemoveAllowed: true
+      worktreeRemoveForceAllowed: false
