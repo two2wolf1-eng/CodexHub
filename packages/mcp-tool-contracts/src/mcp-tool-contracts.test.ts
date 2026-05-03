@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   CapabilityAuditEventSchema,
@@ -13,6 +14,7 @@ import {
   createMcpToolManifestEvidenceRef,
   evaluateMcpToolPolicy,
 } from './index';
+import { hashUnknown } from './metadata';
 
 describe('mcp-tool-contracts', () => {
   it('declares a read-only MCP capability manifest', () => {
@@ -102,5 +104,25 @@ describe('mcp-tool-contracts', () => {
     expect(serialized).not.toContain('Bearer hidden');
     expect(records.invocationSummary.bodyStored).toBe(false);
     expect(records.invocationSummary.rawPathStored).toBe(false);
+  });
+
+  it('uses real SHA-256 hashes for browser-safe MCP metadata evidence', () => {
+    const input = {
+      path: 'C:\\private\\workspace',
+      nested: { authorization: 'Bearer hidden' },
+      count: 1,
+    };
+    const expected = createHash('sha256')
+      .update(
+        JSON.stringify({
+          path: hashUnknown('C:\\private\\workspace'),
+          nested: { authorization: '[redacted]' },
+          count: 1,
+        }),
+      )
+      .digest('hex');
+
+    expect(hashUnknown(input)).toBe(`sha256:${expected}`);
+    expect(hashUnknown(input)).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 });

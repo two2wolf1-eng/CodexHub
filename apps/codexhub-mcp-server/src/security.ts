@@ -156,7 +156,18 @@ function isLoopbackHostHeader(host: string | undefined): boolean {
     return false;
   }
 
-  const hostname = host.split(':')[0]?.toLowerCase();
+  const parts = host.trim().toLowerCase().split(':');
+
+  if (parts.length > 2) {
+    return false;
+  }
+
+  const hostname = parts[0];
+  const port = parts[1];
+
+  if (port !== undefined && !/^\d+$/.test(port)) {
+    return false;
+  }
 
   return hostname !== undefined && LOOPBACK_HOSTS.has(hostname);
 }

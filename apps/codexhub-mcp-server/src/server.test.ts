@@ -45,6 +45,10 @@ describe('codexhub MCP server', () => {
         [localControlHeader]: localControlValue,
         host: 'evil.example',
       });
+      const malformedLoopbackHost = await requestJson(base, {
+        [localControlHeader]: localControlValue,
+        host: 'localhost:3335.evil',
+      });
       const missingPreflightHeader = await requestJson(base, {
         origin: 'http://localhost:5173',
         'access-control-request-method': 'POST',
@@ -64,6 +68,7 @@ describe('codexhub MCP server', () => {
       expect(bad.statusCode).toBe(401);
       expect(maliciousOrigin.statusCode).toBe(403);
       expect(badHost.statusCode).toBe(403);
+      expect(malformedLoopbackHost.statusCode).toBe(403);
       expect(missingPreflightHeader.statusCode).toBe(401);
       expect(trustedPreflight.statusCode).toBe(204);
       expect(trustedPreflight.headers['access-control-allow-origin']).toBe(
