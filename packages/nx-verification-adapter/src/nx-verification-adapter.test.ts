@@ -1,0 +1,278 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import {
+  CapabilityAuditEventSchema,
+  CapabilityExecutionResultSchema,
+  CapabilityManifestSchema,
+  ExecutionAuthoritySchema,
+} from '@codexhub/contracts';
+import { describe, expect, it } from 'vitest';
+import { executeNxVerificationAdapter } from './execute';
+import { createNxVerificationAdapterManifest } from './manifest';
+import { parseAffectedProjects, parseVerificationOutput } from './output-parser';
+import { createNxVerificationAdapterPlan } from './plan';
+import { type NxVerificationProcessRunner } from './process-boundary';
+
+describe('nx-verification-adapter manifest', () => {
+  it('parses as a capability manifest', () => {
+    const manifest = createNxVerificationAdapterManifest();
+
+    expect(CapabilityManifestSchema.parse(manifest)).toMatchObject({
+      name: 'nx-affected',
+      kind: 'verification',
+      provider: 'external-process',
+      defaultRisk: 'low',
+      defaultActionMode: 'read',
+      requiresApprovalByDefault: false,
+      evidencePolicy: {
+        bodyStorage: 'hash-only',
+      },
+      processBoundary: {
+        mayStartExternalProcess: true,
+        requiresProcessAudit: true,
+      },
+    });
+  });
+});
+
+describe('nx-verification-adapter plan', () => {
+  it('accepts allowlisted cwd, targets, and refs without starting a process', () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_1',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['lint', 'test', 'build'],
+      baseRef: 'HEAD~1',
+      headRef: 'HEAD',
+    });
+
+    expect(plan.status).toBe('ready');
+    expect(plan.targets).toEqual(['lint', 'test', 'build']);
+    expect(plan.processBoundaryPlanned).toBe(true);
+    expect(plan.externalProcessStarted).toBe(false);
+    expect(plan.noRealWrite).toBe(true);
+    expect(plan.capabilityDryRun.inputSummary).toMatchObject({
+      bodyStored: false,
+      targets: ['lint', 'test', 'build'],
+    });
+  });
+
+  it('rejects forbidden targets, empty targets, outside cwd, arbitrary command data, and shell', () => {
+    const root = createWorkspaceRoot();
+    const otherRoot = createWorkspaceRoot();
+    const emptyTargetPlan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_empty',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: [],
+    });
+    const blockedPlan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_blocked',
+      cwd: root,
+      allowedCwdRoots: [otherRoot],
+      targets: ['lint', 'release'],
+      requestedCommand: 'npm run anything',
+      requestedArgs: ['nx', 'affected', '--all'],
+      shell: true,
+    });
+
+    expect(emptyTargetPlan.status).toBe('blocked');
+    expect(emptyTargetPlan.blockReasons).toContain('target_required');
+    expect(blockedPlan.status).toBe('blocked');
+    expect(blockedPlan.blockReasons).toEqual(
+      expect.arrayContaining([
+        'cwd_outside_allowlist',
+        'target_forbidden',
+        'arbitrary_command_forbidden',
+        'arbitrary_args_forbidden',
+        'shell_forbidden',
+      ]),
+    );
+  });
+
+  it('rejects unsafe refs', () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_ref',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['test'],
+      baseRef: 'HEAD;rm',
+    });
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.blockReasons).toContain('ref_forbidden');
+  });
+});
+
+describe('nx-verification-adapter output parser', () => {
+  it('parses affected projects from nx show output', () => {
+    const projects = parseAffectedProjects([
+      'contracts',
+      'nx-verification-adapter',
+      '',
+      '> nx show projects --affected',
+      'contracts',
+    ].join('\n'));
+
+    expect(projects.map((project) => project.name)).toEqual([
+      'contracts',
+      'nx-verification-adapter',
+    ]);
+    expect(projects.every((project) => project.nameHash?.startsWith('sha256:'))).toBe(true);
+  });
+
+  it('summarizes passed, failed, and unknown verification output', () => {
+    expect(parseVerificationOutput('NX Successfully ran target lint for 1 project').status).toBe(
+      'passed',
+    );
+    expect(parseVerificationOutput('NX Running target test failed\nFailed tasks: app:test').status).toBe(
+      'failed',
+    );
+    expect(parseVerificationOutput('some unrelated output').status).toBe('unknown');
+  });
+});
+
+describe('nx-verification-adapter execute', () => {
+  it('blocks missing authority before a process boundary', async () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_missing_authority',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['lint'],
+    });
+    const result = await executeNxVerificationAdapter({
+      plan,
+      executablePath: 'pnpm',
+      timeoutMs: 1000,
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(false);
+    expect(result.capabilityResult.externalProcessStarted).toBe(false);
+    expect(result.boundaryResults).toHaveLength(0);
+    expect(CapabilityExecutionResultSchema.parse(result.capabilityResult)).toBeTruthy();
+    expect(CapabilityAuditEventSchema.parse(result.auditEvents[0])).toBeTruthy();
+  });
+
+  it('blocks denied authority before a process boundary', async () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_denied_authority',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['test'],
+    });
+    const result = await executeNxVerificationAdapter({
+      plan,
+      authority: createAuthority({ allowed: false }),
+      executablePath: 'pnpm',
+      timeoutMs: 1000,
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.capabilityResult.summary).toContain('execution_authority_not_allowed');
+  });
+
+  it.each([
+    [
+      'passed',
+      [
+        { exitCode: 0, stdout: 'contracts\nnx-verification-adapter\n', stderr: '' },
+        { exitCode: 0, stdout: 'NX Successfully ran target lint for 2 projects', stderr: '' },
+      ],
+    ],
+    [
+      'failed',
+      [
+        { exitCode: 0, stdout: 'contracts\n', stderr: '' },
+        { exitCode: 1, stdout: 'NX Running target test failed\nFailed tasks: contracts:test', stderr: 'failed' },
+      ],
+    ],
+    [
+      'aborted',
+      [
+        { exitCode: 0, stdout: 'contracts\n', stderr: '' },
+        { stdout: '', stderr: '', timedOut: true },
+      ],
+    ],
+  ] as const)('records process truth for injected %s runs', async (expectedStatus, results) => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: `dry_run_${expectedStatus}`,
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['lint', 'test'],
+    });
+    const runner = createSequenceRunner(results);
+    const result = await executeNxVerificationAdapter({
+      plan,
+      authority: createAuthority(),
+      executablePath: 'pnpm',
+      timeoutMs: 1000,
+      runner,
+    });
+
+    expect(result.status).toBe(expectedStatus);
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(result.capabilityResult.externalProcessStarted).toBe(true);
+    expect(result.capabilityResult.noRealWrite).toBe(true);
+    expect(result.commandResults.every((commandResult) => commandResult.outputBodyStored === false)).toBe(
+      true,
+    );
+    expect(result.evidenceRefs.some((ref) => ref.kind === 'verification.run_summary')).toBe(true);
+    expect(result.auditEvents[0].policyDecisionId).toBe('policy_nx');
+    expect(CapabilityExecutionResultSchema.parse(result.capabilityResult)).toBeTruthy();
+    expect(CapabilityAuditEventSchema.parse(result.auditEvents[0])).toBeTruthy();
+  });
+
+  it('records start failure without claiming an external process started', async () => {
+    const root = createWorkspaceRoot();
+    const plan = createNxVerificationAdapterPlan({
+      dryRunId: 'dry_run_start_failure',
+      cwd: root,
+      allowedCwdRoots: [root],
+      targets: ['build'],
+    });
+    const result = await executeNxVerificationAdapter({
+      plan,
+      authority: createAuthority(),
+      executablePath: 'pnpm',
+      timeoutMs: 1000,
+      runner: createSequenceRunner([{ startFailureKind: 'spawn_error', stdout: '', stderr: '' }]),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(result.capabilityResult.externalProcessStarted).toBe(false);
+    expect(result.commandResults[0]?.externalProcessStarted).toBe(false);
+  });
+});
+
+function createWorkspaceRoot(): string {
+  return mkdtempSync(resolve(tmpdir(), 'codexhub-nx-verification-adapter-'));
+}
+
+function createAuthority(input: { allowed?: boolean } = {}) {
+  return ExecutionAuthoritySchema.parse({
+    id: 'authority_nx',
+    schemaVersion: '2026-04-28.foundation',
+    createdAt: new Date().toISOString(),
+    policyDecisionId: 'policy_nx',
+    allowed: input.allowed ?? true,
+    constraints: ['read-only'],
+  });
+}
+
+function createSequenceRunner(
+  results: readonly Awaited<ReturnType<NxVerificationProcessRunner['start']>>[],
+): NxVerificationProcessRunner {
+  let index = 0;
+
+  return {
+    start: async () => results[Math.min(index++, results.length - 1)] ?? {},
+  };
+}

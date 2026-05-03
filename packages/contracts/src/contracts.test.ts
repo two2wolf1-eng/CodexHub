@@ -128,9 +128,14 @@ import {
   CapabilityManifestSchema,
   ExecutionAuthoritySchema,
   EvidenceRefSchema,
+  AffectedProjectSchema,
   PolicyDecisionSchema,
   SchemaVersionSchema,
   SkillResolutionResultSchema,
+  VerificationCommandResultSchema,
+  VerificationPlanSchema,
+  VerificationRunSchema,
+  VerificationTargetSchema,
   WorkflowRunSchema,
 } from './index';
 
@@ -399,6 +404,84 @@ describe('contracts schemas', () => {
         evidenceRefs: [evidence],
       }),
     ).toThrow();
+  });
+
+  it('parses verification adapter contract models', () => {
+    expect(VerificationTargetSchema.options).toEqual(['lint', 'test', 'build']);
+    expect(() => VerificationTargetSchema.parse('release')).toThrow();
+
+    const affectedProject = AffectedProjectSchema.parse({
+      id: 'affected_project_1',
+      schemaVersion,
+      createdAt,
+      name: 'contracts',
+      nameHash: 'sha256:contracts',
+    });
+
+    const plan = VerificationPlanSchema.parse({
+      id: 'verification_plan_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'nx-affected',
+      cwdHash: 'sha256:cwd',
+      targets: ['lint', 'test'],
+      baseRef: 'HEAD~1',
+      headRef: 'HEAD',
+      affectedProjects: [affectedProject],
+      commandHash: 'sha256:command',
+      processBoundaryPlanned: true,
+      noRealWrite: true,
+      bodyStored: false,
+      summary: 'Verify affected projects.',
+    });
+
+    const commandResult = VerificationCommandResultSchema.parse({
+      id: 'verification_command_1',
+      schemaVersion,
+      createdAt,
+      commandKind: 'verification',
+      targets: ['lint', 'test'],
+      status: 'completed',
+      exitCode: 0,
+      stdoutHash: 'sha256:stdout',
+      stderrHash: 'sha256:stderr',
+      stdoutLineCount: 3,
+      stderrLineCount: 0,
+      outputBodyStored: false,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      summary: 'Verification passed.',
+    });
+
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_verification_1',
+      schemaVersion,
+      createdAt,
+      kind: 'verification.run_summary',
+      hash: 'sha256:verification',
+    });
+
+    const run = VerificationRunSchema.parse({
+      id: 'verification_run_1',
+      schemaVersion,
+      createdAt,
+      targetId: 'nx-affected',
+      status: 'passed',
+      checks: ['lint', 'test'],
+      evidenceRefs: [evidence],
+      planId: plan.id,
+      affectedProjects: [affectedProject],
+      commandResults: [commandResult],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      noRealWrite: true,
+      auditEventIds: ['audit_1'],
+      summary: 'Verification run passed.',
+    });
+
+    expect(plan.targets).toEqual(['lint', 'test']);
+    expect(run.status).toBe('passed');
+    expect(run.commandResults?.[0]?.outputBodyStored).toBe(false);
   });
 
   it('parses skill resolution contract models', () => {

@@ -13,6 +13,7 @@ const expectedProjects = [
   'security-kernel',
   'workflow-kernel',
   'skill-registry',
+  'nx-verification-adapter',
   'codex-exec-adapter',
   'codex-kernel',
   'store-sqlite',
@@ -37,6 +38,7 @@ const requiredGovernanceFiles = [
   '.codex/agents/security.toml',
   '.codex/agents/qa.toml',
   'docs/integration-decisions/0001-codex-cli-adapter.md',
+  'docs/integration-decisions/0003-nx-affected-adapter.md',
 ];
 
 const requiredContractExports = [
@@ -46,6 +48,8 @@ const requiredContractExports = [
   'ExecutionAuthoritySchema',
   'CapabilityExecutionResultSchema',
   'CapabilityAuditEventSchema',
+  'VerificationPlanSchema',
+  'VerificationCommandResultSchema',
 ];
 
 const projects = readNxProjects();

@@ -118,6 +118,9 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.read_only_adapter.final_readiness',
     'codex.exec.real_read_only_adapter.readiness_package',
     'codex.exec.real_read_only_adapter.readiness_review',
+    'verification.dry_run_plan',
+    'verification.command_summary',
+    'verification.run_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -384,11 +387,60 @@ export const PatchRunSchema = createdEntityBaseSchema.extend({
 });
 export type PatchRun = z.infer<typeof PatchRunSchema>;
 
+export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
+export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;
+
+export const AffectedProjectSchema = createdEntityBaseSchema.extend({
+  name: z.string().min(1),
+  nameHash: z.string().min(1).optional(),
+});
+export type AffectedProject = z.infer<typeof AffectedProjectSchema>;
+
+export const VerificationPlanSchema = createdEntityBaseSchema.extend({
+  adapterName: z.string().min(1),
+  cwdHash: z.string().min(1),
+  targets: z.array(VerificationTargetSchema).default([]),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  affectedProjects: z.array(AffectedProjectSchema).default([]),
+  commandHash: z.string().min(1),
+  processBoundaryPlanned: z.boolean(),
+  noRealWrite: z.literal(true),
+  bodyStored: z.literal(false),
+  summary: z.string().min(1),
+});
+export type VerificationPlan = z.infer<typeof VerificationPlanSchema>;
+
+export const VerificationCommandResultSchema = createdEntityBaseSchema.extend({
+  commandKind: z.enum(['affected-projects', 'verification']),
+  targets: z.array(VerificationTargetSchema).default([]),
+  status: z.enum(['completed', 'failed', 'aborted']),
+  exitCode: z.number().int().optional(),
+  signal: z.string().optional(),
+  stdoutHash: z.string().min(1),
+  stderrHash: z.string().min(1),
+  stdoutLineCount: z.number().int().nonnegative(),
+  stderrLineCount: z.number().int().nonnegative(),
+  outputBodyStored: z.literal(false),
+  processBoundaryInvoked: z.literal(true),
+  externalProcessStarted: z.boolean(),
+  summary: z.string().min(1),
+});
+export type VerificationCommandResult = z.infer<typeof VerificationCommandResultSchema>;
+
 export const VerificationRunSchema = createdEntityBaseSchema.extend({
   targetId: z.string().min(1),
-  status: z.enum(['planned', 'running', 'passed', 'failed']),
+  status: z.enum(['planned', 'running', 'passed', 'failed', 'blocked', 'aborted']),
   checks: z.array(z.string()).default([]),
   evidenceRefs: z.array(EvidenceRefSchema).default([]),
+  planId: z.string().min(1).optional(),
+  affectedProjects: z.array(AffectedProjectSchema).optional(),
+  commandResults: z.array(VerificationCommandResultSchema).optional(),
+  processBoundaryInvoked: z.boolean().optional(),
+  externalProcessStarted: z.boolean().optional(),
+  noRealWrite: z.literal(true).optional(),
+  auditEventIds: z.array(z.string().min(1)).optional(),
+  summary: z.string().min(1).optional(),
 });
 export type VerificationRun = z.infer<typeof VerificationRunSchema>;
 

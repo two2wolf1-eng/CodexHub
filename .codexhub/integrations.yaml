@@ -40,6 +40,8 @@ integrations:
     defaultRisk: low
     defaultActionMode: read
     arbitraryShellAllowed: false
+    dryRunUsesAffectedShowProjects: true
+    affectedDryRunFlagAllowed: false
     evidence:
       output: hash-only
   mcp-server:

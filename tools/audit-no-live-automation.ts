@@ -23,6 +23,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scanRoots = ['apps', 'packages', 'tools'];
 const approvedProcessBoundaryFiles = new Set([
   'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+  'packages/nx-verification-adapter/src/process-boundary.ts',
 ]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
