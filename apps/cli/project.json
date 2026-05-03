@@ -5,6 +5,8 @@
   "sourceRoot": "apps/cli/src",
   "implicitDependencies": [
     "contracts",
+    "mcp-tool-contracts",
+    "nx-verification-adapter",
     "workflow-kernel",
     "orchestrator-kernel",
     "codex-kernel",

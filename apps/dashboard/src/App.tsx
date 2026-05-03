@@ -30,6 +30,15 @@ import type {
   WorkflowRun,
 } from '@codexhub/contracts';
 import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
+import {
+  DASHBOARD_VIEWS,
+  type DashboardView,
+  createVerificationReadinessPreview,
+  getDashboardHash,
+  getDashboardViewFromHash,
+  summarizeDegradedState,
+  summarizeMcpTools,
+} from './read-only-ux';
 
 interface OverviewState {
   status: 'loading' | 'ready' | 'degraded';
@@ -63,6 +72,7 @@ interface OverviewState {
   codexExecReportReviewHistories: CodexExecReportReviewHistoryView[];
   codexExecReportReviewComparisons: CodexExecReportReviewComparison[];
   codexExecReviewerHandoffs: CodexExecReviewerHandoffSummary[];
+  codexExecEvidenceSearch?: Record<string, unknown>;
   message?: string;
 }
 
@@ -98,6 +108,24 @@ export function App() {
     codexExecReportReviewComparisons: [],
     codexExecReviewerHandoffs: [],
   });
+  const [activeView, setActiveView] = useState<DashboardView>(() =>
+    getDashboardViewFromHash(window.location.hash),
+  );
+  const mcpSummary = summarizeMcpTools();
+  const verificationPreview = createVerificationReadinessPreview();
+
+  useEffect(() => {
+    function onHashChange() {
+      setActiveView(getDashboardViewFromHash(window.location.hash));
+    }
+
+    window.addEventListener('hashchange', onHashChange);
+    onHashChange();
+
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +151,7 @@ export function App() {
           realReadOnlyAdapterReadinessResponse,
           realReadOnlyAdapterReadinessReviewsResponse,
           codexExecReportReviewsResponse,
+          codexExecEvidenceResponse,
         ] = await Promise.all([
           getJson<Record<string, unknown>>('/health'),
           getJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
@@ -167,6 +196,7 @@ export function App() {
           getJson<{ reviews: CodexExecReportReviewRecord[] }>(
             '/api/codex/exec/report-reviews?limit=10',
           ),
+          getJson<Record<string, unknown>>('/api/codex/exec/evidence?limit=20'),
         ]);
         const codexExecTimelines = (
           await Promise.all(
@@ -397,6 +427,7 @@ export function App() {
             codexExecReportReviewHistories,
             codexExecReportReviewComparisons,
             codexExecReviewerHandoffs,
+            codexExecEvidenceSearch: codexExecEvidenceResponse,
           });
         }
       } catch (error) {
@@ -452,7 +483,20 @@ export function App() {
         <span className={`status status-${overview.status}`}>{overview.status}</span>
       </header>
 
-      <section className="grid">
+      <nav className="view-nav" aria-label="Dashboard views">
+        {DASHBOARD_VIEWS.map((view) => (
+          <a
+            key={view}
+            className={view === activeView ? 'active' : undefined}
+            href={getDashboardHash(view)}
+          >
+            {view}
+          </a>
+        ))}
+      </nav>
+
+      {activeView === 'overview' ? (
+        <section className="grid">
         <Panel title="Supervisor Health">
           {overview.health ? (
             <pre>{JSON.stringify(overview.health, null, 2)}</pre>
@@ -1573,8 +1617,268 @@ export function App() {
             <p>No read-only reviewer handoff summary is available yet.</p>
           )}
         </Panel>
-      </section>
+        </section>
+      ) : (
+        renderReadOnlyDashboardView(activeView, overview, mcpSummary, verificationPreview)
+      )}
     </main>
+  );
+}
+
+function renderReadOnlyDashboardView(
+  activeView: DashboardView,
+  overview: OverviewState,
+  mcpSummary: ReturnType<typeof summarizeMcpTools>,
+  verificationPreview: ReturnType<typeof createVerificationReadinessPreview>,
+) {
+  if (activeView === 'development') {
+    return (
+      <section className="grid">
+        <Panel title="Development Runs">
+          {overview.developmentRuns.length > 0 ? (
+            <ul>
+              {overview.developmentRuns.map((run) => (
+                <li key={run.request.id} className="stacked">
+                  <strong>{run.summary.requestTitle}</strong>
+                  <span>
+                    {run.summary.taskCount} tasks, {run.summary.agentRunCount} agent runs,
+                    verification {run.summary.verificationStatus}
+                  </span>
+                  <span>
+                    evidence {run.summary.evidenceCount}, audit {run.summary.auditEventCount},
+                    mock {String(run.summary.mockOnly)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No development run summaries are available from the read-only source.</p>
+          )}
+        </Panel>
+        <Panel title="Workflow Runs">
+          {overview.runs.length > 0 ? (
+            <ul>
+              {overview.runs.map((run) => (
+                <li key={run.id} className="stacked">
+                  <strong>{run.workflowName}</strong>
+                  <span>{run.status}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No workflow run metadata is available.</p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'codex') {
+    return (
+      <section className="grid">
+        <Panel title="Codex Dry-Runs">
+          {overview.codexExecDryRuns.length > 0 ? (
+            <ul>
+              {overview.codexExecDryRuns.map((run) => (
+                <li key={run.id} className="stacked">
+                  <strong>{run.title}</strong>
+                  <span>
+                    {run.sandboxMode}, {run.approvalMode}, policy {run.policyDecision.outcome}
+                  </span>
+                  <span>
+                    live {String(run.liveExecution)}, external process{' '}
+                    {String(run.externalProcessStarted)}, disabled {String(run.executionDisabled)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Codex dry-run metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="Codex Timelines">
+          {overview.codexExecTimelineDetails.length > 0 ? (
+            <ul>
+              {overview.codexExecTimelineDetails.map((detail) => (
+                <li key={detail.id} className="stacked">
+                  <strong>{detail.dryRunId}</strong>
+                  <span>
+                    {detail.timeline.status}, {detail.timeline.eventCount} events, evidence{' '}
+                    {detail.evidenceSummary.count}, audit {detail.auditSummary.count}
+                  </span>
+                  <span>
+                    live {String(detail.liveExecution)}, external process{' '}
+                    {String(detail.externalProcessStarted)}, disabled{' '}
+                    {String(detail.executionDisabled)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Codex timeline metadata is available.</p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'verification') {
+    return (
+      <section className="grid">
+        <Panel title="Nx Verification Readiness">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>{verificationPreview.adapterName}</span>
+            </li>
+            <li>
+              <strong>targets</strong>
+              <span>{verificationPreview.targets.join(', ')}</span>
+            </li>
+            <li>
+              <strong>affected projects command</strong>
+              <span>{verificationPreview.affectedProjectsCommandPreviewHash}</span>
+            </li>
+            <li>
+              <strong>verification command</strong>
+              <span>{verificationPreview.verificationCommandPreviewHash}</span>
+            </li>
+            <li>
+              <strong>process boundary</strong>
+              <span>
+                planned {String(verificationPreview.processBoundaryPlanned)}, invoked{' '}
+                {String(verificationPreview.processBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>write safety</strong>
+              <span>noRealWrite {String(verificationPreview.noRealWrite)}</span>
+            </li>
+          </ul>
+          <p>{verificationPreview.summary}</p>
+        </Panel>
+        <Panel title="Verification Boundaries">
+          <p>
+            Dashboard M3b is preview-only. It does not run Nx, start a process, accept shell
+            commands, or expose execution controls.
+          </p>
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'evidence') {
+    const evidenceItems = getEvidenceItems(overview.codexExecEvidenceSearch);
+
+    return (
+      <section className="grid">
+        <Panel title="Evidence Summary">
+          {evidenceItems.length > 0 ? (
+            <ul>
+              {evidenceItems.map((item) => (
+                <li key={item.id} className="stacked">
+                  <strong>{item.id}</strong>
+                  <span>
+                    {item.kind}, {item.hash}
+                  </span>
+                  {item.summary ? <span>{item.summary}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No evidence refs are available from the read-only evidence endpoint.</p>
+          )}
+        </Panel>
+        <Panel title="Evidence Safety">
+          <p>
+            This view shows ids, kinds, hashes, and summaries only. Evidence bodies, stdout, stderr,
+            JSONL, prompts, local paths, and local control keys are not rendered.
+          </p>
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'policies') {
+    return (
+      <section className="grid">
+        <Panel title="Read-Only Policy State">
+          <ul>
+            <li>
+              <strong>Dashboard mode</strong>
+              <span>read-only</span>
+            </li>
+            <li>
+              <strong>MCP tools</strong>
+              <span>{mcpSummary.actionModes.join(', ')}</span>
+            </li>
+            <li>
+              <strong>approval policies</strong>
+              <span>{mcpSummary.approvalPolicies.join(', ')}</span>
+            </li>
+            <li>
+              <strong>Codex live enabled</strong>
+              <span>{String(overview.codexExecLiveConfig?.liveEnabled ?? false)}</span>
+            </li>
+            <li>
+              <strong>config status</strong>
+              <span>{overview.codexExecConfigLoadResult?.status ?? 'unavailable'}</span>
+            </li>
+          </ul>
+        </Panel>
+        <Panel title="Degraded State">
+          <p>{summarizeDegradedState(overview.status, overview.message)}</p>
+        </Panel>
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid">
+      <Panel title="MCP Tool Registry">
+        <ul>
+          <li>
+            <strong>manifest</strong>
+            <span>
+              {mcpSummary.manifestName} {mcpSummary.manifestVersion}
+            </span>
+          </li>
+          <li>
+            <strong>tools</strong>
+            <span>
+              {mcpSummary.enabledToolCount}/{mcpSummary.toolCount} enabled
+            </span>
+          </li>
+          <li>
+            <strong>action modes</strong>
+            <span>{mcpSummary.actionModes.join(', ')}</span>
+          </li>
+          <li>
+            <strong>process boundary</strong>
+            <span>
+              invoked {String(mcpSummary.processBoundaryInvoked)}, external process{' '}
+              {String(mcpSummary.externalProcessStarted)}
+            </span>
+          </li>
+        </ul>
+      </Panel>
+      <Panel title="Read-Only MCP Tools">
+        <ul>
+          {mcpSummary.tools.map((tool) => (
+            <li key={tool.name} className="stacked">
+              <strong>{tool.name}</strong>
+              <span>
+                {tool.riskLevel}/{tool.actionMode}, approval {tool.approvalPolicy}, body{' '}
+                {tool.bodyStorage}
+              </span>
+              <span>
+                enabled {String(tool.enabled)}, noRealWrite {String(tool.noRealWrite)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+    </section>
   );
 }
 
@@ -1585,6 +1889,31 @@ function Panel(props: { title: string; children: React.ReactNode }) {
       {props.children}
     </article>
   );
+}
+
+function getEvidenceItems(searchResult: Record<string, unknown> | undefined): Array<{
+  id: string;
+  kind: string;
+  hash: string;
+  summary?: string;
+}> {
+  const result = searchResult?.result as
+    | {
+        items?: Array<{
+          evidenceRefId?: string;
+          kind?: string;
+          hash?: string;
+          summary?: string;
+        }>;
+      }
+    | undefined;
+
+  return (result?.items ?? []).slice(0, 12).map((item) => ({
+    id: item.evidenceRefId ?? 'unknown',
+    kind: item.kind ?? 'unknown',
+    hash: item.hash ?? 'hash-unavailable',
+    summary: item.summary,
+  }));
 }
 
 function formatSourceBreakdown(sourceBreakdown: Record<string, number>): string {

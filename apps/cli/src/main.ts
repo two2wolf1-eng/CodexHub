@@ -149,6 +149,7 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  WorkflowRun,
 } from '@codexhub/contracts';
 import {
   type MockDevelopmentOrchestrationResult,
@@ -156,6 +157,16 @@ import {
 } from '@codexhub/orchestrator-kernel';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
+import {
+  type JsonCliOptions,
+  type VerifyAffectedDryRunCliOptions,
+  createVerifyAffectedDryRunForCli,
+  formatMcpToolDetailOutput,
+  formatMcpToolsListOutput,
+  formatVerifyAffectedDryRunOutput,
+  getMcpToolForCli,
+  listMcpToolsForCli,
+} from './m3b-readonly';
 
 const supervisorUrl = process.env.CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
@@ -213,6 +224,20 @@ export interface CodexExecAuditListCliOptions {
 
 export interface CodexExecJsonCliOptions {
   json?: boolean;
+}
+
+export interface ReadOnlyRunSummary {
+  id: string;
+  source: 'workflow' | 'development' | 'codex_exec_dry_run';
+  title: string;
+  status: string;
+  summary: string;
+  evidenceCount?: number;
+  auditEventCount?: number;
+  liveExecution: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  bodyStored: false;
 }
 
 export interface CodexExecReportCliOptions {
@@ -415,6 +440,93 @@ export function buildProgram(): Command {
     .action(async () => {
       const health = await getSupervisorHealth();
       console.log(JSON.stringify(health, null, 2));
+    });
+
+  const runsCommand = program
+    .command('runs')
+    .description('Read-only run summary commands');
+
+  runsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List read-only run summaries from existing Supervisor GET endpoints')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReadOnlyRuns();
+      console.log(formatReadOnlyRunsListOutput(result, options));
+    });
+
+  runsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one read-only run summary')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showReadOnlyRun(runId);
+      console.log(formatReadOnlyRunDetailOutput(result, options));
+    });
+
+  const evidenceTopLevelCommand = program
+    .command('evidence')
+    .description('Read evidence refs without exposing bodies');
+
+  evidenceTopLevelCommand
+    .command('list')
+    .option('--kind <kind>', 'Filter by evidence kind')
+    .option('--json', 'Print full JSON output')
+    .description('List metadata-only evidence refs')
+    .action(async (options: CodexExecEvidenceListCliOptions) => {
+      const result = await listCodexExecEvidence(options);
+      console.log(formatCodexExecEvidenceListOutput(result, options));
+    });
+
+  evidenceTopLevelCommand
+    .command('show')
+    .argument('<evidenceRefId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one metadata-only evidence ref')
+    .action(async (evidenceRefId: string, options: JsonCliOptions) => {
+      const result = await getCodexExecEvidence(evidenceRefId);
+      console.log(formatCodexExecDetailOutput('Evidence detail', result, options));
+    });
+
+  const mcpCommand = program.command('mcp').description('Read-only MCP registry commands');
+  const mcpToolsCommand = mcpCommand
+    .command('tools')
+    .description('Read local MCP tool registry metadata');
+
+  mcpToolsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List read-only MCP tools without invoking MCP')
+    .action((options: JsonCliOptions) => {
+      console.log(formatMcpToolsListOutput(listMcpToolsForCli(), options));
+    });
+
+  mcpToolsCommand
+    .command('show')
+    .argument('<toolName>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one read-only MCP tool definition without invoking MCP')
+    .action((toolName: string, options: JsonCliOptions) => {
+      console.log(formatMcpToolDetailOutput(getMcpToolForCli(toolName), options));
+    });
+
+  const verifyCommand = program
+    .command('verify')
+    .description('Read-only verification planning commands');
+
+  verifyCommand
+    .command('affected')
+    .requiredOption('--dry-run', 'Plan only; required in M3b')
+    .option('--targets <targets>', 'Comma-separated allowlisted targets', 'lint,test,build')
+    .option('--base <ref>', 'Optional base ref')
+    .option('--head <ref>', 'Optional head ref')
+    .option('--cwd <path>', 'Workspace-relative cwd for planning', '.')
+    .option('--json', 'Print full JSON output')
+    .description('Plan Nx affected verification without executing Nx')
+    .action((options: VerifyAffectedDryRunCliOptions) => {
+      const result = createVerifyAffectedDryRunForCli(options);
+      console.log(formatVerifyAffectedDryRunOutput(result, options));
     });
 
   program
@@ -1569,6 +1681,123 @@ export async function getSupervisorHealth(): Promise<Record<string, unknown>> {
       metadata: { mock: true },
     };
   }
+}
+
+export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
+  const [workflowResult, developmentResult, codexDryRunResult] = await Promise.allSettled([
+    getSupervisorJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
+    getSupervisorJson<{ runs: MockDevelopmentOrchestrationResult[] }>('/api/development/mock-runs'),
+    getSupervisorJson<{ runs: CodexExecLiveRunRecord[] }>('/api/codex/exec/dry-runs'),
+  ]);
+  const runs = [
+    ...summarizeWorkflowRuns(settledValue(workflowResult)?.runs ?? []),
+    ...summarizeDevelopmentRuns(settledValue(developmentResult)?.runs ?? []),
+    ...summarizeCodexDryRuns(settledValue(codexDryRunResult)?.runs ?? []),
+  ];
+  const degradedReasons = [
+    settledError(workflowResult),
+    settledError(developmentResult),
+    settledError(codexDryRunResult),
+  ].filter((reason): reason is string => reason !== undefined);
+
+  return {
+    status: degradedReasons.length === 3 ? 'degraded' : 'ready',
+    count: runs.length,
+    runs,
+    degradedReasons,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    note: 'Read-only run list uses existing Supervisor GET endpoints only.',
+  };
+}
+
+export async function showReadOnlyRun(runId: string): Promise<Record<string, unknown>> {
+  const list = await listReadOnlyRuns();
+  const runs = list.runs as ReadOnlyRunSummary[] | undefined;
+  const run = (runs ?? []).find((item) => item.id === runId);
+
+  return {
+    status: run ? 'found' : 'not_found',
+    run,
+    query: { runId },
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    note: 'Read-only run detail is resolved from metadata summaries only.',
+  };
+}
+
+async function getSupervisorJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${supervisorUrl}${path}`);
+
+  if (!response.ok) {
+    throw new Error(`supervisor returned ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+function summarizeWorkflowRuns(runs: WorkflowRun[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.id,
+    source: 'workflow',
+    title: run.workflowName,
+    status: run.status,
+    summary: `${run.workflowName} ${run.status}.`,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeDevelopmentRuns(
+  runs: MockDevelopmentOrchestrationResult[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.request.id,
+    source: 'development',
+    title: run.summary.requestTitle,
+    status: run.summary.verificationStatus,
+    summary: `${run.summary.taskCount} tasks, ${run.summary.agentRunCount} agent runs.`,
+    evidenceCount: run.summary.evidenceCount,
+    auditEventCount: run.summary.auditEventCount,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeCodexDryRuns(runs: CodexExecLiveRunRecord[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.id,
+    source: 'codex_exec_dry_run',
+    title: run.title,
+    status: run.status,
+    summary: `policy ${run.policyDecision.outcome}, sandbox ${run.sandboxMode}.`,
+    evidenceCount: run.evidenceRefs.length,
+    auditEventCount: run.auditEvents.length,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function settledValue<T>(result: PromiseSettledResult<T>): T | undefined {
+  return result.status === 'fulfilled' ? result.value : undefined;
+}
+
+function settledError<T>(result: PromiseSettledResult<T>): string | undefined {
+  if (result.status === 'fulfilled') {
+    return undefined;
+  }
+
+  return result.reason instanceof Error ? result.reason.message : 'unknown read-only GET failure';
 }
 
 async function assertSupervisorRealReadOnlyAdapterInvocationContract(): Promise<void> {
@@ -4384,6 +4613,56 @@ export function formatCodexExecEvidenceListOutput(
     lines.length > 0 ? 'items:' : 'items: none',
     ...lines,
   ].join('\n');
+}
+
+export function formatReadOnlyRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const runs = (result.runs as ReadOnlyRunSummary[] | undefined) ?? [];
+
+  return [
+    'CodexHub read-only runs',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${runs.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    runs.length > 0 ? 'items:' : 'items: none',
+    ...runs
+      .slice(0, 12)
+      .map((run) => `- ${run.id} ${run.source} ${run.status} ${run.title}`),
+  ].join('\n');
+}
+
+export function formatReadOnlyRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as ReadOnlyRunSummary | undefined;
+
+  return [
+    'CodexHub read-only run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `id: ${run?.id ?? 'unknown'}`,
+    `source: ${run?.source ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.title ? `title: ${run.title}` : undefined,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
 }
 
 export function formatCodexExecAuditListOutput(

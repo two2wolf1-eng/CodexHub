@@ -6,7 +6,7 @@ import {
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
-import { createEvidenceRef } from '@codexhub/evidence-kernel';
+import { createMcpEvidenceRef } from './metadata';
 
 export const CODEXHUB_MCP_TOOL_NAMES = [
   'codexhub.getArchitectureMap',
@@ -93,7 +93,7 @@ export function assertReadOnlyMcpToolRegistry(
 export function createMcpToolManifestEvidenceRef(
   definitions: readonly McpToolDefinition[] = createCodexHubMcpToolDefinitions(),
 ) {
-  return createEvidenceRef({
+  return createMcpEvidenceRef({
     kind: 'mcp.tool_manifest',
     label: 'mcp-tool-manifest',
     summary: `MCP manifest contains ${definitions.length} read-only tools.`,

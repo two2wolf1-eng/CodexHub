@@ -34,8 +34,199 @@ describe('cli development mock-run fallback', () => {
     process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
   });
 
+  it('lists MCP tools from the local read-only registry without invoking MCP', async () => {
+    const { formatMcpToolsListOutput, listMcpToolsForCli } = await import('./m3b-readonly');
+    const result = listMcpToolsForCli();
+    const output = formatMcpToolsListOutput(result);
+
+    expect(result.count).toBe(7);
+    expect(result.tools.every((tool) => tool.actionMode === 'read')).toBe(true);
+    expect(result.tools.every((tool) => tool.processBoundaryInvoked === false)).toBe(true);
+    expect(output).toContain('Registry display only');
+    expect(output).not.toContain('local-control');
+  });
+
+  it('shows one MCP tool without raw body or process state', async () => {
+    const { formatMcpToolDetailOutput, getMcpToolForCli } = await import('./m3b-readonly');
+    const result = getMcpToolForCli('codexhub.getPolicySummary');
+    const output = formatMcpToolDetailOutput(result);
+
+    expect(result.tool).toMatchObject({
+      name: 'codexhub.getPolicySummary',
+      actionMode: 'read',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+    });
+    expect(output).toContain('bodyStorage: hash-only');
+    expect(output).not.toContain('stdout');
+    expect(output).not.toContain('stderr');
+  });
+
+  it('creates an Nx verification dry-run summary without starting a process', async () => {
+    const { createVerifyAffectedDryRunForCli, formatVerifyAffectedDryRunOutput } = await import(
+      './m3b-readonly'
+    );
+    const result = createVerifyAffectedDryRunForCli({
+      dryRun: true,
+      targets: 'test,lint,test',
+      base: 'main',
+      head: 'HEAD',
+    });
+    const output = formatVerifyAffectedDryRunOutput(result);
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      targets: ['test', 'lint'],
+      baseRef: 'main',
+      headRef: 'HEAD',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      bodyStored: false,
+    });
+    expect(output).toContain('cwdHash: sha256:');
+    expect(JSON.stringify(result)).not.toContain(process.cwd());
+  });
+
+  it('rejects Nx verification planning unless dry-run is explicit', async () => {
+    const { createVerifyAffectedDryRunForCli } = await import('./m3b-readonly');
+
+    expect(() => createVerifyAffectedDryRunForCli({ targets: 'test' })).toThrow(
+      'verify affected is dry-run only',
+    );
+  });
+
+  it('blocks forbidden Nx verification dry-run inputs without invoking a process', async () => {
+    const { createVerifyAffectedDryRunForCli } = await import('./m3b-readonly');
+    const result = createVerifyAffectedDryRunForCli({
+      dryRun: true,
+      targets: 'lint,deploy',
+      cwd: '..',
+      requestedCommand: 'nx affected --target deploy',
+      requestedArgs: ['--parallel=999'],
+      shell: true,
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.processBoundaryInvoked).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(result.blockReasons).toEqual(
+      expect.arrayContaining([
+        'cwd_outside_allowlist',
+        'target_forbidden',
+        'arbitrary_command_forbidden',
+        'arbitrary_args_forbidden',
+        'shell_forbidden',
+      ]),
+    );
+  });
+
+  it('lists read-only runs using GET requests only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/workflows/runs')) {
+        return new Response(
+          JSON.stringify({
+            runs: [{ id: 'workflow_1', workflowName: 'm3b.read_only', status: 'passed' }],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/development/mock-runs')) {
+        return new Response(JSON.stringify({ runs: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/codex/exec/dry-runs')) {
+        return new Response(JSON.stringify({ runs: [] }), { status: 200 });
+      }
+
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    const { formatReadOnlyRunsListOutput, listReadOnlyRuns, showReadOnlyRun } = await import(
+      './main'
+    );
+    const result = await listReadOnlyRuns();
+    const detail = await showReadOnlyRun('workflow_1');
+    const output = formatReadOnlyRunsListOutput(result);
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      count: 1,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+    });
+    expect(detail.status).toBe('found');
+    expect(output).toContain('workflow_1');
+    expect(fetchCalls).toHaveLength(6);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+  });
+
+  it('top-level evidence helpers remain GET-only and metadata-only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/codex/exec/evidence/evidence_1')) {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              status: 'found',
+              evidenceRefId: 'evidence_1',
+              kind: 'mcp.tool_manifest',
+              hash: 'sha256:abc',
+              summary: 'metadata only',
+            },
+            liveExecution: false,
+            externalProcessStarted: false,
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          result: {
+            count: 1,
+            items: [
+              {
+                evidenceRefId: 'evidence_1',
+                kind: 'mcp.tool_manifest',
+                hash: 'sha256:abc',
+              },
+            ],
+          },
+          liveExecution: false,
+          externalProcessStarted: false,
+        }),
+        { status: 200 },
+      );
+    });
+    const {
+      formatCodexExecDetailOutput,
+      formatCodexExecEvidenceListOutput,
+      getCodexExecEvidence,
+      listCodexExecEvidence,
+    } = await import('./main');
+    const list = await listCodexExecEvidence({ kind: 'mcp.tool_manifest' });
+    const detail = await getCodexExecEvidence('evidence_1');
+    const listOutput = formatCodexExecEvidenceListOutput(list);
+    const detailOutput = formatCodexExecDetailOutput('Evidence detail', detail);
+
+    expect(listOutput).toContain('evidence_1');
+    expect(detailOutput).toContain('sha256:abc');
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(JSON.stringify({ list, detail })).not.toContain('body');
+  });
+
   afterEach(() => {
     rmSync(cliSymlinkEscapeAbsolutePath, { force: true });
+    vi.unstubAllGlobals();
   });
 
   it('does not create mutating fallback records when the local control token is missing', async () => {

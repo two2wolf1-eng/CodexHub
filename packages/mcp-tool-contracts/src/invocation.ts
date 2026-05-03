@@ -9,8 +9,8 @@ import {
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
-import { createEvidenceRef, hashText, redactMetadata } from '@codexhub/evidence-kernel';
 import { DefaultPolicyEngine, type PolicyEngine } from '@codexhub/security-kernel';
+import { createMcpEvidenceRef, hashUnknown } from './metadata';
 
 export interface McpToolPolicyInput {
   tool: McpToolDefinition;
@@ -52,7 +52,7 @@ export function evaluateMcpToolPolicy(input: McpToolPolicyInput): PolicyDecision
 export function createMcpToolInvocationRecords(input: McpToolInvocationRecordInput) {
   const inputHash = hashUnknown(input.inputSummary ?? {});
   const outputHash = hashUnknown(input.outputSummary ?? {});
-  const evidenceRef = createEvidenceRef({
+  const evidenceRef = createMcpEvidenceRef({
     kind: 'mcp.tool_invocation_summary',
     label: `mcp-tool-${input.tool.name}`,
     summary: `${input.tool.name} ${input.status}.`,
@@ -113,29 +113,4 @@ export function createMcpToolInvocationRecords(input: McpToolInvocationRecordInp
     auditEvents: [auditEvent],
     invocationSummary,
   };
-}
-
-function hashUnknown(value: unknown): string {
-  return `sha256:${hashText(JSON.stringify(redactUnknown(value)))}`;
-}
-
-function redactUnknown(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) => redactUnknown(entry));
-  }
-
-  if (isPlainObject(value)) {
-    return redactMetadata(value);
-  }
-
-  return value;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
 }

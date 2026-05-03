@@ -9,6 +9,8 @@
   "dependencies": {
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
+    "@codexhub/mcp-tool-contracts": "workspace:*",
+    "@codexhub/nx-verification-adapter": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",

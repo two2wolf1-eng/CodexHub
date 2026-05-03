@@ -68,6 +68,31 @@ h1 {
   color: #7a5515;
 }
 
+.view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 auto 18px;
+  max-width: 1120px;
+}
+
+.view-nav a {
+  background: #ffffff;
+  border: 1px solid #ccd6dc;
+  border-radius: 6px;
+  color: #27343c;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.view-nav a.active {
+  background: #dfeff7;
+  border-color: #80b6cf;
+  color: #12465c;
+}
+
 .grid {
   display: grid;
   gap: 16px;
