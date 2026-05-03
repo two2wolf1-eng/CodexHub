@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AuditEvent, CodexExecManualApprovalRecord, EvidenceRef } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
@@ -7,6 +8,7 @@ import type { CodexHubStore } from '@codexhub/store-core';
 import {
   runMinimalGovernedOrchestration,
   runM6aControlledWorktreePrDraft,
+  runM6bGovernedWorktreePrDraft,
   runGovernedDevelopmentOrchestration,
   runMockDevelopmentOrchestration,
 } from './index';
@@ -534,6 +536,73 @@ describe('orchestrator-kernel M6a controlled worktree PR draft foundation', () =
     expect(result.summary.processBoundaryInvoked).toBe(false);
     expect(result.pullRequestDraft.status).toBe('blocked');
     expect(codexStarts).toBe(0);
+  });
+
+  it('runs M6b controlled git metadata into the governed Codex/Nx loop', async () => {
+    const worktreeRoot = mkdtempSync(join(tmpdir(), 'codexhub-m6b-worktrees-'));
+    const worktreePath = resolve(worktreeRoot, 'feature-m6b');
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(
+      resolve(worktreePath, 'package.json'),
+      readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+    );
+    const result = await runM6bGovernedWorktreePrDraft({
+      title: 'Prepare M6b controlled patch draft',
+      description: 'Use injected controlled git, Codex, and Nx runners.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      repoRoot: process.cwd(),
+      worktreeRoot,
+      worktreePath,
+      worktreeSlug: 'feature-m6b',
+      branchName: 'codex/feature-m6b',
+      baseRef: 'HEAD',
+      allowedWorktreeRoots: [worktreeRoot],
+      realGitBoundaryEnabled: true,
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      worktreeRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/orchestrator-kernel/src/m6b-runner.ts'],
+            diffHash: 'sha256:diff',
+            diffLineCount: 6,
+            commandSummaryHash: 'sha256:command',
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            cleanupRequired: true,
+            cleanupDeferred: true,
+          };
+        },
+      },
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'orchestrator-kernel\n', stderr: '' }
+            : { exitCode: 0, stdout: 'Successfully ran target lint,test,build', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.summary.noRealWrite).toBe(false);
+    expect(result.summary.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.summary.cleanupRequired).toBe(true);
+    expect(result.pullRequestDraft.status).toBe('ready');
+    expect(result.patchRun.status).toBe('verified');
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(worktreePath);
+    expect(serialized).not.toContain('diff --git');
   });
 
   it('does not import child_process in the M6a runner or worktree manager', () => {

@@ -1249,6 +1249,9 @@ export type AgentRun = z.infer<typeof AgentRunSchema>;
 export const WorktreePlanStatusSchema = z.enum(['planned', 'blocked']);
 export type WorktreePlanStatus = z.infer<typeof WorktreePlanStatusSchema>;
 
+export const WorktreeRunnerModeSchema = z.enum(['fixture', 'controlled-git-worktree']);
+export type WorktreeRunnerMode = z.infer<typeof WorktreeRunnerModeSchema>;
+
 export const WorktreeRunStatusSchema = z.enum([
   'planned',
   'completed',
@@ -1274,20 +1277,27 @@ export const WorktreePlanSchema = createdEntityBaseSchema
   .extend({
     adapterName: z.string().min(1),
     status: WorktreePlanStatusSchema,
+    runnerMode: WorktreeRunnerModeSchema.default('fixture'),
     repoRootHash: z.string().min(1),
     worktreeRootHash: z.string().min(1),
     worktreePathHash: z.string().min(1),
     branchNameHash: z.string().min(1),
     worktreeSlugHash: z.string().min(1),
+    baseRefHash: z.string().min(1).optional(),
+    commandSummaryHash: z.string().min(1).optional(),
     defaultRootKind: z.enum(['sibling', 'allowlisted-absolute']),
     blockReasons: z.array(z.string().min(1)).default([]),
     plannedActions: z.array(CapabilityPlannedActionSchema).default([]),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
     noRealWrite: z.literal(true),
-    processBoundaryPlanned: z.literal(false),
-    processBoundaryInvoked: z.literal(false),
-    externalProcessStarted: z.literal(false),
+    gitProcessBoundaryPlanned: z.boolean().default(false),
+    gitProcessBoundaryInvoked: z.literal(false).default(false),
+    cleanupRequired: z.boolean().default(false),
+    cleanupDeferred: z.boolean().default(false),
+    processBoundaryPlanned: z.boolean().default(false),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
     summary: z.string().min(1),
   })
   .strict();
@@ -1297,8 +1307,11 @@ export const WorktreeRunSchema = createdEntityBaseSchema
   .extend({
     planId: z.string().min(1),
     status: WorktreeRunStatusSchema,
+    runnerMode: WorktreeRunnerModeSchema.default('fixture'),
     worktreePathHash: z.string().min(1),
     branchNameHash: z.string().min(1),
+    baseRefHash: z.string().min(1).optional(),
+    commandSummaryHash: z.string().min(1).optional(),
     changedFiles: z.array(RepoRelativePathSchema).default([]),
     changedFileCount: z.number().int().nonnegative(),
     diffHash: z.string().min(1).optional(),
@@ -1306,13 +1319,163 @@ export const WorktreeRunSchema = createdEntityBaseSchema
     auditEventIds: z.array(z.string().min(1)).default([]),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
-    noRealWrite: z.literal(true),
-    processBoundaryInvoked: z.literal(false),
-    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean(),
+    gitProcessBoundaryInvoked: z.boolean().default(false),
+    cleanupRequired: z.boolean().default(false),
+    cleanupDeferred: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
     summary: z.string().min(1),
   })
   .strict();
 export type WorktreeRun = z.infer<typeof WorktreeRunSchema>;
+
+export const WorktreeControlPlaneStatusSchema = z.enum([
+  'planned',
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type WorktreeControlPlaneStatus = z.infer<
+  typeof WorktreeControlPlaneStatusSchema
+>;
+
+export const WorktreeApprovalStatusSchema = z.enum([
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type WorktreeApprovalStatus = z.infer<typeof WorktreeApprovalStatusSchema>;
+
+export const WorktreeControlPlaneTimelineEventSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.enum(['dry-run', 'approval-request', 'approval-decision', 'execution']),
+    status: WorktreeControlPlaneStatusSchema,
+    summary: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    gitProcessBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+  })
+  .strict();
+export type WorktreeControlPlaneTimelineEvent = z.infer<
+  typeof WorktreeControlPlaneTimelineEventSchema
+>;
+
+export const WorktreeDryRunRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['ready', 'blocked']),
+    plan: WorktreePlanSchema,
+    capabilityDryRun: CapabilityDryRunSchema,
+    policyDecision: PolicyDecisionSchema,
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    branchNameHash: z.string().min(1),
+    worktreeSlugHash: z.string().min(1),
+    baseRefHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    timeline: z.array(WorktreeControlPlaneTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    gitProcessBoundaryPlanned: z.boolean().default(false),
+    gitProcessBoundaryInvoked: z.literal(false).default(false),
+    processBoundaryPlanned: z.boolean().default(false),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeDryRunRecord = z.infer<typeof WorktreeDryRunRecordSchema>;
+
+export const WorktreeApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: WorktreeApprovalStatusSchema,
+    requestedBy: z.string().min(1),
+    decidedBy: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    decisionReasonHash: z.string().min(1).optional(),
+    dryRunPlanHash: z.string().min(1),
+    policyDecisionId: z.string().min(1),
+    policyDecisionHash: z.string().min(1),
+    approved: z.boolean(),
+    requestedAt: IsoDateTimeSchema,
+    decidedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    timeline: z.array(WorktreeControlPlaneTimelineEventSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    gitProcessBoundaryInvoked: z.literal(false).default(false),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeApprovalArtifactRecord = z.infer<
+  typeof WorktreeApprovalArtifactRecordSchema
+>;
+
+export const WorktreeControlPlaneRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: WorktreeRunStatusSchema,
+    planId: z.string().min(1),
+    runnerMode: WorktreeRunnerModeSchema,
+    worktreeRun: WorktreeRunSchema.optional(),
+    patchRun: z.lazy(() => PatchRunSchema).optional(),
+    patchSummary: z.lazy(() => PatchSummarySchema).optional(),
+    pullRequestDraft: z.lazy(() => PullRequestSummaryDraftSchema).optional(),
+    releaseAuditDraft: z.lazy(() => ReleaseAuditDraftSchema).optional(),
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    branchNameHash: z.string().min(1),
+    worktreeSlugHash: z.string().min(1),
+    baseRefHash: z.string().min(1).optional(),
+    changedFileCount: z.number().int().nonnegative().default(0),
+    diffHash: z.string().min(1).optional(),
+    timeline: z.array(WorktreeControlPlaneTimelineEventSchema).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.boolean(),
+    cleanupRequired: z.boolean().default(false),
+    cleanupDeferred: z.boolean().default(false),
+    gitProcessBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeControlPlaneRun = z.infer<typeof WorktreeControlPlaneRunSchema>;
 
 export const PatchRunStatusSchema = z.enum([
   'planned',

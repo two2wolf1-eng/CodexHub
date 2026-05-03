@@ -298,3 +298,62 @@ workflows:
       - cliWorktreeExecuteCommand
       - newProcessBoundary
       - noLiveAutomationAllowlistChange
+  m6b.governed-worktree-control-plane:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: apps/supervisor
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/worktrees/dry-runs
+        adapter: worktree-manager
+        runnerMode: controlled-git-worktree
+        defaultRoot: ../CodexHub-worktrees
+        output: pathRefCommandHashesOnly
+        gitProcessBoundaryPlanned: true
+      - phase: approval-request
+        route: POST /api/worktrees/approval-requests
+        authority: supervisor-store
+      - phase: manual-approval
+        route: POST /api/worktrees/manual-approvals
+        authority: persistedApprovalArtifact
+      - phase: execution
+        route: POST /api/worktrees/runs
+        authority: persistedApprovalArtifact
+        productDefaultEnabled: false
+        requiredEnv:
+          - CODEXHUB_WORKTREE_MANAGER_ENABLED
+        adapterExecution: supervisor-gated
+        allowedGitBoundary:
+          - rev-parse --show-toplevel
+          - worktree add --detach
+          - diff --name-only --no-ext-diff
+          - diff --numstat --no-ext-diff
+      - phase: summary
+        output: hashesCountsSummariesEvidenceAndAuditIdsOnly
+        cleanupRequired: true
+        cleanupDeferred: true
+      - phase: orchestrator-handoff
+        package: orchestrator-kernel
+        usesExistingAdapters:
+          - codex-exec-adapter
+          - nx-verification-adapter
+        noNewCodexNxBoundary: true
+        prDraftReadyRequiresVerificationPassed: true
+    forbidden:
+      - dashboardWriteUi
+      - cliWorktreeExecuteCommand
+      - rawWorktreePathPersistence
+      - rawDiffPersistence
+      - rawPullRequestBodyPersistence
+      - rawGitCommandPersistence
+      - arbitraryGitCommand
+      - genericShell
+      - gitPush
+      - openPullRequest
+      - worktreeRemove
+      - automaticCleanupDelete
+      - browserAutomation
+      - electronAutomation
+      - mcpWriteTool

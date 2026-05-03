@@ -14,6 +14,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  WorktreeApprovalArtifactRecord,
+  WorktreeControlPlaneRun,
+  WorktreeDryRunRecord,
   CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   CodexExecReadOnlyAdapterSimulatorReviewQuery,
   CodexExecReadOnlyAdapterImplementationPlanReviewDecisionRecord,
@@ -73,6 +76,10 @@ import type {
   ElectronCdpObservationDryRunRepository,
   ElectronCdpObservationQuery,
   ElectronCdpObservationRunRepository,
+  WorktreeApprovalRepository,
+  WorktreeControlPlaneQuery,
+  WorktreeDryRunRepository,
+  WorktreeRunRepository,
   EvidenceRefQuery,
   EvidenceRefRepository,
   ObservationRepository,
@@ -137,6 +144,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly electronCdpObservationDryRuns: ElectronCdpObservationDryRunRepository;
   readonly electronCdpObservationApprovals: ElectronCdpObservationApprovalRepository;
   readonly electronCdpObservationRuns: ElectronCdpObservationRunRepository;
+  readonly worktreeDryRuns: WorktreeDryRunRepository;
+  readonly worktreeApprovals: WorktreeApprovalRepository;
+  readonly worktreeRuns: WorktreeRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -176,6 +186,9 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
     );
     this.electronCdpObservationRuns = new SqliteElectronCdpObservationRunRepository(database);
+    this.worktreeDryRuns = new SqliteWorktreeDryRunRepository(database);
+    this.worktreeApprovals = new SqliteWorktreeApprovalRepository(database);
+    this.worktreeRuns = new SqliteWorktreeRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -661,6 +674,110 @@ class SqliteElectronCdpObservationRunRepository implements ElectronCdpObservatio
     return listObservationControlPlaneRecords<ElectronCdpObservationControlPlaneRun>(
       this.database,
       'electron_cdp_observation_runs',
+      query,
+    );
+  }
+}
+
+class SqliteWorktreeDryRunRepository implements WorktreeDryRunRepository {
+  private readonly repository: JsonEntityRepository<WorktreeDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<WorktreeDryRunRecord>(
+      database,
+      'worktree_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: WorktreeDryRunRecord): Promise<WorktreeDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<WorktreeDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: WorktreeControlPlaneQuery = {},
+  ): Promise<WorktreeDryRunRecord[]> {
+    return listObservationControlPlaneRecords<WorktreeDryRunRecord>(
+      this.database,
+      'worktree_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteWorktreeApprovalRepository implements WorktreeApprovalRepository {
+  private readonly repository: JsonEntityRepository<WorktreeApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<WorktreeApprovalArtifactRecord>(
+      database,
+      'worktree_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: WorktreeApprovalArtifactRecord,
+  ): Promise<WorktreeApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<WorktreeApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<WorktreeApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM worktree_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as WorktreeApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: WorktreeControlPlaneQuery = {},
+  ): Promise<WorktreeApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<WorktreeApprovalArtifactRecord>(
+      this.database,
+      'worktree_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteWorktreeRunRepository implements WorktreeRunRepository {
+  private readonly repository: JsonEntityRepository<WorktreeControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<WorktreeControlPlaneRun>(
+      database,
+      'worktree_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: WorktreeControlPlaneRun): Promise<WorktreeControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<WorktreeControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: WorktreeControlPlaneQuery = {},
+  ): Promise<WorktreeControlPlaneRun[]> {
+    return listObservationControlPlaneRecords<WorktreeControlPlaneRun>(
+      this.database,
+      'worktree_runs',
       query,
     );
   }
@@ -1589,6 +1706,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS electron_cdp_observation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS worktree_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS worktree_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS worktree_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

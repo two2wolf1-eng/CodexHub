@@ -27,6 +27,9 @@ import {
   type ElectronCdpObservationDryRunRecord,
   type EvidenceRef,
   type MockDevelopmentRun,
+  type WorktreeApprovalArtifactRecord,
+  type WorktreeControlPlaneRun,
+  type WorktreeDryRunRecord,
   SchemaVersionSchema,
 } from '@codexhub/contracts';
 import { createSqliteStore, resolveCodexHubDbPath } from './index';
@@ -182,6 +185,12 @@ describe('store-sqlite migration initialization', () => {
     await first.electronCdpObservationApprovals.saveApproval(electronApproval);
     const electronRun = createElectronCdpObservationRunFixture();
     await first.electronCdpObservationRuns.saveRun(electronRun);
+    const worktreeDryRun = createWorktreeDryRunFixture();
+    await first.worktreeDryRuns.saveDryRun(worktreeDryRun);
+    const worktreeApproval = createWorktreeApprovalFixture();
+    await first.worktreeApprovals.saveApproval(worktreeApproval);
+    const worktreeRun = createWorktreeRunFixture();
+    await first.worktreeRuns.saveRun(worktreeRun);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -314,6 +323,28 @@ describe('store-sqlite migration initialization', () => {
     });
     const electronRunRecord =
       await second.electronCdpObservationRuns.getRun('electron_control_run_1');
+    const worktreeDryRuns = await second.worktreeDryRuns.listDryRuns({
+      dryRunId: 'worktree_dry_run_1',
+      status: 'ready',
+      limit: 10,
+    });
+    const worktreeDryRunRecord =
+      await second.worktreeDryRuns.getDryRun('worktree_dry_run_record_1');
+    const worktreeApprovals = await second.worktreeApprovals.listApprovals({
+      dryRunId: 'worktree_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const worktreeApprovalRecord =
+      await second.worktreeApprovals.getApproval('worktree_approval_record_1');
+    const worktreeApprovalByArtifact =
+      await second.worktreeApprovals.getApprovalByArtifactId('worktree_approval_artifact_1');
+    const worktreeRuns = await second.worktreeRuns.listRuns({
+      dryRunId: 'worktree_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const worktreeRunRecord = await second.worktreeRuns.getRun('worktree_control_run_1');
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -518,6 +549,20 @@ describe('store-sqlite migration initialization', () => {
     expect(electronRunRecord?.processBoundaryInvoked).toBe(false);
     expect(JSON.stringify({ electronDryRunRecord, electronApprovalRecord, electronRunRecord })).not.toContain(
       '127.0.0.1',
+    );
+    expect(worktreeDryRuns).toHaveLength(1);
+    expect(worktreeDryRunRecord?.worktreePathHash).toBe('sha256:path');
+    expect(worktreeApprovals).toHaveLength(1);
+    expect(worktreeApprovalRecord?.approvalArtifactId).toBe('worktree_approval_artifact_1');
+    expect(worktreeApprovalByArtifact?.id).toBe('worktree_approval_record_1');
+    expect(worktreeRuns).toHaveLength(1);
+    expect(worktreeRunRecord?.gitProcessBoundaryInvoked).toBe(true);
+    expect(worktreeRunRecord?.cleanupRequired).toBe(true);
+    expect(JSON.stringify({ worktreeDryRunRecord, worktreeApprovalRecord, worktreeRunRecord })).not.toContain(
+      'CodexHub-worktrees',
+    );
+    expect(JSON.stringify({ worktreeDryRunRecord, worktreeApprovalRecord, worktreeRunRecord })).not.toContain(
+      'diff --git',
     );
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
@@ -1211,6 +1256,169 @@ function createElectronCdpObservationRunFixture(): ElectronCdpObservationControl
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary: 'Electron/CDP control-plane run completed with event boundary metadata.',
+  };
+}
+
+function createWorktreeDryRunFixture(): WorktreeDryRunRecord {
+  const createdAt = '2026-04-28T00:00:04.700Z';
+  const plan = {
+    id: 'worktree_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    adapterName: 'worktree-manager',
+    status: 'planned' as const,
+    runnerMode: 'controlled-git-worktree' as const,
+    repoRootHash: 'sha256:repo',
+    worktreeRootHash: 'sha256:root',
+    worktreePathHash: 'sha256:path',
+    branchNameHash: 'sha256:branch',
+    worktreeSlugHash: 'sha256:slug',
+    baseRefHash: 'sha256:base',
+    commandSummaryHash: 'sha256:command',
+    defaultRootKind: 'sibling' as const,
+    plannedActions: [
+      {
+        action: 'git.worktree.create.real',
+        actionMode: 'write' as const,
+        risk: 'high' as const,
+        target: 'sha256:path',
+        requiresApproval: true,
+      },
+    ],
+    rawPathStored: false as const,
+    bodyStored: false as const,
+    noRealWrite: true as const,
+    gitProcessBoundaryPlanned: true,
+    gitProcessBoundaryInvoked: false as const,
+    cleanupRequired: false,
+    cleanupDeferred: false,
+    processBoundaryPlanned: true,
+    processBoundaryInvoked: false as const,
+    externalProcessStarted: false as const,
+    blockReasons: [],
+    summary: 'Controlled git worktree dry-run.',
+  };
+
+  return {
+    id: 'worktree_dry_run_record_1',
+    dryRunId: 'worktree_dry_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    status: 'ready',
+    plan,
+    capabilityDryRun: {
+      id: 'worktree_capability_dry_run_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      adapterName: 'worktree-manager',
+      inputSummary: {
+        worktreePathHash: 'sha256:path',
+      },
+      plannedActions: plan.plannedActions,
+      requiredEvidence: ['worktree.plan'],
+      warnings: [],
+    },
+    policyDecision: {
+      id: 'worktree_policy_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      actionId: 'worktree_plan_1',
+      actionType: 'git.worktree.create',
+      actionMode: 'write',
+      riskLevel: 'high',
+      outcome: 'approval_required',
+      reasons: ['real write action requires explicit approval'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    },
+    repoRootHash: 'sha256:repo',
+    worktreeRootHash: 'sha256:root',
+    worktreePathHash: 'sha256:path',
+    branchNameHash: 'sha256:branch',
+    worktreeSlugHash: 'sha256:slug',
+    baseRefHash: 'sha256:base',
+    blockReasons: [],
+    timeline: [],
+    evidenceRefs: [],
+    auditEventIds: ['worktree_dry_run_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    gitProcessBoundaryPlanned: true,
+    gitProcessBoundaryInvoked: false,
+    processBoundaryPlanned: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Worktree dry-run stores hash metadata only.',
+  };
+}
+
+function createWorktreeApprovalFixture(): WorktreeApprovalArtifactRecord {
+  const createdAt = '2026-04-28T00:00:04.800Z';
+
+  return {
+    id: 'worktree_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'worktree_dry_run_1',
+    dryRunRecordId: 'worktree_dry_run_record_1',
+    approvalRequestId: 'worktree_approval_request_1',
+    approvalArtifactId: 'worktree_approval_artifact_1',
+    status: 'approved',
+    requestedBy: 'local-operator',
+    decidedBy: 'local-operator',
+    dryRunPlanHash: 'sha256:plan',
+    policyDecisionId: 'worktree_policy_1',
+    policyDecisionHash: 'sha256:policy',
+    approved: true,
+    requestedAt: createdAt,
+    decidedAt: createdAt,
+    expiresAt: '2026-04-28T01:00:00.000Z',
+    timeline: [],
+    evidenceRefs: [],
+    auditEventIds: ['worktree_approval_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    gitProcessBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary: 'Worktree approval stores hashes and ids only.',
+  };
+}
+
+function createWorktreeRunFixture(): WorktreeControlPlaneRun {
+  const createdAt = '2026-04-28T00:00:04.900Z';
+
+  return {
+    id: 'worktree_control_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'worktree_dry_run_1',
+    dryRunRecordId: 'worktree_dry_run_record_1',
+    approvalArtifactId: 'worktree_approval_artifact_1',
+    status: 'completed',
+    planId: 'worktree_plan_1',
+    runnerMode: 'controlled-git-worktree',
+    repoRootHash: 'sha256:repo',
+    worktreeRootHash: 'sha256:root',
+    worktreePathHash: 'sha256:path',
+    branchNameHash: 'sha256:branch',
+    worktreeSlugHash: 'sha256:slug',
+    baseRefHash: 'sha256:base',
+    changedFileCount: 1,
+    diffHash: 'sha256:diff',
+    timeline: [],
+    evidenceRefIds: ['worktree_evidence_1'],
+    auditEventIds: ['worktree_run_audit_1'],
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: false,
+    cleanupRequired: true,
+    cleanupDeferred: true,
+    gitProcessBoundaryInvoked: true,
+    processBoundaryInvoked: true,
+    externalProcessStarted: true,
+    summary: 'Worktree control-plane run completed with git boundary metadata.',
   };
 }
 

@@ -4,6 +4,7 @@ import {
   CapabilityDryRunSchema,
   SchemaVersionSchema,
   type WorktreePlan,
+  type WorktreeRunnerMode,
   WorktreePlanSchema,
   foundationId,
   foundationTimestamp,
@@ -15,6 +16,8 @@ export interface WorktreeManagerPlanInput {
   repoRoot: string;
   worktreeSlug: string;
   branchName: string;
+  baseRef?: string;
+  runnerMode?: WorktreeRunnerMode;
   worktreeRoot?: string;
   allowedWorktreeRoots?: readonly string[];
   now?: () => string;
@@ -29,6 +32,8 @@ export interface WorktreeManagerPlanResult {
   worktreePathHash: string;
   branchNameHash: string;
   worktreeSlugHash: string;
+  baseRefHash?: string;
+  runnerMode: WorktreeRunnerMode;
   blockReasons: string[];
   capabilityDryRun: CapabilityDryRun;
   worktreePlan: WorktreePlan;
@@ -50,9 +55,14 @@ export function createWorktreeManagerPlan(
     ),
   );
   const worktreePath = resolve(requestedRoot, input.worktreeSlug);
+  const runnerMode = input.runnerMode ?? 'fixture';
+  const baseRefHash = input.baseRef ? stableHash(`baseRef:${input.baseRef}`) : undefined;
+  const gitProcessBoundaryPlanned = runnerMode === 'controlled-git-worktree';
   const blockReasons = [
     ...validateSlug(input.worktreeSlug),
     ...validateBranchName(input.branchName),
+    ...validateRunnerMode({ runnerMode, baseRef: input.baseRef }),
+    ...(input.baseRef ? validateBaseRef(input.baseRef) : []),
     ...validateWorktreeRoot({
       repoRoot,
       requestedRoot,
@@ -71,11 +81,22 @@ export function createWorktreeManagerPlan(
     createdAt,
     adapterName: WORKTREE_MANAGER_ADAPTER_NAME,
     status,
+    runnerMode,
     repoRootHash: stableHash(`repo:${repoRoot}`),
     worktreeRootHash: stableHash(`root:${requestedRoot}`),
     worktreePathHash,
     branchNameHash: stableHash(`branch:${input.branchName}`),
     worktreeSlugHash: stableHash(`slug:${input.worktreeSlug}`),
+    baseRefHash,
+    commandSummaryHash: stableHash(
+      JSON.stringify({
+        runnerMode,
+        allowedCommands:
+          runnerMode === 'controlled-git-worktree'
+            ? ['rev-parse', 'worktree-add-detach', 'diff-name-only', 'diff-numstat']
+            : ['fixture-runner'],
+      }),
+    ),
     defaultRootKind:
       requestedRoot.toLowerCase() === defaultWorktreeRoot.toLowerCase()
         ? 'sibling'
@@ -91,7 +112,7 @@ export function createWorktreeManagerPlan(
       },
       {
         action: 'git.worktree.create.real',
-        actionMode: 'dry-run',
+        actionMode: runnerMode === 'controlled-git-worktree' ? 'write' : 'dry-run',
         risk: 'high',
         target: worktreePathHash,
         requiresApproval: true,
@@ -100,12 +121,18 @@ export function createWorktreeManagerPlan(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
-    processBoundaryPlanned: false,
+    gitProcessBoundaryPlanned,
+    gitProcessBoundaryInvoked: false,
+    cleanupRequired: false,
+    cleanupDeferred: false,
+    processBoundaryPlanned: gitProcessBoundaryPlanned,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary:
       status === 'planned'
-        ? 'Worktree dry-run plan created without invoking git.'
+        ? runnerMode === 'controlled-git-worktree'
+          ? 'Controlled git worktree dry-run plan created without invoking git.'
+          : 'Worktree dry-run plan created without invoking git.'
         : 'Worktree dry-run plan blocked by path or slug constraints.',
   });
   const capabilityDryRun = CapabilityDryRunSchema.parse({
@@ -119,15 +146,22 @@ export function createWorktreeManagerPlan(
       worktreePathHash,
       branchNameHash: worktreePlan.branchNameHash,
       worktreeSlugHash: worktreePlan.worktreeSlugHash,
+      baseRefHash,
+      runnerMode,
+      gitProcessBoundaryPlanned,
       rawPathStored: false,
       bodyStored: false,
     },
     plannedActions: worktreePlan.plannedActions,
     requiredEvidence: ['worktree.plan', 'patch.diff_summary', 'pr.draft_summary'],
     warnings: [
-      'm6a_fixture_only',
-      'real_git_boundary_disabled',
-      'real_git_write_requires_future_approval',
+      runnerMode === 'controlled-git-worktree'
+        ? 'm6b_controlled_git_boundary_requires_persisted_approval'
+        : 'm6a_fixture_only',
+      runnerMode === 'controlled-git-worktree'
+        ? 'worktree_cleanup_deferred'
+        : 'real_git_boundary_disabled',
+      'git_push_and_pull_request_forbidden',
       ...blockReasons,
     ],
   });
@@ -141,6 +175,8 @@ export function createWorktreeManagerPlan(
     worktreePathHash,
     branchNameHash: worktreePlan.branchNameHash,
     worktreeSlugHash: worktreePlan.worktreeSlugHash,
+    baseRefHash,
+    runnerMode,
     blockReasons,
     capabilityDryRun,
     worktreePlan,
@@ -181,6 +217,33 @@ function validateBranchName(branchName: string): string[] {
     branchName.includes('\\')
   ) {
     reasons.push('branch_name_traversal_forbidden');
+  }
+  return reasons;
+}
+
+function validateRunnerMode(input: {
+  runnerMode: WorktreeRunnerMode;
+  baseRef: string | undefined;
+}): string[] {
+  if (input.runnerMode === 'controlled-git-worktree' && !input.baseRef?.trim()) {
+    return ['base_ref_required'];
+  }
+  return [];
+}
+
+function validateBaseRef(baseRef: string): string[] {
+  const reasons: string[] = [];
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(baseRef)) {
+    reasons.push('base_ref_unsafe');
+  }
+  if (
+    baseRef.includes('..') ||
+    baseRef.startsWith('/') ||
+    baseRef.startsWith('\\') ||
+    baseRef.endsWith('.lock') ||
+    baseRef.includes('\\')
+  ) {
+    reasons.push('base_ref_traversal_forbidden');
   }
   return reasons;
 }

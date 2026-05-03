@@ -227,6 +227,10 @@ import type {
   ElectronCdpObservationRunStatus,
   ElectronDebugEndpointSummary,
   EvidenceRef,
+  WorktreeApprovalArtifactRecord,
+  WorktreeControlPlaneRun,
+  WorktreeDryRunRecord,
+  WorktreeRunStatus,
 } from '@codexhub/contracts';
 import {
   BrowserObservationApprovalArtifactRecordSchema,
@@ -240,6 +244,10 @@ import {
   ExecutionAuthoritySchema,
   PolicyDecisionSchema,
   SchemaVersionSchema,
+  WorktreeApprovalArtifactRecordSchema,
+  WorktreeControlPlaneRunSchema,
+  WorktreeControlPlaneTimelineEventSchema,
+  WorktreeDryRunRecordSchema,
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
@@ -272,6 +280,12 @@ import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
+import {
+  createWorktreeManagerPlan,
+  executeWorktreeManager,
+  type WorktreeManagerFixtureRunner,
+  type WorktreeManagerPlanResult,
+} from '@codexhub/worktree-manager';
 
 interface SupervisorServerOptions {
   store?: CodexHubStore;
@@ -288,6 +302,8 @@ interface SupervisorServerOptions {
   electronCdpObserverEnabled?: boolean;
   electronCdpEventsEnabled?: boolean;
   electronCdpObserverRunner?: ElectronCdpObservationRunner;
+  worktreeManagerEnabled?: boolean;
+  worktreeManagerRunner?: WorktreeManagerFixtureRunner;
 }
 
 interface PersistenceState {
@@ -382,6 +398,49 @@ interface ElectronCdpObservationRunRequestBody {
   authority?: unknown;
 }
 
+interface WorktreeDryRunRequestBody {
+  repoRoot?: string;
+  worktreeSlug?: string;
+  branchName?: string;
+  baseRef?: string;
+  worktreeRoot?: string;
+  allowedWorktreeRoots?: string[];
+  runnerMode?: 'fixture' | 'controlled-git-worktree';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface WorktreeApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface WorktreeManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: 'approved' | 'denied' | 'revoked';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface WorktreeRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  repoRoot?: string;
+  worktreeRoot?: string;
+  worktreePath?: string;
+  worktreeSlug?: string;
+  branchName?: string;
+  baseRef?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
 const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
 const LOCAL_CONTROL_ENV_VAR = [
@@ -449,6 +508,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const electronCdpObservationApprovalRecords: ElectronCdpObservationApprovalArtifactRecord[] =
     [];
   const electronCdpObservationRunRecords: ElectronCdpObservationControlPlaneRun[] = [];
+  const worktreeDryRunRecords: WorktreeDryRunRecord[] = [];
+  const worktreeApprovalRecords: WorktreeApprovalArtifactRecord[] = [];
+  const worktreeRunRecords: WorktreeControlPlaneRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -1073,6 +1135,225 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createElectronCdpObservationRunResponse(record);
+  });
+
+  server.post('/api/worktrees/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as WorktreeDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(undefined));
+    }
+
+    const dryRunRecord = createWorktreeDryRunRecordFromRequest(body);
+
+    await persistWorktreeDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+    );
+
+    return createWorktreeDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/worktrees/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseWorktreeQuery(request.query);
+    const records = await listWorktreeDryRuns(query, store);
+
+    return {
+      records: records.map(createWorktreeDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/worktrees/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as WorktreeApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveWorktreeDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree dry-run record was not found' });
+    }
+
+    const approvalRecord = createWorktreeApprovalRecord({
+      dryRunRecord,
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+      status: 'requested',
+    });
+
+    await persistWorktreeApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createWorktreeApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/worktrees/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as WorktreeManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveWorktreeDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveWorktreeApprovalRecord(body.approvalRequestId, store)
+      : (
+          await listWorktreeApprovals(
+            { dryRunId: dryRunRecord.dryRunId, limit: 1 },
+            store,
+          )
+        )[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'worktree approval request was not found' });
+    }
+
+    const approvalRecord = createWorktreeApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistWorktreeApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createWorktreeApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/worktrees/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseWorktreeQuery(request.query);
+    const records = await listWorktreeApprovals(query, store);
+
+    return {
+      records: records.map(createWorktreeApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/worktrees/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createWorktreeStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as WorktreeRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createWorktreeUntrustedAuthorityResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveWorktreeDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveWorktreeApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const runRecord = await executeWorktreeControlPlaneRun({
+      dryRunRecord,
+      approvalRecord,
+      store,
+      runtime: {
+        repoRoot: body?.repoRoot,
+        worktreeRoot: body?.worktreeRoot,
+        worktreePath: body?.worktreePath,
+        worktreeSlug: body?.worktreeSlug,
+        branchName: body?.branchName,
+        baseRef: body?.baseRef,
+      },
+    });
+
+    return createWorktreeRunResponse(runRecord);
+  });
+
+  server.get('/api/worktrees/runs', async (request) => {
+    const store = await getStore();
+    const query = parseWorktreeQuery(request.query);
+    const records = await listWorktreeRuns(query, store);
+
+    return {
+      records: records.map(createWorktreeRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      gitProcessBoundaryInvoked: records.some((record) => record.gitProcessBoundaryInvoked),
+      processBoundaryInvoked: records.some((record) => record.processBoundaryInvoked),
+      externalProcessStarted: records.some((record) => record.externalProcessStarted),
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/worktrees/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveWorktreeRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'worktree run was not found' });
+    }
+
+    return createWorktreeRunResponse(record);
   });
 
   server.post('/api/development/mock-run', async (request) => {
@@ -8503,6 +8784,793 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   }
 
   function parseElectronCdpObservationQuery(query: unknown): {
+    dryRunId?: string;
+    status?: string;
+    limit?: number;
+  } {
+    const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+    return {
+      dryRunId: readQueryValue(query, 'dryRunId'),
+      status: readQueryValue(query, 'status'),
+      limit: limitResult.allowed ? limitResult.limit : undefined,
+    };
+  }
+
+  function createWorktreeDryRunRecordFromRequest(
+    body: WorktreeDryRunRequestBody | undefined,
+  ): WorktreeDryRunRecord {
+    const worktreeSlug = body?.worktreeSlug ?? 'm6b-controlled-worktree';
+    const runnerMode = body?.runnerMode ?? 'controlled-git-worktree';
+    const plan = createWorktreeManagerPlan({
+      repoRoot: body?.repoRoot ?? process.cwd(),
+      worktreeSlug,
+      branchName: body?.branchName ?? `codex/${worktreeSlug}`,
+      baseRef: body?.baseRef,
+      runnerMode,
+      worktreeRoot: body?.worktreeRoot,
+      allowedWorktreeRoots: body?.allowedWorktreeRoots,
+    });
+    const policyDecision = policyEngine.evaluateAction({
+      actionId: plan.id,
+      actionType:
+        runnerMode === 'controlled-git-worktree'
+          ? 'git.worktree.create'
+          : 'git.worktree.fixture_summary',
+      actionMode: runnerMode === 'controlled-git-worktree' ? 'write' : 'dry-run',
+      riskLevel: runnerMode === 'controlled-git-worktree' ? 'high' : 'medium',
+      dryRun: true,
+      approvalGranted: false,
+      metadata: {
+        runnerMode,
+        realWrite: runnerMode === 'controlled-git-worktree',
+        noRealWrite: runnerMode !== 'controlled-git-worktree',
+        worktreePathHash: plan.worktreePathHash,
+      },
+    });
+    const status = plan.status === 'blocked' || policyDecision.outcome === 'deny'
+      ? 'blocked'
+      : 'ready';
+    const evidenceRefs = [
+      createWorktreeControlEvidence({
+        kind: 'worktree.plan',
+        label: 'worktree.control-plane.dry-run',
+        summary: plan.worktreePlan.summary,
+        metadata: {
+          dryRunId: plan.id,
+          status,
+          runnerMode,
+          repoRootHash: plan.repoRootHash,
+          worktreeRootHash: plan.worktreeRootHash,
+          worktreePathHash: plan.worktreePathHash,
+          branchNameHash: plan.branchNameHash,
+          worktreeSlugHash: plan.worktreeSlugHash,
+          baseRefHash: plan.baseRefHash,
+          blockReasons: plan.blockReasons,
+          gitProcessBoundaryPlanned: plan.worktreePlan.gitProcessBoundaryPlanned,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+
+    return WorktreeDryRunRecordSchema.parse({
+      id: plan.id,
+      dryRunId: plan.id,
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      status,
+      plan: plan.worktreePlan,
+      capabilityDryRun: plan.capabilityDryRun,
+      policyDecision: PolicyDecisionSchema.parse(policyDecision),
+      repoRootHash: plan.repoRootHash,
+      worktreeRootHash: plan.worktreeRootHash,
+      worktreePathHash: plan.worktreePathHash,
+      branchNameHash: plan.branchNameHash,
+      worktreeSlugHash: plan.worktreeSlugHash,
+      baseRefHash: plan.baseRefHash,
+      blockReasons: plan.blockReasons,
+      timeline: [
+        WorktreeControlPlaneTimelineEventSchema.parse({
+          id: foundationId('worktree_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: foundationTimestamp(),
+          phase: 'dry-run',
+          status: status === 'ready' ? 'planned' : 'blocked',
+          summary: plan.worktreePlan.summary,
+          evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+          auditEventIds: [auditEventId],
+          rawPathStored: false,
+          bodyStored: false,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        }),
+      ],
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      gitProcessBoundaryPlanned: plan.worktreePlan.gitProcessBoundaryPlanned,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryPlanned: plan.worktreePlan.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: plan.worktreePlan.summary,
+    });
+  }
+
+  function createWorktreeApprovalRecord(input: {
+    dryRunRecord: WorktreeDryRunRecord;
+    baseRecord?: WorktreeApprovalArtifactRecord;
+    status: 'requested' | 'approved' | 'denied' | 'revoked' | 'used';
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  }): WorktreeApprovalArtifactRecord {
+    const now = foundationTimestamp();
+    const approvalArtifactId =
+      input.status === 'approved'
+        ? (input.baseRecord?.approvalArtifactId ?? foundationId('worktree_approval_artifact'))
+        : input.baseRecord?.approvalArtifactId;
+    const evidenceRefs = [
+      createWorktreeControlEvidence({
+        kind: 'worktree.plan',
+        label: `worktree.control-plane.approval.${input.status}`,
+        summary: `Worktree approval ${input.status}.`,
+        metadata: {
+          dryRunId: input.dryRunRecord.dryRunId,
+          status: input.status,
+          approvalArtifactId,
+          reasonHash: input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      }),
+    ];
+    const auditEventId = foundationId('audit');
+    const requestedAt = input.baseRecord?.requestedAt ?? now;
+    const expiresAt =
+      input.status === 'approved'
+        ? new Date(Date.parse(now) + 60 * 60 * 1000).toISOString()
+        : input.baseRecord?.expiresAt;
+
+    return WorktreeApprovalArtifactRecordSchema.parse({
+      id: input.baseRecord?.id ?? foundationId('worktree_approval_record'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.baseRecord?.createdAt ?? now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      approvalRequestId:
+        input.baseRecord?.approvalRequestId ?? foundationId('worktree_approval_request'),
+      approvalArtifactId,
+      status: input.status,
+      requestedBy: input.baseRecord?.requestedBy ?? input.requestedBy ?? 'local-operator',
+      decidedBy: input.status === 'requested' ? undefined : (input.decidedBy ?? 'local-operator'),
+      reasonHash:
+        input.baseRecord?.reasonHash ??
+        (input.reason ? hashLocalMetadata({ reason: input.reason }) : undefined),
+      decisionReasonHash:
+        input.status === 'requested' || !input.reason
+          ? undefined
+          : hashLocalMetadata({ reason: input.reason }),
+      dryRunPlanHash: hashLocalMetadata(input.dryRunRecord.plan),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      policyDecisionHash: hashLocalMetadata(input.dryRunRecord.policyDecision),
+      approved: input.status === 'approved',
+      requestedAt,
+      decidedAt: input.status === 'requested' ? undefined : now,
+      expiresAt,
+      usedAt: input.status === 'used' ? now : input.baseRecord?.usedAt,
+      revokedAt: input.status === 'revoked' ? now : input.baseRecord?.revokedAt,
+      timeline: [
+        ...(input.baseRecord?.timeline ?? []),
+        WorktreeControlPlaneTimelineEventSchema.parse({
+          id: foundationId('worktree_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: now,
+          phase: input.status === 'requested' ? 'approval-request' : 'approval-decision',
+          status: input.status,
+          summary: `Worktree approval ${input.status}.`,
+          evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+          auditEventIds: [auditEventId],
+          rawPathStored: false,
+          bodyStored: false,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        }),
+      ],
+      evidenceRefs,
+      auditEventIds: [auditEventId],
+      rawPathStored: false,
+      bodyStored: false,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: `Worktree approval ${input.status}.`,
+    });
+  }
+
+  async function executeWorktreeControlPlaneRun(input: {
+    dryRunRecord: WorktreeDryRunRecord;
+    approvalRecord?: WorktreeApprovalArtifactRecord;
+    store: CodexHubStore;
+    runtime: {
+      repoRoot?: string;
+      worktreeRoot?: string;
+      worktreePath?: string;
+      worktreeSlug?: string;
+      branchName?: string;
+      baseRef?: string;
+    };
+  }): Promise<WorktreeControlPlaneRun> {
+    const enabled =
+      options.worktreeManagerEnabled === true ||
+      process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED === 'true';
+    const approvalState = classifyWorktreeApproval(input.approvalRecord);
+    const blockedReason =
+      input.dryRunRecord.status === 'blocked'
+        ? 'dry_run_blocked'
+        : input.dryRunRecord.plan.runnerMode === 'controlled-git-worktree' && !enabled
+          ? 'controlled_git_boundary_disabled'
+          : input.dryRunRecord.plan.runnerMode === 'controlled-git-worktree' &&
+              approvalState !== 'ready'
+            ? approvalState
+            : undefined;
+
+    if (blockedReason) {
+      const evidenceRefs = [
+        createWorktreeControlEvidence({
+          kind: 'worktree.run_summary',
+          label: 'worktree.control-plane.run.blocked',
+          summary: `Worktree execution blocked: ${blockedReason}.`,
+          metadata: {
+            dryRunId: input.dryRunRecord.dryRunId,
+            blockedReason,
+            gitProcessBoundaryInvoked: false,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+          },
+        }),
+      ];
+      const record = createWorktreeControlPlaneRunRecord({
+        dryRunRecord: input.dryRunRecord,
+        approvalRecord: input.approvalRecord,
+        status: 'blocked',
+        summary: `Worktree execution blocked: ${blockedReason}.`,
+        evidenceRefs,
+        auditEventIds: [foundationId('audit')],
+        gitProcessBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        noRealWrite: true,
+      });
+      await persistWorktreeRunRecord(record, input.store);
+      await persistEvidenceRefs(evidenceRefs, input.store);
+      await persistWorktreeAuditEvents(
+        record.auditEventIds,
+        evidenceRefs,
+        input.store,
+        input.dryRunRecord.policyDecision.id,
+      );
+      return record;
+    }
+
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('execution_authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: input.dryRunRecord.policyDecision.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      allowed: true,
+      constraints: [
+        'controlled git worktree creation only',
+        'fixed git argv only',
+        'diff summary metadata only',
+        'no push',
+        'no pull request creation',
+        'cleanup delete deferred',
+      ],
+      expiresAt: input.approvalRecord?.expiresAt,
+    });
+    const runtime = createWorktreeRuntimeInput(input.runtime);
+    const result = await executeWorktreeManager({
+      plan: createWorktreePlanResultFromRecord(input.dryRunRecord),
+      authority,
+      runner: options.worktreeManagerRunner,
+      realGitBoundaryEnabled: enabled,
+      runtime,
+      actor: 'codexhub-supervisor',
+    });
+    const record = createWorktreeControlPlaneRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalRecord: input.approvalRecord,
+      status: result.worktreeRun.status,
+      summary: result.worktreeRun.summary,
+      worktreeRun: result.worktreeRun,
+      patchRun: result.patchRun,
+      patchSummary: result.patchSummary,
+      pullRequestDraft: result.pullRequestDraft,
+      releaseAuditDraft: result.releaseAuditDraft,
+      evidenceRefs: result.evidenceRefs,
+      auditEventIds: result.auditEvents.map((event) => event.id),
+      gitProcessBoundaryInvoked: result.worktreeRun.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: result.worktreeRun.processBoundaryInvoked,
+      externalProcessStarted: result.worktreeRun.externalProcessStarted,
+      noRealWrite: result.worktreeRun.noRealWrite,
+    });
+
+    await persistWorktreeRunRecord(record, input.store);
+    await persistEvidenceRefs(result.evidenceRefs, input.store);
+    for (const auditEvent of result.auditEvents) {
+      await input.store.auditEvents.append(auditEvent);
+    }
+    if (
+      input.approvalRecord?.status === 'approved' &&
+      result.worktreeRun.gitProcessBoundaryInvoked
+    ) {
+      const usedApprovalRecord = createWorktreeApprovalRecord({
+        dryRunRecord: input.dryRunRecord,
+        baseRecord: input.approvalRecord,
+        status: 'used',
+        reason: 'execution attempt reached controlled git boundary',
+      });
+      await persistWorktreeApprovalRecord(usedApprovalRecord, input.store);
+      await persistEvidenceRefs(usedApprovalRecord.evidenceRefs, input.store);
+      await persistWorktreeAuditEvents(
+        usedApprovalRecord.auditEventIds,
+        usedApprovalRecord.evidenceRefs,
+        input.store,
+        usedApprovalRecord.policyDecisionId,
+      );
+    }
+
+    return record;
+  }
+
+  function createWorktreeRuntimeInput(input: {
+    repoRoot?: string;
+    worktreeRoot?: string;
+    worktreePath?: string;
+    worktreeSlug?: string;
+    branchName?: string;
+    baseRef?: string;
+  }) {
+    if (
+      !input.repoRoot ||
+      !input.worktreeRoot ||
+      !input.worktreePath ||
+      !input.worktreeSlug ||
+      !input.branchName ||
+      !input.baseRef
+    ) {
+      return undefined;
+    }
+
+    return {
+      repoRoot: input.repoRoot,
+      worktreeRoot: input.worktreeRoot,
+      worktreePath: input.worktreePath,
+      worktreeSlug: input.worktreeSlug,
+      branchName: input.branchName,
+      baseRef: input.baseRef,
+    };
+  }
+
+  function createWorktreePlanResultFromRecord(
+    record: WorktreeDryRunRecord,
+  ): WorktreeManagerPlanResult {
+    return {
+      id: record.plan.id,
+      adapterName: record.plan.adapterName,
+      status: record.plan.status,
+      repoRootHash: record.repoRootHash,
+      worktreeRootHash: record.worktreeRootHash,
+      worktreePathHash: record.worktreePathHash,
+      branchNameHash: record.branchNameHash,
+      worktreeSlugHash: record.worktreeSlugHash,
+      baseRefHash: record.baseRefHash,
+      runnerMode: record.plan.runnerMode,
+      blockReasons: record.blockReasons,
+      capabilityDryRun: record.capabilityDryRun,
+      worktreePlan: record.plan,
+    };
+  }
+
+  function createWorktreeControlPlaneRunRecord(input: {
+    dryRunRecord: WorktreeDryRunRecord;
+    approvalRecord?: WorktreeApprovalArtifactRecord;
+    status: WorktreeRunStatus;
+    summary: string;
+    worktreeRun?: WorktreeControlPlaneRun['worktreeRun'];
+    patchRun?: WorktreeControlPlaneRun['patchRun'];
+    patchSummary?: WorktreeControlPlaneRun['patchSummary'];
+    pullRequestDraft?: WorktreeControlPlaneRun['pullRequestDraft'];
+    releaseAuditDraft?: WorktreeControlPlaneRun['releaseAuditDraft'];
+    evidenceRefs: EvidenceRef[];
+    auditEventIds: string[];
+    gitProcessBoundaryInvoked: boolean;
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+    noRealWrite: boolean;
+  }): WorktreeControlPlaneRun {
+    const now = foundationTimestamp();
+
+    return WorktreeControlPlaneRunSchema.parse({
+      id: foundationId('worktree_control_plane_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now,
+      dryRunId: input.dryRunRecord.dryRunId,
+      dryRunRecordId: input.dryRunRecord.id,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      status: input.status,
+      planId: input.dryRunRecord.plan.id,
+      runnerMode: input.dryRunRecord.plan.runnerMode,
+      worktreeRun: input.worktreeRun,
+      patchRun: input.patchRun,
+      patchSummary: input.patchSummary,
+      pullRequestDraft: input.pullRequestDraft,
+      releaseAuditDraft: input.releaseAuditDraft,
+      repoRootHash: input.dryRunRecord.repoRootHash,
+      worktreeRootHash: input.dryRunRecord.worktreeRootHash,
+      worktreePathHash: input.dryRunRecord.worktreePathHash,
+      branchNameHash: input.dryRunRecord.branchNameHash,
+      worktreeSlugHash: input.dryRunRecord.worktreeSlugHash,
+      baseRefHash: input.dryRunRecord.baseRefHash,
+      changedFileCount: input.worktreeRun?.changedFileCount ?? 0,
+      diffHash: input.worktreeRun?.diffHash,
+      timeline: [
+        WorktreeControlPlaneTimelineEventSchema.parse({
+          id: foundationId('worktree_timeline_event'),
+          schemaVersion: SchemaVersionSchema.value,
+          createdAt: now,
+          phase: 'execution',
+          status: input.status,
+          summary: input.summary,
+          evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+          auditEventIds: input.auditEventIds,
+          rawPathStored: false,
+          bodyStored: false,
+          gitProcessBoundaryInvoked: input.gitProcessBoundaryInvoked,
+          processBoundaryInvoked: input.processBoundaryInvoked,
+          externalProcessStarted: input.externalProcessStarted,
+        }),
+      ],
+      evidenceRefIds: input.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: input.auditEventIds,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: input.noRealWrite,
+      cleanupRequired: input.worktreeRun?.cleanupRequired ?? false,
+      cleanupDeferred: input.worktreeRun?.cleanupDeferred ?? false,
+      gitProcessBoundaryInvoked: input.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: input.processBoundaryInvoked,
+      externalProcessStarted: input.externalProcessStarted,
+      summary: input.summary,
+    });
+  }
+
+  function classifyWorktreeApproval(
+    record: WorktreeApprovalArtifactRecord | undefined,
+  ):
+    | 'ready'
+    | 'approval_artifact_missing'
+    | 'approval_denied'
+    | 'approval_artifact_revoked'
+    | 'approval_artifact_used'
+    | 'approval_artifact_expired'
+    | 'approval_artifact_invalid' {
+    if (!record?.approvalArtifactId) {
+      return 'approval_artifact_missing';
+    }
+    if (record.status === 'denied') {
+      return 'approval_denied';
+    }
+    if (record.status === 'revoked') {
+      return 'approval_artifact_revoked';
+    }
+    if (record.status === 'used') {
+      return 'approval_artifact_used';
+    }
+    if (record.status === 'expired' || (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())) {
+      return 'approval_artifact_expired';
+    }
+    if (record.status !== 'approved' || !record.approved) {
+      return 'approval_artifact_invalid';
+    }
+    return 'ready';
+  }
+
+  function createWorktreeControlEvidence(input: {
+    kind: EvidenceRef['kind'];
+    label: string;
+    summary: string;
+    metadata: Record<string, unknown>;
+  }): EvidenceRef {
+    const metadata = {
+      ...input.metadata,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+
+    return {
+      id: foundationId('evidence'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      kind: input.kind,
+      summary: input.summary,
+      hash: hashLocalMetadata(metadata),
+      redacted: true,
+      labels: [input.label],
+      metadata,
+    };
+  }
+
+  async function persistWorktreeAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId = 'worktree-control-plane',
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'worktree.control_plane',
+        target: 'worktree.manager',
+        reason: 'worktree control-plane metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawPathStored: false,
+          liveExecution: false,
+          gitProcessBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+        },
+      });
+    }
+  }
+
+  async function persistWorktreeDryRunRecord(
+    record: WorktreeDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.worktreeDryRuns.saveDryRun(record);
+      return;
+    }
+    worktreeDryRunRecords.unshift(record);
+  }
+
+  async function persistWorktreeApprovalRecord(
+    record: WorktreeApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.worktreeApprovals.saveApproval(record);
+      return;
+    }
+    const index = worktreeApprovalRecords.findIndex((candidate) => candidate.id === record.id);
+    if (index >= 0) {
+      worktreeApprovalRecords.splice(index, 1, record);
+    } else {
+      worktreeApprovalRecords.unshift(record);
+    }
+  }
+
+  async function persistWorktreeRunRecord(
+    record: WorktreeControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.worktreeRuns.saveRun(record);
+      return;
+    }
+    worktreeRunRecords.unshift(record);
+  }
+
+  async function resolveWorktreeDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    return store
+      ? await store.worktreeDryRuns.getDryRun(dryRunId)
+      : worktreeDryRunRecords.find(
+          (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+        );
+  }
+
+  async function resolveWorktreeApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.worktreeApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.worktreeApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return worktreeApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveWorktreeApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.worktreeApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : worktreeApprovalRecords.find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async function resolveWorktreeRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeControlPlaneRun | undefined> {
+    return store
+      ? await store.worktreeRuns.getRun(runId)
+      : worktreeRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listWorktreeDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeDryRunRecord[]> {
+    return store
+      ? await store.worktreeDryRuns.listDryRuns(query)
+      : worktreeDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listWorktreeApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeApprovalArtifactRecord[]> {
+    return store
+      ? await store.worktreeApprovals.listApprovals(query)
+      : worktreeApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listWorktreeRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<WorktreeControlPlaneRun[]> {
+    return store
+      ? await store.worktreeRuns.listRuns(query)
+      : worktreeRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  function createWorktreeDryRunResponse(record: WorktreeDryRunRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      planId: record.plan.id,
+      runnerMode: record.plan.runnerMode,
+      repoRootHash: record.repoRootHash,
+      worktreeRootHash: record.worktreeRootHash,
+      worktreePathHash: record.worktreePathHash,
+      branchNameHash: record.branchNameHash,
+      worktreeSlugHash: record.worktreeSlugHash,
+      baseRefHash: record.baseRefHash,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.policyDecision.requiresApproval,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      gitProcessBoundaryPlanned: record.gitProcessBoundaryPlanned,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryPlanned: record.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createWorktreeApprovalResponse(record: WorktreeApprovalArtifactRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createWorktreeRunResponse(record: WorktreeControlPlaneRun) {
+    return {
+      runId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      planId: record.planId,
+      runnerMode: record.runnerMode,
+      repoRootHash: record.repoRootHash,
+      worktreeRootHash: record.worktreeRootHash,
+      worktreePathHash: record.worktreePathHash,
+      branchNameHash: record.branchNameHash,
+      worktreeSlugHash: record.worktreeSlugHash,
+      baseRefHash: record.baseRefHash,
+      changedFileCount: record.changedFileCount,
+      diffHash: record.diffHash,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      cleanupRequired: record.cleanupRequired,
+      cleanupDeferred: record.cleanupDeferred,
+      gitProcessBoundaryInvoked: record.gitProcessBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createWorktreeStoreUnavailableResponse(phase: string) {
+    return {
+      error: 'worktree_store_unavailable',
+      phase,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function createWorktreeUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_worktree_authority_body',
+      dryRunId,
+      status: 'blocked',
+      liveExecution: false,
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function parseWorktreeQuery(query: unknown): {
     dryRunId?: string;
     status?: string;
     limit?: number;

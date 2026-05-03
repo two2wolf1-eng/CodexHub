@@ -809,6 +809,122 @@ describe('supervisor mock development API', () => {
     expect(runResponse.body).not.toContain('target list with missing debugger url');
   });
 
+  it('governs worktree dry-run, persisted approval, and injected controlled git execution', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-worktree-'));
+    const repoRoot = join(dir, 'repo');
+    const worktreeRoot = join(dir, 'CodexHub-worktrees');
+    const worktreeSlug = 'feature-m6b';
+    const branchName = 'codex/feature-m6b';
+    const baseRef = 'HEAD';
+    mkdirSync(repoRoot, { recursive: true });
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      worktreeManagerEnabled: true,
+      worktreeManagerRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/worktree-manager/src/execute.ts'],
+            diffHash: 'sha256:diff',
+            diffLineCount: 3,
+            commandSummaryHash: 'sha256:command',
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            cleanupRequired: true,
+            cleanupDeferred: true,
+            summary: 'Injected controlled git run completed.',
+          };
+        },
+      },
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        repoRoot,
+        worktreeSlug,
+        branchName,
+        baseRef,
+        runnerMode: 'controlled-git-worktree',
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId, reason: 'hash-bound worktree approval' },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const untrustedRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifact: approvalResponse.json(),
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        repoRoot,
+        worktreeRoot,
+        worktreePath: join(worktreeRoot, worktreeSlug),
+        worktreeSlug,
+        branchName,
+        baseRef,
+      },
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: `/api/worktrees/approvals?dryRunId=${dryRunId}&status=used`,
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      status: 'ready',
+      runnerMode: 'controlled-git-worktree',
+      gitProcessBoundaryPlanned: true,
+      gitProcessBoundaryInvoked: false,
+    });
+    expect(untrustedRunResponse.statusCode).toBe(400);
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'completed',
+      gitProcessBoundaryInvoked: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      cleanupRequired: true,
+      cleanupDeferred: true,
+      noRealWrite: false,
+    });
+    expect(approvalsResponse.json().records).toHaveLength(1);
+    expect(JSON.stringify(runResponse.json())).not.toContain(repoRoot);
+    expect(JSON.stringify(runResponse.json())).not.toContain('diff --git');
+  });
+
   it('blocks electron cdp execution when store or enablement is unavailable', async () => {
     const disabledStoreServer = buildSupervisorServer({ disableStore: true });
     const disabledStoreResponse = await disabledStoreServer.inject({

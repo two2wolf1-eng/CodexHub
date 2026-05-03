@@ -15,6 +15,7 @@
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/store-core": "workspace:*",
     "@codexhub/store-sqlite": "workspace:*",
+    "@codexhub/worktree-manager": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "fastify": "^5.2.1"
   }

@@ -24,6 +24,10 @@ const scanRoots = ['apps', 'packages', 'tools'];
 const approvedProcessBoundaryFiles = new Set([
   'packages/codex-kernel/src/real-read-only-adapter-process.ts',
   'packages/nx-verification-adapter/src/process-boundary.ts',
+  'packages/worktree-manager/src/git-process-boundary.ts',
+]);
+const approvedGitBoundaryFiles = new Set([
+  'packages/worktree-manager/src/git-process-boundary.ts',
 ]);
 const approvedLiveAutomationBoundaryFiles = new Set([
   'packages/playwright-observer-adapter/src/real-runner.ts',
@@ -56,6 +60,13 @@ const cdpCommandPassthroughTerms = [
   ['send', 'Command'].join(''),
   ['execute', 'Cdp', 'Command'].join(''),
 ];
+const gitBoundaryTerms = [
+  ['worktree', ' add'].join(''),
+  ['worktree', ' remove'].join(''),
+  ['git', ' push'].join(''),
+  ['diff', ' --name-only'].join(''),
+  ['diff', ' --numstat'].join(''),
+];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
   ['to', 'ken'].join(''),
@@ -67,6 +78,7 @@ const allTextTerms = [
   ...cdpHttpBoundaryTerms,
   ...cdpForbiddenTransportTerms,
   ...cdpCommandPassthroughTerms,
+  ...gitBoundaryTerms,
   ...sensitiveConceptTerms,
 ];
 const allowlistRules: AllowlistEntry[] = [
@@ -149,11 +161,21 @@ function validateBoundaryAllowlists(): void {
     });
   }
 
+  if (approvedGitBoundaryFiles.size !== 1) {
+    violations.push({
+      file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
+      line: 1,
+      term: 'approvedGitBoundaryFiles',
+      reason: 'M6b controlled git worktree execution must have exactly one audited boundary file.',
+    });
+  }
+
   for (const workspacePath of [
     ...approvedProcessBoundaryFiles,
     ...approvedLiveAutomationBoundaryFiles,
     ...approvedCdpHttpBoundaryFiles,
     ...approvedCdpWebSocketBoundaryFiles,
+    ...approvedGitBoundaryFiles,
   ]) {
     if (!existsSync(resolve(workspaceRoot, workspacePath))) {
       violations.push({
@@ -297,6 +319,22 @@ function auditTextTerms(file: string, sourceText: string): void {
       }
     }
 
+    for (const term of gitBoundaryTerms) {
+      if (
+        lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedGitBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Controlled git command text is allowed only in the audited worktree boundary module, docs, or tests.',
+        });
+      }
+    }
+
     for (const term of sensitiveConceptTerms) {
       if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
         violations.push({
@@ -370,6 +408,10 @@ function isApprovedCdpHttpBoundary(workspacePath: string): boolean {
 
 function isApprovedCdpWebSocketBoundary(workspacePath: string): boolean {
   return approvedCdpWebSocketBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedGitBoundary(workspacePath: string): boolean {
+  return approvedGitBoundaryFiles.has(workspacePath);
 }
 
 function listSourceFiles(root: string): string[] {

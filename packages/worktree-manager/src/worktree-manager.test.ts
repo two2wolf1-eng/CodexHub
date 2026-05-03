@@ -2,6 +2,7 @@ import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CapabilityManifestSchema, type ExecutionAuthority } from '@codexhub/contracts';
 import {
+  buildControlledGitCommand,
   createWorktreeManagerManifest,
   createWorktreeManagerPlan,
   executeWorktreeManager,
@@ -19,13 +20,14 @@ const authority: ExecutionAuthority = {
 };
 
 describe('worktree-manager manifest and plan', () => {
-  it('declares a builtin git capability without a process boundary', () => {
+  it('declares a builtin git capability with an approval-gated process boundary', () => {
     const manifest = CapabilityManifestSchema.parse(createWorktreeManagerManifest());
 
     expect(manifest.kind).toBe('git');
     expect(manifest.provider).toBe('builtin');
     expect(manifest.defaultActionMode).toBe('dry-run');
-    expect(manifest.processBoundary.mayStartExternalProcess).toBe(false);
+    expect(manifest.processBoundary.mayStartExternalProcess).toBe(true);
+    expect(manifest.processBoundary.requiresProcessAudit).toBe(true);
   });
 
   it('plans a sibling worktree using hashes only', () => {
@@ -42,6 +44,38 @@ describe('worktree-manager manifest and plan', () => {
     expect(plan.worktreePlan.processBoundaryInvoked).toBe(false);
     expect(JSON.stringify(plan)).not.toContain(siblingRoot);
     expect(JSON.stringify(plan)).not.toContain(repoRoot);
+  });
+
+  it('plans controlled git worktree mode with a base ref and boundary truth', () => {
+    const plan = createWorktreeManagerPlan({
+      repoRoot,
+      worktreeSlug: 'feature-m6b',
+      branchName: 'codex/feature-m6b',
+      baseRef: 'HEAD',
+      runnerMode: 'controlled-git-worktree',
+    });
+    const missingBaseRef = createWorktreeManagerPlan({
+      repoRoot,
+      worktreeSlug: 'feature-m6b',
+      branchName: 'codex/feature-m6b',
+      runnerMode: 'controlled-git-worktree',
+    });
+
+    expect(plan.status).toBe('planned');
+    expect(plan.runnerMode).toBe('controlled-git-worktree');
+    expect(plan.baseRefHash).toMatch(/^sha256:/);
+    expect(plan.worktreePlan.gitProcessBoundaryPlanned).toBe(true);
+    expect(plan.worktreePlan.processBoundaryPlanned).toBe(true);
+    expect(plan.capabilityDryRun.plannedActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'git.worktree.create.real',
+          actionMode: 'write',
+          requiresApproval: true,
+        }),
+      ]),
+    );
+    expect(missingBaseRef.blockReasons).toContain('base_ref_required');
   });
 
   it('blocks unsafe roots, traversal, and unsafe slugs', () => {
@@ -164,6 +198,140 @@ describe('worktree-manager execute', () => {
     expect(serialized).not.toContain(repoRoot);
     expect(serialized).not.toContain('private-token');
     expect(result.capabilityResult.externalProcessStarted).toBe(false);
+  });
+
+  it('blocks controlled git execution without approval, enablement, or matching runtime', async () => {
+    const plan = createWorktreeManagerPlan({
+      repoRoot,
+      worktreeSlug: 'feature-m6b',
+      branchName: 'codex/feature-m6b',
+      baseRef: 'HEAD',
+      runnerMode: 'controlled-git-worktree',
+    });
+    const runtime = {
+      repoRoot,
+      worktreeRoot: siblingRoot,
+      worktreePath: resolve(siblingRoot, 'feature-m6b'),
+      worktreeSlug: 'feature-m6b',
+      branchName: 'codex/feature-m6b',
+      baseRef: 'HEAD',
+    };
+    const noApproval = await executeWorktreeManager({
+      plan,
+      authority,
+      realGitBoundaryEnabled: true,
+      runtime,
+      runner: {
+        async run() {
+          return { status: 'completed' };
+        },
+      },
+    });
+    const disabled = await executeWorktreeManager({
+      plan,
+      authority: { ...authority, approvalArtifactId: 'approval_artifact_1' },
+      runtime,
+      runner: {
+        async run() {
+          return { status: 'completed' };
+        },
+      },
+    });
+    const mismatch = await executeWorktreeManager({
+      plan,
+      authority: { ...authority, approvalArtifactId: 'approval_artifact_1' },
+      realGitBoundaryEnabled: true,
+      runtime: { ...runtime, baseRef: 'main' },
+      runner: {
+        async run() {
+          return { status: 'completed' };
+        },
+      },
+    });
+
+    expect(noApproval.blockReasons).toContain('approval_artifact_missing');
+    expect(disabled.blockReasons).toContain('controlled_git_boundary_disabled');
+    expect(mismatch.blockReasons).toContain('base_ref_hash_mismatch');
+    expect(noApproval.worktreeRun.gitProcessBoundaryInvoked).toBe(false);
+  });
+
+  it('returns metadata-only results from an injected controlled git runner', async () => {
+    const plan = createWorktreeManagerPlan({
+      repoRoot,
+      worktreeSlug: 'feature-m6b',
+      branchName: 'codex/feature-m6b',
+      baseRef: 'HEAD',
+      runnerMode: 'controlled-git-worktree',
+    });
+    const result = await executeWorktreeManager({
+      plan,
+      authority: { ...authority, approvalArtifactId: 'approval_artifact_1' },
+      realGitBoundaryEnabled: true,
+      runtime: {
+        repoRoot,
+        worktreeRoot: siblingRoot,
+        worktreePath: resolve(siblingRoot, 'feature-m6b'),
+        worktreeSlug: 'feature-m6b',
+        branchName: 'codex/feature-m6b',
+        baseRef: 'HEAD',
+      },
+      runner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/worktree-manager/src/execute.ts'],
+            diffHash: 'sha256:diff',
+            diffLineCount: 4,
+            commandSummaryHash: 'sha256:command',
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            cleanupRequired: true,
+            cleanupDeferred: true,
+          };
+        },
+      },
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.worktreeRun.runnerMode).toBe('controlled-git-worktree');
+    expect(result.worktreeRun.noRealWrite).toBe(false);
+    expect(result.worktreeRun.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.worktreeRun.cleanupRequired).toBe(true);
+    expect(result.capabilityResult.processBoundaryInvoked).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(resolve(siblingRoot, 'feature-m6b'));
+    expect(JSON.stringify(result)).not.toContain('diff --git');
+  });
+
+  it('builds only fixed git argv shapes for the controlled boundary', () => {
+    const runtime = {
+      repoRoot,
+      worktreePath: resolve(siblingRoot, 'feature-m6b'),
+      baseRef: 'HEAD',
+    };
+
+    expect(buildControlledGitCommand('repo-root-preflight', runtime)).toMatchObject({
+      command: 'git',
+      shell: false,
+      args: ['-C', repoRoot, 'rev-parse', '--show-toplevel'],
+    });
+    expect(buildControlledGitCommand('worktree-add-detach', runtime).args).toEqual([
+      '-C',
+      repoRoot,
+      'worktree',
+      'add',
+      '--detach',
+      resolve(siblingRoot, 'feature-m6b'),
+      'HEAD',
+    ]);
+    expect(buildControlledGitCommand('diff-name-only', runtime).args).toEqual([
+      '-C',
+      resolve(siblingRoot, 'feature-m6b'),
+      'diff',
+      '--name-only',
+      '--no-ext-diff',
+    ]);
   });
 
   it('does not persist invalid changed file paths from fixtures', async () => {

@@ -223,6 +223,9 @@ importers:
       '@codexhub/workflow-kernel':
         specifier: workspace:*
         version: link:../../packages/workflow-kernel
+      '@codexhub/worktree-manager':
+        specifier: workspace:*
+        version: link:../../packages/worktree-manager
       fastify:
         specifier: ^5.2.1
         version: 5.8.5

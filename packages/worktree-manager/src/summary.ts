@@ -110,6 +110,7 @@ export function createReleaseAuditDraft(input: {
   status: 'ready' | 'blocked';
   verificationStatus: 'passed' | 'failed' | 'blocked' | 'aborted';
   changedFiles: readonly string[];
+  noRealGitBoundary?: boolean;
   evidenceRefIds?: readonly string[];
   auditEventIds?: readonly string[];
   now?: () => string;
@@ -123,7 +124,7 @@ export function createReleaseAuditDraft(input: {
   const riskNotesSeed = JSON.stringify({
     status: input.status,
     verificationStatus: input.verificationStatus,
-    noRealGitBoundary: true,
+    noRealGitBoundary: input.noRealGitBoundary ?? true,
     noPush: true,
     noPullRequestOpened: true,
   });

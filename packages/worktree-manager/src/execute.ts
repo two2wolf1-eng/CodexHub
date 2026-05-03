@@ -31,6 +31,7 @@ import {
   createPullRequestSummaryDraft,
   createReleaseAuditDraft,
 } from './summary';
+import { createControlledGitWorktreeRunner } from './git-process-boundary';
 
 export type WorktreeManagerExecuteStatus =
   | 'completed'
@@ -44,6 +45,13 @@ export interface WorktreeManagerFixtureRunnerResult {
   diffText?: string;
   diffHash?: string;
   diffLineCount?: number;
+  commandSummaryHash?: string;
+  gitProcessBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  cleanupRequired?: boolean;
+  cleanupDeferred?: boolean;
   summary?: string;
 }
 
@@ -52,6 +60,7 @@ export interface WorktreeManagerFixtureRunner {
     planId: string;
     worktreePathHash: string;
     branchNameHash: string;
+    runnerMode: WorktreeManagerPlanResult['runnerMode'];
   }): Promise<WorktreeManagerFixtureRunnerResult>;
 }
 
@@ -59,6 +68,16 @@ export interface WorktreeManagerExecuteInput {
   plan: WorktreeManagerPlanResult;
   authority?: ExecutionAuthority;
   runner?: WorktreeManagerFixtureRunner;
+  realGitBoundaryEnabled?: boolean;
+  approvalRequired?: boolean;
+  runtime?: {
+    repoRoot: string;
+    worktreeRoot: string;
+    worktreePath: string;
+    worktreeSlug: string;
+    branchName: string;
+    baseRef?: string;
+  };
   actor?: string;
   now?: () => string;
 }
@@ -79,13 +98,36 @@ export interface WorktreeManagerExecuteResult {
 export async function executeWorktreeManager(
   input: WorktreeManagerExecuteInput,
 ): Promise<WorktreeManagerExecuteResult> {
-  const authorityBlockReason = validateAuthority(input.authority, input.now);
+  const authorityBlockReason = validateAuthority(input.authority, input.now, input.plan.runnerMode);
   const planBlockReasons =
     input.plan.status === 'blocked' ? input.plan.blockReasons : [];
-  const runnerBlockReason = input.runner ? undefined : 'fixture_runner_required';
+  const runtimeBlockReasons = validateRuntimeBinding(input);
+  const runner =
+    input.runner ??
+    (input.plan.runnerMode === 'controlled-git-worktree' &&
+    input.realGitBoundaryEnabled === true &&
+    input.runtime?.baseRef
+      ? createControlledGitWorktreeRunner({
+          repoRoot: input.runtime.repoRoot,
+          worktreePath: input.runtime.worktreePath,
+          baseRef: input.runtime.baseRef,
+        })
+      : undefined);
+  const runnerBlockReason = runner
+    ? undefined
+    : input.plan.runnerMode === 'controlled-git-worktree'
+      ? 'controlled_git_runner_required'
+      : 'fixture_runner_required';
+  const disabledBlockReason =
+    input.plan.runnerMode === 'controlled-git-worktree' &&
+    input.realGitBoundaryEnabled !== true
+      ? 'controlled_git_boundary_disabled'
+      : undefined;
   const blockReasons = [
     ...planBlockReasons,
+    ...runtimeBlockReasons,
     ...(authorityBlockReason ? [authorityBlockReason] : []),
+    ...(disabledBlockReason ? [disabledBlockReason] : []),
     ...(runnerBlockReason ? [runnerBlockReason] : []),
   ];
 
@@ -93,7 +135,6 @@ export async function executeWorktreeManager(
     return createBlockedExecuteResult(input, blockReasons);
   }
 
-  const runner = input.runner;
   if (!runner) {
     return createBlockedExecuteResult(input, ['fixture_runner_required']);
   }
@@ -102,6 +143,7 @@ export async function executeWorktreeManager(
     planId: input.plan.id,
     worktreePathHash: input.plan.worktreePathHash,
     branchNameHash: input.plan.branchNameHash,
+    runnerMode: input.plan.runnerMode,
   });
   const changedFiles = [...(runnerResult.changedFiles ?? [])];
   const invalidChangedFiles = validateChangedFiles(changedFiles);
@@ -116,6 +158,13 @@ export async function executeWorktreeManager(
   const diffHash =
     runnerResult.diffHash ??
     `sha256:${hashText(runnerResult.diffText ?? JSON.stringify(validChangedFiles))}`;
+  const noRealWrite =
+    input.plan.runnerMode === 'controlled-git-worktree'
+      ? (runnerResult.noRealWrite ?? false)
+      : true;
+  const gitProcessBoundaryInvoked = Boolean(runnerResult.gitProcessBoundaryInvoked);
+  const processBoundaryInvoked = Boolean(runnerResult.processBoundaryInvoked);
+  const externalProcessStarted = Boolean(runnerResult.externalProcessStarted);
   const diffLineCount =
     runnerResult.diffLineCount ?? countLines(runnerResult.diffText ?? '');
   const createdAt = (input.now ?? foundationTimestamp)();
@@ -125,8 +174,11 @@ export async function executeWorktreeManager(
     createdAt,
     planId: input.plan.id,
     status,
+    runnerMode: input.plan.runnerMode,
     worktreePathHash: input.plan.worktreePathHash,
     branchNameHash: input.plan.branchNameHash,
+    baseRefHash: input.plan.baseRefHash,
+    commandSummaryHash: runnerResult.commandSummaryHash ?? input.plan.worktreePlan.commandSummaryHash,
     changedFiles: validChangedFiles,
     changedFileCount: validChangedFiles.length,
     diffHash,
@@ -134,9 +186,12 @@ export async function executeWorktreeManager(
     auditEventIds: [],
     rawPathStored: false,
     bodyStored: false,
-    noRealWrite: true,
-    processBoundaryInvoked: false,
-    externalProcessStarted: false,
+    noRealWrite,
+    gitProcessBoundaryInvoked,
+    cleanupRequired: runnerResult.cleanupRequired ?? false,
+    cleanupDeferred: runnerResult.cleanupDeferred ?? false,
+    processBoundaryInvoked,
+    externalProcessStarted,
     summary:
       invalidChangedFiles.length > 0
         ? 'Fixture runner returned invalid changed file paths.'
@@ -171,6 +226,7 @@ export async function executeWorktreeManager(
     status: prStatus,
     verificationStatus,
     changedFiles: validChangedFiles,
+    noRealGitBoundary: input.plan.runnerMode !== 'controlled-git-worktree',
     now: input.now,
   });
   const evidenceRefs = [
@@ -190,12 +246,18 @@ export async function executeWorktreeManager(
       policyDecisionId: input.authority?.policyDecisionId ?? 'missing-policy-decision',
       evidenceRefs,
       metadata: {
-        liveExecution: false,
-        processBoundaryInvoked: false,
-        externalProcessStarted: false,
-        noRealWrite: true,
+        liveExecution: processBoundaryInvoked,
+        runnerMode: input.plan.runnerMode,
+        gitProcessBoundaryInvoked,
+        processBoundaryInvoked,
+        externalProcessStarted,
+        noRealWrite,
+        cleanupRequired: runnerResult.cleanupRequired ?? false,
+        cleanupDeferred: runnerResult.cleanupDeferred ?? false,
         changedFileCount: validChangedFiles.length,
         invalidChangedFileHashes,
+        commandSummaryHash:
+          runnerResult.commandSummaryHash ?? input.plan.worktreePlan.commandSummaryHash,
         bodyStored: false,
         rawPathStored: false,
       },
@@ -208,7 +270,13 @@ export async function executeWorktreeManager(
       status,
       evidenceRefs,
       auditEvents,
-      summary: `Worktree manager fixture execution ${status}.`,
+      summary:
+        input.plan.runnerMode === 'controlled-git-worktree'
+          ? `Worktree manager controlled git execution ${status}.`
+          : `Worktree manager fixture execution ${status}.`,
+      processBoundaryInvoked,
+      externalProcessStarted,
+      noRealWrite,
     }),
     worktreeRun: {
       ...worktreeRun,
@@ -245,6 +313,7 @@ export async function executeWorktreeManager(
 function validateAuthority(
   authority: ExecutionAuthority | undefined,
   now: (() => string) | undefined,
+  runnerMode: WorktreeManagerPlanResult['runnerMode'],
 ): string | undefined {
   if (!authority) {
     return 'execution_authority_missing';
@@ -263,6 +332,10 @@ function validateAuthority(
     return 'policy_decision_missing';
   }
 
+  if (runnerMode === 'controlled-git-worktree' && !authority.approvalArtifactId) {
+    return 'approval_artifact_missing';
+  }
+
   if (
     authority.expiresAt &&
     Date.parse(authority.expiresAt) <= Date.parse((now ?? foundationTimestamp)())
@@ -271,6 +344,46 @@ function validateAuthority(
   }
 
   return undefined;
+}
+
+function validateRuntimeBinding(input: WorktreeManagerExecuteInput): string[] {
+  if (input.plan.runnerMode !== 'controlled-git-worktree') {
+    return [];
+  }
+
+  const runtime = input.runtime;
+  if (!runtime) {
+    return ['runtime_worktree_input_missing'];
+  }
+
+  const expected = {
+    repoRootHash: stableRuntimeHash(`repo:${runtime.repoRoot}`),
+    worktreeRootHash: stableRuntimeHash(`root:${runtime.worktreeRoot}`),
+    worktreePathHash: stableRuntimeHash(`path:${runtime.worktreePath}`),
+    branchNameHash: stableRuntimeHash(`branch:${runtime.branchName}`),
+    worktreeSlugHash: stableRuntimeHash(`slug:${runtime.worktreeSlug}`),
+    baseRefHash: runtime.baseRef
+      ? stableRuntimeHash(`baseRef:${runtime.baseRef}`)
+      : undefined,
+  };
+  const mismatches = [
+    expected.repoRootHash !== input.plan.repoRootHash ? 'repo_root_hash_mismatch' : undefined,
+    expected.worktreeRootHash !== input.plan.worktreeRootHash
+      ? 'worktree_root_hash_mismatch'
+      : undefined,
+    expected.worktreePathHash !== input.plan.worktreePathHash
+      ? 'worktree_path_hash_mismatch'
+      : undefined,
+    expected.branchNameHash !== input.plan.branchNameHash
+      ? 'branch_name_hash_mismatch'
+      : undefined,
+    expected.worktreeSlugHash !== input.plan.worktreeSlugHash
+      ? 'worktree_slug_hash_mismatch'
+      : undefined,
+    expected.baseRefHash !== input.plan.baseRefHash ? 'base_ref_hash_mismatch' : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return runtime.baseRef ? mismatches : ['base_ref_required', ...mismatches];
 }
 
 function createBlockedExecuteResult(
@@ -285,8 +398,11 @@ function createBlockedExecuteResult(
     createdAt,
     planId: input.plan.id,
     status: 'blocked',
+    runnerMode: input.plan.runnerMode,
     worktreePathHash: input.plan.worktreePathHash,
     branchNameHash: input.plan.branchNameHash,
+    baseRefHash: input.plan.baseRefHash,
+    commandSummaryHash: input.plan.worktreePlan.commandSummaryHash,
     changedFiles: [],
     changedFileCount: 0,
     diffHash: emptyDiffHash,
@@ -295,6 +411,9 @@ function createBlockedExecuteResult(
     rawPathStored: false,
     bodyStored: false,
     noRealWrite: true,
+    gitProcessBoundaryInvoked: false,
+    cleanupRequired: false,
+    cleanupDeferred: false,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
     summary: `Worktree manager execution blocked: ${blockReasons.join(', ')}.`,
@@ -339,6 +458,8 @@ function createBlockedExecuteResult(
       metadata: {
         blockReasons: [...blockReasons],
         liveExecution: false,
+        runnerMode: input.plan.runnerMode,
+        gitProcessBoundaryInvoked: false,
         processBoundaryInvoked: false,
         externalProcessStarted: false,
         noRealWrite: true,
@@ -392,19 +513,26 @@ function createCapabilityExecutionResult(input: {
   evidenceRefs: readonly EvidenceRef[];
   auditEvents: readonly CapabilityAuditEvent[];
   summary: string;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
 }): CapabilityExecutionResult {
   return CapabilityExecutionResultSchema.parse({
     id: foundationId('capability_result'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: foundationTimestamp(),
     status: input.status,
-    processBoundaryInvoked: false,
-    externalProcessStarted: false,
-    noRealWrite: true,
+    processBoundaryInvoked: input.processBoundaryInvoked ?? false,
+    externalProcessStarted: input.externalProcessStarted ?? false,
+    noRealWrite: input.noRealWrite ?? true,
     evidenceRefs: input.evidenceRefs.map((ref) => ref.id),
     auditEventIds: input.auditEvents.map((event) => event.id),
     summary: input.summary,
   });
+}
+
+function stableRuntimeHash(value: string): string {
+  return `sha256:${hashText(value)}`;
 }
 
 function validateChangedFiles(changedFiles: readonly string[]): string[] {

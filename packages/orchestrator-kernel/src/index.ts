@@ -27,6 +27,7 @@ import {
 
 export * from './minimal-runner';
 export * from './m6a-runner';
+export * from './m6b-runner';
 
 export interface MockDevelopmentOrchestrationInput {
   title: string;

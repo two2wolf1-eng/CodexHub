@@ -7,7 +7,7 @@ import {
 } from '@codexhub/contracts';
 
 export const WORKTREE_MANAGER_ADAPTER_NAME = 'worktree-manager';
-export const WORKTREE_MANAGER_ADAPTER_VERSION = '0.1.0-m6a';
+export const WORKTREE_MANAGER_ADAPTER_VERSION = '0.2.0-m6b';
 
 export function createWorktreeManagerManifest(): CapabilityManifest {
   return CapabilityManifestSchema.parse({
@@ -21,29 +21,32 @@ export function createWorktreeManagerManifest(): CapabilityManifest {
     capabilities: [
       'worktree-dry-run-plan',
       'fixture-only-patch-summary',
+      'controlled-git-worktree-add',
+      'controlled-git-diff-summary',
       'metadata-only-pr-draft',
       'release-audit-draft',
     ],
     defaultRisk: 'medium',
     defaultActionMode: 'dry-run',
-    requiresApprovalByDefault: false,
+    requiresApprovalByDefault: true,
     evidencePolicy: {
       collect: true,
       redactMetadata: true,
       bodyStorage: 'hash-only',
     },
     processBoundary: {
-      mayStartExternalProcess: false,
-      requiresProcessAudit: false,
+      mayStartExternalProcess: true,
+      requiresProcessAudit: true,
     },
     metadata: {
-      integrationStage: 'm6a',
+      integrationStage: 'm6b',
       productDefaultEnabled: false,
       authorityProvider: 'codexhub',
       capabilityProvider: WORKTREE_MANAGER_ADAPTER_NAME,
-      realGitBoundaryEnabled: false,
+      realGitBoundaryEnabled: 'env-gated',
       pushAllowed: false,
       openPullRequestAllowed: false,
+      cleanupDeleteAllowed: false,
       rawPathStored: false,
       bodyStored: false,
     },

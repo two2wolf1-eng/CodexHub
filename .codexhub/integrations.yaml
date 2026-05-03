@@ -211,16 +211,32 @@ integrations:
     enabled: false
     adapter: worktree-manager
     provider: builtin
-    mode: dry-run-foundation
-    stage: m6a-fixture-only
+    mode: controlled-git-worktree
+    stage: m6b-supervisor-gated-controlled-git
     defaultWorktreeRoot: ../CodexHub-worktrees
     defaultActionMode: dry-run
-    defaultRisk: medium
-    processBoundary: false
+    defaultRisk: high
+    processBoundary: true
+    externalProcessBoundary: true
+    processBoundaryRequiresApproval: true
     realGitBoundaryEnabled: false
-    fixtureRunnerOnly: true
+    enablementEnv: CODEXHUB_WORKTREE_MANAGER_ENABLED
+    fixtureRunnerOnly: false
+    controlledGitRunner: true
     pushAllowed: false
     openPullRequestAllowed: false
+    cleanupDeleteAllowed: false
+    cleanupDeferredToM6c: true
+    supervisorControlPlane:
+      enabledByDefault: false
+      explicitEnableRequired: true
+      localControlRequiredForPost: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      transientPathInputOnly: true
+      pathAndRefHashBindingRequired: true
     evidence:
       worktreePlan: hash-only
       changedFiles: metadata-only
@@ -236,4 +252,12 @@ integrations:
       siblingRootDefault: true
       repoNestedWorktreeForbidden: true
       slugSanitizationRequired: true
-      futureRealGitWriteRequiresApproval: true
+      realGitWriteRequiresApproval: true
+      allowedGitCommands:
+        - rev-parse --show-toplevel
+        - worktree add --detach
+        - diff --name-only --no-ext-diff
+        - diff --numstat --no-ext-diff
+      arbitraryGitCommandAllowed: false
+      genericShellAllowed: false
+      worktreeRemoveAllowed: false

@@ -7,6 +7,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  WorktreeApprovalArtifactRecord,
+  WorktreeControlPlaneRun,
+  WorktreeDryRunRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecManualApprovalRecord,
@@ -60,6 +63,12 @@ export interface BrowserObservationQuery {
 }
 
 export interface ElectronCdpObservationQuery {
+  dryRunId?: string;
+  status?: string;
+  limit?: number;
+}
+
+export interface WorktreeControlPlaneQuery {
   dryRunId?: string;
   status?: string;
   limit?: number;
@@ -179,6 +188,31 @@ export interface ElectronCdpObservationRunRepository {
   listRuns(
     query?: ElectronCdpObservationQuery,
   ): Promise<ElectronCdpObservationControlPlaneRun[]>;
+}
+
+export interface WorktreeDryRunRepository {
+  saveDryRun(record: WorktreeDryRunRecord): Promise<WorktreeDryRunRecord>;
+  getDryRun(id: string): Promise<WorktreeDryRunRecord | undefined>;
+  listDryRuns(query?: WorktreeControlPlaneQuery): Promise<WorktreeDryRunRecord[]>;
+}
+
+export interface WorktreeApprovalRepository {
+  saveApproval(
+    record: WorktreeApprovalArtifactRecord,
+  ): Promise<WorktreeApprovalArtifactRecord>;
+  getApproval(id: string): Promise<WorktreeApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<WorktreeApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: WorktreeControlPlaneQuery,
+  ): Promise<WorktreeApprovalArtifactRecord[]>;
+}
+
+export interface WorktreeRunRepository {
+  saveRun(record: WorktreeControlPlaneRun): Promise<WorktreeControlPlaneRun>;
+  getRun(id: string): Promise<WorktreeControlPlaneRun | undefined>;
+  listRuns(query?: WorktreeControlPlaneQuery): Promise<WorktreeControlPlaneRun[]>;
 }
 
 export interface CodexReportReviewRepository {
@@ -361,6 +395,9 @@ export interface CodexHubStore {
   electronCdpObservationDryRuns: ElectronCdpObservationDryRunRepository;
   electronCdpObservationApprovals: ElectronCdpObservationApprovalRepository;
   electronCdpObservationRuns: ElectronCdpObservationRunRepository;
+  worktreeDryRuns: WorktreeDryRunRepository;
+  worktreeApprovals: WorktreeApprovalRepository;
+  worktreeRuns: WorktreeRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
