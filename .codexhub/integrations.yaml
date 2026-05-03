@@ -207,3 +207,33 @@ integrations:
       - Log.enable
       - Runtime.enable
       - Network.enable
+  worktree-manager:
+    enabled: false
+    adapter: worktree-manager
+    provider: builtin
+    mode: dry-run-foundation
+    stage: m6a-fixture-only
+    defaultWorktreeRoot: ../CodexHub-worktrees
+    defaultActionMode: dry-run
+    defaultRisk: medium
+    processBoundary: false
+    realGitBoundaryEnabled: false
+    fixtureRunnerOnly: true
+    pushAllowed: false
+    openPullRequestAllowed: false
+    evidence:
+      worktreePlan: hash-only
+      changedFiles: metadata-only
+      diff: hash-only
+      prDraft: hash-only
+      releaseAuditDraft: hash-only
+    storage:
+      rawWorktreePath: forbidden
+      rawDiffBody: forbidden
+      rawPullRequestBody: forbidden
+      rawCommandBody: forbidden
+    rules:
+      siblingRootDefault: true
+      repoNestedWorktreeForbidden: true
+      slugSanitizationRequired: true
+      futureRealGitWriteRequiresApproval: true

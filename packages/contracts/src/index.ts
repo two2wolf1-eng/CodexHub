@@ -133,6 +133,11 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'electron.observation_plan',
     'electron.observation_summary',
     'electron.run_summary',
+    'worktree.plan',
+    'worktree.run_summary',
+    'patch.diff_summary',
+    'pr.draft_summary',
+    'release.audit_draft',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -1241,13 +1246,161 @@ export const AgentRunSchema = createdEntityBaseSchema.extend({
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 
-export const PatchRunSchema = createdEntityBaseSchema.extend({
-  taskId: z.string().min(1),
-  status: z.enum(['planned', 'generated', 'verified', 'rejected']),
-  patchRef: z.string().optional(),
-  evidenceRefs: z.array(EvidenceRefSchema).default([]),
-});
+export const WorktreePlanStatusSchema = z.enum(['planned', 'blocked']);
+export type WorktreePlanStatus = z.infer<typeof WorktreePlanStatusSchema>;
+
+export const WorktreeRunStatusSchema = z.enum([
+  'planned',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type WorktreeRunStatus = z.infer<typeof WorktreeRunStatusSchema>;
+
+export const RepoRelativePathSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !value.includes('\\'), 'repo-relative paths use forward slashes')
+  .refine((value) => !value.startsWith('/'), 'repo-relative paths cannot be absolute')
+  .refine((value) => !/^[A-Za-z]:/.test(value), 'repo-relative paths cannot be absolute')
+  .refine(
+    (value) => !value.split('/').includes('..'),
+    'repo-relative paths cannot contain parent traversal',
+  );
+export type RepoRelativePath = z.infer<typeof RepoRelativePathSchema>;
+
+export const WorktreePlanSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.string().min(1),
+    status: WorktreePlanStatusSchema,
+    repoRootHash: z.string().min(1),
+    worktreeRootHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    branchNameHash: z.string().min(1),
+    worktreeSlugHash: z.string().min(1),
+    defaultRootKind: z.enum(['sibling', 'allowlisted-absolute']),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    plannedActions: z.array(CapabilityPlannedActionSchema).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreePlan = z.infer<typeof WorktreePlanSchema>;
+
+export const WorktreeRunSchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    status: WorktreeRunStatusSchema,
+    worktreePathHash: z.string().min(1),
+    branchNameHash: z.string().min(1),
+    changedFiles: z.array(RepoRelativePathSchema).default([]),
+    changedFileCount: z.number().int().nonnegative(),
+    diffHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type WorktreeRun = z.infer<typeof WorktreeRunSchema>;
+
+export const PatchRunStatusSchema = z.enum([
+  'planned',
+  'generated',
+  'verified',
+  'rejected',
+  'blocked',
+  'aborted',
+]);
+export type PatchRunStatus = z.infer<typeof PatchRunStatusSchema>;
+
+export const PatchRunSchema = createdEntityBaseSchema
+  .extend({
+    taskId: z.string().min(1),
+    status: PatchRunStatusSchema,
+    patchRef: z.string().optional(),
+    changedFiles: z.array(RepoRelativePathSchema).default([]),
+    diffHash: z.string().min(1).optional(),
+    worktreePathHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    noRealWrite: z.literal(true).optional(),
+    bodyStored: z.literal(false).optional(),
+    rawPathStored: z.literal(false).optional(),
+    summary: z.string().min(1).optional(),
+  })
+  .strict();
 export type PatchRun = z.infer<typeof PatchRunSchema>;
+
+export const PatchSummarySchema = createdEntityBaseSchema
+  .extend({
+    patchRunId: z.string().min(1),
+    changedFiles: z.array(RepoRelativePathSchema).default([]),
+    changedFileCount: z.number().int().nonnegative(),
+    diffHash: z.string().min(1),
+    diffLineCount: z.number().int().nonnegative(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type PatchSummary = z.infer<typeof PatchSummarySchema>;
+
+export const PullRequestSummaryDraftStatusSchema = z.enum(['ready', 'blocked']);
+export type PullRequestSummaryDraftStatus = z.infer<
+  typeof PullRequestSummaryDraftStatusSchema
+>;
+
+export const PullRequestSummaryDraftSchema = createdEntityBaseSchema
+  .extend({
+    status: PullRequestSummaryDraftStatusSchema,
+    titleHash: z.string().min(1),
+    bodyHash: z.string().min(1),
+    sectionCount: z.number().int().nonnegative(),
+    changedFiles: z.array(RepoRelativePathSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type PullRequestSummaryDraft = z.infer<
+  typeof PullRequestSummaryDraftSchema
+>;
+
+export const ReleaseAuditDraftStatusSchema = z.enum(['ready', 'blocked']);
+export type ReleaseAuditDraftStatus = z.infer<typeof ReleaseAuditDraftStatusSchema>;
+
+export const ReleaseAuditDraftSchema = createdEntityBaseSchema
+  .extend({
+    status: ReleaseAuditDraftStatusSchema,
+    verificationStatus: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    rollbackNotesHash: z.string().min(1),
+    riskNotesHash: z.string().min(1),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type ReleaseAuditDraft = z.infer<typeof ReleaseAuditDraftSchema>;
 
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;

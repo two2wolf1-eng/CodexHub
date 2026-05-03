@@ -19,6 +19,7 @@
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/skill-registry": "workspace:*",
     "@codexhub/store-core": "workspace:*",
+    "@codexhub/worktree-manager": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*"
   }
 }

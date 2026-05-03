@@ -172,13 +172,19 @@ import {
   OrchestrationRunSchema,
   OrchestrationRunStatusSchema,
   OrchestrationTimelineEventSchema,
+  PatchRunSchema,
+  PatchSummarySchema,
   PolicyDecisionSchema,
+  PullRequestSummaryDraftSchema,
+  ReleaseAuditDraftSchema,
   SchemaVersionSchema,
   SkillResolutionResultSchema,
   VerificationCommandResultSchema,
   VerificationPlanSchema,
   VerificationRunSchema,
   VerificationTargetSchema,
+  WorktreePlanSchema,
+  WorktreeRunSchema,
   WorkflowRunSchema,
 } from './index';
 
@@ -1268,6 +1274,179 @@ describe('contracts schemas', () => {
         action: 'capability.execute',
         outcome: 'completed',
         evidenceRefs: [evidence],
+      }),
+    ).toThrow();
+  });
+
+  it('parses M6a worktree, patch, PR, and release draft contracts as metadata-only records', () => {
+    const worktreeEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_worktree_1',
+      schemaVersion,
+      createdAt,
+      kind: 'worktree.plan',
+      hash: 'sha256:worktree-plan',
+    });
+    const patchEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_patch_1',
+      schemaVersion,
+      createdAt,
+      kind: 'patch.diff_summary',
+      hash: 'sha256:patch',
+    });
+    const prEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_pr_1',
+      schemaVersion,
+      createdAt,
+      kind: 'pr.draft_summary',
+      hash: 'sha256:pr',
+    });
+    const releaseEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_release_1',
+      schemaVersion,
+      createdAt,
+      kind: 'release.audit_draft',
+      hash: 'sha256:release',
+    });
+
+    const plan = WorktreePlanSchema.parse({
+      id: 'worktree_plan_1',
+      schemaVersion,
+      createdAt,
+      adapterName: 'worktree-manager',
+      status: 'planned',
+      repoRootHash: 'sha256:repo',
+      worktreeRootHash: 'sha256:root',
+      worktreePathHash: 'sha256:path',
+      branchNameHash: 'sha256:branch',
+      worktreeSlugHash: 'sha256:slug',
+      defaultRootKind: 'sibling',
+      plannedActions: [
+        {
+          action: 'git.worktree.plan',
+          actionMode: 'dry-run',
+          risk: 'medium',
+          target: 'sha256:path',
+          requiresApproval: false,
+        },
+      ],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Plan a sibling worktree without invoking git.',
+    });
+    const run = WorktreeRunSchema.parse({
+      id: 'worktree_run_1',
+      schemaVersion,
+      createdAt,
+      planId: plan.id,
+      status: 'completed',
+      worktreePathHash: 'sha256:path',
+      branchNameHash: 'sha256:branch',
+      changedFiles: ['packages/contracts/src/index.ts'],
+      changedFileCount: 1,
+      diffHash: 'sha256:diff',
+      evidenceRefs: [worktreeEvidence],
+      auditEventIds: ['audit_worktree_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Fixture worktree run completed.',
+    });
+    const patchRun = PatchRunSchema.parse({
+      id: 'patch_run_1',
+      schemaVersion,
+      createdAt,
+      taskId: 'task_1',
+      status: 'blocked',
+      changedFiles: ['packages/contracts/src/index.ts'],
+      diffHash: 'sha256:diff',
+      worktreePathHash: 'sha256:path',
+      evidenceRefs: [patchEvidence],
+      auditEventIds: ['audit_patch_1'],
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Patch is blocked until verification passes.',
+    });
+    const patchSummary = PatchSummarySchema.parse({
+      id: 'patch_summary_1',
+      schemaVersion,
+      createdAt,
+      patchRunId: patchRun.id,
+      changedFiles: ['packages/contracts/src/index.ts'],
+      changedFileCount: 1,
+      diffHash: 'sha256:diff',
+      diffLineCount: 12,
+      evidenceRefs: [patchEvidence],
+      auditEventIds: ['audit_patch_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Patch summary stores the diff hash only.',
+    });
+    const prDraft = PullRequestSummaryDraftSchema.parse({
+      id: 'pr_draft_1',
+      schemaVersion,
+      createdAt,
+      status: 'blocked',
+      titleHash: 'sha256:title',
+      bodyHash: 'sha256:body',
+      sectionCount: 4,
+      changedFiles: ['packages/contracts/src/index.ts'],
+      evidenceRefs: [prEvidence],
+      auditEventIds: ['audit_pr_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'PR draft blocked because verification has not passed.',
+    });
+    const releaseDraft = ReleaseAuditDraftSchema.parse({
+      id: 'release_audit_draft_1',
+      schemaVersion,
+      createdAt,
+      status: 'blocked',
+      verificationStatus: 'blocked',
+      rollbackNotesHash: 'sha256:rollback',
+      riskNotesHash: 'sha256:risk',
+      evidenceRefs: [releaseEvidence],
+      auditEventIds: ['audit_release_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Release audit draft is metadata-only.',
+    });
+
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(patchSummary.bodyStored).toBe(false);
+    expect(prDraft.status).toBe('blocked');
+    expect(releaseDraft.noRealWrite).toBe(true);
+    expect(() =>
+      WorktreePlanSchema.parse({
+        ...plan,
+        rawWorktreePath: 'C:\\Users\\Thomas\\CodexHub-worktrees\\feature',
+      }),
+    ).toThrow();
+    expect(() =>
+      PatchSummarySchema.parse({
+        ...patchSummary,
+        rawDiffBody: 'diff --git a/secret b/secret',
+      }),
+    ).toThrow();
+    expect(() =>
+      PullRequestSummaryDraftSchema.parse({
+        ...prDraft,
+        rawPrBody: 'Full PR markdown body',
+      }),
+    ).toThrow();
+    expect(() =>
+      WorktreeRunSchema.parse({
+        ...run,
+        changedFiles: ['../outside.ts'],
       }),
     ).toThrow();
   });

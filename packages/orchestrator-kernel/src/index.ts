@@ -26,6 +26,7 @@ import {
 } from '@codexhub/workflow-kernel';
 
 export * from './minimal-runner';
+export * from './m6a-runner';
 
 export interface MockDevelopmentOrchestrationInput {
   title: string;
@@ -873,7 +874,13 @@ function createGovernedPatchRuns(taskGraph: TaskGraph): PatchRun[] {
       createdAt: foundationTimestamp(),
       taskId: patchTask?.id ?? taskGraph.tasks[0]?.id ?? taskGraph.id,
       status: 'planned',
+      changedFiles: [],
       evidenceRefs: [],
+      auditEventIds: [],
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Governed patch run is planned only.',
       metadata: {
         governed: true,
         patchGenerated: false,

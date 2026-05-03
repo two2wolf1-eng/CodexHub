@@ -1,0 +1,112 @@
+import {
+  type EvidenceRef,
+  type PatchSummary,
+  type PullRequestSummaryDraft,
+  type ReleaseAuditDraft,
+  type WorktreePlan,
+  type WorktreeRun,
+} from '@codexhub/contracts';
+import { createEvidenceRef } from '@codexhub/evidence-kernel';
+
+export function createWorktreePlanEvidence(plan: WorktreePlan): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'worktree.plan',
+    label: 'worktree-manager-plan',
+    summary: plan.summary,
+    metadata: {
+      adapterName: plan.adapterName,
+      planId: plan.id,
+      status: plan.status,
+      repoRootHash: plan.repoRootHash,
+      worktreeRootHash: plan.worktreeRootHash,
+      worktreePathHash: plan.worktreePathHash,
+      branchNameHash: plan.branchNameHash,
+      worktreeSlugHash: plan.worktreeSlugHash,
+      defaultRootKind: plan.defaultRootKind,
+      blockReasons: plan.blockReasons,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    },
+  });
+}
+
+export function createWorktreeRunEvidence(run: WorktreeRun): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'worktree.run_summary',
+    label: 'worktree-manager-run',
+    summary: run.summary,
+    metadata: {
+      planId: run.planId,
+      runId: run.id,
+      status: run.status,
+      changedFiles: run.changedFiles,
+      changedFileCount: run.changedFileCount,
+      diffHash: run.diffHash,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    },
+  });
+}
+
+export function createPatchSummaryEvidence(summary: PatchSummary): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'patch.diff_summary',
+    label: 'worktree-manager-patch-summary',
+    summary: summary.summary,
+    metadata: {
+      patchRunId: summary.patchRunId,
+      changedFiles: summary.changedFiles,
+      changedFileCount: summary.changedFileCount,
+      diffHash: summary.diffHash,
+      diffLineCount: summary.diffLineCount,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    },
+  });
+}
+
+export function createPullRequestSummaryDraftEvidence(
+  draft: PullRequestSummaryDraft,
+): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'pr.draft_summary',
+    label: 'worktree-manager-pr-draft',
+    summary: draft.summary,
+    metadata: {
+      draftId: draft.id,
+      status: draft.status,
+      titleHash: draft.titleHash,
+      bodyHash: draft.bodyHash,
+      sectionCount: draft.sectionCount,
+      changedFileCount: draft.changedFiles.length,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    },
+  });
+}
+
+export function createReleaseAuditDraftEvidence(draft: ReleaseAuditDraft): EvidenceRef {
+  return createEvidenceRef({
+    kind: 'release.audit_draft',
+    label: 'worktree-manager-release-audit-draft',
+    summary: draft.summary,
+    metadata: {
+      draftId: draft.id,
+      status: draft.status,
+      verificationStatus: draft.verificationStatus,
+      rollbackNotesHash: draft.rollbackNotesHash,
+      riskNotesHash: draft.riskNotesHash,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+    },
+  });
+}

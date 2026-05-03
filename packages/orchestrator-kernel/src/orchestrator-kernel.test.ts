@@ -6,6 +6,7 @@ import { hashText } from '@codexhub/evidence-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import {
   runMinimalGovernedOrchestration,
+  runM6aControlledWorktreePrDraft,
   runGovernedDevelopmentOrchestration,
   runMockDevelopmentOrchestration,
 } from './index';
@@ -353,6 +354,204 @@ describe('orchestrator-kernel minimal governed orchestration', () => {
     expect(result.run.summary.processBoundaryInvoked).toBe(false);
     expect(result.auditEvents[0]?.metadata?.liveExecution).toBe(false);
     expect(codexStarts).toBe(0);
+  });
+});
+
+describe('orchestrator-kernel M6a controlled worktree PR draft foundation', () => {
+  it('produces a ready PR draft after fixture worktree, Codex, and Nx pass', async () => {
+    const result = await runM6aControlledWorktreePrDraft({
+      title: 'Prepare controlled patch draft',
+      description: 'Use fixture worktree metadata and injected adapter runners.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      repoRoot: process.cwd(),
+      worktreeSlug: 'feature-m6a',
+      branchName: 'codex/feature-m6a',
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      worktreeRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/orchestrator-kernel/src/m6a-runner.ts'],
+            diffText: 'diff --git a/packages/orchestrator-kernel/src/m6a-runner.ts',
+          };
+        },
+      },
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'orchestrator-kernel\n', stderr: '' }
+            : { exitCode: 0, stdout: 'Successfully ran target lint,test,build', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.patchRun.status).toBe('verified');
+    expect(result.pullRequestDraft.status).toBe('ready');
+    expect(result.releaseAuditDraft.status).toBe('ready');
+    expect(result.summary.noRealGitBoundary).toBe(true);
+    expect(result.worktree.capabilityResult.processBoundaryInvoked).toBe(false);
+    expect(result.minimalRun?.run.status).toBe('passed');
+    expect(result.evidenceRefs.map((ref) => ref.kind)).toEqual(
+      expect.arrayContaining(['worktree.plan', 'patch.diff_summary', 'pr.draft_summary']),
+    );
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain(process.cwd());
+  });
+
+  it('blocks PR draft readiness when Codex fails and does not run Nx', async () => {
+    let nxStarts = 0;
+    const result = await runM6aControlledWorktreePrDraft({
+      title: 'Prepare controlled patch draft',
+      description: 'Codex failure should block PR readiness.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      repoRoot: process.cwd(),
+      worktreeSlug: 'feature-m6a',
+      branchName: 'codex/feature-m6a',
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      worktreeRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/orchestrator-kernel/src/m6a-runner.ts'],
+          };
+        },
+      },
+      codexRunner: {
+        async start() {
+          return { exitCode: 1, stdout: '', stderr: 'codex failed' };
+        },
+      },
+      nxRunner: {
+        async start() {
+          nxStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.pullRequestDraft.status).toBe('blocked');
+    expect(result.releaseAuditDraft.status).toBe('blocked');
+    expect(nxStarts).toBe(0);
+  });
+
+  it('blocks PR draft readiness when Nx verification fails', async () => {
+    const result = await runM6aControlledWorktreePrDraft({
+      title: 'Prepare controlled patch draft',
+      description: 'Verification failure should block PR readiness.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      repoRoot: process.cwd(),
+      worktreeSlug: 'feature-m6a',
+      branchName: 'codex/feature-m6a',
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      worktreeRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: ['packages/orchestrator-kernel/src/m6a-runner.ts'],
+          };
+        },
+      },
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'orchestrator-kernel\n', stderr: '' }
+            : { exitCode: 1, stdout: '', stderr: 'verification failed' };
+        },
+      },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.summary.verificationStatus).toBe('failed');
+    expect(result.pullRequestDraft.status).toBe('blocked');
+  });
+
+  it('rejects request-body authority and approval objects before adapter execution', async () => {
+    let codexStarts = 0;
+    const result = await runM6aControlledWorktreePrDraft({
+      title: 'Prepare controlled patch draft',
+      description: 'Untrusted request-body authority should block M6a.',
+      dryRunId: 'codex_dry_run_1',
+      approvalArtifactId: 'approval_artifact_1',
+      repoRoot: process.cwd(),
+      worktreeSlug: 'feature-m6a',
+      branchName: 'codex/feature-m6a',
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      approvalArtifact: { id: 'untrusted' },
+      executionAuthority: { allowed: true },
+      worktreeRunner: {
+        async run() {
+          return { status: 'completed' };
+        },
+      },
+      codexRunner: {
+        async start() {
+          codexStarts += 1;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      },
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.summary.blockReasons).toEqual(
+      expect.arrayContaining([
+        'untrusted_execution_authority_body',
+        'untrusted_approval_artifact_body',
+      ]),
+    );
+    expect(result.summary.processBoundaryInvoked).toBe(false);
+    expect(result.pullRequestDraft.status).toBe('blocked');
+    expect(codexStarts).toBe(0);
+  });
+
+  it('does not import child_process in the M6a runner or worktree manager', () => {
+    const repoRootForSourceScan = resolve(process.cwd(), '../..');
+    const m6aRunner = readFileSync(
+      resolve(repoRootForSourceScan, 'packages/orchestrator-kernel/src/m6a-runner.ts'),
+      'utf8',
+    );
+    const worktreeSources = [
+      'packages/worktree-manager/src/execute.ts',
+      'packages/worktree-manager/src/plan.ts',
+      'packages/worktree-manager/src/index.ts',
+    ]
+      .map((file) => readFileSync(resolve(repoRootForSourceScan, file), 'utf8'))
+      .join('\n');
+
+    expect(m6aRunner).not.toContain('child_process');
+    expect(worktreeSources).not.toContain('child_process');
   });
 });
 

@@ -253,3 +253,48 @@ workflows:
       - electronClickType
       - worktreeCreation
       - pullRequestCreation
+  m6a.controlled-worktree-pr-draft-foundation:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: packages/orchestrator-kernel
+      localControlRequired: false
+    chain:
+      - phase: worktree-plan
+        package: worktree-manager
+        defaultRoot: ../CodexHub-worktrees
+        output: rootPathAndWorktreePathHashesOnly
+        processBoundaryPlanned: false
+      - phase: fixture-worktree-execution
+        package: worktree-manager
+        runnerMode: injected-fixture-only
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+      - phase: codex
+        adapter: codex-exec-adapter
+        runnerMode: injected-test-runner-only
+        authority: existing-governed-adapter-path
+      - phase: verification
+        adapter: nx-verification-adapter
+        runnerMode: injected-test-runner-only
+        authority: existing-governed-adapter-path
+      - phase: patch-summary
+        output: changedFilesDiffHashCountsOnly
+      - phase: pr-draft
+        output: titleHashBodyHashSectionSummaryOnly
+        readyRequiresVerificationPassed: true
+      - phase: release-audit-draft
+        output: rollbackHashRiskHashEvidenceAuditIdsOnly
+    forbidden:
+      - realGitWorktreeAdd
+      - realGitWorktreeRemove
+      - gitDiffProcess
+      - gitPush
+      - openPullRequest
+      - rawWorktreePathPersistence
+      - rawDiffPersistence
+      - rawPullRequestBodyPersistence
+      - dashboardWriteUi
+      - cliWorktreeExecuteCommand
+      - newProcessBoundary
+      - noLiveAutomationAllowlistChange

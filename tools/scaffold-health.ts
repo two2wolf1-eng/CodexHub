@@ -18,6 +18,7 @@ const expectedProjects = [
   'mcp-tool-contracts',
   'nx-verification-adapter',
   'playwright-observer-adapter',
+  'worktree-manager',
   'codex-exec-adapter',
   'codex-kernel',
   'store-sqlite',
@@ -49,6 +50,7 @@ const requiredGovernanceFiles = [
   'docs/integration-decisions/0005-electron-cdp-boundary.md',
   'docs/integration-decisions/0008-minimal-orchestrator.md',
   'docs/integration-decisions/0009-capability-adapter-kernel.md',
+  'docs/integration-decisions/0010-worktree-manager.md',
 ];
 
 const requiredContractExports = [
@@ -86,6 +88,12 @@ const requiredContractExports = [
   'ElectronCdpObservationControlPlaneRunSchema',
   'ElectronCdpObservationTimelineEventSchema',
   'ElectronCdpControlPlaneApprovalStatusSchema',
+  'WorktreePlanSchema',
+  'WorktreeRunSchema',
+  'PatchRunSchema',
+  'PatchSummarySchema',
+  'PullRequestSummaryDraftSchema',
+  'ReleaseAuditDraftSchema',
 ];
 
 const projects = readNxProjects();
