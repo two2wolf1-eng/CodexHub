@@ -1338,3 +1338,54 @@ workflows:
       - rawPullRequestBody
       - gitPush
       - openPullRequest
+  m12_5.patch-lifecycle-hardening-release-audit:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: contracts orchestrator-kernel docs tools
+      localControlRequired: false
+    chain:
+      - phase: contract-hardening
+        package: contracts
+        validates:
+          - retryPlannedRequiresPreviousAttempt
+          - retryPlannedRequiresReasonHash
+          - terminalLifecycleHasNoRetryOrCleanupHandoff
+          - rawPrBodyAndCommandAliasesRejected
+      - phase: lifecycle-review
+        package: orchestrator-kernel
+        validates:
+          - verificationFailedCannotBePrReady
+          - passedVerificationOnlyProducesDraftOnlyReadiness
+          - retryRequiresNewApproval
+          - dirtyWorktreeBlocksCleanupReadiness
+      - phase: release-evidence
+        documents:
+          - docs/releases/m12-controlled-patch-results.md
+          - docs/reviews/m12-patch-lifecycle-hardening-review.md
+    safety:
+      newProcessBoundary: false
+      supervisorRouteAdded: false
+      dashboardWriteUiAdded: false
+      cliWriteCommandAdded: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawPathStored: false
+      bodyStored: false
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - adapterExecuteFromUiOrCli
+      - newProcessBoundary
+      - newNetworkBoundary
+      - rawPromptBody
+      - rawStdout
+      - rawStderr
+      - rawDiffBody
+      - rawPullRequestBody
+      - rawCommandBody
+      - gitPush
+      - openPullRequest

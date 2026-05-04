@@ -551,6 +551,19 @@ integrations:
       dirtyWorktreeBlocksCleanup: true
       rawRetryReasonStorage: forbidden
       output: ids-hashes-counts-statuses-summaries
+    m12_5:
+      stage: patch-lifecycle-hardening-release-audit
+      releaseDocument: docs/releases/m12-controlled-patch-results.md
+      reviewDocument: docs/reviews/m12-patch-lifecycle-hardening-review.md
+      retryPlannedRequiresPreviousAttempt: true
+      retryPlannedRequiresReasonHash: true
+      terminalLifecycleHasNoRetryOrCleanupHandoff: true
+      rawPrBodyAliasesForbidden: true
+      rawCommandBodyAliasesForbidden: true
+      noNewRoutes: true
+      noNewExecutionBoundary: true
+      pushAllowed: false
+      openPullRequestAllowed: false
   governed-codex-patch:
     enabled: false
     adapter: codex-exec-adapter

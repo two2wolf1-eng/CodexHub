@@ -1745,7 +1745,12 @@ const m12PatchForbiddenMetadataKeys = new Set([
   'rawStdout',
   'rawStderr',
   'rawPullRequestBody',
+  'rawPrBody',
+  'prBody',
   'pullRequestBody',
+  'pullRequestMarkdown',
+  'rawCommand',
+  'commandBody',
   'requestBody',
   'responseBody',
   ['to', 'ken'].join(''),
@@ -2113,6 +2118,43 @@ export const ControlledPatchRetryCleanupProjectionSchema = createdEntityBaseSche
         code: z.ZodIssueCode.custom,
         message: 'cleanupReady requires cleanupRequired',
         path: ['cleanupReady'],
+      });
+    }
+
+    if (record.status === 'retry_planned') {
+      if (record.attemptCount < 2) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'retry_planned requires a previous attempt',
+          path: ['attemptCount'],
+        });
+      }
+
+      if (!record.retryReasonHash) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'retry_planned requires a retry reason hash',
+          path: ['retryReasonHash'],
+        });
+      }
+
+      if (!record.resumeAllowed) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'retry_planned requires resumeAllowed=true',
+          path: ['resumeAllowed'],
+        });
+      }
+    }
+
+    if (
+      record.status === 'terminal' &&
+      (record.resumeAllowed || record.cleanupRequired || record.cleanupReady)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'terminal patch lifecycle cannot expose retry or cleanup handoff',
+        path: ['status'],
       });
     }
   });

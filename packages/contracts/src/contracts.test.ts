@@ -2003,6 +2003,35 @@ describe('contracts schemas', () => {
         metadata: { worktreePath: 'C:\\private\\worktree' },
       }),
     ).toThrow();
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_first_attempt_retry',
+        attemptCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_missing_reason',
+        retryReasonHash: undefined,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_raw_pr_body',
+        metadata: { rawPrBody: '## Summary\nraw pull request body' },
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_bad_terminal',
+        status: 'terminal',
+        resumeAllowed: true,
+      }),
+    ).toThrow();
     expect(serialized).not.toContain('C:\\private');
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('secret-token');
