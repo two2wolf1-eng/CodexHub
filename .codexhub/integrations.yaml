@@ -528,6 +528,18 @@ integrations:
       pushAllowed: false
       openPullRequestAllowed: false
       supervisorRouteAdded: false
+    m12c:
+      stage: patch-verification-readiness-gate
+      helper: runM12PatchVerificationReadinessGate
+      contract: ControlledPatchVerificationGate
+      readyForReviewDraftOnlyRequiresVerificationPassed: true
+      allowedTargets:
+        - lint
+        - test
+        - build
+      rawVerificationOutputStorage: forbidden
+      rawDiffStorage: forbidden
+      rawPullRequestBodyStorage: forbidden
   governed-codex-patch:
     enabled: false
     adapter: codex-exec-adapter
@@ -557,3 +569,4 @@ integrations:
       openPullRequestAllowed: false
       arbitraryArgsAllowed: false
       supervisorRouteAdded: false
+      m12cVerificationGateRequiredBeforePrReady: true

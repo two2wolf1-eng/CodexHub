@@ -177,6 +177,7 @@ import {
   ControlledPatchReadinessSchema,
   ControlledPatchRejectionReasonSchema,
   ControlledPatchRunSchema,
+  ControlledPatchVerificationGateSchema,
   DiffReviewSummarySchema,
   GovernedCodexPatchPlanSchema,
   GovernedCodexPatchRunSchema,
@@ -1862,6 +1863,72 @@ describe('contracts schemas', () => {
         metadata: { nested: { rawDiff: 'diff --git a/private b/private' } },
       }),
     ).toThrow();
+  });
+
+  it('parses M12 verification gate contracts and only allows draft readiness after passed verification', () => {
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_m12c_verification',
+      schemaVersion,
+      createdAt,
+      kind: 'verification.run_summary',
+      hash: 'sha256:m12c-verification',
+    });
+    const gate = ControlledPatchVerificationGateSchema.parse({
+      id: 'm12c_verification_gate_1',
+      schemaVersion,
+      createdAt,
+      patchRunId: 'm12b_patch_run_1',
+      lifecycleRunIdHash: 'sha256:lifecycle-run',
+      verificationRunId: 'verification_run_1',
+      verificationStatus: 'passed',
+      targets: ['lint', 'test', 'build'],
+      changedFileCount: 2,
+      affectedProjectCount: 2,
+      commandResultCount: 2,
+      readyForReviewDraftOnly: true,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_m12c_verification'],
+      metadata: {
+        m12c: true,
+        commandOutputStored: false,
+      },
+      summary: 'M12c verification gate passed; local draft readiness is allowed.',
+    });
+    const serialized = JSON.stringify(gate);
+
+    expect(gate.readyForReviewDraftOnly).toBe(true);
+    expect(() =>
+      ControlledPatchVerificationGateSchema.parse({
+        ...gate,
+        id: 'm12c_verification_gate_bad_ready',
+        verificationStatus: 'failed',
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchVerificationGateSchema.parse({
+        ...gate,
+        id: 'm12c_verification_gate_bad_empty_patch',
+        changedFileCount: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchVerificationGateSchema.parse({
+        ...gate,
+        id: 'm12c_verification_gate_raw_metadata',
+        metadata: { rawStdout: 'Successfully ran target lint,test,build' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('Successfully ran target');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
   });
 
   it('parses M6b worktree control-plane records and keeps raw bodies out', () => {

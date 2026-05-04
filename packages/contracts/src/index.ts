@@ -1738,6 +1738,8 @@ const m12PatchForbiddenMetadataKeys = new Set([
   'rawDiff',
   'rawPath',
   'rawPrompt',
+  'rawStdout',
+  'rawStderr',
   'rawPullRequestBody',
   'pullRequestBody',
   'requestBody',
@@ -1982,6 +1984,55 @@ export const ControlledPatchReadinessSchema = createdEntityBaseSchema
     }
   });
 export type ControlledPatchReadiness = z.infer<typeof ControlledPatchReadinessSchema>;
+
+export const ControlledPatchVerificationGateSchema = createdEntityBaseSchema
+  .extend({
+    patchRunId: z.string().min(1),
+    lifecycleRunIdHash: z.string().min(1),
+    verificationRunId: z.string().min(1),
+    verificationStatus: z.enum(['passed', 'failed', 'aborted', 'blocked']),
+    targets: z.array(z.enum(['lint', 'test', 'build'])).default([]),
+    changedFileCount: z.number().int().nonnegative(),
+    affectedProjectCount: z.number().int().nonnegative(),
+    commandResultCount: z.number().int().nonnegative(),
+    readyForReviewDraftOnly: z.boolean(),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (
+      record.readyForReviewDraftOnly &&
+      (record.verificationStatus !== 'passed' || record.changedFileCount === 0)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'draft-only readiness requires passed verification and changed files',
+        path: ['readyForReviewDraftOnly'],
+      });
+    }
+
+    if (record.verificationStatus !== 'passed' && record.readyForReviewDraftOnly) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'non-passed verification cannot mark PR draft ready',
+        path: ['verificationStatus'],
+      });
+    }
+  });
+export type ControlledPatchVerificationGate = z.infer<
+  typeof ControlledPatchVerificationGateSchema
+>;
 
 export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema
   .extend({

@@ -15,6 +15,7 @@ import {
   runM11PilotAcceptanceSmoke,
   runM12ControlledPatchLifecycleFixture,
   runM12GovernedCodexPatchInWorktree,
+  runM12PatchVerificationReadinessGate,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
@@ -1140,6 +1141,62 @@ describe('orchestrator-kernel M12 controlled patch lifecycle foundation', () => 
 
     for (const result of [failed, blocked]) {
       expect(result.lifecycle.readiness.readyForReviewDraftOnly).toBe(false);
+      expect(result.lifecycle.pushAllowed).toBe(false);
+      expect(result.lifecycle.pullRequestOpened).toBe(false);
+    }
+  });
+
+  it('promotes M12c patch readiness only after Nx verification passes', () => {
+    const result = runM12PatchVerificationReadinessGate({
+      verificationStatus: 'passed',
+      changedFiles: ['packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'],
+      affectedProjects: ['orchestrator-kernel', 'contracts'],
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.codexPatch.run.status).toBe('completed');
+    expect(result.verificationRun.status).toBe('passed');
+    expect(result.verificationGate.readyForReviewDraftOnly).toBe(true);
+    expect(result.verificationGate.processBoundaryInvoked).toBe(true);
+    expect(result.lifecycle.status).toBe('verified');
+    expect(result.lifecycle.readiness.status).toBe('ready_for_review_draft_only');
+    expect(result.lifecycle.readiness.verificationStatus).toBe('passed');
+    expect(result.lifecycle.readiness.readyForReviewDraftOnly).toBe(true);
+    expect(result.lifecycle.pushAllowed).toBe(false);
+    expect(result.lifecycle.pullRequestOpened).toBe(false);
+    expect(result.lifecycle.evidenceRefs.map((evidenceRef) => evidenceRef.kind)).toEqual(
+      expect.arrayContaining([
+        'verification.run_summary',
+        'patch.readiness_summary',
+        'codex.patch_run_summary',
+      ]),
+    );
+    expect(serialized).not.toContain('Successfully ran target');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('Full PR markdown body');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('blocks M12c PR readiness when verification fails, aborts, or is blocked', () => {
+    const failed = runM12PatchVerificationReadinessGate({ verificationStatus: 'failed' });
+    const aborted = runM12PatchVerificationReadinessGate({ verificationStatus: 'aborted' });
+    const blocked = runM12PatchVerificationReadinessGate({
+      verificationStatus: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+
+    expect(failed.lifecycle.status).toBe('blocked');
+    expect(failed.lifecycle.readiness.status).toBe('blocked_verification_failed');
+    expect(failed.lifecycle.readiness.readyForReviewDraftOnly).toBe(false);
+    expect(aborted.lifecycle.status).toBe('aborted');
+    expect(aborted.lifecycle.readiness.readyForReviewDraftOnly).toBe(false);
+    expect(blocked.lifecycle.status).toBe('blocked');
+    expect(blocked.verificationGate.processBoundaryInvoked).toBe(false);
+    expect(blocked.lifecycle.readiness.readyForReviewDraftOnly).toBe(false);
+
+    for (const result of [failed, aborted, blocked]) {
       expect(result.lifecycle.pushAllowed).toBe(false);
       expect(result.lifecycle.pullRequestOpened).toBe(false);
     }

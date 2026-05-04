@@ -12,12 +12,17 @@ import {
   type ControlledPatchReadinessStatus,
   type ControlledPatchRejectionReason,
   ControlledPatchRunSchema,
+  type ControlledPatchVerificationGate,
+  ControlledPatchVerificationGateSchema,
   type ControlledPatchVerificationStatus,
   DiffReviewSummarySchema,
   type DiffReviewStatus,
   type EvidenceRef,
   type GovernedCodexPatchRunStatus,
   SchemaVersionSchema,
+  type VerificationRun,
+  VerificationRunSchema,
+  type VerificationTarget,
   foundationTimestamp,
 } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
@@ -54,6 +59,22 @@ export interface M12GovernedCodexPatchInWorktreeInput {
 
 export interface M12GovernedCodexPatchInWorktreeResult {
   codexPatch: GovernedCodexPatchAdapterResult;
+  lifecycle: ControlledPatchLifecycleRun;
+}
+
+export interface M12PatchVerificationReadinessGateInput
+  extends M12GovernedCodexPatchInWorktreeInput {
+  verificationStatus?: Exclude<ControlledPatchVerificationStatus, 'not_run'>;
+  targets?: VerificationTarget[];
+  affectedProjects?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+}
+
+export interface M12PatchVerificationReadinessGateResult {
+  codexPatch: GovernedCodexPatchAdapterResult;
+  verificationRun: VerificationRun;
+  verificationGate: ControlledPatchVerificationGate;
   lifecycle: ControlledPatchLifecycleRun;
 }
 
@@ -281,6 +302,88 @@ export function runM12GovernedCodexPatchInWorktree(
   };
 }
 
+export function runM12PatchVerificationReadinessGate(
+  input: M12PatchVerificationReadinessGateInput = {},
+): M12PatchVerificationReadinessGateResult {
+  const verificationStatus = input.verificationStatus ?? 'passed';
+  const governedPatch = runM12GovernedCodexPatchInWorktree({
+    ...input,
+    status: input.status ?? 'completed',
+  });
+  const now = input.now ?? foundationTimestamp;
+  const stableSeed = [
+    'm12c',
+    verificationStatus,
+    governedPatch.lifecycle.id,
+    input.requestId ?? 'request:m12c',
+  ].join(':');
+  const boundaryInvoked =
+    input.processBoundaryInvoked ?? (governedPatch.codexPatch.run.status === 'completed');
+  const externalProcessStarted =
+    input.externalProcessStarted ?? (boundaryInvoked && verificationStatus !== 'blocked');
+  const targets = input.targets ?? ['lint', 'test', 'build'];
+  const affectedProjects = input.affectedProjects ?? defaultAffectedProjects(verificationStatus);
+  const verificationRun = createM12cVerificationRun({
+    status: verificationStatus,
+    stableSeed,
+    now,
+    targets,
+    affectedProjects,
+    processBoundaryInvoked: boundaryInvoked,
+    externalProcessStarted,
+  });
+  const verificationEvidence =
+    verificationRun.evidenceRefs?.[0] ?? createVerificationEvidenceRef(stableSeed, now);
+  const verificationGate = ControlledPatchVerificationGateSchema.parse({
+    id: stableId('m12c_verification_gate', stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    patchRunId: governedPatch.lifecycle.patchRun.id,
+    lifecycleRunIdHash: stableHash(governedPatch.lifecycle.id),
+    verificationRunId: verificationRun.id,
+    verificationStatus,
+    targets,
+    changedFileCount: governedPatch.lifecycle.patchRun.changedFileCount,
+    affectedProjectCount: affectedProjects.length,
+    commandResultCount: verificationRun.commandResults?.length ?? 0,
+    readyForReviewDraftOnly:
+      verificationStatus === 'passed' && governedPatch.lifecycle.patchRun.changedFileCount > 0,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    processBoundaryInvoked: boundaryInvoked,
+    externalProcessStarted,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    evidenceRefs: [verificationEvidence],
+    auditEventIds: [stableId('audit_m12c_verification_gate', stableSeed)],
+    metadata: {
+      stage: 'm12c',
+      verificationOutputStored: false,
+      rawCommandStored: false,
+      rawPathStored: false,
+    },
+    summary:
+      verificationStatus === 'passed'
+        ? 'M12c verification gate passed; local PR draft readiness is allowed.'
+        : `M12c verification gate ${verificationStatus}; PR draft remains blocked.`,
+  });
+  const lifecycle = createLifecycleFromVerificationGate({
+    base: governedPatch.lifecycle,
+    verificationRun,
+    verificationGate,
+    stableSeed,
+    now,
+  });
+
+  return {
+    codexPatch: governedPatch.codexPatch,
+    verificationRun,
+    verificationGate,
+    lifecycle,
+  };
+}
+
 function createLifecycleFromGovernedCodexPatch(input: {
   codexPatch: GovernedCodexPatchAdapterResult;
   stableSeed: string;
@@ -446,6 +549,91 @@ function createLifecycleFromGovernedCodexPatch(input: {
   });
 }
 
+function createLifecycleFromVerificationGate(input: {
+  base: ControlledPatchLifecycleRun;
+  verificationRun: VerificationRun;
+  verificationGate: ControlledPatchVerificationGate;
+  stableSeed: string;
+  now: () => string;
+}): ControlledPatchLifecycleRun {
+  const { base, verificationRun, verificationGate, stableSeed, now } = input;
+  const config = getVerificationGateConfig(verificationGate.verificationStatus);
+  const evidenceRefs = [
+    ...base.evidenceRefs,
+    ...(verificationRun.evidenceRefs ?? []),
+    ...verificationGate.evidenceRefs,
+  ];
+  const auditEventIds = [
+    ...base.auditEventIds,
+    ...(verificationRun.auditEventIds ?? []),
+    ...verificationGate.auditEventIds,
+  ];
+  const patchRun = ControlledPatchRunSchema.parse({
+    ...base.patchRun,
+    status: config.lifecycleStatus,
+    rejectionReasons: config.rejectionReasons,
+    summary: `M12c patch run is ${config.lifecycleStatus} after verification gate.`,
+  });
+  const diffReview = DiffReviewSummarySchema.parse({
+    ...base.diffReview,
+    id: stableId('m12c_diff_review', stableSeed),
+    status: config.diffReviewStatus,
+    findingCount: config.blockerCodes.length,
+    evidenceRefs: verificationGate.evidenceRefs,
+    auditEventIds: verificationGate.auditEventIds,
+    metadata: {
+      stage: 'm12c',
+      verificationRunIdHash: stableHash(verificationRun.id),
+      rawDiffStored: false,
+    },
+    summary: `M12c diff review is ${config.diffReviewStatus} after Nx verification.`,
+  });
+  const readiness = ControlledPatchReadinessSchema.parse({
+    ...base.readiness,
+    id: stableId('m12c_patch_readiness', stableSeed),
+    status: config.readinessStatus,
+    verificationStatus: verificationGate.verificationStatus,
+    blockerCount: config.blockerCodes.length,
+    blockers: config.blockerCodes,
+    readyForReviewDraftOnly: config.readyForReviewDraftOnly,
+    evidenceRefs: verificationGate.evidenceRefs,
+    auditEventIds: verificationGate.auditEventIds,
+    metadata: {
+      stage: 'm12c',
+      verificationRunIdHash: stableHash(verificationRun.id),
+      pushAllowed: false,
+      pullRequestOpened: false,
+    },
+    summary:
+      config.readinessStatus === 'ready_for_review_draft_only'
+        ? 'Patch passed verification and is ready for local PR draft review only.'
+        : `Patch readiness remains ${config.readinessStatus}.`,
+  });
+
+  return ControlledPatchLifecycleRunSchema.parse({
+    ...base,
+    id: stableId('m12c_patch_lifecycle_run', stableSeed),
+    createdAt: now(),
+    status: config.lifecycleStatus,
+    patchRun,
+    diffReview,
+    readiness,
+    evidenceRefs,
+    auditEventIds,
+    evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
+    auditEventCount: auditEventIds.length,
+    metadata: {
+      stage: 'm12c',
+      verificationRunIdHash: stableHash(verificationRun.id),
+      verificationStatus: verificationGate.verificationStatus,
+      repoRootWriteAllowed: false,
+      noPush: true,
+      noPullRequestOpened: true,
+    },
+    summary: `M12c verification-gated patch lifecycle is ${config.lifecycleStatus}.`,
+  });
+}
+
 function getScenarioConfig(
   scenario: M12PatchLifecycleScenario,
   changedFilesOverride?: string[],
@@ -575,6 +763,159 @@ function getGovernedPatchConfig(
     readyForReviewDraftOnly: false,
     blockerCodes: ['codex_patch_blocked'],
   };
+}
+
+function getVerificationGateConfig(
+  verificationStatus: Exclude<ControlledPatchVerificationStatus, 'not_run'>,
+): M12PatchLifecycleScenarioConfig {
+  if (verificationStatus === 'passed') {
+    return {
+      lifecycleStatus: 'verified',
+      readinessStatus: 'ready_for_review_draft_only',
+      verificationStatus: 'passed',
+      diffReviewStatus: 'passed',
+      rejectionReasons: ['none'],
+      changedFiles: [],
+      readyForReviewDraftOnly: true,
+      blockerCodes: [],
+    };
+  }
+
+  if (verificationStatus === 'failed') {
+    return {
+      lifecycleStatus: 'blocked',
+      readinessStatus: 'blocked_verification_failed',
+      verificationStatus: 'failed',
+      diffReviewStatus: 'failed',
+      rejectionReasons: ['verification_failed'],
+      changedFiles: [],
+      readyForReviewDraftOnly: false,
+      blockerCodes: ['verification_failed'],
+    };
+  }
+
+  if (verificationStatus === 'aborted') {
+    return {
+      lifecycleStatus: 'aborted',
+      readinessStatus: 'blocked_policy',
+      verificationStatus: 'aborted',
+      diffReviewStatus: 'blocked',
+      rejectionReasons: ['verification_failed'],
+      changedFiles: [],
+      readyForReviewDraftOnly: false,
+      blockerCodes: ['verification_aborted'],
+    };
+  }
+
+  return {
+    lifecycleStatus: 'blocked',
+    readinessStatus: 'blocked_policy',
+    verificationStatus: 'blocked',
+    diffReviewStatus: 'blocked',
+    rejectionReasons: ['policy_blocked'],
+    changedFiles: [],
+    readyForReviewDraftOnly: false,
+    blockerCodes: ['verification_blocked'],
+  };
+}
+
+function createM12cVerificationRun(input: {
+  status: Exclude<ControlledPatchVerificationStatus, 'not_run'>;
+  stableSeed: string;
+  now: () => string;
+  targets: readonly VerificationTarget[];
+  affectedProjects: readonly string[];
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: boolean;
+}): VerificationRun {
+  const evidenceRef = createVerificationEvidenceRef(input.stableSeed, input.now);
+  const commandResults =
+    input.processBoundaryInvoked && input.status !== 'blocked'
+      ? [
+          {
+            id: stableId('m12c_affected_projects_command', input.stableSeed),
+            schemaVersion: SchemaVersionSchema.value,
+            createdAt: input.now(),
+            commandKind: 'affected-projects' as const,
+            targets: [],
+            status: 'completed' as const,
+            exitCode: 0,
+            stdoutHash: stableHash(`affected:${input.stableSeed}`),
+            stderrHash: stableHash(''),
+            stdoutLineCount: input.affectedProjects.length,
+            stderrLineCount: 0,
+            outputBodyStored: false as const,
+            processBoundaryInvoked: true as const,
+            externalProcessStarted: input.externalProcessStarted,
+            summary: 'M12c affected projects command stores hashes and counts only.',
+          },
+          {
+            id: stableId('m12c_verification_command', input.stableSeed),
+            schemaVersion: SchemaVersionSchema.value,
+            createdAt: input.now(),
+            commandKind: 'verification' as const,
+            targets: [...input.targets],
+            status:
+              input.status === 'passed'
+                ? ('completed' as const)
+                : input.status === 'aborted'
+                  ? ('aborted' as const)
+                  : ('failed' as const),
+            exitCode: input.status === 'passed' ? 0 : 1,
+            stdoutHash: stableHash(`verification:${input.status}:${input.stableSeed}`),
+            stderrHash: stableHash(`verification-stderr:${input.status}`),
+            stdoutLineCount: input.status === 'passed' ? 1 : 0,
+            stderrLineCount: input.status === 'passed' ? 0 : 1,
+            outputBodyStored: false as const,
+            processBoundaryInvoked: true as const,
+            externalProcessStarted: input.externalProcessStarted,
+            summary: `M12c verification command ${input.status}; output body is not stored.`,
+          },
+        ]
+      : [];
+
+  return VerificationRunSchema.parse({
+    id: stableId('m12c_verification_run', input.stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.now(),
+    targetId: stableId('m12c_patch_target', input.stableSeed),
+    status: input.status,
+    checks: input.targets,
+    evidenceRefs: [evidenceRef],
+    planId: stableId('m12c_verification_plan', input.stableSeed),
+    affectedProjects: input.affectedProjects.map((projectName) => ({
+      id: stableId('m12c_affected_project', `${input.stableSeed}:${projectName}`),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.now(),
+      name: projectName,
+      nameHash: stableHash(projectName),
+    })),
+    commandResults,
+    processBoundaryInvoked: input.processBoundaryInvoked,
+    externalProcessStarted: input.externalProcessStarted,
+    noRealWrite: true,
+    auditEventIds: [stableId('audit_m12c_verification_run', input.stableSeed)],
+    summary: `M12c Nx verification ${input.status}.`,
+  });
+}
+
+function createVerificationEvidenceRef(seed: string, now: () => string): EvidenceRef {
+  return {
+    id: stableId('evidence_m12c_verification', seed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    kind: 'verification.run_summary',
+    hash: stableHash(`verification:${seed}`),
+    summary: 'M12c verification run evidence stores hashes and counts only.',
+    redacted: true,
+    labels: [],
+  };
+}
+
+function defaultAffectedProjects(
+  status: Exclude<ControlledPatchVerificationStatus, 'not_run'>,
+): string[] {
+  return status === 'blocked' ? [] : ['orchestrator-kernel', 'contracts'];
 }
 
 function defaultGovernedChangedFiles(status: GovernedCodexPatchRunStatus): string[] {

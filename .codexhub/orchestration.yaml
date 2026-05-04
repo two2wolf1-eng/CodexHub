@@ -1242,3 +1242,51 @@ workflows:
       - rawPullRequestBody
       - gitPush
       - openPullRequest
+  m12c.patch-verification-readiness-gate:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: orchestrator-kernel contracts
+      localControlRequired: false
+    chain:
+      - phase: codex-patch-source
+        package: orchestrator-kernel
+        requires:
+          - M12b governed Codex patch metadata
+          - changed files
+          - diff hash
+      - phase: nx-verification-gate
+        package: orchestrator-kernel
+        helper: runM12PatchVerificationReadinessGate
+        allowedTargets:
+          - lint
+          - test
+          - build
+        output: hashes-counts-statuses-only
+      - phase: readiness-projection
+        contract: ControlledPatchVerificationGate
+        readyRequires:
+          - verificationStatus=passed
+          - changedFileCount>0
+        readiness: ready_for_review_draft_only
+      - phase: release-evidence
+        documents:
+          - docs/releases/m12c-patch-verification-readiness-gate.md
+    safety:
+      newProcessBoundary: false
+      supervisorRouteAdded: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawVerificationOutputStored: false
+      rawDiffStored: false
+      rawPathStored: false
+      bodyStored: false
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - rawVerificationOutput
+      - rawDiffBody
+      - rawPullRequestBody
+      - gitPush
+      - openPullRequest
