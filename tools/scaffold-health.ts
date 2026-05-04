@@ -87,6 +87,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m16-github-draft-pr-results.md',
   'docs/releases/m17-github-branch-publish-results.md',
   'docs/releases/m18-remote-publish-draft-pr-results.md',
+  'docs/releases/m18.6-remote-acceptance-smoke.md',
   'docs/reviews/m8-final-release-audit.md',
   'docs/reviews/m9-approval-ux-hardening.md',
   'docs/reviews/m10-operator-pilot-hardening-review.md',
