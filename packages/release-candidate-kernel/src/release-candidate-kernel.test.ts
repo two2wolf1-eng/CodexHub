@@ -8,6 +8,7 @@ import {
   createLocalRcBundleExportDryRunRecord,
   createLocalRcReadinessProjection,
   executeLocalRcBundleExport,
+  runLocalRcAcceptanceRehearsal,
 } from './index';
 
 describe('release-candidate-kernel', () => {
@@ -233,5 +234,48 @@ describe('release-candidate-kernel', () => {
     expect(mismatch.artifactWriteBoundaryInvoked).toBe(false);
     await rm(workspaceRoot, { recursive: true, force: true });
     await rm(resolve(workspaceRoot, '..', 'CodexHub-artifacts'), { recursive: true, force: true });
+  });
+
+  it('runs fixture-only local RC acceptance rehearsal scenarios without export boundary writes', () => {
+    const passed = runLocalRcAcceptanceRehearsal({ scenario: 'all-pass' });
+    const reviewBlocked = runLocalRcAcceptanceRehearsal({ scenario: 'review-blocked' });
+    const verificationBlocked = runLocalRcAcceptanceRehearsal({
+      scenario: 'verification-blocked',
+    });
+    const readinessBlocked = runLocalRcAcceptanceRehearsal({ scenario: 'readiness-blocked' });
+    const exportBlocked = runLocalRcAcceptanceRehearsal({ scenario: 'export-blocked' });
+    const superseded = runLocalRcAcceptanceRehearsal({ scenario: 'superseded-package' });
+    const serialized = JSON.stringify([
+      passed,
+      reviewBlocked,
+      verificationBlocked,
+      readinessBlocked,
+      exportBlocked,
+      superseded,
+    ]);
+
+    expect(passed.status).toBe('passed');
+    expect(passed.exportSummaryStatus).toBe('fixture_completed');
+    expect(passed.operatorAcceptanceStatus).toBe('accepted');
+    expect(reviewBlocked.status).toBe('blocked');
+    expect(reviewBlocked.rcReadinessStatus).toBe('blocked_review');
+    expect(verificationBlocked.rcReadinessStatus).toBe('blocked_verification');
+    expect(readinessBlocked.rcReadinessStatus).toBe('blocked_operator_readiness');
+    expect(exportBlocked.exportSummaryStatus).toBe('blocked');
+    expect(superseded.reviewDecisionStatus).toBe('superseded');
+    expect(
+      [
+        passed,
+        reviewBlocked,
+        verificationBlocked,
+        readinessBlocked,
+        exportBlocked,
+        superseded,
+      ].every((run) => !run.artifactWriteBoundaryInvoked && run.noRealWrite),
+    ).toBe(true);
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    expect(serialized).not.toContain('secret-token');
   });
 });

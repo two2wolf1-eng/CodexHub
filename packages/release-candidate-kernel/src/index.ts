@@ -3,6 +3,8 @@ import {
   type EvidenceRef,
   type ExecutionAuthority,
   LocalRcBundleApprovalArtifactRecordSchema,
+  LocalRcAcceptanceRehearsalRunSchema,
+  LocalRcAcceptanceRehearsalStepSchema,
   type LocalRcBundleApprovalStatus,
   LocalRcBundleControlPlaneRunSchema,
   LocalRcBundleDryRunRecordSchema,
@@ -15,6 +17,9 @@ import {
   foundationId,
   foundationTimestamp,
   type LocalRcAuditChain,
+  type LocalRcAcceptanceRehearsalRun,
+  type LocalRcAcceptanceRehearsalScenario,
+  type LocalRcAcceptanceRehearsalStep,
   type LocalRcBundleApprovalArtifactRecord,
   type LocalRcBundleControlPlaneRun,
   type LocalRcBundleDryRunRecord,
@@ -75,6 +80,13 @@ export interface LocalRcBundleExportInput {
   authority?: ExecutionAuthority;
   runtime: LocalRcBundleArtifactRuntimeInput;
   enabled?: boolean;
+  now?: () => string;
+}
+
+export interface LocalRcAcceptanceRehearsalInput {
+  scenario?: LocalRcAcceptanceRehearsalScenario;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
   now?: () => string;
 }
 
@@ -438,6 +450,73 @@ export async function executeLocalRcBundleExport(
   }
 }
 
+export function runLocalRcAcceptanceRehearsal(
+  input: LocalRcAcceptanceRehearsalInput = {},
+): LocalRcAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'all-pass';
+  const scenarioState = getLocalRcAcceptanceScenarioState(scenario);
+  const runId = stableId('local_rc_acceptance_rehearsal', scenario);
+  const evidenceRefIds = [...new Set(input.evidenceRefIds ?? ['evidence_rc_acceptance_fixture'])];
+  const auditEventIds = [...new Set(input.auditEventIds ?? ['audit_rc_acceptance_fixture'])];
+  const bundleHash = stableHash(
+    JSON.stringify({
+      scenario,
+      readinessStatus: scenarioState.rcReadinessStatus,
+      reviewDecisionStatus: scenarioState.reviewDecisionStatus,
+      verificationStatus: scenarioState.verificationStatus,
+      exportSummaryStatus: scenarioState.exportSummaryStatus,
+    }),
+  );
+  const steps = createLocalRcAcceptanceSteps({
+    scenario,
+    now,
+    evidenceRefIds,
+    auditEventIds,
+    bundleHash,
+    blockedPhase: scenarioState.blockedPhase,
+  });
+
+  return LocalRcAcceptanceRehearsalRunSchema.parse({
+    id: runId,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: scenarioState.status,
+    rcReadinessStatus: scenarioState.rcReadinessStatus,
+    reviewDecisionStatus: scenarioState.reviewDecisionStatus,
+    verificationStatus: scenarioState.verificationStatus,
+    exportSummaryStatus: scenarioState.exportSummaryStatus,
+    operatorAcceptanceStatus: scenarioState.operatorAcceptanceStatus,
+    stepCount: steps.length,
+    steps,
+    evidenceRefIds,
+    auditEventIds,
+    evidenceRefCount: evidenceRefIds.length,
+    auditEventCount: auditEventIds.length,
+    bundleHash,
+    blockReasons: scenarioState.blockReasons,
+    artifactWriteBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      stage: 'm14c',
+      fixtureOnly: true,
+      localOnly: true,
+      remoteActionPlanned: false,
+      artifactWriteBoundaryInvoked: false,
+    },
+    summary:
+      scenarioState.status === 'passed'
+        ? 'Local RC acceptance rehearsal passed with fixture metadata only.'
+        : `Local RC acceptance rehearsal blocked by ${scenarioState.blockReasons.join(', ')}.`,
+  });
+}
+
 function getReadinessStatus(
   reviewPackage: LocalReviewPackageRun,
   operatorReadinessStatus: LocalRcReadinessOperatorStatus,
@@ -520,6 +599,146 @@ export function createLocalRcBundleAuditEvent(input: {
       bodyStored: false,
     },
   };
+}
+
+function getLocalRcAcceptanceScenarioState(scenario: LocalRcAcceptanceRehearsalScenario): {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  rcReadinessStatus: LocalRcReadinessStatus;
+  reviewDecisionStatus: LocalReviewPackageRun['decision']['status'];
+  verificationStatus: 'passed' | 'failed' | 'aborted' | 'blocked' | 'not_run';
+  exportSummaryStatus: 'fixture_completed' | 'blocked' | 'skipped';
+  operatorAcceptanceStatus: 'accepted' | 'blocked' | 'not_ready';
+  blockedPhase?: LocalRcAcceptanceRehearsalStep['phase'];
+  blockReasons: string[];
+} {
+  if (scenario === 'all-pass') {
+    return {
+      status: 'passed',
+      rcReadinessStatus: 'ready_for_local_acceptance',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      exportSummaryStatus: 'fixture_completed',
+      operatorAcceptanceStatus: 'accepted',
+      blockReasons: [],
+    };
+  }
+
+  if (scenario === 'review-blocked') {
+    return {
+      status: 'blocked',
+      rcReadinessStatus: 'blocked_review',
+      reviewDecisionStatus: 'changes_requested',
+      verificationStatus: 'passed',
+      exportSummaryStatus: 'skipped',
+      operatorAcceptanceStatus: 'not_ready',
+      blockedPhase: 'review-decision',
+      blockReasons: ['review_decision_not_approved'],
+    };
+  }
+
+  if (scenario === 'verification-blocked') {
+    return {
+      status: 'blocked',
+      rcReadinessStatus: 'blocked_verification',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'failed',
+      exportSummaryStatus: 'skipped',
+      operatorAcceptanceStatus: 'not_ready',
+      blockedPhase: 'rc-readiness',
+      blockReasons: ['verification_not_passed'],
+    };
+  }
+
+  if (scenario === 'readiness-blocked') {
+    return {
+      status: 'blocked',
+      rcReadinessStatus: 'blocked_operator_readiness',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      exportSummaryStatus: 'skipped',
+      operatorAcceptanceStatus: 'not_ready',
+      blockedPhase: 'rc-readiness',
+      blockReasons: ['operator_readiness_not_passing'],
+    };
+  }
+
+  if (scenario === 'export-blocked') {
+    return {
+      status: 'blocked',
+      rcReadinessStatus: 'ready_for_local_acceptance',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      exportSummaryStatus: 'blocked',
+      operatorAcceptanceStatus: 'blocked',
+      blockedPhase: 'rc-export-summary',
+      blockReasons: ['rc_bundle_export_blocked'],
+    };
+  }
+
+  return {
+    status: 'blocked',
+    rcReadinessStatus: 'blocked_review',
+    reviewDecisionStatus: 'superseded',
+    verificationStatus: 'passed',
+    exportSummaryStatus: 'skipped',
+    operatorAcceptanceStatus: 'not_ready',
+    blockedPhase: 'review-decision',
+    blockReasons: ['review_package_superseded'],
+  };
+}
+
+function createLocalRcAcceptanceSteps(input: {
+  scenario: LocalRcAcceptanceRehearsalScenario;
+  now: () => string;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+  bundleHash: string;
+  blockedPhase?: LocalRcAcceptanceRehearsalStep['phase'];
+}): LocalRcAcceptanceRehearsalStep[] {
+  const phases: LocalRcAcceptanceRehearsalStep['phase'][] = [
+    'review-package',
+    'review-decision',
+    'rc-readiness',
+    'rc-export-summary',
+    'operator-acceptance',
+  ];
+  const blockedIndex = input.blockedPhase ? phases.indexOf(input.blockedPhase) : -1;
+
+  return phases.map((phase, order) => {
+    const status =
+      blockedIndex === -1
+        ? 'passed'
+        : order < blockedIndex
+          ? 'passed'
+          : order === blockedIndex
+            ? 'blocked'
+            : 'skipped';
+
+    return LocalRcAcceptanceRehearsalStepSchema.parse({
+      id: stableId('local_rc_acceptance_step', `${input.scenario}:${phase}`),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.now(),
+      scenario: input.scenario,
+      phase,
+      status,
+      order,
+      evidenceRefIds: input.evidenceRefIds,
+      auditEventIds: input.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      artifactWriteBoundaryInvoked: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: {
+        stage: 'm14c',
+        fixtureOnly: true,
+        bundleHash: input.bundleHash,
+      },
+      summary: `Local RC acceptance ${phase} fixture step ${status}.`,
+    });
+  });
 }
 
 function validateRcBundleExportAuthority(input: LocalRcBundleExportInput): string[] {

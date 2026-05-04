@@ -747,6 +747,54 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('C:\\');
   });
 
+  it('runs the local RC acceptance rehearsal as fixture-only metadata', async () => {
+    const {
+      formatLocalRcAcceptanceRehearsalOutput,
+      runLocalRcAcceptanceRehearsalForCli,
+    } = await import('./main');
+    const passed = runLocalRcAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'all-pass',
+    });
+    const reviewBlocked = runLocalRcAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'review-blocked',
+    });
+    const exportBlocked = runLocalRcAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'export-blocked',
+    });
+    const serialized = JSON.stringify({ passed, reviewBlocked, exportBlocked });
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const releaseCandidateCommandSource = source.slice(
+      source.indexOf("const releaseCandidatesCommand = program"),
+      source.indexOf("program\n    .command('workflow')"),
+    );
+
+    expect(passed.status).toBe('passed');
+    expect(passed.operatorAcceptanceStatus).toBe('accepted');
+    expect(reviewBlocked.status).toBe('blocked');
+    expect(reviewBlocked.operatorAcceptanceStatus).toBe('not_ready');
+    expect(exportBlocked.exportSummaryStatus).toBe('blocked');
+    expect(passed.artifactWriteBoundaryInvoked).toBe(false);
+    expect(formatLocalRcAcceptanceRehearsalOutput(passed)).toContain(
+      'CodexHub local RC acceptance rehearsal',
+    );
+    expect(() => runLocalRcAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(releaseCandidateCommandSource).not.toContain('.execute(');
+    expect(releaseCandidateCommandSource).not.toContain("method: 'POST'");
+    expect(releaseCandidateCommandSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(releaseCandidateCommandSource).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('../CodexHub-artifacts');
+    expect(serialized).not.toContain('rawPullRequestBody');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('token=');
+    expect(serialized).not.toContain('cookie');
+  });
+
   it('lists Electron CDP observation metadata using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

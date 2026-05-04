@@ -391,6 +391,35 @@ export interface M11PilotAcceptanceSmokeReadOnlySummary {
   summary: string;
 }
 
+export interface LocalRcAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: string;
+  stepCount: number;
+  readinessStatus: string;
+  reviewDecisionStatus: string;
+  verificationStatus: string;
+  exportSummaryStatus: string;
+  operatorAcceptanceStatus: string;
+  evidenceCount: number;
+  auditEventCount: number;
+  bundleHash: string;
+  fixtureOnly: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  artifactWriteBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  networkBoundaryInvoked: false;
+  noRealWrite: true;
+  pushAllowed: false;
+  pullRequestOpened: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
+}
+
 export interface ApprovalDecisionHistoryReadOnlySummary {
   itemCount: number;
   requestedCount: number;
@@ -986,6 +1015,65 @@ export function createM11PilotAcceptanceSmokeReadOnlySummary(input: {
     bodyStored: false,
     tokenStored: false,
     summary: `M11 acceptance smoke preview ${status}; fixture metadata only.`,
+  };
+}
+
+export function createLocalRcAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?:
+    | 'all-pass'
+    | 'review-blocked'
+    | 'verification-blocked'
+    | 'readiness-blocked'
+    | 'export-blocked'
+    | 'superseded-package';
+} = {}): LocalRcAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status = scenario === 'all-pass' ? 'passed' : 'blocked';
+  const readinessStatus =
+    scenario === 'readiness-blocked'
+      ? 'blocked_operator_readiness'
+      : scenario === 'review-blocked' || scenario === 'superseded-package'
+        ? 'blocked_review'
+        : scenario === 'verification-blocked'
+          ? 'blocked_verification'
+          : 'ready_for_local_acceptance';
+  const reviewDecisionStatus =
+    scenario === 'review-blocked'
+      ? 'changes_requested'
+      : scenario === 'superseded-package'
+        ? 'superseded'
+        : 'approved_for_local_rc';
+  const verificationStatus = scenario === 'verification-blocked' ? 'failed' : 'passed';
+  const exportSummaryStatus =
+    scenario === 'export-blocked' ? 'blocked' : status === 'passed' ? 'fixture_completed' : 'skipped';
+
+  return {
+    status,
+    scenario,
+    stepCount: 5,
+    readinessStatus,
+    reviewDecisionStatus,
+    verificationStatus,
+    exportSummaryStatus,
+    operatorAcceptanceStatus: status === 'passed' ? 'accepted' : 'blocked',
+    evidenceCount: 2,
+    auditEventCount: 2,
+    bundleHash: stableSha256LikeHash(`m14c:${scenario}:bundle`),
+    fixtureOnly: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    artifactWriteBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    noRealWrite: true,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `M14 local RC acceptance rehearsal preview ${status}; fixture metadata only.`,
   };
 }
 

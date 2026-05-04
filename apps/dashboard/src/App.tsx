@@ -42,6 +42,7 @@ import {
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
+  createLocalRcAcceptanceRehearsalReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createM11PilotAcceptanceSmokeReadOnlySummary,
@@ -497,6 +498,7 @@ export function App() {
   });
   const pilotAcceptanceSummary = createM10PilotAcceptanceReadOnlySummary();
   const m11PilotAcceptanceSmokeSummary = createM11PilotAcceptanceSmokeReadOnlySummary();
+  const localRcAcceptanceRehearsalSummary = createLocalRcAcceptanceRehearsalReadOnlySummary();
   const m11PilotSummary = createM11PilotReadOnlySummary({
     runCount: overview.m11PilotRuns.length,
     approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
@@ -2531,6 +2533,7 @@ export function App() {
           pilotAcceptanceSummary,
           m11PilotSummary,
           m11PilotAcceptanceSmokeSummary,
+          localRcAcceptanceRehearsalSummary,
         )
       )}
     </main>
@@ -2552,6 +2555,9 @@ function renderReadOnlyDashboardView(
   m11PilotSummary: ReturnType<typeof createM11PilotReadOnlySummary>,
   m11PilotAcceptanceSmokeSummary: ReturnType<
     typeof createM11PilotAcceptanceSmokeReadOnlySummary
+  >,
+  localRcAcceptanceRehearsalSummary: ReturnType<
+    typeof createLocalRcAcceptanceRehearsalReadOnlySummary
   >,
 ) {
   if (activeView === 'development') {
@@ -3514,6 +3520,65 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{m11PilotAcceptanceSmokeSummary.summary}</p>
+        </Panel>
+        <Panel title="Local RC Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{localRcAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{localRcAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>readiness</strong>
+              <span>{localRcAcceptanceRehearsalSummary.readinessStatus}</span>
+            </li>
+            <li>
+              <strong>review decision</strong>
+              <span>{localRcAcceptanceRehearsalSummary.reviewDecisionStatus}</span>
+            </li>
+            <li>
+              <strong>verification / export</strong>
+              <span>
+                {localRcAcceptanceRehearsalSummary.verificationStatus} /{' '}
+                {localRcAcceptanceRehearsalSummary.exportSummaryStatus}
+              </span>
+            </li>
+            <li>
+              <strong>operator acceptance</strong>
+              <span>{localRcAcceptanceRehearsalSummary.operatorAcceptanceStatus}</span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {localRcAcceptanceRehearsalSummary.evidenceCount} /{' '}
+                {localRcAcceptanceRehearsalSummary.auditEventCount}
+              </span>
+            </li>
+            <li>
+              <strong>bundle hash</strong>
+              <span>{localRcAcceptanceRehearsalSummary.bundleHash}</span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                process {String(localRcAcceptanceRehearsalSummary.processBoundaryInvoked)}, external{' '}
+                {String(localRcAcceptanceRehearsalSummary.externalProcessStarted)}, artifact{' '}
+                {String(localRcAcceptanceRehearsalSummary.artifactWriteBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>controls</strong>
+              <span>
+                keyRead {String(localRcAcceptanceRehearsalSummary.localControlKeyRead)}, postAllowed{' '}
+                {String(localRcAcceptanceRehearsalSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(localRcAcceptanceRehearsalSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{localRcAcceptanceRehearsalSummary.summary}</p>
         </Panel>
         <Panel title="M10 Pilot Checklist">
           <ul>

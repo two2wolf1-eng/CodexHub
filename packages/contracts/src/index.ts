@@ -2934,6 +2934,123 @@ export type LocalRcBundleControlPlaneRun = z.infer<
   typeof LocalRcBundleControlPlaneRunSchema
 >;
 
+export const LocalRcAcceptanceRehearsalScenarioSchema = z.enum([
+  'all-pass',
+  'review-blocked',
+  'verification-blocked',
+  'readiness-blocked',
+  'export-blocked',
+  'superseded-package',
+]);
+export type LocalRcAcceptanceRehearsalScenario = z.infer<
+  typeof LocalRcAcceptanceRehearsalScenarioSchema
+>;
+
+export const LocalRcAcceptanceRehearsalStepSchema = createdEntityBaseSchema
+  .extend({
+    scenario: LocalRcAcceptanceRehearsalScenarioSchema,
+    phase: z.enum([
+      'review-package',
+      'review-decision',
+      'rc-readiness',
+      'rc-export-summary',
+      'operator-acceptance',
+    ]),
+    status: z.enum(['passed', 'failed', 'blocked', 'skipped']),
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    artifactWriteBoundaryInvoked: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type LocalRcAcceptanceRehearsalStep = z.infer<
+  typeof LocalRcAcceptanceRehearsalStepSchema
+>;
+
+export const LocalRcAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: LocalRcAcceptanceRehearsalScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    rcReadinessStatus: LocalRcReadinessStatusSchema,
+    reviewDecisionStatus: LocalReviewDecisionStatusSchema,
+    verificationStatus: z.enum(['passed', 'failed', 'aborted', 'blocked', 'not_run']),
+    exportSummaryStatus: z.enum(['fixture_completed', 'blocked', 'skipped']),
+    operatorAcceptanceStatus: z.enum(['accepted', 'blocked', 'not_ready']),
+    stepCount: z.number().int().nonnegative(),
+    steps: z.array(LocalRcAcceptanceRehearsalStepSchema),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    bundleHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.stepCount !== record.steps.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'stepCount must match local RC acceptance steps length',
+        path: ['stepCount'],
+      });
+    }
+
+    if (record.evidenceRefCount !== record.evidenceRefIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'evidenceRefCount must match evidenceRefIds length',
+        path: ['evidenceRefCount'],
+      });
+    }
+
+    if (record.auditEventCount !== record.auditEventIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'auditEventCount must match auditEventIds length',
+        path: ['auditEventCount'],
+      });
+    }
+
+    if (record.status === 'passed' && record.scenario !== 'all-pass') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass local RC acceptance rehearsals can pass',
+        path: ['status'],
+      });
+    }
+
+    if (record.status === 'passed' && record.operatorAcceptanceStatus !== 'accepted') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed local RC acceptance rehearsals require accepted operator status',
+        path: ['operatorAcceptanceStatus'],
+      });
+    }
+  });
+export type LocalRcAcceptanceRehearsalRun = z.infer<
+  typeof LocalRcAcceptanceRehearsalRunSchema
+>;
+
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);
 export type GovernedCodexPatchMode = z.infer<typeof GovernedCodexPatchModeSchema>;
 

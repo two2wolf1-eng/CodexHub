@@ -108,6 +108,9 @@ importers:
       '@codexhub/policy-backend-adapter':
         specifier: workspace:*
         version: link:../../packages/policy-backend-adapter
+      '@codexhub/release-candidate-kernel':
+        specifier: workspace:*
+        version: link:../../packages/release-candidate-kernel
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../../packages/security-kernel

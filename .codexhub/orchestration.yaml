@@ -1700,3 +1700,47 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m14c.local-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: release-candidate-kernel apps/cli apps/dashboard
+      localControlRequired: false
+    chain:
+      - phase: review-package
+        source: fixture
+        output: ids-hashes-counts-statuses-only
+      - phase: review-decision
+        statuses:
+          - approved_for_local_rc
+          - changes_requested
+          - superseded
+        output: decision-status-and-reason-hash-only
+      - phase: rc-readiness
+        package: release-candidate-kernel
+        helper: runLocalRcAcceptanceRehearsal
+      - phase: rc-export-summary
+        realExportInvoked: false
+        artifactWriteBoundaryInvoked: false
+      - phase: operator-acceptance
+        localOnly: true
+        remoteActionAllowed: false
+    safety:
+      fixtureOnly: true
+      newSupervisorRoute: false
+      newWriteBoundary: false
+      artifactExportInvoked: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+    forbidden:
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest
+      - cliWriteCommand
+      - dashboardWriteUi

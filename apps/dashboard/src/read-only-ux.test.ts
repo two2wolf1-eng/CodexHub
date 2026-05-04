@@ -5,6 +5,7 @@ import {
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
+  createLocalRcAcceptanceRehearsalReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createM11PilotAcceptanceSmokeReadOnlySummary,
@@ -261,6 +262,45 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('raw PR');
     expect(serialized).not.toContain('raw reason');
     expect(serialized).not.toContain('local-control-secret');
+  });
+
+  it('summarizes local RC acceptance rehearsal without export or remote actions', () => {
+    const passed = createLocalRcAcceptanceRehearsalReadOnlySummary({ scenario: 'all-pass' });
+    const blocked = createLocalRcAcceptanceRehearsalReadOnlySummary({
+      scenario: 'export-blocked',
+    });
+    const serialized = JSON.stringify({ passed, blocked });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.operatorAcceptanceStatus).toBe('accepted');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.exportSummaryStatus).toBe('blocked');
+    expect(passed.artifactWriteBoundaryInvoked).toBe(false);
+    expect(passed.supervisorPostAllowed).toBe(false);
+    expect(passed.adapterExecuteAllowed).toBe(false);
+    expect(passed.rawPathStored).toBe(false);
+    expect(passed.bodyStored).toBe(false);
+    expect(passed.tokenStored).toBe(false);
+    expect(serialized).not.toContain('../CodexHub-artifacts');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw reason');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('token=');
+  });
+
+  it('keeps the local RC acceptance panel display-only in the Dashboard source', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const localRcPanel = appSource.slice(
+      appSource.indexOf('<Panel title="Local RC Acceptance Rehearsal">'),
+      appSource.indexOf('<Panel title="M10 Pilot Checklist">'),
+    );
+
+    expect(localRcPanel).toContain('Local RC Acceptance Rehearsal');
+    expect(localRcPanel).not.toContain('<button');
+    expect(localRcPanel).not.toContain('fetch(');
+    expect(localRcPanel).not.toContain("method: 'POST'");
+    expect(localRcPanel).not.toContain('approvalKey');
+    expect(localRcPanel).not.toContain('local-control');
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {

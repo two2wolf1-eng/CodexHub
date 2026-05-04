@@ -149,6 +149,7 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  LocalRcAcceptanceRehearsalScenario,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
   ApprovalInboxProjection,
@@ -164,6 +165,7 @@ import {
   runM11PilotAcceptanceSmoke,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
+import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kernel';
 import {
   createGovernanceProjection,
   type GovernanceProjectionInputRun,
@@ -1326,6 +1328,24 @@ export function buildProgram(): Command {
     .action(async (options: JsonCliOptions) => {
       const result = await listReviewPackageDecisions();
       console.log(formatReviewPackageDecisionsListOutput(result, options));
+    });
+
+  const releaseCandidatesCommand = program
+    .command('release-candidates')
+    .description('Read-only local release candidate metadata commands');
+
+  releaseCandidatesCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the fixture-only local RC acceptance rehearsal')
+    .option(
+      '--scenario <scenario>',
+      'Fixture scenario: all-pass, review-blocked, verification-blocked, readiness-blocked, export-blocked, or superseded-package',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Run the local RC acceptance rehearsal without exporting artifacts')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runLocalRcAcceptanceRehearsalForCli(options);
+      console.log(formatLocalRcAcceptanceRehearsalOutput(result, options));
     });
 
   program
@@ -2816,6 +2836,19 @@ export function runM11PilotAcceptanceSmokeForCli(options: {
   return runM11PilotAcceptanceSmoke({ scenario });
 }
 
+export function runLocalRcAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runLocalRcAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('local RC acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeLocalRcAcceptanceRehearsalScenario(options.scenario);
+
+  return runLocalRcAcceptanceRehearsal({ scenario });
+}
+
 export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
   const runs = await listM11PilotRunsForCli();
   const records = (runs.records as M11PilotRunApiRecord[] | undefined) ?? [];
@@ -3789,6 +3822,26 @@ function normalizeM11PilotAcceptanceSmokeScenario(
   }
 
   throw new Error(`Unsupported M11 pilot acceptance smoke fixture scenario: ${scenario}`);
+}
+
+function normalizeLocalRcAcceptanceRehearsalScenario(
+  scenario: string | undefined,
+): LocalRcAcceptanceRehearsalScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'review-blocked' ||
+    scenario === 'verification-blocked' ||
+    scenario === 'readiness-blocked' ||
+    scenario === 'export-blocked' ||
+    scenario === 'superseded-package'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported local RC acceptance rehearsal fixture scenario: ${scenario}`);
 }
 
 async function listWorktreeCollection(
@@ -7176,8 +7229,42 @@ export function formatM11PilotAcceptanceSmokeOutput(
     `externalProcessStarted=${String(result.externalProcessStarted)}`,
     `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
     `patchGenerationAllowed=${String(result.patchGenerationAllowed)}`,
-    `pushAllowed=${String(result.pushAllowed)}`,
-    `pullRequestOpened=${String(result.pullRequestOpened)}`,
+    'pushAllowed=false',
+    'pullRequestOpened=false',
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+    'timeline:',
+    ...result.steps.map((step) => `- ${step.order} ${step.phase}/${step.status}`),
+  ].join('\n');
+}
+
+export function formatLocalRcAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runLocalRcAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'CodexHub local RC acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `readiness: ${result.rcReadinessStatus}`,
+    `reviewDecision: ${result.reviewDecisionStatus}`,
+    `verification: ${result.verificationStatus}`,
+    `exportSummary: ${result.exportSummaryStatus}`,
+    `operatorAcceptance: ${result.operatorAcceptanceStatus}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `bundleHash: ${result.bundleHash}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `artifactWriteBoundaryInvoked=${String(result.artifactWriteBoundaryInvoked)}`,
+    'pushAllowed=false',
+    'pullRequestOpened=false',
     `bodyStored=${String(result.bodyStored)}`,
     `rawPathStored=${String(result.rawPathStored)}`,
     'timeline:',

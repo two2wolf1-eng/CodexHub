@@ -191,6 +191,8 @@ import {
   LocalReviewPackageRunSchema,
   LocalReviewPackageSummarySchema,
   LocalRcBundleApprovalArtifactRecordSchema,
+  LocalRcAcceptanceRehearsalRunSchema,
+  LocalRcAcceptanceRehearsalStepSchema,
   LocalRcBundleControlPlaneRunSchema,
   LocalRcBundleDryRunRecordSchema,
   LocalRcAuditChainSchema,
@@ -2724,6 +2726,85 @@ describe('contracts schemas', () => {
         ...run,
         id: 'rc_bundle_export_raw_metadata',
         metadata: { rawPath: 'C:\\private\\rc', rawDiff: 'diff --git', rawReason: 'body' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('C:\\private');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('parses M14c local RC acceptance rehearsal records and rejects raw metadata', () => {
+    const step = LocalRcAcceptanceRehearsalStepSchema.parse({
+      id: 'local_rc_acceptance_step_1',
+      schemaVersion,
+      createdAt,
+      scenario: 'all-pass',
+      phase: 'operator-acceptance',
+      status: 'passed',
+      order: 4,
+      evidenceRefIds: ['evidence_rc_acceptance'],
+      auditEventIds: ['audit_rc_acceptance'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      artifactWriteBoundaryInvoked: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: { bundleHash: 'sha256:rc-bundle', fixtureOnly: true },
+      summary: 'Operator acceptance fixture step passed.',
+    });
+    const run = LocalRcAcceptanceRehearsalRunSchema.parse({
+      id: 'local_rc_acceptance_run_1',
+      schemaVersion,
+      createdAt,
+      scenario: 'all-pass',
+      status: 'passed',
+      rcReadinessStatus: 'ready_for_local_acceptance',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      exportSummaryStatus: 'fixture_completed',
+      operatorAcceptanceStatus: 'accepted',
+      stepCount: 1,
+      steps: [step],
+      evidenceRefIds: ['evidence_rc_acceptance'],
+      auditEventIds: ['audit_rc_acceptance'],
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      bundleHash: 'sha256:rc-bundle',
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: { fixtureOnly: true, stage: 'm14c' },
+      summary: 'Local RC acceptance rehearsal passed.',
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('passed');
+    expect(() =>
+      LocalRcAcceptanceRehearsalRunSchema.parse({
+        ...run,
+        id: 'local_rc_acceptance_bad_step_count',
+        stepCount: 2,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcAcceptanceRehearsalRunSchema.parse({
+        ...run,
+        id: 'local_rc_acceptance_bad_scenario_status',
+        scenario: 'review-blocked',
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcAcceptanceRehearsalStepSchema.parse({
+        ...step,
+        id: 'local_rc_acceptance_raw_step',
+        metadata: { rawPath: 'C:\\private\\rc', rawReason: 'body', rawDiff: 'diff --git' },
       }),
     ).toThrow();
     expect(serialized).not.toContain('C:\\private');
