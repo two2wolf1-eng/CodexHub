@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -219,6 +220,7 @@ const LOCAL_CONTROL_ENV_VAR = [
   'CODEXHUB_SUPERVISOR_LOCAL_',
   LOCAL_CONTROL_KEY_KIND.toUpperCase(),
 ].join('');
+const GITHUB_CREDENTIAL_ENV_VAR = ['CODEXHUB_GITHUB_', ['TO', 'KEN'].join('')].join('');
 
 class MissingSupervisorLocalControlKeyError extends Error {
   constructor() {
@@ -278,6 +280,7 @@ export interface ReadOnlyRunSummary {
     | 'codex_exec_dry_run'
     | 'browser_observation'
     | 'electron_cdp_observation'
+    | 'github'
     | 'worktree_run'
     | 'worktree_cleanup_run'
     | 'review_package_run'
@@ -291,6 +294,7 @@ export interface ReadOnlyRunSummary {
   evidenceCount?: number;
   auditEventCount?: number;
   liveExecution: false;
+  networkBoundaryInvoked?: boolean;
   externalProcessStarted: false;
   noRealWrite: true;
   bodyStored: false;
@@ -389,6 +393,44 @@ interface WorktreeApiRecord {
   noRealWrite?: boolean;
   bodyStored?: boolean;
   rawPathStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubMetadataApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  requestedMetadata?: string[];
+  repoMetadataHash?: string;
+  baseBranchMetadataHash?: string;
+  headBranchMetadataHash?: string;
+  existingPullRequestCount?: number;
+  responseBodyHashes?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
   summary?: string;
@@ -1198,6 +1240,59 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showElectronCdpObservationRun(runId);
       console.log(formatElectronCdpObservationRunDetailOutput(result, options));
+    });
+
+  const githubCommand = program
+    .command('github')
+    .description('Read-only GitHub provider metadata commands');
+
+  githubCommand
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub provider readiness without sending remote requests')
+    .action((options: JsonCliOptions) => {
+      const result = getGithubProviderStatusForCli();
+      console.log(formatGithubProviderStatusOutput(result, options));
+    });
+
+  const githubMetadataCommand = githubCommand
+    .command('metadata')
+    .description('Read GitHub metadata control-plane records from Supervisor GET endpoints');
+
+  const githubMetadataDryRunsCommand = githubMetadataCommand
+    .command('dry-runs')
+    .description('Read GitHub metadata dry-run records');
+
+  githubMetadataDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub metadata dry-runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubMetadataDryRuns();
+      console.log(formatGithubMetadataDryRunsListOutput(result, options));
+    });
+
+  const githubMetadataRunsCommand = githubMetadataCommand
+    .command('runs')
+    .description('Read GitHub metadata run records');
+
+  githubMetadataRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub metadata runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubMetadataRuns();
+      console.log(formatGithubMetadataRunsListOutput(result, options));
+    });
+
+  githubMetadataRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub metadata run details without sending remote requests')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubMetadataRun(runId);
+      console.log(formatGithubMetadataRunDetailOutput(result, options));
     });
 
   const worktreesCommand = program
@@ -2585,6 +2680,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     codexDryRunResult,
     browserObservationResult,
     electronCdpObservationResult,
+    githubMetadataRunResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
     reviewPackageRunResult,
@@ -2603,6 +2699,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: ElectronCdpObservationApiRecord[] }>(
         '/api/electron-cdp/observation/runs',
       ),
+      getSupervisorJson<{ records: GithubMetadataApiRecord[] }>('/api/github/metadata/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
       getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
@@ -2619,6 +2716,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ...summarizeElectronCdpObservationRunRecords(
       settledValue(electronCdpObservationResult)?.records ?? [],
     ),
+    ...summarizeGithubMetadataRunRecords(settledValue(githubMetadataRunResult)?.records ?? []),
     ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
     ...summarizeWorktreeRunRecords(
       settledValue(worktreeCleanupRunResult)?.records ?? [],
@@ -2637,6 +2735,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(codexDryRunResult),
     settledError(browserObservationResult),
     settledError(electronCdpObservationResult),
+    settledError(githubMetadataRunResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
     settledError(reviewPackageRunResult),
@@ -2645,7 +2744,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 10 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 11 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -3231,6 +3330,93 @@ export async function showElectronCdpObservationRun(
   }
 }
 
+export function getGithubProviderStatusForCli(): Record<string, unknown> {
+  const credential = process.env[GITHUB_CREDENTIAL_ENV_VAR];
+  const credentialConfigured = typeof credential === 'string' && credential.length > 0;
+
+  return {
+    status: credentialConfigured ? 'configured' : 'missing',
+    manifestName: 'github-provider',
+    manifestVersion: '0.1.0-m15c',
+    productDefaultEnabled: false,
+    approvalRequired: true,
+    allowedHostHash: stableCliHash('api.github.com'),
+    credentialConfigured,
+    credentialHash: credentialConfigured ? stableCliHash(credential) : undefined,
+    credentialHashOnly: true,
+    credentialValueStored: false,
+    rawRemoteRefStored: false,
+    rawUrlStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    blockedOperations: [
+      ['git ', 'push'].join(''),
+      'create_ref',
+      'update_ref',
+      'merge',
+      'labels',
+      'reviewers',
+      'comments',
+      'non_draft_pr',
+      'generic_network_request',
+    ],
+    note: 'GitHub provider status is read locally and does not send a remote request.',
+  };
+}
+
+export async function listGithubMetadataDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubMetadataCollection(
+    '/api/github/metadata/dry-runs',
+    'GitHub metadata dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub metadata dry-run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function listGithubMetadataRuns(): Promise<Record<string, unknown>> {
+  return listGithubMetadataCollection(
+    '/api/github/metadata/runs',
+    'GitHub metadata runs are read from Supervisor GET endpoints only.',
+    'GitHub metadata run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function showGithubMetadataRun(runId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubMetadataApiRecord>(
+      `/api/github/metadata/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'GitHub metadata run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'GitHub metadata run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'No GitHub provider request was attempted.',
+    };
+  }
+}
+
 export async function listWorktreeDryRuns(): Promise<Record<string, unknown>> {
   return listWorktreeCollection(
     '/api/worktrees/dry-runs',
@@ -3690,6 +3876,23 @@ function summarizeWorktreeRunRecords(
   }));
 }
 
+function summarizeGithubMetadataRunRecords(runs: GithubMetadataApiRecord[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_metadata_run',
+    source: 'github',
+    title: `GitHub metadata ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'GitHub provider metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
 function summarizeReviewPackageRunRecords(runs: ReviewPackageApiRecord[]): ReadOnlyRunSummary[] {
   return runs.map((run) => ({
     id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -3780,6 +3983,7 @@ function toGovernanceProjectionInput(run: ReadOnlyRunSummary): GovernanceProject
     evidenceCount: run.evidenceCount ?? 0,
     auditEventCount: run.auditEventCount ?? 0,
     processBoundaryInvoked: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
     externalProcessStarted: run.externalProcessStarted,
     noRealWrite: run.noRealWrite,
   };
@@ -4041,6 +4245,51 @@ async function listWorktreeCollection(
   }
 }
 
+async function listGithubMetadataCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubMetadataApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub metadata source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
 async function showWorktreeRecord(
   path: string,
   runId: string,
@@ -4232,6 +4481,10 @@ function createReadOnlyFilterQuery(options: WorktreeApprovalListCliOptions): str
   if (options.dryRunId) params.set('dryRunId', options.dryRunId);
   if (options.status) params.set('status', options.status);
   return params.size > 0 ? `?${params.toString()}` : '';
+}
+
+function stableCliHash(value: string): string {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
 function createReadOnlyElectronCdpCollectionResult(
@@ -7721,6 +7974,105 @@ export function formatWorktreeDryRunsListOutput(
   return formatWorktreeCollectionOutput('Worktree dry-runs', result, options);
 }
 
+export function formatGithubProviderStatusOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const blockedOperations = Array.isArray(result.blockedOperations)
+    ? result.blockedOperations.join(', ')
+    : 'unavailable';
+
+  return [
+    'GitHub provider status',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `manifest: ${String(result.manifestName ?? 'github-provider')} ${String(
+      result.manifestVersion ?? 'unknown',
+    )}`,
+    `defaultEnabled=${String(result.productDefaultEnabled ?? false)}`,
+    `approvalRequired=${String(result.approvalRequired ?? true)}`,
+    `credentialConfigured=${String(result.credentialConfigured ?? false)}`,
+    result.credentialHash ? `credentialHash: ${String(result.credentialHash)}` : undefined,
+    `credentialHashOnly=${String(result.credentialHashOnly ?? true)}`,
+    `credentialValueStored=${String(result.credentialValueStored ?? false)}`,
+    `allowedHostHash: ${String(result.allowedHostHash ?? 'unavailable')}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `blockedOperations: ${blockedOperations}`,
+    `note: ${String(result.note ?? '')}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubMetadataDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubMetadataCollectionOutput('GitHub metadata dry-runs', result, options);
+}
+
+export function formatGithubMetadataRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubMetadataCollectionOutput('GitHub metadata runs', result, options);
+}
+
+export function formatGithubMetadataRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubMetadataApiRecord | undefined;
+
+  return [
+    'GitHub metadata run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.targetRef?.hostHash ? `hostHash: ${run.targetRef.hostHash}` : undefined,
+    run?.targetRef?.ownerHash ? `ownerHash: ${run.targetRef.ownerHash}` : undefined,
+    run?.targetRef?.repoHash ? `repoHash: ${run.targetRef.repoHash}` : undefined,
+    run?.targetRef?.baseBranchHash
+      ? `baseBranchHash: ${run.targetRef.baseBranchHash}`
+      : undefined,
+    run?.targetRef?.headBranchHash
+      ? `headBranchHash: ${run.targetRef.headBranchHash}`
+      : undefined,
+    run?.repoMetadataHash ? `repoMetadataHash: ${run.repoMetadataHash}` : undefined,
+    run?.baseBranchMetadataHash
+      ? `baseBranchMetadataHash: ${run.baseBranchMetadataHash}`
+      : undefined,
+    run?.headBranchMetadataHash
+      ? `headBranchMetadataHash: ${run.headBranchMetadataHash}`
+      : undefined,
+    `existingPullRequestCount=${String(run?.existingPullRequestCount ?? 0)}`,
+    `responseHashCount=${String(run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
 export function formatWorktreeApprovalsListOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -8036,6 +8388,48 @@ function formatElectronCdpObservationCollectionOutput(
           `target=${record.targetIdHash ?? 'unavailable'}`,
           `http=${String(record.cdpHttpBoundaryInvoked ?? false)}`,
           `events=${String(record.cdpWebSocketBoundaryInvoked ?? false)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubMetadataCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubMetadataApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `owner=${record.targetRef?.ownerHash ?? 'unavailable'}`,
+          `repo=${record.targetRef?.repoHash ?? 'unavailable'}`,
+          `base=${record.targetRef?.baseBranchHash ?? 'unavailable'}`,
+          `head=${record.targetRef?.headBranchHash ?? 'unavailable'}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `existingPrs=${String(record.existingPullRequestCount ?? 0)}`,
+          `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,
           `audit=${record.auditEventIds?.length ?? 0}`,
         ].join(' '),

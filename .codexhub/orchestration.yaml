@@ -1961,3 +1961,47 @@ workflows:
       - reviewers
       - comments
       - arbitraryUrlPassthrough
+  m15c.github-provider-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard-read-only
+        route: "#/github"
+        supervisorGetOnly: true
+        routes:
+          - GET /api/github/metadata/dry-runs
+          - GET /api/github/metadata/approvals
+          - GET /api/github/metadata/runs
+        output: ids-hashes-counts-statuses-evidence-audit-boundaries
+      - phase: cli-read-only
+        commands:
+          - codexhub github status
+          - codexhub github metadata dry-runs list
+          - codexhub github metadata runs list
+          - codexhub github metadata runs show <runId>
+        supervisorPostAllowed: false
+        adapterExecuteAllowed: false
+    safety:
+      productDefaultEnabled: false
+      credentialValueStored: false
+      localControlKeyRead: false
+      supervisorPostAllowed: false
+      adapterExecuteAllowed: false
+      rawOwnerStored: false
+      rawRepoStored: false
+      rawBranchStored: false
+      rawUrlStored: false
+      rawRequestBodyStored: false
+      rawResponseBodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false
+    forbidden:
+      - supervisorPost
+      - adapterDirectExecute
+      - credentialPersistence
+      - remoteMutation

@@ -273,6 +273,45 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/github/metadata/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_metadata_run_1',
+                dryRunId: 'github_metadata_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-http',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                existingPullRequestCount: 0,
+                responseBodyHashes: ['sha256:repo-body'],
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['github_evidence_1'],
+                auditEventIds: ['github_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
       if (String(url).includes('/api/worktrees/cleanup/runs')) {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
@@ -324,18 +363,177 @@ describe('cli development mock-run fallback', () => {
 
     expect(result).toMatchObject({
       status: 'ready',
-      count: 4,
+      count: 5,
       liveExecution: false,
       externalProcessStarted: false,
       noRealWrite: true,
     });
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
+    expect(output).toContain('github_metadata_run_1');
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(20);
+    expect(fetchCalls).toHaveLength(22);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+  });
+
+  it('shows GitHub provider metadata using read-only status and GET endpoints', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/github/metadata/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'github_metadata_dry_run_record_1',
+                dryRunId: 'github_metadata_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-github-http',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                requestedMetadata: ['repository', 'base_branch', 'head_branch'],
+                networkBoundaryPlanned: true,
+                networkBoundaryInvoked: false,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/github/metadata/runs/github_metadata_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'github_metadata_run_1',
+            dryRunId: 'github_metadata_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-github-http',
+            targetRef: {
+              hostHash: 'sha256:host',
+              ownerHash: 'sha256:owner',
+              repoHash: 'sha256:repo',
+              baseBranchHash: 'sha256:base',
+              headBranchHash: 'sha256:head',
+              rawOwnerStored: false,
+              rawRepoStored: false,
+              rawRefStored: false,
+              rawUrlStored: false,
+              rawPathStored: false,
+              bodyStored: false,
+            },
+            repoMetadataHash: 'sha256:repo-metadata',
+            baseBranchMetadataHash: 'sha256:base-metadata',
+            headBranchMetadataHash: 'sha256:head-metadata',
+            existingPullRequestCount: 0,
+            responseBodyHashes: ['sha256:repo-response'],
+            networkBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: true,
+            bodyStored: false,
+            rawPathStored: false,
+            evidenceRefIds: ['github_evidence_1'],
+            auditEventIds: ['github_audit_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/metadata/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_metadata_run_1',
+                dryRunId: 'github_metadata_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-http',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                existingPullRequestCount: 0,
+                responseBodyHashes: ['sha256:repo-response'],
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['github_evidence_1'],
+                auditEventIds: ['github_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      formatGithubMetadataDryRunsListOutput,
+      formatGithubMetadataRunDetailOutput,
+      formatGithubMetadataRunsListOutput,
+      formatGithubProviderStatusOutput,
+      getGithubProviderStatusForCli,
+      listGithubMetadataDryRuns,
+      listGithubMetadataRuns,
+      showGithubMetadataRun,
+    } = await import('./main');
+    const status = getGithubProviderStatusForCli();
+    const dryRuns = await listGithubMetadataDryRuns();
+    const runs = await listGithubMetadataRuns();
+    const detail = await showGithubMetadataRun('github_metadata_run_1');
+    const serialized = JSON.stringify({ status, dryRuns, runs, detail });
+    const output = [
+      formatGithubProviderStatusOutput(status),
+      formatGithubMetadataDryRunsListOutput(dryRuns),
+      formatGithubMetadataRunsListOutput(runs),
+      formatGithubMetadataRunDetailOutput(detail),
+    ].join('\n');
+
+    expect(output).toContain('GitHub provider status');
+    expect(output).toContain('github_metadata_run_1');
+    expect(output).toContain('networkBoundaryInvoked=true');
+    expect(fetchCalls).toHaveLength(3);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw remote response');
+    expect(serialized).not.toContain('local-control');
   });
 
   it('projects unified governance runs, evidence bundles, and audit chains read-only', async () => {

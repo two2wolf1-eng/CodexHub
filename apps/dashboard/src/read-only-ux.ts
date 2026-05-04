@@ -26,6 +26,7 @@ export const DASHBOARD_VIEWS = [
   'mcp-tools',
   'browser-profiles',
   'electron',
+  'github',
   'worktrees',
   'policy-telemetry',
   'governance',
@@ -146,6 +147,32 @@ export interface WorktreeReadOnlySummary {
   noRealWrite: boolean;
   rawPathStored: false;
   bodyStored: false;
+  summary: string;
+}
+
+export interface GithubProviderReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  latestRunStatus: string;
+  productDefaultEnabled: false;
+  approvalRequired: true;
+  credentialConfigured: boolean;
+  credentialHashOnly: boolean;
+  allowedHostHash: string;
+  allowedMetadata: string[];
+  blockedOperations: string[];
+  networkBoundaryInvoked: boolean;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  rawRemoteRefStored: false;
+  rawUrlStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  credentialValueStored: false;
   summary: string;
 }
 
@@ -678,6 +705,57 @@ export function createWorktreeReadOnlySummary(input: {
     bodyStored: false,
     summary:
       'Worktree M6d shows Supervisor-gated create and cleanup metadata only. Dashboard remains read-only and cannot create, approve, run, remove, push, or open PRs.',
+  };
+}
+
+export function createGithubProviderReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  latestRunStatus?: string;
+  credentialConfigured?: boolean;
+  networkBoundaryInvoked?: boolean;
+} = {}): GithubProviderReadOnlySummary {
+  return {
+    manifestName: 'github-provider',
+    manifestVersion: '0.1.0-m15c',
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount: input.runCount ?? 0,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    productDefaultEnabled: false,
+    approvalRequired: true,
+    credentialConfigured: input.credentialConfigured ?? false,
+    credentialHashOnly: true,
+    allowedHostHash: stableSha256LikeHash('api.github.com'),
+    allowedMetadata: [
+      'repository_metadata',
+      'base_branch_metadata',
+      'head_branch_metadata',
+      'existing_pull_request_lookup',
+    ],
+    blockedOperations: [
+      ['git ', 'push'].join(''),
+      'create_ref',
+      'update_ref',
+      'merge',
+      'labels',
+      'reviewers',
+      'comments',
+      'non_draft_pr',
+      'generic_network_request',
+    ],
+    networkBoundaryInvoked: input.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawRemoteRefStored: false,
+    rawUrlStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    credentialValueStored: false,
+    summary:
+      'GitHub provider metadata is shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
   };
 }
 

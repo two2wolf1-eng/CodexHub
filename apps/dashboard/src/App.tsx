@@ -40,6 +40,7 @@ import {
   createApprovalDecisionHistoryReadOnlySummary,
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
   createLocalRcAcceptanceRehearsalReadOnlySummary,
@@ -97,6 +98,9 @@ interface OverviewState {
   electronCdpObservationDryRuns: ElectronCdpObservationControlSummary[];
   electronCdpObservationApprovals: ElectronCdpObservationControlSummary[];
   electronCdpObservationRuns: ElectronCdpObservationControlSummary[];
+  githubMetadataDryRuns: GithubMetadataControlSummary[];
+  githubMetadataApprovals: GithubMetadataControlSummary[];
+  githubMetadataRuns: GithubMetadataControlSummary[];
   worktreeDryRuns: WorktreeControlSummary[];
   worktreeApprovals: WorktreeControlSummary[];
   worktreeRuns: WorktreeControlSummary[];
@@ -178,6 +182,44 @@ interface WorktreeControlSummary {
   cleanupCompleted?: boolean;
   gitProcessBoundaryPlanned?: boolean;
   gitProcessBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubMetadataControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  requestedMetadata?: string[];
+  responseBodyHashes?: string[];
+  repoMetadataHash?: string;
+  baseBranchMetadataHash?: string;
+  headBranchMetadataHash?: string;
+  existingPullRequestCount?: number;
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
   processBoundaryInvoked?: boolean;
   externalProcessStarted?: boolean;
   noRealWrite?: boolean;
@@ -345,6 +387,9 @@ export function App() {
     electronCdpObservationDryRuns: [],
     electronCdpObservationApprovals: [],
     electronCdpObservationRuns: [],
+    githubMetadataDryRuns: [],
+    githubMetadataApprovals: [],
+    githubMetadataRuns: [],
     worktreeDryRuns: [],
     worktreeApprovals: [],
     worktreeRuns: [],
@@ -412,6 +457,15 @@ export function App() {
     cleanupCompletedCount: overview.worktreeCleanupRuns.filter(
       (record) => record.cleanupCompleted === true,
     ).length,
+  });
+  const githubProviderSummary = createGithubProviderReadOnlySummary({
+    dryRunCount: overview.githubMetadataDryRuns.length,
+    approvalCount: overview.githubMetadataApprovals.length,
+    runCount: overview.githubMetadataRuns.length,
+    latestRunStatus: overview.githubMetadataRuns[0]?.status,
+    networkBoundaryInvoked: overview.githubMetadataRuns.some(
+      (record) => record.networkBoundaryInvoked === true,
+    ),
   });
   const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
     dryRunCount: overview.reviewPackageDryRuns.length,
@@ -567,6 +621,17 @@ export function App() {
       processBoundaryInvoked: run.processBoundaryInvoked,
       externalProcessStarted: run.externalProcessStarted,
       noRealWrite: run.noRealWrite,
+    })),
+    ...overview.githubMetadataRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_metadata_run',
+      source: 'github',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+      noRealWrite: true,
     })),
     ...overview.reviewPackageRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -905,6 +970,9 @@ export function App() {
           electronCdpObservationDryRunsResponse,
           electronCdpObservationApprovalsResponse,
           electronCdpObservationRunsResponse,
+          githubMetadataDryRunsResponse,
+          githubMetadataApprovalsResponse,
+          githubMetadataRunsResponse,
           worktreeDryRunsResponse,
           worktreeApprovalsResponse,
           worktreeRunsResponse,
@@ -942,6 +1010,18 @@ export function App() {
           ),
           getOptionalJson<{ records: ElectronCdpObservationControlSummary[] }>(
             '/api/electron-cdp/observation/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubMetadataControlSummary[] }>(
+            '/api/github/metadata/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubMetadataControlSummary[] }>(
+            '/api/github/metadata/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubMetadataControlSummary[] }>(
+            '/api/github/metadata/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
@@ -1056,6 +1136,9 @@ export function App() {
             electronCdpObservationDryRuns: electronCdpObservationDryRunsResponse.records,
             electronCdpObservationApprovals: electronCdpObservationApprovalsResponse.records,
             electronCdpObservationRuns: electronCdpObservationRunsResponse.records,
+            githubMetadataDryRuns: githubMetadataDryRunsResponse.records,
+            githubMetadataApprovals: githubMetadataApprovalsResponse.records,
+            githubMetadataRuns: githubMetadataRunsResponse.records,
             worktreeDryRuns: worktreeDryRunsResponse.records,
             worktreeApprovals: worktreeApprovalsResponse.records,
             worktreeRuns: worktreeRunsResponse.records,
@@ -1108,6 +1191,9 @@ export function App() {
             electronCdpObservationDryRuns: [],
             electronCdpObservationApprovals: [],
             electronCdpObservationRuns: [],
+            githubMetadataDryRuns: [],
+            githubMetadataApprovals: [],
+            githubMetadataRuns: [],
             worktreeDryRuns: [],
             worktreeApprovals: [],
             worktreeRuns: [],
@@ -2654,6 +2740,7 @@ export function App() {
           verificationPreview,
           browserProfilesSummary,
           electronCdpSummary,
+          githubProviderSummary,
           worktreeSummary,
           reviewPackageSummary,
           releaseCandidateSummary,
@@ -2676,6 +2763,7 @@ function renderReadOnlyDashboardView(
   verificationPreview: ReturnType<typeof createVerificationReadinessPreview>,
   browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
+  githubProviderSummary: ReturnType<typeof createGithubProviderReadOnlySummary>,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
   releaseCandidateSummary: ReturnType<typeof createLocalRcOperatorReadOnlySummary>,
@@ -3115,6 +3203,129 @@ function renderReadOnlyDashboardView(
             <p>
               No Electron/CDP observation run metadata is available. This view is read-only and
               never sends local-control credentials.
+            </p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'github') {
+    return (
+      <section className="grid">
+        <Panel title="GitHub Provider Readiness">
+          <ul>
+            <li>
+              <strong>adapter</strong>
+              <span>
+                {githubProviderSummary.manifestName} {githubProviderSummary.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {githubProviderSummary.dryRunCount}, approvals{' '}
+                {githubProviderSummary.approvalCount}, runs {githubProviderSummary.runCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>{githubProviderSummary.latestRunStatus}</span>
+            </li>
+            <li>
+              <strong>enablement</strong>
+              <span>default {String(githubProviderSummary.productDefaultEnabled)}</span>
+            </li>
+            <li>
+              <strong>approval</strong>
+              <span>required {String(githubProviderSummary.approvalRequired)}</span>
+            </li>
+            <li>
+              <strong>credential</strong>
+              <span>
+                configured {String(githubProviderSummary.credentialConfigured)}, hash-only{' '}
+                {String(githubProviderSummary.credentialHashOnly)}
+              </span>
+            </li>
+          </ul>
+          <p>{githubProviderSummary.summary}</p>
+        </Panel>
+        <Panel title="GitHub Remote Boundary">
+          <ul>
+            <li>
+              <strong>allowed host</strong>
+              <span>{githubProviderSummary.allowedHostHash}</span>
+            </li>
+            <li>
+              <strong>metadata</strong>
+              <span>{githubProviderSummary.allowedMetadata.join(', ')}</span>
+            </li>
+            <li>
+              <strong>blocked operations</strong>
+              <span>{githubProviderSummary.blockedOperations.join(', ')}</span>
+            </li>
+            <li>
+              <strong>network boundary</strong>
+              <span>invoked {String(githubProviderSummary.networkBoundaryInvoked)}</span>
+            </li>
+            <li>
+              <strong>process boundary</strong>
+              <span>
+                invoked {String(githubProviderSummary.processBoundaryInvoked)}, external{' '}
+                {String(githubProviderSummary.externalProcessStarted)}
+              </span>
+            </li>
+            <li>
+              <strong>storage safety</strong>
+              <span>
+                bodyStored {String(githubProviderSummary.bodyStored)}, rawPathStored{' '}
+                {String(githubProviderSummary.rawPathStored)}, rawRemoteRefStored{' '}
+                {String(githubProviderSummary.rawRemoteRefStored)}
+              </span>
+            </li>
+          </ul>
+        </Panel>
+        <Panel title="GitHub Metadata Runs">
+          {overview.githubMetadataRuns.length > 0 ? (
+            <ul>
+              {overview.githubMetadataRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_metadata_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, base{' '}
+                    {run.targetRef?.baseBranchHash ?? 'unavailable'}, head{' '}
+                    {run.targetRef?.headBranchHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    repo metadata {run.repoMetadataHash ?? 'unavailable'}, base metadata{' '}
+                    {run.baseBranchMetadataHash ?? 'unavailable'}, head metadata{' '}
+                    {run.headBranchMetadataHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    existing PRs {run.existingPullRequestCount ?? 0}, response hashes{' '}
+                    {run.responseBodyHashes?.length ?? 0}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub metadata run summaries are available. This view is read-only and never
+              sends control-plane credentials or remote execution requests.
             </p>
           )}
         </Panel>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createApprovalDecisionHistoryReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
   createLocalRcAcceptanceRehearsalReadOnlySummary,
@@ -27,6 +28,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/mcp-tools')).toBe('mcp-tools');
     expect(getDashboardViewFromHash('#/browser-profiles')).toBe('browser-profiles');
     expect(getDashboardViewFromHash('#/electron')).toBe('electron');
+    expect(getDashboardViewFromHash('#/github')).toBe('github');
     expect(getDashboardViewFromHash('#/worktrees')).toBe('worktrees');
     expect(getDashboardViewFromHash('#/policy-telemetry')).toBe('policy-telemetry');
     expect(getDashboardViewFromHash('#/governance')).toBe('governance');
@@ -234,6 +236,38 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('payload');
   });
 
+  it('summarizes GitHub provider metadata without raw remote refs or credentials', () => {
+    const summary = createGithubProviderReadOnlySummary({
+      dryRunCount: 1,
+      approvalCount: 1,
+      runCount: 1,
+      latestRunStatus: 'completed',
+      credentialConfigured: true,
+      networkBoundaryInvoked: true,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.manifestName).toBe('github-provider');
+    expect(summary.manifestVersion).toContain('m15c');
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.approvalRequired).toBe(true);
+    expect(summary.credentialHashOnly).toBe(true);
+    expect(summary.credentialValueStored).toBe(false);
+    expect(summary.networkBoundaryInvoked).toBe(true);
+    expect(summary.processBoundaryInvoked).toBe(false);
+    expect(summary.externalProcessStarted).toBe(false);
+    expect(summary.rawRemoteRefStored).toBe(false);
+    expect(summary.rawUrlStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('responseBody');
+  });
+
   it('summarizes local review packages without raw artifacts or decision reasons', () => {
     const summary = createLocalReviewPackageReadOnlySummary({
       dryRunCount: 1,
@@ -362,6 +396,23 @@ describe('dashboard read-only UX helpers', () => {
     expect(localRcRoute).not.toContain("method: 'POST'");
     expect(localRcRoute).not.toContain('approvalKey');
     expect(localRcRoute).not.toContain('local-control');
+  });
+
+  it('keeps the GitHub provider route display-only in the Dashboard source', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const githubRoute = appSource.slice(
+      appSource.indexOf("if (activeView === 'github')"),
+      appSource.indexOf("if (activeView === 'worktrees')"),
+    );
+
+    expect(githubRoute).toContain('GitHub Provider Readiness');
+    expect(githubRoute).toContain('GitHub Metadata Runs');
+    expect(githubRoute).not.toContain('<button');
+    expect(githubRoute).not.toContain('fetch(');
+    expect(githubRoute).not.toContain("method: 'POST'");
+    expect(githubRoute).not.toContain('approvalKey');
+    expect(githubRoute).not.toContain('local-control');
+    expect(githubRoute).not.toContain('CODEXHUB_GITHUB_TOKEN');
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {
