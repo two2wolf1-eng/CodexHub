@@ -815,3 +815,55 @@ workflows:
       - newNetworkBoundary
       - rawReasonStorage
       - approvalArtifactFromRequestBody
+  m10c.pilot-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: packages/orchestrator-kernel apps/dashboard apps/cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        package: contracts
+        models:
+          - M10PilotAcceptanceRehearsalRun
+          - M10PilotAcceptanceStep
+          - M10PilotAcceptanceEvidenceSummary
+        output: idsHashesCountsStatusesSummariesOnly
+      - phase: fixture-rehearsal
+        package: orchestrator-kernel
+        scenarios:
+          - all-pass
+          - readiness-blocked
+          - approval-blocked
+          - codex-failed
+          - nx-failed
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+        networkBoundaryInvoked: false
+      - phase: dashboard-read-only-view
+        route: '#/pilot'
+        section: Acceptance Rehearsal
+        localControlTokenUsed: false
+        supervisorPostAdded: false
+      - phase: cli-read-only-command
+        command: codexhub pilot m10 rehearse --fixture
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+      - phase: operator-docs
+        documents:
+          - docs/releases/m10c-pilot-acceptance-rehearsal.md
+          - docs/runbooks/m10-local-pilot-operator-runbook.md
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
+      - newProcessBoundary
+      - newNetworkBoundary
+      - realPilotExecution
+      - realCodexProcess
+      - realNxProcess
+      - realGitProcess
+      - gitPush
+      - openPullRequest

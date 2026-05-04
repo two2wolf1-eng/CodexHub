@@ -2501,6 +2501,101 @@ export const GoldenPathRehearsalRunSchema = createdEntityBaseSchema
   });
 export type GoldenPathRehearsalRun = z.infer<typeof GoldenPathRehearsalRunSchema>;
 
+export const M10PilotAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'readiness-blocked',
+  'approval-blocked',
+  'codex-failed',
+  'nx-failed',
+]);
+export type M10PilotAcceptanceScenario = z.infer<typeof M10PilotAcceptanceScenarioSchema>;
+
+export const M10PilotAcceptanceStepSchema = createdEntityBaseSchema
+  .extend({
+    code: z.string().min(1),
+    phase: z.enum(['doctor', 'checklist', 'approval', 'governance', 'pilot', 'review']),
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted', 'skipped']),
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M10PilotAcceptanceStep = z.infer<typeof M10PilotAcceptanceStepSchema>;
+
+export const M10PilotAcceptanceEvidenceSummarySchema = createdEntityBaseSchema
+  .extend({
+    rehearsalRunId: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    evidenceBundleHash: z.string().min(1),
+    governanceProjectionHash: z.string().min(1),
+    telemetryProjectionHash: z.string().min(1),
+    evidenceAuditAuthoritative: z.literal(true),
+    telemetryAuthoritative: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M10PilotAcceptanceEvidenceSummary = z.infer<
+  typeof M10PilotAcceptanceEvidenceSummarySchema
+>;
+
+export const M10PilotAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    scenario: M10PilotAcceptanceScenarioSchema,
+    checklistId: z.string().min(1),
+    approvalHistoryProjectionId: z.string().min(1),
+    governanceProjectionHash: z.string().min(1),
+    goldenPathRunId: z.string().min(1),
+    goldenPathStatus: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    prActionStatus: z.enum(['not_ready_no_live_pr', 'blocked']),
+    steps: z.array(M10PilotAcceptanceStepSchema),
+    evidenceSummary: M10PilotAcceptanceEvidenceSummarySchema,
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    evidenceAuditAuthoritative: z.literal(true),
+    telemetryAuthoritative: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M10PilotAcceptanceRehearsalRun = z.infer<
+  typeof M10PilotAcceptanceRehearsalRunSchema
+>;
+
 export const M9PilotRunStatusSchema = z.enum([
   'planned',
   'running',

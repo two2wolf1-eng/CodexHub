@@ -160,6 +160,7 @@ import { createApprovalDecisionHistoryProjection } from '@codexhub/approval-ux-k
 import {
   type MockDevelopmentOrchestrationResult,
   runGoldenPathRehearsal,
+  runM10PilotAcceptanceRehearsal,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
 import {
@@ -636,6 +637,20 @@ export function buildProgram(): Command {
     .action(async (options: JsonCliOptions) => {
       const runbook = await getM10PilotRunbookForCli();
       console.log(formatM10PilotRunbookOutput(runbook, options));
+    });
+
+  pilotM10Command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the fixture-only M10 acceptance rehearsal')
+    .option(
+      '--scenario <scenario>',
+      'Fixture scenario: all-pass, readiness-blocked, approval-blocked, codex-failed, or nx-failed',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Run the M10 operator acceptance rehearsal without live adapters')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runM10PilotAcceptanceRehearsalForCli(options);
+      console.log(formatM10PilotAcceptanceRehearsalOutput(result, options));
     });
 
   const rehearsalCommand = program
@@ -2541,6 +2556,19 @@ export function runGoldenPathRehearsalForCli(options: {
   return runGoldenPathRehearsal({ scenario });
 }
 
+export function runM10PilotAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runM10PilotAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('M10 pilot acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeM10PilotAcceptanceScenario(options.scenario);
+
+  return runM10PilotAcceptanceRehearsal({ scenario });
+}
+
 export async function listBrowserObservationRuns(): Promise<Record<string, unknown>> {
   try {
     const response = await getSupervisorJson<{
@@ -3220,6 +3248,30 @@ function normalizeGoldenPathScenario(
   }
 
   throw new Error(`Unsupported golden path fixture scenario: ${scenario}`);
+}
+
+function normalizeM10PilotAcceptanceScenario(
+  scenario: string | undefined,
+):
+  | 'all-pass'
+  | 'readiness-blocked'
+  | 'approval-blocked'
+  | 'codex-failed'
+  | 'nx-failed' {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'readiness-blocked' ||
+    scenario === 'approval-blocked' ||
+    scenario === 'codex-failed' ||
+    scenario === 'nx-failed'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported M10 pilot acceptance fixture scenario: ${scenario}`);
 }
 
 async function listWorktreeCollection(
@@ -6469,6 +6521,40 @@ export function formatGoldenPathRehearsalOutput(
     `rawPathStored=${String(result.rawPathStored)}`,
     'timeline:',
     ...result.steps.map((step) => `- ${step.order} ${step.phase} ${step.status}`),
+  ].join('\n');
+}
+
+export function formatM10PilotAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runM10PilotAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'CodexHub M10 pilot acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.steps.length}`,
+    `evidence: ${result.evidenceSummary.evidenceCount}`,
+    `audit: ${result.evidenceSummary.auditEventCount}`,
+    `goldenPathStatus: ${result.goldenPathStatus}`,
+    `prActionStatus: ${result.prActionStatus}`,
+    `governanceProjectionHash: ${result.governanceProjectionHash}`,
+    `telemetryProjectionHash: ${result.evidenceSummary.telemetryProjectionHash}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `localControlKeyRead=${String(result.localControlKeyRead)}`,
+    `supervisorPostAllowed=${String(result.supervisorPostAllowed)}`,
+    `adapterExecuteAllowed=${String(result.adapterExecuteAllowed)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `pullRequestOpened=${String(result.pullRequestOpened)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+    'timeline:',
+    ...result.steps.map((step) => `- ${step.order} ${step.code} ${step.phase}/${step.status}`),
   ].join('\n');
 }
 

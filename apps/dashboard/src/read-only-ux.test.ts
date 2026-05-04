@@ -4,6 +4,7 @@ import {
   createApprovalDecisionHistoryReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
@@ -302,6 +303,32 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.adapterExecuteAllowed).toBe(false);
     expect(summary.rawPathStored).toBe(false);
     expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+  });
+
+  it('summarizes M10 acceptance rehearsal without execution controls', () => {
+    const summary = createM10PilotAcceptanceReadOnlySummary({ scenario: 'all-pass' });
+    const failed = createM10PilotAcceptanceReadOnlySummary({ scenario: 'nx-failed' });
+    const serialized = JSON.stringify({ summary, failed });
+
+    expect(summary.status).toBe('passed');
+    expect(summary.prActionStatus).toBe('not_ready_no_live_pr');
+    expect(failed.status).toBe('failed');
+    expect(failed.prActionStatus).toBe('blocked');
+    expect(summary.processBoundaryInvoked).toBe(false);
+    expect(summary.externalProcessStarted).toBe(false);
+    expect(summary.networkBoundaryInvoked).toBe(false);
+    expect(summary.localControlKeyRead).toBe(false);
+    expect(summary.supervisorPostAllowed).toBe(false);
+    expect(summary.adapterExecuteAllowed).toBe(false);
+    expect(summary.pushAllowed).toBe(false);
+    expect(summary.pullRequestOpened).toBe(false);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
     expect(serialized).not.toContain('x-codexhub-local-token');
     expect(serialized).not.toContain('raw prompt');

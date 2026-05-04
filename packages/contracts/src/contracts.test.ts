@@ -209,6 +209,10 @@ import {
   M9PilotEvidenceSummarySchema,
   M10PilotChecklistSchema,
   M10PilotChecklistStatusSchema,
+  M10PilotAcceptanceEvidenceSummarySchema,
+  M10PilotAcceptanceRehearsalRunSchema,
+  M10PilotAcceptanceScenarioSchema,
+  M10PilotAcceptanceStepSchema,
   M10PilotOperatorStepPhaseSchema,
   M10PilotOperatorStepSchema,
   M10PilotOperatorStepStatusSchema,
@@ -2502,6 +2506,111 @@ describe('contracts schemas', () => {
       GoldenPathRehearsalRunSchema.parse({
         ...run,
         id: 'golden_path_rehearsal_bad_metadata',
+        metadata: { requestBody: 'raw body' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M10 pilot acceptance rehearsal contracts as fixture-only metadata', () => {
+    expect(M10PilotAcceptanceScenarioSchema.options).toEqual([
+      'all-pass',
+      'readiness-blocked',
+      'approval-blocked',
+      'codex-failed',
+      'nx-failed',
+    ]);
+
+    const step = M10PilotAcceptanceStepSchema.parse({
+      id: 'm10_acceptance_step_1',
+      schemaVersion,
+      createdAt,
+      code: 'doctor_preflight',
+      phase: 'doctor',
+      status: 'passed',
+      order: 0,
+      evidenceRefIds: ['evidence_m10_doctor'],
+      auditEventIds: ['audit_m10_doctor'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      summary: 'M10 acceptance doctor step passed with metadata only.',
+    });
+    const evidenceSummary = M10PilotAcceptanceEvidenceSummarySchema.parse({
+      id: 'm10_acceptance_evidence_summary_1',
+      schemaVersion,
+      createdAt,
+      rehearsalRunId: 'm10_acceptance_run_1',
+      evidenceRefIds: step.evidenceRefIds,
+      auditEventIds: step.auditEventIds,
+      evidenceCount: 1,
+      auditEventCount: 1,
+      evidenceBundleHash: 'm10:bundle',
+      governanceProjectionHash: 'm10:governance',
+      telemetryProjectionHash: 'm10:telemetry',
+      evidenceAuditAuthoritative: true,
+      telemetryAuthoritative: false,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'M10 acceptance evidence summary stores ids and hashes only.',
+    });
+    const run = M10PilotAcceptanceRehearsalRunSchema.parse({
+      id: 'm10_acceptance_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'passed',
+      scenario: 'all-pass',
+      checklistId: 'm10_pilot_checklist_1',
+      approvalHistoryProjectionId: 'approval_decision_history_projection_1',
+      governanceProjectionHash: 'm10:governance',
+      goldenPathRunId: 'golden_path_rehearsal_1',
+      goldenPathStatus: 'passed',
+      prActionStatus: 'not_ready_no_live_pr',
+      steps: [step],
+      evidenceSummary,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      evidenceAuditAuthoritative: true,
+      telemetryAuthoritative: false,
+      summary: 'M10 acceptance rehearsal passed without live execution.',
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('passed');
+    expect(run.prActionStatus).toBe('not_ready_no_live_pr');
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(() =>
+      M10PilotAcceptanceRehearsalRunSchema.parse({
+        ...run,
+        id: 'm10_acceptance_run_bad_token',
+        localControlKeyRead: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      M10PilotAcceptanceStepSchema.parse({
+        ...step,
+        id: 'm10_acceptance_step_bad_metadata',
         metadata: { requestBody: 'raw body' },
       }),
     ).toThrow();

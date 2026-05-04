@@ -276,6 +276,28 @@ export interface M10PilotReadOnlySummary {
   summary: string;
 }
 
+export interface M10PilotAcceptanceReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: string;
+  stepCount: number;
+  evidenceCount: number;
+  auditEventCount: number;
+  goldenPathStatus: string;
+  prActionStatus: 'not_ready_no_live_pr' | 'blocked';
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  networkBoundaryInvoked: false;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  pushAllowed: false;
+  pullRequestOpened: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
+}
+
 export interface ApprovalDecisionHistoryReadOnlySummary {
   itemCount: number;
   requestedCount: number;
@@ -659,6 +681,37 @@ export function createM10PilotReadOnlySummary(input: {
     supervisorPostAllowed: false,
     adapterExecuteAllowed: false,
     summary: checklist.summary,
+  };
+}
+
+export function createM10PilotAcceptanceReadOnlySummary(input: {
+  scenario?: 'all-pass' | 'readiness-blocked' | 'approval-blocked' | 'codex-failed' | 'nx-failed';
+} = {}): M10PilotAcceptanceReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const blocked = scenario === 'readiness-blocked' || scenario === 'approval-blocked';
+  const failed = scenario === 'codex-failed' || scenario === 'nx-failed';
+  const status = blocked ? 'blocked' : failed ? 'failed' : 'passed';
+
+  return {
+    status,
+    scenario,
+    stepCount: 6,
+    evidenceCount: blocked ? 4 : 10,
+    auditEventCount: blocked ? 4 : 10,
+    goldenPathStatus: blocked ? 'blocked' : failed ? 'failed' : 'passed',
+    prActionStatus: scenario === 'all-pass' ? 'not_ready_no_live_pr' : 'blocked',
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `M10 acceptance rehearsal preview ${status}; fixture metadata only.`,
   };
 }
 

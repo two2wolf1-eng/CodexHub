@@ -111,9 +111,9 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('.codexhub/policy-backend.fixture.json');
     expect(serialized).not.toContain('requestBody');
     expect(serialized).not.toContain('responseBody');
-    expect(serialized).not.toContain('token');
-    expect(serialized).not.toContain('cookie');
-    expect(serialized).not.toContain('session');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('cookie=');
+    expect(serialized).not.toContain('session=');
   });
 
   it('creates an Nx verification dry-run summary without starting a process', async () => {
@@ -465,6 +465,43 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('token');
     expect(serialized).not.toContain('cookie');
     expect(serialized).not.toContain('session');
+  });
+
+  it('runs the M10 pilot acceptance rehearsal as fixture-only metadata', async () => {
+    const {
+      formatM10PilotAcceptanceRehearsalOutput,
+      runM10PilotAcceptanceRehearsalForCli,
+    } = await import('./main');
+    const passed = runM10PilotAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'all-pass',
+    });
+    const readinessBlocked = runM10PilotAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'readiness-blocked',
+    });
+    const nxFailed = runM10PilotAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'nx-failed',
+    });
+    const serialized = JSON.stringify({ passed, readinessBlocked, nxFailed });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.prActionStatus).toBe('not_ready_no_live_pr');
+    expect(readinessBlocked.status).toBe('blocked');
+    expect(nxFailed.status).toBe('failed');
+    expect(nxFailed.prActionStatus).toBe('blocked');
+    expect(formatM10PilotAcceptanceRehearsalOutput(passed)).toContain(
+      'CodexHub M10 pilot acceptance rehearsal',
+    );
+    expect(() => runM10PilotAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('cookie=');
+    expect(serialized).not.toContain('session=');
+    expect(serialized).not.toContain('C:\\');
   });
 
   it('lists Electron CDP observation metadata using GET requests only', async () => {

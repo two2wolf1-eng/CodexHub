@@ -41,6 +41,7 @@ import {
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
@@ -349,6 +350,7 @@ export function App() {
     approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
     governanceRunCount: governanceSummary.runCount,
   });
+  const pilotAcceptanceSummary = createM10PilotAcceptanceReadOnlySummary();
   const approvalHistorySummary = createApprovalDecisionHistoryReadOnlySummary({
     inbox: overview.approvalInbox,
   });
@@ -2335,6 +2337,7 @@ export function App() {
           worktreeSummary,
           policyTelemetrySummary,
           pilotSummary,
+          pilotAcceptanceSummary,
         )
       )}
     </main>
@@ -2351,6 +2354,7 @@ function renderReadOnlyDashboardView(
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
   pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
+  pilotAcceptanceSummary: ReturnType<typeof createM10PilotAcceptanceReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -3111,6 +3115,45 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
           </ul>
+        </Panel>
+        <Panel title="Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{pilotAcceptanceSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{pilotAcceptanceSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {pilotAcceptanceSummary.evidenceCount} / {pilotAcceptanceSummary.auditEventCount}
+              </span>
+            </li>
+            <li>
+              <strong>PR action</strong>
+              <span>{pilotAcceptanceSummary.prActionStatus}</span>
+            </li>
+            <li>
+              <strong>live boundaries</strong>
+              <span>
+                process {String(pilotAcceptanceSummary.processBoundaryInvoked)}, external{' '}
+                {String(pilotAcceptanceSummary.externalProcessStarted)}, network{' '}
+                {String(pilotAcceptanceSummary.networkBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>read-only bounds</strong>
+              <span>
+                keyRead {String(pilotAcceptanceSummary.localControlKeyRead)}, postAllowed{' '}
+                {String(pilotAcceptanceSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(pilotAcceptanceSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{pilotAcceptanceSummary.summary}</p>
         </Panel>
       </section>
     );

@@ -13,6 +13,7 @@ import {
   runGoldenPathRehearsal,
   runGovernedDevelopmentOrchestration,
   runM9LocalPilot,
+  runM10PilotAcceptanceRehearsal,
   runMockDevelopmentOrchestration,
 } from './index';
 
@@ -89,6 +90,61 @@ describe('orchestrator-kernel golden path rehearsal', () => {
     expect(nxFailed.steps.find((step) => step.phase === 'verification.fixture')?.status).toBe(
       'failed',
     );
+  });
+});
+
+describe('orchestrator-kernel M10 pilot acceptance rehearsal', () => {
+  it('passes the fixture operator flow without live execution or PR actions', () => {
+    const run = runM10PilotAcceptanceRehearsal({ scenario: 'all-pass' });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('passed');
+    expect(run.goldenPathStatus).toBe('passed');
+    expect(run.prActionStatus).toBe('not_ready_no_live_pr');
+    expect(run.steps.map((step) => step.code)).toEqual([
+      'doctor_preflight',
+      'pilot_checklist',
+      'approval_history',
+      'governance_projection',
+      'fixture_pilot',
+      'operator_review',
+    ]);
+    expect(run.evidenceSummary.evidenceCount).toBeGreaterThan(0);
+    expect(run.evidenceAuditAuthoritative).toBe(true);
+    expect(run.telemetryAuthoritative).toBe(false);
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(run.externalProcessStarted).toBe(false);
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(run.localControlKeyRead).toBe(false);
+    expect(run.supervisorPostAllowed).toBe(false);
+    expect(run.adapterExecuteAllowed).toBe(false);
+    expect(run.pushAllowed).toBe(false);
+    expect(run.pullRequestOpened).toBe(false);
+    expect(serialized).not.toContain(process.cwd());
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+  });
+
+  it('blocks or fails acceptance scenarios before marking operator flow passed', () => {
+    const readinessBlocked = runM10PilotAcceptanceRehearsal({ scenario: 'readiness-blocked' });
+    const approvalBlocked = runM10PilotAcceptanceRehearsal({ scenario: 'approval-blocked' });
+    const codexFailed = runM10PilotAcceptanceRehearsal({ scenario: 'codex-failed' });
+    const nxFailed = runM10PilotAcceptanceRehearsal({ scenario: 'nx-failed' });
+
+    expect(readinessBlocked.status).toBe('blocked');
+    expect(readinessBlocked.steps.find((step) => step.code === 'fixture_pilot')?.status).toBe(
+      'skipped',
+    );
+    expect(approvalBlocked.status).toBe('blocked');
+    expect(approvalBlocked.steps.find((step) => step.code === 'approval_history')?.status).toBe(
+      'blocked',
+    );
+    expect(codexFailed.status).toBe('failed');
+    expect(codexFailed.prActionStatus).toBe('blocked');
+    expect(nxFailed.status).toBe('failed');
+    expect(nxFailed.prActionStatus).toBe('blocked');
   });
 });
 
