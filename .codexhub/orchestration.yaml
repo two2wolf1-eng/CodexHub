@@ -1529,3 +1529,43 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m13d.local-review-decision-handoff:
+    risk: medium
+    trigger:
+      type: metadata-projection
+      entrypoint: review-package-kernel
+      localControlRequired: false
+    chain:
+      - phase: decision-projection
+        package: review-package-kernel
+        helper: createLocalReviewDecisionHandoff
+        statuses:
+          - approved_for_local_rc
+          - changes_requested
+          - rejected
+          - superseded
+        output: reason-hash finding-count blocker-count next-action
+      - phase: rework-handoff
+        condition: changes_requested
+        nextAction: m12_retry_handoff
+        retryExecutionStarted: false
+      - phase: local-rc-handoff
+        condition: approved_for_local_rc
+        nextAction: local_rc_readiness
+    safety:
+      localOnly: true
+      newSupervisorRoute: false
+      decisionPostAdded: false
+      retryExecuted: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+    forbidden:
+      - rawReasonBody
+      - automaticRetry
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest

@@ -7,6 +7,7 @@ import {
   LocalReviewPackageControlPlaneRunSchema,
   LocalReviewPackageDryRunRecordSchema,
   LocalReviewDecisionProjectionSchema,
+  type LocalReviewDecisionStatus,
   type LocalReviewPackageApprovalArtifactRecord,
   type LocalReviewPackageControlPlaneRun,
   type LocalReviewPackageDryRunRecord,
@@ -41,6 +42,15 @@ export interface LocalReviewPackageProjectionInput {
   readyForReviewDraftOnly: boolean;
   evidenceRefIds?: readonly string[];
   auditEventIds?: readonly string[];
+  findingCount?: number;
+  blockerCount?: number;
+  now?: () => string;
+}
+
+export interface LocalReviewDecisionHandoffInput {
+  reviewPackage: LocalReviewPackageRun;
+  status: LocalReviewDecisionStatus;
+  reason?: string;
   findingCount?: number;
   blockerCount?: number;
   now?: () => string;
@@ -211,6 +221,67 @@ export function createLocalReviewPackageProjection(
       localArtifactExported: false,
     },
     summary: `M13a local review package projection is ${status}.`,
+  });
+}
+
+export function createLocalReviewDecisionHandoff(
+  input: LocalReviewDecisionHandoffInput,
+): LocalReviewPackageRun {
+  const now = input.now ?? foundationTimestamp;
+  const reviewPackage = input.reviewPackage;
+  const packageHash = reviewPackage.packageSummary.packageHash;
+  const status = input.status;
+  const nextAction = getDecisionNextAction(status);
+  const retryHandoffRequired = status === 'changes_requested';
+  const blockerCount =
+    status === 'approved_for_local_rc'
+      ? 0
+      : (input.blockerCount ?? (status === 'changes_requested' || status === 'rejected' ? 1 : 0));
+  const findingCount = input.findingCount ?? Math.max(blockerCount, reviewPackage.findings.length);
+  const reasonHash = input.reason
+    ? stableHash(input.reason)
+    : stableHash(`${reviewPackage.id}:${status}:${packageHash}`);
+  const decision = LocalReviewDecisionProjectionSchema.parse({
+    id: stableId('local_review_decision_projection', `${reviewPackage.id}:${status}:${reasonHash}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    reviewPackageIdHash: stableHash(reviewPackage.packageSummary.id),
+    status,
+    reasonHash,
+    findingCount,
+    blockerCount,
+    nextAction,
+    retryHandoffRequired,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      stage: 'm13d',
+      sourcePackageHash: packageHash,
+      reviewDecisionOnly: true,
+      retryExecutionStarted: false,
+      rawReasonStored: false,
+    },
+    summary:
+      status === 'changes_requested'
+        ? 'Local review requested changes; M12 retry handoff metadata is projected only.'
+        : `Local review decision is ${status}.`,
+  });
+
+  return LocalReviewPackageRunSchema.parse({
+    ...reviewPackage,
+    id: stableId('local_review_package_run', `${reviewPackage.id}:${decision.id}`),
+    createdAt: reviewPackage.createdAt,
+    decision,
+    metadata: {
+      ...(reviewPackage.metadata ?? {}),
+      stage: 'm13d',
+      decisionProjected: true,
+      retryExecutionStarted: false,
+      rawReasonStored: false,
+    },
+    summary: `M13d local review decision handoff is ${status}.`,
   });
 }
 
@@ -488,6 +559,24 @@ function getChangedFilePathHashes(input: LocalReviewPackageProjectionInput): str
 
 function stableHash(value: string): string {
   return `sha256:${hashText(value)}`;
+}
+
+function getDecisionNextAction(
+  status: LocalReviewDecisionStatus,
+): 'none' | 'local_rc_readiness' | 'm12_retry_handoff' | 'stop' {
+  if (status === 'approved_for_local_rc') {
+    return 'local_rc_readiness';
+  }
+
+  if (status === 'changes_requested') {
+    return 'm12_retry_handoff';
+  }
+
+  if (status === 'rejected' || status === 'superseded') {
+    return 'stop';
+  }
+
+  return 'none';
 }
 
 function stableId(prefix: string, value: string): string {

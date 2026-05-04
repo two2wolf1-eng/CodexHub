@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { LocalReviewPackageRunSchema } from '@codexhub/contracts';
 import {
   createLocalReviewPackageApprovalRecord,
+  createLocalReviewDecisionHandoff,
   createLocalReviewPackageExportDryRunRecord,
   createLocalReviewPackageProjection,
   executeLocalReviewPackageExport,
@@ -63,6 +64,46 @@ describe('review-package-kernel', () => {
     expect(failed.decision.blockerCount).toBeGreaterThan(0);
     expect(empty.packageSummary.status).toBe('blocked_patch');
     expect(empty.packageSummary.readyForReviewDraftOnly).toBe(false);
+  });
+
+  it('projects local review decisions and M12 retry handoff without storing raw reasons', () => {
+    const reviewPackage = createLocalReviewPackageProjection({
+      sourceLifecycleRunId: 'm12_lifecycle_decision',
+      sourcePatchRunId: 'm12_patch_decision',
+      changedFilePathHashes: ['sha256:file'],
+      diffHash: 'sha256:diff',
+      verificationStatus: 'passed',
+      readinessStatus: 'ready_for_review_draft_only',
+      readyForReviewDraftOnly: true,
+    });
+    const approved = createLocalReviewDecisionHandoff({
+      reviewPackage,
+      status: 'approved_for_local_rc',
+      reason: 'safe to promote to local RC package',
+    });
+    const changesRequested = createLocalReviewDecisionHandoff({
+      reviewPackage,
+      status: 'changes_requested',
+      reason: 'please revise the changed API surface before RC',
+      findingCount: 2,
+      blockerCount: 1,
+    });
+    const serialized = JSON.stringify({ approved, changesRequested });
+
+    expect(approved.decision.status).toBe('approved_for_local_rc');
+    expect(approved.decision.nextAction).toBe('local_rc_readiness');
+    expect(approved.decision.blockerCount).toBe(0);
+    expect(changesRequested.decision.status).toBe('changes_requested');
+    expect(changesRequested.decision.nextAction).toBe('m12_retry_handoff');
+    expect(changesRequested.decision.retryHandoffRequired).toBe(true);
+    expect(changesRequested.decision.reasonHash).toMatch(/^sha256:/);
+    expect(changesRequested.processBoundaryInvoked).toBe(false);
+    expect(changesRequested.externalProcessStarted).toBe(false);
+    expect(serialized).not.toContain('please revise');
+    expect(serialized).not.toContain('safe to promote');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
   });
 
   it('exports a governed local review package only after approval and hash-bound target validation', async () => {
