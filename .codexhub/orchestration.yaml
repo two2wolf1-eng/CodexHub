@@ -1744,3 +1744,57 @@ workflows:
       - openPullRequest
       - cliWriteCommand
       - dashboardWriteUi
+  m14d.operator-rc-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: apps/dashboard apps/cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard-read-only
+        route: "#/release-candidates"
+        panels:
+          - Local RC Readiness
+          - RC Bundle Runs
+          - Review Package State
+          - Acceptance Rehearsal
+          - Local RC Boundaries
+        reads:
+          - GET /api/release-candidates/dry-runs
+          - GET /api/release-candidates/approvals
+          - GET /api/release-candidates/runs
+        output: ids-hashes-counts-statuses-summaries
+      - phase: cli-read-only
+        commands:
+          - codexhub release-candidates readiness
+          - codexhub release-candidates runs list
+          - codexhub release-candidates runs show
+          - codexhub release-candidates acceptance show
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+      - phase: acceptance-summary
+        source: fixture-preview
+        output: statuses-counts-hashes-only
+    safety:
+      localOnly: true
+      newSupervisorRoute: false
+      dashboardPostAllowed: false
+      cliPostAllowed: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+    forbidden:
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlCredentialRead
+      - adapterDirectExecute
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest

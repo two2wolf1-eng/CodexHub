@@ -285,6 +285,10 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/release-candidates/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
       if (String(url).includes('/api/pilots/m11/local-runs')) {
         return new Response(
           JSON.stringify({
@@ -330,7 +334,7 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(18);
+    expect(fetchCalls).toHaveLength(20);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -793,6 +797,131 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('local-control-secret');
     expect(serialized).not.toContain('token=');
     expect(serialized).not.toContain('cookie');
+  });
+
+  it('reads local release candidate metadata with GET requests only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/release-candidates/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'rc_dry_run_record_1',
+                dryRunId: 'rc_dry_run_1',
+                status: 'planned',
+                readinessStatus: 'ready_for_local_acceptance',
+                reviewDecisionStatus: 'approved_for_local_rc',
+                verificationStatus: 'passed',
+                rcBundleHash: 'sha256:rc-bundle',
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/release-candidates/runs/rc_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'rc_run_1',
+            dryRunId: 'rc_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-local-artifact-export',
+            readinessStatus: 'ready_for_local_acceptance',
+            reviewDecisionStatus: 'approved_for_local_rc',
+            verificationStatus: 'passed',
+            rcBundleHash: 'sha256:rc-bundle',
+            artifactDirectoryHash: 'sha256:artifact-dir',
+            fileCount: 2,
+            byteCount: 512,
+            artifactWriteBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: true,
+            bodyStored: false,
+            rawPathStored: false,
+            evidenceRefIds: ['evidence_rc_1'],
+            auditEventIds: ['audit_rc_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/release-candidates/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'rc_run_1',
+                dryRunId: 'rc_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-local-artifact-export',
+                readinessStatus: 'ready_for_local_acceptance',
+                reviewDecisionStatus: 'approved_for_local_rc',
+                verificationStatus: 'passed',
+                rcBundleHash: 'sha256:rc-bundle',
+                artifactDirectoryHash: 'sha256:artifact-dir',
+                fileCount: 2,
+                byteCount: 512,
+                artifactWriteBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['evidence_rc_1'],
+                auditEventIds: ['audit_rc_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    });
+    const {
+      formatReleaseCandidateReadinessOutput,
+      formatReleaseCandidateRunDetailOutput,
+      formatReleaseCandidateRunsListOutput,
+      getReleaseCandidateReadiness,
+      listReleaseCandidateRuns,
+      showReleaseCandidateRun,
+    } = await import('./main');
+    const readiness = await getReleaseCandidateReadiness();
+    const runs = await listReleaseCandidateRuns();
+    const detail = await showReleaseCandidateRun('rc_run_1');
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const releaseCandidateCommandSource = source.slice(
+      source.indexOf("const releaseCandidatesCommand = program"),
+      source.indexOf("program\n    .command('workflow')"),
+    );
+    const serialized = JSON.stringify({ readiness, runs, detail });
+
+    expect(readiness.latestReadinessStatus).toBe('ready_for_local_acceptance');
+    expect((runs.records as unknown[]).length).toBe(1);
+    expect(detail.status).toBe('found');
+    expect(formatReleaseCandidateReadinessOutput(readiness)).toContain(
+      'Local release candidate readiness',
+    );
+    expect(formatReleaseCandidateRunsListOutput(runs)).toContain('Local release candidate runs');
+    expect(formatReleaseCandidateRunDetailOutput(detail)).toContain('Local release candidate run');
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(releaseCandidateCommandSource).not.toContain('.execute(');
+    expect(releaseCandidateCommandSource).not.toContain("method: 'POST'");
+    expect(releaseCandidateCommandSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(releaseCandidateCommandSource).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('../CodexHub-artifacts');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw PR');
+    expect(serialized).not.toContain('token=');
+    expect(serialized).not.toContain('cookie=');
   });
 
   it('lists Electron CDP observation metadata using GET requests only', async () => {

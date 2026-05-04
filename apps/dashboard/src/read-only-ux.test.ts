@@ -6,6 +6,7 @@ import {
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
   createLocalRcAcceptanceRehearsalReadOnlySummary,
+  createLocalRcOperatorReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createM11PilotAcceptanceSmokeReadOnlySummary,
@@ -32,6 +33,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/readiness')).toBe('readiness');
     expect(getDashboardViewFromHash('#/pilot')).toBe('pilot');
     expect(getDashboardViewFromHash('#/approvals')).toBe('approvals');
+    expect(getDashboardViewFromHash('#/release-candidates')).toBe('release-candidates');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -288,6 +290,47 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('token=');
   });
 
+  it('summarizes local RC operator metadata without raw artifacts or write controls', () => {
+    const summary = createLocalRcOperatorReadOnlySummary({
+      dryRunCount: 1,
+      approvalCount: 1,
+      runCount: 1,
+      latestRunStatus: 'completed',
+      readinessStatus: 'ready_for_local_acceptance',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      operatorReadinessStatus: 'ready',
+      bundleHash: 'sha256:local-rc-bundle',
+      artifactWriteBoundaryInvoked: true,
+      fileCount: 2,
+      byteCount: 1024,
+      evidenceCount: 3,
+      auditEventCount: 3,
+      noRealWrite: false,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.runCount).toBe(1);
+    expect(summary.readinessStatus).toBe('ready_for_local_acceptance');
+    expect(summary.reviewDecisionStatus).toBe('approved_for_local_rc');
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.approvalRequired).toBe(true);
+    expect(summary.localOnly).toBe(true);
+    expect(summary.localControlKeyRead).toBe(false);
+    expect(summary.supervisorPostAllowed).toBe(false);
+    expect(summary.adapterExecuteAllowed).toBe(false);
+    expect(summary.pushAllowed).toBe(false);
+    expect(summary.pullRequestOpened).toBe(false);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.tokenStored).toBe(false);
+    expect(serialized).not.toContain('../CodexHub-artifacts');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw PR');
+    expect(serialized).not.toContain('raw reason');
+    expect(serialized).not.toContain('local-control-secret');
+  });
+
   it('keeps the local RC acceptance panel display-only in the Dashboard source', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const localRcPanel = appSource.slice(
@@ -301,6 +344,24 @@ describe('dashboard read-only UX helpers', () => {
     expect(localRcPanel).not.toContain("method: 'POST'");
     expect(localRcPanel).not.toContain('approvalKey');
     expect(localRcPanel).not.toContain('local-control');
+  });
+
+  it('keeps the local RC operator route display-only in the Dashboard source', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const localRcRoute = appSource.slice(
+      appSource.indexOf("if (activeView === 'release-candidates')"),
+      appSource.indexOf("if (activeView === 'policy-telemetry')"),
+    );
+
+    expect(localRcRoute).toContain('Local RC Readiness');
+    expect(localRcRoute).toContain('RC Bundle Runs');
+    expect(localRcRoute).toContain('Review Package State');
+    expect(localRcRoute).toContain('Acceptance Rehearsal');
+    expect(localRcRoute).not.toContain('<button');
+    expect(localRcRoute).not.toContain('fetch(');
+    expect(localRcRoute).not.toContain("method: 'POST'");
+    expect(localRcRoute).not.toContain('approvalKey');
+    expect(localRcRoute).not.toContain('local-control');
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {

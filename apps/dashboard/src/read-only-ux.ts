@@ -32,6 +32,7 @@ export const DASHBOARD_VIEWS = [
   'readiness',
   'pilot',
   'approvals',
+  'release-candidates',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -412,6 +413,36 @@ export interface LocalRcAcceptanceRehearsalReadOnlySummary {
   externalProcessStarted: false;
   networkBoundaryInvoked: false;
   noRealWrite: true;
+  pushAllowed: false;
+  pullRequestOpened: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
+}
+
+export interface LocalRcOperatorReadOnlySummary {
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  latestRunStatus: string;
+  readinessStatus: string;
+  reviewDecisionStatus: string;
+  verificationStatus: string;
+  operatorReadinessStatus: string;
+  bundleHash: string;
+  artifactWriteBoundaryInvoked: boolean;
+  fileCount: number;
+  byteCount: number;
+  evidenceCount: number;
+  auditEventCount: number;
+  productDefaultEnabled: false;
+  approvalRequired: true;
+  localOnly: true;
+  noRealWrite: boolean;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
   pushAllowed: false;
   pullRequestOpened: false;
   rawPathStored: false;
@@ -1074,6 +1105,60 @@ export function createLocalRcAcceptanceRehearsalReadOnlySummary(input: {
     bodyStored: false,
     tokenStored: false,
     summary: `M14 local RC acceptance rehearsal preview ${status}; fixture metadata only.`,
+  };
+}
+
+export function createLocalRcOperatorReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  latestRunStatus?: string;
+  readinessStatus?: string;
+  reviewDecisionStatus?: string;
+  verificationStatus?: string;
+  operatorReadinessStatus?: string;
+  bundleHash?: string;
+  artifactWriteBoundaryInvoked?: boolean;
+  fileCount?: number;
+  byteCount?: number;
+  evidenceCount?: number;
+  auditEventCount?: number;
+  noRealWrite?: boolean;
+} = {}): LocalRcOperatorReadOnlySummary {
+  const runCount = input.runCount ?? 0;
+  const readinessStatus = input.readinessStatus ?? 'not_ready';
+
+  return {
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    readinessStatus,
+    reviewDecisionStatus: input.reviewDecisionStatus ?? 'unknown',
+    verificationStatus: input.verificationStatus ?? 'unknown',
+    operatorReadinessStatus: input.operatorReadinessStatus ?? 'unknown',
+    bundleHash: input.bundleHash ?? stableSha256LikeHash('local-rc-operator-empty'),
+    artifactWriteBoundaryInvoked: input.artifactWriteBoundaryInvoked ?? false,
+    fileCount: input.fileCount ?? 0,
+    byteCount: input.byteCount ?? 0,
+    evidenceCount: input.evidenceCount ?? 0,
+    auditEventCount: input.auditEventCount ?? 0,
+    productDefaultEnabled: false,
+    approvalRequired: true,
+    localOnly: true,
+    noRealWrite: input.noRealWrite ?? runCount === 0,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary:
+      runCount > 0
+        ? `Local RC operator metadata is available with readiness ${readinessStatus}.`
+        : 'No local RC bundle run metadata is available. Dashboard remains read-only.',
   };
 }
 

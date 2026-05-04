@@ -281,6 +281,7 @@ export interface ReadOnlyRunSummary {
     | 'worktree_run'
     | 'worktree_cleanup_run'
     | 'review_package_run'
+    | 'release_candidate_run'
     | 'm11_pilot'
     | 'policy_backend_projection'
     | 'telemetry_projection';
@@ -436,6 +437,38 @@ interface ReviewPackageApiRecord {
     retryHandoffRequired?: boolean;
     nextAction?: string;
   };
+}
+
+interface ReleaseCandidateApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  bundleIdHash?: string;
+  rcReadinessIdHash?: string;
+  rcBundleHash?: string;
+  readinessStatus?: string;
+  reviewDecisionStatus?: string;
+  verificationStatus?: string;
+  operatorReadinessStatus?: string;
+  artifactRootHash?: string;
+  artifactDirectoryHash?: string;
+  fileCount?: number;
+  byteCount?: number;
+  contentHash?: string;
+  exported?: boolean;
+  artifactWriteBoundaryPlanned?: boolean;
+  artifactWriteBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
 }
 
 export interface ReviewPackageApprovalListCliOptions extends JsonCliOptions {
@@ -1333,6 +1366,49 @@ export function buildProgram(): Command {
   const releaseCandidatesCommand = program
     .command('release-candidates')
     .description('Read-only local release candidate metadata commands');
+
+  releaseCandidatesCommand
+    .command('readiness')
+    .option('--json', 'Print full JSON output')
+    .description('Show local RC readiness metadata without exporting artifacts')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getReleaseCandidateReadiness();
+      console.log(formatReleaseCandidateReadinessOutput(result, options));
+    });
+
+  const releaseCandidateRunsCommand = releaseCandidatesCommand
+    .command('runs')
+    .description('Read local RC bundle run metadata from Supervisor GET endpoints');
+
+  releaseCandidateRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List local RC bundle runs without writing artifacts')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReleaseCandidateRuns();
+      console.log(formatReleaseCandidateRunsListOutput(result, options));
+    });
+
+  releaseCandidateRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show local RC bundle run metadata without writing artifacts')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showReleaseCandidateRun(runId);
+      console.log(formatReleaseCandidateRunDetailOutput(result, options));
+    });
+
+  releaseCandidatesCommand
+    .command('acceptance')
+    .description('Read local RC acceptance rehearsal metadata')
+    .command('show')
+    .option('--json', 'Print full JSON output')
+    .description('Show the fixture-only local RC acceptance rehearsal summary')
+    .action((options: JsonCliOptions) => {
+      const result = runLocalRcAcceptanceRehearsalForCli({ fixture: true });
+      console.log(formatLocalRcAcceptanceRehearsalOutput(result, options));
+    });
 
   releaseCandidatesCommand
     .command('rehearse')
@@ -2512,6 +2588,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     worktreeRunResult,
     worktreeCleanupRunResult,
     reviewPackageRunResult,
+    releaseCandidateRunResult,
     m11PilotRunResult,
   ] =
     await Promise.allSettled([
@@ -2529,6 +2606,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
       getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
+      getSupervisorJson<{ records: ReleaseCandidateApiRecord[] }>('/api/release-candidates/runs'),
       getSupervisorJson<{ records: M11PilotRunApiRecord[] }>('/api/pilots/m11/local-runs'),
     ]);
   const runs = [
@@ -2547,6 +2625,9 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       true,
     ),
     ...summarizeReviewPackageRunRecords(settledValue(reviewPackageRunResult)?.records ?? []),
+    ...summarizeReleaseCandidateRunRecords(
+      settledValue(releaseCandidateRunResult)?.records ?? [],
+    ),
     ...summarizeM11PilotRunRecords(settledValue(m11PilotRunResult)?.records ?? []),
     ...summarizePolicyTelemetryLocalRuns(),
   ];
@@ -2559,11 +2640,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
     settledError(reviewPackageRunResult),
+    settledError(releaseCandidateRunResult),
     settledError(m11PilotRunResult),
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 9 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 10 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -3290,6 +3372,65 @@ export async function listReviewPackageDecisions(): Promise<Record<string, unkno
   };
 }
 
+export async function listReleaseCandidateDryRuns(): Promise<Record<string, unknown>> {
+  return listReleaseCandidateCollection(
+    '/api/release-candidates/dry-runs',
+    'Local RC dry-runs are read from Supervisor GET endpoints only.',
+    'Local RC dry-run source is unavailable; no artifact export was attempted.',
+  );
+}
+
+export async function listReleaseCandidateRuns(): Promise<Record<string, unknown>> {
+  return listReleaseCandidateCollection(
+    '/api/release-candidates/runs',
+    'Local RC bundle runs are read from Supervisor GET endpoints only.',
+    'Local RC bundle run source is unavailable; no artifact export was attempted.',
+  );
+}
+
+export async function showReleaseCandidateRun(runId: string): Promise<Record<string, unknown>> {
+  return showReleaseCandidateRecord(
+    `/api/release-candidates/runs/${encodeURIComponent(runId)}`,
+    runId,
+    'Local RC bundle run detail is metadata-only.',
+    'Local RC bundle run unavailable',
+  );
+}
+
+export async function getReleaseCandidateReadiness(): Promise<Record<string, unknown>> {
+  const [dryRunsResult, runsResult] = await Promise.all([
+    listReleaseCandidateDryRuns(),
+    listReleaseCandidateRuns(),
+  ]);
+  const dryRuns = (dryRunsResult.records as ReleaseCandidateApiRecord[] | undefined) ?? [];
+  const runs = (runsResult.records as ReleaseCandidateApiRecord[] | undefined) ?? [];
+  const latest = runs[0] ?? dryRuns[0];
+
+  return {
+    status:
+      dryRunsResult.status === 'degraded' && runsResult.status === 'degraded'
+        ? 'degraded'
+        : (latest?.readinessStatus ?? 'not_ready'),
+    dryRunCount: dryRuns.length,
+    runCount: runs.length,
+    latestRunStatus: latest?.status ?? 'none',
+    latestReadinessStatus: latest?.readinessStatus ?? 'not_ready',
+    latestReviewDecisionStatus: latest?.reviewDecisionStatus ?? 'unknown',
+    latestVerificationStatus: latest?.verificationStatus ?? 'unknown',
+    latestOperatorReadinessStatus: latest?.operatorReadinessStatus ?? 'unknown',
+    latestBundleHash: latest?.rcBundleHash ?? latest?.bundleIdHash ?? 'unavailable',
+    evidenceCount: latest?.evidenceRefIds?.length ?? 0,
+    auditEventCount: latest?.auditEventIds?.length ?? 0,
+    artifactWriteBoundaryInvoked: latest?.artifactWriteBoundaryInvoked ?? false,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    note: 'Local RC readiness is projected from GET metadata only; no export was attempted.',
+  };
+}
+
 export async function listApprovalInbox(
   options: ApprovalInboxCliOptions = {},
 ): Promise<ApprovalInboxProjection | Record<string, unknown>> {
@@ -3556,6 +3697,22 @@ function summarizeReviewPackageRunRecords(runs: ReviewPackageApiRecord[]): ReadO
     title: `Local review package ${run.status ?? 'unknown'}`,
     status: run.status ?? 'unknown',
     summary: run.summary ?? 'Local review package export metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeReleaseCandidateRunRecords(runs: ReleaseCandidateApiRecord[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'release_candidate_run',
+    source: 'release_candidate_run',
+    title: `Local RC bundle ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'Local RC bundle export metadata summary.',
     evidenceCount: run.evidenceRefIds?.length ?? 0,
     auditEventCount: run.auditEventIds?.length ?? 0,
     liveExecution: false,
@@ -3989,6 +4146,83 @@ async function showReviewPackageRecord(
       rawPathStored: false,
       bodyStored: false,
       note: 'No local review package export was attempted.',
+    };
+  }
+}
+
+async function listReleaseCandidateCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: ReleaseCandidateApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'local RC metadata source unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function showReleaseCandidateRecord(
+  path: string,
+  runId: string,
+  note: string,
+  unavailableMessage: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<ReleaseCandidateApiRecord>(path);
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : unavailableMessage,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'No local RC bundle export was attempted.',
     };
   }
 }
@@ -7611,6 +7845,48 @@ export function formatReviewPackageDecisionsListOutput(
   ].join('\n');
 }
 
+export function formatReleaseCandidateReadinessOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Local release candidate readiness',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `dryRuns: ${String(result.dryRunCount ?? 0)}`,
+    `runs: ${String(result.runCount ?? 0)}`,
+    `latestRun: ${String(result.latestRunStatus ?? 'none')}`,
+    `readiness: ${String(result.latestReadinessStatus ?? 'not_ready')}`,
+    `reviewDecision: ${String(result.latestReviewDecisionStatus ?? 'unknown')}`,
+    `verification: ${String(result.latestVerificationStatus ?? 'unknown')}`,
+    `operator: ${String(result.latestOperatorReadinessStatus ?? 'unknown')}`,
+    `bundleHash: ${String(result.latestBundleHash ?? 'unavailable')}`,
+    `artifactWriteBoundaryInvoked=${String(result.artifactWriteBoundaryInvoked ?? false)}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `note: ${String(result.note ?? '')}`,
+  ].join('\n');
+}
+
+export function formatReleaseCandidateRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReleaseCandidateCollectionOutput('Local release candidate runs', result, options);
+}
+
+export function formatReleaseCandidateRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReleaseCandidateRunDetail('Local release candidate run', result, options);
+}
+
 export function formatApprovalInboxOutput(
   result: ApprovalInboxProjection | Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -7921,6 +8197,89 @@ function formatReviewPackageRunDetail(
       run?.verificationStatus ?? run?.packageSummary?.verificationStatus ?? 'unknown'
     }`,
     `decisionStatus=${run?.decisionStatus ?? run?.decision?.status ?? 'pending'}`,
+    `artifactWriteBoundaryInvoked=${String(run?.artifactWriteBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    `evidence=${run?.evidenceRefIds?.length ?? 0}`,
+    `audit=${run?.auditEventIds?.length ?? 0}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+function formatReleaseCandidateCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as ReleaseCandidateApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `readiness=${record.readinessStatus ?? 'unknown'}`,
+          `review=${record.reviewDecisionStatus ?? 'unknown'}`,
+          `verification=${record.verificationStatus ?? 'unknown'}`,
+          `bundle=${record.rcBundleHash ?? record.bundleIdHash ?? 'unavailable'}`,
+          `artifact=${record.artifactDirectoryHash ?? 'unavailable'}`,
+          `files=${String(record.fileCount ?? 0)}`,
+          `artifactWrite=${String(record.artifactWriteBoundaryInvoked ?? false)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatReleaseCandidateRunDetail(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as ReleaseCandidateApiRecord | undefined;
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `readinessStatus=${run?.readinessStatus ?? 'unknown'}`,
+    `reviewDecisionStatus=${run?.reviewDecisionStatus ?? 'unknown'}`,
+    `verificationStatus=${run?.verificationStatus ?? 'unknown'}`,
+    `operatorReadinessStatus=${run?.operatorReadinessStatus ?? 'unknown'}`,
+    run?.rcBundleHash ? `rcBundleHash: ${run.rcBundleHash}` : undefined,
+    run?.artifactRootHash ? `artifactRootHash: ${run.artifactRootHash}` : undefined,
+    run?.artifactDirectoryHash ? `artifactDirectoryHash: ${run.artifactDirectoryHash}` : undefined,
+    run?.contentHash ? `contentHash: ${run.contentHash}` : undefined,
+    `fileCount=${String(run?.fileCount ?? 0)}`,
+    `byteCount=${String(run?.byteCount ?? 0)}`,
     `artifactWriteBoundaryInvoked=${String(run?.artifactWriteBoundaryInvoked ?? false)}`,
     `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
     `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,

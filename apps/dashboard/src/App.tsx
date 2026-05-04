@@ -43,6 +43,7 @@ import {
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
   createLocalRcAcceptanceRehearsalReadOnlySummary,
+  createLocalRcOperatorReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createM11PilotAcceptanceSmokeReadOnlySummary,
@@ -105,6 +106,9 @@ interface OverviewState {
   reviewPackageDryRuns: ReviewPackageControlSummary[];
   reviewPackageApprovals: ReviewPackageControlSummary[];
   reviewPackageRuns: ReviewPackageControlSummary[];
+  releaseCandidateDryRuns: ReleaseCandidateControlSummary[];
+  releaseCandidateApprovals: ReleaseCandidateControlSummary[];
+  releaseCandidateRuns: ReleaseCandidateControlSummary[];
   m11PilotRuns: M11PilotControlSummary[];
   approvalInbox?: ApprovalInboxProjection;
   message?: string;
@@ -224,6 +228,44 @@ interface ReviewPackageControlSummary {
   };
 }
 
+interface ReleaseCandidateControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  readinessStatus?: string;
+  reviewDecisionStatus?: string;
+  verificationStatus?: string;
+  operatorReadinessStatus?: string;
+  bundleHash?: string;
+  artifactDirectoryHash?: string;
+  fileCount?: number;
+  byteCount?: number;
+  artifactWriteBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+  rcReadiness?: {
+    status?: string;
+    reviewDecisionStatus?: string;
+    verificationStatus?: string;
+    operatorReadinessStatus?: string;
+    bundleHash?: string;
+  };
+  bundleSummary?: {
+    bundleHash?: string;
+    fileCount?: number;
+    byteCount?: number;
+  };
+}
+
 interface M11PilotControlSummary {
   runId?: string;
   status?: string;
@@ -312,6 +354,9 @@ export function App() {
     reviewPackageDryRuns: [],
     reviewPackageApprovals: [],
     reviewPackageRuns: [],
+    releaseCandidateDryRuns: [],
+    releaseCandidateApprovals: [],
+    releaseCandidateRuns: [],
     m11PilotRuns: [],
   });
   const [activeView, setActiveView] = useState<DashboardView>(() =>
@@ -400,6 +445,58 @@ export function App() {
       0,
     ),
   });
+  const releaseCandidateSummary = createLocalRcOperatorReadOnlySummary({
+    dryRunCount: overview.releaseCandidateDryRuns.length,
+    approvalCount: overview.releaseCandidateApprovals.length,
+    runCount: overview.releaseCandidateRuns.length,
+    latestRunStatus: overview.releaseCandidateRuns[0]?.status,
+    readinessStatus:
+      overview.releaseCandidateRuns[0]?.readinessStatus ??
+      overview.releaseCandidateRuns[0]?.rcReadiness?.status ??
+      overview.releaseCandidateDryRuns[0]?.readinessStatus ??
+      overview.releaseCandidateDryRuns[0]?.rcReadiness?.status,
+    reviewDecisionStatus:
+      overview.releaseCandidateRuns[0]?.reviewDecisionStatus ??
+      overview.releaseCandidateRuns[0]?.rcReadiness?.reviewDecisionStatus ??
+      overview.releaseCandidateDryRuns[0]?.reviewDecisionStatus ??
+      overview.releaseCandidateDryRuns[0]?.rcReadiness?.reviewDecisionStatus,
+    verificationStatus:
+      overview.releaseCandidateRuns[0]?.verificationStatus ??
+      overview.releaseCandidateRuns[0]?.rcReadiness?.verificationStatus ??
+      overview.releaseCandidateDryRuns[0]?.verificationStatus ??
+      overview.releaseCandidateDryRuns[0]?.rcReadiness?.verificationStatus,
+    operatorReadinessStatus:
+      overview.releaseCandidateRuns[0]?.operatorReadinessStatus ??
+      overview.releaseCandidateRuns[0]?.rcReadiness?.operatorReadinessStatus ??
+      overview.releaseCandidateDryRuns[0]?.operatorReadinessStatus ??
+      overview.releaseCandidateDryRuns[0]?.rcReadiness?.operatorReadinessStatus,
+    bundleHash:
+      overview.releaseCandidateRuns[0]?.bundleHash ??
+      overview.releaseCandidateRuns[0]?.bundleSummary?.bundleHash ??
+      overview.releaseCandidateRuns[0]?.rcReadiness?.bundleHash,
+    artifactWriteBoundaryInvoked: overview.releaseCandidateRuns.some(
+      (record) => record.artifactWriteBoundaryInvoked === true,
+    ),
+    fileCount: overview.releaseCandidateRuns.reduce(
+      (sum, record) => sum + (record.fileCount ?? record.bundleSummary?.fileCount ?? 0),
+      0,
+    ),
+    byteCount: overview.releaseCandidateRuns.reduce(
+      (sum, record) => sum + (record.byteCount ?? record.bundleSummary?.byteCount ?? 0),
+      0,
+    ),
+    evidenceCount: overview.releaseCandidateRuns.reduce(
+      (sum, record) => sum + (record.evidenceRefIds?.length ?? 0),
+      0,
+    ),
+    auditEventCount: overview.releaseCandidateRuns.reduce(
+      (sum, record) => sum + (record.auditEventIds?.length ?? 0),
+      0,
+    ),
+    noRealWrite:
+      overview.releaseCandidateRuns.length === 0 ||
+      overview.releaseCandidateRuns.every((record) => record.noRealWrite === true),
+  });
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
   const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
@@ -474,6 +571,16 @@ export function App() {
     ...overview.reviewPackageRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
       source: 'review_package_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.noRealWrite,
+    })),
+    ...overview.releaseCandidateRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'release_candidate_run',
+      source: 'release_candidate_run',
       status: run.status,
       evidenceRefIds: run.evidenceRefIds,
       auditEventIds: run.auditEventIds,
@@ -807,6 +914,9 @@ export function App() {
           reviewPackageDryRunsResponse,
           reviewPackageApprovalsResponse,
           reviewPackageRunsResponse,
+          releaseCandidateDryRunsResponse,
+          releaseCandidateApprovalsResponse,
+          releaseCandidateRunsResponse,
           m11PilotRunsResponse,
           approvalInboxResponse,
         ] = await Promise.all([
@@ -865,6 +975,18 @@ export function App() {
           ),
           getOptionalJson<{ records: ReviewPackageControlSummary[] }>(
             '/api/review-packages/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseCandidateControlSummary[] }>(
+            '/api/release-candidates/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseCandidateControlSummary[] }>(
+            '/api/release-candidates/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseCandidateControlSummary[] }>(
+            '/api/release-candidates/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: M11PilotControlSummary[] }>('/api/pilots/m11/local-runs', {
@@ -943,6 +1065,9 @@ export function App() {
             reviewPackageDryRuns: reviewPackageDryRunsResponse.records,
             reviewPackageApprovals: reviewPackageApprovalsResponse.records,
             reviewPackageRuns: reviewPackageRunsResponse.records,
+            releaseCandidateDryRuns: releaseCandidateDryRunsResponse.records,
+            releaseCandidateApprovals: releaseCandidateApprovalsResponse.records,
+            releaseCandidateRuns: releaseCandidateRunsResponse.records,
             m11PilotRuns: m11PilotRunsResponse.records,
             approvalInbox: approvalInboxResponse,
           });
@@ -992,6 +1117,9 @@ export function App() {
             reviewPackageDryRuns: [],
             reviewPackageApprovals: [],
             reviewPackageRuns: [],
+            releaseCandidateDryRuns: [],
+            releaseCandidateApprovals: [],
+            releaseCandidateRuns: [],
             m11PilotRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
@@ -2528,6 +2656,7 @@ export function App() {
           electronCdpSummary,
           worktreeSummary,
           reviewPackageSummary,
+          releaseCandidateSummary,
           policyTelemetrySummary,
           pilotSummary,
           pilotAcceptanceSummary,
@@ -2549,6 +2678,7 @@ function renderReadOnlyDashboardView(
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
+  releaseCandidateSummary: ReturnType<typeof createLocalRcOperatorReadOnlySummary>,
   policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
   pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
   pilotAcceptanceSummary: ReturnType<typeof createM10PilotAcceptanceReadOnlySummary>,
@@ -3241,6 +3371,222 @@ function renderReadOnlyDashboardView(
               cannot be triggered from the Dashboard.
             </p>
           )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'release-candidates') {
+    return (
+      <section className="grid">
+        <Panel title="Local RC Readiness">
+          <ul>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {releaseCandidateSummary.dryRunCount}, approvals{' '}
+                {releaseCandidateSummary.approvalCount}, runs {releaseCandidateSummary.runCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>{releaseCandidateSummary.latestRunStatus}</span>
+            </li>
+            <li>
+              <strong>readiness</strong>
+              <span>{releaseCandidateSummary.readinessStatus}</span>
+            </li>
+            <li>
+              <strong>review / verification</strong>
+              <span>
+                {releaseCandidateSummary.reviewDecisionStatus} /{' '}
+                {releaseCandidateSummary.verificationStatus}
+              </span>
+            </li>
+            <li>
+              <strong>operator readiness</strong>
+              <span>{releaseCandidateSummary.operatorReadinessStatus}</span>
+            </li>
+            <li>
+              <strong>bundle hash</strong>
+              <span>{releaseCandidateSummary.bundleHash}</span>
+            </li>
+            <li>
+              <strong>approval</strong>
+              <span>
+                required {String(releaseCandidateSummary.approvalRequired)}, default enabled{' '}
+                {String(releaseCandidateSummary.productDefaultEnabled)}
+              </span>
+            </li>
+          </ul>
+          <p>{releaseCandidateSummary.summary}</p>
+        </Panel>
+        <Panel title="RC Bundle Runs">
+          {overview.releaseCandidateRuns.length > 0 ? (
+            <ul>
+              {overview.releaseCandidateRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'release_candidate_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    readiness {run.readinessStatus ?? run.rcReadiness?.status ?? 'unknown'},
+                    review{' '}
+                    {run.reviewDecisionStatus ??
+                      run.rcReadiness?.reviewDecisionStatus ??
+                      'unknown'}
+                  </span>
+                  <span>
+                    verification{' '}
+                    {run.verificationStatus ?? run.rcReadiness?.verificationStatus ?? 'unknown'},
+                    operator{' '}
+                    {run.operatorReadinessStatus ??
+                      run.rcReadiness?.operatorReadinessStatus ??
+                      'unknown'}
+                  </span>
+                  <span>
+                    bundle{' '}
+                    {run.bundleHash ??
+                      run.bundleSummary?.bundleHash ??
+                      run.rcReadiness?.bundleHash ??
+                      'unavailable'}
+                  </span>
+                  <span>
+                    files {run.fileCount ?? run.bundleSummary?.fileCount ?? 0}, bytes{' '}
+                    {run.byteCount ?? run.bundleSummary?.byteCount ?? 0}
+                  </span>
+                  <span>
+                    artifactWrite {String(run.artifactWriteBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No local RC bundle run metadata is available. Bundle export remains
+              Supervisor-gated and cannot be triggered from the Dashboard.
+            </p>
+          )}
+        </Panel>
+        <Panel title="Review Package State">
+          <ul>
+            <li>
+              <strong>review packages</strong>
+              <span>
+                runs {reviewPackageSummary.runCount}, latest decision{' '}
+                {reviewPackageSummary.latestDecisionStatus}
+              </span>
+            </li>
+            <li>
+              <strong>verification statuses</strong>
+              <span>
+                {reviewPackageSummary.verificationStatuses.length > 0
+                  ? reviewPackageSummary.verificationStatuses.join(', ')
+                  : 'none'}
+              </span>
+            </li>
+            <li>
+              <strong>review export</strong>
+              <span>
+                exported {reviewPackageSummary.exportedCount}, artifact boundary{' '}
+                {String(reviewPackageSummary.artifactWriteBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {reviewPackageSummary.evidenceCount} / {reviewPackageSummary.auditEventCount}
+              </span>
+            </li>
+          </ul>
+          <p>{reviewPackageSummary.summary}</p>
+        </Panel>
+        <Panel title="Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{localRcAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{localRcAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>readiness</strong>
+              <span>{localRcAcceptanceRehearsalSummary.readinessStatus}</span>
+            </li>
+            <li>
+              <strong>operator acceptance</strong>
+              <span>{localRcAcceptanceRehearsalSummary.operatorAcceptanceStatus}</span>
+            </li>
+            <li>
+              <strong>controls</strong>
+              <span>
+                keyRead {String(localRcAcceptanceRehearsalSummary.localControlKeyRead)},
+                postAllowed {String(localRcAcceptanceRehearsalSummary.supervisorPostAllowed)},
+                adapterExecute {String(localRcAcceptanceRehearsalSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>remote bounds</strong>
+              <span>
+                push {String(localRcAcceptanceRehearsalSummary.pushAllowed)}, openPR{' '}
+                {String(localRcAcceptanceRehearsalSummary.pullRequestOpened)}
+              </span>
+            </li>
+          </ul>
+          <p>{localRcAcceptanceRehearsalSummary.summary}</p>
+        </Panel>
+        <Panel title="Local RC Boundaries">
+          <ul>
+            <li>
+              <strong>artifact write</strong>
+              <span>{String(releaseCandidateSummary.artifactWriteBoundaryInvoked)}</span>
+            </li>
+            <li>
+              <strong>files / bytes</strong>
+              <span>
+                {releaseCandidateSummary.fileCount} / {releaseCandidateSummary.byteCount}
+              </span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {releaseCandidateSummary.evidenceCount} /{' '}
+                {releaseCandidateSummary.auditEventCount}
+              </span>
+            </li>
+            <li>
+              <strong>storage</strong>
+              <span>
+                bodyStored {String(releaseCandidateSummary.bodyStored)}, rawPathStored{' '}
+                {String(releaseCandidateSummary.rawPathStored)}
+              </span>
+            </li>
+            <li>
+              <strong>read-only controls</strong>
+              <span>
+                keyRead {String(releaseCandidateSummary.localControlKeyRead)}, postAllowed{' '}
+                {String(releaseCandidateSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(releaseCandidateSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>remote actions</strong>
+              <span>
+                push {String(releaseCandidateSummary.pushAllowed)}, openPR{' '}
+                {String(releaseCandidateSummary.pullRequestOpened)}
+              </span>
+            </li>
+          </ul>
         </Panel>
       </section>
     );
