@@ -138,6 +138,10 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'worktree.cleanup_plan',
     'worktree.cleanup_summary',
     'patch.diff_summary',
+    'patch.lifecycle_plan',
+    'patch.lifecycle_run_summary',
+    'patch.diff_review_summary',
+    'patch.readiness_summary',
     'pr.draft_summary',
     'release.audit_draft',
     'pilot.m9.readiness_summary',
@@ -1718,6 +1722,314 @@ export const ReleaseAuditDraftSchema = createdEntityBaseSchema
   })
   .strict();
 export type ReleaseAuditDraft = z.infer<typeof ReleaseAuditDraftSchema>;
+
+const m12PatchForbiddenMetadataKeys = new Set([
+  'body',
+  'prompt',
+  'stdout',
+  'stderr',
+  'jsonl',
+  'diff',
+  'command',
+  'path',
+  'rawBody',
+  'rawDiff',
+  'rawPath',
+  'rawPrompt',
+  'rawPullRequestBody',
+  'pullRequestBody',
+  'requestBody',
+  'responseBody',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  ['local', 'ControlKey'].join(''),
+]);
+
+function rejectM12PatchRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectM12PatchRawMetadata(item, context, [...path, index]));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (m12PatchForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw M12 patch lifecycle metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectM12PatchRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const ControlledPatchLifecycleStatusSchema = PatchRunStatusSchema;
+export type ControlledPatchLifecycleStatus = z.infer<
+  typeof ControlledPatchLifecycleStatusSchema
+>;
+
+export const ControlledPatchReadinessStatusSchema = z.enum([
+  'not_ready_no_patch',
+  'ready_for_review_draft_only',
+  'blocked_verification_failed',
+  'blocked_policy',
+]);
+export type ControlledPatchReadinessStatus = z.infer<
+  typeof ControlledPatchReadinessStatusSchema
+>;
+
+export const ControlledPatchVerificationStatusSchema = z.enum([
+  'not_run',
+  'passed',
+  'failed',
+  'aborted',
+  'blocked',
+]);
+export type ControlledPatchVerificationStatus = z.infer<
+  typeof ControlledPatchVerificationStatusSchema
+>;
+
+export const ControlledPatchRejectionReasonSchema = z.enum([
+  'none',
+  'policy_blocked',
+  'verification_failed',
+  'codex_failed',
+  'empty_patch',
+  'unsafe_target',
+  'raw_body_forbidden',
+]);
+export type ControlledPatchRejectionReason = z.infer<
+  typeof ControlledPatchRejectionReasonSchema
+>;
+
+export const ControlledPatchPlanSchema = createdEntityBaseSchema
+  .extend({
+    requestIdHash: z.string().min(1),
+    worktreeRunIdHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    plannedChangedFileCount: z.number().int().nonnegative(),
+    plannedChangedFilePathHashes: z.array(z.string().min(1)).default([]),
+    patchBodyHash: z.string().min(1).optional(),
+    codexPatchAllowed: z.literal(false),
+    fixtureOnly: z.literal(true),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.plannedChangedFileCount !== record.plannedChangedFilePathHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'plannedChangedFileCount must match plannedChangedFilePathHashes length',
+        path: ['plannedChangedFileCount'],
+      });
+    }
+  });
+export type ControlledPatchPlan = z.infer<typeof ControlledPatchPlanSchema>;
+
+export const ControlledPatchRunSchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    status: ControlledPatchLifecycleStatusSchema,
+    attemptNumber: z.number().int().positive(),
+    changedFiles: z.array(RepoRelativePathSchema).default([]),
+    changedFileCount: z.number().int().nonnegative(),
+    diffHash: z.string().min(1).optional(),
+    diffLineCount: z.number().int().nonnegative().default(0),
+    diffSummaryHash: z.string().min(1).optional(),
+    worktreePathHash: z.string().min(1),
+    rejectionReasons: z.array(ControlledPatchRejectionReasonSchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    fixtureOnly: z.literal(true),
+    codexPatchExecuted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.changedFileCount !== record.changedFiles.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'changedFileCount must match changedFiles length',
+        path: ['changedFileCount'],
+      });
+    }
+  });
+export type ControlledPatchRun = z.infer<typeof ControlledPatchRunSchema>;
+
+export const DiffReviewStatusSchema = z.enum(['passed', 'blocked', 'failed']);
+export type DiffReviewStatus = z.infer<typeof DiffReviewStatusSchema>;
+
+export const DiffReviewSummarySchema = createdEntityBaseSchema
+  .extend({
+    patchRunId: z.string().min(1),
+    status: DiffReviewStatusSchema,
+    changedFileCount: z.number().int().nonnegative(),
+    diffHash: z.string().min(1).optional(),
+    diffLineCount: z.number().int().nonnegative(),
+    findingCount: z.number().int().nonnegative(),
+    reviewerLabel: z.string().min(1),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawDiffStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type DiffReviewSummary = z.infer<typeof DiffReviewSummarySchema>;
+
+export const ControlledPatchReadinessSchema = createdEntityBaseSchema
+  .extend({
+    patchRunId: z.string().min(1),
+    status: ControlledPatchReadinessStatusSchema,
+    verificationStatus: ControlledPatchVerificationStatusSchema,
+    changedFileCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    readyForReviewDraftOnly: z.boolean(),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (
+      record.status === 'ready_for_review_draft_only' &&
+      (record.verificationStatus !== 'passed' ||
+        record.changedFileCount === 0 ||
+        record.readyForReviewDraftOnly !== true)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'draft-only readiness requires passed verification and changed files',
+        path: ['status'],
+      });
+    }
+
+    if (record.status === 'not_ready_no_patch' && record.changedFileCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'not_ready_no_patch requires zero changed files',
+        path: ['changedFileCount'],
+      });
+    }
+  });
+export type ControlledPatchReadiness = z.infer<typeof ControlledPatchReadinessSchema>;
+
+export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema
+  .extend({
+    status: ControlledPatchLifecycleStatusSchema,
+    plan: ControlledPatchPlanSchema,
+    patchRun: ControlledPatchRunSchema,
+    diffReview: DiffReviewSummarySchema,
+    readiness: ControlledPatchReadinessSchema,
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventCount: z.number().int().nonnegative(),
+    fixtureOnly: z.literal(true),
+    codexPatchExecuted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.patchRun.planId !== record.plan.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'patchRun must reference lifecycle plan',
+        path: ['patchRun', 'planId'],
+      });
+    }
+
+    if (record.diffReview.patchRunId !== record.patchRun.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'diffReview must reference lifecycle patchRun',
+        path: ['diffReview', 'patchRunId'],
+      });
+    }
+
+    if (record.readiness.patchRunId !== record.patchRun.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'readiness must reference lifecycle patchRun',
+        path: ['readiness', 'patchRunId'],
+      });
+    }
+
+    if (record.evidenceRefIds.length !== record.evidenceRefs.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'evidenceRefIds must match evidenceRefs length',
+        path: ['evidenceRefIds'],
+      });
+    }
+
+    const evidenceRefIds = record.evidenceRefs.map((evidenceRef) => evidenceRef.id);
+    if (record.evidenceRefIds.some((evidenceRefId) => !evidenceRefIds.includes(evidenceRefId))) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'evidenceRefIds must reference lifecycle evidenceRefs',
+        path: ['evidenceRefIds'],
+      });
+    }
+
+    if (record.auditEventCount !== record.auditEventIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'auditEventCount must match auditEventIds length',
+        path: ['auditEventCount'],
+      });
+    }
+  });
+export type ControlledPatchLifecycleRun = z.infer<
+  typeof ControlledPatchLifecycleRunSchema
+>;
 
 export const PolicyBackendKindSchema = z.enum(['opa', 'cedar', 'fixture']);
 export type PolicyBackendKind = z.infer<typeof PolicyBackendKindSchema>;

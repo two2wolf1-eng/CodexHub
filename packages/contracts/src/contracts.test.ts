@@ -172,6 +172,12 @@ import {
   OrchestrationRunSchema,
   OrchestrationRunStatusSchema,
   OrchestrationTimelineEventSchema,
+  ControlledPatchLifecycleRunSchema,
+  ControlledPatchPlanSchema,
+  ControlledPatchReadinessSchema,
+  ControlledPatchRejectionReasonSchema,
+  ControlledPatchRunSchema,
+  DiffReviewSummarySchema,
   PatchRunSchema,
   PatchSummarySchema,
   PolicyBackendEvaluationPlanSchema,
@@ -1522,6 +1528,226 @@ describe('contracts schemas', () => {
       WorktreeRunSchema.parse({
         ...run,
         changedFiles: ['../outside.ts'],
+      }),
+    ).toThrow();
+  });
+
+  it('parses M12 controlled patch lifecycle contracts as fixture-only metadata', () => {
+    expect(ControlledPatchRejectionReasonSchema.options).toContain('verification_failed');
+
+    const planEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_m12_patch_plan',
+      schemaVersion,
+      createdAt,
+      kind: 'patch.lifecycle_plan',
+      hash: 'sha256:m12-plan',
+    });
+    const runEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_m12_patch_run',
+      schemaVersion,
+      createdAt,
+      kind: 'patch.lifecycle_run_summary',
+      hash: 'sha256:m12-run',
+    });
+    const reviewEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_m12_diff_review',
+      schemaVersion,
+      createdAt,
+      kind: 'patch.diff_review_summary',
+      hash: 'sha256:m12-review',
+    });
+    const readinessEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_m12_readiness',
+      schemaVersion,
+      createdAt,
+      kind: 'patch.readiness_summary',
+      hash: 'sha256:m12-readiness',
+    });
+    const plan = ControlledPatchPlanSchema.parse({
+      id: 'm12_patch_plan_1',
+      schemaVersion,
+      createdAt,
+      requestIdHash: 'sha256:request',
+      worktreeRunIdHash: 'sha256:worktree-run',
+      worktreePathHash: 'sha256:worktree-path',
+      plannedChangedFileCount: 1,
+      plannedChangedFilePathHashes: ['sha256:file'],
+      patchBodyHash: 'sha256:patch-body',
+      codexPatchAllowed: false,
+      fixtureOnly: true,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'M12 fixture patch lifecycle plan stores hashes only.',
+    });
+    const patchRun = ControlledPatchRunSchema.parse({
+      id: 'm12_patch_run_1',
+      schemaVersion,
+      createdAt,
+      planId: plan.id,
+      status: 'verified',
+      attemptNumber: 1,
+      changedFiles: ['packages/contracts/src/index.ts'],
+      changedFileCount: 1,
+      diffHash: 'sha256:diff',
+      diffLineCount: 12,
+      diffSummaryHash: 'sha256:diff-summary',
+      worktreePathHash: plan.worktreePathHash,
+      rejectionReasons: ['none'],
+      evidenceRefs: [runEvidence],
+      auditEventIds: ['audit_m12_patch_run'],
+      fixtureOnly: true,
+      codexPatchExecuted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'M12 fixture patch run verified without live execution.',
+    });
+    const diffReview = DiffReviewSummarySchema.parse({
+      id: 'm12_diff_review_1',
+      schemaVersion,
+      createdAt,
+      patchRunId: patchRun.id,
+      status: 'passed',
+      changedFileCount: 1,
+      diffHash: patchRun.diffHash,
+      diffLineCount: patchRun.diffLineCount,
+      findingCount: 0,
+      reviewerLabel: 'fixture-reviewer',
+      evidenceRefs: [reviewEvidence],
+      auditEventIds: ['audit_m12_diff_review'],
+      rawDiffStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Diff review stores counts and hashes only.',
+    });
+    const readiness = ControlledPatchReadinessSchema.parse({
+      id: 'm12_patch_readiness_1',
+      schemaVersion,
+      createdAt,
+      patchRunId: patchRun.id,
+      status: 'ready_for_review_draft_only',
+      verificationStatus: 'passed',
+      changedFileCount: 1,
+      blockerCount: 0,
+      blockers: [],
+      readyForReviewDraftOnly: true,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      evidenceRefs: [readinessEvidence],
+      auditEventIds: ['audit_m12_readiness'],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Patch is ready only as local PR draft metadata.',
+    });
+    const lifecycle = ControlledPatchLifecycleRunSchema.parse({
+      id: 'm12_patch_lifecycle_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'verified',
+      plan,
+      patchRun,
+      diffReview,
+      readiness,
+      evidenceRefs: [planEvidence, runEvidence, reviewEvidence, readinessEvidence],
+      auditEventIds: [
+        'audit_m12_patch_plan',
+        'audit_m12_patch_run',
+        'audit_m12_diff_review',
+        'audit_m12_readiness',
+      ],
+      evidenceRefIds: [planEvidence.id, runEvidence.id, reviewEvidence.id, readinessEvidence.id],
+      auditEventCount: 4,
+      fixtureOnly: true,
+      codexPatchExecuted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      summary: 'M12 controlled patch lifecycle is fixture-only.',
+    });
+    const blockedReadiness = ControlledPatchReadinessSchema.parse({
+      ...readiness,
+      id: 'm12_patch_readiness_blocked',
+      status: 'blocked_verification_failed',
+      verificationStatus: 'failed',
+      blockerCount: 1,
+      blockers: ['verification_failed'],
+      readyForReviewDraftOnly: false,
+    });
+
+    const serialized = JSON.stringify(lifecycle);
+    expect(lifecycle.readiness.status).toBe('ready_for_review_draft_only');
+    expect(blockedReadiness.status).toBe('blocked_verification_failed');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('Full PR markdown body');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('secret-token');
+    expect(() =>
+      ControlledPatchLifecycleRunSchema.parse({
+        ...lifecycle,
+        rawDiffBody: 'diff --git a/private b/private',
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchRunSchema.parse({
+        ...patchRun,
+        id: 'm12_patch_run_bad_count',
+        changedFileCount: 2,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchPlanSchema.parse({
+        ...plan,
+        id: 'm12_patch_plan_bad_count',
+        plannedChangedFileCount: 2,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchReadinessSchema.parse({
+        ...readiness,
+        id: 'm12_patch_readiness_bad_ready',
+        changedFileCount: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchLifecycleRunSchema.parse({
+        ...lifecycle,
+        patchRun: {
+          ...patchRun,
+          planId: 'm12_patch_plan_other',
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchLifecycleRunSchema.parse({
+        ...lifecycle,
+        evidenceRefIds: ['evidence_missing'],
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchPlanSchema.parse({
+        ...plan,
+        id: 'm12_patch_plan_bad_metadata',
+        metadata: { nested: { rawDiff: 'diff --git a/private b/private' } },
+      }),
+    ).toThrow();
+    expect(() =>
+      EvidenceRefSchema.parse({
+        id: 'evidence_m12_unknown',
+        schemaVersion,
+        createdAt,
+        kind: 'patch.raw_diff_body',
+        hash: 'sha256:bad',
       }),
     ).toThrow();
   });

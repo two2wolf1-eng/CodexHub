@@ -1148,3 +1148,51 @@ workflows:
       - realPilotExecution
       - gitPush
       - openPullRequest
+  m12a.controlled-patch-lifecycle-foundation:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: contracts orchestrator-kernel docs tools
+      localControlRequired: false
+    chain:
+      - phase: patch-contracts
+        package: contracts
+        validates:
+          - ControlledPatchPlan metadataOnly
+          - ControlledPatchRun fixtureOnly
+          - DiffReviewSummary hashOnly
+          - ControlledPatchReadiness draftOnlyStatuses
+          - ControlledPatchLifecycleRun noLiveBoundary
+      - phase: fixture-runner
+        package: orchestrator-kernel
+        helper: runM12ControlledPatchLifecycleFixture
+        scenarios:
+          - all-pass
+          - no-patch
+          - policy-blocked
+          - codex-failed
+          - verification-failed
+          - aborted
+      - phase: release-evidence
+        documents:
+          - docs/releases/m12a-controlled-patch-lifecycle-foundation.md
+    safety:
+      fixtureOnly: true
+      codexPatchExecuted: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawDiffStored: false
+      rawPrBodyStored: false
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - realCodexPatchExecution
+      - realGitProcess
+      - newProcessBoundary
+      - rawDiffBody
+      - rawPullRequestBody
+      - gitPush
+      - openPullRequest

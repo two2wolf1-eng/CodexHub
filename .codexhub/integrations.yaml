@@ -491,3 +491,40 @@ integrations:
       noNewExecutionBoundary: true
       dashboardWriteUi: false
       cliWriteCommand: false
+  controlled-patch-lifecycle:
+    enabled: false
+    adapter: orchestrator-kernel
+    provider: codexhub-fixture-runner
+    providerType: builtin
+    mode: fixture-only
+    stage: m12a-controlled-patch-lifecycle-foundation
+    defaultActionMode: dry-run
+    defaultRisk: high
+    processBoundary: false
+    networkBoundary: false
+    codexPatchExecuted: false
+    supportedScenarios:
+      - all-pass
+      - no-patch
+      - policy-blocked
+      - codex-failed
+      - verification-failed
+      - aborted
+    readinessStatuses:
+      - not_ready_no_patch
+      - ready_for_review_draft_only
+      - blocked_verification_failed
+      - blocked_policy
+    storage:
+      rawDiff: forbidden
+      rawPullRequestBody: forbidden
+      rawPath: forbidden
+      rawCommand: forbidden
+      body: forbidden
+    output: ids-hashes-counts-statuses-summaries
+    safety:
+      fixtureOnly: true
+      noRealWrite: true
+      pushAllowed: false
+      openPullRequestAllowed: false
+      supervisorRouteAdded: false

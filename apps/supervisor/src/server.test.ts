@@ -581,14 +581,19 @@ describe('supervisor mock development API', () => {
     expect(showResponse.statusCode).toBe(200);
     expect(showResponse.json().runId).toBe(runResponse.json().runId);
     expect(usedApprovalsResponse.json().records).toHaveLength(1);
-    expect(
-      JSON.stringify({
-        dryRun: dryRunResponse.json(),
-        approval: approvalResponse.json(),
-        run: runResponse.json(),
-      }),
-    ).not.toContain('127.0.0.1');
-    expect(runResponse.body).not.toContain('9222');
+    const serializedElectronCdpRecords = JSON.stringify({
+      dryRun: dryRunResponse.json(),
+      approval: approvalResponse.json(),
+      run: runResponse.json(),
+    });
+    const publicRun = runResponse.json() as Record<string, unknown>;
+    expect(serializedElectronCdpRecords).not.toContain('127.0.0.1');
+    expect(publicRun).not.toHaveProperty('host');
+    expect(publicRun).not.toHaveProperty('port');
+    expect(publicRun).not.toHaveProperty('rawHost');
+    expect(publicRun).not.toHaveProperty('rawPort');
+    expect(publicRun).not.toHaveProperty('webSocketDebuggerUrl');
+    expect(publicRun.endpointIdHash).toMatch(/^sha256:/);
     expect(approvalResponse.body).not.toContain('private electron approval reason');
   });
 

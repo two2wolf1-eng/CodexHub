@@ -13,6 +13,7 @@ import {
   runGoldenPathRehearsal,
   runGovernedDevelopmentOrchestration,
   runM11PilotAcceptanceSmoke,
+  runM12ControlledPatchLifecycleFixture,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
@@ -1031,6 +1032,74 @@ describe('orchestrator-kernel M11 production pilot narrow path', () => {
     expect(serialized).not.toContain('stdout');
     expect(serialized).not.toContain('stderr');
     expect(serialized).not.toContain('C:\\');
+  });
+});
+
+describe('orchestrator-kernel M12 controlled patch lifecycle foundation', () => {
+  it('marks a fixture patch ready only as a local draft after verification passes', () => {
+    const run = runM12ControlledPatchLifecycleFixture({ scenario: 'all-pass' });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('verified');
+    expect(run.patchRun.status).toBe('verified');
+    expect(run.patchRun.codexPatchExecuted).toBe(false);
+    expect(run.readiness.status).toBe('ready_for_review_draft_only');
+    expect(run.readiness.verificationStatus).toBe('passed');
+    expect(run.readiness.readyForReviewDraftOnly).toBe(true);
+    expect(run.pushAllowed).toBe(false);
+    expect(run.pullRequestOpened).toBe(false);
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(run.externalProcessStarted).toBe(false);
+    expect(run.evidenceRefs.map((evidenceRef) => evidenceRef.kind)).toEqual([
+      'patch.lifecycle_plan',
+      'patch.lifecycle_run_summary',
+      'patch.diff_review_summary',
+      'patch.readiness_summary',
+    ]);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('Full PR markdown body');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('blocks readiness when there is no patch, policy blocks, Codex fails, or verification fails', () => {
+    const noPatch = runM12ControlledPatchLifecycleFixture({ scenario: 'no-patch' });
+    const policyBlocked = runM12ControlledPatchLifecycleFixture({ scenario: 'policy-blocked' });
+    const codexFailed = runM12ControlledPatchLifecycleFixture({ scenario: 'codex-failed' });
+    const verificationFailed = runM12ControlledPatchLifecycleFixture({
+      scenario: 'verification-failed',
+    });
+
+    expect(noPatch.readiness.status).toBe('not_ready_no_patch');
+    expect(noPatch.patchRun.changedFileCount).toBe(0);
+    expect(noPatch.patchRun.rejectionReasons).toContain('empty_patch');
+    expect(policyBlocked.readiness.status).toBe('blocked_policy');
+    expect(codexFailed.readiness.status).toBe('not_ready_no_patch');
+    expect(codexFailed.patchRun.rejectionReasons).toContain('codex_failed');
+    expect(verificationFailed.status).toBe('blocked');
+    expect(verificationFailed.readiness.status).toBe('blocked_verification_failed');
+    expect(verificationFailed.readiness.readyForReviewDraftOnly).toBe(false);
+
+    for (const run of [noPatch, policyBlocked, codexFailed, verificationFailed]) {
+      expect(run.fixtureOnly).toBe(true);
+      expect(run.codexPatchExecuted).toBe(false);
+      expect(run.noRealWrite).toBe(true);
+      expect(run.processBoundaryInvoked).toBe(false);
+      expect(run.externalProcessStarted).toBe(false);
+      expect(run.pushAllowed).toBe(false);
+      expect(run.pullRequestOpened).toBe(false);
+    }
+  });
+
+  it('does not add a process boundary to the M12a fixture runner', () => {
+    const repoRootForSourceScan = resolve(process.cwd(), '../..');
+    const source = readFileSync(
+      resolve(repoRootForSourceScan, 'packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toContain('child_process');
+    expect(source).not.toContain('spawn(');
   });
 });
 
