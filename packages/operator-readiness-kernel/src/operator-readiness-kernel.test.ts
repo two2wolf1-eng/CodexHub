@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { OperatorReadinessReportSchema } from '@codexhub/contracts';
+import { M10PilotChecklistSchema, OperatorReadinessReportSchema } from '@codexhub/contracts';
 import {
   createConfigHashSummary,
   createDefaultOperatorReadinessPreview,
   createIntegrationReadinessSummary,
+  createM10PilotChecklist,
+  createM10PilotRunbookSummary,
   createOperatorReadinessReport,
 } from './index';
 
@@ -87,5 +89,74 @@ describe('operator-readiness-kernel', () => {
     expect(preview.rawValueStored).toBe(false);
     expect(preview.rawPathStored).toBe(false);
     expect(preview.bodyStored).toBe(false);
+  });
+
+  it('creates an M10 pilot checklist with safe-enable blockers and no execution', () => {
+    const checklist = createM10PilotChecklist();
+    const runbook = createM10PilotRunbookSummary({ checklist });
+    const serialized = JSON.stringify({ checklist, runbook });
+
+    expect(M10PilotChecklistSchema.parse(checklist).status).toBe('blocked');
+    expect(checklist.steps.length).toBeGreaterThan(0);
+    expect(checklist.blockerCount).toBeGreaterThan(0);
+    expect(checklist.supervisorPostAllowed).toBe(false);
+    expect(checklist.localControlKeyRead).toBe(false);
+    expect(checklist.adapterExecuteAllowed).toBe(false);
+    expect(runbook.status).toBe(checklist.status);
+    expect(runbook.supervisorPostAllowed).toBe(false);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+  });
+
+  it('marks M10 pilot checklist ready only after operator prerequisites are present', () => {
+    const report = createOperatorReadinessReport({
+      storeAvailable: true,
+      processBoundaryAllowlistPassed: true,
+      noLiveAuditPassed: true,
+      configs: [{ name: 'integrations', kind: 'integration', text: 'rules' }],
+      integrations: [
+        {
+          name: 'codex-cli',
+          enabled: true,
+          defaultEnabled: true,
+          riskLevel: 'medium',
+          approvalRequired: true,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+        {
+          name: 'nx-affected',
+          enabled: true,
+          defaultEnabled: true,
+          riskLevel: 'low',
+          approvalRequired: false,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+        {
+          name: 'worktree-manager',
+          enabled: true,
+          riskLevel: 'high',
+          approvalRequired: true,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+      ],
+      localControlKeys: [{ name: 'supervisor', configured: true, value: 'do-not-print' }],
+    });
+    const checklist = createM10PilotChecklist({
+      readinessReport: report,
+      approvalInboxItemCount: 1,
+      governanceRunCount: 1,
+    });
+
+    expect(checklist.status).toBe('ready');
+    expect(checklist.blockerCount).toBe(0);
+    expect(checklist.readyStepCount).toBe(checklist.steps.length);
+    expect(JSON.stringify(checklist)).not.toContain('do-not-print');
   });
 });

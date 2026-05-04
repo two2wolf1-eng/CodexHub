@@ -62,12 +62,15 @@ const requiredGovernanceFiles = [
   'docs/releases/m8a-release-candidate-baseline.md',
   'docs/releases/m8-release-candidate.md',
   'docs/releases/m9-local-pilot-results.md',
+  'docs/releases/m10a-pilot-productization.md',
   'docs/reviews/m8-final-release-audit.md',
   'docs/reviews/m9-approval-ux-hardening.md',
   'docs/threat-model/m8a-release-candidate-threat-model.md',
   'docs/runbooks/m8a-release-candidate-operator-runbook.md',
   'docs/runbooks/m8a-release-candidate-rollback.md',
+  'docs/runbooks/m10-local-pilot-operator-runbook.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
+  'docs/checklists/m10-local-pilot-checklist.md',
 ];
 
 const requiredContractExports = [
@@ -132,6 +135,9 @@ const requiredContractExports = [
   'IntegrationReadinessSummarySchema',
   'ConfigHashSummarySchema',
   'OperatorReadinessReportSchema',
+  'M10PilotOperatorStepSchema',
+  'M10PilotChecklistSchema',
+  'M10PilotRunbookSummarySchema',
   'GoldenPathStepSchema',
   'GoldenPathEvidenceBundleSchema',
   'GoldenPathRehearsalRunSchema',

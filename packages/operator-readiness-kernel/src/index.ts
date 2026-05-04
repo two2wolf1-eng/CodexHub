@@ -1,12 +1,21 @@
 import {
   ConfigHashSummarySchema,
   IntegrationReadinessSummarySchema,
+  M10PilotChecklistSchema,
+  M10PilotOperatorStepSchema,
+  M10PilotRunbookSummarySchema,
   OperatorReadinessCheckSchema,
   OperatorReadinessReportSchema,
   SchemaVersionSchema,
   foundationTimestamp,
   type ConfigHashSummary,
   type IntegrationReadinessSummary,
+  type M10PilotChecklist,
+  type M10PilotChecklistStatus,
+  type M10PilotOperatorStep,
+  type M10PilotOperatorStepPhase,
+  type M10PilotOperatorStepStatus,
+  type M10PilotRunbookSummary,
   type OperatorReadinessCheck,
   type OperatorReadinessReport,
   type OperatorReadinessStatus,
@@ -16,6 +25,9 @@ import {
 export type {
   ConfigHashSummary,
   IntegrationReadinessSummary,
+  M10PilotChecklist,
+  M10PilotOperatorStep,
+  M10PilotRunbookSummary,
   OperatorReadinessCheck,
   OperatorReadinessReport,
 } from '@codexhub/contracts';
@@ -53,6 +65,12 @@ export interface OperatorReadinessInput {
   processBoundaryAllowlistPassed?: boolean;
   boundaryAuditPassed?: boolean;
   noLiveAuditPassed?: boolean;
+}
+
+export interface M10PilotChecklistInput {
+  readinessReport?: OperatorReadinessReport;
+  approvalInboxItemCount?: number;
+  governanceRunCount?: number;
 }
 
 export function createOperatorReadinessReport(
@@ -314,6 +332,189 @@ export function createDefaultOperatorReadinessPreview(): OperatorReadinessReport
   });
 }
 
+export function createM10PilotChecklist(input: M10PilotChecklistInput = {}): M10PilotChecklist {
+  const createdAt = foundationTimestamp();
+  const readinessReport = input.readinessReport ?? createDefaultOperatorReadinessPreview();
+  const approvalInboxItemCount = input.approvalInboxItemCount ?? 0;
+  const governanceRunCount = input.governanceRunCount ?? 0;
+  const integrations = new Map(
+    readinessReport.integrations.map((integration) => [integration.name, integration]),
+  );
+  const worktree = integrations.get('worktree-manager');
+  const codex = integrations.get('codex-cli');
+  const nx = integrations.get('nx-affected');
+  const storeBlockers = readinessReport.storeAvailable ? [] : ['store_unavailable'];
+  const boundaryBlockers = readinessReport.processBoundaryAllowlistPassed
+    ? []
+    : ['process_boundary_allowlist_failed'];
+  const worktreeBlockers = [
+    ...(worktree?.safeToEnable ? [] : ['worktree_manager_not_safe_to_enable']),
+    ...(worktree?.envFlagConfigured ? [] : ['worktree_manager_env_flag_missing']),
+    ...(worktree?.blockers ?? []),
+  ];
+  const approvalBlockers =
+    approvalInboxItemCount > 0 ? [] : ['approval_inbox_empty_for_pilot_rehearsal'];
+  const governanceBlockers =
+    governanceRunCount > 0 ? [] : ['governance_projection_has_no_recent_pilot_run'];
+  const steps = [
+    createM10PilotOperatorStep(
+      {
+        code: 'doctor_preflight',
+        label: 'Doctor preflight',
+        phase: 'preflight',
+        required: true,
+        blockers: [...storeBlockers, ...boundaryBlockers],
+        safeEnableNotes: ['Run codexhub doctor before enabling the local pilot.'],
+        readySummary: 'Doctor preflight is ready for the local pilot.',
+        blockedSummary: 'Doctor preflight has blockers that must be resolved first.',
+      },
+      createdAt,
+    ),
+    createM10PilotOperatorStep(
+      {
+        code: 'worktree_enablement',
+        label: 'Worktree manager enablement',
+        phase: 'preflight',
+        required: true,
+        blockers: uniqueSorted(worktreeBlockers),
+        safeEnableNotes: [
+          'Enable worktree execution only with explicit env flags and persisted approval.',
+        ],
+        readySummary: 'Worktree manager enablement is ready for a governed pilot.',
+        blockedSummary: 'Worktree manager remains disabled or unsafe to enable.',
+      },
+      createdAt,
+    ),
+    createM10PilotOperatorStep(
+      {
+        code: 'approval_inbox_review',
+        label: 'Approval inbox review',
+        phase: 'approval',
+        required: true,
+        blockers: approvalBlockers,
+        safeEnableNotes: ['Approvals must be reviewed through the governed inbox.'],
+        readySummary: 'Approval inbox has pilot-relevant records to review.',
+        blockedSummary: 'Approval inbox has no pilot-relevant records yet.',
+      },
+      createdAt,
+    ),
+    createM10PilotOperatorStep(
+      {
+        code: 'codex_dry_run_only',
+        label: 'Codex dry-run only',
+        phase: 'pilot',
+        required: true,
+        blockers: codex ? [] : ['codex_cli_integration_missing'],
+        safeEnableNotes: ['M10a does not run Codex; M9 pilot stays dry-run/read-only.'],
+        readySummary: 'Codex pilot step is constrained to governed dry-run/read-only mode.',
+        blockedSummary: 'Codex integration metadata is missing.',
+      },
+      createdAt,
+    ),
+    createM10PilotOperatorStep(
+      {
+        code: 'nx_verification_ready',
+        label: 'Nx verification ready',
+        phase: 'verification',
+        required: true,
+        blockers: nx ? [] : ['nx_verification_integration_missing'],
+        safeEnableNotes: ['Nx verification remains limited to allowlisted targets.'],
+        readySummary: 'Nx verification is ready for allowlisted affected checks.',
+        blockedSummary: 'Nx verification integration metadata is missing.',
+      },
+      createdAt,
+    ),
+    createM10PilotOperatorStep(
+      {
+        code: 'governance_projection_review',
+        label: 'Governance projection review',
+        phase: 'review',
+        required: true,
+        blockers: governanceBlockers,
+        safeEnableNotes: ['Review unified run, evidence, and audit summaries after rehearsal.'],
+        readySummary: 'Governance projection has pilot metadata to inspect.',
+        blockedSummary: 'Governance projection has no pilot metadata yet.',
+      },
+      createdAt,
+    ),
+    createM10PilotOperatorStep(
+      {
+        code: 'rollback_ready',
+        label: 'Rollback readiness',
+        phase: 'rollback',
+        required: true,
+        blockers: [],
+        safeEnableNotes: ['Disable env flags and use governed cleanup if a worktree was created.'],
+        readySummary: 'Rollback path is documented for the local pilot.',
+        blockedSummary: 'Rollback path is missing.',
+      },
+      createdAt,
+    ),
+  ];
+  const counts = countM10PilotSteps(steps);
+  const status = deriveM10PilotChecklistStatus(counts);
+
+  return M10PilotChecklistSchema.parse({
+    id: stableId('m10_pilot_checklist', JSON.stringify([steps, governanceRunCount])),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    status,
+    steps,
+    readyStepCount: counts.ready + counts.done,
+    blockedStepCount: counts.blocked,
+    reviewStepCount: counts.review,
+    requiredStepCount: steps.filter((step) => step.required).length,
+    blockerCount: steps.reduce((total, step) => total + step.blockerCount, 0),
+    integrationCount: readinessReport.integrations.length,
+    configuredLocalControlKeyCount: readinessReport.configuredLocalControlKeyCount,
+    governanceRunCount,
+    approvalInboxItemCount,
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    summary:
+      status === 'ready'
+        ? 'M10 pilot operator checklist is ready for a governed rehearsal.'
+        : `M10 pilot operator checklist is ${status} with ${counts.blocked} blocked steps.`,
+  });
+}
+
+export function createM10PilotRunbookSummary(input: {
+  checklist?: M10PilotChecklist;
+} = {}): M10PilotRunbookSummary {
+  const createdAt = foundationTimestamp();
+  const checklist = input.checklist ?? createM10PilotChecklist();
+  const phaseCount = new Set(checklist.steps.map((step) => step.phase)).size;
+  const nextAction =
+    checklist.status === 'ready'
+      ? 'Run the governed local pilot only after approvals and hash-bound runtime inputs are prepared.'
+      : 'Resolve checklist blockers before enabling or rehearsing the local pilot.';
+
+  return M10PilotRunbookSummarySchema.parse({
+    id: stableId('m10_pilot_runbook_summary', checklist.id),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    checklistId: checklist.id,
+    status: checklist.status,
+    phaseCount,
+    requiredStepCount: checklist.requiredStepCount,
+    blockerCount: checklist.blockerCount,
+    nextAction,
+    rollbackSummary:
+      'Disable pilot env flags, keep PR creation disabled, and use governed worktree cleanup metadata if a worktree was created.',
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    summary: `M10 pilot runbook summary references checklist ${checklist.id} and remains read-only.`,
+  });
+}
+
 function createDefaultConfigInputs(): OperatorConfigInput[] {
   return [
     { name: 'policies', kind: 'policy', text: 'policy-config-present', itemCount: 1 },
@@ -383,6 +584,78 @@ function createDefaultIntegrationInputs(): OperatorIntegrationInput[] {
   ];
 }
 
+function createM10PilotOperatorStep(
+  input: {
+    code: string;
+    label: string;
+    phase: M10PilotOperatorStepPhase;
+    required: boolean;
+    blockers: readonly string[];
+    safeEnableNotes: readonly string[];
+    readySummary: string;
+    blockedSummary: string;
+  },
+  createdAt: string,
+): M10PilotOperatorStep {
+  const blockers = uniqueSorted(input.blockers);
+  const status = deriveM10PilotStepStatus(blockers);
+
+  return M10PilotOperatorStepSchema.parse({
+    id: stableId('m10_pilot_operator_step', input.code),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    code: input.code,
+    label: input.label,
+    phase: input.phase,
+    status,
+    required: input.required,
+    blockerCount: blockers.length,
+    blockers,
+    safeEnableNotes: [...input.safeEnableNotes],
+    evidenceRefIds: [],
+    auditEventIds: [],
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    summary: blockers.length > 0 ? input.blockedSummary : input.readySummary,
+  });
+}
+
+function deriveM10PilotStepStatus(
+  blockers: readonly string[],
+): M10PilotOperatorStepStatus {
+  return blockers.length > 0 ? 'blocked' : 'ready';
+}
+
+function countM10PilotSteps(
+  steps: readonly M10PilotOperatorStep[],
+): Record<M10PilotOperatorStepStatus, number> {
+  return steps.reduce<Record<M10PilotOperatorStepStatus, number>>(
+    (counts, step) => ({
+      ...counts,
+      [step.status]: counts[step.status] + 1,
+    }),
+    { ready: 0, blocked: 0, review: 0, done: 0 },
+  );
+}
+
+function deriveM10PilotChecklistStatus(
+  counts: Record<M10PilotOperatorStepStatus, number>,
+): M10PilotChecklistStatus {
+  if (counts.blocked > 0) {
+    return 'blocked';
+  }
+
+  if (counts.review > 0) {
+    return 'review';
+  }
+
+  return 'ready';
+}
+
 function countChecks(checks: readonly OperatorReadinessCheck[]): Record<OperatorReadinessStatus, number> {
   return checks.reduce<Record<OperatorReadinessStatus, number>>(
     (counts, check) => ({
@@ -409,6 +682,10 @@ function deriveReportStatus(
   }
 
   return 'pass';
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 function readinessHash(value: string): string {

@@ -40,6 +40,7 @@ import {
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createM10PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
@@ -343,6 +344,10 @@ export function App() {
       noRealWrite: run.noRealWrite,
     })),
   ]);
+  const pilotSummary = createM10PilotReadOnlySummary({
+    approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
+    governanceRunCount: governanceSummary.runCount,
+  });
 
   useEffect(() => {
     function onHashChange() {
@@ -2280,6 +2285,7 @@ export function App() {
           electronCdpSummary,
           worktreeSummary,
           policyTelemetrySummary,
+          pilotSummary,
         )
       )}
     </main>
@@ -2295,6 +2301,7 @@ function renderReadOnlyDashboardView(
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
+  pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -2979,6 +2986,82 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{policyTelemetrySummary.telemetry.summary}</p>
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'pilot') {
+    return (
+      <section className="grid">
+        <Panel title="M10 Pilot Checklist">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{pilotSummary.status}</span>
+            </li>
+            <li>
+              <strong>steps</strong>
+              <span>
+                {pilotSummary.readyStepCount} ready, {pilotSummary.blockedStepCount} blocked,{' '}
+                {pilotSummary.reviewStepCount} review
+              </span>
+            </li>
+            <li>
+              <strong>blockers</strong>
+              <span>{pilotSummary.blockerCount}</span>
+            </li>
+            <li>
+              <strong>approval inbox</strong>
+              <span>{pilotSummary.approvalInboxItemCount} items</span>
+            </li>
+            <li>
+              <strong>governance runs</strong>
+              <span>{pilotSummary.governanceRunCount}</span>
+            </li>
+          </ul>
+          <p>{pilotSummary.summary}</p>
+        </Panel>
+        <Panel title="Operator Steps">
+          <ul>
+            {pilotSummary.steps.map((step) => (
+              <li key={step.code} className="stacked">
+                <strong>{step.label}</strong>
+                <span>
+                  {step.phase} / {step.status} / blockers {step.blockerCount}
+                </span>
+                <span>{step.blockers.length > 0 ? step.blockers.join(', ') : 'none'}</span>
+                <p>{step.summary}</p>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+        <Panel title="Runbook Summary">
+          <ul>
+            <li>
+              <strong>next action</strong>
+              <span>{pilotSummary.nextAction}</span>
+            </li>
+            <li>
+              <strong>rollback</strong>
+              <span>{pilotSummary.rollbackSummary}</span>
+            </li>
+            <li>
+              <strong>read-only bounds</strong>
+              <span>
+                keyRead {String(pilotSummary.localControlKeyRead)}, postAllowed{' '}
+                {String(pilotSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(pilotSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>storage</strong>
+              <span>
+                bodyStored {String(pilotSummary.bodyStored)}, rawPathStored{' '}
+                {String(pilotSummary.rawPathStored)}
+              </span>
+            </li>
+          </ul>
         </Panel>
       </section>
     );

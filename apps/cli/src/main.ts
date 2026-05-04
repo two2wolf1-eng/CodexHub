@@ -164,7 +164,11 @@ import {
   type GovernanceProjectionResult,
 } from '@codexhub/governance-projection-kernel';
 import {
+  createM10PilotChecklist,
+  createM10PilotRunbookSummary,
   createOperatorReadinessReport,
+  type M10PilotChecklist,
+  type M10PilotRunbookSummary,
   type OperatorConfigInput,
   type OperatorIntegrationInput,
   type OperatorReadinessReport,
@@ -598,6 +602,32 @@ export function buildProgram(): Command {
     .action(async (name: string, options: JsonCliOptions) => {
       const result = await getOperatorIntegrationReadinessForCli(name);
       console.log(formatOperatorIntegrationReadinessOutput(result, options));
+    });
+
+  const pilotCommand = program
+    .command('pilot')
+    .description('Read-only operator pilot productization commands');
+
+  const pilotM10Command = pilotCommand
+    .command('m10')
+    .description('M10 local pilot checklist and runbook summaries');
+
+  pilotM10Command
+    .command('checklist')
+    .option('--json', 'Print full JSON output')
+    .description('Show the M10 operator pilot checklist without executing the pilot')
+    .action(async (options: JsonCliOptions) => {
+      const checklist = await getM10PilotChecklistForCli();
+      console.log(formatM10PilotChecklistOutput(checklist, options));
+    });
+
+  pilotM10Command
+    .command('runbook')
+    .option('--json', 'Print full JSON output')
+    .description('Show the M10 operator pilot runbook summary without mutating state')
+    .action(async (options: JsonCliOptions) => {
+      const runbook = await getM10PilotRunbookForCli();
+      console.log(formatM10PilotRunbookOutput(runbook, options));
     });
 
   const rehearsalCommand = program
@@ -2437,6 +2467,46 @@ export async function getOperatorIntegrationReadinessForCli(
       ? `${integration.name} safeToEnable=${integration.safeToEnable}.`
       : `${name} readiness was not found.`,
   };
+}
+
+export async function getM10PilotChecklistForCli(): Promise<M10PilotChecklist> {
+  const report = await getM10PilotReadinessReportForCli();
+
+  return createM10PilotChecklist({
+    readinessReport: report,
+    approvalInboxItemCount: 0,
+    governanceRunCount: 0,
+  });
+}
+
+export async function getM10PilotRunbookForCli(): Promise<M10PilotRunbookSummary> {
+  const checklist = await getM10PilotChecklistForCli();
+
+  return createM10PilotRunbookSummary({ checklist });
+}
+
+async function getM10PilotReadinessReportForCli(): Promise<OperatorReadinessReport> {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const configs: OperatorConfigInput[] = await Promise.all([
+    readOperatorConfigInput(workspaceRoot, 'policies', 'policy', ['.codexhub', 'policies.yaml']),
+    readOperatorConfigInput(workspaceRoot, 'risk-matrix', 'risk', [
+      '.codexhub',
+      'risk-matrix.yaml',
+    ]),
+    readOperatorConfigInput(workspaceRoot, 'integrations', 'integration', [
+      '.codexhub',
+      'integrations.yaml',
+    ]),
+  ]);
+
+  return createOperatorReadinessReport({
+    configs,
+    integrations: createOperatorIntegrationInputs(),
+    localControlKeys: [],
+    storeAvailable: true,
+    processBoundaryAllowlistPassed: true,
+    noLiveAuditPassed: true,
+  });
 }
 
 export function runGoldenPathRehearsalForCli(options: {
@@ -6233,6 +6303,61 @@ export function formatOperatorIntegrationReadinessOutput(
     `blockers: ${integration && integration.blockers.length > 0 ? integration.blockers.join(',') : 'none'}`,
     `bodyStored=${String(result.bodyStored ?? false)}`,
     `rawPathStored=${String(result.rawPathStored ?? false)}`,
+  ].join('\n');
+}
+
+export function formatM10PilotChecklistOutput(
+  checklist: M10PilotChecklist,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(checklist, null, 2);
+  }
+
+  return [
+    'CodexHub M10 pilot checklist',
+    `status: ${checklist.status}`,
+    `steps: ${checklist.readyStepCount} ready, ${checklist.blockedStepCount} blocked, ${checklist.reviewStepCount} review`,
+    `blockers: ${checklist.blockerCount}`,
+    `approvalInboxItems: ${checklist.approvalInboxItemCount}`,
+    `governanceRuns: ${checklist.governanceRunCount}`,
+    'operator steps:',
+    ...checklist.steps.map(
+      (step) =>
+        `- ${step.code} ${step.phase}/${step.status} blockers=${
+          step.blockers.length > 0 ? step.blockers.join(',') : 'none'
+        }`,
+    ),
+    `localControlKeyRead=${String(checklist.localControlKeyRead)}`,
+    `supervisorPostAllowed=${String(checklist.supervisorPostAllowed)}`,
+    `adapterExecuteAllowed=${String(checklist.adapterExecuteAllowed)}`,
+    `bodyStored=${String(checklist.bodyStored)}`,
+    `rawPathStored=${String(checklist.rawPathStored)}`,
+  ].join('\n');
+}
+
+export function formatM10PilotRunbookOutput(
+  runbook: M10PilotRunbookSummary,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(runbook, null, 2);
+  }
+
+  return [
+    'CodexHub M10 pilot runbook',
+    `status: ${runbook.status}`,
+    `checklistId: ${runbook.checklistId}`,
+    `phases: ${runbook.phaseCount}`,
+    `requiredSteps: ${runbook.requiredStepCount}`,
+    `blockers: ${runbook.blockerCount}`,
+    `nextAction: ${runbook.nextAction}`,
+    `rollback: ${runbook.rollbackSummary}`,
+    `localControlKeyRead=${String(runbook.localControlKeyRead)}`,
+    `supervisorPostAllowed=${String(runbook.supervisorPostAllowed)}`,
+    `adapterExecuteAllowed=${String(runbook.adapterExecuteAllowed)}`,
+    `bodyStored=${String(runbook.bodyStored)}`,
+    `rawPathStored=${String(runbook.rawPathStored)}`,
   ].join('\n');
 }
 

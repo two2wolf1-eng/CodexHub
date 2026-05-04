@@ -411,6 +411,39 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('session');
   });
 
+  it('shows M10 pilot checklist and runbook as read-only operator metadata', async () => {
+    const {
+      formatM10PilotChecklistOutput,
+      formatM10PilotRunbookOutput,
+      getM10PilotChecklistForCli,
+      getM10PilotRunbookForCli,
+    } = await import('./main');
+    const checklist = await getM10PilotChecklistForCli();
+    const runbook = await getM10PilotRunbookForCli();
+    const output = [
+      formatM10PilotChecklistOutput(checklist),
+      formatM10PilotRunbookOutput(runbook),
+    ].join('\n');
+    const serialized = JSON.stringify({ checklist, runbook });
+
+    expect(checklist.steps.length).toBeGreaterThan(0);
+    expect(checklist.localControlKeyRead).toBe(false);
+    expect(checklist.supervisorPostAllowed).toBe(false);
+    expect(checklist.adapterExecuteAllowed).toBe(false);
+    expect(runbook.localControlKeyRead).toBe(false);
+    expect(runbook.supervisorPostAllowed).toBe(false);
+    expect(runbook.adapterExecuteAllowed).toBe(false);
+    expect(output).toContain('CodexHub M10 pilot checklist');
+    expect(output).toContain('CodexHub M10 pilot runbook');
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+  });
+
   it('runs the golden path rehearsal as fixture-only metadata', async () => {
     const {
       formatGoldenPathRehearsalOutput,

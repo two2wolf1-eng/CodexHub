@@ -720,3 +720,55 @@ workflows:
       - newNetworkBoundary
       - newWebSocketBoundary
       - adapterExecuteFromUiOrCli
+  m10a.operator-pilot-productization:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: packages/operator-readiness-kernel apps/dashboard apps/cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        package: contracts
+        models:
+          - M10PilotChecklist
+          - M10PilotOperatorStep
+          - M10PilotRunbookSummary
+        output: idsHashesCountsStatusesSummariesOnly
+      - phase: readiness-helper
+        package: operator-readiness-kernel
+        summarizes:
+          - integration state
+          - required env flags
+          - approval inbox state
+          - governance run state
+          - known blockers
+      - phase: dashboard-read-only-view
+        route: '#/pilot'
+        localControlTokenUsed: false
+        supervisorPostAllowed: false
+      - phase: cli-read-only-commands
+        commands:
+          - codexhub pilot m10 checklist
+          - codexhub pilot m10 runbook
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+      - phase: operator-docs
+        documents:
+          - docs/runbooks/m10-local-pilot-operator-runbook.md
+          - docs/checklists/m10-local-pilot-checklist.md
+          - docs/releases/m10a-pilot-productization.md
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenInDashboard
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
+      - newProcessBoundary
+      - newNetworkBoundary
+      - realPilotExecution
+      - gitPush
+      - openPullRequest
+      - browserAutomation
+      - electronAutomation
+      - mcpRuntime

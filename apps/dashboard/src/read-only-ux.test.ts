@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createM10PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
@@ -23,6 +24,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/policy-telemetry')).toBe('policy-telemetry');
     expect(getDashboardViewFromHash('#/governance')).toBe('governance');
     expect(getDashboardViewFromHash('#/readiness')).toBe('readiness');
+    expect(getDashboardViewFromHash('#/pilot')).toBe('pilot');
     expect(getDashboardViewFromHash('#/approvals')).toBe('approvals');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
@@ -242,5 +244,29 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('secret-value');
     expect(serialized).not.toContain('C:\\');
     expect(serialized).not.toContain('raw config body');
+  });
+
+  it('summarizes M10 pilot checklist as read-only operator metadata', () => {
+    const summary = createM10PilotReadOnlySummary({
+      approvalInboxItemCount: 0,
+      governanceRunCount: 0,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.status).toBe('blocked');
+    expect(summary.stepCount).toBeGreaterThan(0);
+    expect(summary.blockerCount).toBeGreaterThan(0);
+    expect(summary.localControlKeyRead).toBe(false);
+    expect(summary.supervisorPostAllowed).toBe(false);
+    expect(summary.adapterExecuteAllowed).toBe(false);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
   });
 });

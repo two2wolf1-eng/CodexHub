@@ -8,6 +8,8 @@ import {
   createCodexHubMcpToolDefinitions,
 } from '@codexhub/mcp-tool-contracts';
 import {
+  createM10PilotChecklist,
+  createM10PilotRunbookSummary,
   createDefaultOperatorReadinessPreview,
   type OperatorReadinessReport,
 } from '@codexhub/operator-readiness-kernel';
@@ -26,6 +28,7 @@ export const DASHBOARD_VIEWS = [
   'policy-telemetry',
   'governance',
   'readiness',
+  'pilot',
   'approvals',
 ] as const;
 
@@ -239,6 +242,37 @@ export interface OperatorReadinessReadOnlySummary {
   }>;
   rawPathStored: false;
   bodyStored: false;
+  summary: string;
+}
+
+export interface M10PilotReadOnlySummary {
+  status: string;
+  stepCount: number;
+  readyStepCount: number;
+  blockedStepCount: number;
+  reviewStepCount: number;
+  requiredStepCount: number;
+  blockerCount: number;
+  integrationCount: number;
+  approvalInboxItemCount: number;
+  governanceRunCount: number;
+  nextAction: string;
+  rollbackSummary: string;
+  steps: Array<{
+    code: string;
+    label: string;
+    phase: string;
+    status: string;
+    blockerCount: number;
+    blockers: string[];
+    summary: string;
+  }>;
+  rawValueStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
   summary: string;
 }
 
@@ -559,6 +593,46 @@ export function createOperatorReadinessReadOnlySummary(
     rawPathStored: false,
     bodyStored: false,
     summary: report.summary,
+  };
+}
+
+export function createM10PilotReadOnlySummary(input: {
+  readinessReport?: OperatorReadinessReport;
+  approvalInboxItemCount?: number;
+  governanceRunCount?: number;
+} = {}): M10PilotReadOnlySummary {
+  const checklist = createM10PilotChecklist(input);
+  const runbook = createM10PilotRunbookSummary({ checklist });
+
+  return {
+    status: checklist.status,
+    stepCount: checklist.steps.length,
+    readyStepCount: checklist.readyStepCount,
+    blockedStepCount: checklist.blockedStepCount,
+    reviewStepCount: checklist.reviewStepCount,
+    requiredStepCount: checklist.requiredStepCount,
+    blockerCount: checklist.blockerCount,
+    integrationCount: checklist.integrationCount,
+    approvalInboxItemCount: checklist.approvalInboxItemCount,
+    governanceRunCount: checklist.governanceRunCount,
+    nextAction: runbook.nextAction,
+    rollbackSummary: runbook.rollbackSummary,
+    steps: checklist.steps.map((step) => ({
+      code: step.code,
+      label: step.label,
+      phase: step.phase,
+      status: step.status,
+      blockerCount: step.blockerCount,
+      blockers: step.blockers,
+      summary: step.summary,
+    })),
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    summary: checklist.summary,
   };
 }
 

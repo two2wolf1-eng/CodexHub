@@ -204,6 +204,12 @@ import {
   ApprovalUxDecisionSchema,
   ApprovalUxTypeSchema,
   M9PilotEvidenceSummarySchema,
+  M10PilotChecklistSchema,
+  M10PilotChecklistStatusSchema,
+  M10PilotOperatorStepPhaseSchema,
+  M10PilotOperatorStepSchema,
+  M10PilotOperatorStepStatusSchema,
+  M10PilotRunbookSummarySchema,
   M9PilotReadinessSchema,
   M9PilotRunSchema,
   M9PilotStepSchema,
@@ -2298,6 +2304,120 @@ describe('contracts schemas', () => {
         ...check,
         id: 'operator_readiness_check_bad_field',
         rawEnv: 'secret-value',
+      }),
+    ).toThrow();
+  });
+
+  it('parses M10 pilot checklist and runbook contracts as metadata-only', () => {
+    expect(M10PilotChecklistStatusSchema.options).toEqual(['ready', 'blocked', 'review']);
+    expect(M10PilotOperatorStepPhaseSchema.options).toEqual([
+      'preflight',
+      'approval',
+      'pilot',
+      'verification',
+      'review',
+      'rollback',
+    ]);
+    expect(M10PilotOperatorStepStatusSchema.options).toEqual([
+      'ready',
+      'blocked',
+      'review',
+      'done',
+    ]);
+
+    const step = M10PilotOperatorStepSchema.parse({
+      id: 'm10_pilot_step_1',
+      schemaVersion,
+      createdAt,
+      code: 'doctor_preflight',
+      label: 'Doctor preflight',
+      phase: 'preflight',
+      status: 'blocked',
+      required: true,
+      blockerCount: 1,
+      blockers: ['worktree_manager_disabled'],
+      safeEnableNotes: ['Resolve blockers before running the pilot.'],
+      evidenceRefIds: [],
+      auditEventIds: [],
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      summary: 'Operator preflight stores only status and blocker metadata.',
+    });
+    const checklist = M10PilotChecklistSchema.parse({
+      id: 'm10_pilot_checklist_1',
+      schemaVersion,
+      createdAt,
+      status: 'blocked',
+      steps: [step],
+      readyStepCount: 0,
+      blockedStepCount: 1,
+      reviewStepCount: 0,
+      requiredStepCount: 1,
+      blockerCount: 1,
+      integrationCount: 8,
+      configuredLocalControlKeyCount: 0,
+      governanceRunCount: 0,
+      approvalInboxItemCount: 0,
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      summary: 'M10 pilot checklist is blocked until operator prerequisites are ready.',
+    });
+    const runbook = M10PilotRunbookSummarySchema.parse({
+      id: 'm10_pilot_runbook_1',
+      schemaVersion,
+      createdAt,
+      checklistId: checklist.id,
+      status: checklist.status,
+      phaseCount: 6,
+      requiredStepCount: checklist.requiredStepCount,
+      blockerCount: checklist.blockerCount,
+      nextAction: 'Resolve checklist blockers before enabling the local pilot.',
+      rollbackSummary: 'Disable pilot flags and use governed cleanup metadata if needed.',
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      summary: 'Runbook summary is read-only and does not execute the pilot.',
+    });
+    const serialized = JSON.stringify({ checklist, runbook });
+
+    expect(checklist.status).toBe('blocked');
+    expect(runbook.checklistId).toBe(checklist.id);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout body');
+    expect(serialized).not.toContain('stderr body');
+    expect(serialized).not.toContain('diff --git');
+    expect(() =>
+      M10PilotOperatorStepSchema.parse({
+        ...step,
+        id: 'm10_pilot_step_bad_token',
+        localControlKeyRead: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      M10PilotChecklistSchema.parse({
+        ...checklist,
+        id: 'm10_pilot_checklist_bad_raw',
+        rawEnv: 'secret-value',
+      }),
+    ).toThrow();
+    expect(() =>
+      M10PilotRunbookSummarySchema.parse({
+        ...runbook,
+        id: 'm10_pilot_runbook_bad_metadata',
+        metadata: { rawEnv: 'secret-value' },
       }),
     ).toThrow();
   });

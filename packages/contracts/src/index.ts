@@ -2277,6 +2277,103 @@ export const OperatorReadinessReportSchema = createdEntityBaseSchema
   });
 export type OperatorReadinessReport = z.infer<typeof OperatorReadinessReportSchema>;
 
+export const M10PilotChecklistStatusSchema = z.enum(['ready', 'blocked', 'review']);
+export type M10PilotChecklistStatus = z.infer<typeof M10PilotChecklistStatusSchema>;
+
+export const M10PilotOperatorStepPhaseSchema = z.enum([
+  'preflight',
+  'approval',
+  'pilot',
+  'verification',
+  'review',
+  'rollback',
+]);
+export type M10PilotOperatorStepPhase = z.infer<typeof M10PilotOperatorStepPhaseSchema>;
+
+export const M10PilotOperatorStepStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'review',
+  'done',
+]);
+export type M10PilotOperatorStepStatus = z.infer<typeof M10PilotOperatorStepStatusSchema>;
+
+export const M10PilotOperatorStepSchema = createdEntityBaseSchema
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    phase: M10PilotOperatorStepPhaseSchema,
+    status: M10PilotOperatorStepStatusSchema,
+    required: z.boolean(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    safeEnableNotes: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M10PilotOperatorStep = z.infer<typeof M10PilotOperatorStepSchema>;
+
+export const M10PilotChecklistSchema = createdEntityBaseSchema
+  .extend({
+    status: M10PilotChecklistStatusSchema,
+    steps: z.array(M10PilotOperatorStepSchema),
+    readyStepCount: z.number().int().nonnegative(),
+    blockedStepCount: z.number().int().nonnegative(),
+    reviewStepCount: z.number().int().nonnegative(),
+    requiredStepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    integrationCount: z.number().int().nonnegative(),
+    configuredLocalControlKeyCount: z.number().int().nonnegative(),
+    governanceRunCount: z.number().int().nonnegative(),
+    approvalInboxItemCount: z.number().int().nonnegative(),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M10PilotChecklist = z.infer<typeof M10PilotChecklistSchema>;
+
+export const M10PilotRunbookSummarySchema = createdEntityBaseSchema
+  .extend({
+    checklistId: z.string().min(1),
+    status: M10PilotChecklistStatusSchema,
+    phaseCount: z.number().int().nonnegative(),
+    requiredStepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    nextAction: z.string().min(1),
+    rollbackSummary: z.string().min(1),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M10PilotRunbookSummary = z.infer<typeof M10PilotRunbookSummarySchema>;
+
 const goldenPathForbiddenMetadataKeys = new Set([
   'body',
   'prompt',
