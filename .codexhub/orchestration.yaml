@@ -1569,3 +1569,41 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m13_5.review-package-hardening:
+    risk: medium
+    trigger:
+      type: release-hardening
+      entrypoint: docs-and-audits
+      localControlRequired: false
+    chain:
+      - phase: review
+        scope:
+          - review-package-contracts
+          - review-package-kernel
+          - supervisor-control-plane
+          - dashboard-cli-read-only-ux
+          - no-live-audit
+      - phase: evidence
+        docs:
+          - docs/releases/m13-local-review-package-results.md
+          - docs/reviews/m13-review-package-hardening-review.md
+      - phase: baseline
+        scaffoldHealthRegistered: true
+    safety:
+      localOnly: true
+      newSupervisorRoute: false
+      newWriteBoundary: false
+      dashboardPostAllowed: false
+      cliPostAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+    forbidden:
+      - newRuntimeCapability
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest
