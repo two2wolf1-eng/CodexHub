@@ -128,6 +128,18 @@ const allowlistRules: AllowlistEntry[] = [
     reason: 'redaction vocabulary only; no external automation path',
   },
   {
+    scope: 'production-source',
+    file: 'packages/contracts/src/index.ts',
+    terms: sensitiveConceptTerms,
+    reason: 'contract metadata flags and hash-only credential readiness schemas only',
+  },
+  {
+    scope: 'production-source',
+    filePrefix: 'packages/github-provider-adapter/src/',
+    terms: sensitiveConceptTerms,
+    reason: 'GitHub provider token readiness exposes configured/hash-only metadata',
+  },
+  {
     scope: 'test',
     file: 'packages/evidence-kernel/src/evidence-kernel.test.ts',
     terms: sensitiveConceptTerms,
@@ -138,6 +150,12 @@ const allowlistRules: AllowlistEntry[] = [
     file: 'tools/audit-no-live-automation.ts',
     terms: allTextTerms,
     reason: 'audit vocabulary only',
+  },
+  {
+    scope: 'audit',
+    file: 'tools/scaffold-health.ts',
+    terms: sensitiveConceptTerms,
+    reason: 'scaffold health contract export vocabulary only',
   },
   {
     scope: 'fixture',

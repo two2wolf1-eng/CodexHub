@@ -279,6 +279,71 @@ integrations:
       genericShellAllowed: false
       worktreeRemoveAllowed: true
       worktreeRemoveForceAllowed: false
+  github-provider:
+    enabled: false
+    adapter: github-provider-adapter
+    provider: github
+    providerType: external-network
+    mode: metadata-readiness
+    stage: m15a-github-provider-foundation
+    defaultActionMode: read
+    defaultRisk: high
+    processBoundary: false
+    externalProcessBoundary: false
+    networkBoundary: planned-governed-only
+    token:
+      env: CODEXHUB_GITHUB_TOKEN
+      output: configured-hash-only
+      valueStorage: forbidden
+    allowedHost: api.github.com
+    productDefaultEnabled: false
+    metadataReadEnabled: false
+    draftPrCreationEnabled: false
+    enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
+    draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+    allowedMetadataEndpoints:
+      - GET /repos/{owner}/{repo}
+      - GET /repos/{owner}/{repo}/branches/{branch}
+      - GET /repos/{owner}/{repo}/pulls
+    allowedDraftPrEndpoint:
+      - POST /repos/{owner}/{repo}/pulls draft=true
+    forbiddenOperations:
+      - git push
+      - create-ref
+      - update-ref
+      - merge
+      - delete
+      - labels
+      - reviewers
+      - comments
+      - milestones
+      - non-draft-pr
+      - arbitrary-url-passthrough
+    storage:
+      rawToken: forbidden
+      rawOwner: forbidden
+      rawRepo: forbidden
+      rawBranch: forbidden
+      rawUrl: forbidden
+      rawRequestBody: forbidden
+      rawResponseBody: forbidden
+      rawPullRequestBody: forbidden
+      body: forbidden
+    evidence:
+      tokenReadiness: hash-only
+      providerPlan: hash-only
+      metadataSummary: hash-only
+      draftPrPlan: hash-only
+      draftPrSummary: hash-only
   policy-backend:
     enabled: false
     adapter: policy-backend-adapter

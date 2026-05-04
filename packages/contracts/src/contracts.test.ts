@@ -182,6 +182,17 @@ import {
   DiffReviewSummarySchema,
   GovernedCodexPatchPlanSchema,
   GovernedCodexPatchRunSchema,
+  GithubDraftPrAcceptanceRehearsalRunSchema,
+  GithubDraftPrCreationSummarySchema,
+  GithubDraftPrPlanSchema,
+  GithubDraftPrReadinessSchema,
+  GithubDraftPrRunSchema,
+  GithubMetadataApprovalArtifactRecordSchema,
+  GithubMetadataControlPlaneRunSchema,
+  GithubMetadataDryRunRecordSchema,
+  GithubProviderHostSchema,
+  GithubRemoteRefSummarySchema,
+  GithubTokenReadinessSchema,
   LocalReviewPackageApprovalArtifactRecordSchema,
   LocalReviewPackageControlPlaneRunSchema,
   LocalReviewPackageDryRunRecordSchema,
@@ -3405,6 +3416,7 @@ describe('contracts schemas', () => {
       'worktree',
       'policy',
       'telemetry',
+      'github',
       'orchestrator',
     ]);
 
@@ -8510,6 +8522,353 @@ describe('contracts schemas', () => {
         id: 'codex_real_read_only_adapter_pilot_source_preparation_invalid_prepared',
         status: 'prepared',
         degraded: true,
+      }),
+    ).toThrow();
+  });
+
+  it('parses GitHub provider metadata contracts and rejects raw remote values', () => {
+    const createdAt = '2026-05-04T00:00:00.000Z';
+    const targetRef = GithubRemoteRefSummarySchema.parse({
+      id: 'github_remote_ref_1',
+      schemaVersion,
+      createdAt,
+      hostHash: 'sha256:host',
+      ownerHash: 'sha256:owner',
+      repoHash: 'sha256:repo',
+      baseBranchHash: 'sha256:base',
+      headBranchHash: 'sha256:head',
+      allowedHost: GithubProviderHostSchema.value,
+      rawOwnerStored: false,
+      rawRepoStored: false,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: {
+        provider: 'github',
+        ownerHash: 'sha256:owner',
+      },
+      summary: 'GitHub remote target stores hashes only.',
+    });
+    const tokenReadiness = GithubTokenReadinessSchema.parse({
+      id: 'github_token_readiness_1',
+      schemaVersion,
+      createdAt,
+      providerName: 'github-provider',
+      envVarNameHash: 'sha256:env-name',
+      tokenConfigured: true,
+      tokenHash: 'sha256:token',
+      tokenValueStored: false,
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'GitHub token is configured; value is not stored.',
+    });
+    const dryRun = GithubMetadataDryRunRecordSchema.parse({
+      id: 'github_metadata_dry_run_record_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'github_metadata_dry_run_1',
+      status: 'planned',
+      runnerMode: 'controlled-github-http',
+      targetRef,
+      requestedMetadata: ['repo', 'base_branch', 'head_branch', 'existing_pull_request'],
+      policyDecision: {
+        id: 'policy_github_metadata_1',
+        schemaVersion,
+        createdAt,
+        actionId: 'github_metadata_1',
+        actionType: 'github.metadata.read',
+        actionMode: 'read',
+        riskLevel: 'high',
+        outcome: 'approval_required',
+        reasons: ['remote network boundary requires approval'],
+        requiresDryRun: true,
+        requiresApproval: true,
+        allow: false,
+      },
+      requiresApproval: true,
+      networkBoundaryPlanned: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [],
+      auditEventIds: ['audit_github_metadata_plan_1'],
+      summary: 'GitHub metadata dry-run is planned.',
+    });
+    const approval = GithubMetadataApprovalArtifactRecordSchema.parse({
+      id: 'github_metadata_approval_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRun.dryRunId,
+      dryRunRecordId: dryRun.id,
+      approvalRequestId: 'github_metadata_approval_request_1',
+      approvalArtifactId: 'github_metadata_approval_artifact_1',
+      status: 'approved',
+      approved: true,
+      policyDecisionId: dryRun.policyDecision.id,
+      evidenceRefs: [],
+      auditEventIds: ['audit_github_metadata_approval_1'],
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Approval is persisted without raw remote metadata.',
+    });
+    const run = GithubMetadataControlPlaneRunSchema.parse({
+      id: 'github_metadata_run_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRun.dryRunId,
+      dryRunRecordId: dryRun.id,
+      approvalArtifactId: approval.approvalArtifactId,
+      status: 'completed',
+      targetRef,
+      repoMetadataHash: 'sha256:repo-metadata',
+      baseBranchMetadataHash: 'sha256:base-metadata',
+      headBranchMetadataHash: 'sha256:head-metadata',
+      existingPullRequestCount: 0,
+      responseBodyHashes: ['sha256:repo-body', 'sha256:base-body', 'sha256:head-body'],
+      evidenceRefs: [],
+      auditEventIds: ['audit_github_metadata_run_1'],
+      networkBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'GitHub metadata run completed with hashes only.',
+    });
+    const serialized = JSON.stringify([targetRef, tokenReadiness, dryRun, approval, run]);
+
+    expect(run.status).toBe('completed');
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(tokenReadiness.tokenValueStored).toBe(false);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(() =>
+      GithubRemoteRefSummarySchema.parse({
+        ...targetRef,
+        id: 'github_remote_ref_invalid_raw',
+        metadata: {
+          owner: 'octocat',
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      GithubMetadataDryRunRecordSchema.parse({
+        ...dryRun,
+        id: 'github_metadata_dry_run_blocked_invalid',
+        status: 'blocked',
+        networkBoundaryPlanned: true,
+      }),
+    ).toThrow();
+  });
+
+  it('parses GitHub draft PR contracts while keeping PR body and remote refs hash-only', () => {
+    const createdAt = '2026-05-04T00:00:00.000Z';
+    const targetRef = GithubRemoteRefSummarySchema.parse({
+      id: 'github_draft_target_1',
+      schemaVersion,
+      createdAt,
+      hostHash: 'sha256:host',
+      ownerHash: 'sha256:owner',
+      repoHash: 'sha256:repo',
+      baseBranchHash: 'sha256:base',
+      headBranchHash: 'sha256:head',
+      allowedHost: GithubProviderHostSchema.value,
+      rawOwnerStored: false,
+      rawRepoStored: false,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Draft PR target is represented by hashes only.',
+    });
+    const readiness = GithubDraftPrReadinessSchema.parse({
+      id: 'github_draft_pr_readiness_1',
+      schemaVersion,
+      createdAt,
+      sourceKind: 'local_rc_readiness',
+      sourceIdHash: 'sha256:source-id',
+      sourceSummaryHash: 'sha256:source-summary',
+      targetRef,
+      status: 'ready_for_draft_pr',
+      blockerCount: 0,
+      draftOnly: true,
+      remoteHeadBranchExistsRequired: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      labelsAllowed: false,
+      reviewersAllowed: false,
+      commentsAllowed: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Existing remote head branch is required before draft PR creation.',
+    });
+    const plan = GithubDraftPrPlanSchema.parse({
+      id: 'github_draft_pr_plan_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'github_draft_pr_dry_run_1',
+      status: 'planned',
+      runnerMode: 'controlled-github-draft-pr',
+      readiness,
+      titleHash: 'sha256:title',
+      bodyHash: 'sha256:body',
+      bodySectionCount: 4,
+      bodyCharacterCount: 512,
+      policyDecision: {
+        id: 'policy_github_draft_pr_1',
+        schemaVersion,
+        createdAt,
+        actionId: 'github_draft_pr_1',
+        actionType: 'github.draft_pr.create',
+        actionMode: 'write',
+        riskLevel: 'high',
+        outcome: 'approval_required',
+        reasons: ['remote draft PR creation requires approval'],
+        requiresDryRun: true,
+        requiresApproval: true,
+        allow: false,
+      },
+      requiresApproval: true,
+      networkBoundaryPlanned: true,
+      networkBoundaryInvoked: false,
+      draft: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      evidenceRefs: [],
+      auditEventIds: ['audit_draft_pr_plan_1'],
+      summary: 'Draft PR creation plan stores title/body hashes only.',
+    });
+    const creationSummary = GithubDraftPrCreationSummarySchema.parse({
+      id: 'github_draft_pr_creation_summary_1',
+      schemaVersion,
+      createdAt,
+      targetRef,
+      prNumberHash: 'sha256:pr-number',
+      prUrlHash: 'sha256:pr-url',
+      titleHash: plan.titleHash,
+      bodyHash: plan.bodyHash,
+      draft: true,
+      created: true,
+      rawUrlStored: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Draft PR creation summary stores only hashes and counts.',
+    });
+    const auditChain = {
+      id: 'github_remote_pr_audit_chain_1',
+      schemaVersion,
+      createdAt,
+      draftPrRunIdHash: 'sha256:run',
+      auditEventIds: ['audit_draft_pr_run_1'],
+      auditEventCount: 1,
+      policyDecisionIds: [plan.policyDecision.id],
+      evidenceRefIds: ['evidence_draft_pr_run_1'],
+      evidenceRefCount: 1,
+      networkBoundaryCount: 1,
+      chainHash: 'sha256:chain',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Remote PR audit chain references ids only.',
+    };
+    const run = GithubDraftPrRunSchema.parse({
+      id: 'github_draft_pr_run_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: plan.dryRunId,
+      dryRunRecordId: plan.id,
+      approvalArtifactId: 'github_draft_pr_approval_artifact_1',
+      status: 'completed',
+      plan,
+      creationSummary,
+      auditChain,
+      responseBodyHashes: ['sha256:post-response'],
+      evidenceRefs: [],
+      auditEventIds: ['audit_draft_pr_run_1'],
+      networkBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: false,
+      draft: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Draft PR run completed after a governed network boundary.',
+    });
+    const rehearsal = GithubDraftPrAcceptanceRehearsalRunSchema.parse({
+      id: 'github_draft_pr_rehearsal_1',
+      schemaVersion,
+      createdAt,
+      scenario: 'all-pass',
+      status: 'passed',
+      stepCount: 6,
+      readinessStatus: 'ready_for_draft_pr',
+      prCreationStatus: 'fixture_completed',
+      evidenceRefCount: 0,
+      auditEventCount: 0,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      draft: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Fixture rehearsal does not call GitHub.',
+    });
+    const serialized = JSON.stringify([plan, run, rehearsal]);
+
+    expect(run.status).toBe('completed');
+    expect(run.draft).toBe(true);
+    expect(run.pushAllowed).toBe(false);
+    expect(rehearsal.networkBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('## Summary');
+    expect(serialized).not.toContain('https://github.com');
+    expect(serialized).not.toContain('ghp_');
+    expect(() =>
+      GithubDraftPrReadinessSchema.parse({
+        ...readiness,
+        id: 'github_draft_pr_readiness_invalid_ready',
+        blockerCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      GithubDraftPrRunSchema.parse({
+        ...run,
+        id: 'github_draft_pr_run_invalid_completed',
+        noRealWrite: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      GithubDraftPrPlanSchema.parse({
+        ...plan,
+        id: 'github_draft_pr_plan_invalid_raw_body',
+        metadata: {
+          prBody: 'raw PR markdown body',
+        },
       }),
     ).toThrow();
   });
