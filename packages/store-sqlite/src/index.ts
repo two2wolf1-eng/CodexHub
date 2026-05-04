@@ -14,6 +14,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  LocalReviewPackageApprovalArtifactRecord,
+  LocalReviewPackageControlPlaneRun,
+  LocalReviewPackageDryRunRecord,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -89,6 +92,10 @@ import type {
   EvidenceRefQuery,
   EvidenceRefRepository,
   ObservationRepository,
+  ReviewPackageApprovalRepository,
+  ReviewPackageControlPlaneQuery,
+  ReviewPackageDryRunRepository,
+  ReviewPackageRunRepository,
   StoreFactoryOptions,
   WorkflowRunRepository,
 } from '@codexhub/store-core';
@@ -156,6 +163,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly worktreeCleanupDryRuns: WorktreeCleanupDryRunRepository;
   readonly worktreeCleanupApprovals: WorktreeCleanupApprovalRepository;
   readonly worktreeCleanupRuns: WorktreeCleanupRunRepository;
+  readonly reviewPackageDryRuns: ReviewPackageDryRunRepository;
+  readonly reviewPackageApprovals: ReviewPackageApprovalRepository;
+  readonly reviewPackageRuns: ReviewPackageRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -201,6 +211,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.worktreeCleanupDryRuns = new SqliteWorktreeCleanupDryRunRepository(database);
     this.worktreeCleanupApprovals = new SqliteWorktreeCleanupApprovalRepository(database);
     this.worktreeCleanupRuns = new SqliteWorktreeCleanupRunRepository(database);
+    this.reviewPackageDryRuns = new SqliteReviewPackageDryRunRepository(database);
+    this.reviewPackageApprovals = new SqliteReviewPackageApprovalRepository(database);
+    this.reviewPackageRuns = new SqliteReviewPackageRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -896,6 +909,114 @@ class SqliteWorktreeCleanupRunRepository implements WorktreeCleanupRunRepository
     return listObservationControlPlaneRecords<WorktreeCleanupControlPlaneRun>(
       this.database,
       'worktree_cleanup_runs',
+      query,
+    );
+  }
+}
+
+class SqliteReviewPackageDryRunRepository implements ReviewPackageDryRunRepository {
+  private readonly repository: JsonEntityRepository<LocalReviewPackageDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<LocalReviewPackageDryRunRecord>(
+      database,
+      'review_package_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(
+    record: LocalReviewPackageDryRunRecord,
+  ): Promise<LocalReviewPackageDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<LocalReviewPackageDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: ReviewPackageControlPlaneQuery = {},
+  ): Promise<LocalReviewPackageDryRunRecord[]> {
+    return listObservationControlPlaneRecords<LocalReviewPackageDryRunRecord>(
+      this.database,
+      'review_package_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteReviewPackageApprovalRepository implements ReviewPackageApprovalRepository {
+  private readonly repository: JsonEntityRepository<LocalReviewPackageApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<LocalReviewPackageApprovalArtifactRecord>(
+      database,
+      'review_package_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: LocalReviewPackageApprovalArtifactRecord,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<LocalReviewPackageApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM review_package_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as LocalReviewPackageApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: ReviewPackageControlPlaneQuery = {},
+  ): Promise<LocalReviewPackageApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<LocalReviewPackageApprovalArtifactRecord>(
+      this.database,
+      'review_package_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteReviewPackageRunRepository implements ReviewPackageRunRepository {
+  private readonly repository: JsonEntityRepository<LocalReviewPackageControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<LocalReviewPackageControlPlaneRun>(
+      database,
+      'review_package_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: LocalReviewPackageControlPlaneRun,
+  ): Promise<LocalReviewPackageControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<LocalReviewPackageControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: ReviewPackageControlPlaneQuery = {},
+  ): Promise<LocalReviewPackageControlPlaneRun[]> {
+    return listObservationControlPlaneRecords<LocalReviewPackageControlPlaneRun>(
+      this.database,
+      'review_package_runs',
       query,
     );
   }
@@ -1860,6 +1981,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS worktree_cleanup_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS review_package_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS review_package_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS review_package_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

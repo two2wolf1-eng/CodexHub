@@ -146,6 +146,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'patch.readiness_summary',
     'review.package_plan',
     'review.package_summary',
+    'review.package_export_plan',
+    'review.package_export_summary',
     'review.finding_summary',
     'review.decision_projection',
     'pr.draft_summary',
@@ -2448,6 +2450,172 @@ export const LocalReviewPackageRunSchema = createdEntityBaseSchema
     }
   });
 export type LocalReviewPackageRun = z.infer<typeof LocalReviewPackageRunSchema>;
+
+export const LocalReviewPackageExportRunnerModeSchema = z.enum([
+  'projection',
+  'controlled-local-artifact',
+]);
+export type LocalReviewPackageExportRunnerMode = z.infer<
+  typeof LocalReviewPackageExportRunnerModeSchema
+>;
+
+export const LocalReviewPackageApprovalStatusSchema = z.enum([
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type LocalReviewPackageApprovalStatus = z.infer<
+  typeof LocalReviewPackageApprovalStatusSchema
+>;
+
+export const LocalReviewPackageExportRunStatusSchema = z.enum([
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type LocalReviewPackageExportRunStatus = z.infer<
+  typeof LocalReviewPackageExportRunStatusSchema
+>;
+
+export const LocalReviewPackageDryRunRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    runnerMode: LocalReviewPackageExportRunnerModeSchema,
+    reviewPackage: LocalReviewPackageRunSchema,
+    reviewPackageIdHash: z.string().min(1),
+    packageHash: z.string().min(1),
+    artifactRootHash: z.string().min(1),
+    artifactDirectoryHash: z.string().min(1),
+    plannedFileCount: z.number().int().positive(),
+    plannedFileNameHashes: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryPlanned: z.boolean(),
+    artifactWriteBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.plannedFileCount !== record.plannedFileNameHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'plannedFileCount must match plannedFileNameHashes length',
+        path: ['plannedFileCount'],
+      });
+    }
+
+    if (record.status === 'blocked' && record.artifactWriteBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked local review package dry-runs cannot plan an artifact write',
+        path: ['artifactWriteBoundaryPlanned'],
+      });
+    }
+  });
+export type LocalReviewPackageDryRunRecord = z.infer<
+  typeof LocalReviewPackageDryRunRecordSchema
+>;
+
+export const LocalReviewPackageApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: LocalReviewPackageApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedByHash: z.string().min(1).optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match approved approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type LocalReviewPackageApprovalArtifactRecord = z.infer<
+  typeof LocalReviewPackageApprovalArtifactRecordSchema
+>;
+
+export const LocalReviewPackageControlPlaneRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: LocalReviewPackageExportRunStatusSchema,
+    reviewPackageIdHash: z.string().min(1),
+    packageHash: z.string().min(1),
+    artifactRootHash: z.string().min(1),
+    artifactDirectoryHash: z.string().min(1),
+    exportedFileCount: z.number().int().nonnegative(),
+    byteCount: z.number().int().nonnegative(),
+    contentHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'completed' && !record.artifactWriteBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed local review package exports must invoke artifact write boundary',
+        path: ['artifactWriteBoundaryInvoked'],
+      });
+    }
+
+    if (record.status === 'completed' && record.noRealWrite) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed local artifact export is a real local write',
+        path: ['noRealWrite'],
+      });
+    }
+  });
+export type LocalReviewPackageControlPlaneRun = z.infer<
+  typeof LocalReviewPackageControlPlaneRunSchema
+>;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);
 export type GovernedCodexPatchMode = z.infer<typeof GovernedCodexPatchModeSchema>;

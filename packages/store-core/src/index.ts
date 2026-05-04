@@ -7,6 +7,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  LocalReviewPackageApprovalArtifactRecord,
+  LocalReviewPackageControlPlaneRun,
+  LocalReviewPackageDryRunRecord,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -76,6 +79,8 @@ export interface WorktreeControlPlaneQuery {
   status?: string;
   limit?: number;
 }
+
+export type ReviewPackageControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -241,6 +246,31 @@ export interface WorktreeCleanupRunRepository {
   saveRun(record: WorktreeCleanupControlPlaneRun): Promise<WorktreeCleanupControlPlaneRun>;
   getRun(id: string): Promise<WorktreeCleanupControlPlaneRun | undefined>;
   listRuns(query?: WorktreeControlPlaneQuery): Promise<WorktreeCleanupControlPlaneRun[]>;
+}
+
+export interface ReviewPackageDryRunRepository {
+  saveDryRun(record: LocalReviewPackageDryRunRecord): Promise<LocalReviewPackageDryRunRecord>;
+  getDryRun(id: string): Promise<LocalReviewPackageDryRunRecord | undefined>;
+  listDryRuns(query?: ReviewPackageControlPlaneQuery): Promise<LocalReviewPackageDryRunRecord[]>;
+}
+
+export interface ReviewPackageApprovalRepository {
+  saveApproval(
+    record: LocalReviewPackageApprovalArtifactRecord,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord>;
+  getApproval(id: string): Promise<LocalReviewPackageApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: ReviewPackageControlPlaneQuery,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord[]>;
+}
+
+export interface ReviewPackageRunRepository {
+  saveRun(record: LocalReviewPackageControlPlaneRun): Promise<LocalReviewPackageControlPlaneRun>;
+  getRun(id: string): Promise<LocalReviewPackageControlPlaneRun | undefined>;
+  listRuns(query?: ReviewPackageControlPlaneQuery): Promise<LocalReviewPackageControlPlaneRun[]>;
 }
 
 export interface CodexReportReviewRepository {
@@ -429,6 +459,9 @@ export interface CodexHubStore {
   worktreeCleanupDryRuns: WorktreeCleanupDryRunRepository;
   worktreeCleanupApprovals: WorktreeCleanupApprovalRepository;
   worktreeCleanupRuns: WorktreeCleanupRunRepository;
+  reviewPackageDryRuns: ReviewPackageDryRunRepository;
+  reviewPackageApprovals: ReviewPackageApprovalRepository;
+  reviewPackageRuns: ReviewPackageRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

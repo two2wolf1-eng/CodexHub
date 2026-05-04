@@ -29,6 +29,9 @@ const approvedProcessBoundaryFiles = new Set([
 const approvedGitBoundaryFiles = new Set([
   'packages/worktree-manager/src/git-process-boundary.ts',
 ]);
+const approvedLocalArtifactWriteBoundaryFiles = new Set([
+  'packages/review-package-kernel/src/artifact-export-boundary.ts',
+]);
 const approvedLiveAutomationBoundaryFiles = new Set([
   'packages/playwright-observer-adapter/src/real-runner.ts',
 ]);
@@ -66,6 +69,10 @@ const gitBoundaryTerms = [
   ['git', ' push'].join(''),
   ['diff', ' --name-only'].join(''),
   ['diff', ' --numstat'].join(''),
+];
+const localArtifactWriteTerms = [
+  'review-package-summary.json',
+  'review-package-summary.md',
 ];
 const policyTelemetryRuntimeTerms = [
   ['@open', 'telemetry/'].join(''),
@@ -106,6 +113,7 @@ const allTextTerms = [
   ...cdpForbiddenTransportTerms,
   ...cdpCommandPassthroughTerms,
   ...gitBoundaryTerms,
+  ...localArtifactWriteTerms,
   ...policyTelemetryRuntimeTerms,
   ...sensitiveConceptTerms,
 ];
@@ -198,12 +206,22 @@ function validateBoundaryAllowlists(): void {
     });
   }
 
+  if (approvedLocalArtifactWriteBoundaryFiles.size !== 1) {
+    violations.push({
+      file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
+      line: 1,
+      term: 'approvedLocalArtifactWriteBoundaryFiles',
+      reason: 'M13b local artifact export must have exactly one audited boundary file.',
+    });
+  }
+
   for (const workspacePath of [
     ...approvedProcessBoundaryFiles,
     ...approvedLiveAutomationBoundaryFiles,
     ...approvedCdpHttpBoundaryFiles,
     ...approvedCdpWebSocketBoundaryFiles,
     ...approvedGitBoundaryFiles,
+    ...approvedLocalArtifactWriteBoundaryFiles,
   ]) {
     if (!existsSync(resolve(workspaceRoot, workspacePath))) {
       violations.push({
@@ -374,6 +392,22 @@ function auditTextTerms(file: string, sourceText: string): void {
       }
     }
 
+    for (const term of localArtifactWriteTerms) {
+      if (
+        line.includes(term) &&
+        !isApprovedLocalArtifactWriteBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Local artifact file writes are allowed only in the audited review package export boundary module, docs, or tests.',
+        });
+      }
+    }
+
     for (const term of policyTelemetryRuntimeTerms) {
       if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
         violations.push({
@@ -518,6 +552,10 @@ function isApprovedCdpWebSocketBoundary(workspacePath: string): boolean {
 
 function isApprovedGitBoundary(workspacePath: string): boolean {
   return approvedGitBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedLocalArtifactWriteBoundary(workspacePath: string): boolean {
+  return approvedLocalArtifactWriteBoundaryFiles.has(workspacePath);
 }
 
 function isPolicyTelemetryRuntimeImport(importPath: string): boolean {

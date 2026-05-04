@@ -238,6 +238,9 @@ importers:
       '@codexhub/playwright-observer-adapter':
         specifier: workspace:*
         version: link:../../packages/playwright-observer-adapter
+      '@codexhub/review-package-kernel':
+        specifier: workspace:*
+        version: link:../../packages/review-package-kernel
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../../packages/security-kernel

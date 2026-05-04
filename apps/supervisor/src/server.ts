@@ -233,6 +233,10 @@ import type {
   ElectronCdpObservationRunStatus,
   ElectronDebugEndpointSummary,
   EvidenceRef,
+  LocalReviewPackageApprovalArtifactRecord,
+  LocalReviewPackageControlPlaneRun,
+  LocalReviewPackageDryRunRecord,
+  LocalReviewPackageRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -296,6 +300,13 @@ import {
   executePlaywrightObserverAdapter,
 } from '@codexhub/playwright-observer-adapter';
 import type { PlaywrightObserverRunner } from '@codexhub/playwright-observer-adapter';
+import {
+  createLocalReviewPackageApprovalRecord,
+  createLocalReviewPackageAuditEvent,
+  createLocalReviewPackageExportDryRunRecord,
+  createLocalReviewPackageProjection,
+  executeLocalReviewPackageExport,
+} from '@codexhub/review-package-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -336,6 +347,7 @@ interface SupervisorServerOptions {
   m11ProductionPilotEnabled?: boolean;
   m11CodexRunner?: M11ProductionPilotNarrowPathInput['codexRunner'];
   m11NxRunner?: M11ProductionPilotNarrowPathInput['nxRunner'];
+  reviewPackageExportEnabled?: boolean;
 }
 
 interface PersistenceState {
@@ -538,6 +550,57 @@ interface M9LocalPilotRunRequestBody {
 
 type M11LocalPilotRunRequestBody = M9LocalPilotRunRequestBody;
 
+interface ReviewPackageDryRunRequestBody {
+  sourceLifecycleRunId?: string;
+  sourcePatchRunId?: string;
+  sourceVerificationGateId?: string;
+  changedFilePathHashes?: string[];
+  diffHash?: string;
+  verificationStatus?: 'passed' | 'failed' | 'aborted' | 'blocked' | 'not_run';
+  readinessStatus?:
+    | 'not_ready_no_patch'
+    | 'not_ready_pending_verification'
+    | 'ready_for_review_draft_only'
+    | 'blocked_verification_failed'
+    | 'blocked_policy';
+  readyForReviewDraftOnly?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  workspaceRoot?: string;
+  artifactRoot?: string;
+  packageId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ReviewPackageApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ReviewPackageManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: 'approved' | 'denied' | 'revoked';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ReviewPackageRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  workspaceRoot?: string;
+  artifactRoot?: string;
+  packageId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
 type ApprovalDecisionRequestBody = ApprovalDecisionRequest & {
   approvalArtifact?: unknown;
   authority?: unknown;
@@ -618,6 +681,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const worktreeCleanupDryRunRecords: WorktreeCleanupDryRunRecord[] = [];
   const worktreeCleanupApprovalRecords: WorktreeCleanupApprovalArtifactRecord[] = [];
   const worktreeCleanupRunRecords: WorktreeCleanupControlPlaneRun[] = [];
+  const reviewPackageDryRunRecords: LocalReviewPackageDryRunRecord[] = [];
+  const reviewPackageApprovalRecords: LocalReviewPackageApprovalArtifactRecord[] = [];
+  const reviewPackageRunRecords: LocalReviewPackageControlPlaneRun[] = [];
   const m9LocalPilotRunRecords: M9PilotRun[] = [];
   const m11LocalPilotRunRecords: M11PilotRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
@@ -1463,6 +1529,282 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createWorktreeRunResponse(record);
+  });
+
+  server.post('/api/review-packages/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReviewPackageStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as ReviewPackageDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReviewPackageUntrustedAuthorityResponse(undefined));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReviewPackageForbiddenRawBodyResponse(undefined));
+    }
+
+    const reviewPackage = createReviewPackageProjectionFromRequest(body);
+    const dryRunRecord = createLocalReviewPackageExportDryRunRecord({
+      reviewPackage,
+      workspaceRoot: body?.workspaceRoot ?? findWorkspaceRoot(process.cwd()),
+      artifactRoot: body?.artifactRoot,
+      packageId: body?.packageId,
+    });
+
+    await persistReviewPackageDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistReviewPackageAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      false,
+    );
+
+    return createReviewPackageDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/review-packages/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReviewPackageDryRuns(query, store);
+
+    return {
+      records: records.map(createReviewPackageDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/review-packages/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReviewPackageStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ReviewPackageApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReviewPackageUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReviewPackageForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReviewPackageDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'review package dry-run record was not found' });
+    }
+
+    const approvalRecord = createLocalReviewPackageApprovalRecord({
+      dryRunRecord,
+      status: 'requested',
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+    });
+
+    await persistReviewPackageApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistReviewPackageAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createReviewPackageApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/review-packages/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReviewPackageStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ReviewPackageManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReviewPackageUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReviewPackageForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReviewPackageDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'review package dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveReviewPackageApprovalRecord(body.approvalRequestId, store)
+      : (await listReviewPackageApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'review package approval request was not found' });
+    }
+
+    const approvalRecord = createLocalReviewPackageApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistReviewPackageApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistReviewPackageAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createReviewPackageApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/review-packages/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReviewPackageApprovals(query, store);
+
+    return {
+      records: records.map(createReviewPackageApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/review-packages/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReviewPackageStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as ReviewPackageRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReviewPackageUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReviewPackageForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReviewPackageDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'review package dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveReviewPackageApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord?.approvalArtifactId,
+      allowed:
+        dryRunRecord.status === 'planned' &&
+        approvalRecord?.status === 'approved' &&
+        approvalRecord.approved,
+      constraints: ['local-review-package-export-only', 'hash-bound-artifact-root'],
+    });
+    const runRecord = await executeLocalReviewPackageExport({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      reviewPackage: dryRunRecord.reviewPackage,
+      enabled:
+        options.reviewPackageExportEnabled ??
+        process.env.CODEXHUB_REVIEW_PACKAGE_EXPORT_ENABLED === 'true',
+      runtime: {
+        workspaceRoot: body?.workspaceRoot ?? findWorkspaceRoot(process.cwd()),
+        artifactRoot: body?.artifactRoot,
+        packageId: body?.packageId ?? dryRunRecord.reviewPackage.id,
+      },
+    });
+
+    await persistReviewPackageRunRecord(runRecord, store);
+    await persistEvidenceRefs(runRecord.evidenceRefs, store);
+    await persistReviewPackageAuditEvents(
+      runRecord.auditEventIds,
+      runRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      runRecord.artifactWriteBoundaryInvoked,
+    );
+
+    if (runRecord.artifactWriteBoundaryInvoked && approvalRecord) {
+      const usedRecord = createLocalReviewPackageApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRecord,
+        status: 'used',
+        reason: 'approval consumed after local artifact write boundary attempt',
+      });
+      await persistReviewPackageApprovalRecord(usedRecord, store);
+      await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+      await persistReviewPackageAuditEvents(
+        usedRecord.auditEventIds,
+        usedRecord.evidenceRefs,
+        store,
+        usedRecord.policyDecisionId,
+        runRecord.artifactWriteBoundaryInvoked,
+      );
+    }
+
+    return createReviewPackageRunResponse(runRecord);
+  });
+
+  server.get('/api/review-packages/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReviewPackageRuns(query, store);
+
+    return {
+      records: records.map(createReviewPackageRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      artifactWriteBoundaryInvoked: records.some((record) => record.artifactWriteBoundaryInvoked),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/review-packages/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveReviewPackageRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'review package run was not found' });
+    }
+
+    return createReviewPackageRunResponse(record);
   });
 
   server.post('/api/pilots/m9/local-runs', async (request, reply) => {
@@ -10679,6 +11021,331 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return store
       ? await store.worktreeCleanupRuns.listRuns(query)
       : worktreeCleanupRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  function createReviewPackageProjectionFromRequest(
+    body: ReviewPackageDryRunRequestBody | undefined,
+  ): LocalReviewPackageRun {
+    return createLocalReviewPackageProjection({
+      sourceLifecycleRunId: body?.sourceLifecycleRunId ?? 'm12_lifecycle_unknown',
+      sourcePatchRunId: body?.sourcePatchRunId ?? 'm12_patch_unknown',
+      sourceVerificationGateId: body?.sourceVerificationGateId,
+      changedFilePathHashes: body?.changedFilePathHashes ?? [],
+      diffHash: body?.diffHash,
+      verificationStatus: body?.verificationStatus ?? 'blocked',
+      readinessStatus: body?.readinessStatus ?? 'blocked_policy',
+      readyForReviewDraftOnly: body?.readyForReviewDraftOnly ?? false,
+      evidenceRefIds: body?.evidenceRefIds ?? [],
+      auditEventIds: body?.auditEventIds ?? [],
+    });
+  }
+
+  async function persistReviewPackageDryRunRecord(
+    record: LocalReviewPackageDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.reviewPackageDryRuns.saveDryRun(record);
+      return;
+    }
+    reviewPackageDryRunRecords.unshift(record);
+  }
+
+  async function persistReviewPackageApprovalRecord(
+    record: LocalReviewPackageApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.reviewPackageApprovals.saveApproval(record);
+      return;
+    }
+    reviewPackageApprovalRecords.unshift(record);
+  }
+
+  async function persistReviewPackageRunRecord(
+    record: LocalReviewPackageControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.reviewPackageRuns.saveRun(record);
+      return;
+    }
+    reviewPackageRunRecords.unshift(record);
+  }
+
+  async function persistReviewPackageAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+    artifactWriteBoundaryInvoked: boolean,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append(
+        createLocalReviewPackageAuditEvent({
+          id: auditEventId,
+          action: 'review_package.control_plane',
+          policyDecisionId,
+          evidenceRefs,
+          artifactWriteBoundaryInvoked,
+        }),
+      );
+    }
+  }
+
+  async function resolveReviewPackageDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.reviewPackageDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.reviewPackageDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return reviewPackageDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveReviewPackageApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.reviewPackageApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.reviewPackageApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return reviewPackageApprovalRecords.find(
+      (record) =>
+        record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveReviewPackageApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.reviewPackageApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : reviewPackageApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveReviewPackageRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageControlPlaneRun | undefined> {
+    return store
+      ? await store.reviewPackageRuns.getRun(runId)
+      : reviewPackageRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listReviewPackageDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageDryRunRecord[]> {
+    return store
+      ? await store.reviewPackageDryRuns.listDryRuns(query)
+      : reviewPackageDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listReviewPackageApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageApprovalArtifactRecord[]> {
+    return store
+      ? await store.reviewPackageApprovals.listApprovals(query)
+      : reviewPackageApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listReviewPackageRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<LocalReviewPackageControlPlaneRun[]> {
+    return store
+      ? await store.reviewPackageRuns.listRuns(query)
+      : reviewPackageRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  function createReviewPackageDryRunResponse(record: LocalReviewPackageDryRunRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      runnerMode: record.runnerMode,
+      reviewPackageIdHash: record.reviewPackageIdHash,
+      packageHash: record.packageHash,
+      artifactRootHash: record.artifactRootHash,
+      artifactDirectoryHash: record.artifactDirectoryHash,
+      plannedFileCount: record.plannedFileCount,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      artifactWriteBoundaryPlanned: record.artifactWriteBoundaryPlanned,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReviewPackageApprovalResponse(
+    record: LocalReviewPackageApprovalArtifactRecord,
+  ) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      reasonHash: record.reasonHash,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReviewPackageRunResponse(record: LocalReviewPackageControlPlaneRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      status: record.status,
+      reviewPackageIdHash: record.reviewPackageIdHash,
+      packageHash: record.packageHash,
+      artifactRootHash: record.artifactRootHash,
+      artifactDirectoryHash: record.artifactDirectoryHash,
+      exportedFileCount: record.exportedFileCount,
+      byteCount: record.byteCount,
+      contentHash: record.contentHash,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      artifactWriteBoundaryInvoked: record.artifactWriteBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function parseReviewPackageQuery(query: unknown): {
+    dryRunId?: string;
+    status?: string;
+    limit?: number;
+  } {
+    const limitResult = parseLimitQueryValue(readQueryValue(query, 'limit'));
+
+    return {
+      dryRunId: readQueryValue(query, 'dryRunId'),
+      status: readQueryValue(query, 'status'),
+      limit: limitResult.allowed ? limitResult.limit : undefined,
+    };
+  }
+
+  function createReviewPackageStoreUnavailableResponse(phase: string) {
+    return {
+      error: `review_package_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createReviewPackageUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_review_package_authority_body',
+      dryRunId,
+      status: 'blocked',
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createReviewPackageForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_review_package_raw_body',
+      dryRunId,
+      status: 'blocked',
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function hasForbiddenReviewPackageRawBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'rawBody',
+      'rawPath',
+      'rawDiff',
+      'diffBody',
+      'rawPullRequestBody',
+      'pullRequestBody',
+      'prBody',
+      'rawCommand',
+      'commandBody',
+      'rawReason',
+      'reasonBody',
+      'reasonText',
+      ['to', 'ken'].join(''),
+      ['coo', 'kie'].join(''),
+      ['sess', 'ion'].join(''),
+    ]);
+
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenReviewPackageRawBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        forbiddenKeys.has(key) || hasForbiddenReviewPackageRawBody(nestedValue),
+    );
   }
 
   function createWorktreeDryRunResponse(record: WorktreeDryRunRecord) {

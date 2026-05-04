@@ -182,6 +182,9 @@ import {
   DiffReviewSummarySchema,
   GovernedCodexPatchPlanSchema,
   GovernedCodexPatchRunSchema,
+  LocalReviewPackageApprovalArtifactRecordSchema,
+  LocalReviewPackageControlPlaneRunSchema,
+  LocalReviewPackageDryRunRecordSchema,
   LocalReviewDecisionProjectionSchema,
   LocalReviewFindingSummarySchema,
   LocalReviewPackagePlanSchema,
@@ -2175,6 +2178,216 @@ describe('contracts schemas', () => {
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('pull request body');
     expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('parses M13 governed local review package export records and rejects raw metadata', () => {
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_review_export',
+      schemaVersion,
+      createdAt,
+      kind: 'review.package_export_plan',
+      hash: 'sha256:review-export-plan',
+      redacted: true,
+      metadata: {
+        artifactRootHash: 'sha256:artifact-root',
+        artifactDirectoryHash: 'sha256:artifact-dir',
+        rawPathStored: false,
+        bodyStored: false,
+      },
+    });
+    const policyDecision = PolicyDecisionSchema.parse({
+      id: 'policy_review_export',
+      schemaVersion,
+      createdAt,
+      actionId: 'review_export_dry_run',
+      actionType: 'review_package.export_local_artifact',
+      actionMode: 'write',
+      riskLevel: 'medium',
+      outcome: 'approval_required',
+      reasons: ['local artifact export requires approval'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    });
+    const reviewPlan = LocalReviewPackagePlanSchema.parse({
+      id: 'review_export_source_plan',
+      schemaVersion,
+      createdAt,
+      sourceLifecycleRunIdHash: 'sha256:lifecycle',
+      sourcePatchRunIdHash: 'sha256:patch',
+      changedFileCount: 1,
+      changedFilePathHashes: ['sha256:file'],
+      diffHash: 'sha256:diff',
+      verificationStatus: 'passed',
+      readinessStatus: 'ready_for_review_draft_only',
+      readyForReviewDraftOnly: true,
+      fileExportPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Review export source plan.',
+    });
+    const reviewPackage = LocalReviewPackageRunSchema.parse({
+      id: 'review_export_source_package',
+      schemaVersion,
+      createdAt,
+      plan: reviewPlan,
+      packageSummary: LocalReviewPackageSummarySchema.parse({
+        id: 'review_export_source_summary',
+        schemaVersion,
+        createdAt,
+        planId: reviewPlan.id,
+        status: 'ready_for_review',
+        changedFileCount: 1,
+        diffHash: 'sha256:diff',
+        verificationStatus: 'passed',
+        readyForReviewDraftOnly: true,
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        packageHash: 'sha256:package',
+        exported: false,
+        rawPathStored: false,
+        bodyStored: false,
+        noRealWrite: true,
+        summary: 'Review export source package is ready.',
+      }),
+      findings: [],
+      decision: LocalReviewDecisionProjectionSchema.parse({
+        id: 'review_export_source_decision',
+        schemaVersion,
+        createdAt,
+        reviewPackageIdHash: 'sha256:package',
+        status: 'pending',
+        findingCount: 0,
+        blockerCount: 0,
+        nextAction: 'none',
+        retryHandoffRequired: false,
+        rawReasonStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        noRealWrite: true,
+        summary: 'Review export source decision is pending.',
+      }),
+      evidenceRefIds: ['evidence_review_export'],
+      auditEventIds: ['audit_review_export_plan'],
+      exported: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Review export source package.',
+    });
+    const dryRun = LocalReviewPackageDryRunRecordSchema.parse({
+      id: 'review_export_dry_run_record',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'review_export_dry_run',
+      status: 'planned',
+      runnerMode: 'controlled-local-artifact',
+      reviewPackage,
+      reviewPackageIdHash: 'sha256:review-package',
+      packageHash: 'sha256:package',
+      artifactRootHash: 'sha256:artifact-root',
+      artifactDirectoryHash: 'sha256:artifact-dir',
+      plannedFileCount: 2,
+      plannedFileNameHashes: ['sha256:json', 'sha256:md'],
+      policyDecision,
+      requiresApproval: true,
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_review_export_plan'],
+      artifactWriteBoundaryPlanned: true,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local review package export is planned.',
+    });
+    const approval = LocalReviewPackageApprovalArtifactRecordSchema.parse({
+      id: 'review_export_approval_record',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRun.dryRunId,
+      dryRunRecordId: dryRun.id,
+      approvalRequestId: 'review_export_approval_request',
+      approvalArtifactId: 'review_export_approval_artifact',
+      status: 'approved',
+      approved: true,
+      policyDecisionId: policyDecision.id,
+      reasonHash: 'sha256:reason',
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_review_export_approval'],
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local review package export approval is approved.',
+    });
+    const run = LocalReviewPackageControlPlaneRunSchema.parse({
+      id: 'review_export_run',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRun.dryRunId,
+      dryRunRecordId: dryRun.id,
+      approvalArtifactId: approval.approvalArtifactId,
+      status: 'completed',
+      reviewPackageIdHash: dryRun.reviewPackageIdHash,
+      packageHash: dryRun.packageHash,
+      artifactRootHash: dryRun.artifactRootHash,
+      artifactDirectoryHash: dryRun.artifactDirectoryHash,
+      exportedFileCount: 2,
+      byteCount: 2048,
+      contentHash: 'sha256:content',
+      evidenceRefs: [EvidenceRefSchema.parse({ ...evidence, id: 'evidence_review_export_summary', kind: 'review.package_export_summary' })],
+      auditEventIds: ['audit_review_export_run'],
+      artifactWriteBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local review package export completed.',
+    });
+    const serialized = JSON.stringify({ dryRun, approval, run });
+
+    expect(run.status).toBe('completed');
+    expect(run.artifactWriteBoundaryInvoked).toBe(true);
+    expect(() =>
+      LocalReviewPackageDryRunRecordSchema.parse({
+        ...dryRun,
+        id: 'review_export_bad_count',
+        plannedFileCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalReviewPackageApprovalArtifactRecordSchema.parse({
+        ...approval,
+        id: 'review_export_bad_approval',
+        approved: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalReviewPackageControlPlaneRunSchema.parse({
+        ...run,
+        id: 'review_export_bad_boundary',
+        artifactWriteBoundaryInvoked: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalReviewPackageControlPlaneRunSchema.parse({
+        ...run,
+        id: 'review_export_raw_metadata',
+        metadata: { rawPath: 'C:\\private\\artifact', rawDiff: 'diff --git' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('C:\\private');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
     expect(serialized).not.toContain('secret-token');
   });
 

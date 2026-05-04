@@ -1439,3 +1439,49 @@ workflows:
       - rawDiffBody
       - rawPullRequestBody
       - rawReasonBody
+  m13b.governed-local-review-package-export:
+    risk: high
+    trigger:
+      type: supervisor-local-control
+      entrypoint: /api/review-packages/*
+      localControlRequired: true
+      trustedOriginRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/review-packages/dry-runs
+        output: hashes-counts-statuses-only
+      - phase: approval
+        routes:
+          - POST /api/review-packages/approval-requests
+          - POST /api/review-packages/manual-approvals
+        approvalSource: server-store
+      - phase: export
+        route: POST /api/review-packages/runs
+        package: review-package-kernel
+        boundary: packages/review-package-kernel/src/artifact-export-boundary.ts
+        root: ../CodexHub-artifacts/review-packages
+      - phase: read-only-index
+        routes:
+          - GET /api/review-packages/dry-runs
+          - GET /api/review-packages/approvals
+          - GET /api/review-packages/runs
+    safety:
+      localOnly: true
+      enabledByDefault: false
+      requiredEnvFlag: CODEXHUB_REVIEW_PACKAGE_EXPORT_ENABLED
+      pushAllowed: false
+      openPullRequestAllowed: false
+      githubIntegrationAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+    forbidden:
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest
+      - rawDiffBody
+      - rawPullRequestBody
+      - rawReasonBody
+      - genericFilesystemPassthrough

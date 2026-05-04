@@ -634,3 +634,24 @@ integrations:
         - LocalReviewFindingSummary
         - LocalReviewDecisionProjection
       artifactExportPlanned: false
+    m13b:
+      stage: governed-local-review-package-export
+      supervisorRouteAdded: true
+      artifactExportEnabledByDefault: false
+      requiredEnvFlag: CODEXHUB_REVIEW_PACKAGE_EXPORT_ENABLED
+      localControlRequiredForPost: true
+      persistedApprovalRequired: true
+      executionAuthorityRequired: true
+      hashBoundArtifactRoot: ../CodexHub-artifacts
+      allowedArtifactSubdir: review-packages
+      artifactBoundaryFile: packages/review-package-kernel/src/artifact-export-boundary.ts
+      fixedFiles:
+        - review-package-summary.json
+        - review-package-summary.md
+      storage:
+        rawArtifactRoot: hash-only
+        rawArtifactPath: forbidden
+        rawDiff: forbidden
+        rawPullRequestBody: forbidden
+        rawReason: forbidden
+        body: forbidden

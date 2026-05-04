@@ -4883,3 +4883,147 @@ describe('supervisor mock development API', () => {
     expect(approvalRequestResponse.body).not.toContain('policy source is not aligned');
   });
 });
+
+describe('supervisor local review package control plane', () => {
+  it('requires stored approval and hash-bound runtime input before local artifact export', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-review-package-store-'));
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'codexhub-review-package-workspace-'));
+    const artifactRoot = resolve(workspaceRoot, '..', 'CodexHub-artifacts');
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      reviewPackageExportEnabled: true,
+      localControlKey: localControlToken,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sourceLifecycleRunId: 'm12_lifecycle_review_export',
+        sourcePatchRunId: 'm12_patch_review_export',
+        changedFilePathHashes: ['sha256:file'],
+        diffHash: 'sha256:diff',
+        verificationStatus: 'passed',
+        readinessStatus: 'ready_for_review_draft_only',
+        readyForReviewDraftOnly: true,
+        packageId: 'review-package-control-plane',
+        workspaceRoot,
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'request local review package export',
+      },
+    });
+    const approvalRequest = approvalRequestResponse.json();
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequest.approvalRequestId,
+        outcome: 'approved',
+        reason: 'approve local review package export',
+      },
+    });
+    const approval = approvalResponse.json();
+    const blockedMismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        workspaceRoot,
+        packageId: 'different-review-package',
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        workspaceRoot,
+        packageId: 'review-package-control-plane',
+      },
+    });
+    const completed = completedResponse.json();
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(workspaceRoot, { recursive: true, force: true });
+    rmSync(artifactRoot, { recursive: true, force: true });
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.status).toBe('planned');
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(blockedMismatchResponse.statusCode).toBe(200);
+    expect(blockedMismatchResponse.json()).toMatchObject({
+      status: 'blocked',
+      artifactWriteBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completed.status).toBe('completed');
+    expect(completed.artifactWriteBoundaryInvoked).toBe(true);
+    expect(completed.bodyStored).toBe(false);
+    expect(completed.rawPathStored).toBe(false);
+    expect(completedResponse.body).not.toContain(workspaceRoot);
+    expect(completedResponse.body).not.toContain('diff --git');
+    expect(completedResponse.body).not.toContain('pull request body');
+  });
+
+  it('rejects request-body authority and raw review package bodies', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-review-package-guard-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+    });
+
+    const authorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        authority: { allowed: true },
+      },
+    });
+    const rawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/review-packages/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sourceLifecycleRunId: 'm12_lifecycle_raw',
+        sourcePatchRunId: 'm12_patch_raw',
+        rawDiff: 'diff --git private',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(authorityResponse.statusCode).toBe(400);
+    expect(authorityResponse.json()).toMatchObject({
+      error: 'untrusted_review_package_authority_body',
+      artifactWriteBoundaryInvoked: false,
+    });
+    expect(rawBodyResponse.statusCode).toBe(400);
+    expect(rawBodyResponse.json()).toMatchObject({
+      error: 'forbidden_review_package_raw_body',
+      artifactWriteBoundaryInvoked: false,
+    });
+    expect(rawBodyResponse.body).not.toContain('diff --git private');
+  });
+});
