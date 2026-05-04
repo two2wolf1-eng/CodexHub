@@ -972,6 +972,40 @@ workflows:
       - cliWriteCommand
       - localControlTokenReadByReadOnlyCli
       - adapterExecuteFromUiOrCli
+  m11_5.pilot-hardening-release-audit:
+    risk: high
+    trigger:
+      type: hardening-review
+      entrypoint: docs tools audits
+      localControlRequired: false
+    chain:
+      - phase: release-audit
+        documents:
+          - docs/releases/m11-production-pilot-results.md
+          - docs/reviews/m11-pilot-hardening-review.md
+        output: review-conclusions-verification-evidence
+      - phase: static-audit-review
+        checks:
+          - dashboardCliNoDirectAdapterExecute
+          - dashboardNoLocalControlKeyPersistence
+          - noNewLiveBoundaryAllowlist
+          - metadataOnlyPilotOutputs
+      - phase: m12-entry-recommendation
+        recommendation: begin-with-m12a-fixture-patch-lifecycle
+    forbidden:
+      - newSupervisorRoute
+      - newProcessBoundary
+      - newBrowserBoundary
+      - newElectronBoundary
+      - newMcpExecution
+      - codexWorkspaceWrite
+      - patchGeneration
+      - gitPush
+      - openPullRequest
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
   m10b.approval-decision-history-projection:
     risk: medium
     trigger:

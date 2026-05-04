@@ -474,6 +474,14 @@ integrations:
       noNewExecutionBoundary: true
       dashboardWriteUi: false
       cliWriteCommand: false
+    m11_5:
+      stage: pilot-hardening-release-audit
+      releaseDocument: docs/releases/m11-production-pilot-results.md
+      reviewDocument: docs/reviews/m11-pilot-hardening-review.md
+      noNewRoutes: true
+      noNewExecutionBoundary: true
+      dashboardWriteUi: false
+      cliWriteCommand: false
     m11c:
       stage: pilot-failure-recovery-projection
       recoveryHelper: createM11PilotRecoveryProjection
