@@ -16,6 +16,7 @@ import {
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
   readGithubTokenReadiness,
+  runGithubDraftPrAcceptanceRehearsal,
 } from './index';
 
 const fixedNow = () => '2026-05-04T00:00:00.000Z';
@@ -549,5 +550,45 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(run.blockReasons).toContain('github_remote_ref_hash_mismatch');
     expect(run.networkBoundaryInvoked).toBe(false);
     expect(fetchCalled).toBe(false);
+  });
+
+  it('runs draft PR acceptance rehearsal as fixture-only metadata', () => {
+    const passed = runGithubDraftPrAcceptanceRehearsal({
+      scenario: 'all-pass',
+      now: fixedNow,
+    });
+    const blocked = runGithubDraftPrAcceptanceRehearsal({
+      scenario: 'head-branch-missing',
+      now: fixedNow,
+    });
+    const failed = runGithubDraftPrAcceptanceRehearsal({
+      scenario: 'github-post-failed',
+      now: fixedNow,
+    });
+    const aborted = runGithubDraftPrAcceptanceRehearsal({
+      scenario: 'network-timeout',
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify([passed, blocked, failed, aborted]);
+
+    expect(passed.status).toBe('passed');
+    expect(passed.prCreationStatus).toBe('fixture_completed');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.readinessStatus).toBe('blocked_head_branch');
+    expect(failed.status).toBe('failed');
+    expect(aborted.status).toBe('aborted');
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.processBoundaryInvoked).toBe(false);
+    expect(passed.externalProcessStarted).toBe(false);
+    expect(passed.noRealWrite).toBe(true);
+    expect(passed.pushAllowed).toBe(false);
+    expect(passed.createRefAllowed).toBe(false);
+    expect(passed.mergeAllowed).toBe(false);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('Authorization');
   });
 });

@@ -748,12 +748,14 @@ describe('cli development mock-run fallback', () => {
     });
     const {
       formatGithubDraftPrApprovalsListOutput,
+      formatGithubDraftPrAcceptanceRehearsalOutput,
       formatGithubDraftPrDryRunsListOutput,
       formatGithubDraftPrRunDetailOutput,
       formatGithubDraftPrRunsListOutput,
       listGithubDraftPrApprovals,
       listGithubDraftPrDryRuns,
       listGithubDraftPrRuns,
+      runGithubDraftPrAcceptanceRehearsalForCli,
       showGithubDraftPrRun,
     } = await import('./main');
     const dryRuns = await listGithubDraftPrDryRuns();
@@ -783,6 +785,25 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('raw response body');
     expect(serialized).not.toContain('local-control');
+
+    const rehearsal = runGithubDraftPrAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'head-branch-missing',
+    });
+    const rehearsalOutput = formatGithubDraftPrAcceptanceRehearsalOutput(rehearsal);
+    const rehearsalJson = JSON.stringify(rehearsal);
+
+    expect(rehearsal.status).toBe('blocked');
+    expect(rehearsal.readinessStatus).toBe('blocked_head_branch');
+    expect(rehearsal.networkBoundaryInvoked).toBe(false);
+    expect(rehearsalOutput).toContain('GitHub draft PR acceptance rehearsal');
+    expect(rehearsalOutput).toContain('pushAllowed=false');
+    expect(() => runGithubDraftPrAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(fetchCalls).toHaveLength(4);
+    expect(rehearsalJson).not.toContain('octocat');
+    expect(rehearsalJson).not.toContain('hello-world');
+    expect(rehearsalJson).not.toContain('ghp_');
+    expect(rehearsalJson).not.toContain('Authorization');
   });
 
   it('projects unified governance runs, evidence bundles, and audit chains read-only', async () => {

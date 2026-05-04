@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createApprovalDecisionHistoryReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
@@ -254,7 +255,7 @@ describe('dashboard read-only UX helpers', () => {
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('github-provider');
-    expect(summary.manifestVersion).toContain('m16c');
+    expect(summary.manifestVersion).toContain('m16d');
     expect(summary.draftPrRunCount).toBe(1);
     expect(summary.latestDraftPrCreationStatus).toBe('created');
     expect(summary.draftPrCreatedCount).toBe(1);
@@ -277,6 +278,37 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('responseBody');
+  });
+
+  it('summarizes GitHub draft PR acceptance rehearsal without network or credential use', () => {
+    const passed = createGithubDraftPrAcceptanceRehearsalReadOnlySummary({
+      scenario: 'all-pass',
+    });
+    const failed = createGithubDraftPrAcceptanceRehearsalReadOnlySummary({
+      scenario: 'github-post-failed',
+    });
+    const blocked = createGithubDraftPrAcceptanceRehearsalReadOnlySummary({
+      scenario: 'existing-pr-found',
+    });
+    const serialized = JSON.stringify({ passed, failed, blocked });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.prCreationStatus).toBe('fixture_completed');
+    expect(failed.status).toBe('failed');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.readinessStatus).toBe('blocked_existing_pr');
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.supervisorPostAllowed).toBe(false);
+    expect(passed.adapterExecuteAllowed).toBe(false);
+    expect(passed.pushAllowed).toBe(false);
+    expect(passed.createRefAllowed).toBe(false);
+    expect(passed.mergeAllowed).toBe(false);
+    expect(passed.credentialValueStored).toBe(false);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw PR markdown');
   });
 
   it('summarizes local review packages without raw artifacts or decision reasons', () => {
@@ -419,6 +451,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).toContain('GitHub Provider Readiness');
     expect(githubRoute).toContain('GitHub Metadata Runs');
     expect(githubRoute).toContain('GitHub Draft PR Runs');
+    expect(githubRoute).toContain('GitHub Draft PR Acceptance Rehearsal');
     expect(githubRoute).not.toContain('<button');
     expect(githubRoute).not.toContain('fetch(');
     expect(githubRoute).not.toContain("method: 'POST'");

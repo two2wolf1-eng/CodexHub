@@ -1,4 +1,9 @@
-import type { ApprovalInboxItem, ApprovalInboxProjection, McpToolDefinition } from '@codexhub/contracts';
+import type {
+  ApprovalInboxItem,
+  ApprovalInboxProjection,
+  GithubDraftPrAcceptanceScenario,
+  McpToolDefinition,
+} from '@codexhub/contracts';
 import {
   createGovernanceProjection,
   type GovernanceProjectionInputRun,
@@ -178,6 +183,32 @@ export interface GithubProviderReadOnlySummary {
   noRealWrite: true;
   rawRemoteRefStored: false;
   rawUrlStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  credentialValueStored: false;
+  summary: string;
+}
+
+export interface GithubDraftPrAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubDraftPrAcceptanceScenario;
+  stepCount: number;
+  readinessStatus: string;
+  prCreationStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  fixtureOnly: true;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  draft: true;
+  pushAllowed: false;
+  createRefAllowed: false;
+  mergeAllowed: false;
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
@@ -732,7 +763,7 @@ export function createGithubProviderReadOnlySummary(input: {
 } = {}): GithubProviderReadOnlySummary {
   return {
     manifestName: 'github-provider',
-    manifestVersion: '0.2.0-m16c',
+    manifestVersion: '0.2.0-m16d',
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
@@ -778,6 +809,60 @@ export function createGithubProviderReadOnlySummary(input: {
     credentialValueStored: false,
     summary:
       'GitHub provider metadata and draft PR records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+  };
+}
+
+export function createGithubDraftPrAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubDraftPrAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubDraftPrAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass'
+      ? 'passed'
+      : scenario === 'github-post-failed'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const readinessStatus =
+    scenario === 'head-branch-missing'
+      ? 'blocked_head_branch'
+      : scenario === 'existing-pr-found'
+        ? 'blocked_existing_pr'
+        : 'ready_for_draft_pr';
+  const prCreationStatus =
+    scenario === 'all-pass'
+      ? 'fixture_completed'
+      : scenario === 'github-post-failed' || scenario === 'network-timeout'
+        ? 'failed'
+        : scenario === 'head-branch-missing' || scenario === 'existing-pr-found'
+          ? 'skipped'
+          : 'blocked';
+
+  return {
+    status,
+    scenario,
+    stepCount: 6,
+    readinessStatus,
+    prCreationStatus,
+    evidenceRefCount: status === 'passed' ? 3 : status === 'blocked' ? 1 : 2,
+    auditEventCount: status === 'passed' ? 3 : status === 'blocked' ? 1 : 2,
+    fixtureOnly: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    draft: true,
+    pushAllowed: false,
+    createRefAllowed: false,
+    mergeAllowed: false,
+    rawPathStored: false,
+    bodyStored: false,
+    credentialValueStored: false,
+    summary: `GitHub draft PR acceptance rehearsal preview ${status}; fixture metadata only.`,
   };
 }
 

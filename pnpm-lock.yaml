@@ -84,6 +84,9 @@ importers:
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@codexhub/github-provider-adapter':
+        specifier: workspace:*
+        version: link:../../packages/github-provider-adapter
       '@codexhub/governance-projection-kernel':
         specifier: workspace:*
         version: link:../../packages/governance-projection-kernel

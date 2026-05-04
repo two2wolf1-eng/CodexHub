@@ -2,6 +2,7 @@ import {
   CapabilityManifestSchema,
   ExecutionAuthoritySchema,
   GithubDraftPrApprovalArtifactRecordSchema,
+  GithubDraftPrAcceptanceRehearsalRunSchema,
   GithubDraftPrCreationSummarySchema,
   GithubDraftPrPlanSchema,
   GithubDraftPrReadinessSchema,
@@ -19,6 +20,8 @@ import {
   type CapabilityManifest,
   type ExecutionAuthority,
   type GithubDraftPrApprovalArtifactRecord,
+  type GithubDraftPrAcceptanceRehearsalRun,
+  type GithubDraftPrAcceptanceScenario,
   type GithubDraftPrCreationSummary,
   type GithubDraftPrPlan,
   type GithubDraftPrReadiness,
@@ -118,6 +121,11 @@ export interface GithubDraftPrExecutionInput {
   };
   enabled?: boolean;
   fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
+export interface GithubDraftPrAcceptanceRehearsalInput {
+  scenario?: GithubDraftPrAcceptanceScenario;
   now?: () => string;
 }
 
@@ -739,6 +747,46 @@ export async function executeGithubDraftPrCreation(
   });
 }
 
+export function runGithubDraftPrAcceptanceRehearsal(
+  input: GithubDraftPrAcceptanceRehearsalInput = {},
+): GithubDraftPrAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'all-pass';
+  const state = getGithubDraftPrAcceptanceScenarioState(scenario);
+
+  return GithubDraftPrAcceptanceRehearsalRunSchema.parse({
+    id: stableId('github_draft_pr_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: state.status,
+    stepCount: 6,
+    readinessStatus: state.readinessStatus,
+    prCreationStatus: state.prCreationStatus,
+    evidenceRefCount: state.evidenceRefCount,
+    auditEventCount: state.auditEventCount,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    draft: true,
+    pushAllowed: false,
+    createRefAllowed: false,
+    mergeAllowed: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      scenario,
+      fixtureOnly: true,
+      blockerCount: state.blockerCount,
+      networkBoundaryInvoked: false,
+      draftOnly: true,
+    },
+    summary: `GitHub draft PR acceptance rehearsal ${state.status}; fixture metadata only.`,
+  });
+}
+
 function createGithubPolicyDecision(input: {
   actionId: string;
   actionType: string;
@@ -1056,6 +1104,74 @@ function collectDraftPrPlanBlockReasons(input: GithubDraftPrPlanInput): string[]
   ].filter((reason): reason is string => Boolean(reason));
 
   return [...new Set(reasons)];
+}
+
+function getGithubDraftPrAcceptanceScenarioState(scenario: GithubDraftPrAcceptanceScenario): {
+  status: GithubDraftPrAcceptanceRehearsalRun['status'];
+  readinessStatus: GithubDraftPrReadinessStatus;
+  prCreationStatus: GithubDraftPrAcceptanceRehearsalRun['prCreationStatus'];
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+} {
+  switch (scenario) {
+    case 'all-pass':
+      return {
+        status: 'passed',
+        readinessStatus: 'ready_for_draft_pr',
+        prCreationStatus: 'fixture_completed',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 0,
+      };
+    case 'github-post-failed':
+      return {
+        status: 'failed',
+        readinessStatus: 'ready_for_draft_pr',
+        prCreationStatus: 'failed',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'network-timeout':
+      return {
+        status: 'aborted',
+        readinessStatus: 'ready_for_draft_pr',
+        prCreationStatus: 'failed',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'head-branch-missing':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_head_branch',
+        prCreationStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'existing-pr-found':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_existing_pr',
+        prCreationStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'token-missing':
+    case 'provider-disabled':
+    case 'approval-blocked':
+      return {
+        status: 'blocked',
+        readinessStatus: 'ready_for_draft_pr',
+        prCreationStatus: 'blocked',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+  }
 }
 
 function resolveDraftPrReadinessStatus(

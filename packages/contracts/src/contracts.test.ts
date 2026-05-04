@@ -8871,5 +8871,14 @@ describe('contracts schemas', () => {
         },
       }),
     ).toThrow();
+    expect(() =>
+      GithubDraftPrAcceptanceRehearsalRunSchema.parse({
+        ...rehearsal,
+        id: 'github_draft_pr_rehearsal_invalid_raw_token',
+        metadata: {
+          token: 'ghp_secret',
+        },
+      }),
+    ).toThrow();
   });
 });

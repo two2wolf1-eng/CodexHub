@@ -285,7 +285,7 @@ integrations:
     provider: github
     providerType: external-network
     mode: governed-metadata-and-existing-branch-draft-pr
-    stage: m16c-draft-pr-read-only-ux
+    stage: m16d-draft-pr-acceptance-rehearsal
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -321,7 +321,7 @@ integrations:
         - GET /api/github/metadata/runs
         - GET /api/github/metadata/runs/:id
     readOnlyUx:
-      stage: m16c
+      stage: m16d
       dashboardRoute: "#/github"
       cliCommands:
         - codexhub github status
@@ -332,6 +332,7 @@ integrations:
         - codexhub github draft-prs approvals list
         - codexhub github draft-prs runs list
         - codexhub github draft-prs runs show <runId>
+        - codexhub github draft-prs rehearse --fixture --scenario <name>
       localControlRequired: false
       supervisorPostAllowed: false
       adapterExecuteAllowed: false
@@ -389,6 +390,28 @@ integrations:
       localControlKeyRead: false
       adapterExecuteAllowed: false
       output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    draftPrAcceptanceRehearsal:
+      stage: m16d
+      helper: runGithubDraftPrAcceptanceRehearsal
+      dashboardRoute: "#/github"
+      fixtureOnly: true
+      scenarios:
+        - all-pass
+        - token-missing
+        - provider-disabled
+        - approval-blocked
+        - head-branch-missing
+        - existing-pr-found
+        - github-post-failed
+        - network-timeout
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      supervisorRouteAdded: false
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+      output: ids-hashes-counts-statuses-summaries
     auditedBoundaryFiles:
       metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts
     allowedMetadataEndpoints:

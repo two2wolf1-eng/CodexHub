@@ -2179,3 +2179,44 @@ workflows:
       pushAllowed: false
       createRefAllowed: false
       mergeAllowed: false
+  m16d.draft-pr-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: github-provider-adapter dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        package: github-provider-adapter
+        helper: runGithubDraftPrAcceptanceRehearsal
+        scenarios:
+          - all-pass
+          - token-missing
+          - provider-disabled
+          - approval-blocked
+          - head-branch-missing
+          - existing-pr-found
+          - github-post-failed
+          - network-timeout
+      - phase: cli
+        command: codexhub github draft-prs rehearse --fixture --scenario <name>
+        supervisorPostAllowed: false
+        networkBoundaryInvoked: false
+      - phase: dashboard
+        route: "#/github"
+        panel: GitHub Draft PR Acceptance Rehearsal
+        supervisorPostAllowed: false
+    safety:
+      fixtureOnly: true
+      newSupervisorRoute: false
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false

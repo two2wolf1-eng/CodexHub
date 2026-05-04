@@ -12,6 +12,7 @@
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/governance-projection-kernel": "workspace:*",
+    "@codexhub/github-provider-adapter": "workspace:*",
     "@codexhub/mcp-tool-contracts": "workspace:*",
     "@codexhub/nx-verification-adapter": "workspace:*",
     "@codexhub/operator-readiness-kernel": "workspace:*",

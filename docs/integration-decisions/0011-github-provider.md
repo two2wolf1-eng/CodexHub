@@ -1,8 +1,8 @@
 # 0011 GitHub Provider
 
-Status: M16c draft PR read-only UX.
+Status: M16d draft PR acceptance rehearsal.
 
-CodexHub integrates GitHub as the first remote provider through a governed adapter. The provider is disabled by default and now supports metadata-only planning, an approval-gated read-only metadata HTTP control plane, Dashboard/CLI read-only views, draft PR readiness planning, an approval-gated existing-branch draft PR creation control plane, and read-only Draft PR run projection in the operator surfaces.
+CodexHub integrates GitHub as the first remote provider through a governed adapter. The provider is disabled by default and now supports metadata-only planning, an approval-gated read-only metadata HTTP control plane, Dashboard/CLI read-only views, draft PR readiness planning, an approval-gated existing-branch draft PR creation control plane, read-only Draft PR run projection, and fixture-only Draft PR acceptance rehearsal in the operator surfaces.
 
 Boundary rules:
 
@@ -27,8 +27,11 @@ Boundary rules:
 - M16b approval consumption: any attempt that reaches the GitHub network boundary marks the persisted approval as used. Pre-boundary blocked attempts do not consume approval.
 - M16c read-only UX: Dashboard route `#/github` adds Draft PR run metadata, and CLI adds `codexhub github draft-prs dry-runs list`, `codexhub github draft-prs approvals list`, `codexhub github draft-prs runs list`, and `codexhub github draft-prs runs show <runId>`.
 - M16c generic run projection includes `github_draft_pr_run`; these views use GET only, do not read local-control keys, do not call adapter execution helpers, and do not send GitHub network requests.
+- M16d fixture rehearsal: `runGithubDraftPrAcceptanceRehearsal` covers all-pass, token-missing, provider-disabled, approval-blocked, head-branch-missing, existing-pr-found, github-post-failed, and network-timeout scenarios.
+- M16d CLI: `codexhub github draft-prs rehearse --fixture --scenario <name>` returns only scenario, status, readiness status, creation status, counts, and boundary booleans. It does not read local-control keys, send Supervisor POST requests, call the HTTP boundary, or create a remote PR.
+- M16d Dashboard: `#/github` shows a read-only acceptance rehearsal panel. The panel does not accept tokens, does not expose approve/execute controls, and does not invoke the adapter.
 - Runtime owner/repo/base/head values are transient and must hash-match the persisted dry-run before a request is sent. Public responses expose only ids, hashes, counts, statuses, evidence refs, audit ids, and boundary booleans.
 - Forbidden operations: push, create/update refs, merge, delete, labels, reviewers, comments, milestones, deployments, releases, and non-draft PR creation.
 - Provider cannot grant authority. CodexHub policy, approval, evidence, and audit remain authoritative.
 
-Rollback for M16c is to remove the Draft PR blocks from `#/github` and the `codexhub github draft-prs ...` read-only commands while leaving the M16b control plane disabled by default. Rollback for M16b is to set `CODEXHUB_GITHUB_DRAFT_PR_ENABLED=false`, keep `github-provider.enabled=false`, and remove or disable the `/api/github/draft-prs/*` Supervisor routes/store repositories while preserving M15 metadata and M16a planning. Rollback for M16a is to remove the draft PR planning helper while leaving M15 metadata and audit protections intact. Rollback for M15.5 is to remove the GitHub read-only UX if needed and preserve the hardening audit. Rollback for the M15b runtime is to disable `CODEXHUB_GITHUB_PROVIDER_ENABLED`, remove the GitHub metadata Supervisor routes/store repositories, and keep the M15a planning/token-readiness adapter disabled.
+Rollback for M16d is to remove the fixture rehearsal helper, CLI command, and Dashboard panel while leaving M16c read-only run projection intact. Rollback for M16c is to remove the Draft PR blocks from `#/github` and the `codexhub github draft-prs ...` read-only commands while leaving the M16b control plane disabled by default. Rollback for M16b is to set `CODEXHUB_GITHUB_DRAFT_PR_ENABLED=false`, keep `github-provider.enabled=false`, and remove or disable the `/api/github/draft-prs/*` Supervisor routes/store repositories while preserving M15 metadata and M16a planning. Rollback for M16a is to remove the draft PR planning helper while leaving M15 metadata and audit protections intact. Rollback for M15.5 is to remove the GitHub read-only UX if needed and preserve the hardening audit. Rollback for the M15b runtime is to disable `CODEXHUB_GITHUB_PROVIDER_ENABLED`, remove the GitHub metadata Supervisor routes/store repositories, and keep the M15a planning/token-readiness adapter disabled.

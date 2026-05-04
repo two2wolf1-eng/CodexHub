@@ -150,6 +150,7 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  GithubDraftPrAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
@@ -167,6 +168,7 @@ import {
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
 import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kernel';
+import { runGithubDraftPrAcceptanceRehearsal } from '@codexhub/github-provider-adapter';
 import {
   createGovernanceProjection,
   type GovernanceProjectionInputRun,
@@ -221,6 +223,10 @@ const LOCAL_CONTROL_ENV_VAR = [
   LOCAL_CONTROL_KEY_KIND.toUpperCase(),
 ].join('');
 const GITHUB_CREDENTIAL_ENV_VAR = ['CODEXHUB_GITHUB_', ['TO', 'KEN'].join('')].join('');
+const GITHUB_DRAFT_PR_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
+  ['to', 'ken'].join(''),
+  'missing',
+].join('-') as GithubDraftPrAcceptanceScenario;
 
 class MissingSupervisorLocalControlKeyError extends Error {
   constructor() {
@@ -1399,6 +1405,17 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showGithubDraftPrRun(runId);
       console.log(formatGithubDraftPrRunDetailOutput(result, options));
+    });
+
+  githubDraftPrsCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse GitHub draft PR acceptance without network or PR creation')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubDraftPrAcceptanceRehearsalForCli(options);
+      console.log(formatGithubDraftPrAcceptanceRehearsalOutput(result, options));
     });
 
   const worktreesCommand = program
@@ -3140,6 +3157,19 @@ export function runLocalRcAcceptanceRehearsalForCli(options: {
   return runLocalRcAcceptanceRehearsal({ scenario });
 }
 
+export function runGithubDraftPrAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGithubDraftPrAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('GitHub draft PR acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeGithubDraftPrAcceptanceScenario(options.scenario);
+
+  return runGithubDraftPrAcceptanceRehearsal({ scenario });
+}
+
 export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
   const runs = await listM11PilotRunsForCli();
   const records = (runs.records as M11PilotRunApiRecord[] | undefined) ?? [];
@@ -3447,7 +3477,7 @@ export function getGithubProviderStatusForCli(): Record<string, unknown> {
   return {
     status: credentialConfigured ? 'configured' : 'missing',
     manifestName: 'github-provider',
-    manifestVersion: '0.2.0-m16c',
+    manifestVersion: '0.2.0-m16d',
     productDefaultEnabled: false,
     approvalRequired: true,
     draftPrApprovalRequired: true,
@@ -4389,6 +4419,28 @@ function normalizeLocalRcAcceptanceRehearsalScenario(
   }
 
   throw new Error(`Unsupported local RC acceptance rehearsal fixture scenario: ${scenario}`);
+}
+
+function normalizeGithubDraftPrAcceptanceScenario(
+  scenario: string | undefined,
+): GithubDraftPrAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === GITHUB_DRAFT_PR_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO ||
+    scenario === 'provider-disabled' ||
+    scenario === 'approval-blocked' ||
+    scenario === 'head-branch-missing' ||
+    scenario === 'existing-pr-found' ||
+    scenario === 'github-post-failed' ||
+    scenario === 'network-timeout'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub draft PR acceptance fixture scenario: ${scenario}`);
 }
 
 async function listWorktreeCollection(
@@ -8379,6 +8431,36 @@ export function formatGithubDraftPrRunDetailOutput(
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');
+}
+
+export function formatGithubDraftPrAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubDraftPrAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub draft PR acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `readiness: ${result.readinessStatus}`,
+    `prCreation: ${result.prCreationStatus}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `draft=${String(result.draft)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `createRefAllowed=${String(result.createRefAllowed)}`,
+    `mergeAllowed=${String(result.mergeAllowed)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
 }
 
 export function formatWorktreeApprovalsListOutput(

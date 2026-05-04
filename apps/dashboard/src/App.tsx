@@ -40,6 +40,7 @@ import {
   createApprovalDecisionHistoryReadOnlySummary,
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
@@ -534,6 +535,8 @@ export function App() {
       (record) => record.networkBoundaryInvoked === true,
     ) || overview.githubDraftPrRuns.some((record) => record.networkBoundaryInvoked === true),
   });
+  const githubDraftPrAcceptanceRehearsalSummary =
+    createGithubDraftPrAcceptanceRehearsalReadOnlySummary();
   const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
     dryRunCount: overview.reviewPackageDryRuns.length,
     approvalCount: overview.reviewPackageApprovals.length,
@@ -2840,6 +2843,7 @@ export function App() {
           browserProfilesSummary,
           electronCdpSummary,
           githubProviderSummary,
+          githubDraftPrAcceptanceRehearsalSummary,
           worktreeSummary,
           reviewPackageSummary,
           releaseCandidateSummary,
@@ -2863,6 +2867,9 @@ function renderReadOnlyDashboardView(
   browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
   githubProviderSummary: ReturnType<typeof createGithubProviderReadOnlySummary>,
+  githubDraftPrAcceptanceRehearsalSummary: ReturnType<
+    typeof createGithubDraftPrAcceptanceRehearsalReadOnlySummary
+  >,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
   releaseCandidateSummary: ReturnType<typeof createLocalRcOperatorReadOnlySummary>,
@@ -3499,6 +3506,60 @@ function renderReadOnlyDashboardView(
               sends control-plane credentials or remote PR requests.
             </p>
           )}
+        </Panel>
+        <Panel title="GitHub Draft PR Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{githubDraftPrAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{githubDraftPrAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>readiness / creation</strong>
+              <span>
+                {githubDraftPrAcceptanceRehearsalSummary.readinessStatus} /{' '}
+                {githubDraftPrAcceptanceRehearsalSummary.prCreationStatus}
+              </span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {githubDraftPrAcceptanceRehearsalSummary.evidenceRefCount} /{' '}
+                {githubDraftPrAcceptanceRehearsalSummary.auditEventCount}
+              </span>
+            </li>
+            <li>
+              <strong>live boundaries</strong>
+              <span>
+                network {String(githubDraftPrAcceptanceRehearsalSummary.networkBoundaryInvoked)},
+                process {String(githubDraftPrAcceptanceRehearsalSummary.processBoundaryInvoked)},
+                external {String(githubDraftPrAcceptanceRehearsalSummary.externalProcessStarted)}
+              </span>
+            </li>
+            <li>
+              <strong>read-only bounds</strong>
+              <span>
+                keyRead {String(githubDraftPrAcceptanceRehearsalSummary.localControlKeyRead)},
+                postAllowed{' '}
+                {String(githubDraftPrAcceptanceRehearsalSummary.supervisorPostAllowed)},
+                adapterExecute{' '}
+                {String(githubDraftPrAcceptanceRehearsalSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>remote actions</strong>
+              <span>
+                draft {String(githubDraftPrAcceptanceRehearsalSummary.draft)}, push{' '}
+                {String(githubDraftPrAcceptanceRehearsalSummary.pushAllowed)}, createRef{' '}
+                {String(githubDraftPrAcceptanceRehearsalSummary.createRefAllowed)}, merge{' '}
+                {String(githubDraftPrAcceptanceRehearsalSummary.mergeAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{githubDraftPrAcceptanceRehearsalSummary.summary}</p>
         </Panel>
       </section>
     );
