@@ -312,6 +312,54 @@ describe('cli development mock-run fallback', () => {
         );
       }
 
+      if (String(url).includes('/api/github/draft-prs/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_draft_pr_run_1',
+                dryRunId: 'github_draft_pr_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-http',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                creationSummary: {
+                  status: 'created',
+                  created: true,
+                  prNumberHash: 'sha256:pr-number',
+                  prUrlHash: 'sha256:pr-url',
+                  existingPullRequestCount: 0,
+                },
+                titleHash: 'sha256:title',
+                bodyHash: 'sha256:body',
+                bodySectionCount: 3,
+                responseBodyHashes: ['sha256:post-response'],
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['github_draft_pr_evidence_1'],
+                auditEventIds: ['github_draft_pr_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
       if (String(url).includes('/api/worktrees/cleanup/runs')) {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
@@ -363,7 +411,7 @@ describe('cli development mock-run fallback', () => {
 
     expect(result).toMatchObject({
       status: 'ready',
-      count: 5,
+      count: 6,
       liveExecution: false,
       externalProcessStarted: false,
       noRealWrite: true,
@@ -371,10 +419,11 @@ describe('cli development mock-run fallback', () => {
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
     expect(output).toContain('github_metadata_run_1');
+    expect(output).toContain('github_draft_pr_run_1');
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(22);
+    expect(fetchCalls).toHaveLength(24);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -533,6 +582,206 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('raw remote response');
+    expect(serialized).not.toContain('local-control');
+  });
+
+  it('shows GitHub draft PR metadata using GET endpoints only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/github/draft-prs/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'github_draft_pr_dry_run_record_1',
+                dryRunId: 'github_draft_pr_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-github-http',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                readiness: {
+                  status: 'ready_for_draft_pr',
+                  blockerCount: 0,
+                  draftOnly: true,
+                },
+                titleHash: 'sha256:title',
+                bodyHash: 'sha256:body',
+                bodySectionCount: 3,
+                networkBoundaryPlanned: true,
+                networkBoundaryInvoked: false,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/draft-prs/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                approvalArtifactId: 'github_draft_pr_approval_1',
+                dryRunId: 'github_draft_pr_dry_run_1',
+                status: 'approved',
+                noRealWrite: true,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/github/draft-prs/runs/github_draft_pr_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'github_draft_pr_run_1',
+            dryRunId: 'github_draft_pr_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-github-http',
+            targetRef: {
+              hostHash: 'sha256:host',
+              ownerHash: 'sha256:owner',
+              repoHash: 'sha256:repo',
+              baseBranchHash: 'sha256:base',
+              headBranchHash: 'sha256:head',
+              rawOwnerStored: false,
+              rawRepoStored: false,
+              rawRefStored: false,
+              rawUrlStored: false,
+              rawPathStored: false,
+              bodyStored: false,
+            },
+            creationSummary: {
+              status: 'created',
+              created: true,
+              prNumberHash: 'sha256:pr-number',
+              prUrlHash: 'sha256:pr-url',
+              existingPullRequestCount: 0,
+            },
+            titleHash: 'sha256:title',
+            bodyHash: 'sha256:body',
+            bodySectionCount: 3,
+            responseBodyHashes: ['sha256:post-response'],
+            networkBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: false,
+            bodyStored: false,
+            rawPathStored: false,
+            evidenceRefIds: ['github_draft_pr_evidence_1'],
+            auditEventIds: ['github_draft_pr_audit_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/draft-prs/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_draft_pr_run_1',
+                dryRunId: 'github_draft_pr_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-http',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                creationSummary: {
+                  status: 'created',
+                  created: true,
+                  prNumberHash: 'sha256:pr-number',
+                  prUrlHash: 'sha256:pr-url',
+                  existingPullRequestCount: 0,
+                },
+                titleHash: 'sha256:title',
+                bodyHash: 'sha256:body',
+                bodySectionCount: 3,
+                responseBodyHashes: ['sha256:post-response'],
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['github_draft_pr_evidence_1'],
+                auditEventIds: ['github_draft_pr_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      formatGithubDraftPrApprovalsListOutput,
+      formatGithubDraftPrDryRunsListOutput,
+      formatGithubDraftPrRunDetailOutput,
+      formatGithubDraftPrRunsListOutput,
+      listGithubDraftPrApprovals,
+      listGithubDraftPrDryRuns,
+      listGithubDraftPrRuns,
+      showGithubDraftPrRun,
+    } = await import('./main');
+    const dryRuns = await listGithubDraftPrDryRuns();
+    const approvals = await listGithubDraftPrApprovals();
+    const runs = await listGithubDraftPrRuns();
+    const detail = await showGithubDraftPrRun('github_draft_pr_run_1');
+    const serialized = JSON.stringify({ dryRuns, approvals, runs, detail });
+    const output = [
+      formatGithubDraftPrDryRunsListOutput(dryRuns),
+      formatGithubDraftPrApprovalsListOutput(approvals),
+      formatGithubDraftPrRunsListOutput(runs),
+      formatGithubDraftPrRunDetailOutput(detail),
+    ].join('\n');
+
+    expect(output).toContain('GitHub draft PR runs');
+    expect(output).toContain('github_draft_pr_run_1');
+    expect(output).toContain('networkBoundaryInvoked=true');
+    expect(output).toContain('prNumberHash');
+    expect(fetchCalls).toHaveLength(4);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw response body');
     expect(serialized).not.toContain('local-control');
   });
 

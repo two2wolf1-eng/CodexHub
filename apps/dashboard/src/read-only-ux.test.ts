@@ -241,16 +241,26 @@ describe('dashboard read-only UX helpers', () => {
       dryRunCount: 1,
       approvalCount: 1,
       runCount: 1,
+      draftPrDryRunCount: 1,
+      draftPrApprovalCount: 1,
+      draftPrRunCount: 1,
       latestRunStatus: 'completed',
+      latestDraftPrRunStatus: 'completed',
+      latestDraftPrCreationStatus: 'created',
+      draftPrCreatedCount: 1,
       credentialConfigured: true,
       networkBoundaryInvoked: true,
     });
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('github-provider');
-    expect(summary.manifestVersion).toContain('m15c');
+    expect(summary.manifestVersion).toContain('m16c');
+    expect(summary.draftPrRunCount).toBe(1);
+    expect(summary.latestDraftPrCreationStatus).toBe('created');
+    expect(summary.draftPrCreatedCount).toBe(1);
     expect(summary.productDefaultEnabled).toBe(false);
     expect(summary.approvalRequired).toBe(true);
+    expect(summary.draftPrApprovalRequired).toBe(true);
     expect(summary.credentialHashOnly).toBe(true);
     expect(summary.credentialValueStored).toBe(false);
     expect(summary.networkBoundaryInvoked).toBe(true);
@@ -263,6 +273,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('hello-world');
     expect(serialized).not.toContain('refs/heads');
     expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('raw PR markdown');
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('responseBody');
@@ -407,6 +418,7 @@ describe('dashboard read-only UX helpers', () => {
 
     expect(githubRoute).toContain('GitHub Provider Readiness');
     expect(githubRoute).toContain('GitHub Metadata Runs');
+    expect(githubRoute).toContain('GitHub Draft PR Runs');
     expect(githubRoute).not.toContain('<button');
     expect(githubRoute).not.toContain('fetch(');
     expect(githubRoute).not.toContain("method: 'POST'");

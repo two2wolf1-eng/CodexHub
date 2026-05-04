@@ -156,13 +156,21 @@ export interface GithubProviderReadOnlySummary {
   dryRunCount: number;
   approvalCount: number;
   runCount: number;
+  draftPrDryRunCount: number;
+  draftPrApprovalCount: number;
+  draftPrRunCount: number;
   latestRunStatus: string;
+  latestDraftPrRunStatus: string;
+  latestDraftPrCreationStatus: string;
+  draftPrCreatedCount: number;
   productDefaultEnabled: false;
   approvalRequired: true;
+  draftPrApprovalRequired: true;
   credentialConfigured: boolean;
   credentialHashOnly: boolean;
   allowedHostHash: string;
   allowedMetadata: string[];
+  allowedDraftPrActions: string[];
   blockedOperations: string[];
   networkBoundaryInvoked: boolean;
   processBoundaryInvoked: false;
@@ -712,19 +720,32 @@ export function createGithubProviderReadOnlySummary(input: {
   dryRunCount?: number;
   approvalCount?: number;
   runCount?: number;
+  draftPrDryRunCount?: number;
+  draftPrApprovalCount?: number;
+  draftPrRunCount?: number;
   latestRunStatus?: string;
+  latestDraftPrRunStatus?: string;
+  latestDraftPrCreationStatus?: string;
+  draftPrCreatedCount?: number;
   credentialConfigured?: boolean;
   networkBoundaryInvoked?: boolean;
 } = {}): GithubProviderReadOnlySummary {
   return {
     manifestName: 'github-provider',
-    manifestVersion: '0.1.0-m15c',
+    manifestVersion: '0.2.0-m16c',
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
+    draftPrDryRunCount: input.draftPrDryRunCount ?? 0,
+    draftPrApprovalCount: input.draftPrApprovalCount ?? 0,
+    draftPrRunCount: input.draftPrRunCount ?? 0,
     latestRunStatus: input.latestRunStatus ?? 'none',
+    latestDraftPrRunStatus: input.latestDraftPrRunStatus ?? 'none',
+    latestDraftPrCreationStatus: input.latestDraftPrCreationStatus ?? 'none',
+    draftPrCreatedCount: input.draftPrCreatedCount ?? 0,
     productDefaultEnabled: false,
     approvalRequired: true,
+    draftPrApprovalRequired: true,
     credentialConfigured: input.credentialConfigured ?? false,
     credentialHashOnly: true,
     allowedHostHash: stableSha256LikeHash('api.github.com'),
@@ -734,6 +755,7 @@ export function createGithubProviderReadOnlySummary(input: {
       'head_branch_metadata',
       'existing_pull_request_lookup',
     ],
+    allowedDraftPrActions: ['existing_branch_preflight', 'draft_pr_create'],
     blockedOperations: [
       ['git ', 'push'].join(''),
       'create_ref',
@@ -755,7 +777,7 @@ export function createGithubProviderReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary:
-      'GitHub provider metadata is shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+      'GitHub provider metadata and draft PR records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
   };
 }
 

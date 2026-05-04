@@ -285,7 +285,7 @@ integrations:
     provider: github
     providerType: external-network
     mode: governed-metadata-and-existing-branch-draft-pr
-    stage: m16b-governed-existing-branch-draft-pr-creation
+    stage: m16c-draft-pr-read-only-ux
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -321,13 +321,17 @@ integrations:
         - GET /api/github/metadata/runs
         - GET /api/github/metadata/runs/:id
     readOnlyUx:
-      stage: m15c
+      stage: m16c
       dashboardRoute: "#/github"
       cliCommands:
         - codexhub github status
         - codexhub github metadata dry-runs list
         - codexhub github metadata runs list
         - codexhub github metadata runs show <runId>
+        - codexhub github draft-prs dry-runs list
+        - codexhub github draft-prs approvals list
+        - codexhub github draft-prs runs list
+        - codexhub github draft-prs runs show <runId>
       localControlRequired: false
       supervisorPostAllowed: false
       adapterExecuteAllowed: false
@@ -376,6 +380,14 @@ integrations:
       noPush: true
       noCreateRef: true
       noMerge: true
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    draftPrReadOnlyUx:
+      stage: m16c
+      dashboardRoute: "#/github"
+      genericRunsProjection: github_draft_pr_run
+      supervisorMethods: GET-only
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
       output: ids-hashes-counts-statuses-evidence-audit-boundaries
     auditedBoundaryFiles:
       metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts

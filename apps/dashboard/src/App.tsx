@@ -101,6 +101,9 @@ interface OverviewState {
   githubMetadataDryRuns: GithubMetadataControlSummary[];
   githubMetadataApprovals: GithubMetadataControlSummary[];
   githubMetadataRuns: GithubMetadataControlSummary[];
+  githubDraftPrDryRuns: GithubDraftPrControlSummary[];
+  githubDraftPrApprovals: GithubDraftPrControlSummary[];
+  githubDraftPrRuns: GithubDraftPrControlSummary[];
   worktreeDryRuns: WorktreeControlSummary[];
   worktreeApprovals: WorktreeControlSummary[];
   worktreeRuns: WorktreeControlSummary[];
@@ -218,6 +221,58 @@ interface GithubMetadataControlSummary {
   baseBranchMetadataHash?: string;
   headBranchMetadataHash?: string;
   existingPullRequestCount?: number;
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubDraftPrControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  readiness?: {
+    status?: string;
+    blockerCount?: number;
+    draftOnly?: boolean;
+  };
+  creationSummary?: {
+    status?: string;
+    created?: boolean;
+    prNumberHash?: string;
+    prUrlHash?: string;
+    existingPullRequestCount?: number;
+  };
+  titleHash?: string;
+  bodyHash?: string;
+  bodySectionCount?: number;
+  bodyCharacterCount?: number;
+  prNumberHash?: string;
+  prUrlHash?: string;
+  existingPullRequestCount?: number;
+  responseBodyHashes?: string[];
   networkBoundaryPlanned?: boolean;
   networkBoundaryInvoked?: boolean;
   processBoundaryInvoked?: boolean;
@@ -390,6 +445,9 @@ export function App() {
     githubMetadataDryRuns: [],
     githubMetadataApprovals: [],
     githubMetadataRuns: [],
+    githubDraftPrDryRuns: [],
+    githubDraftPrApprovals: [],
+    githubDraftPrRuns: [],
     worktreeDryRuns: [],
     worktreeApprovals: [],
     worktreeRuns: [],
@@ -462,10 +520,19 @@ export function App() {
     dryRunCount: overview.githubMetadataDryRuns.length,
     approvalCount: overview.githubMetadataApprovals.length,
     runCount: overview.githubMetadataRuns.length,
+    draftPrDryRunCount: overview.githubDraftPrDryRuns.length,
+    draftPrApprovalCount: overview.githubDraftPrApprovals.length,
+    draftPrRunCount: overview.githubDraftPrRuns.length,
     latestRunStatus: overview.githubMetadataRuns[0]?.status,
+    latestDraftPrRunStatus: overview.githubDraftPrRuns[0]?.status,
+    latestDraftPrCreationStatus:
+      overview.githubDraftPrRuns[0]?.creationSummary?.status ?? overview.githubDraftPrRuns[0]?.status,
+    draftPrCreatedCount: overview.githubDraftPrRuns.filter(
+      (record) => record.creationSummary?.created === true || record.prNumberHash !== undefined,
+    ).length,
     networkBoundaryInvoked: overview.githubMetadataRuns.some(
       (record) => record.networkBoundaryInvoked === true,
-    ),
+    ) || overview.githubDraftPrRuns.some((record) => record.networkBoundaryInvoked === true),
   });
   const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
     dryRunCount: overview.reviewPackageDryRuns.length,
@@ -632,6 +699,17 @@ export function App() {
       externalProcessStarted: false,
       networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
       noRealWrite: true,
+    })),
+    ...overview.githubDraftPrRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_draft_pr_run',
+      source: 'github_draft_pr_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+      noRealWrite: run.noRealWrite ?? false,
     })),
     ...overview.reviewPackageRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -973,6 +1051,9 @@ export function App() {
           githubMetadataDryRunsResponse,
           githubMetadataApprovalsResponse,
           githubMetadataRunsResponse,
+          githubDraftPrDryRunsResponse,
+          githubDraftPrApprovalsResponse,
+          githubDraftPrRunsResponse,
           worktreeDryRunsResponse,
           worktreeApprovalsResponse,
           worktreeRunsResponse,
@@ -1022,6 +1103,18 @@ export function App() {
           ),
           getOptionalJson<{ records: GithubMetadataControlSummary[] }>(
             '/api/github/metadata/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubDraftPrControlSummary[] }>(
+            '/api/github/draft-prs/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubDraftPrControlSummary[] }>(
+            '/api/github/draft-prs/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubDraftPrControlSummary[] }>(
+            '/api/github/draft-prs/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
@@ -1139,6 +1232,9 @@ export function App() {
             githubMetadataDryRuns: githubMetadataDryRunsResponse.records,
             githubMetadataApprovals: githubMetadataApprovalsResponse.records,
             githubMetadataRuns: githubMetadataRunsResponse.records,
+            githubDraftPrDryRuns: githubDraftPrDryRunsResponse.records,
+            githubDraftPrApprovals: githubDraftPrApprovalsResponse.records,
+            githubDraftPrRuns: githubDraftPrRunsResponse.records,
             worktreeDryRuns: worktreeDryRunsResponse.records,
             worktreeApprovals: worktreeApprovalsResponse.records,
             worktreeRuns: worktreeRunsResponse.records,
@@ -1194,6 +1290,9 @@ export function App() {
             githubMetadataDryRuns: [],
             githubMetadataApprovals: [],
             githubMetadataRuns: [],
+            githubDraftPrDryRuns: [],
+            githubDraftPrApprovals: [],
+            githubDraftPrRuns: [],
             worktreeDryRuns: [],
             worktreeApprovals: [],
             worktreeRuns: [],
@@ -3229,8 +3328,23 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>draft PR records</strong>
+              <span>
+                dry-runs {githubProviderSummary.draftPrDryRunCount}, approvals{' '}
+                {githubProviderSummary.draftPrApprovalCount}, runs{' '}
+                {githubProviderSummary.draftPrRunCount}
+              </span>
+            </li>
+            <li>
               <strong>latest run</strong>
               <span>{githubProviderSummary.latestRunStatus}</span>
+            </li>
+            <li>
+              <strong>latest draft PR</strong>
+              <span>
+                {githubProviderSummary.latestDraftPrRunStatus} /{' '}
+                {githubProviderSummary.latestDraftPrCreationStatus}
+              </span>
             </li>
             <li>
               <strong>enablement</strong>
@@ -3238,7 +3352,10 @@ function renderReadOnlyDashboardView(
             </li>
             <li>
               <strong>approval</strong>
-              <span>required {String(githubProviderSummary.approvalRequired)}</span>
+              <span>
+                metadata {String(githubProviderSummary.approvalRequired)}, draft PR{' '}
+                {String(githubProviderSummary.draftPrApprovalRequired)}
+              </span>
             </li>
             <li>
               <strong>credential</strong>
@@ -3259,6 +3376,10 @@ function renderReadOnlyDashboardView(
             <li>
               <strong>metadata</strong>
               <span>{githubProviderSummary.allowedMetadata.join(', ')}</span>
+            </li>
+            <li>
+              <strong>draft PR actions</strong>
+              <span>{githubProviderSummary.allowedDraftPrActions.join(', ')}</span>
             </li>
             <li>
               <strong>blocked operations</strong>
@@ -3326,6 +3447,56 @@ function renderReadOnlyDashboardView(
             <p>
               No GitHub metadata run summaries are available. This view is read-only and never
               sends control-plane credentials or remote execution requests.
+            </p>
+          )}
+        </Panel>
+        <Panel title="GitHub Draft PR Runs">
+          {overview.githubDraftPrRuns.length > 0 ? (
+            <ul>
+              {overview.githubDraftPrRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_draft_pr_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, base{' '}
+                    {run.targetRef?.baseBranchHash ?? 'unavailable'}, head{' '}
+                    {run.targetRef?.headBranchHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    readiness {run.readiness?.status ?? 'unknown'}, created{' '}
+                    {String(run.creationSummary?.created ?? false)}, existing PRs{' '}
+                    {run.creationSummary?.existingPullRequestCount ??
+                      run.existingPullRequestCount ??
+                      0}
+                  </span>
+                  <span>
+                    title {run.titleHash ?? 'unavailable'}, body{' '}
+                    {run.bodyHash ?? 'unavailable'}, sections {run.bodySectionCount ?? 0}
+                  </span>
+                  <span>
+                    PR number {run.creationSummary?.prNumberHash ?? run.prNumberHash ?? 'none'}, URL{' '}
+                    {run.creationSummary?.prUrlHash ?? run.prUrlHash ?? 'none'}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub draft PR run summaries are available. This view is read-only and never
+              sends control-plane credentials or remote PR requests.
             </p>
           )}
         </Panel>

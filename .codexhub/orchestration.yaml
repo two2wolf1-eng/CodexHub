@@ -2145,3 +2145,37 @@ workflows:
       labelsReviewersCommentsAllowed: false
       dashboardWriteUi: false
       cliWriteCommand: false
+  m16c.draft-pr-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/github"
+        reads:
+          - GET /api/github/draft-prs/dry-runs
+          - GET /api/github/draft-prs/approvals
+          - GET /api/github/draft-prs/runs
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+      - phase: cli
+        commands:
+          - codexhub github draft-prs dry-runs list
+          - codexhub github draft-prs approvals list
+          - codexhub github draft-prs runs list
+          - codexhub github draft-prs runs show <runId>
+        methods: GET-only
+      - phase: generic-projection
+        command: codexhub runs list/show
+        source: github_draft_pr_run
+    safety:
+      supervisorPostAllowed: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false
