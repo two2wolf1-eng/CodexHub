@@ -594,3 +594,43 @@ integrations:
       arbitraryArgsAllowed: false
       supervisorRouteAdded: false
       m12cVerificationGateRequiredBeforePrReady: true
+  local-review-packages:
+    enabled: false
+    adapter: review-package-kernel
+    provider: codexhub-local-projection
+    providerType: builtin
+    mode: metadata-only-projection
+    stage: m13a-local-review-package-projection
+    defaultActionMode: read
+    defaultRisk: high
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    artifactExportEnabled: false
+    defaultArtifactRoot: ../CodexHub-artifacts
+    storage:
+      rawDiff: forbidden
+      rawPullRequestBody: forbidden
+      rawReviewReason: forbidden
+      rawPath: forbidden
+      rawCommand: forbidden
+      body: forbidden
+    output: ids-hashes-counts-statuses-summaries
+    safety:
+      localOnly: true
+      pushAllowed: false
+      openPullRequestAllowed: false
+      githubIntegrationAllowed: false
+      supervisorRouteAdded: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+    m13a:
+      stage: local-review-package-projection
+      helper: createLocalReviewPackageProjection
+      contracts:
+        - LocalReviewPackagePlan
+        - LocalReviewPackageSummary
+        - LocalReviewPackageRun
+        - LocalReviewFindingSummary
+        - LocalReviewDecisionProjection
+      artifactExportPlanned: false

@@ -182,6 +182,11 @@ import {
   DiffReviewSummarySchema,
   GovernedCodexPatchPlanSchema,
   GovernedCodexPatchRunSchema,
+  LocalReviewDecisionProjectionSchema,
+  LocalReviewFindingSummarySchema,
+  LocalReviewPackagePlanSchema,
+  LocalReviewPackageRunSchema,
+  LocalReviewPackageSummarySchema,
   PatchRunSchema,
   PatchSummarySchema,
   PolicyBackendEvaluationPlanSchema,
@@ -2036,6 +2041,141 @@ describe('contracts schemas', () => {
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('secret-token');
     expect(serialized).not.toContain('raw retry reason');
+  });
+
+  it('parses M13 local review package contracts as metadata-only projections', () => {
+    const plan = LocalReviewPackagePlanSchema.parse({
+      id: 'local_review_plan_1',
+      schemaVersion,
+      createdAt,
+      sourceLifecycleRunIdHash: 'sha256:lifecycle',
+      sourcePatchRunIdHash: 'sha256:patch-run',
+      sourceVerificationGateIdHash: 'sha256:verification-gate',
+      changedFileCount: 2,
+      changedFilePathHashes: ['sha256:file-a', 'sha256:file-b'],
+      diffHash: 'sha256:diff',
+      verificationStatus: 'passed',
+      readinessStatus: 'ready_for_review_draft_only',
+      readyForReviewDraftOnly: true,
+      evidenceRefIds: ['evidence_patch', 'evidence_verification'],
+      auditEventIds: ['audit_patch', 'audit_verification'],
+      fileExportPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: {
+        source: 'm13a',
+        rawBodyStored: false,
+      },
+      summary: 'Local review package plan is metadata-only.',
+    });
+    const packageSummary = LocalReviewPackageSummarySchema.parse({
+      id: 'local_review_summary_1',
+      schemaVersion,
+      createdAt,
+      planId: plan.id,
+      status: 'ready_for_review',
+      changedFileCount: 2,
+      diffHash: 'sha256:diff',
+      verificationStatus: 'passed',
+      readyForReviewDraftOnly: true,
+      evidenceRefCount: 2,
+      auditEventCount: 2,
+      packageHash: 'sha256:package',
+      exported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local review package is ready for human review.',
+    });
+    const finding = LocalReviewFindingSummarySchema.parse({
+      id: 'local_review_finding_1',
+      schemaVersion,
+      createdAt,
+      reviewPackageIdHash: 'sha256:package',
+      severity: 'info',
+      findingCount: 0,
+      findingHash: 'sha256:finding',
+      rawFindingStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'No blocking findings are recorded.',
+    });
+    const decision = LocalReviewDecisionProjectionSchema.parse({
+      id: 'local_review_decision_1',
+      schemaVersion,
+      createdAt,
+      reviewPackageIdHash: 'sha256:package',
+      status: 'pending',
+      findingCount: 0,
+      blockerCount: 0,
+      nextAction: 'none',
+      retryHandoffRequired: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Review decision is pending.',
+    });
+    const run = LocalReviewPackageRunSchema.parse({
+      id: 'local_review_run_1',
+      schemaVersion,
+      createdAt,
+      plan,
+      packageSummary,
+      findings: [finding],
+      decision,
+      evidenceRefIds: ['evidence_patch', 'evidence_verification'],
+      auditEventIds: ['audit_patch', 'audit_verification'],
+      exported: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local review package projection is ready.',
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(run.packageSummary.status).toBe('ready_for_review');
+    expect(run.exported).toBe(false);
+    expect(() =>
+      LocalReviewPackagePlanSchema.parse({
+        ...plan,
+        id: 'local_review_plan_bad_count',
+        changedFileCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalReviewPackageSummarySchema.parse({
+        ...packageSummary,
+        id: 'local_review_summary_bad_ready',
+        readyForReviewDraftOnly: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalReviewDecisionProjectionSchema.parse({
+        ...decision,
+        id: 'local_review_decision_bad_approval',
+        status: 'approved_for_local_rc',
+        blockerCount: 1,
+        nextAction: 'local_rc_readiness',
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalReviewPackageRunSchema.parse({
+        ...run,
+        id: 'local_review_run_raw_metadata',
+        metadata: { rawReason: 'please change private implementation details' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
   });
 
   it('parses M6b worktree control-plane records and keeps raw bodies out', () => {

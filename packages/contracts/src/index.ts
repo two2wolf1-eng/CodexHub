@@ -144,6 +144,10 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'patch.lifecycle_run_summary',
     'patch.diff_review_summary',
     'patch.readiness_summary',
+    'review.package_plan',
+    'review.package_summary',
+    'review.finding_summary',
+    'review.decision_projection',
     'pr.draft_summary',
     'release.audit_draft',
     'pilot.m9.readiness_summary',
@@ -1751,6 +1755,9 @@ const m12PatchForbiddenMetadataKeys = new Set([
   'pullRequestMarkdown',
   'rawCommand',
   'commandBody',
+  'rawReason',
+  'reasonBody',
+  'reasonText',
   'requestBody',
   'responseBody',
   ['to', 'ken'].join(''),
@@ -2256,6 +2263,191 @@ export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema
 export type ControlledPatchLifecycleRun = z.infer<
   typeof ControlledPatchLifecycleRunSchema
 >;
+
+export const LocalReviewPackageStatusSchema = z.enum([
+  'planned',
+  'ready_for_review',
+  'blocked_verification',
+  'blocked_patch',
+  'degraded',
+]);
+export type LocalReviewPackageStatus = z.infer<typeof LocalReviewPackageStatusSchema>;
+
+export const LocalReviewDecisionStatusSchema = z.enum([
+  'pending',
+  'approved_for_local_rc',
+  'changes_requested',
+  'rejected',
+  'superseded',
+]);
+export type LocalReviewDecisionStatus = z.infer<typeof LocalReviewDecisionStatusSchema>;
+
+export const LocalReviewPackagePlanSchema = createdEntityBaseSchema
+  .extend({
+    sourceLifecycleRunIdHash: z.string().min(1),
+    sourcePatchRunIdHash: z.string().min(1),
+    sourceVerificationGateIdHash: z.string().min(1).optional(),
+    changedFileCount: z.number().int().nonnegative(),
+    changedFilePathHashes: z.array(z.string().min(1)).default([]),
+    diffHash: z.string().min(1).optional(),
+    verificationStatus: z.enum(['passed', 'failed', 'aborted', 'blocked', 'not_run']),
+    readinessStatus: ControlledPatchReadinessStatusSchema,
+    readyForReviewDraftOnly: z.boolean(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    fileExportPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.changedFileCount !== record.changedFilePathHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'changedFileCount must match changedFilePathHashes length',
+        path: ['changedFileCount'],
+      });
+    }
+
+    if (
+      record.readyForReviewDraftOnly &&
+      (record.verificationStatus !== 'passed' || record.readinessStatus !== 'ready_for_review_draft_only')
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'local review package readiness requires passed verification and draft-only readiness',
+        path: ['readyForReviewDraftOnly'],
+      });
+    }
+  });
+export type LocalReviewPackagePlan = z.infer<typeof LocalReviewPackagePlanSchema>;
+
+export const LocalReviewPackageSummarySchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    status: LocalReviewPackageStatusSchema,
+    changedFileCount: z.number().int().nonnegative(),
+    diffHash: z.string().min(1).optional(),
+    verificationStatus: z.enum(['passed', 'failed', 'aborted', 'blocked', 'not_run']),
+    readyForReviewDraftOnly: z.boolean(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    packageHash: z.string().min(1),
+    exported: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'ready_for_review' && !record.readyForReviewDraftOnly) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready_for_review requires draft-only readiness',
+        path: ['status'],
+      });
+    }
+  });
+export type LocalReviewPackageSummary = z.infer<typeof LocalReviewPackageSummarySchema>;
+
+export const LocalReviewFindingSeveritySchema = z.enum(['info', 'warning', 'blocker']);
+export type LocalReviewFindingSeverity = z.infer<typeof LocalReviewFindingSeveritySchema>;
+
+export const LocalReviewFindingSummarySchema = createdEntityBaseSchema
+  .extend({
+    reviewPackageIdHash: z.string().min(1),
+    severity: LocalReviewFindingSeveritySchema,
+    findingCount: z.number().int().nonnegative(),
+    findingHash: z.string().min(1),
+    rawFindingStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type LocalReviewFindingSummary = z.infer<typeof LocalReviewFindingSummarySchema>;
+
+export const LocalReviewDecisionProjectionSchema = createdEntityBaseSchema
+  .extend({
+    reviewPackageIdHash: z.string().min(1),
+    status: LocalReviewDecisionStatusSchema,
+    reasonHash: z.string().min(1).optional(),
+    findingCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    nextAction: z.enum(['none', 'local_rc_readiness', 'm12_retry_handoff', 'stop']),
+    retryHandoffRequired: z.boolean(),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'approved_for_local_rc' && record.blockerCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved local review decisions cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+
+    if (record.status === 'changes_requested' && !record.retryHandoffRequired) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'changes_requested must create a retry handoff projection',
+        path: ['retryHandoffRequired'],
+      });
+    }
+  });
+export type LocalReviewDecisionProjection = z.infer<
+  typeof LocalReviewDecisionProjectionSchema
+>;
+
+export const LocalReviewPackageRunSchema = createdEntityBaseSchema
+  .extend({
+    plan: LocalReviewPackagePlanSchema,
+    packageSummary: LocalReviewPackageSummarySchema,
+    findings: z.array(LocalReviewFindingSummarySchema).default([]),
+    decision: LocalReviewDecisionProjectionSchema,
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    exported: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.packageSummary.planId !== record.plan.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'package summary must reference local review package plan',
+        path: ['packageSummary', 'planId'],
+      });
+    }
+  });
+export type LocalReviewPackageRun = z.infer<typeof LocalReviewPackageRunSchema>;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);
 export type GovernedCodexPatchMode = z.infer<typeof GovernedCodexPatchModeSchema>;

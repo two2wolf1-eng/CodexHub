@@ -1389,3 +1389,53 @@ workflows:
       - rawCommandBody
       - gitPush
       - openPullRequest
+  m13a.local-review-package-projection:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: contracts review-package-kernel
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        package: contracts
+        models:
+          - LocalReviewPackagePlan
+          - LocalReviewPackageSummary
+          - LocalReviewPackageRun
+          - LocalReviewFindingSummary
+          - LocalReviewDecisionProjection
+      - phase: metadata-projection
+        package: review-package-kernel
+        helper: createLocalReviewPackageProjection
+        input:
+          - M12 lifecycle hashes
+          - changed file hashes
+          - diff hash
+          - verification status
+          - evidence and audit ids
+        output: ids-hashes-counts-statuses-summaries
+      - phase: release-boundary
+        fileExportPlanned: false
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+    safety:
+      localOnly: true
+      noFileExport: true
+      newSupervisorRoute: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest
+      - rawDiffBody
+      - rawPullRequestBody
+      - rawReasonBody
