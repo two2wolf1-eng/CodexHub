@@ -295,6 +295,16 @@ integrations:
       env: CODEXHUB_GITHUB_TOKEN
       output: configured-hash-only
       valueStorage: forbidden
+    defaultRemoteTarget:
+      configured: true
+      ownerHash: sha256:c106675fbc8f5a6b26da49c4753904eb07422efa446ec9b97752077a8e41d0bc
+      repoHash: sha256:6561a73947ca1e67588bd91b60a984bc7336d55961edea5fdfb459ffbe75efaf
+      remoteUrlHash: sha256:71582f3e69af12e43f27ef2a597f39db5a3dbc2a8f07a3fbb23e5dce0db3d5f2
+      localGitRemoteName: origin
+      rawOwnerStorage: forbidden
+      rawRepoStorage: forbidden
+      rawUrlStorage: forbidden
+      remoteRepositoryEmptyRequiresApprovedObservation: true
     allowedHost: api.github.com
     productDefaultEnabled: false
     metadataReadEnabled: false

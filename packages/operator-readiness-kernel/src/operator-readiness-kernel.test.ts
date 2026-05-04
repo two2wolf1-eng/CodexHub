@@ -90,8 +90,12 @@ describe('operator-readiness-kernel', () => {
 
   it('creates a degraded-safe default preview', () => {
     const preview = createDefaultOperatorReadinessPreview();
+    const github = preview.integrations.find((integration) => integration.name === 'github-provider');
 
     expect(preview.integrations.length).toBeGreaterThan(0);
+    expect(github?.networkBoundary).toBe(true);
+    expect(github?.blockers).toContain('github_credential_missing');
+    expect(github?.blockers).toContain('github_remote_base_branch_not_observed');
     expect(preview.rawValueStored).toBe(false);
     expect(preview.rawPathStored).toBe(false);
     expect(preview.bodyStored).toBe(false);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
@@ -229,6 +229,12 @@ const LOCAL_CONTROL_ENV_VAR = [
   LOCAL_CONTROL_KEY_KIND.toUpperCase(),
 ].join('');
 const GITHUB_CREDENTIAL_ENV_VAR = ['CODEXHUB_GITHUB_', ['TO', 'KEN'].join('')].join('');
+const GITHUB_TARGET_OWNER_HASH =
+  'sha256:c106675fbc8f5a6b26da49c4753904eb07422efa446ec9b97752077a8e41d0bc';
+const GITHUB_TARGET_REPO_HASH =
+  'sha256:6561a73947ca1e67588bd91b60a984bc7336d55961edea5fdfb459ffbe75efaf';
+const GITHUB_TARGET_REMOTE_URL_HASH =
+  'sha256:71582f3e69af12e43f27ef2a597f39db5a3dbc2a8f07a3fbb23e5dce0db3d5f2';
 const GITHUB_DRAFT_PR_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
@@ -336,6 +342,24 @@ export interface ApprovalDecisionCliOptions extends JsonCliOptions {
   type: string;
   decision: string;
   reason: string;
+}
+
+export interface GithubRemoteTargetStatus {
+  targetConfigured: true;
+  ownerHash: string;
+  repoHash: string;
+  remoteUrlHash: string;
+  localRemoteConfigured: boolean;
+  localRemoteMatchesTarget: boolean;
+  localRemoteUrlHash?: string;
+  remoteRepositoryState: 'not_observed_by_status';
+  remoteRepositoryEmptyObserved: false;
+  branchPublishBlockers: string[];
+  draftPrBlockers: string[];
+  rawOwnerStored: false;
+  rawRepoStored: false;
+  rawUrlStored: false;
+  bodyStored: false;
 }
 
 interface BrowserObservationRunApiRecord {
@@ -3715,6 +3739,7 @@ export async function showElectronCdpObservationRun(
 export function getGithubProviderStatusForCli(): Record<string, unknown> {
   const credential = process.env[GITHUB_CREDENTIAL_ENV_VAR];
   const credentialConfigured = typeof credential === 'string' && credential.length > 0;
+  const remoteTarget = createGithubRemoteTargetStatusForCli();
 
   return {
     status: credentialConfigured ? 'configured' : 'missing',
@@ -3739,6 +3764,7 @@ export function getGithubProviderStatusForCli(): Record<string, unknown> {
     credentialHash: credentialConfigured ? stableCliHash(credential) : undefined,
     credentialHashOnly: true,
     credentialValueStored: false,
+    remoteTarget,
     rawRemoteRefStored: false,
     rawUrlStored: false,
     rawPathStored: false,
@@ -3760,6 +3786,37 @@ export function getGithubProviderStatusForCli(): Record<string, unknown> {
       'generic_network_request',
     ],
     note: 'GitHub provider status is read locally and does not send a remote request.',
+  };
+}
+
+export function createGithubRemoteTargetStatusForCli(
+  localOriginUrl: string | undefined = readLocalGitOriginRemoteUrl(),
+): GithubRemoteTargetStatus {
+  const localRemoteConfigured = typeof localOriginUrl === 'string' && localOriginUrl.length > 0;
+  const localRemoteUrlHash = localRemoteConfigured ? stableCliHash(localOriginUrl) : undefined;
+  const localRemoteMatchesTarget = localRemoteUrlHash === GITHUB_TARGET_REMOTE_URL_HASH;
+  const targetBlockers = [
+    localRemoteConfigured ? undefined : 'github_origin_remote_missing',
+    localRemoteMatchesTarget ? undefined : 'github_origin_remote_mismatch',
+    'github_remote_base_branch_not_observed',
+  ].filter((blocker): blocker is string => Boolean(blocker));
+
+  return {
+    targetConfigured: true,
+    ownerHash: GITHUB_TARGET_OWNER_HASH,
+    repoHash: GITHUB_TARGET_REPO_HASH,
+    remoteUrlHash: GITHUB_TARGET_REMOTE_URL_HASH,
+    localRemoteConfigured,
+    localRemoteMatchesTarget,
+    localRemoteUrlHash,
+    remoteRepositoryState: 'not_observed_by_status',
+    remoteRepositoryEmptyObserved: false,
+    branchPublishBlockers: [...targetBlockers],
+    draftPrBlockers: [...targetBlockers, 'github_remote_head_branch_not_observed'],
+    rawOwnerStored: false,
+    rawRepoStored: false,
+    rawUrlStored: false,
+    bodyStored: false,
   };
 }
 
@@ -4644,6 +4701,16 @@ async function readOperatorConfigInput(
 function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
   const worktreeManagerEnabled = Boolean(process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED);
   const m11PilotEnabled = Boolean(process.env.CODEXHUB_M11_PRODUCTION_PILOT_ENABLED);
+  const githubProviderEnabled = Boolean(process.env.CODEXHUB_GITHUB_PROVIDER_ENABLED);
+  const githubCredentialConfigured = Boolean(process.env[GITHUB_CREDENTIAL_ENV_VAR]);
+  const githubRemoteTarget = createGithubRemoteTargetStatusForCli();
+  const githubProviderBlockers = [
+    githubProviderEnabled ? undefined : 'disabled_by_default',
+    githubCredentialConfigured ? undefined : 'github_credential_missing',
+    githubRemoteTarget.localRemoteConfigured ? undefined : 'github_origin_remote_missing',
+    githubRemoteTarget.localRemoteMatchesTarget ? undefined : 'github_origin_remote_mismatch',
+    'github_remote_base_branch_not_observed',
+  ].filter((blocker): blocker is string => Boolean(blocker));
 
   return [
     {
@@ -4713,6 +4780,19 @@ function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
       blockers: m11PilotEnabled ? [] : ['disabled_by_default'],
       safeEnableNotes: [
         'M11 reuses existing worktree, Codex read-only dry-run, and Nx boundaries.',
+      ],
+    },
+    {
+      name: 'github-provider',
+      enabled: githubProviderEnabled,
+      riskLevel: 'high',
+      approvalRequired: true,
+      networkBoundary: true,
+      envFlagConfigured: githubProviderEnabled,
+      blockers: githubProviderBlockers,
+      configHash: githubRemoteTarget.remoteUrlHash,
+      safeEnableNotes: [
+        'GitHub provider requires env enablement, configured credential, local origin match, and approval-gated remote observation before remote writes.',
       ],
     },
     {
@@ -8843,6 +8923,27 @@ export function formatGithubProviderStatusOutput(
     `credentialHashOnly=${String(result.credentialHashOnly ?? true)}`,
     `credentialValueStored=${String(result.credentialValueStored ?? false)}`,
     `allowedHostHash: ${String(result.allowedHostHash ?? 'unavailable')}`,
+    result.remoteTarget
+      ? `targetRemoteConfigured=${String(
+          (result.remoteTarget as GithubRemoteTargetStatus).localRemoteConfigured,
+        )}`
+      : undefined,
+    result.remoteTarget
+      ? `targetRemoteMatches=${String(
+          (result.remoteTarget as GithubRemoteTargetStatus).localRemoteMatchesTarget,
+        )}`
+      : undefined,
+    result.remoteTarget
+      ? `targetRemoteUrlHash: ${String(
+          (result.remoteTarget as GithubRemoteTargetStatus).remoteUrlHash,
+        )}`
+      : undefined,
+    result.remoteTarget
+      ? `targetOwnerHash: ${String((result.remoteTarget as GithubRemoteTargetStatus).ownerHash)}`
+      : undefined,
+    result.remoteTarget
+      ? `targetRepoHash: ${String((result.remoteTarget as GithubRemoteTargetStatus).repoHash)}`
+      : undefined,
     `allowedDraftPrActions: ${draftPrActions}`,
     `allowedBranchPublishActions: ${branchPublishActions}`,
     `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
@@ -13731,6 +13832,72 @@ function findWorkspaceRoot(startDirectory: string): string {
 
     current = parent;
   }
+}
+
+function readLocalGitOriginRemoteUrl(): string | undefined {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const gitConfigText = readLocalGitConfigText(workspaceRoot);
+
+  if (!gitConfigText) {
+    return undefined;
+  }
+
+  let inOriginSection = false;
+
+  for (const line of gitConfigText.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      inOriginSection = trimmed === '[remote "origin"]';
+      continue;
+    }
+
+    if (!inOriginSection) {
+      continue;
+    }
+
+    const match = /^url\s*=\s*(.+)$/i.exec(trimmed);
+
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return undefined;
+}
+
+function readLocalGitConfigText(workspaceRoot: string): string | undefined {
+  const dotGitPath = resolve(workspaceRoot, '.git');
+  const directConfigPath = resolve(dotGitPath, 'config');
+
+  if (existsSync(directConfigPath)) {
+    return readFileSync(directConfigPath, 'utf8');
+  }
+
+  if (!existsSync(dotGitPath)) {
+    return undefined;
+  }
+
+  let dotGitText: string;
+
+  try {
+    dotGitText = readFileSync(dotGitPath, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  const gitdirMatch = /^gitdir:\s*(.+)$/im.exec(dotGitText);
+
+  if (!gitdirMatch?.[1]) {
+    return undefined;
+  }
+
+  const gitdir = isAbsolute(gitdirMatch[1])
+    ? gitdirMatch[1]
+    : resolve(workspaceRoot, gitdirMatch[1]);
+  const linkedConfigPath = resolve(gitdir, 'config');
+
+  return existsSync(linkedConfigPath) ? readFileSync(linkedConfigPath, 'utf8') : undefined;
 }
 
 function isPathInside(path: string, root: string): boolean {

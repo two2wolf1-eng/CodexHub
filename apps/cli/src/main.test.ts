@@ -633,16 +633,20 @@ describe('cli development mock-run fallback', () => {
       formatGithubMetadataRunDetailOutput,
       formatGithubMetadataRunsListOutput,
       formatGithubProviderStatusOutput,
+      createGithubRemoteTargetStatusForCli,
       getGithubProviderStatusForCli,
       listGithubMetadataDryRuns,
       listGithubMetadataRuns,
       showGithubMetadataRun,
     } = await import('./main');
     const status = getGithubProviderStatusForCli();
+    const target = createGithubRemoteTargetStatusForCli(
+      'https://github.com/two2wolf1-eng/CodexHub.git',
+    );
     const dryRuns = await listGithubMetadataDryRuns();
     const runs = await listGithubMetadataRuns();
     const detail = await showGithubMetadataRun('github_metadata_run_1');
-    const serialized = JSON.stringify({ status, dryRuns, runs, detail });
+    const serialized = JSON.stringify({ status, target, dryRuns, runs, detail });
     const output = [
       formatGithubProviderStatusOutput(status),
       formatGithubMetadataDryRunsListOutput(dryRuns),
@@ -651,6 +655,9 @@ describe('cli development mock-run fallback', () => {
     ].join('\n');
 
     expect(output).toContain('GitHub provider status');
+    expect(output).toContain('targetRemoteUrlHash');
+    expect(target.localRemoteConfigured).toBe(true);
+    expect(target.localRemoteMatchesTarget).toBe(true);
     expect(output).toContain('github_metadata_run_1');
     expect(output).toContain('networkBoundaryInvoked=true');
     expect(fetchCalls).toHaveLength(3);
@@ -658,6 +665,8 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('octocat');
     expect(serialized).not.toContain('hello-world');
     expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('two2wolf1-eng');
+    expect(serialized).not.toContain('CodexHub.git');
     expect(serialized).not.toContain('https://api.github.com');
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('Authorization');
@@ -1363,9 +1372,12 @@ describe('cli development mock-run fallback', () => {
     } = await import('./main');
     const report = await getOperatorReadinessReportForCli();
     const integration = await getOperatorIntegrationReadinessForCli('worktree-manager');
-    const serialized = JSON.stringify({ report, integration });
+    const githubIntegration = await getOperatorIntegrationReadinessForCli('github-provider');
+    const serialized = JSON.stringify({ report, integration, githubIntegration });
 
     expect(report.checks.length).toBeGreaterThan(0);
+    expect(report.integrations.some((item) => item.name === 'github-provider')).toBe(true);
+    expect(JSON.stringify(githubIntegration)).toContain('github_remote_base_branch_not_observed');
     expect(report.configHashes.every((config) => config.bodyStored === false)).toBe(true);
     expect(formatOperatorReadinessReportOutput(report)).toContain('CodexHub operator readiness');
     expect(formatOperatorIntegrationReadinessOutput(integration)).toContain(

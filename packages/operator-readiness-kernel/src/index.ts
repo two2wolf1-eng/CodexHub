@@ -829,6 +829,22 @@ function createDefaultIntegrationInputs(): OperatorIntegrationInput[] {
       ],
     },
     {
+      name: 'github-provider',
+      enabled: false,
+      riskLevel: 'high',
+      approvalRequired: true,
+      networkBoundary: true,
+      blockers: [
+        'disabled_by_default',
+        'github_credential_missing',
+        'github_origin_remote_missing',
+        'github_remote_base_branch_not_observed',
+      ],
+      safeEnableNotes: [
+        'GitHub provider enablement requires explicit env flags, configured credential, origin remote readiness, and persisted approval before remote observation or writes.',
+      ],
+    },
+    {
       name: 'policy-backend',
       enabled: false,
       riskLevel: 'medium',
