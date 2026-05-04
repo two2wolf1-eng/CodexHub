@@ -571,3 +571,152 @@ workflows:
       - cedarRuntime
       - openTelemetrySdk
       - otlpNetworkExport
+  m8b.unified-governance-projection:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: packages/governance-projection-kernel apps/dashboard apps/cli
+      localControlRequired: false
+    chain:
+      - phase: unified-run-index
+        package: governance-projection-kernel
+        sources:
+          - codex
+          - verification
+          - mcp
+          - browser
+          - electron
+          - worktree
+          - policy
+          - telemetry
+          - orchestrator
+        output: idsHashesCountsStatusesSummariesEvidenceAndAuditIdsOnly
+      - phase: dashboard-read-only-view
+        route: '#/governance'
+        localControlTokenUsed: false
+        supervisorPostAllowed: false
+      - phase: cli-read-only-commands
+        commands:
+          - codexhub governance runs list
+          - codexhub governance runs show
+          - codexhub governance evidence bundle
+          - codexhub governance audit chain
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenInDashboard
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
+      - rawPromptRendering
+      - rawStdoutRendering
+      - rawStderrRendering
+      - rawDiffRendering
+      - rawTracePayloadRendering
+      - rawPathRendering
+  m8c.operator-readiness-config-doctor:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: packages/operator-readiness-kernel apps/dashboard apps/cli
+      localControlRequired: false
+    chain:
+      - phase: readiness-report
+        package: operator-readiness-kernel
+        checks:
+          - integrationEnabledState
+          - envFlagConfiguredState
+          - localTokenConfiguredState
+          - storeAvailability
+          - processBoundaryAllowlist
+          - policyRiskIntegrationConfigHash
+        output: configuredMissingHashesAndSummariesOnly
+      - phase: dashboard-read-only-view
+        route: '#/readiness'
+        localControlTokenUsed: false
+        supervisorPostAllowed: false
+      - phase: cli-read-only-commands
+        commands:
+          - codexhub doctor
+          - codexhub doctor integration
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+    forbidden:
+      - secretValueRendering
+      - rawEnvValueRendering
+      - localControlTokenRendering
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - adapterExecuteFromUiOrCli
+  m8d.golden-path-rehearsal:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: packages/orchestrator-kernel apps/cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-development-request
+        source: orchestrator-kernel
+      - phase: fixture-worktree
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+      - phase: fixture-codex
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+      - phase: fixture-nx
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+      - phase: pr-draft-metadata
+        rawBodyStored: false
+      - phase: evidence-audit-bundle
+        output: idsHashesCountsStatusesSummariesOnly
+      - phase: telemetry-projection
+        evidenceAuditAuthoritative: false
+    forbidden:
+      - realCodexProcess
+      - realNxProcess
+      - realGitProcess
+      - newProcessBoundary
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - push
+      - openPullRequest
+  m8_5.final-release-candidate-audit:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: docs tools
+      localControlRequired: false
+    chain:
+      - phase: release-candidate-documentation
+        documents:
+          - docs/releases/m8-release-candidate.md
+          - docs/reviews/m8-final-release-audit.md
+      - phase: scaffold-health-registration
+        tool: tools/scaffold-health.ts
+        validates:
+          - finalReleaseDocumentPresent
+          - finalAuditDocumentPresent
+      - phase: final-verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:boundaries
+          - pnpm audit:sqlite-isolation
+          - pnpm audit:no-live-automation
+          - pnpm audit:skills
+          - pnpm verify:foundation
+          - git diff --check
+          - git status --short --branch
+    forbidden:
+      - newSupervisorRoute
+      - newDashboardWriteUi
+      - newCliWriteCommand
+      - newMcpTool
+      - newProcessBoundary
+      - newNetworkBoundary
+      - newWebSocketBoundary
+      - adapterExecuteFromUiOrCli
