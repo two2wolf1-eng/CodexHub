@@ -150,6 +150,10 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'review.package_export_summary',
     'review.finding_summary',
     'review.decision_projection',
+    'release.rc_readiness_plan',
+    'release.rc_readiness_summary',
+    'release.rc_evidence_bundle',
+    'release.rc_audit_chain',
     'pr.draft_summary',
     'release.audit_draft',
     'pilot.m9.readiness_summary',
@@ -2616,6 +2620,152 @@ export const LocalReviewPackageControlPlaneRunSchema = createdEntityBaseSchema
 export type LocalReviewPackageControlPlaneRun = z.infer<
   typeof LocalReviewPackageControlPlaneRunSchema
 >;
+
+export const LocalRcReadinessStatusSchema = z.enum([
+  'not_ready',
+  'ready_for_local_acceptance',
+  'blocked_review',
+  'blocked_verification',
+  'blocked_operator_readiness',
+]);
+export type LocalRcReadinessStatus = z.infer<typeof LocalRcReadinessStatusSchema>;
+
+export const LocalRcReadinessOperatorStatusSchema = z.enum(['pass', 'warn', 'fail', 'unknown']);
+export type LocalRcReadinessOperatorStatus = z.infer<
+  typeof LocalRcReadinessOperatorStatusSchema
+>;
+
+export const LocalRcReadinessPlanSchema = createdEntityBaseSchema
+  .extend({
+    reviewPackageIdHash: z.string().min(1),
+    reviewDecisionIdHash: z.string().min(1),
+    reviewDecisionStatus: LocalReviewDecisionStatusSchema,
+    verificationStatus: z.enum(['passed', 'failed', 'aborted', 'blocked', 'not_run']),
+    operatorReadinessStatus: LocalRcReadinessOperatorStatusSchema,
+    plannedReadinessStatus: LocalRcReadinessStatusSchema,
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    exportPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (
+      record.plannedReadinessStatus === 'ready_for_local_acceptance' &&
+      (record.reviewDecisionStatus !== 'approved_for_local_rc' ||
+        record.verificationStatus !== 'passed' ||
+        record.operatorReadinessStatus !== 'pass')
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'local RC acceptance readiness requires approved review, passed verification, and passing operator readiness',
+        path: ['plannedReadinessStatus'],
+      });
+    }
+  });
+export type LocalRcReadinessPlan = z.infer<typeof LocalRcReadinessPlanSchema>;
+
+export const LocalRcReadinessSummarySchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    status: LocalRcReadinessStatusSchema,
+    reviewDecisionStatus: LocalReviewDecisionStatusSchema,
+    verificationStatus: z.enum(['passed', 'failed', 'aborted', 'blocked', 'not_run']),
+    operatorReadinessStatus: LocalRcReadinessOperatorStatusSchema,
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    localAcceptanceReady: z.boolean(),
+    bundleExported: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.localAcceptanceReady !== (record.status === 'ready_for_local_acceptance')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'localAcceptanceReady must match ready_for_local_acceptance status',
+        path: ['localAcceptanceReady'],
+      });
+    }
+
+    if (record.status === 'ready_for_local_acceptance' && record.blockerCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready local RC summaries cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type LocalRcReadinessSummary = z.infer<typeof LocalRcReadinessSummarySchema>;
+
+export const LocalRcEvidenceBundleSchema = createdEntityBaseSchema
+  .extend({
+    rcReadinessIdHash: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    bundleHash: z.string().min(1),
+    artifactExported: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.evidenceCount !== record.evidenceRefIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'evidenceCount must match evidenceRefIds length',
+        path: ['evidenceCount'],
+      });
+    }
+  });
+export type LocalRcEvidenceBundle = z.infer<typeof LocalRcEvidenceBundleSchema>;
+
+export const LocalRcAuditChainSchema = createdEntityBaseSchema
+  .extend({
+    rcReadinessIdHash: z.string().min(1),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    auditEventCount: z.number().int().nonnegative(),
+    chainHash: z.string().min(1),
+    processBoundaryCount: z.number().int().nonnegative(),
+    externalProcessStartedCount: z.number().int().nonnegative(),
+    networkBoundaryCount: z.number().int().nonnegative(),
+    artifactExported: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.auditEventCount !== record.auditEventIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'auditEventCount must match auditEventIds length',
+        path: ['auditEventCount'],
+      });
+    }
+  });
+export type LocalRcAuditChain = z.infer<typeof LocalRcAuditChainSchema>;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);
 export type GovernedCodexPatchMode = z.infer<typeof GovernedCodexPatchModeSchema>;

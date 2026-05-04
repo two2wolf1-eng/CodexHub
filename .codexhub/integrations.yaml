@@ -655,3 +655,43 @@ integrations:
         rawPullRequestBody: forbidden
         rawReason: forbidden
         body: forbidden
+  local-release-candidates:
+    enabled: false
+    adapter: release-candidate-kernel
+    provider: codexhub-local-projection
+    providerType: builtin
+    mode: metadata-only-projection
+    stage: m14a-local-rc-readiness-projection
+    defaultActionMode: read
+    defaultRisk: high
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    artifactExportEnabled: false
+    defaultArtifactRoot: ../CodexHub-artifacts
+    storage:
+      rawDiff: forbidden
+      rawPullRequestBody: forbidden
+      rawReviewReason: forbidden
+      rawPath: forbidden
+      rawCommand: forbidden
+      rawEnv: forbidden
+      body: forbidden
+    output: ids-hashes-counts-statuses-summaries
+    safety:
+      localOnly: true
+      pushAllowed: false
+      openPullRequestAllowed: false
+      githubIntegrationAllowed: false
+      supervisorRouteAdded: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+    m14a:
+      stage: local-rc-readiness-projection
+      helper: createLocalRcReadinessProjection
+      contracts:
+        - LocalRcReadinessPlan
+        - LocalRcReadinessSummary
+        - LocalRcEvidenceBundle
+        - LocalRcAuditChain
+      artifactExportPlanned: false

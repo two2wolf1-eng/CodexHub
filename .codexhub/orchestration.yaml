@@ -1607,3 +1607,47 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m14a.local-rc-readiness-projection:
+    risk: high
+    trigger:
+      type: metadata-projection
+      entrypoint: release-candidate-kernel
+      localControlRequired: false
+    chain:
+      - phase: rc-readiness
+        package: release-candidate-kernel
+        helper: createLocalRcReadinessProjection
+        inputs:
+          - local-review-decision
+          - m12-verification-readiness
+          - governance-projection
+          - operator-readiness
+          - evidence-audit-chain
+        statuses:
+          - not_ready
+          - ready_for_local_acceptance
+          - blocked_review
+          - blocked_verification
+          - blocked_operator_readiness
+        output: ids-hashes-counts-statuses-summaries
+      - phase: evidence-audit
+        contracts:
+          - LocalRcEvidenceBundle
+          - LocalRcAuditChain
+    safety:
+      localOnly: true
+      newSupervisorRoute: false
+      artifactExportPlanned: false
+      newWriteBoundary: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+    forbidden:
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest

@@ -190,6 +190,10 @@ import {
   LocalReviewPackagePlanSchema,
   LocalReviewPackageRunSchema,
   LocalReviewPackageSummarySchema,
+  LocalRcAuditChainSchema,
+  LocalRcEvidenceBundleSchema,
+  LocalRcReadinessPlanSchema,
+  LocalRcReadinessSummarySchema,
   PatchRunSchema,
   PatchSummarySchema,
   PolicyBackendEvaluationPlanSchema,
@@ -2383,6 +2387,124 @@ describe('contracts schemas', () => {
         ...run,
         id: 'review_export_raw_metadata',
         metadata: { rawPath: 'C:\\private\\artifact', rawDiff: 'diff --git' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('C:\\private');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('parses M14a local RC readiness projections and rejects raw release metadata', () => {
+    const plan = LocalRcReadinessPlanSchema.parse({
+      id: 'local_rc_plan_1',
+      schemaVersion,
+      createdAt,
+      reviewPackageIdHash: 'sha256:review-package',
+      reviewDecisionIdHash: 'sha256:review-decision',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      operatorReadinessStatus: 'pass',
+      plannedReadinessStatus: 'ready_for_local_acceptance',
+      evidenceRefIds: ['evidence_review', 'evidence_verification'],
+      auditEventIds: ['audit_review', 'audit_verification'],
+      exportPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: { stage: 'm14a', projectionOnly: true },
+      summary: 'Local RC readiness plan is ready for local acceptance.',
+    });
+    const summary = LocalRcReadinessSummarySchema.parse({
+      id: 'local_rc_summary_1',
+      schemaVersion,
+      createdAt,
+      planId: plan.id,
+      status: 'ready_for_local_acceptance',
+      reviewDecisionStatus: plan.reviewDecisionStatus,
+      verificationStatus: plan.verificationStatus,
+      operatorReadinessStatus: plan.operatorReadinessStatus,
+      blockerCount: 0,
+      evidenceRefCount: 2,
+      auditEventCount: 2,
+      localAcceptanceReady: true,
+      bundleExported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local RC is ready for local acceptance.',
+    });
+    const evidenceBundle = LocalRcEvidenceBundleSchema.parse({
+      id: 'local_rc_evidence_bundle_1',
+      schemaVersion,
+      createdAt,
+      rcReadinessIdHash: 'sha256:rc-summary',
+      evidenceRefIds: ['evidence_review', 'evidence_verification'],
+      evidenceCount: 2,
+      bundleHash: 'sha256:evidence-bundle',
+      artifactExported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local RC evidence bundle is metadata-only.',
+    });
+    const auditChain = LocalRcAuditChainSchema.parse({
+      id: 'local_rc_audit_chain_1',
+      schemaVersion,
+      createdAt,
+      rcReadinessIdHash: 'sha256:rc-summary',
+      auditEventIds: ['audit_review', 'audit_verification'],
+      auditEventCount: 2,
+      chainHash: 'sha256:audit-chain',
+      processBoundaryCount: 0,
+      externalProcessStartedCount: 0,
+      networkBoundaryCount: 0,
+      artifactExported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local RC audit chain is metadata-only.',
+    });
+    const serialized = JSON.stringify({ plan, summary, evidenceBundle, auditChain });
+
+    expect(summary.status).toBe('ready_for_local_acceptance');
+    expect(evidenceBundle.evidenceCount).toBe(2);
+    expect(auditChain.auditEventCount).toBe(2);
+    expect(() =>
+      LocalRcReadinessPlanSchema.parse({
+        ...plan,
+        id: 'local_rc_plan_bad_ready',
+        verificationStatus: 'failed',
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcReadinessSummarySchema.parse({
+        ...summary,
+        id: 'local_rc_summary_bad_ready',
+        blockerCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcEvidenceBundleSchema.parse({
+        ...evidenceBundle,
+        id: 'local_rc_evidence_bad_count',
+        evidenceCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcAuditChainSchema.parse({
+        ...auditChain,
+        id: 'local_rc_audit_bad_count',
+        auditEventCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcReadinessSummarySchema.parse({
+        ...summary,
+        id: 'local_rc_raw_metadata',
+        metadata: { rawPath: 'C:\\private\\rc', rawDiff: 'diff --git', rawReason: 'body' },
       }),
     ).toThrow();
     expect(serialized).not.toContain('C:\\private');

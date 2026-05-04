@@ -35,6 +35,9 @@
       "@codexhub/orchestrator-kernel": ["packages/orchestrator-kernel/src/index.ts"],
       "@codexhub/playwright-observer-adapter": ["packages/playwright-observer-adapter/src/index.ts"],
       "@codexhub/policy-backend-adapter": ["packages/policy-backend-adapter/src/index.ts"],
+      "@codexhub/release-candidate-kernel": [
+        "packages/release-candidate-kernel/src/index.ts"
+      ],
       "@codexhub/review-package-kernel": ["packages/review-package-kernel/src/index.ts"],
       "@codexhub/security-kernel": ["packages/security-kernel/src/index.ts"],
       "@codexhub/skill-registry": ["packages/skill-registry/src/index.ts"],
