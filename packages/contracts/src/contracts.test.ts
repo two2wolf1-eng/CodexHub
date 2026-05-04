@@ -176,6 +176,7 @@ import {
   ControlledPatchPlanSchema,
   ControlledPatchReadinessSchema,
   ControlledPatchRejectionReasonSchema,
+  ControlledPatchRetryCleanupProjectionSchema,
   ControlledPatchRunSchema,
   ControlledPatchVerificationGateSchema,
   DiffReviewSummarySchema,
@@ -1929,6 +1930,83 @@ describe('contracts schemas', () => {
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('C:\\');
     expect(serialized).not.toContain('secret-token');
+  });
+
+  it('parses M12 retry cleanup projection contracts as metadata-only handoff state', () => {
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_m12d_retry_cleanup',
+      schemaVersion,
+      createdAt,
+      kind: 'patch.readiness_summary',
+      hash: 'sha256:m12d-retry-cleanup',
+    });
+    const projection = ControlledPatchRetryCleanupProjectionSchema.parse({
+      id: 'm12d_retry_cleanup_1',
+      schemaVersion,
+      createdAt,
+      sourceLifecycleRunIdHash: 'sha256:lifecycle',
+      sourcePatchRunIdHash: 'sha256:patch-run',
+      status: 'retry_planned',
+      lastSafeStep: 'verification_failed',
+      attemptCount: 2,
+      previousAttemptHash: 'sha256:previous-attempt',
+      retryReasonHash: 'sha256:retry-reason',
+      retryRequiresNewApproval: true,
+      resumeAllowed: true,
+      cleanupRequired: true,
+      cleanupReady: true,
+      cleanupRequiresApproval: true,
+      cleanupForceAllowed: false,
+      filesystemDeleteFallbackAllowed: false,
+      dirtyWorktree: false,
+      dirtyFileCount: 0,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_m12d_retry_cleanup'],
+      metadata: {
+        m12d: true,
+        retryReasonStored: false,
+      },
+      summary: 'M12d retry requires a new approval and cleanup remains governed.',
+    });
+    const serialized = JSON.stringify(projection);
+
+    expect(projection.retryRequiresNewApproval).toBe(true);
+    expect(projection.cleanupForceAllowed).toBe(false);
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_dirty_ready',
+        dirtyWorktree: true,
+        dirtyFileCount: 1,
+        dirtySummaryHash: 'sha256:dirty',
+        cleanupReady: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_dirty_no_count',
+        dirtyWorktree: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      ControlledPatchRetryCleanupProjectionSchema.parse({
+        ...projection,
+        id: 'm12d_retry_cleanup_raw_metadata',
+        metadata: { worktreePath: 'C:\\private\\worktree' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('C:\\private');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('secret-token');
+    expect(serialized).not.toContain('raw retry reason');
   });
 
   it('parses M6b worktree control-plane records and keeps raw bodies out', () => {

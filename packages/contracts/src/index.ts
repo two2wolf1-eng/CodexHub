@@ -1734,6 +1734,10 @@ const m12PatchForbiddenMetadataKeys = new Set([
   'diff',
   'command',
   'path',
+  'repoRoot',
+  'worktreeRoot',
+  'worktreePath',
+  'baseRef',
   'rawBody',
   'rawDiff',
   'rawPath',
@@ -2032,6 +2036,88 @@ export const ControlledPatchVerificationGateSchema = createdEntityBaseSchema
   });
 export type ControlledPatchVerificationGate = z.infer<
   typeof ControlledPatchVerificationGateSchema
+>;
+
+export const ControlledPatchRetryResumeStatusSchema = z.enum([
+  'retry_planned',
+  'resume_available',
+  'cleanup_handoff',
+  'blocked',
+  'terminal',
+]);
+export type ControlledPatchRetryResumeStatus = z.infer<
+  typeof ControlledPatchRetryResumeStatusSchema
+>;
+
+export const ControlledPatchLastSafeStepSchema = z.enum([
+  'none',
+  'patch_generated',
+  'verification_failed',
+  'verification_passed',
+  'cleanup_handoff',
+]);
+export type ControlledPatchLastSafeStep = z.infer<typeof ControlledPatchLastSafeStepSchema>;
+
+export const ControlledPatchRetryCleanupProjectionSchema = createdEntityBaseSchema
+  .extend({
+    sourceLifecycleRunIdHash: z.string().min(1),
+    sourcePatchRunIdHash: z.string().min(1),
+    status: ControlledPatchRetryResumeStatusSchema,
+    lastSafeStep: ControlledPatchLastSafeStepSchema,
+    attemptCount: z.number().int().positive(),
+    previousAttemptHash: z.string().min(1),
+    retryReasonHash: z.string().min(1).optional(),
+    retryRequiresNewApproval: z.literal(true),
+    resumeAllowed: z.boolean(),
+    cleanupRequired: z.boolean(),
+    cleanupReady: z.boolean(),
+    cleanupRequiresApproval: z.literal(true),
+    cleanupForceAllowed: z.literal(false),
+    filesystemDeleteFallbackAllowed: z.literal(false),
+    dirtyWorktree: z.boolean(),
+    dirtyFileCount: z.number().int().nonnegative(),
+    dirtySummaryHash: z.string().min(1).optional(),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.dirtyWorktree && record.cleanupReady) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'dirty worktrees cannot be cleanup-ready in M12d',
+        path: ['cleanupReady'],
+      });
+    }
+
+    if (record.dirtyWorktree && record.dirtyFileCount === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'dirty worktrees require a dirty file count',
+        path: ['dirtyFileCount'],
+      });
+    }
+
+    if (!record.cleanupRequired && record.cleanupReady) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'cleanupReady requires cleanupRequired',
+        path: ['cleanupReady'],
+      });
+    }
+  });
+export type ControlledPatchRetryCleanupProjection = z.infer<
+  typeof ControlledPatchRetryCleanupProjectionSchema
 >;
 
 export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema

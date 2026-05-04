@@ -540,6 +540,17 @@ integrations:
       rawVerificationOutputStorage: forbidden
       rawDiffStorage: forbidden
       rawPullRequestBodyStorage: forbidden
+    m12d:
+      stage: patch-retry-cleanup-lifecycle
+      helper: runM12PatchRetryCleanupLifecycle
+      contract: ControlledPatchRetryCleanupProjection
+      retryRequiresNewApproval: true
+      cleanupRequiresApproval: true
+      cleanupForceAllowed: false
+      cleanupFilesystemDeleteFallbackAllowed: false
+      dirtyWorktreeBlocksCleanup: true
+      rawRetryReasonStorage: forbidden
+      output: ids-hashes-counts-statuses-summaries
   governed-codex-patch:
     enabled: false
     adapter: codex-exec-adapter

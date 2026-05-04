@@ -1290,3 +1290,51 @@ workflows:
       - rawPullRequestBody
       - gitPush
       - openPullRequest
+  m12d.patch-retry-cleanup-lifecycle:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: orchestrator-kernel contracts
+      localControlRequired: false
+    chain:
+      - phase: source-verification-gate
+        package: orchestrator-kernel
+        requires:
+          - M12c verification gate
+      - phase: retry-resume-projection
+        package: orchestrator-kernel
+        helper: runM12PatchRetryCleanupLifecycle
+        output: attempt-hashes-retry-reason-hash-last-safe-step
+      - phase: cleanup-handoff
+        contract: ControlledPatchRetryCleanupProjection
+        cleanup:
+          approvalRequired: true
+          forceAllowed: false
+          filesystemDeleteFallbackAllowed: false
+          dirtyWorktreeBlocksCleanup: true
+      - phase: release-evidence
+        documents:
+          - docs/releases/m12d-patch-retry-cleanup-lifecycle.md
+    safety:
+      newProcessBoundary: false
+      supervisorRouteAdded: false
+      retryRequiresNewApproval: true
+      cleanupForceAllowed: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawRetryReasonStored: false
+      rawDiffStored: false
+      rawPathStored: false
+      bodyStored: false
+    forbidden:
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - realRetryExecution
+      - forceCleanup
+      - filesystemDeleteFallback
+      - rawRetryReason
+      - rawDiffBody
+      - rawPullRequestBody
+      - gitPush
+      - openPullRequest

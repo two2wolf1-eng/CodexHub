@@ -15,6 +15,7 @@ import {
   runM11PilotAcceptanceSmoke,
   runM12ControlledPatchLifecycleFixture,
   runM12GovernedCodexPatchInWorktree,
+  runM12PatchRetryCleanupLifecycle,
   runM12PatchVerificationReadinessGate,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
@@ -1199,6 +1200,54 @@ describe('orchestrator-kernel M12 controlled patch lifecycle foundation', () => 
     for (const result of [failed, aborted, blocked]) {
       expect(result.lifecycle.pushAllowed).toBe(false);
       expect(result.lifecycle.pullRequestOpened).toBe(false);
+    }
+  });
+
+  it('projects M12d retry and cleanup handoff after failed verification', () => {
+    const result = runM12PatchRetryCleanupLifecycle({
+      verificationStatus: 'failed',
+      attemptCount: 2,
+      retryReasonLabel: 'lint failed without storing raw output',
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.lifecycle.status).toBe('blocked');
+    expect(result.retryCleanup.status).toBe('retry_planned');
+    expect(result.retryCleanup.retryRequiresNewApproval).toBe(true);
+    expect(result.retryCleanup.resumeAllowed).toBe(true);
+    expect(result.retryCleanup.cleanupRequired).toBe(true);
+    expect(result.retryCleanup.cleanupReady).toBe(true);
+    expect(result.retryCleanup.cleanupForceAllowed).toBe(false);
+    expect(result.retryCleanup.filesystemDeleteFallbackAllowed).toBe(false);
+    expect(result.retryCleanup.processBoundaryInvoked).toBe(false);
+    expect(result.retryCleanup.externalProcessStarted).toBe(false);
+    expect(serialized).not.toContain('lint failed without storing raw output');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('blocks M12d cleanup readiness for dirty worktrees and leaves passed patches terminal', () => {
+    const dirty = runM12PatchRetryCleanupLifecycle({
+      verificationStatus: 'failed',
+      dirtyWorktree: true,
+      dirtyFileCount: 3,
+    });
+    const passed = runM12PatchRetryCleanupLifecycle({ verificationStatus: 'passed' });
+
+    expect(dirty.retryCleanup.dirtyWorktree).toBe(true);
+    expect(dirty.retryCleanup.cleanupRequired).toBe(true);
+    expect(dirty.retryCleanup.cleanupReady).toBe(false);
+    expect(dirty.retryCleanup.dirtySummaryHash).toMatch(/^sha256:/);
+    expect(passed.lifecycle.status).toBe('verified');
+    expect(passed.retryCleanup.status).toBe('terminal');
+    expect(passed.retryCleanup.cleanupRequired).toBe(false);
+    expect(passed.retryCleanup.resumeAllowed).toBe(false);
+
+    for (const result of [dirty, passed]) {
+      expect(result.retryCleanup.pushAllowed).toBe(false);
+      expect(result.retryCleanup.pullRequestOpened).toBe(false);
+      expect(result.retryCleanup.cleanupForceAllowed).toBe(false);
     }
   });
 

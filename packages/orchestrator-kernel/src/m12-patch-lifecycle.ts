@@ -11,6 +11,8 @@ import {
   ControlledPatchReadinessSchema,
   type ControlledPatchReadinessStatus,
   type ControlledPatchRejectionReason,
+  type ControlledPatchRetryCleanupProjection,
+  ControlledPatchRetryCleanupProjectionSchema,
   ControlledPatchRunSchema,
   type ControlledPatchVerificationGate,
   ControlledPatchVerificationGateSchema,
@@ -76,6 +78,19 @@ export interface M12PatchVerificationReadinessGateResult {
   verificationRun: VerificationRun;
   verificationGate: ControlledPatchVerificationGate;
   lifecycle: ControlledPatchLifecycleRun;
+}
+
+export interface M12PatchRetryCleanupLifecycleInput
+  extends M12PatchVerificationReadinessGateInput {
+  dirtyWorktree?: boolean;
+  dirtyFileCount?: number;
+  attemptCount?: number;
+  retryReasonLabel?: string;
+}
+
+export interface M12PatchRetryCleanupLifecycleResult
+  extends M12PatchVerificationReadinessGateResult {
+  retryCleanup: ControlledPatchRetryCleanupProjection;
 }
 
 interface M12PatchLifecycleScenarioConfig {
@@ -384,6 +399,33 @@ export function runM12PatchVerificationReadinessGate(
   };
 }
 
+export function runM12PatchRetryCleanupLifecycle(
+  input: M12PatchRetryCleanupLifecycleInput = {},
+): M12PatchRetryCleanupLifecycleResult {
+  const verificationStatus = input.verificationStatus ?? 'failed';
+  const gated = runM12PatchVerificationReadinessGate({
+    ...input,
+    verificationStatus,
+  });
+  const dirtyWorktree = input.dirtyWorktree ?? false;
+  const dirtyFileCount = dirtyWorktree ? Math.max(input.dirtyFileCount ?? 1, 1) : 0;
+  const attemptCount = input.attemptCount ?? 2;
+  const retryCleanup = createM12dRetryCleanupProjection({
+    lifecycle: gated.lifecycle,
+    verificationGate: gated.verificationGate,
+    verificationStatus,
+    dirtyWorktree,
+    dirtyFileCount,
+    attemptCount,
+    retryReasonLabel: input.retryReasonLabel ?? defaultRetryReason(verificationStatus),
+  });
+
+  return {
+    ...gated,
+    retryCleanup,
+  };
+}
+
 function createLifecycleFromGovernedCodexPatch(input: {
   codexPatch: GovernedCodexPatchAdapterResult;
   stableSeed: string;
@@ -631,6 +673,85 @@ function createLifecycleFromVerificationGate(input: {
       noPullRequestOpened: true,
     },
     summary: `M12c verification-gated patch lifecycle is ${config.lifecycleStatus}.`,
+  });
+}
+
+function createM12dRetryCleanupProjection(input: {
+  lifecycle: ControlledPatchLifecycleRun;
+  verificationGate: ControlledPatchVerificationGate;
+  verificationStatus: Exclude<ControlledPatchVerificationStatus, 'not_run'>;
+  dirtyWorktree: boolean;
+  dirtyFileCount: number;
+  attemptCount: number;
+  retryReasonLabel: string;
+}): ControlledPatchRetryCleanupProjection {
+  const seed = [
+    'm12d',
+    input.lifecycle.id,
+    input.verificationStatus,
+    input.attemptCount.toString(),
+    input.dirtyWorktree ? 'dirty' : 'clean',
+  ].join(':');
+  const cleanupRequired =
+    input.lifecycle.codexPatchExecuted && input.verificationStatus !== 'passed';
+  const retryAvailable =
+    input.verificationStatus === 'failed' || input.verificationStatus === 'blocked';
+  const status = input.verificationStatus === 'passed'
+    ? 'terminal'
+    : retryAvailable
+      ? 'retry_planned'
+      : 'cleanup_handoff';
+  const evidenceRef: EvidenceRef = {
+    id: stableId('evidence_m12d_retry_cleanup', seed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    kind: 'patch.readiness_summary',
+    hash: stableHash(`m12d:${seed}`),
+    summary: 'M12d retry/resume/cleanup handoff evidence stores hashes and counts only.',
+    redacted: true,
+    labels: [],
+  };
+
+  return ControlledPatchRetryCleanupProjectionSchema.parse({
+    id: stableId('m12d_retry_cleanup_projection', seed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    sourceLifecycleRunIdHash: stableHash(input.lifecycle.id),
+    sourcePatchRunIdHash: stableHash(input.lifecycle.patchRun.id),
+    status,
+    lastSafeStep: getLastSafeStep(input.verificationStatus),
+    attemptCount: input.attemptCount,
+    previousAttemptHash: stableHash(input.lifecycle.patchRun.id),
+    retryReasonHash: retryAvailable ? stableHash(input.retryReasonLabel) : undefined,
+    retryRequiresNewApproval: true,
+    resumeAllowed: retryAvailable,
+    cleanupRequired,
+    cleanupReady: cleanupRequired && !input.dirtyWorktree,
+    cleanupRequiresApproval: true,
+    cleanupForceAllowed: false,
+    filesystemDeleteFallbackAllowed: false,
+    dirtyWorktree: input.dirtyWorktree,
+    dirtyFileCount: input.dirtyFileCount,
+    dirtySummaryHash: input.dirtyWorktree ? stableHash(`dirty:${seed}`) : undefined,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    evidenceRefs: [evidenceRef],
+    auditEventIds: [stableId('audit_m12d_retry_cleanup', seed)],
+    metadata: {
+      stage: 'm12d',
+      verificationGateIdHash: stableHash(input.verificationGate.id),
+      retryReasonStored: false,
+      cleanupNonForceOnly: true,
+    },
+    summary:
+      status === 'terminal'
+        ? 'M12d patch lifecycle is terminal; no retry or cleanup handoff is required.'
+        : 'M12d records retry/resume/cleanup handoff metadata; any real retry needs new approval.',
   });
 }
 
@@ -916,6 +1037,37 @@ function defaultAffectedProjects(
   status: Exclude<ControlledPatchVerificationStatus, 'not_run'>,
 ): string[] {
   return status === 'blocked' ? [] : ['orchestrator-kernel', 'contracts'];
+}
+
+function defaultRetryReason(
+  status: Exclude<ControlledPatchVerificationStatus, 'not_run'>,
+): string {
+  switch (status) {
+    case 'failed':
+      return 'verification failed';
+    case 'blocked':
+      return 'verification blocked';
+    case 'aborted':
+      return 'verification aborted';
+    case 'passed':
+    default:
+      return 'verification passed';
+  }
+}
+
+function getLastSafeStep(
+  status: Exclude<ControlledPatchVerificationStatus, 'not_run'>,
+): 'patch_generated' | 'verification_failed' | 'verification_passed' | 'cleanup_handoff' {
+  switch (status) {
+    case 'passed':
+      return 'verification_passed';
+    case 'failed':
+      return 'verification_failed';
+    case 'aborted':
+    case 'blocked':
+    default:
+      return 'patch_generated';
+  }
 }
 
 function defaultGovernedChangedFiles(status: GovernedCodexPatchRunStatus): string[] {
