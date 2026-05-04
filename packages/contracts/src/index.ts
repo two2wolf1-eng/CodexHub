@@ -142,6 +142,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'release.audit_draft',
     'pilot.m9.readiness_summary',
     'pilot.m9.run_summary',
+    'pilot.m11.readiness_summary',
+    'pilot.m11.run_summary',
     'policy_backend.evaluation_plan',
     'policy_backend.raw_evaluation_summary',
     'policy_backend.normalized_decision_trace',
@@ -2777,6 +2779,229 @@ export const M9PilotRunSchema = createdEntityBaseSchema
     }
   });
 export type M9PilotRun = z.infer<typeof M9PilotRunSchema>;
+
+export const M11PilotRunStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type M11PilotRunStatus = z.infer<typeof M11PilotRunStatusSchema>;
+
+export const M11PilotStepStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+  'skipped',
+]);
+export type M11PilotStepStatus = z.infer<typeof M11PilotStepStatusSchema>;
+
+export const M11PilotFailureClassificationSchema = z.enum([
+  'none',
+  'readiness_blocked',
+  'approval_blocked',
+  'worktree_boundary_failed',
+  'codex_failed',
+  'nx_failed',
+  'projection_degraded',
+]);
+export type M11PilotFailureClassification = z.infer<
+  typeof M11PilotFailureClassificationSchema
+>;
+
+export const M11PilotPrDraftStatusSchema = z.enum(['not_ready_no_patch', 'blocked']);
+export type M11PilotPrDraftStatus = z.infer<typeof M11PilotPrDraftStatusSchema>;
+
+const m11PilotForbiddenMetadataKeys = new Set([
+  'body',
+  'prompt',
+  'stdout',
+  'stderr',
+  'jsonl',
+  'diff',
+  'command',
+  'path',
+  'url',
+  'title',
+  'payload',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  'localControlKey',
+]);
+
+function rejectM11PilotRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectM11PilotRawMetadata(item, context, [...path, index]));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (m11PilotForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw M11 pilot metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectM11PilotRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const M11PilotStepSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.enum([
+      'readiness',
+      'worktree',
+      'codex',
+      'verification',
+      'projection',
+      'recovery',
+      'summary',
+    ]),
+    status: M11PilotStepStatusSchema,
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    boundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    summary: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotStep = z.infer<typeof M11PilotStepSchema>;
+
+export const M11PilotReadinessSchema = createdEntityBaseSchema
+  .extend({
+    status: z.enum(['ready', 'blocked', 'degraded']),
+    checkCount: z.number().int().nonnegative(),
+    passedCheckCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    worktreeManagerEnabled: z.boolean(),
+    codexReadOnlyDryRunOnly: z.literal(true),
+    nxVerificationPlanned: z.boolean(),
+    localControlRequired: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotReadiness = z.infer<typeof M11PilotReadinessSchema>;
+
+export const M11PilotEvidenceSummarySchema = createdEntityBaseSchema
+  .extend({
+    runId: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    bundleHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotEvidenceSummary = z.infer<typeof M11PilotEvidenceSummarySchema>;
+
+export const M11PilotFailureSummarySchema = createdEntityBaseSchema
+  .extend({
+    runId: z.string().min(1),
+    classification: M11PilotFailureClassificationSchema,
+    failedPhase: z.string().min(1).optional(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    cleanupRequired: z.boolean(),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotFailureSummary = z.infer<typeof M11PilotFailureSummarySchema>;
+
+export const M11PilotRunSchema = createdEntityBaseSchema
+  .extend({
+    status: M11PilotRunStatusSchema,
+    requestTitleHash: z.string().min(1),
+    requestDescriptionHash: z.string().min(1),
+    readiness: M11PilotReadinessSchema,
+    steps: z.array(M11PilotStepSchema),
+    evidenceSummary: M11PilotEvidenceSummarySchema,
+    failureSummary: M11PilotFailureSummarySchema,
+    worktreeRunId: z.string().min(1).optional(),
+    codexStatus: z.string().min(1).optional(),
+    verificationStatus: z.string().min(1).optional(),
+    prDraftStatus: M11PilotPrDraftStatusSchema,
+    changedFileCount: z.number().int().nonnegative(),
+    cleanupRequired: z.boolean(),
+    gitProcessBoundaryInvoked: z.boolean(),
+    codexProcessBoundaryInvoked: z.boolean(),
+    nxProcessBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    codexNoRealWrite: z.literal(true),
+    codexReadOnlyDryRunOnly: z.literal(true),
+    patchGenerationAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+    if (record.prDraftStatus === 'not_ready_no_patch' && record.changedFileCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'not_ready_no_patch requires zero changed files',
+        path: ['prDraftStatus'],
+      });
+    }
+    if (
+      record.pullRequestOpened !== false ||
+      record.pushAllowed !== false ||
+      record.patchGenerationAllowed !== false
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M11 pilot never patches, pushes, or opens pull requests',
+        path: ['pullRequestOpened'],
+      });
+    }
+  });
+export type M11PilotRun = z.infer<typeof M11PilotRunSchema>;
 
 export const ApprovalUxTypeSchema = z.enum([
   'codex',

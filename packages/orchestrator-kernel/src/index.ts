@@ -31,6 +31,7 @@ export * from './m6b-runner';
 export * from './golden-path-rehearsal';
 export * from './m10-pilot-acceptance-rehearsal';
 export * from './m9-pilot-runner';
+export * from './m11-pilot-runner';
 
 export interface MockDevelopmentOrchestrationInput {
   title: string;

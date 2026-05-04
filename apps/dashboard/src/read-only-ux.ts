@@ -298,6 +298,27 @@ export interface M10PilotAcceptanceReadOnlySummary {
   summary: string;
 }
 
+export interface M11PilotReadOnlySummary {
+  status: 'available' | 'degraded';
+  runCount: number;
+  latestRunStatus: string;
+  latestPrDraftStatus: string;
+  latestFailureClassification: string;
+  codexReadOnlyDryRunOnly: true;
+  patchGenerationAllowed: false;
+  pushAllowed: false;
+  pullRequestOpened: false;
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: boolean;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
+}
+
 export interface ApprovalDecisionHistoryReadOnlySummary {
   itemCount: number;
   requestedCount: number;
@@ -712,6 +733,41 @@ export function createM10PilotAcceptanceReadOnlySummary(input: {
     bodyStored: false,
     tokenStored: false,
     summary: `M10 acceptance rehearsal preview ${status}; fixture metadata only.`,
+  };
+}
+
+export function createM11PilotReadOnlySummary(input: {
+  runCount?: number;
+  latestRunStatus?: string;
+  latestPrDraftStatus?: string;
+  latestFailureClassification?: string;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+} = {}): M11PilotReadOnlySummary {
+  const runCount = input.runCount ?? 0;
+
+  return {
+    status: runCount > 0 ? 'available' : 'degraded',
+    runCount,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    latestPrDraftStatus: input.latestPrDraftStatus ?? 'none',
+    latestFailureClassification: input.latestFailureClassification ?? 'none',
+    codexReadOnlyDryRunOnly: true,
+    patchGenerationAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    processBoundaryInvoked: input.processBoundaryInvoked ?? false,
+    externalProcessStarted: input.externalProcessStarted ?? false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary:
+      runCount > 0
+        ? 'M11 narrow-path pilot metadata is available. Dashboard remains read-only.'
+        : 'M11 narrow-path pilot metadata is unavailable or empty. Dashboard remains read-only.',
   };
 }
 

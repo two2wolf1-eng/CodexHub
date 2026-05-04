@@ -273,6 +273,7 @@ export interface ReadOnlyRunSummary {
     | 'electron_cdp_observation'
     | 'worktree_run'
     | 'worktree_cleanup_run'
+    | 'm11_pilot'
     | 'policy_backend_projection'
     | 'telemetry_projection';
   title: string;
@@ -381,6 +382,31 @@ interface WorktreeApiRecord {
   rawPathStored?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
+  summary?: string;
+}
+
+interface M11PilotRunApiRecord {
+  runId?: string;
+  status?: string;
+  readinessStatus?: string;
+  readinessBlockers?: string[];
+  failureClassification?: string;
+  worktreeRunId?: string;
+  codexStatus?: string;
+  verificationStatus?: string;
+  prDraftStatus?: string;
+  changedFileCount?: number;
+  cleanupRequired?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  codexReadOnlyDryRunOnly?: boolean;
+  patchGenerationAllowed?: boolean;
+  pushAllowed?: boolean;
+  pullRequestOpened?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
   summary?: string;
 }
 
@@ -651,6 +677,42 @@ export function buildProgram(): Command {
     .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
       const result = runM10PilotAcceptanceRehearsalForCli(options);
       console.log(formatM10PilotAcceptanceRehearsalOutput(result, options));
+    });
+
+  const pilotM11Command = pilotCommand
+    .command('m11')
+    .description('M11 production pilot narrow-path read-only summaries');
+
+  pilotM11Command
+    .command('readiness')
+    .option('--json', 'Print full JSON output')
+    .description('Show M11 narrow-path readiness metadata without executing the pilot')
+    .action(async (options: JsonCliOptions) => {
+      const readiness = await getM11PilotReadinessForCli();
+      console.log(formatM11PilotReadinessOutput(readiness, options));
+    });
+
+  const pilotM11RunsCommand = pilotM11Command
+    .command('runs')
+    .description('Read M11 narrow-path pilot run metadata from Supervisor GET endpoints');
+
+  pilotM11RunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List M11 narrow-path pilot runs without sending a local-control key')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listM11PilotRunsForCli();
+      console.log(formatM11PilotRunsListOutput(result, options));
+    });
+
+  pilotM11RunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one M11 narrow-path pilot run without executing the pilot')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showM11PilotRunForCli(runId);
+      console.log(formatM11PilotRunShowOutput(result, options));
     });
 
   const rehearsalCommand = program
@@ -2289,6 +2351,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     electronCdpObservationResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
+    m11PilotRunResult,
   ] =
     await Promise.allSettled([
       getSupervisorJson<{ runs: WorkflowRun[] }>('/api/workflows/runs'),
@@ -2304,6 +2367,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       ),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
+      getSupervisorJson<{ records: M11PilotRunApiRecord[] }>('/api/pilots/m11/local-runs'),
     ]);
   const runs = [
     ...summarizeWorkflowRuns(settledValue(workflowResult)?.runs ?? []),
@@ -2320,6 +2384,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       settledValue(worktreeCleanupRunResult)?.records ?? [],
       true,
     ),
+    ...summarizeM11PilotRunRecords(settledValue(m11PilotRunResult)?.records ?? []),
     ...summarizePolicyTelemetryLocalRuns(),
   ];
   const degradedReasons = [
@@ -2330,10 +2395,11 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(electronCdpObservationResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
+    settledError(m11PilotRunResult),
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 7 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 8 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -2567,6 +2633,103 @@ export function runM10PilotAcceptanceRehearsalForCli(options: {
   const scenario = normalizeM10PilotAcceptanceScenario(options.scenario);
 
   return runM10PilotAcceptanceRehearsal({ scenario });
+}
+
+export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
+  const runs = await listM11PilotRunsForCli();
+  const records = (runs.records as M11PilotRunApiRecord[] | undefined) ?? [];
+  const latest = records[0];
+
+  return {
+    status: records.length > 0 ? 'available' : 'degraded',
+    runCount: records.length,
+    latestRunStatus: latest?.status ?? 'none',
+    latestReadinessStatus: latest?.readinessStatus ?? 'none',
+    latestPrDraftStatus: latest?.prDraftStatus ?? 'none',
+    latestFailureClassification: latest?.failureClassification ?? 'none',
+    blockers: latest?.readinessBlockers ?? [],
+    codexReadOnlyDryRunOnly: true,
+    patchGenerationAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    rawPathStored: false,
+    bodyStored: false,
+    note: 'M11 readiness is derived from Supervisor GET metadata only.',
+  };
+}
+
+export async function listM11PilotRunsForCli(): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: M11PilotRunApiRecord[];
+      count?: number;
+      degraded?: boolean;
+    }>('/api/pilots/m11/local-runs');
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'M11 pilot runs are read from Supervisor GET endpoints only.',
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      degraded: true,
+      reason: error instanceof Error ? error.message : 'M11 pilot run source unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'M11 pilot run source is unavailable; no local-control key was read.',
+    };
+  }
+}
+
+export async function showM11PilotRunForCli(runId: string): Promise<Record<string, unknown>> {
+  try {
+    const record = await getSupervisorJson<M11PilotRunApiRecord>(
+      `/api/pilots/m11/local-runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      record,
+      query: { runId },
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'M11 pilot detail is read from Supervisor GET endpoints only.',
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      record: undefined,
+      query: { runId },
+      degraded: true,
+      reason: error instanceof Error ? error.message : 'M11 pilot run unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'M11 pilot detail source is unavailable; no local-control key was read.',
+    };
+  }
 }
 
 export async function listBrowserObservationRuns(): Promise<Record<string, unknown>> {
@@ -3063,6 +3226,22 @@ function summarizeWorktreeRunRecords(
     summary:
       run.summary ??
       (cleanup ? 'Worktree cleanup metadata summary.' : 'Worktree create metadata summary.'),
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeM11PilotRunRecords(runs: M11PilotRunApiRecord[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? 'm11_pilot_run',
+    source: 'm11_pilot',
+    title: `M11 pilot ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'M11 production pilot narrow-path metadata summary.',
     evidenceCount: run.evidenceRefIds?.length ?? 0,
     auditEventCount: run.auditEventIds?.length ?? 0,
     liveExecution: false,
@@ -6555,6 +6734,77 @@ export function formatM10PilotAcceptanceRehearsalOutput(
     `rawPathStored=${String(result.rawPathStored)}`,
     'timeline:',
     ...result.steps.map((step) => `- ${step.order} ${step.code} ${step.phase}/${step.status}`),
+  ].join('\n');
+}
+
+export function formatM11PilotReadinessOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'CodexHub M11 pilot readiness',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runs: ${String(result.runCount ?? 0)}`,
+    `latest: ${String(result.latestRunStatus ?? 'none')}`,
+    `prDraft: ${String(result.latestPrDraftStatus ?? 'none')}`,
+    `failure: ${String(result.latestFailureClassification ?? 'none')}`,
+    'codex: read-only dry-run only',
+    'patchGenerationAllowed=false',
+    'pushAllowed=false',
+    'pullRequestOpened=false',
+    `note: ${String(result.note ?? '')}`,
+  ].join('\n');
+}
+
+export function formatM11PilotRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as M11PilotRunApiRecord[] | undefined) ?? [];
+
+  return [
+    'CodexHub M11 pilot runs',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${String(result.count ?? records.length)}`,
+    ...records.map(
+      (record) =>
+        `- ${record.runId ?? 'unknown'} ${record.status ?? 'unknown'} pr=${
+          record.prDraftStatus ?? 'unknown'
+        } failure=${record.failureClassification ?? 'none'}`,
+    ),
+    `note: ${String(result.note ?? '')}`,
+  ].join('\n');
+}
+
+export function formatM11PilotRunShowOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as M11PilotRunApiRecord | undefined;
+
+  return [
+    'CodexHub M11 pilot run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${record?.runId ?? 'none'}`,
+    `runStatus: ${record?.status ?? 'unknown'}`,
+    `prDraft: ${record?.prDraftStatus ?? 'unknown'}`,
+    `failure: ${record?.failureClassification ?? 'none'}`,
+    `readiness: ${record?.readinessStatus ?? 'unknown'}`,
+    `evidence: ${record?.evidenceRefIds?.length ?? 0}`,
+    `audit: ${record?.auditEventIds?.length ?? 0}`,
+    `note: ${String(result.note ?? '')}`,
   ].join('\n');
 }
 

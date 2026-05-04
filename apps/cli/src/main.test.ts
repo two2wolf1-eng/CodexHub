@@ -281,6 +281,30 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/pilots/m11/local-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'm11_pilot_run_1',
+                status: 'blocked',
+                prDraftStatus: 'blocked',
+                failureClassification: 'approval_blocked',
+                evidenceRefIds: ['evidence_m11_1'],
+                auditEventIds: ['audit_m11_1'],
+                codexReadOnlyDryRunOnly: true,
+                patchGenerationAllowed: false,
+                pushAllowed: false,
+                pullRequestOpened: false,
+                rawPathStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
       return new Response(JSON.stringify({}), { status: 404 });
     });
     const { formatReadOnlyRunsListOutput, listReadOnlyRuns, showReadOnlyRun } = await import(
@@ -292,16 +316,17 @@ describe('cli development mock-run fallback', () => {
 
     expect(result).toMatchObject({
       status: 'ready',
-      count: 3,
+      count: 4,
       liveExecution: false,
       externalProcessStarted: false,
       noRealWrite: true,
     });
     expect(detail.status).toBe('found');
     expect(output).toContain('workflow_1');
+    expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(14);
+    expect(fetchCalls).toHaveLength(16);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -470,6 +495,114 @@ describe('cli development mock-run fallback', () => {
     expect(m10Source).not.toContain("method: 'POST'");
     expect(m10Source).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
     expect(m10Source).not.toContain('x-codexhub-local-token');
+  });
+
+  it('reads M11 pilot metadata through GET-only CLI helpers', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/pilots/m11/local-runs/m11_pilot_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'm11_pilot_run_1',
+            status: 'blocked',
+            readinessStatus: 'blocked',
+            readinessBlockers: ['worktree_approval_artifact_id_required'],
+            prDraftStatus: 'blocked',
+            failureClassification: 'approval_blocked',
+            evidenceRefIds: ['evidence_m11_1'],
+            auditEventIds: ['audit_m11_1'],
+            codexReadOnlyDryRunOnly: true,
+            patchGenerationAllowed: false,
+            pushAllowed: false,
+            pullRequestOpened: false,
+            rawPathStored: false,
+            bodyStored: false,
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/pilots/m11/local-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'm11_pilot_run_1',
+                status: 'blocked',
+                readinessStatus: 'blocked',
+                readinessBlockers: ['worktree_approval_artifact_id_required'],
+                prDraftStatus: 'blocked',
+                failureClassification: 'approval_blocked',
+                evidenceRefIds: ['evidence_m11_1'],
+                auditEventIds: ['audit_m11_1'],
+                codexReadOnlyDryRunOnly: true,
+                patchGenerationAllowed: false,
+                pushAllowed: false,
+                pullRequestOpened: false,
+                rawPathStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    const {
+      formatM11PilotReadinessOutput,
+      formatM11PilotRunShowOutput,
+      formatM11PilotRunsListOutput,
+      getM11PilotReadinessForCli,
+      listM11PilotRunsForCli,
+      showM11PilotRunForCli,
+    } = await import('./main');
+    const readiness = await getM11PilotReadinessForCli();
+    const runs = await listM11PilotRunsForCli();
+    const detail = await showM11PilotRunForCli('m11_pilot_run_1');
+    const output = [
+      formatM11PilotReadinessOutput(readiness),
+      formatM11PilotRunsListOutput(runs),
+      formatM11PilotRunShowOutput(detail),
+    ].join('\n');
+    const serialized = JSON.stringify({ readiness, runs, detail });
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const m11CommandSource = source.slice(
+      source.indexOf("const pilotM11Command = pilotCommand"),
+      source.indexOf("const rehearsalCommand = program"),
+    );
+
+    expect(readiness).toMatchObject({
+      status: 'available',
+      latestPrDraftStatus: 'blocked',
+      latestFailureClassification: 'approval_blocked',
+      codexReadOnlyDryRunOnly: true,
+      patchGenerationAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      rawPathStored: false,
+      bodyStored: false,
+    });
+    expect((runs.records as unknown[])).toHaveLength(1);
+    expect(detail.status).toBe('found');
+    expect(output).toContain('CodexHub M11 pilot readiness');
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(m11CommandSource).not.toContain('.execute(');
+    expect(m11CommandSource).not.toContain("method: 'POST'");
+    expect(m11CommandSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(m11CommandSource).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('local-control-secret');
   });
 
   it('runs the golden path rehearsal as fixture-only metadata', async () => {

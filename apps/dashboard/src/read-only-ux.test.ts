@@ -6,6 +6,7 @@ import {
   createGovernanceReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
+  createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
@@ -351,6 +352,39 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.adapterExecuteAllowed).toBe(false);
     expect(summary.pushAllowed).toBe(false);
     expect(summary.pullRequestOpened).toBe(false);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+  });
+
+  it('summarizes M11 narrow-path pilot metadata without write controls', () => {
+    const summary = createM11PilotReadOnlySummary({
+      runCount: 1,
+      latestRunStatus: 'blocked',
+      latestPrDraftStatus: 'blocked',
+      latestFailureClassification: 'approval_blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.status).toBe('available');
+    expect(summary.runCount).toBe(1);
+    expect(summary.latestPrDraftStatus).toBe('blocked');
+    expect(summary.codexReadOnlyDryRunOnly).toBe(true);
+    expect(summary.patchGenerationAllowed).toBe(false);
+    expect(summary.pushAllowed).toBe(false);
+    expect(summary.pullRequestOpened).toBe(false);
+    expect(summary.localControlKeyRead).toBe(false);
+    expect(summary.supervisorPostAllowed).toBe(false);
+    expect(summary.adapterExecuteAllowed).toBe(false);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.tokenStored).toBe(false);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
     expect(serialized).not.toContain('x-codexhub-local-token');
     expect(serialized).not.toContain('raw prompt');

@@ -240,6 +240,7 @@ import type {
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
   M9PilotRun,
+  M11PilotRun,
   WorktreeRunStatus,
 } from '@codexhub/contracts';
 import {
@@ -282,8 +283,10 @@ import {
 import type { ElectronCdpObservationRunner } from '@codexhub/electron-cdp-adapter';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
+  type M11ProductionPilotNarrowPathInput,
   type M9LocalPilotInput,
   type MockDevelopmentOrchestrationResult,
+  runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
@@ -329,6 +332,9 @@ interface SupervisorServerOptions {
   m9LocalPilotEnabled?: boolean;
   m9CodexRunner?: M9LocalPilotInput['codexRunner'];
   m9NxRunner?: M9LocalPilotInput['nxRunner'];
+  m11ProductionPilotEnabled?: boolean;
+  m11CodexRunner?: M11ProductionPilotNarrowPathInput['codexRunner'];
+  m11NxRunner?: M11ProductionPilotNarrowPathInput['nxRunner'];
 }
 
 interface PersistenceState {
@@ -529,6 +535,8 @@ interface M9LocalPilotRunRequestBody {
   authority?: unknown;
 }
 
+type M11LocalPilotRunRequestBody = M9LocalPilotRunRequestBody;
+
 type ApprovalDecisionRequestBody = ApprovalDecisionRequest & {
   approvalArtifact?: unknown;
   authority?: unknown;
@@ -610,6 +618,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const worktreeCleanupApprovalRecords: WorktreeCleanupApprovalArtifactRecord[] = [];
   const worktreeCleanupRunRecords: WorktreeCleanupControlPlaneRun[] = [];
   const m9LocalPilotRunRecords: M9PilotRun[] = [];
+  const m11LocalPilotRunRecords: M11PilotRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -1579,6 +1588,134 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createM9PilotRunResponse(record);
+  });
+
+  server.post('/api/pilots/m11/local-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send({
+        error: 'm11_pilot_store_unavailable',
+        status: 'blocked',
+        degraded: true,
+        notPersisted: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        rawPathStored: false,
+        bodyStored: false,
+      });
+    }
+
+    const body = request.body as M11LocalPilotRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send({
+        error: 'untrusted_m11_pilot_authority_body',
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+      });
+    }
+
+    const dryRunRecord = await resolveWorktreeDryRunRecord(body?.worktreeDryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree dry-run record was not found' });
+    }
+
+    const worktreeApprovalRecord = body?.worktreeApprovalArtifactId
+      ? await resolveWorktreeApprovalRecordByArtifactId(body.worktreeApprovalArtifactId, store)
+      : undefined;
+    const worktreeApprovalReady = classifyWorktreeApproval(worktreeApprovalRecord) === 'ready';
+    const enabled =
+      options.m11ProductionPilotEnabled === true ||
+      process.env.CODEXHUB_M11_PRODUCTION_PILOT_ENABLED === 'true';
+    const worktreeBoundaryEnabled =
+      options.worktreeManagerEnabled === true ||
+      process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED === 'true';
+    const pilotResult = await runM11ProductionPilotNarrowPath({
+      title: body?.title ?? 'M11 production pilot narrow path',
+      description:
+        body?.description ??
+        'Run controlled worktree plus Codex read-only dry-run and Nx verification through the M11 narrow path.',
+      repoRoot: body?.repoRoot ?? process.cwd(),
+      worktreeRoot: body?.worktreeRoot ?? '',
+      worktreePath: body?.worktreePath ?? '',
+      worktreeSlug: body?.worktreeSlug ?? 'm11-production-pilot',
+      branchName: body?.branchName ?? 'codex/m11-production-pilot',
+      baseRef: body?.baseRef ?? 'HEAD',
+      allowedWorktreeRoots: body?.worktreeRoot ? [body.worktreeRoot] : undefined,
+      codexDryRunId: body?.codexDryRunId ?? dryRunRecord.dryRunId,
+      worktreeApprovalArtifactId: body?.worktreeApprovalArtifactId,
+      codexApprovalArtifactId: body?.codexApprovalArtifactId,
+      worktreeApprovalResolved: worktreeApprovalReady,
+      m11PilotEnabled: enabled,
+      realGitBoundaryEnabled: worktreeBoundaryEnabled,
+      governedInput: body?.governedInput?.relativePath
+        ? {
+            relativePath: body.governedInput.relativePath,
+            expectedContentHash: body.governedInput.expectedContentHash,
+            contentHash: body.governedInput.contentHash,
+          }
+        : undefined,
+      verificationTargets: body?.verificationTargets,
+      headRef: body?.headRef,
+      codexExecutablePath: body?.codexExecutablePath ?? 'codex',
+      nxExecutablePath: body?.nxExecutablePath ?? 'pnpm',
+      store,
+      worktreeRunner: options.worktreeManagerRunner,
+      codexRunner: options.m11CodexRunner,
+      nxRunner: options.m11NxRunner,
+      actor: 'codexhub-supervisor.m11-pilot',
+    });
+
+    m11LocalPilotRunRecords.unshift(pilotResult.run);
+    m11LocalPilotRunRecords.splice(50);
+
+    if (pilotResult.worktree?.worktreeRun.gitProcessBoundaryInvoked && worktreeApprovalRecord) {
+      const usedApprovalRecord = createWorktreeApprovalRecord({
+        dryRunRecord,
+        baseRecord: worktreeApprovalRecord,
+        status: 'used',
+        reason: 'M11 production pilot reached controlled git boundary',
+      });
+      await persistWorktreeApprovalRecord(usedApprovalRecord, store);
+      await persistEvidenceRefs(usedApprovalRecord.evidenceRefs, store);
+      await persistWorktreeAuditEvents(
+        usedApprovalRecord.auditEventIds,
+        usedApprovalRecord.evidenceRefs,
+        store,
+        usedApprovalRecord.policyDecisionId,
+      );
+    }
+
+    return createM11PilotRunResponse(pilotResult.run);
+  });
+
+  server.get('/api/pilots/m11/local-runs', async () => ({
+    records: m11LocalPilotRunRecords.map(createM11PilotRunResponse),
+    count: m11LocalPilotRunRecords.length,
+    degraded: persistenceState.status !== 'ok',
+    processBoundaryInvoked: m11LocalPilotRunRecords.some((record) => record.processBoundaryInvoked),
+    externalProcessStarted: m11LocalPilotRunRecords.some(
+      (record) => record.externalProcessStarted,
+    ),
+    rawPathStored: false,
+    bodyStored: false,
+  }));
+
+  server.get('/api/pilots/m11/local-runs/:id', async (request, reply) => {
+    const params = request.params as { id?: string };
+    const record = m11LocalPilotRunRecords.find((candidate) => candidate.id === params.id);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'm11 pilot run was not found' });
+    }
+
+    return createM11PilotRunResponse(record);
   });
 
   server.get('/api/approvals/inbox', async (request) => {
@@ -10650,6 +10787,41 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       processBoundaryInvoked: record.processBoundaryInvoked,
       externalProcessStarted: record.externalProcessStarted,
       codexNoRealWrite: true,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createM11PilotRunResponse(record: M11PilotRun) {
+    return {
+      runId: record.id,
+      status: record.status,
+      readinessStatus: record.readiness.status,
+      readinessBlockers: record.readiness.blockers,
+      failureClassification: record.failureSummary.classification,
+      worktreeRunId: record.worktreeRunId,
+      codexStatus: record.codexStatus,
+      verificationStatus: record.verificationStatus,
+      prDraftStatus: record.prDraftStatus,
+      changedFileCount: record.changedFileCount,
+      cleanupRequired: record.cleanupRequired,
+      stepCount: record.steps.length,
+      evidenceRefIds: record.evidenceSummary.evidenceRefIds,
+      auditEventIds: record.evidenceSummary.auditEventIds,
+      evidenceCount: record.evidenceSummary.evidenceCount,
+      auditEventCount: record.evidenceSummary.auditEventCount,
+      bundleHash: record.evidenceSummary.bundleHash,
+      gitProcessBoundaryInvoked: record.gitProcessBoundaryInvoked,
+      codexProcessBoundaryInvoked: record.codexProcessBoundaryInvoked,
+      nxProcessBoundaryInvoked: record.nxProcessBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      codexNoRealWrite: true,
+      codexReadOnlyDryRunOnly: true,
+      patchGenerationAllowed: false,
       pushAllowed: false,
       pullRequestOpened: false,
       rawPathStored: false,

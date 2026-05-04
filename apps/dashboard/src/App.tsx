@@ -43,6 +43,7 @@ import {
   createGovernanceReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
+  createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
@@ -98,6 +99,7 @@ interface OverviewState {
   worktreeCleanupDryRuns: WorktreeControlSummary[];
   worktreeCleanupApprovals: WorktreeControlSummary[];
   worktreeCleanupRuns: WorktreeControlSummary[];
+  m11PilotRuns: M11PilotControlSummary[];
   approvalInbox?: ApprovalInboxProjection;
   message?: string;
 }
@@ -176,6 +178,31 @@ interface WorktreeControlSummary {
   summary?: string;
 }
 
+interface M11PilotControlSummary {
+  runId?: string;
+  status?: string;
+  readinessStatus?: string;
+  readinessBlockers?: string[];
+  failureClassification?: string;
+  worktreeRunId?: string;
+  codexStatus?: string;
+  verificationStatus?: string;
+  prDraftStatus?: string;
+  changedFileCount?: number;
+  cleanupRequired?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  codexReadOnlyDryRunOnly?: boolean;
+  patchGenerationAllowed?: boolean;
+  pushAllowed?: boolean;
+  pullRequestOpened?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  summary?: string;
+}
+
 const supervisorUrl = import.meta.env.VITE_CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
 
 export function App() {
@@ -219,6 +246,7 @@ export function App() {
     worktreeCleanupDryRuns: [],
     worktreeCleanupApprovals: [],
     worktreeCleanupRuns: [],
+    m11PilotRuns: [],
   });
   const [activeView, setActiveView] = useState<DashboardView>(() =>
     getDashboardViewFromHash(window.location.hash),
@@ -345,12 +373,30 @@ export function App() {
       externalProcessStarted: run.externalProcessStarted,
       noRealWrite: run.noRealWrite,
     })),
+    ...overview.m11PilotRuns.map((run) => ({
+      id: run.runId ?? 'm11_pilot_run',
+      source: 'm11_pilot',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.codexReadOnlyDryRunOnly !== false,
+    })),
   ]);
   const pilotSummary = createM10PilotReadOnlySummary({
     approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
     governanceRunCount: governanceSummary.runCount,
   });
   const pilotAcceptanceSummary = createM10PilotAcceptanceReadOnlySummary();
+  const m11PilotSummary = createM11PilotReadOnlySummary({
+    runCount: overview.m11PilotRuns.length,
+    latestRunStatus: overview.m11PilotRuns[0]?.status,
+    latestPrDraftStatus: overview.m11PilotRuns[0]?.prDraftStatus,
+    latestFailureClassification: overview.m11PilotRuns[0]?.failureClassification,
+    processBoundaryInvoked: overview.m11PilotRuns.some((run) => run.processBoundaryInvoked),
+    externalProcessStarted: overview.m11PilotRuns.some((run) => run.externalProcessStarted),
+  });
   const approvalHistorySummary = createApprovalDecisionHistoryReadOnlySummary({
     inbox: overview.approvalInbox,
   });
@@ -639,6 +685,7 @@ export function App() {
           worktreeCleanupDryRunsResponse,
           worktreeCleanupApprovalsResponse,
           worktreeCleanupRunsResponse,
+          m11PilotRunsResponse,
           approvalInboxResponse,
         ] = await Promise.all([
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
@@ -686,6 +733,9 @@ export function App() {
             '/api/worktrees/cleanup/runs',
             { records: [] },
           ),
+          getOptionalJson<{ records: M11PilotControlSummary[] }>('/api/pilots/m11/local-runs', {
+            records: [],
+          }),
           getOptionalJson<ApprovalInboxProjection>('/api/approvals/inbox', {
             id: 'approval_inbox_projection_degraded',
             schemaVersion: '2026-04-28.foundation',
@@ -756,6 +806,7 @@ export function App() {
             worktreeCleanupDryRuns: worktreeCleanupDryRunsResponse.records,
             worktreeCleanupApprovals: worktreeCleanupApprovalsResponse.records,
             worktreeCleanupRuns: worktreeCleanupRunsResponse.records,
+            m11PilotRuns: m11PilotRunsResponse.records,
             approvalInbox: approvalInboxResponse,
           });
         }
@@ -801,6 +852,7 @@ export function App() {
             worktreeCleanupDryRuns: [],
             worktreeCleanupApprovals: [],
             worktreeCleanupRuns: [],
+            m11PilotRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -2338,6 +2390,7 @@ export function App() {
           policyTelemetrySummary,
           pilotSummary,
           pilotAcceptanceSummary,
+          m11PilotSummary,
         )
       )}
     </main>
@@ -2355,6 +2408,7 @@ function renderReadOnlyDashboardView(
   policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
   pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
   pilotAcceptanceSummary: ReturnType<typeof createM10PilotAcceptanceReadOnlySummary>,
+  m11PilotSummary: ReturnType<typeof createM11PilotReadOnlySummary>,
 ) {
   if (activeView === 'development') {
     return (
@@ -3047,6 +3101,53 @@ function renderReadOnlyDashboardView(
   if (activeView === 'pilot') {
     return (
       <section className="grid">
+        <Panel title="M11 Narrow Path">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{m11PilotSummary.status}</span>
+            </li>
+            <li>
+              <strong>runs</strong>
+              <span>{m11PilotSummary.runCount}</span>
+            </li>
+            <li>
+              <strong>latest</strong>
+              <span>
+                {m11PilotSummary.latestRunStatus} / PR {m11PilotSummary.latestPrDraftStatus}
+              </span>
+            </li>
+            <li>
+              <strong>failure</strong>
+              <span>{m11PilotSummary.latestFailureClassification}</span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                process {String(m11PilotSummary.processBoundaryInvoked)}, external{' '}
+                {String(m11PilotSummary.externalProcessStarted)}
+              </span>
+            </li>
+            <li>
+              <strong>read-only bounds</strong>
+              <span>
+                codexReadOnly {String(m11PilotSummary.codexReadOnlyDryRunOnly)}, patch{' '}
+                {String(m11PilotSummary.patchGenerationAllowed)}, push{' '}
+                {String(m11PilotSummary.pushAllowed)}, openPR{' '}
+                {String(m11PilotSummary.pullRequestOpened)}
+              </span>
+            </li>
+            <li>
+              <strong>controls</strong>
+              <span>
+                keyRead {String(m11PilotSummary.localControlKeyRead)}, postAllowed{' '}
+                {String(m11PilotSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(m11PilotSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{m11PilotSummary.summary}</p>
+        </Panel>
         <Panel title="M10 Pilot Checklist">
           <ul>
             <li>

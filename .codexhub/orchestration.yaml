@@ -769,6 +769,62 @@ workflows:
       - realPilotExecution
       - gitPush
       - openPullRequest
+  m11a.production-pilot-narrow-path:
+    risk: high
+    trigger:
+      type: supervisor-local-control
+      entrypoint: /api/pilots/m11/local-runs
+      localControlRequired: true
+      trustedLoopbackOriginRequired: true
+    chain:
+      - phase: readiness-preflight
+        package: orchestrator-kernel
+        validates:
+          - storeAvailable
+          - worktreeApprovalStoreResolved
+          - codexReadOnlyDryRunOnly
+          - nxAffectedVerificationOnly
+      - phase: controlled-worktree
+        package: worktree-manager
+        boundary: existing-controlled-git-worktree
+        approvalRequired: true
+        allowedRoot: ../CodexHub-worktrees
+      - phase: codex-read-only-dry-run
+        package: codex-exec-adapter
+        workspaceWriteAllowed: false
+        rawPromptStored: false
+      - phase: nx-verification
+        package: nx-verification-adapter
+        allowedTargets:
+          - lint
+          - test
+          - build
+      - phase: projection
+        packages:
+          - governance-projection-kernel
+          - evidence-kernel
+        output: ids-hashes-counts-statuses-summaries
+      - phase: read-only-ux
+        apps:
+          - dashboard
+          - cli
+        dashboardRoute: '#/pilot'
+        cliCommands:
+          - codexhub pilot m11 readiness
+          - codexhub pilot m11 runs list
+          - codexhub pilot m11 runs show
+        supervisorPostAllowedFromUx: false
+    forbidden:
+      - newProcessBoundary
+      - newBrowserBoundary
+      - newElectronBoundary
+      - newMcpExecution
+      - codexWorkspaceWrite
+      - patchGeneration
+      - gitPush
+      - openPullRequest
+      - requestBodyApprovalArtifactTrusted
+      - requestBodyExecutionAuthorityTrusted
       - browserAutomation
       - electronAutomation
       - mcpRuntime

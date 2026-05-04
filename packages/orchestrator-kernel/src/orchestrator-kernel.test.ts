@@ -12,6 +12,7 @@ import {
   runM6bGovernedWorktreePrDraft,
   runGoldenPathRehearsal,
   runGovernedDevelopmentOrchestration,
+  runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
   runMockDevelopmentOrchestration,
@@ -893,6 +894,77 @@ describe('orchestrator-kernel M9 local pilot', () => {
   });
 });
 
+describe('orchestrator-kernel M11 production pilot narrow path', () => {
+  it('runs the narrow path with Codex read-only and no patch-ready PR state', async () => {
+    const result = await runM11PilotFixture();
+    const serialized = JSON.stringify(result.run);
+
+    expect(result.run.status).toBe('passed');
+    expect(result.run.prDraftStatus).toBe('not_ready_no_patch');
+    expect(result.run.changedFileCount).toBe(0);
+    expect(result.run.codexNoRealWrite).toBe(true);
+    expect(result.run.codexReadOnlyDryRunOnly).toBe(true);
+    expect(result.run.patchGenerationAllowed).toBe(false);
+    expect(result.run.pushAllowed).toBe(false);
+    expect(result.run.pullRequestOpened).toBe(false);
+    expect(result.run.failureSummary.classification).toBe('none');
+    expect(result.run.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.run.codexProcessBoundaryInvoked).toBe(true);
+    expect(result.run.nxProcessBoundaryInvoked).toBe(true);
+    expect(result.run.steps.some((step) => step.phase === 'projection')).toBe(true);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+  });
+
+  it('blocks before boundaries when M11 readiness or approval authority is missing', async () => {
+    const result = await runM11ProductionPilotNarrowPath({
+      title: 'M11 blocked pilot',
+      description: 'Missing persisted approval must block the narrow path.',
+      repoRoot: process.cwd(),
+      worktreeRoot: resolve(process.cwd(), '..', 'CodexHub-worktrees'),
+      worktreePath: resolve(process.cwd(), '..', 'CodexHub-worktrees', 'pilot-m11'),
+      worktreeSlug: 'pilot-m11',
+      branchName: 'codex/pilot-m11',
+      baseRef: 'HEAD',
+      codexDryRunId: 'codex_dry_run_1',
+      worktreeApprovalArtifactId: 'worktree_approval_1',
+      codexApprovalArtifactId: 'approval_artifact_1',
+      worktreeApprovalResolved: false,
+      m11PilotEnabled: true,
+      realGitBoundaryEnabled: true,
+      governedInput: createGovernedInputFixture(),
+      store: createApprovalStore(),
+    });
+
+    expect(result.run.status).toBe('blocked');
+    expect(result.run.readiness.blockers).toContain('worktree_approval_not_store_resolved');
+    expect(result.run.failureSummary.classification).toBe('approval_blocked');
+    expect(result.run.processBoundaryInvoked).toBe(false);
+    expect(result.run.externalProcessStarted).toBe(false);
+    expect(result.run.prDraftStatus).toBe('blocked');
+  });
+
+  it('classifies Codex and Nx failures without marking the PR draft ready', async () => {
+    const codexFailed = await runM11PilotFixture({
+      codexExitCode: 1,
+      codexStdout: '{"type":"error","message":"fixture failure"}\n',
+    });
+    const nxFailed = await runM11PilotFixture({
+      nxCommandExitCode: 1,
+      nxCommandStdout: 'Failed tasks: lint',
+    });
+
+    expect(codexFailed.run.status).toBe('failed');
+    expect(codexFailed.run.failureSummary.classification).toBe('codex_failed');
+    expect(codexFailed.run.prDraftStatus).toBe('blocked');
+    expect(nxFailed.run.status).toBe('failed');
+    expect(nxFailed.run.failureSummary.classification).toBe('nx_failed');
+    expect(nxFailed.run.prDraftStatus).toBe('blocked');
+  });
+});
+
 function createGovernedInputFixture() {
   const relativePath = 'package.json';
   const text = readFileSync(resolve(process.cwd(), relativePath), 'utf8');
@@ -977,6 +1049,80 @@ async function runM9PilotFixture(overrides: {
   };
 
   return runM9LocalPilot(input);
+}
+
+async function runM11PilotFixture(overrides: {
+  codexExitCode?: number;
+  codexStdout?: string;
+  nxCommandExitCode?: number;
+  nxCommandStdout?: string;
+} = {}) {
+  const worktreeRoot = mkdtempSync(join(tmpdir(), 'codexhub-m11-worktrees-'));
+  const worktreePath = resolve(worktreeRoot, 'pilot-m11');
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(
+    resolve(worktreePath, 'package.json'),
+    readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+  );
+
+  return runM11ProductionPilotNarrowPath({
+    title: 'M11 production pilot narrow path fixture',
+    description: 'Exercise M11 narrow path without patch generation.',
+    repoRoot: process.cwd(),
+    worktreeRoot,
+    worktreePath,
+    worktreeSlug: 'pilot-m11',
+    branchName: 'codex/pilot-m11',
+    baseRef: 'HEAD',
+    allowedWorktreeRoots: [worktreeRoot],
+    codexDryRunId: 'codex_dry_run_1',
+    worktreeApprovalArtifactId: 'worktree_approval_1',
+    codexApprovalArtifactId: 'approval_artifact_1',
+    worktreeApprovalResolved: true,
+    m11PilotEnabled: true,
+    realGitBoundaryEnabled: true,
+    governedInput: createGovernedInputFixture(),
+    codexExecutablePath: 'codex-test',
+    nxExecutablePath: 'pnpm-test',
+    store: createApprovalStore(),
+    worktreeRunner: {
+      async run() {
+        return {
+          status: 'completed',
+          changedFiles: [],
+          diffHash: 'sha256:no-diff',
+          diffLineCount: 0,
+          commandSummaryHash: 'sha256:command',
+          gitProcessBoundaryInvoked: true,
+          processBoundaryInvoked: true,
+          externalProcessStarted: true,
+          noRealWrite: false,
+          cleanupRequired: true,
+          cleanupDeferred: true,
+        };
+      },
+    },
+    codexRunner: {
+      async start() {
+        return {
+          exitCode: overrides.codexExitCode ?? 0,
+          stdout: overrides.codexStdout ?? '{"type":"turn.completed"}\n',
+          stderr: '',
+        };
+      },
+    },
+    nxRunner: {
+      async start(plan: { step?: string }) {
+        return plan.step === 'affected-projects'
+          ? { exitCode: 0, stdout: 'orchestrator-kernel\n', stderr: '' }
+          : {
+              exitCode: overrides.nxCommandExitCode ?? 0,
+              stdout: overrides.nxCommandStdout ?? 'Successfully ran target lint,test,build',
+              stderr: '',
+            };
+      },
+    },
+  });
 }
 
 function createApprovalStore(): CodexHubStore & {

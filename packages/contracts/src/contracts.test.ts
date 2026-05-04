@@ -207,6 +207,11 @@ import {
   ApprovalUxDecisionSchema,
   ApprovalUxTypeSchema,
   M9PilotEvidenceSummarySchema,
+  M11PilotEvidenceSummarySchema,
+  M11PilotFailureSummarySchema,
+  M11PilotReadinessSchema,
+  M11PilotRunSchema,
+  M11PilotStepSchema,
   M10PilotChecklistSchema,
   M10PilotChecklistStatusSchema,
   M10PilotAcceptanceEvidenceSummarySchema,
@@ -2710,6 +2715,123 @@ describe('contracts schemas', () => {
         ...run,
         id: 'm9_pilot_run_bad_metadata',
         metadata: { prompt: 'raw prompt body' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M11 narrow-path pilot contracts as metadata-only', () => {
+    const step = M11PilotStepSchema.parse({
+      id: 'm11_pilot_step_codex_1',
+      schemaVersion,
+      createdAt,
+      phase: 'codex',
+      status: 'completed',
+      order: 2,
+      evidenceRefIds: ['evidence_codex_1'],
+      auditEventIds: ['audit_codex_1'],
+      boundaryInvoked: true,
+      externalProcessStarted: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Codex read-only dry-run completed without patch generation.',
+    });
+    const readiness = M11PilotReadinessSchema.parse({
+      id: 'm11_pilot_readiness_1',
+      schemaVersion,
+      createdAt,
+      status: 'ready',
+      checkCount: 8,
+      passedCheckCount: 8,
+      blockerCount: 0,
+      blockers: [],
+      worktreeManagerEnabled: true,
+      codexReadOnlyDryRunOnly: true,
+      nxVerificationPlanned: true,
+      localControlRequired: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 pilot readiness is ready.',
+    });
+    const evidenceSummary = M11PilotEvidenceSummarySchema.parse({
+      id: 'm11_pilot_evidence_summary_1',
+      schemaVersion,
+      createdAt,
+      runId: 'm11_pilot_run_1',
+      evidenceRefIds: ['evidence_codex_1'],
+      auditEventIds: ['audit_codex_1'],
+      evidenceCount: 1,
+      auditEventCount: 1,
+      bundleHash: 'sha256:m11-bundle',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 pilot evidence summary stores ids and hashes only.',
+    });
+    const failureSummary = M11PilotFailureSummarySchema.parse({
+      id: 'm11_pilot_failure_summary_1',
+      schemaVersion,
+      createdAt,
+      runId: 'm11_pilot_run_1',
+      classification: 'none',
+      blockerCount: 0,
+      blockers: [],
+      cleanupRequired: true,
+      boundaryReached: true,
+      approvalConsumed: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 pilot has no failure.',
+    });
+    const run = M11PilotRunSchema.parse({
+      id: 'm11_pilot_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'passed',
+      requestTitleHash: 'sha256:title',
+      requestDescriptionHash: 'sha256:description',
+      readiness,
+      steps: [step],
+      evidenceSummary,
+      failureSummary,
+      worktreeRunId: 'worktree_run_1',
+      codexStatus: 'passed',
+      verificationStatus: 'passed',
+      prDraftStatus: 'not_ready_no_patch',
+      changedFileCount: 0,
+      cleanupRequired: true,
+      gitProcessBoundaryInvoked: true,
+      codexProcessBoundaryInvoked: true,
+      nxProcessBoundaryInvoked: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      codexNoRealWrite: true,
+      codexReadOnlyDryRunOnly: true,
+      patchGenerationAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 pilot passed while PR draft remains not ready because no patch exists.',
+    });
+
+    const serialized = JSON.stringify(run);
+    expect(run.prDraftStatus).toBe('not_ready_no_patch');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('raw prompt body');
+    expect(() =>
+      M11PilotRunSchema.parse({
+        ...run,
+        id: 'm11_pilot_run_bad_patch',
+        changedFileCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      M11PilotRunSchema.parse({
+        ...run,
+        id: 'm11_pilot_run_bad_metadata',
+        metadata: { localControlKey: 'secret', prompt: 'raw prompt body' },
       }),
     ).toThrow();
   });

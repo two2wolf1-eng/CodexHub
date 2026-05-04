@@ -381,3 +381,63 @@ integrations:
       auditForbidsOpenTelemetrySdkInProductionSource: true
       auditForbidsOtlpExporterInProductionSource: true
       auditForbidsTelemetryAuthorityTransfer: true
+  m11-production-pilot:
+    enabled: false
+    adapter: orchestrator-kernel
+    provider: codexhub-governed-chain
+    providerType: builtin
+    mode: production-pilot-narrow-path
+    stage: m11a-production-pilot-narrow-path
+    defaultActionMode: dry-run
+    defaultRisk: high
+    processBoundary: reuses-existing-boundaries
+    externalProcessBoundary: reuses-controlled-worktree-codex-nx
+    networkBoundary: false
+    enablement:
+      requiredEnv:
+        - CODEXHUB_M11_PRODUCTION_PILOT_ENABLED
+        - CODEXHUB_WORKTREE_MANAGER_ENABLED
+      localControlRequired: true
+      trustedLoopbackOriginRequired: true
+      persistedApprovalRequired: true
+      hashBoundRuntimeInputRequired: true
+    routes:
+      post: /api/pilots/m11/local-runs
+      get:
+        - /api/pilots/m11/local-runs
+        - /api/pilots/m11/local-runs/:id
+    codex:
+      readOnlyDryRunOnly: true
+      workspaceWriteAllowed: false
+      rawPromptStorage: forbidden
+    worktree:
+      allowedRoot: ../CodexHub-worktrees
+      repoNestedWorktreeForbidden: true
+      approvalRequired: true
+    nx:
+      allowedTargets:
+        - lint
+        - test
+        - build
+    pr:
+      patchGenerationAllowed: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      allowedStatuses:
+        - not_ready_no_patch
+        - blocked
+    storage:
+      rawPrompt: forbidden
+      rawStdout: forbidden
+      rawStderr: forbidden
+      rawDiff: forbidden
+      rawPath: forbidden
+      body: forbidden
+    readOnlyUx:
+      dashboardRoute: '#/pilot'
+      cliCommands:
+        - codexhub pilot m11 readiness
+        - codexhub pilot m11 runs list
+        - codexhub pilot m11 runs show
+      supervisorPostAllowed: false
+      localControlTokenRequired: false
