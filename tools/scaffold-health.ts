@@ -80,6 +80,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m12-controlled-patch-results.md',
   'docs/releases/m13-local-review-package-results.md',
   'docs/releases/m14-local-release-candidate-results.md',
+  'docs/releases/m14.6-local-rc-acceptance.md',
   'docs/reviews/m8-final-release-audit.md',
   'docs/reviews/m9-approval-ux-hardening.md',
   'docs/reviews/m10-operator-pilot-hardening-review.md',

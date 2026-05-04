@@ -1582,6 +1582,58 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m14_6.local-rc-acceptance-smoke:
+    risk: medium
+    trigger:
+      type: acceptance-smoke
+      entrypoint: docs cli dashboard-tests
+      localControlRequired: false
+    chain:
+      - phase: cli-smoke
+        commands:
+          - codexhub doctor --json
+          - codexhub governance runs list --json
+          - codexhub release-candidates readiness --json
+          - codexhub release-candidates acceptance show --json
+          - codexhub release-candidates rehearse --fixture --scenario all-pass --json
+          - codexhub release-candidates rehearse --fixture --scenario verification-blocked --json
+        output: ids-hashes-counts-statuses-summaries
+      - phase: dashboard-smoke
+        routes:
+          - "#/governance"
+          - "#/readiness"
+          - "#/release-candidates"
+        validation: read-only-route-tests
+      - phase: release-evidence
+        document: docs/releases/m14.6-local-rc-acceptance.md
+      - phase: scaffold-registration
+        tool: tools/scaffold-health.ts
+        validates:
+          - acceptanceDocumentPresent
+    safety:
+      localOnly: true
+      newRuntimeCapability: false
+      newSupervisorRoute: false
+      newWriteBoundary: false
+      dashboardPostAllowed: false
+      cliPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+      artifactExportInvoked: false
+      remoteProviderBoundary: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+    forbidden:
+      - newRuntimeCapability
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - adapterDirectExecute
+      - localControlCredentialRead
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest
   m13d.local-review-decision-handoff:
     risk: medium
     trigger:
