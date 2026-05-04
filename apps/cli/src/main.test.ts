@@ -305,6 +305,86 @@ describe('cli development mock-run fallback', () => {
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
+  it('projects unified governance runs, evidence bundles, and audit chains read-only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/workflows/runs')) {
+        return new Response(
+          JSON.stringify({
+            runs: [
+              {
+                id: 'workflow_1',
+                schemaVersion: '2026-04-28.foundation',
+                createdAt: '2026-04-28T00:00:00.000Z',
+                workflowName: 'm8b.projection',
+                status: 'completed',
+                dryRun: true,
+                evidenceRefs: [],
+                steps: [],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/development/mock-runs')) {
+        return new Response(JSON.stringify({ runs: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/codex/exec/dry-runs')) {
+        return new Response(JSON.stringify({ runs: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/browser/observation/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/electron-cdp/observation/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/worktrees/cleanup/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/worktrees/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    const {
+      formatGovernanceAuditChainOutput,
+      formatGovernanceEvidenceBundleOutput,
+      formatGovernanceRunDetailOutput,
+      formatGovernanceRunsListOutput,
+      getGovernanceAuditChain,
+      getGovernanceEvidenceBundle,
+      listGovernanceRuns,
+      showGovernanceRun,
+    } = await import('./main');
+    const list = await listGovernanceRuns({ source: 'orchestrator' });
+    const projection = (list.projections as Array<{ id: string }>)[0];
+    const detail = await showGovernanceRun(projection?.id ?? 'missing');
+    const evidenceBundle = await getGovernanceEvidenceBundle(projection?.id ?? 'missing');
+    const auditChain = await getGovernanceAuditChain(projection?.id ?? 'missing');
+    const serialized = JSON.stringify({ list, detail, evidenceBundle, auditChain });
+
+    expect(list.count).toBe(1);
+    expect(formatGovernanceRunsListOutput(list)).toContain('CodexHub unified governance runs');
+    expect(formatGovernanceRunDetailOutput(detail)).toContain('source: orchestrator');
+    expect(formatGovernanceEvidenceBundleOutput(evidenceBundle)).toContain('bodyStored=false');
+    expect(formatGovernanceAuditChainOutput(auditChain)).toContain('rawPathStored=false');
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('local-control');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+  });
+
   it('lists Electron CDP observation metadata using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

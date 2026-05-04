@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createElectronCdpReadOnlySummary,
+  createGovernanceReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
@@ -18,6 +19,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/electron')).toBe('electron');
     expect(getDashboardViewFromHash('#/worktrees')).toBe('worktrees');
     expect(getDashboardViewFromHash('#/policy-telemetry')).toBe('policy-telemetry');
+    expect(getDashboardViewFromHash('#/governance')).toBe('governance');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -169,5 +171,44 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('token');
     expect(serialized).not.toContain('cookie');
     expect(serialized).not.toContain('session');
+  });
+
+  it('summarizes unified governance projections without raw run data', () => {
+    const summary = createGovernanceReadOnlySummary([
+      {
+        id: 'codex_run_1',
+        source: 'codex_exec_dry_run',
+        title: 'Raw title should be hashed',
+        status: 'blocked',
+        evidenceRefIds: ['evidence_codex_1'],
+        auditEventIds: ['audit_codex_1'],
+      },
+      {
+        id: 'electron_run_1',
+        source: 'electron_cdp_observation',
+        status: 'completed',
+        evidenceRefIds: ['evidence_electron_1'],
+        auditEventIds: ['audit_electron_1'],
+        networkBoundaryInvoked: true,
+      },
+    ]);
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.runCount).toBe(2);
+    expect(summary.evidenceCount).toBe(2);
+    expect(summary.auditEventCount).toBe(2);
+    expect(summary.networkBoundaryCount).toBe(1);
+    expect(summary.sources).toEqual([
+      { source: 'codex', count: 1 },
+      { source: 'electron', count: 1 },
+    ]);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.projectionHash).toMatch(/^projection:/);
+    expect(serialized).not.toContain('Raw title should be hashed');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('payload');
   });
 });

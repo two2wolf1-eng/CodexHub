@@ -11,6 +11,7 @@ const expectedProjects = [
   'electron-cdp-kernel',
   'orchestrator-kernel',
   'evidence-kernel',
+  'governance-projection-kernel',
   'observer-kernel',
   'otel-adapter',
   'policy-backend-adapter',
@@ -114,6 +115,12 @@ const requiredContractExports = [
   'TelemetrySpanSummarySchema',
   'TelemetryTraceExportPlanSchema',
   'TelemetryExportRunSchema',
+  'UnifiedRunSourceSchema',
+  'UnifiedTimelineEventSchema',
+  'UnifiedRunProjectionSchema',
+  'EvidenceBundleProjectionSchema',
+  'AuditChainProjectionSchema',
+  'GovernanceProjectionSummarySchema',
 ];
 
 const projects = readNxProjects();

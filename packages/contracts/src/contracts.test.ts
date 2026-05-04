@@ -190,6 +190,12 @@ import {
   TelemetrySignalKindSchema,
   TelemetrySpanSummarySchema,
   TelemetryTraceExportPlanSchema,
+  AuditChainProjectionSchema,
+  EvidenceBundleProjectionSchema,
+  GovernanceProjectionSummarySchema,
+  UnifiedRunProjectionSchema,
+  UnifiedRunSourceSchema,
+  UnifiedTimelineEventSchema,
   VerificationCommandResultSchema,
   VerificationPlanSchema,
   VerificationRunSchema,
@@ -2048,6 +2054,121 @@ describe('contracts schemas', () => {
         createdAt,
         kind: 'telemetry.raw_payload',
         hash: 'sha256:bad',
+      }),
+    ).toThrow();
+  });
+
+  it('parses unified governance projection contracts as metadata-only', () => {
+    expect(UnifiedRunSourceSchema.options).toEqual([
+      'codex',
+      'verification',
+      'mcp',
+      'browser',
+      'electron',
+      'worktree',
+      'policy',
+      'telemetry',
+      'orchestrator',
+    ]);
+
+    const evidenceBundle = EvidenceBundleProjectionSchema.parse({
+      id: 'evidence_bundle_projection_1',
+      schemaVersion,
+      createdAt,
+      runProjectionId: 'unified_run_projection_1',
+      source: 'worktree',
+      evidenceRefIds: ['evidence_worktree_1'],
+      evidenceCount: 1,
+      evidenceKinds: ['worktree.run_summary'],
+      bundleHash: 'sha256:evidence-bundle',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Evidence bundle stores ids, hashes, counts, and kinds only.',
+    });
+    const auditChain = AuditChainProjectionSchema.parse({
+      id: 'audit_chain_projection_1',
+      schemaVersion,
+      createdAt,
+      runProjectionId: 'unified_run_projection_1',
+      source: 'worktree',
+      auditEventIds: ['audit_worktree_1'],
+      auditEventCount: 1,
+      policyDecisionIds: ['policy_worktree_1'],
+      chainHash: 'sha256:audit-chain',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Audit chain stores ids, hashes, and counts only.',
+    });
+    const timelineEvent = UnifiedTimelineEventSchema.parse({
+      id: 'unified_timeline_event_1',
+      schemaVersion,
+      createdAt,
+      runProjectionId: 'unified_run_projection_1',
+      source: 'worktree',
+      phase: 'worktree.summary',
+      status: 'completed',
+      order: 0,
+      evidenceRefIds: evidenceBundle.evidenceRefIds,
+      auditEventIds: auditChain.auditEventIds,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Worktree summary projected without raw data.',
+    });
+    const projection = UnifiedRunProjectionSchema.parse({
+      id: 'unified_run_projection_1',
+      schemaVersion,
+      createdAt,
+      source: 'worktree',
+      sourceRunIdHash: 'sha256:source-run',
+      titleHash: 'sha256:title',
+      status: 'completed',
+      timeline: [timelineEvent],
+      evidenceBundle,
+      auditChain,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      noRealWrite: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Unified worktree run projection.',
+    });
+    const summary = GovernanceProjectionSummarySchema.parse({
+      id: 'governance_projection_summary_1',
+      schemaVersion,
+      createdAt,
+      status: 'ready',
+      runCount: 1,
+      sourceBreakdown: { worktree: 1 },
+      evidenceCount: 1,
+      auditEventCount: 1,
+      processBoundaryCount: 1,
+      externalProcessStartedCount: 1,
+      networkBoundaryCount: 0,
+      projectionHash: 'sha256:projection',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Governance projection summary stores metadata only.',
+    });
+
+    expect(projection.timeline).toHaveLength(1);
+    expect(summary.sourceBreakdown.worktree).toBe(1);
+    expect(JSON.stringify(projection)).not.toContain('diff --git');
+    expect(JSON.stringify(projection)).not.toContain('C:/');
+    expect(JSON.stringify(projection)).not.toContain('stdout');
+    expect(JSON.stringify(projection)).not.toContain('stderr');
+    expect(() =>
+      UnifiedRunProjectionSchema.parse({
+        ...projection,
+        id: 'unified_run_projection_bad_metadata',
+        metadata: { requestBody: 'raw body' },
+      }),
+    ).toThrow();
+    expect(() =>
+      UnifiedRunProjectionSchema.parse({
+        ...projection,
+        id: 'unified_run_projection_bad_field',
+        rawDiff: 'diff --git a/file',
       }),
     ).toThrow();
   });

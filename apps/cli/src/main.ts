@@ -155,6 +155,11 @@ import {
   type MockDevelopmentOrchestrationResult,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
+import {
+  createGovernanceProjection,
+  type GovernanceProjectionInputRun,
+  type GovernanceProjectionResult,
+} from '@codexhub/governance-projection-kernel';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 import {
@@ -261,6 +266,11 @@ export interface ReadOnlyRunSummary {
   externalProcessStarted: false;
   noRealWrite: true;
   bodyStored: false;
+}
+
+export interface GovernanceRunsListCliOptions extends JsonCliOptions {
+  source?: string;
+  status?: string;
 }
 
 interface BrowserObservationRunApiRecord {
@@ -570,6 +580,62 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showReadOnlyRun(runId);
       console.log(formatReadOnlyRunDetailOutput(result, options));
+    });
+
+  const governanceCommand = program
+    .command('governance')
+    .description('Unified read-only governance projection commands');
+  const governanceRunsCommand = governanceCommand
+    .command('runs')
+    .description('Read unified run projections');
+
+  governanceRunsCommand
+    .command('list')
+    .option('--source <source>', 'Filter by normalized source')
+    .option('--status <status>', 'Filter by projection status')
+    .option('--json', 'Print full JSON output')
+    .description('List unified run projections without invoking adapters')
+    .action(async (options: GovernanceRunsListCliOptions) => {
+      const result = await listGovernanceRuns(options);
+      console.log(formatGovernanceRunsListOutput(result, options));
+    });
+
+  governanceRunsCommand
+    .command('show')
+    .argument('<projectionId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one unified run projection')
+    .action(async (projectionId: string, options: JsonCliOptions) => {
+      const result = await showGovernanceRun(projectionId);
+      console.log(formatGovernanceRunDetailOutput(result, options));
+    });
+
+  const governanceEvidenceCommand = governanceCommand
+    .command('evidence')
+    .description('Read evidence bundle projections');
+
+  governanceEvidenceCommand
+    .command('bundle')
+    .argument('<projectionId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one metadata-only evidence bundle projection')
+    .action(async (projectionId: string, options: JsonCliOptions) => {
+      const result = await getGovernanceEvidenceBundle(projectionId);
+      console.log(formatGovernanceEvidenceBundleOutput(result, options));
+    });
+
+  const governanceAuditCommand = governanceCommand
+    .command('audit')
+    .description('Read audit chain projections');
+
+  governanceAuditCommand
+    .command('chain')
+    .argument('<projectionId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one metadata-only audit chain projection')
+    .action(async (projectionId: string, options: JsonCliOptions) => {
+      const result = await getGovernanceAuditChain(projectionId);
+      console.log(formatGovernanceAuditChainOutput(result, options));
     });
 
   const evidenceTopLevelCommand = program
@@ -2149,6 +2215,92 @@ export async function showReadOnlyRun(runId: string): Promise<Record<string, unk
   };
 }
 
+export async function listGovernanceRuns(
+  options: GovernanceRunsListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  const readOnlyRuns = await listReadOnlyRuns();
+  const runs = ((readOnlyRuns.runs as ReadOnlyRunSummary[] | undefined) ?? []).map(
+    toGovernanceProjectionInput,
+  );
+  const projection = createGovernanceProjection(runs);
+  const filtered = projection.projections.filter(
+    (run) =>
+      (!options.source || run.source === options.source) &&
+      (!options.status || run.status === options.status),
+  );
+
+  return {
+    status: readOnlyRuns.status,
+    count: filtered.length,
+    summary: projection.summary,
+    projections: filtered,
+    degradedReasons: readOnlyRuns.degradedReasons ?? [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    note: 'Unified governance projection is read-only and never invokes adapters.',
+  };
+}
+
+export async function showGovernanceRun(projectionId: string): Promise<Record<string, unknown>> {
+  const list = await listGovernanceRuns();
+  const projections = list.projections as GovernanceProjectionResult['projections'] | undefined;
+  const projection = (projections ?? []).find((item) => item.id === projectionId);
+
+  return {
+    status: projection ? 'found' : 'not_found',
+    projection,
+    query: { projectionId },
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+export async function getGovernanceEvidenceBundle(
+  projectionId: string,
+): Promise<Record<string, unknown>> {
+  const detail = await showGovernanceRun(projectionId);
+  const projection = detail.projection as
+    | GovernanceProjectionResult['projections'][number]
+    | undefined;
+
+  return {
+    status: projection ? 'found' : 'not_found',
+    evidenceBundle: projection?.evidenceBundle,
+    query: { projectionId },
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+export async function getGovernanceAuditChain(
+  projectionId: string,
+): Promise<Record<string, unknown>> {
+  const detail = await showGovernanceRun(projectionId);
+  const projection = detail.projection as
+    | GovernanceProjectionResult['projections'][number]
+    | undefined;
+
+  return {
+    status: projection ? 'found' : 'not_found',
+    auditChain: projection?.auditChain,
+    query: { projectionId },
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
 export async function listBrowserObservationRuns(): Promise<Record<string, unknown>> {
   try {
     const response = await getSupervisorJson<{
@@ -2541,6 +2693,20 @@ function summarizePolicyTelemetryLocalRuns(): ReadOnlyRunSummary[] {
       bodyStored: false,
     },
   ];
+}
+
+function toGovernanceProjectionInput(run: ReadOnlyRunSummary): GovernanceProjectionInputRun {
+  return {
+    id: run.id,
+    source: run.source,
+    title: run.title,
+    status: run.status,
+    evidenceCount: run.evidenceCount ?? 0,
+    auditEventCount: run.auditEventCount ?? 0,
+    processBoundaryInvoked: false,
+    externalProcessStarted: run.externalProcessStarted,
+    noRealWrite: run.noRealWrite,
+  };
 }
 
 async function listWorktreeCollection(
@@ -5535,6 +5701,119 @@ export function formatReadOnlyRunDetailOutput(
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');
+}
+
+export function formatGovernanceRunsListOutput(
+  result: Record<string, unknown>,
+  options: GovernanceRunsListCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const projections =
+    (result.projections as GovernanceProjectionResult['projections'] | undefined) ?? [];
+  const summary = result.summary as GovernanceProjectionResult['summary'] | undefined;
+
+  return [
+    'CodexHub unified governance runs',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${projections.length}`,
+    `projectionHash: ${summary?.projectionHash ?? 'unavailable'}`,
+    `evidence: ${summary?.evidenceCount ?? 0}`,
+    `audit: ${summary?.auditEventCount ?? 0}`,
+    `processBoundaries: ${summary?.processBoundaryCount ?? 0}`,
+    `externalProcesses: ${summary?.externalProcessStartedCount ?? 0}`,
+    `networkBoundaries: ${summary?.networkBoundaryCount ?? 0}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    projections.length > 0 ? 'items:' : 'items: none',
+    ...projections
+      .slice(0, 12)
+      .map(
+        (projection) =>
+          `- ${projection.id} ${projection.source} ${projection.status} evidence=${projection.evidenceBundle.evidenceCount} audit=${projection.auditChain.auditEventCount}`,
+      ),
+  ].join('\n');
+}
+
+export function formatGovernanceRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const projection = result.projection as
+    | GovernanceProjectionResult['projections'][number]
+    | undefined;
+
+  return [
+    'CodexHub unified governance run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `projectionId: ${projection?.id ?? 'unknown'}`,
+    `source: ${projection?.source ?? 'unknown'}`,
+    `runStatus: ${projection?.status ?? 'unknown'}`,
+    `sourceRunIdHash: ${projection?.sourceRunIdHash ?? 'unknown'}`,
+    `evidence: ${projection?.evidenceBundle.evidenceCount ?? 0}`,
+    `audit: ${projection?.auditChain.auditEventCount ?? 0}`,
+    `processBoundaryInvoked=${String(projection?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(projection?.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(projection?.networkBoundaryInvoked ?? false)}`,
+    `bodyStored=${String(projection?.bodyStored ?? false)}`,
+    `rawPathStored=${String(projection?.rawPathStored ?? false)}`,
+  ].join('\n');
+}
+
+export function formatGovernanceEvidenceBundleOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const bundle = result.evidenceBundle as
+    | GovernanceProjectionResult['projections'][number]['evidenceBundle']
+    | undefined;
+
+  return [
+    'CodexHub governance evidence bundle',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runProjectionId: ${bundle?.runProjectionId ?? 'unknown'}`,
+    `source: ${bundle?.source ?? 'unknown'}`,
+    `evidenceCount: ${bundle?.evidenceCount ?? 0}`,
+    `bundleHash: ${bundle?.bundleHash ?? 'unknown'}`,
+    `bodyStored=${String(bundle?.bodyStored ?? false)}`,
+    `rawPathStored=${String(bundle?.rawPathStored ?? false)}`,
+  ].join('\n');
+}
+
+export function formatGovernanceAuditChainOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const chain = result.auditChain as
+    | GovernanceProjectionResult['projections'][number]['auditChain']
+    | undefined;
+
+  return [
+    'CodexHub governance audit chain',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runProjectionId: ${chain?.runProjectionId ?? 'unknown'}`,
+    `source: ${chain?.source ?? 'unknown'}`,
+    `auditEventCount: ${chain?.auditEventCount ?? 0}`,
+    `policyDecisionCount: ${chain?.policyDecisionIds.length ?? 0}`,
+    `chainHash: ${chain?.chainHash ?? 'unknown'}`,
+    `bodyStored=${String(chain?.bodyStored ?? false)}`,
+    `rawPathStored=${String(chain?.rawPathStored ?? false)}`,
+  ].join('\n');
 }
 
 export function formatBrowserObservationRunsListOutput(

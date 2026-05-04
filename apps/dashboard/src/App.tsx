@@ -35,6 +35,7 @@ import {
   type DashboardView,
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGovernanceReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
   createWorktreeReadOnlySummary,
@@ -262,6 +263,76 @@ export function App() {
     ).length,
   });
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
+  const governanceSummary = createGovernanceReadOnlySummary([
+    ...overview.runs.map((run) => ({
+      id: run.id,
+      source: 'workflow',
+      title: run.workflowName,
+      status: run.status,
+      evidenceCount: run.evidenceRefs.length,
+      auditEventCount: 0,
+    })),
+    ...overview.developmentRuns.map((run) => ({
+      id: run.id,
+      source: 'development',
+      title: run.summary.requestTitle,
+      status: run.verificationRun.status,
+      evidenceCount: run.summary.evidenceCount,
+      auditEventCount: run.summary.auditEventCount,
+    })),
+    ...overview.codexExecDryRuns.map((run) => ({
+      id: run.id,
+      source: 'codex_exec_dry_run',
+      title: run.title,
+      status: run.policyDecision.outcome === 'deny' ? 'blocked' : run.status,
+      evidenceCount: run.evidenceRefs.length,
+      auditEventCount: run.auditEvents.length,
+      processBoundaryInvoked: false,
+      externalProcessStarted: run.externalProcessStarted,
+    })),
+    ...overview.browserObservationRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'browser_observation_run',
+      source: 'browser_observation',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.noRealWrite,
+    })),
+    ...overview.electronCdpObservationRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'electron_cdp_observation_run',
+      source: 'electron_cdp_observation',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      networkBoundaryInvoked:
+        run.cdpHttpBoundaryInvoked === true || run.cdpWebSocketBoundaryInvoked === true,
+      noRealWrite: run.noRealWrite,
+    })),
+    ...overview.worktreeRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'worktree_run',
+      source: 'worktree_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.noRealWrite,
+    })),
+    ...overview.worktreeCleanupRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'worktree_cleanup_run',
+      source: 'worktree_cleanup_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.noRealWrite,
+    })),
+  ]);
 
   useEffect(() => {
     function onHashChange() {
@@ -727,7 +798,90 @@ export function App() {
         ))}
       </nav>
 
-      {activeView === 'overview' ? (
+      {activeView === 'governance' ? (
+        <section className="grid">
+          <Panel title="Unified Governance Projection">
+            <ul>
+              <li>
+                <strong>status</strong>
+                <span>{governanceSummary.status}</span>
+              </li>
+              <li>
+                <strong>runs</strong>
+                <span>{governanceSummary.runCount}</span>
+              </li>
+              <li>
+                <strong>evidence / audit</strong>
+                <span>
+                  {governanceSummary.evidenceCount} evidence,{' '}
+                  {governanceSummary.auditEventCount} audit events
+                </span>
+              </li>
+              <li>
+                <strong>boundaries</strong>
+                <span>
+                  process {governanceSummary.processBoundaryCount}, external{' '}
+                  {governanceSummary.externalProcessStartedCount}, network{' '}
+                  {governanceSummary.networkBoundaryCount}
+                </span>
+              </li>
+              <li>
+                <strong>projection hash</strong>
+                <span>{governanceSummary.projectionHash}</span>
+              </li>
+              <li>
+                <strong>storage</strong>
+                <span>
+                  bodyStored {String(governanceSummary.bodyStored)}, rawPathStored{' '}
+                  {String(governanceSummary.rawPathStored)}
+                </span>
+              </li>
+            </ul>
+            <p>{governanceSummary.summary}</p>
+          </Panel>
+          <Panel title="Sources">
+            {governanceSummary.sources.length > 0 ? (
+              <ul>
+                {governanceSummary.sources.map((source) => (
+                  <li key={source.source}>
+                    <strong>{source.source}</strong>
+                    <span>{source.count}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No projected run sources are available.</p>
+            )}
+          </Panel>
+          <Panel title="Unified Runs">
+            {governanceSummary.runs.length > 0 ? (
+              <ul>
+                {governanceSummary.runs.slice(0, 12).map((run) => (
+                  <li key={run.id} className="stacked">
+                    <strong>{run.source}</strong>
+                    <span>
+                      status {run.status}, sourceRun {run.sourceRunIdHash}
+                    </span>
+                    <span>
+                      evidence {run.evidenceCount}, audit {run.auditEventCount}
+                    </span>
+                    <span>
+                      process {String(run.processBoundaryInvoked)}, external{' '}
+                      {String(run.externalProcessStarted)}, noRealWrite{' '}
+                      {String(run.noRealWrite)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>
+                No unified run projections are available. The Dashboard remains read-only and never
+                sends local-control credentials.
+              </p>
+            )}
+          </Panel>
+        </section>
+      ) : activeView === 'overview' ? (
         <section className="grid">
         <Panel title="Supervisor Health">
           {overview.health ? (

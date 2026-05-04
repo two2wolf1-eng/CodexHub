@@ -1929,6 +1929,187 @@ export const TelemetryExportRunSchema = createdEntityBaseSchema
   .strict();
 export type TelemetryExportRun = z.infer<typeof TelemetryExportRunSchema>;
 
+const governanceProjectionForbiddenMetadataKeys = new Set([
+  'body',
+  'prompt',
+  'stdout',
+  'stderr',
+  'jsonl',
+  'diff',
+  'trace',
+  'requestBody',
+  'responseBody',
+  'path',
+  'cwd',
+  'repoRoot',
+  'worktreePath',
+  'url',
+  'title',
+  ['web', 'Socket', 'Url'].join(''),
+  ['web', 'Socket', 'Debugger', 'Url'].join(''),
+  'payload',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  ['m', 'fa'].join(''),
+]);
+
+function rejectGovernanceProjectionRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectGovernanceProjectionRawMetadata(item, context, [...path, index]));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (governanceProjectionForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw governance projection metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectGovernanceProjectionRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const UnifiedRunSourceSchema = z.enum([
+  'codex',
+  'verification',
+  'mcp',
+  'browser',
+  'electron',
+  'worktree',
+  'policy',
+  'telemetry',
+  'orchestrator',
+]);
+export type UnifiedRunSource = z.infer<typeof UnifiedRunSourceSchema>;
+
+export const UnifiedRunProjectionStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'ready',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+  'degraded',
+  'unknown',
+]);
+export type UnifiedRunProjectionStatus = z.infer<
+  typeof UnifiedRunProjectionStatusSchema
+>;
+
+export const UnifiedTimelineEventSchema = createdEntityBaseSchema
+  .extend({
+    runProjectionId: z.string().min(1),
+    source: UnifiedRunSourceSchema,
+    phase: z.string().min(1),
+    status: UnifiedRunProjectionStatusSchema,
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGovernanceProjectionRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type UnifiedTimelineEvent = z.infer<typeof UnifiedTimelineEventSchema>;
+
+export const EvidenceBundleProjectionSchema = createdEntityBaseSchema
+  .extend({
+    runProjectionId: z.string().min(1),
+    source: UnifiedRunSourceSchema,
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    evidenceKinds: z.array(z.string().min(1)).default([]),
+    bundleHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGovernanceProjectionRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type EvidenceBundleProjection = z.infer<typeof EvidenceBundleProjectionSchema>;
+
+export const AuditChainProjectionSchema = createdEntityBaseSchema
+  .extend({
+    runProjectionId: z.string().min(1),
+    source: UnifiedRunSourceSchema,
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    auditEventCount: z.number().int().nonnegative(),
+    policyDecisionIds: z.array(z.string().min(1)).default([]),
+    chainHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGovernanceProjectionRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type AuditChainProjection = z.infer<typeof AuditChainProjectionSchema>;
+
+export const UnifiedRunProjectionSchema = createdEntityBaseSchema
+  .extend({
+    source: UnifiedRunSourceSchema,
+    sourceRunIdHash: z.string().min(1),
+    titleHash: z.string().min(1),
+    status: UnifiedRunProjectionStatusSchema,
+    timeline: z.array(UnifiedTimelineEventSchema).default([]),
+    evidenceBundle: EvidenceBundleProjectionSchema,
+    auditChain: AuditChainProjectionSchema,
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.boolean().default(false),
+    noRealWrite: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGovernanceProjectionRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type UnifiedRunProjection = z.infer<typeof UnifiedRunProjectionSchema>;
+
+export const GovernanceProjectionSummarySchema = createdEntityBaseSchema
+  .extend({
+    status: z.enum(['ready', 'degraded']),
+    runCount: z.number().int().nonnegative(),
+    sourceBreakdown: z.record(UnifiedRunSourceSchema, z.number().int().nonnegative()),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    processBoundaryCount: z.number().int().nonnegative(),
+    externalProcessStartedCount: z.number().int().nonnegative(),
+    networkBoundaryCount: z.number().int().nonnegative(),
+    projectionHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGovernanceProjectionRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GovernanceProjectionSummary = z.infer<typeof GovernanceProjectionSummarySchema>;
+
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;
 

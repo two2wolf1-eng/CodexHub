@@ -1,5 +1,9 @@
 import type { McpToolDefinition } from '@codexhub/contracts';
 import {
+  createGovernanceProjection,
+  type GovernanceProjectionInputRun,
+} from '@codexhub/governance-projection-kernel';
+import {
   createCodexHubMcpServerManifest,
   createCodexHubMcpToolDefinitions,
 } from '@codexhub/mcp-tool-contracts';
@@ -16,6 +20,7 @@ export const DASHBOARD_VIEWS = [
   'electron',
   'worktrees',
   'policy-telemetry',
+  'governance',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -167,6 +172,35 @@ export interface PolicyTelemetryReadOnlySummary {
     evidenceAuditAuthoritative: false;
     summary: string;
   };
+}
+
+export interface GovernanceReadOnlySummary {
+  status: 'ready' | 'degraded';
+  runCount: number;
+  evidenceCount: number;
+  auditEventCount: number;
+  processBoundaryCount: number;
+  externalProcessStartedCount: number;
+  networkBoundaryCount: number;
+  projectionHash: string;
+  sources: Array<{
+    source: string;
+    count: number;
+  }>;
+  runs: Array<{
+    id: string;
+    source: string;
+    status: string;
+    sourceRunIdHash: string;
+    evidenceCount: number;
+    auditEventCount: number;
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+    noRealWrite: boolean;
+  }>;
+  rawPathStored: false;
+  bodyStored: false;
+  summary: string;
 }
 
 export function getDashboardViewFromHash(hash: string | undefined): DashboardView {
@@ -418,6 +452,40 @@ export function createPolicyTelemetryReadOnlySummary(input: {
   };
 }
 
+export function createGovernanceReadOnlySummary(
+  runs: readonly GovernanceProjectionInputRun[] = createDashboardGovernanceFixtures(),
+): GovernanceReadOnlySummary {
+  const projection = createGovernanceProjection(runs);
+
+  return {
+    status: projection.summary.status,
+    runCount: projection.summary.runCount,
+    evidenceCount: projection.summary.evidenceCount,
+    auditEventCount: projection.summary.auditEventCount,
+    processBoundaryCount: projection.summary.processBoundaryCount,
+    externalProcessStartedCount: projection.summary.externalProcessStartedCount,
+    networkBoundaryCount: projection.summary.networkBoundaryCount,
+    projectionHash: projection.summary.projectionHash,
+    sources: Object.entries(projection.summary.sourceBreakdown)
+      .map(([source, count]) => ({ source, count }))
+      .sort((left, right) => left.source.localeCompare(right.source)),
+    runs: projection.projections.map((run) => ({
+      id: run.id,
+      source: run.source,
+      status: run.status,
+      sourceRunIdHash: run.sourceRunIdHash,
+      evidenceCount: run.evidenceBundle.evidenceCount,
+      auditEventCount: run.auditChain.auditEventCount,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.noRealWrite,
+    })),
+    rawPathStored: false,
+    bodyStored: false,
+    summary: projection.summary.summary,
+  };
+}
+
 export function summarizeDegradedState(status: string, message?: string): string {
   if (status === 'ready') {
     return 'Read-only data loaded.';
@@ -447,4 +515,37 @@ function stablePreviewHash(value: string): string {
 
 function stableSha256LikeHash(value: string): string {
   return `sha256:${stablePreviewHash(value).replace(/^preview:/, '')}`;
+}
+
+function createDashboardGovernanceFixtures(): GovernanceProjectionInputRun[] {
+  return [
+    {
+      id: 'dashboard_codex_projection',
+      source: 'codex_exec_dry_run',
+      status: 'blocked',
+      evidenceCount: 0,
+      auditEventCount: 0,
+    },
+    {
+      id: 'dashboard_worktree_projection',
+      source: 'worktree_run',
+      status: 'unknown',
+      evidenceCount: 0,
+      auditEventCount: 0,
+    },
+    {
+      id: 'dashboard_policy_projection',
+      source: 'policy_backend_projection',
+      status: 'ready',
+      evidenceCount: 0,
+      auditEventCount: 0,
+    },
+    {
+      id: 'dashboard_telemetry_projection',
+      source: 'telemetry_projection',
+      status: 'ready',
+      evidenceCount: 0,
+      auditEventCount: 0,
+    },
+  ];
 }
