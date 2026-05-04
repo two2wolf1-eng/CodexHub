@@ -1529,6 +1529,59 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m14_5.final-local-rc-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools config
+      localControlRequired: false
+    chain:
+      - phase: deep-review
+        scope:
+          - m13-review-package-chain
+          - m14-rc-readiness-contracts
+          - release-candidate-kernel
+          - supervisor-rc-export-control-plane
+          - dashboard-cli-read-only-ux
+          - no-live-audit
+      - phase: release-evidence
+        documents:
+          - docs/releases/m14-local-release-candidate-results.md
+          - docs/reviews/m14-local-rc-hardening-review.md
+          - docs/runbooks/m14-local-rc-operator-runbook.md
+      - phase: scaffold-registration
+        tool: tools/scaffold-health.ts
+        validates:
+          - releaseDocumentPresent
+          - reviewDocumentPresent
+          - runbookDocumentPresent
+    safety:
+      localOnly: true
+      newSupervisorRoute: false
+      newWriteBoundary: false
+      dashboardPostAllowed: false
+      cliPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      remoteProviderBoundary: false
+    forbidden:
+      - newRuntimeCapability
+      - newSupervisorRoute
+      - dashboardWriteUi
+      - cliWriteCommand
+      - adapterDirectExecute
+      - localControlCredentialRead
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest
   m13d.local-review-decision-handoff:
     risk: medium
     trigger:

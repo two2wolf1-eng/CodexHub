@@ -661,7 +661,7 @@ integrations:
     provider: codexhub-local-projection
     providerType: builtin
     mode: metadata-only-projection
-    stage: m14a-local-rc-readiness-projection
+    stage: m14_5-local-rc-hardening
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -722,3 +722,43 @@ integrations:
         networkBoundary: false
         remoteProviderBoundary: false
         localArtifactWriteBoundary: governed
+    m14c:
+      stage: local-acceptance-rehearsal
+      helper: runLocalRcAcceptanceRehearsal
+      fixtureOnly: true
+      scenarios:
+        - all-pass
+        - review-blocked
+        - verification-blocked
+        - readiness-blocked
+        - export-blocked
+        - superseded-package
+      artifactExportInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      output: ids-hashes-counts-statuses-summaries
+    m14d:
+      stage: operator-rc-read-only-ux
+      dashboardRoute: '#/release-candidates'
+      cliCommands:
+        - codexhub release-candidates readiness
+        - codexhub release-candidates runs list
+        - codexhub release-candidates runs show
+        - codexhub release-candidates acceptance show
+        - codexhub release-candidates rehearse --fixture --scenario <name>
+      supervisorPostAllowed: false
+      localControlTokenRequired: false
+      adapterExecuteFromUiOrCliAllowed: false
+      output: ids-hashes-counts-statuses-summaries
+    m14_5:
+      stage: local-rc-hardening-release-audit
+      releaseDocument: docs/releases/m14-local-release-candidate-results.md
+      reviewDocument: docs/reviews/m14-local-rc-hardening-review.md
+      runbookDocument: docs/runbooks/m14-local-rc-operator-runbook.md
+      noNewRoutes: true
+      noNewExecutionBoundary: true
+      dashboardWriteUi: false
+      cliWriteCommand: false
+      remoteProviderBoundary: false
+      pushAllowed: false
+      openPullRequestAllowed: false
