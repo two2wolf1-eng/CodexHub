@@ -16,6 +16,7 @@ import { runGoldenPathRehearsal, type GoldenPathRehearsalScenario } from './gold
 export interface M10PilotAcceptanceRehearsalInput {
   scenario?: M10PilotAcceptanceScenario;
   now?: () => string;
+  goldenPathRunner?: (input: { scenario: GoldenPathRehearsalScenario }) => GoldenPathRehearsalRun;
 }
 
 export function runM10PilotAcceptanceRehearsal(
@@ -24,7 +25,10 @@ export function runM10PilotAcceptanceRehearsal(
   const scenario = input.scenario ?? 'all-pass';
   const createdAt = (input.now ?? foundationTimestamp)();
   const runId = foundationId('m10_pilot_acceptance_rehearsal');
-  const goldenPath = createGoldenPathForScenario(scenario);
+  const goldenPath = createGoldenPathForScenario(
+    scenario,
+    input.goldenPathRunner ?? runGoldenPathRehearsal,
+  );
   const steps = createAcceptanceSteps({ scenario, createdAt, goldenPath });
   const evidenceSummary = createEvidenceSummary({ runId, steps, goldenPath, createdAt });
   const status = deriveAcceptanceStatus(scenario);
@@ -67,10 +71,11 @@ export function runM10PilotAcceptanceRehearsal(
 
 function createGoldenPathForScenario(
   scenario: M10PilotAcceptanceScenario,
+  goldenPathRunner: (input: { scenario: GoldenPathRehearsalScenario }) => GoldenPathRehearsalRun,
 ): GoldenPathRehearsalRun | undefined {
   const goldenScenario = toGoldenPathScenario(scenario);
 
-  return goldenScenario ? runGoldenPathRehearsal({ scenario: goldenScenario }) : undefined;
+  return goldenScenario ? goldenPathRunner({ scenario: goldenScenario }) : undefined;
 }
 
 function toGoldenPathScenario(

@@ -84,6 +84,28 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('diff --git');
   });
 
+  it('keeps M10 history and acceptance panels display-only in the Dashboard source', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const historyPanel = appSource.slice(
+      appSource.indexOf('<Panel title="Decision History">'),
+      appSource.indexOf('<Panel title="Page-Memory Decision Key">'),
+    );
+    const acceptancePanel = appSource.slice(
+      appSource.indexOf('<Panel title="Acceptance Rehearsal">'),
+      appSource.indexOf('      </section>', appSource.indexOf('<Panel title="Acceptance Rehearsal">')),
+    );
+    const combined = `${historyPanel}\n${acceptancePanel}`;
+
+    expect(combined).toContain('Decision History');
+    expect(combined).toContain('Acceptance Rehearsal');
+    expect(combined).not.toContain('<button');
+    expect(combined).not.toContain('method:');
+    expect(combined).not.toContain('fetch(');
+    expect(combined).not.toContain('submitApprovalDecision');
+    expect(combined).not.toContain('approvalKey');
+    expect(combined).not.toContain('local-control');
+  });
+
   it('summarizes MCP tools without write/admin or process boundary state', () => {
     const summary = summarizeMcpTools();
 

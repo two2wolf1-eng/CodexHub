@@ -429,9 +429,10 @@ function summarizeReason(reason: string): string {
   const normalized = reason
     .replace(/\s+/g, ' ')
     .replace(/local-control-[^\s,.;]+/gi, '[redacted]')
-    .replace(new RegExp(`${secretA}[=:][^\\s,.;]+`, 'gi'), `${secretA}=[redacted]`)
-    .replace(new RegExp(`${secretB}[=:][^\\s,.;]+`, 'gi'), `${secretB}=[redacted]`)
-    .replace(new RegExp(`${secretC}[=:][^\\s,.;]+`, 'gi'), `${secretC}=[redacted]`)
+    .replace(/[A-Za-z]:[\\/][^\s,.;]+/g, '[redacted-path]')
+    .replace(new RegExp(`${secretA}[=:][^\\s,.;]+`, 'gi'), '[redacted]')
+    .replace(new RegExp(`${secretB}[=:][^\\s,.;]+`, 'gi'), '[redacted]')
+    .replace(new RegExp(`${secretC}[=:][^\\s,.;]+`, 'gi'), '[redacted]')
     .trim();
 
   return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;

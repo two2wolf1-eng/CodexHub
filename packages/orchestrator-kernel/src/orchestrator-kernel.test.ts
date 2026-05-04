@@ -146,6 +146,37 @@ describe('orchestrator-kernel M10 pilot acceptance rehearsal', () => {
     expect(nxFailed.status).toBe('failed');
     expect(nxFailed.prActionStatus).toBe('blocked');
   });
+
+  it('does not invoke the golden path fixture while readiness or approval is blocked', () => {
+    const invokedScenarios: string[] = [];
+    const goldenPathRunner = (input: { scenario: 'all-pass' | 'codex-failed' | 'nx-failed' }) => {
+      invokedScenarios.push(input.scenario);
+      return runGoldenPathRehearsal(input);
+    };
+
+    const readinessBlocked = runM10PilotAcceptanceRehearsal({
+      scenario: 'readiness-blocked',
+      goldenPathRunner,
+    });
+    const approvalBlocked = runM10PilotAcceptanceRehearsal({
+      scenario: 'approval-blocked',
+      goldenPathRunner,
+    });
+    const codexFailed = runM10PilotAcceptanceRehearsal({
+      scenario: 'codex-failed',
+      goldenPathRunner,
+    });
+    const nxFailed = runM10PilotAcceptanceRehearsal({
+      scenario: 'nx-failed',
+      goldenPathRunner,
+    });
+
+    expect(invokedScenarios).toEqual(['codex-failed', 'nx-failed']);
+    expect(readinessBlocked.goldenPathRunId).toBe('golden_path_not_invoked');
+    expect(approvalBlocked.goldenPathRunId).toBe('golden_path_not_invoked');
+    expect(codexFailed.status).toBe('failed');
+    expect(nxFailed.status).toBe('failed');
+  });
 });
 
 describe('orchestrator-kernel governed development orchestration', () => {

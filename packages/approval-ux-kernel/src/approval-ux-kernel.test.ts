@@ -99,6 +99,35 @@ describe('approval-ux-kernel', () => {
     expect(serialized).not.toContain('ExecutionAuthority');
     expect(serialized).not.toContain('approvalArtifact');
   });
+
+  it('hashes raw decision reasons and redacts local-control and credential markers', () => {
+    const decision = createApprovalDecisionResult({
+      approvalType: 'worktree',
+      approvalRequestId: 'worktree_approval_request_1',
+      decision: 'denied',
+      status: 'denied',
+      evidenceRefIds: ['evidence_decision_1'],
+      auditEventIds: ['audit_decision_1'],
+    });
+    const projection = createApprovalDecisionHistoryProjection({
+      decisions: [decision],
+      reasonSummaries: {
+        [decision.id]:
+          'Reject local-control-secret with token=private cookie=private session=private at C:/private',
+      },
+    });
+    const item = projection.items[0];
+    const serialized = JSON.stringify(projection);
+
+    expect(item?.reasonHash).toMatch(/^sha256:/);
+    expect(item?.reasonSummary).toContain('[redacted]');
+    expect(item?.reasonSummary).not.toContain('private');
+    expect(item?.reasonSummary).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('token=private');
+    expect(serialized).not.toContain('cookie=private');
+    expect(serialized).not.toContain('session=private');
+    expect(serialized).not.toContain('C:/private');
+  });
 });
 
 function createCodexApprovalRecord(status: 'pending' | 'approved'): CodexExecManualApprovalRecord {

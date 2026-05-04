@@ -867,3 +867,50 @@ workflows:
       - realGitProcess
       - gitPush
       - openPullRequest
+  m10_5.operator-pilot-hardening-audit:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: contracts kernels dashboard cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: contract-hardening
+        package: contracts
+        validates:
+          - ApprovalDecisionHistory metadataOnly
+          - M10PilotChecklist metadataOnly
+          - M10PilotAcceptance metadataOnly
+          - rawReasonPromptStdoutStderrDiffPathBodySecretsRejected
+      - phase: kernel-hardening
+        packages:
+          - approval-ux-kernel
+          - orchestrator-kernel
+        validates:
+          - approvalReasonHashOnlySummary
+          - readinessBlockedDoesNotInvokeGoldenPathFixture
+          - approvalBlockedDoesNotInvokeGoldenPathFixture
+      - phase: dashboard-cli-hardening
+        apps:
+          - dashboard
+          - cli
+        validates:
+          - historyAndAcceptancePanelsDisplayOnly
+          - m10CliHelpersDoNotCallSupervisor
+          - adapterExecuteFromUiOrCliFalse
+      - phase: release-evidence
+        documents:
+          - docs/reviews/m10-operator-pilot-hardening-review.md
+          - docs/releases/m10.5-operator-pilot-hardening.md
+    forbidden:
+      - newSupervisorRoute
+      - newStoreRepository
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - localControlTokenPersistence
+      - adapterExecuteFromUiOrCli
+      - newProcessBoundary
+      - newNetworkBoundary
+      - realPilotExecution
+      - gitPush
+      - openPullRequest

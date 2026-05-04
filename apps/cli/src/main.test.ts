@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -442,6 +442,34 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('stderr');
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('C:\\');
+  });
+
+  it('keeps M10 operator pilot CLI helpers local and non-mutating', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('M10 operator pilot CLI helpers must not call Supervisor');
+    });
+    const {
+      getM10PilotChecklistForCli,
+      getM10PilotRunbookForCli,
+      runM10PilotAcceptanceRehearsalForCli,
+    } = await import('./main');
+    const checklist = await getM10PilotChecklistForCli();
+    const runbook = await getM10PilotRunbookForCli();
+    const rehearsal = runM10PilotAcceptanceRehearsalForCli({ fixture: true });
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const m10Source = source.slice(
+      source.indexOf("const pilotM10Command = pilotCommand"),
+      source.indexOf("const rehearsalCommand = program"),
+    );
+
+    expect(checklist.supervisorPostAllowed).toBe(false);
+    expect(runbook.supervisorPostAllowed).toBe(false);
+    expect(rehearsal.supervisorPostAllowed).toBe(false);
+    expect(rehearsal.adapterExecuteAllowed).toBe(false);
+    expect(m10Source).not.toContain('.execute(');
+    expect(m10Source).not.toContain("method: 'POST'");
+    expect(m10Source).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(m10Source).not.toContain('x-codexhub-local-token');
   });
 
   it('runs the golden path rehearsal as fixture-only metadata', async () => {
