@@ -5027,3 +5027,149 @@ describe('supervisor local review package control plane', () => {
     expect(rawBodyResponse.body).not.toContain('diff --git private');
   });
 });
+
+describe('supervisor local release candidate control plane', () => {
+  it('requires stored approval and hash-bound runtime input before local RC export', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-release-candidate-store-'));
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'codexhub-release-candidate-workspace-'));
+    const artifactRoot = resolve(workspaceRoot, '..', 'CodexHub-artifacts');
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      releaseCandidateExportEnabled: true,
+      localControlKey: localControlToken,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sourceLifecycleRunId: 'm12_lifecycle_rc_export',
+        sourcePatchRunId: 'm12_patch_rc_export',
+        changedFilePathHashes: ['sha256:file'],
+        diffHash: 'sha256:diff',
+        verificationStatus: 'passed',
+        readinessStatus: 'ready_for_review_draft_only',
+        readyForReviewDraftOnly: true,
+        reviewDecisionStatus: 'approved_for_local_rc',
+        operatorReadinessStatus: 'pass',
+        bundleId: 'rc-bundle-control-plane',
+        workspaceRoot,
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'request local release candidate export',
+      },
+    });
+    const approvalRequest = approvalRequestResponse.json();
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequest.approvalRequestId,
+        outcome: 'approved',
+        reason: 'approve local release candidate export',
+      },
+    });
+    const approval = approvalResponse.json();
+    const blockedMismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        workspaceRoot,
+        bundleId: 'different-rc-bundle',
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        workspaceRoot,
+        bundleId: 'rc-bundle-control-plane',
+      },
+    });
+    const completed = completedResponse.json();
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(workspaceRoot, { recursive: true, force: true });
+    rmSync(artifactRoot, { recursive: true, force: true });
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.status).toBe('planned');
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(blockedMismatchResponse.statusCode).toBe(200);
+    expect(blockedMismatchResponse.json()).toMatchObject({
+      status: 'blocked',
+      artifactWriteBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completed.status).toBe('completed');
+    expect(completed.artifactWriteBoundaryInvoked).toBe(true);
+    expect(completed.bodyStored).toBe(false);
+    expect(completed.rawPathStored).toBe(false);
+    expect(completedResponse.body).not.toContain(workspaceRoot);
+    expect(completedResponse.body).not.toContain('diff --git');
+    expect(completedResponse.body).not.toContain('pull request body');
+  });
+
+  it('rejects request-body authority and raw release candidate bodies', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-release-candidate-guard-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+    });
+
+    const authorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        authority: { allowed: true },
+      },
+    });
+    const rawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/release-candidates/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sourceLifecycleRunId: 'm12_lifecycle_raw',
+        sourcePatchRunId: 'm12_patch_raw',
+        rawPrBody: 'pull request body',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(authorityResponse.statusCode).toBe(400);
+    expect(authorityResponse.json()).toMatchObject({
+      error: 'untrusted_release_candidate_authority_body',
+      artifactWriteBoundaryInvoked: false,
+    });
+    expect(rawBodyResponse.statusCode).toBe(400);
+    expect(rawBodyResponse.json()).toMatchObject({
+      error: 'forbidden_release_candidate_raw_body',
+      artifactWriteBoundaryInvoked: false,
+    });
+    expect(rawBodyResponse.body).not.toContain('pull request body');
+  });
+});

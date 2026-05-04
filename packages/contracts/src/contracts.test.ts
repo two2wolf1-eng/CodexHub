@@ -190,6 +190,9 @@ import {
   LocalReviewPackagePlanSchema,
   LocalReviewPackageRunSchema,
   LocalReviewPackageSummarySchema,
+  LocalRcBundleApprovalArtifactRecordSchema,
+  LocalRcBundleControlPlaneRunSchema,
+  LocalRcBundleDryRunRecordSchema,
   LocalRcAuditChainSchema,
   LocalRcEvidenceBundleSchema,
   LocalRcReadinessPlanSchema,
@@ -2504,6 +2507,222 @@ describe('contracts schemas', () => {
       LocalRcReadinessSummarySchema.parse({
         ...summary,
         id: 'local_rc_raw_metadata',
+        metadata: { rawPath: 'C:\\private\\rc', rawDiff: 'diff --git', rawReason: 'body' },
+      }),
+    ).toThrow();
+    expect(serialized).not.toContain('C:\\private');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('parses M14b governed local RC bundle export records and rejects raw metadata', () => {
+    const plan = LocalRcReadinessPlanSchema.parse({
+      id: 'local_rc_export_plan_1',
+      schemaVersion,
+      createdAt,
+      reviewPackageIdHash: 'sha256:review-package',
+      reviewDecisionIdHash: 'sha256:review-decision',
+      reviewDecisionStatus: 'approved_for_local_rc',
+      verificationStatus: 'passed',
+      operatorReadinessStatus: 'pass',
+      plannedReadinessStatus: 'ready_for_local_acceptance',
+      evidenceRefIds: ['evidence_review', 'evidence_verification'],
+      auditEventIds: ['audit_review', 'audit_verification'],
+      exportPlanned: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local RC readiness plan is ready for local acceptance.',
+    });
+    const summary = LocalRcReadinessSummarySchema.parse({
+      id: 'local_rc_export_summary_1',
+      schemaVersion,
+      createdAt,
+      planId: plan.id,
+      status: 'ready_for_local_acceptance',
+      reviewDecisionStatus: plan.reviewDecisionStatus,
+      verificationStatus: plan.verificationStatus,
+      operatorReadinessStatus: plan.operatorReadinessStatus,
+      blockerCount: 0,
+      evidenceRefCount: 2,
+      auditEventCount: 2,
+      localAcceptanceReady: true,
+      bundleExported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local RC is ready for local acceptance.',
+    });
+    const evidenceBundle = LocalRcEvidenceBundleSchema.parse({
+      id: 'local_rc_export_evidence_bundle_1',
+      schemaVersion,
+      createdAt,
+      rcReadinessIdHash: 'sha256:rc-summary',
+      evidenceRefIds: ['evidence_review', 'evidence_verification'],
+      evidenceCount: 2,
+      bundleHash: 'sha256:evidence-bundle',
+      artifactExported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local RC evidence bundle is metadata-only.',
+    });
+    const auditChain = LocalRcAuditChainSchema.parse({
+      id: 'local_rc_export_audit_chain_1',
+      schemaVersion,
+      createdAt,
+      rcReadinessIdHash: 'sha256:rc-summary',
+      auditEventIds: ['audit_review', 'audit_verification'],
+      auditEventCount: 2,
+      chainHash: 'sha256:audit-chain',
+      processBoundaryCount: 0,
+      externalProcessStartedCount: 0,
+      networkBoundaryCount: 0,
+      artifactExported: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: 'Local RC audit chain is metadata-only.',
+    });
+    const policyDecision = PolicyDecisionSchema.parse({
+      id: 'policy_rc_bundle_export',
+      schemaVersion,
+      createdAt,
+      actionId: 'rc_bundle_export_dry_run',
+      actionType: 'release_candidate.export_local_artifact',
+      actionMode: 'write',
+      riskLevel: 'medium',
+      outcome: 'approval_required',
+      reasons: ['local RC bundle export requires persisted approval'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    });
+    const evidence = EvidenceRefSchema.parse({
+      id: 'evidence_rc_bundle_export',
+      schemaVersion,
+      createdAt,
+      kind: 'release.rc_bundle_export_plan',
+      hash: 'sha256:rc-export-plan',
+      redacted: true,
+      metadata: {
+        artifactRootHash: 'sha256:artifact-root',
+        artifactDirectoryHash: 'sha256:artifact-dir',
+        bodyStored: false,
+      },
+    });
+    const dryRun = LocalRcBundleDryRunRecordSchema.parse({
+      id: 'rc_bundle_export_dry_run_record',
+      schemaVersion,
+      createdAt,
+      dryRunId: 'rc_bundle_export_dry_run',
+      status: 'planned',
+      runnerMode: 'controlled-local-artifact',
+      readinessPlan: plan,
+      readinessSummary: summary,
+      evidenceBundle,
+      auditChain,
+      rcReadinessIdHash: 'sha256:rc-summary',
+      rcBundleHash: 'sha256:rc-bundle',
+      artifactRootHash: 'sha256:artifact-root',
+      artifactDirectoryHash: 'sha256:artifact-dir',
+      plannedFileCount: 2,
+      plannedFileNameHashes: ['sha256:json', 'sha256:md'],
+      policyDecision,
+      requiresApproval: true,
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_rc_bundle_export_plan'],
+      artifactWriteBoundaryPlanned: true,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local RC bundle export is planned.',
+    });
+    const approval = LocalRcBundleApprovalArtifactRecordSchema.parse({
+      id: 'rc_bundle_export_approval_record',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRun.dryRunId,
+      dryRunRecordId: dryRun.id,
+      approvalRequestId: 'rc_bundle_export_approval_request',
+      approvalArtifactId: 'rc_bundle_export_approval_artifact',
+      status: 'approved',
+      approved: true,
+      policyDecisionId: policyDecision.id,
+      reasonHash: 'sha256:reason',
+      evidenceRefs: [evidence],
+      auditEventIds: ['audit_rc_bundle_export_approval'],
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local RC bundle export approval is approved.',
+    });
+    const run = LocalRcBundleControlPlaneRunSchema.parse({
+      id: 'rc_bundle_export_run',
+      schemaVersion,
+      createdAt,
+      dryRunId: dryRun.dryRunId,
+      dryRunRecordId: dryRun.id,
+      approvalArtifactId: approval.approvalArtifactId,
+      status: 'completed',
+      rcReadinessIdHash: dryRun.rcReadinessIdHash,
+      rcBundleHash: dryRun.rcBundleHash,
+      artifactRootHash: dryRun.artifactRootHash,
+      artifactDirectoryHash: dryRun.artifactDirectoryHash,
+      exportedFileCount: 2,
+      byteCount: 2048,
+      contentHash: 'sha256:content',
+      evidenceRefs: [
+        EvidenceRefSchema.parse({
+          ...evidence,
+          id: 'evidence_rc_bundle_export_summary',
+          kind: 'release.rc_bundle_export_summary',
+        }),
+      ],
+      auditEventIds: ['audit_rc_bundle_export_run'],
+      artifactWriteBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Local RC bundle export completed.',
+    });
+    const serialized = JSON.stringify({ dryRun, approval, run });
+
+    expect(run.status).toBe('completed');
+    expect(() =>
+      LocalRcBundleDryRunRecordSchema.parse({
+        ...dryRun,
+        id: 'rc_bundle_export_bad_count',
+        plannedFileCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcBundleApprovalArtifactRecordSchema.parse({
+        ...approval,
+        id: 'rc_bundle_export_bad_approval',
+        approved: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcBundleControlPlaneRunSchema.parse({
+        ...run,
+        id: 'rc_bundle_export_bad_boundary',
+        artifactWriteBoundaryInvoked: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalRcBundleControlPlaneRunSchema.parse({
+        ...run,
+        id: 'rc_bundle_export_raw_metadata',
         metadata: { rawPath: 'C:\\private\\rc', rawDiff: 'diff --git', rawReason: 'body' },
       }),
     ).toThrow();

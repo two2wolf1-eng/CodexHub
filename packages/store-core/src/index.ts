@@ -10,6 +10,9 @@ import type {
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
+  LocalRcBundleApprovalArtifactRecord,
+  LocalRcBundleControlPlaneRun,
+  LocalRcBundleDryRunRecord,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -81,6 +84,7 @@ export interface WorktreeControlPlaneQuery {
 }
 
 export type ReviewPackageControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ReleaseCandidateControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -273,6 +277,31 @@ export interface ReviewPackageRunRepository {
   listRuns(query?: ReviewPackageControlPlaneQuery): Promise<LocalReviewPackageControlPlaneRun[]>;
 }
 
+export interface ReleaseCandidateDryRunRepository {
+  saveDryRun(record: LocalRcBundleDryRunRecord): Promise<LocalRcBundleDryRunRecord>;
+  getDryRun(id: string): Promise<LocalRcBundleDryRunRecord | undefined>;
+  listDryRuns(query?: ReleaseCandidateControlPlaneQuery): Promise<LocalRcBundleDryRunRecord[]>;
+}
+
+export interface ReleaseCandidateApprovalRepository {
+  saveApproval(
+    record: LocalRcBundleApprovalArtifactRecord,
+  ): Promise<LocalRcBundleApprovalArtifactRecord>;
+  getApproval(id: string): Promise<LocalRcBundleApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<LocalRcBundleApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: ReleaseCandidateControlPlaneQuery,
+  ): Promise<LocalRcBundleApprovalArtifactRecord[]>;
+}
+
+export interface ReleaseCandidateRunRepository {
+  saveRun(record: LocalRcBundleControlPlaneRun): Promise<LocalRcBundleControlPlaneRun>;
+  getRun(id: string): Promise<LocalRcBundleControlPlaneRun | undefined>;
+  listRuns(query?: ReleaseCandidateControlPlaneQuery): Promise<LocalRcBundleControlPlaneRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -462,6 +491,9 @@ export interface CodexHubStore {
   reviewPackageDryRuns: ReviewPackageDryRunRepository;
   reviewPackageApprovals: ReviewPackageApprovalRepository;
   reviewPackageRuns: ReviewPackageRunRepository;
+  releaseCandidateDryRuns: ReleaseCandidateDryRunRepository;
+  releaseCandidateApprovals: ReleaseCandidateApprovalRepository;
+  releaseCandidateRuns: ReleaseCandidateRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

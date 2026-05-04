@@ -17,6 +17,9 @@ import type {
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
+  LocalRcBundleApprovalArtifactRecord,
+  LocalRcBundleControlPlaneRun,
+  LocalRcBundleDryRunRecord,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -96,6 +99,10 @@ import type {
   ReviewPackageControlPlaneQuery,
   ReviewPackageDryRunRepository,
   ReviewPackageRunRepository,
+  ReleaseCandidateApprovalRepository,
+  ReleaseCandidateControlPlaneQuery,
+  ReleaseCandidateDryRunRepository,
+  ReleaseCandidateRunRepository,
   StoreFactoryOptions,
   WorkflowRunRepository,
 } from '@codexhub/store-core';
@@ -166,6 +173,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly reviewPackageDryRuns: ReviewPackageDryRunRepository;
   readonly reviewPackageApprovals: ReviewPackageApprovalRepository;
   readonly reviewPackageRuns: ReviewPackageRunRepository;
+  readonly releaseCandidateDryRuns: ReleaseCandidateDryRunRepository;
+  readonly releaseCandidateApprovals: ReleaseCandidateApprovalRepository;
+  readonly releaseCandidateRuns: ReleaseCandidateRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -214,6 +224,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.reviewPackageDryRuns = new SqliteReviewPackageDryRunRepository(database);
     this.reviewPackageApprovals = new SqliteReviewPackageApprovalRepository(database);
     this.reviewPackageRuns = new SqliteReviewPackageRunRepository(database);
+    this.releaseCandidateDryRuns = new SqliteReleaseCandidateDryRunRepository(database);
+    this.releaseCandidateApprovals = new SqliteReleaseCandidateApprovalRepository(database);
+    this.releaseCandidateRuns = new SqliteReleaseCandidateRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -1017,6 +1030,112 @@ class SqliteReviewPackageRunRepository implements ReviewPackageRunRepository {
     return listObservationControlPlaneRecords<LocalReviewPackageControlPlaneRun>(
       this.database,
       'review_package_runs',
+      query,
+    );
+  }
+}
+
+class SqliteReleaseCandidateDryRunRepository implements ReleaseCandidateDryRunRepository {
+  private readonly repository: JsonEntityRepository<LocalRcBundleDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<LocalRcBundleDryRunRecord>(
+      database,
+      'release_candidate_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: LocalRcBundleDryRunRecord): Promise<LocalRcBundleDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<LocalRcBundleDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: ReleaseCandidateControlPlaneQuery = {},
+  ): Promise<LocalRcBundleDryRunRecord[]> {
+    return listObservationControlPlaneRecords<LocalRcBundleDryRunRecord>(
+      this.database,
+      'release_candidate_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteReleaseCandidateApprovalRepository implements ReleaseCandidateApprovalRepository {
+  private readonly repository: JsonEntityRepository<LocalRcBundleApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<LocalRcBundleApprovalArtifactRecord>(
+      database,
+      'release_candidate_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: LocalRcBundleApprovalArtifactRecord,
+  ): Promise<LocalRcBundleApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<LocalRcBundleApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<LocalRcBundleApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM release_candidate_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as LocalRcBundleApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: ReleaseCandidateControlPlaneQuery = {},
+  ): Promise<LocalRcBundleApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<LocalRcBundleApprovalArtifactRecord>(
+      this.database,
+      'release_candidate_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteReleaseCandidateRunRepository implements ReleaseCandidateRunRepository {
+  private readonly repository: JsonEntityRepository<LocalRcBundleControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<LocalRcBundleControlPlaneRun>(
+      database,
+      'release_candidate_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: LocalRcBundleControlPlaneRun,
+  ): Promise<LocalRcBundleControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<LocalRcBundleControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: ReleaseCandidateControlPlaneQuery = {},
+  ): Promise<LocalRcBundleControlPlaneRun[]> {
+    return listObservationControlPlaneRecords<LocalRcBundleControlPlaneRun>(
+      this.database,
+      'release_candidate_runs',
       query,
     );
   }
@@ -1999,6 +2118,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS review_package_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS release_candidate_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS release_candidate_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS release_candidate_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

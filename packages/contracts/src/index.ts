@@ -154,6 +154,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'release.rc_readiness_summary',
     'release.rc_evidence_bundle',
     'release.rc_audit_chain',
+    'release.rc_bundle_export_plan',
+    'release.rc_bundle_export_summary',
     'pr.draft_summary',
     'release.audit_draft',
     'pilot.m9.readiness_summary',
@@ -2766,6 +2768,171 @@ export const LocalRcAuditChainSchema = createdEntityBaseSchema
     }
   });
 export type LocalRcAuditChain = z.infer<typeof LocalRcAuditChainSchema>;
+
+export const LocalRcBundleExportRunnerModeSchema = z.enum([
+  'projection',
+  'controlled-local-artifact',
+]);
+export type LocalRcBundleExportRunnerMode = z.infer<
+  typeof LocalRcBundleExportRunnerModeSchema
+>;
+
+export const LocalRcBundleApprovalStatusSchema = z.enum([
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type LocalRcBundleApprovalStatus = z.infer<typeof LocalRcBundleApprovalStatusSchema>;
+
+export const LocalRcBundleExportRunStatusSchema = z.enum([
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type LocalRcBundleExportRunStatus = z.infer<
+  typeof LocalRcBundleExportRunStatusSchema
+>;
+
+export const LocalRcBundleDryRunRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    runnerMode: LocalRcBundleExportRunnerModeSchema,
+    readinessPlan: LocalRcReadinessPlanSchema,
+    readinessSummary: LocalRcReadinessSummarySchema,
+    evidenceBundle: LocalRcEvidenceBundleSchema,
+    auditChain: LocalRcAuditChainSchema,
+    rcReadinessIdHash: z.string().min(1),
+    rcBundleHash: z.string().min(1),
+    artifactRootHash: z.string().min(1),
+    artifactDirectoryHash: z.string().min(1),
+    plannedFileCount: z.number().int().positive(),
+    plannedFileNameHashes: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryPlanned: z.boolean(),
+    artifactWriteBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.plannedFileCount !== record.plannedFileNameHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'plannedFileCount must match plannedFileNameHashes length',
+        path: ['plannedFileCount'],
+      });
+    }
+
+    if (record.status === 'blocked' && record.artifactWriteBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked local RC bundle dry-runs cannot plan an artifact write',
+        path: ['artifactWriteBoundaryPlanned'],
+      });
+    }
+  });
+export type LocalRcBundleDryRunRecord = z.infer<typeof LocalRcBundleDryRunRecordSchema>;
+
+export const LocalRcBundleApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: LocalRcBundleApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedByHash: z.string().min(1).optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match approved approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type LocalRcBundleApprovalArtifactRecord = z.infer<
+  typeof LocalRcBundleApprovalArtifactRecordSchema
+>;
+
+export const LocalRcBundleControlPlaneRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: LocalRcBundleExportRunStatusSchema,
+    rcReadinessIdHash: z.string().min(1),
+    rcBundleHash: z.string().min(1),
+    artifactRootHash: z.string().min(1),
+    artifactDirectoryHash: z.string().min(1),
+    exportedFileCount: z.number().int().nonnegative(),
+    byteCount: z.number().int().nonnegative(),
+    contentHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    artifactWriteBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'completed' && !record.artifactWriteBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed local RC bundle exports must invoke artifact write boundary',
+        path: ['artifactWriteBoundaryInvoked'],
+      });
+    }
+
+    if (record.status === 'completed' && record.noRealWrite) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed local RC bundle export is a real local write',
+        path: ['noRealWrite'],
+      });
+    }
+  });
+export type LocalRcBundleControlPlaneRun = z.infer<
+  typeof LocalRcBundleControlPlaneRunSchema
+>;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);
 export type GovernedCodexPatchMode = z.infer<typeof GovernedCodexPatchModeSchema>;

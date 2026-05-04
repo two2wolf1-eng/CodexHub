@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createLocalReviewDecisionHandoff, createLocalReviewPackageProjection } from '@codexhub/review-package-kernel';
-import { createLocalRcReadinessProjection } from './index';
+import {
+  createLocalRcBundleApprovalRecord,
+  createLocalRcBundleExportDryRunRecord,
+  createLocalRcReadinessProjection,
+  executeLocalRcBundleExport,
+} from './index';
 
 describe('release-candidate-kernel', () => {
   it('projects ready local RC metadata from an approved review package', () => {
@@ -81,5 +89,149 @@ describe('release-candidate-kernel', () => {
     expect(reviewBlocked.summary.status).toBe('blocked_review');
     expect(verificationBlocked.summary.status).toBe('blocked_verification');
     expect(operatorBlocked.summary.status).toBe('blocked_operator_readiness');
+  });
+
+  it('exports a governed local RC bundle only after approval and hash-bound target validation', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'codexhub-workspace-'));
+    const reviewPackage = createLocalReviewDecisionHandoff({
+      reviewPackage: createLocalReviewPackageProjection({
+        sourceLifecycleRunId: 'm12_lifecycle_rc_export',
+        sourcePatchRunId: 'm12_patch_rc_export',
+        changedFilePathHashes: ['sha256:file-a'],
+        diffHash: 'sha256:diff',
+        verificationStatus: 'passed',
+        readinessStatus: 'ready_for_review_draft_only',
+        readyForReviewDraftOnly: true,
+        evidenceRefIds: ['evidence_patch'],
+        auditEventIds: ['audit_patch'],
+      }),
+      status: 'approved_for_local_rc',
+    });
+    const projection = createLocalRcReadinessProjection({
+      reviewPackage,
+      operatorReadinessStatus: 'pass',
+      evidenceRefIds: ['evidence_operator'],
+      auditEventIds: ['audit_operator'],
+    });
+    const dryRun = createLocalRcBundleExportDryRunRecord({
+      ...projection,
+      workspaceRoot,
+      bundleId: 'rc-bundle-export',
+    });
+    const approval = createLocalRcBundleApprovalRecord({
+      dryRunRecord: dryRun,
+      status: 'approved',
+      reason: 'operator approved local RC bundle export',
+    });
+    const completed = await executeLocalRcBundleExport({
+      dryRunRecord: dryRun,
+      approvalRecord: approval,
+      enabled: true,
+      authority: {
+        id: 'authority_rc_export',
+        schemaVersion: dryRun.schemaVersion,
+        createdAt: dryRun.createdAt,
+        policyDecisionId: dryRun.policyDecision.id,
+        approvalArtifactId: approval.approvalArtifactId,
+        allowed: true,
+        constraints: [],
+      },
+      runtime: {
+        workspaceRoot,
+        bundleId: 'rc-bundle-export',
+      },
+    });
+    const artifactRoot = resolve(workspaceRoot, '..', 'CodexHub-artifacts');
+    const jsonBody = await readFile(
+      join(
+        artifactRoot,
+        'release-candidates',
+        'rc-bundle-export',
+        'release-candidate-summary.json',
+      ),
+      'utf8',
+    );
+    const serialized = JSON.stringify(completed);
+
+    expect(dryRun.status).toBe('planned');
+    expect(completed.status).toBe('completed');
+    expect(completed.artifactWriteBoundaryInvoked).toBe(true);
+    expect(completed.noRealWrite).toBe(false);
+    expect(jsonBody).toContain('"status"');
+    expect(serialized).not.toContain(workspaceRoot);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    await rm(workspaceRoot, { recursive: true, force: true });
+    await rm(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('blocks local RC bundle export before file writes when approval or target binding is invalid', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'codexhub-workspace-'));
+    const reviewPackage = createLocalReviewDecisionHandoff({
+      reviewPackage: createLocalReviewPackageProjection({
+        sourceLifecycleRunId: 'm12_lifecycle_rc_blocked',
+        sourcePatchRunId: 'm12_patch_rc_blocked',
+        changedFilePathHashes: ['sha256:file-a'],
+        verificationStatus: 'passed',
+        readinessStatus: 'ready_for_review_draft_only',
+        readyForReviewDraftOnly: true,
+      }),
+      status: 'approved_for_local_rc',
+    });
+    const projection = createLocalRcReadinessProjection({
+      reviewPackage,
+      operatorReadinessStatus: 'pass',
+    });
+    const dryRun = createLocalRcBundleExportDryRunRecord({
+      ...projection,
+      workspaceRoot,
+      bundleId: 'rc-bundle-blocked',
+    });
+    const missingApproval = await executeLocalRcBundleExport({
+      dryRunRecord: dryRun,
+      enabled: true,
+      authority: {
+        id: 'authority_denied',
+        schemaVersion: dryRun.schemaVersion,
+        createdAt: dryRun.createdAt,
+        policyDecisionId: dryRun.policyDecision.id,
+        allowed: false,
+        constraints: [],
+      },
+      runtime: {
+        workspaceRoot,
+        bundleId: 'rc-bundle-blocked',
+      },
+    });
+    const approval = createLocalRcBundleApprovalRecord({
+      dryRunRecord: dryRun,
+      status: 'approved',
+    });
+    const mismatch = await executeLocalRcBundleExport({
+      dryRunRecord: dryRun,
+      approvalRecord: approval,
+      enabled: true,
+      authority: {
+        id: 'authority_mismatch',
+        schemaVersion: dryRun.schemaVersion,
+        createdAt: dryRun.createdAt,
+        policyDecisionId: dryRun.policyDecision.id,
+        approvalArtifactId: approval.approvalArtifactId,
+        allowed: true,
+        constraints: [],
+      },
+      runtime: {
+        workspaceRoot,
+        bundleId: 'different-rc-bundle',
+      },
+    });
+
+    expect(missingApproval.status).toBe('blocked');
+    expect(missingApproval.artifactWriteBoundaryInvoked).toBe(false);
+    expect(mismatch.status).toBe('blocked');
+    expect(mismatch.blockReasons).toContain('artifact_target_hash_mismatch');
+    expect(mismatch.artifactWriteBoundaryInvoked).toBe(false);
+    await rm(workspaceRoot, { recursive: true, force: true });
+    await rm(resolve(workspaceRoot, '..', 'CodexHub-artifacts'), { recursive: true, force: true });
   });
 });

@@ -1651,3 +1651,52 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m14b.governed-local-rc-bundle-export:
+    risk: high
+    trigger:
+      type: supervisor-local-control
+      entrypoint: /api/release-candidates/*
+      localControlRequired: true
+      trustedOriginRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/release-candidates/dry-runs
+        output: hashes-counts-statuses-only
+      - phase: approval
+        routes:
+          - POST /api/release-candidates/approval-requests
+          - POST /api/release-candidates/manual-approvals
+        approvalSource: server-store
+      - phase: export
+        route: POST /api/release-candidates/runs
+        package: release-candidate-kernel
+        boundary: packages/release-candidate-kernel/src/artifact-export-boundary.ts
+        root: ../CodexHub-artifacts/release-candidates
+        fixedFiles:
+          - release-candidate-summary.json
+          - release-candidate-summary.md
+      - phase: read-only-listing
+        routes:
+          - GET /api/release-candidates/dry-runs
+          - GET /api/release-candidates/approvals
+          - GET /api/release-candidates/runs
+          - GET /api/release-candidates/runs/:id
+    safety:
+      localOnly: true
+      productDefaultEnabled: false
+      requiredEnvFlag: CODEXHUB_RELEASE_CANDIDATE_EXPORT_ENABLED
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      remoteProviderBoundary: false
+    forbidden:
+      - genericFilesystemPassthrough
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest

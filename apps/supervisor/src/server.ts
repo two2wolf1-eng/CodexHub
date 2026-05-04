@@ -237,6 +237,11 @@ import type {
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
   LocalReviewPackageRun,
+  LocalReviewDecisionStatus,
+  LocalRcBundleApprovalArtifactRecord,
+  LocalRcBundleControlPlaneRun,
+  LocalRcBundleDryRunRecord,
+  LocalRcReadinessOperatorStatus,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -303,10 +308,18 @@ import type { PlaywrightObserverRunner } from '@codexhub/playwright-observer-ada
 import {
   createLocalReviewPackageApprovalRecord,
   createLocalReviewPackageAuditEvent,
+  createLocalReviewDecisionHandoff,
   createLocalReviewPackageExportDryRunRecord,
   createLocalReviewPackageProjection,
   executeLocalReviewPackageExport,
 } from '@codexhub/review-package-kernel';
+import {
+  createLocalRcBundleApprovalRecord,
+  createLocalRcBundleAuditEvent,
+  createLocalRcBundleExportDryRunRecord,
+  createLocalRcReadinessProjection,
+  executeLocalRcBundleExport,
+} from '@codexhub/release-candidate-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -348,6 +361,7 @@ interface SupervisorServerOptions {
   m11CodexRunner?: M11ProductionPilotNarrowPathInput['codexRunner'];
   m11NxRunner?: M11ProductionPilotNarrowPathInput['nxRunner'];
   reviewPackageExportEnabled?: boolean;
+  releaseCandidateExportEnabled?: boolean;
 }
 
 interface PersistenceState {
@@ -601,6 +615,40 @@ interface ReviewPackageRunRequestBody {
   authority?: unknown;
 }
 
+interface ReleaseCandidateDryRunRequestBody extends ReviewPackageDryRunRequestBody {
+  reviewDecisionStatus?: LocalReviewDecisionStatus;
+  operatorReadinessStatus?: LocalRcReadinessOperatorStatus;
+  bundleId?: string;
+}
+
+interface ReleaseCandidateApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ReleaseCandidateManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: 'approved' | 'denied' | 'revoked';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
+interface ReleaseCandidateRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  workspaceRoot?: string;
+  artifactRoot?: string;
+  bundleId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
 type ApprovalDecisionRequestBody = ApprovalDecisionRequest & {
   approvalArtifact?: unknown;
   authority?: unknown;
@@ -684,6 +732,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const reviewPackageDryRunRecords: LocalReviewPackageDryRunRecord[] = [];
   const reviewPackageApprovalRecords: LocalReviewPackageApprovalArtifactRecord[] = [];
   const reviewPackageRunRecords: LocalReviewPackageControlPlaneRun[] = [];
+  const releaseCandidateDryRunRecords: LocalRcBundleDryRunRecord[] = [];
+  const releaseCandidateApprovalRecords: LocalRcBundleApprovalArtifactRecord[] = [];
+  const releaseCandidateRunRecords: LocalRcBundleControlPlaneRun[] = [];
   const m9LocalPilotRunRecords: M9PilotRun[] = [];
   const m11LocalPilotRunRecords: M11PilotRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
@@ -1805,6 +1856,281 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createReviewPackageRunResponse(record);
+  });
+
+  server.post('/api/release-candidates/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReleaseCandidateStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as ReleaseCandidateDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReleaseCandidateUntrustedAuthorityResponse(undefined));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReleaseCandidateForbiddenRawBodyResponse(undefined));
+    }
+
+    const projection = createReleaseCandidateProjectionFromRequest(body);
+    const dryRunRecord = createLocalRcBundleExportDryRunRecord({
+      ...projection,
+      workspaceRoot: body?.workspaceRoot ?? findWorkspaceRoot(process.cwd()),
+      artifactRoot: body?.artifactRoot,
+      bundleId: body?.bundleId,
+    });
+
+    await persistReleaseCandidateDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistReleaseCandidateAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      false,
+    );
+
+    return createReleaseCandidateDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/release-candidates/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReleaseCandidateDryRuns(query, store);
+
+    return {
+      records: records.map(createReleaseCandidateDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/release-candidates/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReleaseCandidateStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ReleaseCandidateApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReleaseCandidateUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReleaseCandidateForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReleaseCandidateDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'release candidate dry-run record was not found' });
+    }
+
+    const approvalRecord = createLocalRcBundleApprovalRecord({
+      dryRunRecord,
+      status: 'requested',
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+    });
+
+    await persistReleaseCandidateApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistReleaseCandidateAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createReleaseCandidateApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/release-candidates/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReleaseCandidateStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ReleaseCandidateManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReleaseCandidateUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReleaseCandidateForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReleaseCandidateDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'release candidate dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveReleaseCandidateApprovalRecord(body.approvalRequestId, store)
+      : (await listReleaseCandidateApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'release candidate approval request was not found' });
+    }
+
+    const approvalRecord = createLocalRcBundleApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistReleaseCandidateApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistReleaseCandidateAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createReleaseCandidateApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/release-candidates/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReleaseCandidateApprovals(query, store);
+
+    return {
+      records: records.map(createReleaseCandidateApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/release-candidates/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReleaseCandidateStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as ReleaseCandidateRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReleaseCandidateUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body)) {
+      return reply.code(400).send(createReleaseCandidateForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReleaseCandidateDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'release candidate dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveReleaseCandidateApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord?.approvalArtifactId,
+      allowed:
+        dryRunRecord.status === 'planned' &&
+        approvalRecord?.status === 'approved' &&
+        approvalRecord.approved,
+      constraints: ['local-release-candidate-export-only', 'hash-bound-artifact-root'],
+    });
+    const runRecord = await executeLocalRcBundleExport({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      enabled:
+        options.releaseCandidateExportEnabled ??
+        process.env.CODEXHUB_RELEASE_CANDIDATE_EXPORT_ENABLED === 'true',
+      runtime: {
+        workspaceRoot: body?.workspaceRoot ?? findWorkspaceRoot(process.cwd()),
+        artifactRoot: body?.artifactRoot,
+        bundleId: body?.bundleId ?? dryRunRecord.readinessSummary.id,
+      },
+    });
+
+    await persistReleaseCandidateRunRecord(runRecord, store);
+    await persistEvidenceRefs(runRecord.evidenceRefs, store);
+    await persistReleaseCandidateAuditEvents(
+      runRecord.auditEventIds,
+      runRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      runRecord.artifactWriteBoundaryInvoked,
+    );
+
+    if (runRecord.artifactWriteBoundaryInvoked && approvalRecord) {
+      const usedRecord = createLocalRcBundleApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRecord,
+        status: 'used',
+        reason: 'approval consumed after local RC artifact write boundary attempt',
+      });
+      await persistReleaseCandidateApprovalRecord(usedRecord, store);
+      await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+      await persistReleaseCandidateAuditEvents(
+        usedRecord.auditEventIds,
+        usedRecord.evidenceRefs,
+        store,
+        usedRecord.policyDecisionId,
+        runRecord.artifactWriteBoundaryInvoked,
+      );
+    }
+
+    return createReleaseCandidateRunResponse(runRecord);
+  });
+
+  server.get('/api/release-candidates/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReleaseCandidateRuns(query, store);
+
+    return {
+      records: records.map(createReleaseCandidateRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      artifactWriteBoundaryInvoked: records.some((record) => record.artifactWriteBoundaryInvoked),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/release-candidates/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveReleaseCandidateRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'release candidate run was not found' });
+    }
+
+    return createReleaseCandidateRunResponse(record);
   });
 
   server.post('/api/pilots/m9/local-runs', async (request, reply) => {
@@ -11040,6 +11366,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  function createReleaseCandidateProjectionFromRequest(
+    body: ReleaseCandidateDryRunRequestBody | undefined,
+  ) {
+    const reviewPackage = createLocalReviewDecisionHandoff({
+      reviewPackage: createReviewPackageProjectionFromRequest(body),
+      status: body?.reviewDecisionStatus ?? 'approved_for_local_rc',
+      reason: 'local RC readiness projection request',
+    });
+
+    return createLocalRcReadinessProjection({
+      reviewPackage,
+      operatorReadinessStatus: body?.operatorReadinessStatus ?? 'pass',
+      evidenceRefIds: body?.evidenceRefIds ?? [],
+      auditEventIds: body?.auditEventIds ?? [],
+    });
+  }
+
   async function persistReviewPackageDryRunRecord(
     record: LocalReviewPackageDryRunRecord,
     store: CodexHubStore | undefined,
@@ -11085,6 +11428,59 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         createLocalReviewPackageAuditEvent({
           id: auditEventId,
           action: 'review_package.control_plane',
+          policyDecisionId,
+          evidenceRefs,
+          artifactWriteBoundaryInvoked,
+        }),
+      );
+    }
+  }
+
+  async function persistReleaseCandidateDryRunRecord(
+    record: LocalRcBundleDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.releaseCandidateDryRuns.saveDryRun(record);
+      return;
+    }
+    releaseCandidateDryRunRecords.unshift(record);
+  }
+
+  async function persistReleaseCandidateApprovalRecord(
+    record: LocalRcBundleApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.releaseCandidateApprovals.saveApproval(record);
+      return;
+    }
+    releaseCandidateApprovalRecords.unshift(record);
+  }
+
+  async function persistReleaseCandidateRunRecord(
+    record: LocalRcBundleControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.releaseCandidateRuns.saveRun(record);
+      return;
+    }
+    releaseCandidateRunRecords.unshift(record);
+  }
+
+  async function persistReleaseCandidateAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+    artifactWriteBoundaryInvoked: boolean,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append(
+        createLocalRcBundleAuditEvent({
+          id: auditEventId,
+          action: 'release_candidate.control_plane',
           policyDecisionId,
           evidenceRefs,
           artifactWriteBoundaryInvoked,
@@ -11180,6 +11576,93 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : reviewPackageRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function resolveReleaseCandidateDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.releaseCandidateDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.releaseCandidateDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return releaseCandidateDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveReleaseCandidateApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.releaseCandidateApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.releaseCandidateApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return releaseCandidateApprovalRecords.find(
+      (record) =>
+        record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveReleaseCandidateApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.releaseCandidateApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : releaseCandidateApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveReleaseCandidateRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleControlPlaneRun | undefined> {
+    return store
+      ? await store.releaseCandidateRuns.getRun(runId)
+      : releaseCandidateRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listReleaseCandidateDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleDryRunRecord[]> {
+    return store
+      ? await store.releaseCandidateDryRuns.listDryRuns(query)
+      : releaseCandidateDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listReleaseCandidateApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleApprovalArtifactRecord[]> {
+    return store
+      ? await store.releaseCandidateApprovals.listApprovals(query)
+      : releaseCandidateApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listReleaseCandidateRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<LocalRcBundleControlPlaneRun[]> {
+    return store
+      ? await store.releaseCandidateRuns.listRuns(query)
+      : releaseCandidateRunRecords.slice(0, query.limit ?? 50);
+  }
+
   function createReviewPackageDryRunResponse(record: LocalReviewPackageDryRunRecord) {
     return {
       recordId: record.id,
@@ -11202,6 +11685,88 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReleaseCandidateDryRunResponse(record: LocalRcBundleDryRunRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      runnerMode: record.runnerMode,
+      rcReadinessIdHash: record.rcReadinessIdHash,
+      rcBundleHash: record.rcBundleHash,
+      readinessStatus: record.readinessSummary.status,
+      reviewDecisionStatus: record.readinessSummary.reviewDecisionStatus,
+      verificationStatus: record.readinessSummary.verificationStatus,
+      operatorReadinessStatus: record.readinessSummary.operatorReadinessStatus,
+      artifactRootHash: record.artifactRootHash,
+      artifactDirectoryHash: record.artifactDirectoryHash,
+      plannedFileCount: record.plannedFileCount,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      artifactWriteBoundaryPlanned: record.artifactWriteBoundaryPlanned,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReleaseCandidateApprovalResponse(
+    record: LocalRcBundleApprovalArtifactRecord,
+  ) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      reasonHash: record.reasonHash,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReleaseCandidateRunResponse(record: LocalRcBundleControlPlaneRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      status: record.status,
+      rcReadinessIdHash: record.rcReadinessIdHash,
+      rcBundleHash: record.rcBundleHash,
+      artifactRootHash: record.artifactRootHash,
+      artifactDirectoryHash: record.artifactDirectoryHash,
+      exportedFileCount: record.exportedFileCount,
+      byteCount: record.byteCount,
+      contentHash: record.contentHash,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      artifactWriteBoundaryInvoked: record.artifactWriteBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
       rawPathStored: false,
       bodyStored: false,
       summary: record.summary,
@@ -11315,6 +11880,49 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createReleaseCandidateStoreUnavailableResponse(phase: string) {
+    return {
+      error: `release_candidate_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createReleaseCandidateUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_release_candidate_authority_body',
+      dryRunId,
+      status: 'blocked',
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createReleaseCandidateForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_release_candidate_raw_body',
+      dryRunId,
+      status: 'blocked',
+      artifactWriteBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function hasForbiddenReviewPackageRawBody(value: unknown): boolean {
     const forbiddenKeys = new Set([
       'rawBody',
@@ -11322,6 +11930,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'rawDiff',
       'diffBody',
       'rawPullRequestBody',
+      'rawPrBody',
       'pullRequestBody',
       'prBody',
       'rawCommand',

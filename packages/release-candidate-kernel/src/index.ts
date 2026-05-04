@@ -1,11 +1,23 @@
 import {
+  type AuditEvent,
+  type EvidenceRef,
+  type ExecutionAuthority,
+  LocalRcBundleApprovalArtifactRecordSchema,
+  type LocalRcBundleApprovalStatus,
+  LocalRcBundleControlPlaneRunSchema,
+  LocalRcBundleDryRunRecordSchema,
   LocalRcAuditChainSchema,
   LocalRcEvidenceBundleSchema,
   LocalRcReadinessPlanSchema,
   LocalRcReadinessSummarySchema,
+  PolicyDecisionSchema,
   SchemaVersionSchema,
+  foundationId,
   foundationTimestamp,
   type LocalRcAuditChain,
+  type LocalRcBundleApprovalArtifactRecord,
+  type LocalRcBundleControlPlaneRun,
+  type LocalRcBundleDryRunRecord,
   type LocalRcEvidenceBundle,
   type LocalRcReadinessOperatorStatus,
   type LocalRcReadinessPlan,
@@ -14,6 +26,12 @@ import {
   type LocalReviewPackageRun,
 } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
+import {
+  RC_BUNDLE_EXPORT_FILE_NAMES,
+  exportLocalRcBundleArtifact,
+  resolveLocalRcBundleArtifactTarget,
+  type LocalRcBundleArtifactRuntimeInput,
+} from './artifact-export-boundary';
 
 export interface LocalRcReadinessProjectionInput {
   reviewPackage: LocalReviewPackageRun;
@@ -31,6 +49,33 @@ export interface LocalRcReadinessProjection {
   summary: LocalRcReadinessSummary;
   evidenceBundle: LocalRcEvidenceBundle;
   auditChain: LocalRcAuditChain;
+}
+
+export interface LocalRcBundleExportDryRunInput extends LocalRcReadinessProjection {
+  workspaceRoot: string;
+  artifactRoot?: string;
+  bundleId?: string;
+  requestedBy?: string;
+  now?: () => string;
+}
+
+export interface LocalRcBundleApprovalInput {
+  dryRunRecord: LocalRcBundleDryRunRecord;
+  baseRecord?: LocalRcBundleApprovalArtifactRecord;
+  status: LocalRcBundleApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface LocalRcBundleExportInput {
+  dryRunRecord: LocalRcBundleDryRunRecord;
+  approvalRecord?: LocalRcBundleApprovalArtifactRecord;
+  authority?: ExecutionAuthority;
+  runtime: LocalRcBundleArtifactRuntimeInput;
+  enabled?: boolean;
+  now?: () => string;
 }
 
 export function createLocalRcReadinessProjection(
@@ -153,6 +198,246 @@ export function createLocalRcReadinessProjection(
   };
 }
 
+export function createLocalRcBundleExportDryRunRecord(
+  input: LocalRcBundleExportDryRunInput,
+): LocalRcBundleDryRunRecord {
+  const now = input.now ?? foundationTimestamp;
+  const bundleId = input.bundleId ?? input.summary.id;
+  const target = resolveLocalRcBundleArtifactTarget({
+    workspaceRoot: input.workspaceRoot,
+    artifactRoot: input.artifactRoot,
+    bundleId,
+  });
+  const blockReasons = [...target.blockReasons];
+  if (input.summary.status !== 'ready_for_local_acceptance') {
+    blockReasons.push('rc_not_ready_for_local_acceptance');
+  }
+  if (!input.evidenceBundle.bundleHash || !input.auditChain.chainHash) {
+    blockReasons.push('missing_rc_bundle_hash');
+  }
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const dryRunId = stableId('rc_bundle_dry_run', `${input.summary.id}:${target.artifactDirectoryHash}`);
+  const rcBundleHash = stableHash(
+    JSON.stringify({
+      readinessSummaryId: input.summary.id,
+      evidenceBundleHash: input.evidenceBundle.bundleHash,
+      auditChainHash: input.auditChain.chainHash,
+    }),
+  );
+  const evidenceRefs = [
+    createRcBundleEvidence({
+      kind: 'release.rc_bundle_export_plan',
+      label: 'rc-bundle-export-plan',
+      summary: 'Local RC bundle export dry-run stores artifact path hashes only.',
+      metadata: {
+        dryRunId,
+        rcReadinessIdHash: stableHash(input.summary.id),
+        artifactRootHash: target.artifactRootHash,
+        artifactDirectoryHash: target.artifactDirectoryHash,
+        plannedFileCount: RC_BUNDLE_EXPORT_FILE_NAMES.length,
+      },
+    }),
+  ];
+  const auditEventIds = [foundationId('audit')];
+
+  return LocalRcBundleDryRunRecordSchema.parse({
+    id: stableId('rc_bundle_dry_run_record', dryRunId),
+    dryRunId,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    status,
+    runnerMode: 'controlled-local-artifact',
+    readinessPlan: input.plan,
+    readinessSummary: input.summary,
+    evidenceBundle: input.evidenceBundle,
+    auditChain: input.auditChain,
+    rcReadinessIdHash: stableHash(input.summary.id),
+    rcBundleHash,
+    artifactRootHash: target.artifactRootHash,
+    artifactDirectoryHash: target.artifactDirectoryHash,
+    plannedFileCount: RC_BUNDLE_EXPORT_FILE_NAMES.length,
+    plannedFileNameHashes: RC_BUNDLE_EXPORT_FILE_NAMES.map(stableHash),
+    blockReasons,
+    policyDecision: PolicyDecisionSchema.parse({
+      id: stableId('policy_decision', dryRunId),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: now(),
+      actionId: dryRunId,
+      actionType: 'release_candidate.export_local_artifact',
+      actionMode: 'write',
+      riskLevel: 'medium',
+      outcome: status === 'planned' ? 'approval_required' : 'deny',
+      reasons:
+        status === 'planned'
+          ? ['local RC bundle export requires persisted approval']
+          : blockReasons,
+      requiresDryRun: true,
+      requiresApproval: true,
+      metadata: {
+        advisoryOnly: false,
+        rawPathStored: false,
+        bodyStored: false,
+      },
+    }),
+    requiresApproval: true,
+    evidenceRefs,
+    auditEventIds,
+    artifactWriteBoundaryPlanned: status === 'planned',
+    artifactWriteBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      stage: 'm14b',
+      artifactRootHash: target.artifactRootHash,
+      artifactDirectoryHash: target.artifactDirectoryHash,
+      rawPathStored: false,
+      bodyStored: false,
+    },
+    summary:
+      status === 'planned'
+        ? 'Local RC bundle export is planned and requires approval.'
+        : 'Local RC bundle export dry-run is blocked.',
+  });
+}
+
+export function createLocalRcBundleApprovalRecord(
+  input: LocalRcBundleApprovalInput,
+): LocalRcBundleApprovalArtifactRecord {
+  const now = input.now ?? foundationTimestamp;
+  const seed = `${input.dryRunRecord.dryRunId}:${input.status}:${input.baseRecord?.approvalRequestId ?? 'new'}`;
+  const approvalRequestId =
+    input.baseRecord?.approvalRequestId ?? stableId('rc_bundle_approval_request', seed);
+  const approvalArtifactId =
+    input.baseRecord?.approvalArtifactId ?? stableId('rc_bundle_approval_artifact', seed);
+  const evidenceRefs = [
+    createRcBundleEvidence({
+      kind: 'release.rc_bundle_export_plan',
+      label: 'rc-bundle-export-approval',
+      summary: 'Local RC bundle export approval stores reason hashes only.',
+      metadata: {
+        dryRunId: input.dryRunRecord.dryRunId,
+        approvalRequestId,
+        approvalStatus: input.status,
+        reasonHash: input.reason ? stableHash(input.reason) : undefined,
+      },
+    }),
+  ];
+  const auditEventIds = [foundationId('audit')];
+
+  return LocalRcBundleApprovalArtifactRecordSchema.parse({
+    id: stableId('rc_bundle_approval_record', `${seed}:${now()}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : input.baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : undefined,
+    reasonHash: input.reason ? stableHash(input.reason) : undefined,
+    evidenceRefs,
+    auditEventIds,
+    artifactWriteBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      stage: 'm14b',
+      reasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    },
+    summary: `Local RC bundle export approval is ${input.status}.`,
+  });
+}
+
+export async function executeLocalRcBundleExport(
+  input: LocalRcBundleExportInput,
+): Promise<LocalRcBundleControlPlaneRun> {
+  const now = input.now ?? foundationTimestamp;
+  const runId = foundationId('rc-bundle-run');
+  const blockReasons = validateRcBundleExportAuthority(input);
+
+  if (blockReasons.length > 0) {
+    return createRcBundleExportRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      runId,
+      status: 'blocked',
+      blockReasons,
+      artifactWriteBoundaryInvoked: false,
+      exportedFileCount: 0,
+      byteCount: 0,
+      noRealWrite: true,
+      now,
+    });
+  }
+
+  const target = resolveLocalRcBundleArtifactTarget(input.runtime);
+  const hashMismatch =
+    target.artifactRootHash !== input.dryRunRecord.artifactRootHash ||
+    target.artifactDirectoryHash !== input.dryRunRecord.artifactDirectoryHash;
+
+  if (target.blockReasons.length > 0 || hashMismatch) {
+    return createRcBundleExportRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      runId,
+      status: 'blocked',
+      blockReasons: [...target.blockReasons, ...(hashMismatch ? ['artifact_target_hash_mismatch'] : [])],
+      artifactWriteBoundaryInvoked: false,
+      exportedFileCount: 0,
+      byteCount: 0,
+      noRealWrite: true,
+      now,
+    });
+  }
+
+  try {
+    const exportResult = await exportLocalRcBundleArtifact({
+      target,
+      readinessPlan: input.dryRunRecord.readinessPlan,
+      readinessSummary: input.dryRunRecord.readinessSummary,
+      evidenceBundle: input.dryRunRecord.evidenceBundle,
+      auditChain: input.dryRunRecord.auditChain,
+    });
+
+    return createRcBundleExportRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      runId,
+      status: 'completed',
+      blockReasons: [],
+      artifactWriteBoundaryInvoked: true,
+      exportedFileCount: exportResult.fileCount,
+      byteCount: exportResult.byteCount,
+      contentHash: exportResult.contentHash,
+      noRealWrite: false,
+      now,
+    });
+  } catch {
+    return createRcBundleExportRunRecord({
+      dryRunRecord: input.dryRunRecord,
+      approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+      runId,
+      status: 'failed',
+      blockReasons: ['artifact_export_failed'],
+      artifactWriteBoundaryInvoked: true,
+      exportedFileCount: 0,
+      byteCount: 0,
+      noRealWrite: false,
+      now,
+    });
+  }
+}
+
 function getReadinessStatus(
   reviewPackage: LocalReviewPackageRun,
   operatorReadinessStatus: LocalRcReadinessOperatorStatus,
@@ -181,6 +466,159 @@ function getReadinessStatus(
 
 function getBlockerCount(status: LocalRcReadinessStatus): number {
   return status === 'ready_for_local_acceptance' ? 0 : 1;
+}
+
+function createRcBundleEvidence(input: {
+  kind: EvidenceRef['kind'];
+  label: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+}): EvidenceRef {
+  const metadata = {
+    ...input.metadata,
+    rawPathStored: false,
+    bodyStored: false,
+  };
+
+  return {
+    id: foundationId('evidence'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    kind: input.kind,
+    summary: input.summary,
+    hash: stableHash(JSON.stringify(metadata)),
+    redacted: true,
+    labels: [input.label],
+    metadata,
+  };
+}
+
+export function createLocalRcBundleAuditEvent(input: {
+  id: string;
+  action: string;
+  policyDecisionId: string;
+  evidenceRefs: EvidenceRef[];
+  artifactWriteBoundaryInvoked: boolean;
+  outcome?: AuditEvent['outcome'];
+}): AuditEvent {
+  return {
+    id: input.id,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    actor: 'codexhub-supervisor',
+    action: input.action,
+    target: 'release-candidate.local-artifact',
+    reason: 'local RC bundle control-plane metadata transition',
+    outcome: input.outcome ?? 'recorded',
+    evidenceRefs: input.evidenceRefs,
+    policyDecisionId: input.policyDecisionId,
+    metadata: {
+      artifactWriteBoundaryInvoked: input.artifactWriteBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+    },
+  };
+}
+
+function validateRcBundleExportAuthority(input: LocalRcBundleExportInput): string[] {
+  const blockReasons: string[] = [];
+
+  if (!input.enabled) {
+    blockReasons.push('release_candidate_export_disabled');
+  }
+  if (input.dryRunRecord.status !== 'planned') {
+    blockReasons.push('dry_run_not_planned');
+  }
+  if (!input.authority?.allowed) {
+    blockReasons.push('execution_authority_denied');
+  }
+  if (!input.approvalRecord) {
+    blockReasons.push('approval_artifact_missing');
+  } else {
+    if (input.approvalRecord.approvalArtifactId !== input.authority?.approvalArtifactId) {
+      blockReasons.push('approval_artifact_mismatch');
+    }
+    if (input.approvalRecord.status !== 'approved' || !input.approvalRecord.approved) {
+      blockReasons.push(`approval_artifact_${input.approvalRecord.status}`);
+    }
+    if (
+      input.approvalRecord.expiresAt &&
+      Date.parse(input.approvalRecord.expiresAt) <= Date.now()
+    ) {
+      blockReasons.push('approval_artifact_expired');
+    }
+  }
+  if (input.dryRunRecord.readinessSummary.status !== 'ready_for_local_acceptance') {
+    blockReasons.push('rc_not_ready_for_local_acceptance');
+  }
+
+  return blockReasons;
+}
+
+function createRcBundleExportRunRecord(input: {
+  dryRunRecord: LocalRcBundleDryRunRecord;
+  approvalArtifactId?: string;
+  runId: string;
+  status: 'completed' | 'failed' | 'blocked' | 'aborted';
+  blockReasons: string[];
+  artifactWriteBoundaryInvoked: boolean;
+  exportedFileCount: number;
+  byteCount: number;
+  contentHash?: string;
+  noRealWrite: boolean;
+  now: () => string;
+}): LocalRcBundleControlPlaneRun {
+  const evidenceRefs = [
+    createRcBundleEvidence({
+      kind: 'release.rc_bundle_export_summary',
+      label: 'rc-bundle-export-summary',
+      summary: `Local RC bundle export ${input.status}.`,
+      metadata: {
+        dryRunId: input.dryRunRecord.dryRunId,
+        status: input.status,
+        artifactWriteBoundaryInvoked: input.artifactWriteBoundaryInvoked,
+        exportedFileCount: input.exportedFileCount,
+        byteCount: input.byteCount,
+        contentHash: input.contentHash,
+      },
+    }),
+  ];
+  const auditEventIds = [foundationId('audit')];
+
+  return LocalRcBundleControlPlaneRunSchema.parse({
+    id: input.runId,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalArtifactId,
+    status: input.status,
+    rcReadinessIdHash: input.dryRunRecord.rcReadinessIdHash,
+    rcBundleHash: input.dryRunRecord.rcBundleHash,
+    artifactRootHash: input.dryRunRecord.artifactRootHash,
+    artifactDirectoryHash: input.dryRunRecord.artifactDirectoryHash,
+    exportedFileCount: input.exportedFileCount,
+    byteCount: input.byteCount,
+    contentHash: input.contentHash,
+    blockReasons: input.blockReasons,
+    evidenceRefs,
+    auditEventIds,
+    artifactWriteBoundaryInvoked: input.artifactWriteBoundaryInvoked,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: input.noRealWrite,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      stage: 'm14b',
+      artifactWriteBoundaryInvoked: input.artifactWriteBoundaryInvoked,
+      rawPathStored: false,
+      bodyStored: false,
+    },
+    summary: `Local RC bundle export ${input.status}.`,
+  });
 }
 
 function stableId(prefix: string, value: string): string {

@@ -31,6 +31,7 @@ const approvedGitBoundaryFiles = new Set([
 ]);
 const approvedLocalArtifactWriteBoundaryFiles = new Set([
   'packages/review-package-kernel/src/artifact-export-boundary.ts',
+  'packages/release-candidate-kernel/src/artifact-export-boundary.ts',
 ]);
 const approvedLiveAutomationBoundaryFiles = new Set([
   'packages/playwright-observer-adapter/src/real-runner.ts',
@@ -73,6 +74,8 @@ const gitBoundaryTerms = [
 const localArtifactWriteTerms = [
   'review-package-summary.json',
   'review-package-summary.md',
+  'release-candidate-summary.json',
+  'release-candidate-summary.md',
 ];
 const policyTelemetryRuntimeTerms = [
   ['@open', 'telemetry/'].join(''),
@@ -206,12 +209,12 @@ function validateBoundaryAllowlists(): void {
     });
   }
 
-  if (approvedLocalArtifactWriteBoundaryFiles.size !== 1) {
+  if (approvedLocalArtifactWriteBoundaryFiles.size !== 2) {
     violations.push({
       file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
       line: 1,
       term: 'approvedLocalArtifactWriteBoundaryFiles',
-      reason: 'M13b local artifact export must have exactly one audited boundary file.',
+      reason: 'M13b/M14b local artifact export must have exactly one audited boundary file per package.',
     });
   }
 
@@ -403,7 +406,7 @@ function auditTextTerms(file: string, sourceText: string): void {
           line: index + 1,
           term,
           reason:
-            'Local artifact file writes are allowed only in the audited review package export boundary module, docs, or tests.',
+            'Local artifact file writes are allowed only in audited local package export boundary modules, docs, or tests.',
         });
       }
     }

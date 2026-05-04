@@ -695,3 +695,30 @@ integrations:
         - LocalRcEvidenceBundle
         - LocalRcAuditChain
       artifactExportPlanned: false
+    m14b:
+      stage: governed-local-rc-bundle-export
+      supervisorRouteAdded: true
+      artifactExportEnabledByDefault: false
+      requiredEnvFlag: CODEXHUB_RELEASE_CANDIDATE_EXPORT_ENABLED
+      localControlRequiredForPost: true
+      persistedApprovalRequired: true
+      executionAuthorityRequired: true
+      hashBoundArtifactRoot: ../CodexHub-artifacts
+      allowedArtifactSubdir: release-candidates
+      artifactBoundaryFile: packages/release-candidate-kernel/src/artifact-export-boundary.ts
+      fixedFiles:
+        - release-candidate-summary.json
+        - release-candidate-summary.md
+      storage:
+        rawArtifactRoot: hash-only
+        rawArtifactPath: forbidden
+        rawDiff: forbidden
+        rawPullRequestBody: forbidden
+        rawReason: forbidden
+        rawEnv: forbidden
+        body: forbidden
+      boundaries:
+        processBoundary: false
+        networkBoundary: false
+        remoteProviderBoundary: false
+        localArtifactWriteBoundary: governed
