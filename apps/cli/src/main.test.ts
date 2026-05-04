@@ -848,6 +848,110 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('session');
   });
 
+  it('reads approval inbox and records decisions only through Supervisor approval routes', async () => {
+    const fetchCalls: Array<{ url: unknown; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: unknown, init?: RequestInit) => {
+      fetchCalls.push({ url, init });
+
+      if (String(url).includes('/api/approvals/inbox')) {
+        return new Response(
+          JSON.stringify({
+            id: 'approval_inbox_projection_1',
+            schemaVersion: '1.0.0',
+            createdAt: '2026-05-04T00:00:00.000Z',
+            items: [
+              {
+                id: 'approval_inbox_item_1',
+                schemaVersion: '1.0.0',
+                createdAt: '2026-05-04T00:00:00.000Z',
+                approvalType: 'worktree',
+                approvalRequestId: 'worktree_approval_request_1',
+                status: 'requested',
+                targetHash: 'sha256:target',
+                evidenceRefIds: ['evidence_1'],
+                auditEventIds: ['audit_1'],
+                canApprove: true,
+                canDeny: true,
+                canRevoke: false,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                rawPathStored: false,
+                bodyStored: false,
+                tokenStored: false,
+                summary: 'Worktree approval pending.',
+              },
+            ],
+            itemCount: 1,
+            requestedCount: 1,
+            approvedCount: 0,
+            terminalCount: 0,
+            typeBreakdown: { worktree: 1 },
+            rawPathStored: false,
+            bodyStored: false,
+            tokenStored: false,
+            summary: 'Approval inbox ready.',
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/approvals/decisions')) {
+        return new Response(
+          JSON.stringify({
+            id: 'approval_decision_result_1',
+            schemaVersion: '1.0.0',
+            createdAt: '2026-05-04T00:00:00.000Z',
+            approvalRequestId: 'worktree_approval_request_1',
+            approvalType: 'worktree',
+            decision: 'approved',
+            status: 'approved',
+            approved: true,
+            evidenceRefIds: ['evidence_1'],
+            auditEventIds: ['audit_1'],
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            rawPathStored: false,
+            bodyStored: false,
+            tokenStored: false,
+            summary: 'Approval decision recorded.',
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      decideApproval,
+      formatApprovalDecisionOutput,
+      formatApprovalInboxOutput,
+      listApprovalInbox,
+    } = await import('./main');
+    const inbox = await listApprovalInbox({ type: 'worktree' });
+    const decision = await decideApproval('worktree_approval_request_1', {
+      type: 'worktree',
+      decision: 'approved',
+      reason: 'Reviewed evidence',
+    });
+    const serialized = JSON.stringify({ inbox, decision });
+
+    expect(formatApprovalInboxOutput(inbox)).toContain('Approval inbox');
+    expect(formatApprovalDecisionOutput(decision)).toContain('status: approved');
+    expect(fetchCalls[0]?.init?.method).toBeUndefined();
+    expect(fetchCalls[1]?.init?.method).toBe('POST');
+    expect(JSON.stringify(fetchCalls.map((call) => call.url))).not.toContain(
+      process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN,
+    );
+    expect(fetchCalls.every((call) => !String(call.url).includes('adapter'))).toBe(true);
+    expect(fetchCalls.every((call) => !String(call.url).includes('execute'))).toBe(true);
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
+  });
+
   it('lists browser observation runs using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

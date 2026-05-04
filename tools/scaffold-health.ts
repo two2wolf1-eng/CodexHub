@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const expectedProjects = [
+  'approval-ux-kernel',
   'browser-profile-kernel',
   'capability-adapter-kernel',
   'electron-cdp-adapter',
@@ -132,6 +133,15 @@ const requiredContractExports = [
   'GoldenPathStepSchema',
   'GoldenPathEvidenceBundleSchema',
   'GoldenPathRehearsalRunSchema',
+  'M9PilotRunSchema',
+  'M9PilotStepSchema',
+  'M9PilotReadinessSchema',
+  'M9PilotEvidenceSummarySchema',
+  'ApprovalUxTypeSchema',
+  'ApprovalInboxItemSchema',
+  'ApprovalInboxProjectionSchema',
+  'ApprovalDecisionRequestSchema',
+  'ApprovalDecisionResultSchema',
 ];
 
 const projects = readNxProjects();

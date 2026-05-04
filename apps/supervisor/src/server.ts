@@ -4,6 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import Fastify from 'fastify';
 import {
+  createApprovalDecisionResult,
+  createApprovalInboxProjection,
+} from '@codexhub/approval-ux-kernel';
+import {
   createCodexExecApprovalArtifactFromDecision,
   createCodexExecApprovalTransitionResult,
   buildControlPlaneDrilldownView,
@@ -170,6 +174,8 @@ import type {
   CodexExecLiveAdapterAdrDecisionStatus,
   CodexExecLiveRunRecord,
   CodexExecManualApprovalRecord,
+  ApprovalDecisionRequest,
+  ApprovalUxStatus,
   CodexExecReadOnlyAdapterOperatorChecklistItem,
   CodexExecReadOnlyAdapterPreflightSimulationResult,
   CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
@@ -237,6 +243,7 @@ import type {
   WorktreeRunStatus,
 } from '@codexhub/contracts';
 import {
+  ApprovalDecisionRequestSchema,
   BrowserObservationApprovalArtifactRecordSchema,
   BrowserObservationControlPlaneRunSchema,
   BrowserObservationDryRunRecordSchema,
@@ -522,6 +529,12 @@ interface M9LocalPilotRunRequestBody {
   authority?: unknown;
 }
 
+type ApprovalDecisionRequestBody = ApprovalDecisionRequest & {
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+};
+
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
 const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
 const LOCAL_CONTROL_ENV_VAR = [
@@ -550,7 +563,8 @@ function hasRequestBodyProperty(body: unknown, key: string): boolean {
 function hasUntrustedAuthorityBody(body: unknown): boolean {
   return (
     hasRequestBodyProperty(body, 'approvalArtifact') ||
-    hasRequestBodyProperty(body, 'authority')
+    hasRequestBodyProperty(body, 'authority') ||
+    hasRequestBodyProperty(body, 'executionAuthority')
   );
 }
 
@@ -1565,6 +1579,91 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createM9PilotRunResponse(record);
+  });
+
+  server.get('/api/approvals/inbox', async (request) => {
+    const store = await getStore();
+    const query = request.query as { type?: string } | undefined;
+    const projection = await buildApprovalInboxProjection(store);
+    const items = query?.type
+      ? projection.items.filter((item) => item.approvalType === query.type)
+      : projection.items;
+
+    return {
+      ...projection,
+      items,
+      itemCount: items.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+    };
+  });
+
+  server.post('/api/approvals/decisions', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send({
+        error: 'approval_store_unavailable',
+        status: 'blocked',
+        degraded: true,
+        notPersisted: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+        tokenStored: false,
+      });
+    }
+
+    const body = request.body as ApprovalDecisionRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send({
+        error: 'untrusted_approval_decision_body',
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+        tokenStored: false,
+      });
+    }
+
+    const parsed = ApprovalDecisionRequestSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: 'invalid_approval_decision_request',
+        issues: parsed.error.issues.map((issue) => issue.message),
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+        tokenStored: false,
+      });
+    }
+
+    const decisionResult = await recordApprovalDecision(parsed.data, store);
+
+    if (!decisionResult) {
+      return reply.code(404).send({
+        error: 'approval_request_not_found',
+        approvalType: parsed.data.approvalType,
+        approvalRequestId: parsed.data.approvalRequestId,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+        tokenStored: false,
+      });
+    }
+
+    return decisionResult;
   });
 
   server.post('/api/worktrees/cleanup/dry-runs', async (request, reply) => {
@@ -10557,6 +10656,353 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       bodyStored: false,
       summary: record.summary,
     };
+  }
+
+  async function buildApprovalInboxProjection(store: CodexHubStore | undefined) {
+    const [
+      codex,
+      browser,
+      electronCdp,
+      worktree,
+      worktreeCleanup,
+    ] = await Promise.all([
+      store
+        ? store.codexExecApprovals.listCodexExecApprovalRecords(100)
+        : Promise.resolve(codexExecApprovalRecords.slice(0, 100)),
+      listBrowserObservationApprovals({ limit: 100 }, store),
+      listElectronCdpObservationApprovals({ limit: 100 }, store),
+      listWorktreeApprovals({ limit: 100 }, store),
+      listWorktreeCleanupApprovals({ limit: 100 }, store),
+    ]);
+
+    return createApprovalInboxProjection({
+      codex,
+      browser,
+      electronCdp,
+      worktree,
+      worktreeCleanup,
+      m9Pilot: worktree.filter((record) => record.summary.toLowerCase().includes('m9')),
+    });
+  }
+
+  async function recordApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    if (input.approvalType === 'codex') {
+      return recordCodexApprovalDecision(input, store);
+    }
+
+    if (input.approvalType === 'browser') {
+      return recordBrowserApprovalDecision(input, store);
+    }
+
+    if (input.approvalType === 'electron_cdp') {
+      return recordElectronCdpApprovalDecision(input, store);
+    }
+
+    if (input.approvalType === 'worktree' || input.approvalType === 'm9_pilot') {
+      return recordWorktreeApprovalDecision(input, store);
+    }
+
+    if (input.approvalType === 'worktree_cleanup') {
+      return recordWorktreeCleanupApprovalDecision(input, store);
+    }
+
+    return undefined;
+  }
+
+  async function recordCodexApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const existingApprovalRecord = await resolveCodexExecApprovalRecord(
+      input.approvalRequestId,
+      store,
+    );
+
+    if (!existingApprovalRecord) {
+      return undefined;
+    }
+
+    const record = await resolveCodexExecLiveRunRecord(
+      existingApprovalRecord.request.dryRunPlanId,
+      store,
+    );
+
+    if (!record) {
+      return undefined;
+    }
+
+    const outcome = input.decision as CodexExecApprovalDecisionOutcome;
+    const approvalRequest = existingApprovalRecord.request;
+    const transitionAction = approvalActionForOutcome(outcome);
+    const approvalTransition = createCodexExecApprovalTransitionResult(
+      existingApprovalRecord,
+      transitionAction,
+    );
+    const approvalDecision = createCodexExecManualApprovalDecision(approvalRequest, {
+      outcome,
+      decidedBy: 'approval-ux',
+      reason: input.reason,
+    });
+    const approvalArtifact = createCodexExecApprovalArtifactFromDecision(
+      record.dryRunPlan,
+      record.policyDecision,
+      approvalRequest,
+      approvalDecision,
+    );
+    let approvalRecord = {
+      ...createCodexExecManualApprovalRecord({
+        request: approvalRequest,
+        decision: approvalDecision,
+        approvalArtifact,
+      }),
+      id: existingApprovalRecord.id,
+      createdAt: existingApprovalRecord.createdAt,
+    };
+    const approvalState = evaluateCodexExecManualApprovalState(approvalRecord);
+    const evidenceRefs = createCodexExecControlPlaneEvidenceRefs({
+      approvalDecision,
+      approvalState,
+      approvalTransition,
+      approvalArtifact,
+    });
+    const auditEvents = createCodexExecControlPlaneAuditEvents({
+      approvalDecision,
+      approvalState,
+      approvalTransition,
+      approvalArtifact,
+      evidenceRefs,
+    });
+    approvalRecord = {
+      ...approvalRecord,
+      status: approvalState.status,
+      approvalState,
+      evidenceRefs: [...(existingApprovalRecord.evidenceRefs ?? []), ...evidenceRefs],
+      auditEventIds: auditEvents.map((event) => event.id),
+    };
+    const updatedRunRecord = {
+      ...record,
+      manualApprovalRequest: approvalRequest,
+      manualApprovalDecision: approvalDecision,
+      manualApprovalState: approvalState,
+      manualApprovalRecord: approvalRecord,
+      approvalArtifact: approvalArtifact ?? record.approvalArtifact,
+      evidenceRefs: [...record.evidenceRefs, ...evidenceRefs],
+      auditEvents: [...record.auditEvents, ...auditEvents],
+    };
+
+    await persistCodexExecApprovalRecord(approvalRecord, store);
+    await persistCodexExecLiveRunRecord(updatedRunRecord, store, evidenceRefs, auditEvents);
+
+    return createApprovalDecisionResult({
+      approvalType: input.approvalType,
+      approvalRequestId: input.approvalRequestId,
+      decision: input.decision,
+      status: normalizeDecisionStatus(approvalState.status),
+      evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+      auditEventIds: auditEvents.map((event) => event.id),
+      summary: `Codex approval decision recorded as ${approvalState.status}.`,
+    });
+  }
+
+  async function recordBrowserApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const approvalRequest = await resolveBrowserObservationApprovalRecord(
+      input.approvalRequestId,
+      store,
+    );
+
+    if (!approvalRequest) {
+      return undefined;
+    }
+
+    const dryRunRecord = await resolveBrowserObservationDryRunRecord(
+      approvalRequest.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return undefined;
+    }
+
+    const approvalRecord = createBrowserObservationApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: input.decision,
+      decidedBy: 'approval-ux',
+      reason: input.reason,
+    });
+
+    await persistBrowserObservationApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createApprovalDecisionFromGenericRecord(input, approvalRecord.status, approvalRecord);
+  }
+
+  async function recordElectronCdpApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const approvalRequest = await resolveElectronCdpObservationApprovalRecord(
+      input.approvalRequestId,
+      store,
+    );
+
+    if (!approvalRequest) {
+      return undefined;
+    }
+
+    const dryRunRecord = await resolveElectronCdpObservationDryRunRecord(
+      approvalRequest.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return undefined;
+    }
+
+    const approvalRecord = createElectronCdpObservationApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: input.decision,
+      decidedBy: 'approval-ux',
+      reason: input.reason,
+    });
+
+    await persistElectronCdpObservationApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistElectronCdpAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createApprovalDecisionFromGenericRecord(input, approvalRecord.status, approvalRecord);
+  }
+
+  async function recordWorktreeApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const approvalRequest = await resolveWorktreeApprovalRecord(input.approvalRequestId, store);
+
+    if (!approvalRequest) {
+      return undefined;
+    }
+
+    const dryRunRecord = await resolveWorktreeDryRunRecord(approvalRequest.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return undefined;
+    }
+
+    const approvalRecord = createWorktreeApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: input.decision,
+      decidedBy: 'approval-ux',
+      reason: input.reason,
+    });
+
+    await persistWorktreeApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createApprovalDecisionFromGenericRecord(input, approvalRecord.status, approvalRecord);
+  }
+
+  async function recordWorktreeCleanupApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const approvalRequest = await resolveWorktreeCleanupApprovalRecord(
+      input.approvalRequestId,
+      store,
+    );
+
+    if (!approvalRequest) {
+      return undefined;
+    }
+
+    const dryRunRecord = await resolveWorktreeCleanupDryRunRecord(
+      approvalRequest.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return undefined;
+    }
+
+    const approvalRecord = createWorktreeCleanupApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: input.decision,
+      decidedBy: 'approval-ux',
+      reason: input.reason,
+    });
+
+    await persistWorktreeCleanupApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistWorktreeAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createApprovalDecisionFromGenericRecord(input, approvalRecord.status, approvalRecord);
+  }
+
+  function createApprovalDecisionFromGenericRecord(
+    input: ApprovalDecisionRequest,
+    status: ApprovalUxStatus,
+    record:
+      | BrowserObservationApprovalArtifactRecord
+      | ElectronCdpObservationApprovalArtifactRecord
+      | WorktreeApprovalArtifactRecord
+      | WorktreeCleanupApprovalArtifactRecord,
+  ) {
+    return createApprovalDecisionResult({
+      approvalType: input.approvalType,
+      approvalRequestId: input.approvalRequestId,
+      decision: input.decision,
+      status: normalizeDecisionStatus(status),
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      summary: `${input.approvalType} approval decision recorded as ${status}.`,
+    });
+  }
+
+  function normalizeDecisionStatus(status: string): ApprovalUxStatus {
+    if (
+      status === 'pending' ||
+      status === 'requested' ||
+      status === 'approved' ||
+      status === 'denied' ||
+      status === 'expired' ||
+      status === 'used' ||
+      status === 'revoked'
+    ) {
+      return status;
+    }
+
+    return 'requested';
   }
 
   function createWorktreeCleanupDryRunResponse(record: WorktreeCleanupDryRunRecord) {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@codexhub/approval-ux-kernel": "workspace:*",
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/governance-projection-kernel": "workspace:*",

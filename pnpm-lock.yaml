@@ -72,6 +72,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@codexhub/approval-ux-kernel':
+        specifier: workspace:*
+        version: link:../../packages/approval-ux-kernel
       '@codexhub/browser-profile-kernel':
         specifier: workspace:*
         version: link:../../packages/browser-profile-kernel
@@ -147,6 +150,9 @@ importers:
 
   apps/dashboard:
     dependencies:
+      '@codexhub/approval-ux-kernel':
+        specifier: workspace:*
+        version: link:../../packages/approval-ux-kernel
       '@codexhub/codex-kernel':
         specifier: workspace:*
         version: link:../../packages/codex-kernel
@@ -205,6 +211,9 @@ importers:
 
   apps/supervisor:
     dependencies:
+      '@codexhub/approval-ux-kernel':
+        specifier: workspace:*
+        version: link:../../packages/approval-ux-kernel
       '@codexhub/browser-profile-kernel':
         specifier: workspace:*
         version: link:../../packages/browser-profile-kernel
@@ -247,6 +256,15 @@ importers:
       fastify:
         specifier: ^5.2.1
         version: 5.8.5
+
+  packages/approval-ux-kernel:
+    dependencies:
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@codexhub/evidence-kernel':
+        specifier: workspace:*
+        version: link:../evidence-kernel
 
   packages/browser-profile-kernel:
     dependencies:

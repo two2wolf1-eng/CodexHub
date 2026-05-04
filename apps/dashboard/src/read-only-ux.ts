@@ -26,6 +26,7 @@ export const DASHBOARD_VIEWS = [
   'policy-telemetry',
   'governance',
   'readiness',
+  'approvals',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];

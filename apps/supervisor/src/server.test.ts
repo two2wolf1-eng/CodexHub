@@ -925,6 +925,116 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(runResponse.json())).not.toContain('diff --git');
   });
 
+  it('aggregates approval inbox and records decisions through local-control gate', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-approval-ux-'));
+    const repoRoot = join(dir, 'repo');
+    const worktreeSlug = 'feature-approval-ux';
+    const branchName = 'codex/feature-approval-ux';
+    mkdirSync(repoRoot, { recursive: true });
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        repoRoot,
+        worktreeSlug,
+        branchName,
+        baseRef: 'HEAD',
+        runnerMode: 'controlled-git-worktree',
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        reason: 'approval UX decision test',
+      },
+    });
+    const inboxResponse = await server.inject({
+      method: 'GET',
+      url: '/api/approvals/inbox?type=worktree',
+    });
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/approvals/decisions',
+      payload: {
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        approvalType: 'worktree',
+        decision: 'approved',
+        reason: 'Review evidence',
+      },
+    });
+    const untrustedBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/approvals/decisions',
+      headers: localControlHeaders,
+      payload: {
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        approvalType: 'worktree',
+        decision: 'approved',
+        reason: 'Review evidence',
+        approvalArtifact: { id: 'caller_supplied' },
+      },
+    });
+    const decisionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/approvals/decisions',
+      headers: {
+        ...localControlHeaders,
+        origin: 'http://127.0.0.1:5173',
+      },
+      payload: {
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        approvalType: 'worktree',
+        decision: 'approved',
+        reason: 'Review evidence',
+      },
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(inboxResponse.statusCode).toBe(200);
+    expect(inboxResponse.json()).toMatchObject({
+      itemCount: 1,
+      requestedCount: 1,
+      bodyStored: false,
+      tokenStored: false,
+    });
+    expect(inboxResponse.json().items[0]).toMatchObject({
+      approvalType: 'worktree',
+      canApprove: true,
+      canDeny: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(untrustedBodyResponse.statusCode).toBe(400);
+    expect(decisionResponse.statusCode).toBe(200);
+    expect(decisionResponse.json()).toMatchObject({
+      approvalType: 'worktree',
+      decision: 'approved',
+      status: 'approved',
+      approved: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      tokenStored: false,
+    });
+    const serialized = JSON.stringify({
+      inbox: inboxResponse.json(),
+      decision: decisionResponse.json(),
+    });
+    expect(serialized).not.toContain(repoRoot);
+    expect(serialized).not.toContain('approval UX decision test');
+    expect(serialized).not.toContain('caller_supplied');
+  });
+
   it('marks worktree approvals used when a controlled git attempt fails after the boundary', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-worktree-failed-'));
     const repoRoot = join(dir, 'repo');

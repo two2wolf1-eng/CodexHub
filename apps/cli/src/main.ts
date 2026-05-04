@@ -149,6 +149,8 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  ApprovalDecisionResult,
+  ApprovalInboxProjection,
   WorkflowRun,
 } from '@codexhub/contracts';
 import {
@@ -278,6 +280,16 @@ export interface ReadOnlyRunSummary {
 export interface GovernanceRunsListCliOptions extends JsonCliOptions {
   source?: string;
   status?: string;
+}
+
+export interface ApprovalInboxCliOptions extends JsonCliOptions {
+  type?: string;
+}
+
+export interface ApprovalDecisionCliOptions extends JsonCliOptions {
+  type: string;
+  decision: string;
+  reason: string;
 }
 
 interface BrowserObservationRunApiRecord {
@@ -775,6 +787,33 @@ export function buildProgram(): Command {
     .description('Show local telemetry projection without exporting telemetry')
     .action((options: JsonCliOptions) => {
       console.log(formatTelemetryProjectionOutput(showTelemetryProjectionForCli(), options));
+    });
+
+  const approvalsCommand = program
+    .command('approvals')
+    .description('Supervisor-gated approval inbox and decisions');
+
+  approvalsCommand
+    .command('inbox')
+    .option('--type <type>', 'Filter by approval type')
+    .option('--json', 'Print full JSON output')
+    .description('Read the unified approval inbox without sending a local-control key')
+    .action(async (options: ApprovalInboxCliOptions) => {
+      const result = await listApprovalInbox(options);
+      console.log(formatApprovalInboxOutput(result, options));
+    });
+
+  approvalsCommand
+    .command('decide')
+    .argument('<approvalRequestId>')
+    .requiredOption('--type <type>', 'Approval type')
+    .requiredOption('--decision <decision>', 'approved, denied, or revoked')
+    .requiredOption('--reason <reason>', 'Decision reason')
+    .option('--json', 'Print full JSON output')
+    .description('Record an approval decision through Supervisor')
+    .action(async (approvalRequestId: string, options: ApprovalDecisionCliOptions) => {
+      const result = await decideApproval(approvalRequestId, options);
+      console.log(formatApprovalDecisionOutput(result, options));
     });
 
   const verifyCommand = program
@@ -2655,6 +2694,84 @@ export async function showWorktreeCleanupRun(runId: string): Promise<Record<stri
     'Worktree cleanup run detail is metadata-only.',
     'Worktree cleanup run unavailable',
   );
+}
+
+export async function listApprovalInbox(
+  options: ApprovalInboxCliOptions = {},
+): Promise<ApprovalInboxProjection | Record<string, unknown>> {
+  try {
+    const query = options.type ? `?type=${encodeURIComponent(options.type)}` : '';
+    const response = await getSupervisorJson<ApprovalInboxProjection>(
+      `/api/approvals/inbox${query}`,
+    );
+
+    return {
+      ...response,
+      note: 'Approval inbox is read with GET and does not use a local-control key.',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      tokenStored: false,
+    };
+  } catch (error) {
+    return {
+      id: 'approval_inbox_degraded',
+      status: 'degraded',
+      items: [],
+      itemCount: 0,
+      requestedCount: 0,
+      approvedCount: 0,
+      terminalCount: 0,
+      typeBreakdown: {},
+      message: error instanceof Error ? error.message : 'approval inbox unavailable',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      tokenStored: false,
+      note: 'Approval inbox source is unavailable; no decision was sent.',
+    };
+  }
+}
+
+export async function decideApproval(
+  approvalRequestId: string,
+  options: ApprovalDecisionCliOptions,
+): Promise<ApprovalDecisionResult | Record<string, unknown>> {
+  if (!['approved', 'denied', 'revoked'].includes(options.decision)) {
+    throw new Error('decision must be approved, denied, or revoked');
+  }
+
+  const response = await fetch(`${supervisorUrl}/api/approvals/decisions`, {
+    method: 'POST',
+    headers: createSupervisorPostHeaders(),
+    body: JSON.stringify({
+      approvalRequestId,
+      approvalType: options.type,
+      decision: options.decision,
+      reason: options.reason,
+    }),
+  });
+  const result = (await response.json()) as ApprovalDecisionResult | Record<string, unknown>;
+
+  if (!response.ok) {
+    return {
+      status: 'blocked',
+      responseStatus: response.status,
+      result,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      tokenStored: false,
+    };
+  }
+
+  return {
+    ...result,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    bodyStored: false,
+    tokenStored: false,
+  };
 }
 
 async function getSupervisorJson<T>(path: string): Promise<T> {
@@ -6325,6 +6442,78 @@ export function formatWorktreeCleanupRunDetailOutput(
   options: JsonCliOptions = {},
 ): string {
   return formatWorktreeRunDetail('Worktree cleanup run', result, options);
+}
+
+export function formatApprovalInboxOutput(
+  result: ApprovalInboxProjection | Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const items =
+    'items' in result && Array.isArray(result.items)
+      ? (result.items as Array<{
+          approvalType?: string;
+          approvalRequestId?: string;
+          status?: string;
+          targetHash?: string;
+          evidenceRefIds?: string[];
+          auditEventIds?: string[];
+          canApprove?: boolean;
+          canDeny?: boolean;
+          canRevoke?: boolean;
+        }>)
+      : [];
+
+  return [
+    'Approval inbox',
+    `status: ${String('status' in result ? result.status ?? 'ready' : 'ready')}`,
+    `count: ${String('itemCount' in result ? result.itemCount ?? items.length : items.length)}`,
+    `requested: ${String('requestedCount' in result ? result.requestedCount ?? 0 : 0)}`,
+    `approved: ${String('approvedCount' in result ? result.approvedCount ?? 0 : 0)}`,
+    ...items.slice(0, 10).map((item) =>
+      [
+        `${item.approvalType ?? 'approval'} ${item.approvalRequestId ?? 'unknown'}`,
+        `status=${item.status ?? 'unknown'}`,
+        `target=${item.targetHash ?? 'unavailable'}`,
+        `evidence=${item.evidenceRefIds?.length ?? 0}`,
+        `audit=${item.auditEventIds?.length ?? 0}`,
+        `approve=${String(item.canApprove ?? false)}`,
+        `deny=${String(item.canDeny ?? false)}`,
+        `revoke=${String(item.canRevoke ?? false)}`,
+      ].join(' | '),
+    ),
+    `bodyStored=${String('bodyStored' in result ? result.bodyStored ?? false : false)}`,
+    `tokenStored=${String('tokenStored' in result ? result.tokenStored ?? false : false)}`,
+  ].join('\n');
+}
+
+export function formatApprovalDecisionOutput(
+  result: ApprovalDecisionResult | Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Approval decision',
+    `type: ${String('approvalType' in result ? result.approvalType ?? 'unknown' : 'unknown')}`,
+    `request: ${String(
+      'approvalRequestId' in result ? result.approvalRequestId ?? 'unknown' : 'unknown',
+    )}`,
+    `status: ${String('status' in result ? result.status ?? 'unknown' : 'unknown')}`,
+    `processBoundaryInvoked=${String(
+      'processBoundaryInvoked' in result ? result.processBoundaryInvoked ?? false : false,
+    )}`,
+    `externalProcessStarted=${String(
+      'externalProcessStarted' in result ? result.externalProcessStarted ?? false : false,
+    )}`,
+    `bodyStored=${String('bodyStored' in result ? result.bodyStored ?? false : false)}`,
+    `tokenStored=${String('tokenStored' in result ? result.tokenStored ?? false : false)}`,
+  ].join('\n');
 }
 
 function formatElectronCdpObservationCollectionOutput(

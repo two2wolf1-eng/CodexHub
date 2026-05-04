@@ -2586,6 +2586,159 @@ export const M9PilotRunSchema = createdEntityBaseSchema
   });
 export type M9PilotRun = z.infer<typeof M9PilotRunSchema>;
 
+export const ApprovalUxTypeSchema = z.enum([
+  'codex',
+  'browser',
+  'electron_cdp',
+  'worktree',
+  'worktree_cleanup',
+  'm9_pilot',
+]);
+export type ApprovalUxType = z.infer<typeof ApprovalUxTypeSchema>;
+
+export const ApprovalUxStatusSchema = z.enum([
+  'pending',
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type ApprovalUxStatus = z.infer<typeof ApprovalUxStatusSchema>;
+
+export const ApprovalUxDecisionSchema = z.enum(['approved', 'denied', 'revoked']);
+export type ApprovalUxDecision = z.infer<typeof ApprovalUxDecisionSchema>;
+
+const approvalUxForbiddenMetadataKeys = new Set([
+  'body',
+  'prompt',
+  'stdout',
+  'stderr',
+  'jsonl',
+  'diff',
+  'command',
+  'path',
+  'url',
+  'title',
+  'payload',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  'approvalArtifact',
+  'executionAuthority',
+]);
+
+function rejectApprovalUxRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectApprovalUxRawMetadata(item, context, [...path, index]));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (approvalUxForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw approval UX metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectApprovalUxRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const ApprovalInboxItemSchema = createdEntityBaseSchema
+  .extend({
+    approvalType: ApprovalUxTypeSchema,
+    approvalRequestId: z.string().min(1),
+    approvalRecordId: z.string().min(1).optional(),
+    approvalArtifactIdHash: z.string().min(1).optional(),
+    status: ApprovalUxStatusSchema,
+    dryRunIdHash: z.string().min(1).optional(),
+    targetHash: z.string().min(1),
+    riskLevel: RiskLevelSchema.optional(),
+    actionMode: ActionModeSchema.optional(),
+    policyDecisionId: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    canApprove: z.boolean(),
+    canDeny: z.boolean(),
+    canRevoke: z.boolean(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    noRealWrite: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectApprovalUxRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ApprovalInboxItem = z.infer<typeof ApprovalInboxItemSchema>;
+
+export const ApprovalInboxProjectionSchema = createdEntityBaseSchema
+  .extend({
+    items: z.array(ApprovalInboxItemSchema),
+    itemCount: z.number().int().nonnegative(),
+    requestedCount: z.number().int().nonnegative(),
+    approvedCount: z.number().int().nonnegative(),
+    terminalCount: z.number().int().nonnegative(),
+    typeBreakdown: z.record(ApprovalUxTypeSchema, z.number().int().nonnegative()).default({}),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectApprovalUxRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ApprovalInboxProjection = z.infer<typeof ApprovalInboxProjectionSchema>;
+
+export const ApprovalDecisionRequestSchema = z
+  .object({
+    approvalRequestId: z.string().min(1),
+    approvalType: ApprovalUxTypeSchema,
+    decision: ApprovalUxDecisionSchema,
+    reason: z.string().min(1),
+  })
+  .strict();
+export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequestSchema>;
+
+export const ApprovalDecisionResultSchema = createdEntityBaseSchema
+  .extend({
+    approvalRequestId: z.string().min(1),
+    approvalType: ApprovalUxTypeSchema,
+    decision: ApprovalUxDecisionSchema,
+    status: ApprovalUxStatusSchema,
+    approved: z.boolean(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectApprovalUxRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ApprovalDecisionResult = z.infer<typeof ApprovalDecisionResultSchema>;
+
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;
 

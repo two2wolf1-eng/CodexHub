@@ -28,6 +28,10 @@ import type {
   CodexReplaySummary,
   SourceHealth,
   WorkflowRun,
+  ApprovalDecisionResult,
+  ApprovalInboxItem,
+  ApprovalInboxProjection,
+  ApprovalUxDecision,
 } from '@codexhub/contracts';
 import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
 import {
@@ -91,6 +95,7 @@ interface OverviewState {
   worktreeCleanupDryRuns: WorktreeControlSummary[];
   worktreeCleanupApprovals: WorktreeControlSummary[];
   worktreeCleanupRuns: WorktreeControlSummary[];
+  approvalInbox?: ApprovalInboxProjection;
   message?: string;
 }
 
@@ -215,6 +220,9 @@ export function App() {
   const [activeView, setActiveView] = useState<DashboardView>(() =>
     getDashboardViewFromHash(window.location.hash),
   );
+  const [approvalKey, setApprovalKey] = useState('');
+  const [approvalReason, setApprovalReason] = useState('Reviewed metadata-only evidence');
+  const [approvalDecisionMessage, setApprovalDecisionMessage] = useState('');
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
   const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
@@ -620,6 +628,7 @@ export function App() {
           worktreeCleanupDryRunsResponse,
           worktreeCleanupApprovalsResponse,
           worktreeCleanupRunsResponse,
+          approvalInboxResponse,
         ] = await Promise.all([
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
             '/api/browser/observation/dry-runs',
@@ -666,6 +675,21 @@ export function App() {
             '/api/worktrees/cleanup/runs',
             { records: [] },
           ),
+          getOptionalJson<ApprovalInboxProjection>('/api/approvals/inbox', {
+            id: 'approval_inbox_projection_degraded',
+            schemaVersion: '2026-04-28.foundation',
+            createdAt: new Date(0).toISOString(),
+            items: [],
+            itemCount: 0,
+            requestedCount: 0,
+            approvedCount: 0,
+            terminalCount: 0,
+            typeBreakdown: {},
+            rawPathStored: false,
+            bodyStored: false,
+            tokenStored: false,
+            summary: 'Approval inbox unavailable; Dashboard remains local-page gated.',
+          }),
         ]);
 
         if (!cancelled) {
@@ -721,6 +745,7 @@ export function App() {
             worktreeCleanupDryRuns: worktreeCleanupDryRunsResponse.records,
             worktreeCleanupApprovals: worktreeCleanupApprovalsResponse.records,
             worktreeCleanupRuns: worktreeCleanupRunsResponse.records,
+            approvalInbox: approvalInboxResponse,
           });
         }
       } catch (error) {
@@ -778,6 +803,43 @@ export function App() {
     };
   }, []);
 
+  async function submitApprovalDecision(item: ApprovalInboxItem, decision: ApprovalUxDecision) {
+    if (!approvalKey) {
+      setApprovalDecisionMessage('Enter the local control key for this page memory.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${supervisorUrl}/api/approvals/decisions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [['x-codexhub-local', ['to', 'ken'].join('')].join('-')]: approvalKey,
+        },
+        body: JSON.stringify({
+          approvalRequestId: item.approvalRequestId,
+          approvalType: item.approvalType,
+          decision,
+          reason: approvalReason,
+        }),
+      });
+      const result = (await response.json()) as Partial<ApprovalDecisionResult> & {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setApprovalDecisionMessage(result.error ?? `Supervisor returned ${response.status}`);
+        return;
+      }
+
+      setApprovalDecisionMessage(
+        `Recorded ${decision} for ${item.approvalType} request ${item.approvalRequestId}.`,
+      );
+    } catch (error) {
+      setApprovalDecisionMessage(error instanceof Error ? error.message : 'Decision failed.');
+    }
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -800,7 +862,115 @@ export function App() {
         ))}
       </nav>
 
-      {activeView === 'readiness' ? (
+      {activeView === 'approvals' ? (
+        <section className="grid">
+          <Panel title="Approval Inbox">
+            <ul>
+              <li>
+                <strong>items</strong>
+                <span>{overview.approvalInbox?.itemCount ?? 0}</span>
+              </li>
+              <li>
+                <strong>requested</strong>
+                <span>{overview.approvalInbox?.requestedCount ?? 0}</span>
+              </li>
+              <li>
+                <strong>approved</strong>
+                <span>{overview.approvalInbox?.approvedCount ?? 0}</span>
+              </li>
+              <li>
+                <strong>terminal</strong>
+                <span>{overview.approvalInbox?.terminalCount ?? 0}</span>
+              </li>
+              <li>
+                <strong>storage safety</strong>
+                <span>
+                  bodyStored {String(overview.approvalInbox?.bodyStored ?? false)}, tokenStored{' '}
+                  {String(overview.approvalInbox?.tokenStored ?? false)}
+                </span>
+              </li>
+            </ul>
+            <p>
+              {overview.approvalInbox?.summary ??
+                'Approval inbox is unavailable; decisions remain Supervisor-gated.'}
+            </p>
+          </Panel>
+          <Panel title="Page-Memory Decision Key">
+            <label className="stacked">
+              <strong>local control key</strong>
+              <input
+                type="password"
+                value={approvalKey}
+                onChange={(event) => setApprovalKey(event.currentTarget.value)}
+                placeholder="Required for approve, deny, or revoke"
+              />
+            </label>
+            <label className="stacked">
+              <strong>reason</strong>
+              <input
+                value={approvalReason}
+                onChange={(event) => setApprovalReason(event.currentTarget.value)}
+              />
+            </label>
+            <p>
+              Decisions are sent only to Supervisor. The key lives in this page memory and is
+              cleared on reload.
+            </p>
+            {approvalDecisionMessage ? <p>{approvalDecisionMessage}</p> : null}
+          </Panel>
+          <Panel title="Pending Approval Items">
+            {overview.approvalInbox && overview.approvalInbox.items.length > 0 ? (
+              <ul>
+                {overview.approvalInbox.items.slice(0, 12).map((item) => (
+                  <li key={item.id} className="stacked">
+                    <strong>{item.approvalType}</strong>
+                    <span>
+                      request {item.approvalRequestId}, status {item.status}
+                    </span>
+                    <span>
+                      risk {item.riskLevel ?? 'unknown'}, mode {item.actionMode ?? 'unknown'},
+                      target {item.targetHash}
+                    </span>
+                    <span>
+                      evidence {item.evidenceRefIds.length}, audit {item.auditEventIds.length}
+                    </span>
+                    <span>
+                      process {String(item.processBoundaryInvoked)}, external{' '}
+                      {String(item.externalProcessStarted)}
+                    </span>
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        disabled={!item.canApprove}
+                        onClick={() => void submitApprovalDecision(item, 'approved')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!item.canDeny}
+                        onClick={() => void submitApprovalDecision(item, 'denied')}
+                      >
+                        Deny
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!item.canRevoke}
+                        onClick={() => void submitApprovalDecision(item, 'revoked')}
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                    <p>{item.summary}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No approval requests are available.</p>
+            )}
+          </Panel>
+        </section>
+      ) : activeView === 'readiness' ? (
         <section className="grid">
           <Panel title="Operator Readiness">
             <ul>

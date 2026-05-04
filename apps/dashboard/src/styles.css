@@ -127,6 +127,15 @@ h1 {
   white-space: pre-wrap;
 }
 
+.panel input {
+  border: 1px solid #cfd9df;
+  border-radius: 6px;
+  color: #172026;
+  font: inherit;
+  padding: 8px 10px;
+  width: 100%;
+}
+
 .panel ul {
   display: grid;
   gap: 10px;
@@ -147,6 +156,29 @@ h1 {
   align-items: flex-start;
   flex-direction: column;
   gap: 6px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button-row button {
+  background: #edf6fa;
+  border: 1px solid #9fc5d6;
+  border-radius: 6px;
+  color: #163f50;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.button-row button:disabled {
+  background: #f4f6f7;
+  border-color: #d9e0e4;
+  color: #7d8b94;
+  cursor: not-allowed;
 }
 
 .timeline-detail {

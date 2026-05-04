@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   createElectronCdpReadOnlySummary,
@@ -22,9 +23,21 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/policy-telemetry')).toBe('policy-telemetry');
     expect(getDashboardViewFromHash('#/governance')).toBe('governance');
     expect(getDashboardViewFromHash('#/readiness')).toBe('readiness');
+    expect(getDashboardViewFromHash('#/approvals')).toBe('approvals');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
+  });
+
+  it('keeps approval UX token handling in component memory only', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+
+    expect(appSource).toContain('/api/approvals/inbox');
+    expect(appSource).toContain('/api/approvals/decisions');
+    expect(appSource).not.toContain('localStorage');
+    expect(appSource).not.toContain('sessionStorage');
+    expect(appSource).not.toContain('indexedDB');
+    expect(appSource).not.toContain('approvalToken=');
   });
 
   it('summarizes MCP tools without write/admin or process boundary state', () => {

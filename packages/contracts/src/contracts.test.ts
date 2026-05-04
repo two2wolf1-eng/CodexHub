@@ -197,6 +197,12 @@ import {
   GoldenPathRehearsalRunSchema,
   GoldenPathStepSchema,
   GoldenPathStepStatusSchema,
+  ApprovalDecisionRequestSchema,
+  ApprovalDecisionResultSchema,
+  ApprovalInboxItemSchema,
+  ApprovalInboxProjectionSchema,
+  ApprovalUxDecisionSchema,
+  ApprovalUxTypeSchema,
   M9PilotEvidenceSummarySchema,
   M9PilotReadinessSchema,
   M9PilotRunSchema,
@@ -2472,6 +2478,98 @@ describe('contracts schemas', () => {
         ...run,
         id: 'm9_pilot_run_bad_metadata',
         metadata: { prompt: 'raw prompt body' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses approval UX inbox and decision contracts as metadata-only', () => {
+    expect(ApprovalUxTypeSchema.options).toContain('m9_pilot');
+    expect(ApprovalUxDecisionSchema.options).toEqual(['approved', 'denied', 'revoked']);
+
+    const item = ApprovalInboxItemSchema.parse({
+      id: 'approval_inbox_item_1',
+      schemaVersion,
+      createdAt,
+      approvalType: 'worktree',
+      approvalRequestId: 'worktree_approval_request_1',
+      approvalRecordId: 'worktree_approval_record_1',
+      approvalArtifactIdHash: 'sha256:artifact',
+      status: 'requested',
+      dryRunIdHash: 'sha256:dry-run',
+      targetHash: 'sha256:target',
+      riskLevel: 'high',
+      actionMode: 'write',
+      policyDecisionId: 'policy_1',
+      evidenceRefIds: ['evidence_1'],
+      auditEventIds: ['audit_1'],
+      canApprove: true,
+      canDeny: true,
+      canRevoke: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'Worktree approval request is ready for operator decision.',
+    });
+    const projection = ApprovalInboxProjectionSchema.parse({
+      id: 'approval_inbox_projection_1',
+      schemaVersion,
+      createdAt,
+      items: [item],
+      itemCount: 1,
+      requestedCount: 1,
+      approvedCount: 0,
+      terminalCount: 0,
+      typeBreakdown: { worktree: 1 },
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'Approval inbox has one metadata-only item.',
+    });
+    const decisionRequest = ApprovalDecisionRequestSchema.parse({
+      approvalRequestId: 'worktree_approval_request_1',
+      approvalType: 'worktree',
+      decision: 'approved',
+      reason: 'Reviewed evidence bundle',
+    });
+    const decisionResult = ApprovalDecisionResultSchema.parse({
+      id: 'approval_decision_result_1',
+      schemaVersion,
+      createdAt,
+      approvalRequestId: decisionRequest.approvalRequestId,
+      approvalType: decisionRequest.approvalType,
+      decision: decisionRequest.decision,
+      status: 'approved',
+      approved: true,
+      evidenceRefIds: ['evidence_1'],
+      auditEventIds: ['audit_1'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'Approval decision recorded through Supervisor.',
+    });
+
+    const serialized = JSON.stringify({ projection, decisionResult });
+    expect(projection.itemCount).toBe(1);
+    expect(decisionResult.approved).toBe(true);
+    expect(serialized).not.toContain('approval-token');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('raw prompt');
+    expect(() =>
+      ApprovalDecisionRequestSchema.parse({
+        ...decisionRequest,
+        approvalArtifact: { id: 'untrusted' },
+      }),
+    ).toThrow();
+    expect(() =>
+      ApprovalInboxItemSchema.parse({
+        ...item,
+        id: 'approval_inbox_item_bad_metadata',
+        metadata: { executionAuthority: { allowed: true } },
       }),
     ).toThrow();
   });
