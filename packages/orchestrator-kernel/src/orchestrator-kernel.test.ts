@@ -12,6 +12,7 @@ import {
   runM6bGovernedWorktreePrDraft,
   runGoldenPathRehearsal,
   runGovernedDevelopmentOrchestration,
+  runM11PilotAcceptanceSmoke,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
@@ -972,6 +973,64 @@ describe('orchestrator-kernel M11 production pilot narrow path', () => {
     expect(nxFailed.run.failureSummary.classification).toBe('nx_failed');
     expect(nxFailed.recovery.recoveryAction).toBe('review_nx_verification');
     expect(nxFailed.run.prDraftStatus).toBe('blocked');
+  });
+
+  it('runs M11 fixture-only acceptance smoke scenarios without live boundaries', () => {
+    const passed = runM11PilotAcceptanceSmoke({ scenario: 'all-pass' });
+    const readinessBlocked = runM11PilotAcceptanceSmoke({ scenario: 'readiness-blocked' });
+    const approvalBlocked = runM11PilotAcceptanceSmoke({
+      scenario: 'worktree-approval-blocked',
+    });
+    const worktreeFailed = runM11PilotAcceptanceSmoke({
+      scenario: 'worktree-boundary-failed',
+    });
+    const codexFailed = runM11PilotAcceptanceSmoke({ scenario: 'codex-failed' });
+    const nxFailed = runM11PilotAcceptanceSmoke({ scenario: 'nx-failed' });
+    const serialized = JSON.stringify({
+      passed,
+      readinessBlocked,
+      approvalBlocked,
+      worktreeFailed,
+      codexFailed,
+      nxFailed,
+    });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.prDraftStatus).toBe('not_ready_no_patch');
+    expect(passed.recoveryAction).toBe('review_cleanup_handoff');
+    expect(readinessBlocked.status).toBe('blocked');
+    expect(readinessBlocked.failureClassification).toBe('readiness_blocked');
+    expect(
+      readinessBlocked.steps.filter((step) => step.status !== 'skipped').map((step) => step.phase),
+    ).toEqual(['readiness']);
+    expect(approvalBlocked.status).toBe('blocked');
+    expect(approvalBlocked.failureClassification).toBe('approval_blocked');
+    expect(worktreeFailed.status).toBe('failed');
+    expect(worktreeFailed.failureClassification).toBe('worktree_boundary_failed');
+    expect(codexFailed.status).toBe('failed');
+    expect(codexFailed.failureClassification).toBe('codex_failed');
+    expect(nxFailed.status).toBe('failed');
+    expect(nxFailed.failureClassification).toBe('nx_failed');
+    for (const run of [
+      passed,
+      readinessBlocked,
+      approvalBlocked,
+      worktreeFailed,
+      codexFailed,
+      nxFailed,
+    ]) {
+      expect(run.fixtureOnly).toBe(true);
+      expect(run.processBoundaryInvoked).toBe(false);
+      expect(run.externalProcessStarted).toBe(false);
+      expect(run.networkBoundaryInvoked).toBe(false);
+      expect(run.pushAllowed).toBe(false);
+      expect(run.pullRequestOpened).toBe(false);
+    }
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('C:\\');
   });
 });
 

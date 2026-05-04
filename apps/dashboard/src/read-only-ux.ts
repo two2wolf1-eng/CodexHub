@@ -343,6 +343,32 @@ export interface M11PilotReadOnlySummary {
   summary: string;
 }
 
+export interface M11PilotAcceptanceSmokeReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked';
+  scenario: string;
+  stepCount: number;
+  failureClassification: string;
+  recoveryAction: string;
+  prDraftStatus: 'not_ready_no_patch' | 'blocked';
+  cleanupRequired: boolean;
+  evidenceCount: number;
+  auditEventCount: number;
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  networkBoundaryInvoked: false;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  patchGenerationAllowed: false;
+  pushAllowed: false;
+  pullRequestOpened: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
+}
+
 export interface ApprovalDecisionHistoryReadOnlySummary {
   itemCount: number;
   requestedCount: number;
@@ -831,6 +857,74 @@ export function createM11PilotReadOnlySummary(input: {
       runCount > 0
         ? 'M11 narrow-path pilot metadata is available. Dashboard remains read-only.'
         : 'M11 narrow-path pilot metadata is unavailable or empty. Dashboard remains read-only.',
+  };
+}
+
+export function createM11PilotAcceptanceSmokeReadOnlySummary(input: {
+  scenario?:
+    | 'all-pass'
+    | 'readiness-blocked'
+    | 'worktree-approval-blocked'
+    | 'worktree-boundary-failed'
+    | 'codex-failed'
+    | 'nx-failed';
+} = {}): M11PilotAcceptanceSmokeReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const blocked = scenario === 'readiness-blocked' || scenario === 'worktree-approval-blocked';
+  const failed =
+    scenario === 'worktree-boundary-failed' ||
+    scenario === 'codex-failed' ||
+    scenario === 'nx-failed';
+  const status = blocked ? 'blocked' : failed ? 'failed' : 'passed';
+  const failureClassification =
+    scenario === 'readiness-blocked'
+      ? 'readiness_blocked'
+      : scenario === 'worktree-approval-blocked'
+        ? 'approval_blocked'
+        : scenario === 'worktree-boundary-failed'
+          ? 'worktree_boundary_failed'
+          : scenario === 'codex-failed'
+            ? 'codex_failed'
+            : scenario === 'nx-failed'
+              ? 'nx_failed'
+              : 'none';
+  const recoveryAction =
+    failureClassification === 'readiness_blocked'
+      ? 'resolve_readiness'
+      : failureClassification === 'approval_blocked'
+        ? 'request_worktree_approval'
+        : failureClassification === 'worktree_boundary_failed'
+          ? 'inspect_worktree_boundary'
+          : failureClassification === 'codex_failed'
+            ? 'review_codex_dry_run'
+            : failureClassification === 'nx_failed'
+              ? 'review_nx_verification'
+              : 'review_cleanup_handoff';
+
+  return {
+    status,
+    scenario,
+    stepCount: 7,
+    failureClassification,
+    recoveryAction,
+    prDraftStatus: status === 'passed' ? 'not_ready_no_patch' : 'blocked',
+    cleanupRequired: status === 'passed' || failed,
+    evidenceCount: blocked ? 1 : 3,
+    auditEventCount: blocked ? 1 : 3,
+    fixtureOnly: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    patchGenerationAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `M11 acceptance smoke preview ${status}; fixture metadata only.`,
   };
 }
 

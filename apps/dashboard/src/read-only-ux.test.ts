@@ -6,6 +6,7 @@ import {
   createGovernanceReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
+  createM11PilotAcceptanceSmokeReadOnlySummary,
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
@@ -399,6 +400,44 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.localControlKeyRead).toBe(false);
     expect(summary.supervisorPostAllowed).toBe(false);
     expect(summary.adapterExecuteAllowed).toBe(false);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.tokenStored).toBe(false);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\');
+  });
+
+  it('summarizes M11 acceptance smoke without execution controls', () => {
+    const summary = createM11PilotAcceptanceSmokeReadOnlySummary({ scenario: 'all-pass' });
+    const failed = createM11PilotAcceptanceSmokeReadOnlySummary({ scenario: 'nx-failed' });
+    const blocked = createM11PilotAcceptanceSmokeReadOnlySummary({
+      scenario: 'worktree-approval-blocked',
+    });
+    const serialized = JSON.stringify({ summary, failed, blocked });
+
+    expect(summary.status).toBe('passed');
+    expect(summary.prDraftStatus).toBe('not_ready_no_patch');
+    expect(summary.cleanupRequired).toBe(true);
+    expect(failed.status).toBe('failed');
+    expect(failed.failureClassification).toBe('nx_failed');
+    expect(failed.prDraftStatus).toBe('blocked');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.recoveryAction).toBe('request_worktree_approval');
+    expect(summary.fixtureOnly).toBe(true);
+    expect(summary.processBoundaryInvoked).toBe(false);
+    expect(summary.externalProcessStarted).toBe(false);
+    expect(summary.networkBoundaryInvoked).toBe(false);
+    expect(summary.localControlKeyRead).toBe(false);
+    expect(summary.supervisorPostAllowed).toBe(false);
+    expect(summary.adapterExecuteAllowed).toBe(false);
+    expect(summary.patchGenerationAllowed).toBe(false);
+    expect(summary.pushAllowed).toBe(false);
+    expect(summary.pullRequestOpened).toBe(false);
     expect(summary.rawPathStored).toBe(false);
     expect(summary.bodyStored).toBe(false);
     expect(summary.tokenStored).toBe(false);

@@ -34,6 +34,11 @@ maps the failure classification to a recovery action and shows the governed clea
 state. It uses existing M11 GET metadata only and does not create cleanup dry-runs, approvals,
 or runs.
 
+M11d adds a fixture-only acceptance smoke for the operator flow. It does not call Supervisor,
+does not read a local-control key, does not start Git, Codex, or Nx, and does not create any
+approval or cleanup record. It exists to rehearse the status, failure, recovery, and PR draft
+outcomes before a real narrow-path pilot attempt.
+
 ## Operator Flow
 
 1. Run the readiness view:
@@ -54,16 +59,26 @@ or runs.
    codexhub pilot m11 runs show <runId> --json
    ```
 
-4. Resolve blocker codes from the M11 safe-enable checklist:
+4. Rehearse the fixture-only acceptance smoke when validating the operator flow:
+
+   ```bash
+   codexhub pilot m11 rehearse --fixture --scenario all-pass --json
+   codexhub pilot m11 rehearse --fixture --scenario nx-failed --json
+   ```
+
+   Supported scenarios are `all-pass`, `readiness-blocked`, `worktree-approval-blocked`,
+   `worktree-boundary-failed`, `codex-failed`, and `nx-failed`.
+
+5. Resolve blocker codes from the M11 safe-enable checklist:
 
    - `m11_pilot_env_flag_missing`: set the M11 flag only for the pilot session.
    - `worktree_manager_env_flag_missing`: enable the existing worktree manager boundary only when a worktree run is intended.
    - `worktree_approval_missing_for_m11_pilot`: create and approve the worktree approval through the governed approval UX.
    - `cleanup_handoff_requires_operator_review`: inspect worktree cleanup metadata before another pilot attempt.
 
-5. Create or approve required worktree records only through existing Supervisor-gated worktree control-plane routes or the governed approval UX. Do not pass approval artifacts or execution authority objects in request bodies.
+6. Create or approve required worktree records only through existing Supervisor-gated worktree control-plane routes or the governed approval UX. Do not pass approval artifacts or execution authority objects in request bodies.
 
-6. Start the M11 pilot only through the Supervisor gated route:
+7. Start the M11 pilot only through the Supervisor gated route:
 
    ```text
    POST /api/pilots/m11/local-runs
@@ -98,6 +113,15 @@ M11c recovery actions are:
 
 The cleanup handoff remains metadata-only: ids, hashes, statuses, counts, evidence ids, and audit ids.
 It does not delete a worktree and does not grant approval.
+
+M11d smoke scenarios map to these outcomes:
+
+- `all-pass`: `status=passed`, `prDraftStatus=not_ready_no_patch`, recovery is cleanup handoff review.
+- `readiness-blocked`: blocked before worktree/Codex/Nx fixture stages.
+- `worktree-approval-blocked`: blocked at approval handoff; no live boundary is invoked by the smoke.
+- `worktree-boundary-failed`: failed fixture classification for the worktree phase.
+- `codex-failed`: failed fixture classification for Codex read-only dry-run.
+- `nx-failed`: failed fixture classification for verification.
 
 ## Expected Outcomes
 

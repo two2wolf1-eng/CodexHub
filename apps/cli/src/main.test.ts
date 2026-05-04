@@ -693,6 +693,52 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('C:\\');
   });
 
+  it('runs the M11 pilot acceptance smoke as fixture-only metadata', async () => {
+    const {
+      formatM11PilotAcceptanceSmokeOutput,
+      runM11PilotAcceptanceSmokeForCli,
+    } = await import('./main');
+    const passed = runM11PilotAcceptanceSmokeForCli({
+      fixture: true,
+      scenario: 'all-pass',
+    });
+    const readinessBlocked = runM11PilotAcceptanceSmokeForCli({
+      fixture: true,
+      scenario: 'readiness-blocked',
+    });
+    const nxFailed = runM11PilotAcceptanceSmokeForCli({
+      fixture: true,
+      scenario: 'nx-failed',
+    });
+    const serialized = JSON.stringify({ passed, readinessBlocked, nxFailed });
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const m11CommandSource = source.slice(
+      source.indexOf("const pilotM11Command = pilotCommand"),
+      source.indexOf("const rehearsalCommand = program"),
+    );
+
+    expect(passed.status).toBe('passed');
+    expect(passed.prDraftStatus).toBe('not_ready_no_patch');
+    expect(readinessBlocked.status).toBe('blocked');
+    expect(nxFailed.status).toBe('failed');
+    expect(nxFailed.prDraftStatus).toBe('blocked');
+    expect(formatM11PilotAcceptanceSmokeOutput(passed)).toContain(
+      'CodexHub M11 pilot acceptance smoke',
+    );
+    expect(() => runM11PilotAcceptanceSmokeForCli({ fixture: false })).toThrow();
+    expect(m11CommandSource).not.toContain('.execute(');
+    expect(m11CommandSource).not.toContain("method: 'POST'");
+    expect(m11CommandSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(m11CommandSource).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('cookie=');
+    expect(serialized).not.toContain('session=');
+    expect(serialized).not.toContain('C:\\');
+  });
+
   it('lists Electron CDP observation metadata using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

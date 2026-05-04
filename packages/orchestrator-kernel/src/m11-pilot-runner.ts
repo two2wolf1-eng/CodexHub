@@ -1,6 +1,11 @@
 import {
   type AuditEvent,
   type EvidenceRef,
+  type M11PilotAcceptanceScenario,
+  type M11PilotAcceptanceSmokeRun,
+  M11PilotAcceptanceSmokeRunSchema,
+  type M11PilotAcceptanceSmokeStep,
+  M11PilotAcceptanceSmokeStepSchema,
   type M11PilotEvidenceSummary,
   M11PilotEvidenceSummarySchema,
   type M11PilotCleanupApprovalStatus,
@@ -135,6 +140,78 @@ export function createM11PilotRecoveryProjection(
   });
 }
 
+export interface M11PilotAcceptanceSmokeInput {
+  scenario?: M11PilotAcceptanceScenario;
+  now?: () => string;
+}
+
+interface M11PilotAcceptanceSmokeScenarioConfig {
+  status: Extract<M11PilotRunStatus, 'passed' | 'failed' | 'blocked'>;
+  failureClassification: M11PilotFailureClassification;
+  recoveryAction: M11PilotRecoveryAction;
+  prDraftStatus: 'not_ready_no_patch' | 'blocked';
+  cleanupRequired: boolean;
+  failedPhase?: M11PilotAcceptanceSmokeStep['phase'];
+}
+
+export function runM11PilotAcceptanceSmoke(
+  input: M11PilotAcceptanceSmokeInput = {},
+): M11PilotAcceptanceSmokeRun {
+  const scenario = input.scenario ?? 'all-pass';
+  const now = input.now ?? foundationTimestamp;
+  const config = getAcceptanceSmokeScenarioConfig(scenario);
+  const steps = createAcceptanceSmokeSteps({ scenario, config, now });
+  const evidenceRefIds =
+    config.status === 'blocked'
+      ? [`m11_acceptance_smoke_evidence_${scenario}_readiness`]
+      : [
+          `m11_acceptance_smoke_evidence_${scenario}_worktree`,
+          `m11_acceptance_smoke_evidence_${scenario}_codex`,
+          `m11_acceptance_smoke_evidence_${scenario}_verification`,
+        ];
+  const auditEventIds =
+    config.status === 'blocked'
+      ? [`m11_acceptance_smoke_audit_${scenario}_readiness`]
+      : [
+          `m11_acceptance_smoke_audit_${scenario}_worktree`,
+          `m11_acceptance_smoke_audit_${scenario}_codex`,
+          `m11_acceptance_smoke_audit_${scenario}_verification`,
+        ];
+
+  return M11PilotAcceptanceSmokeRunSchema.parse({
+    id: stableId('m11_pilot_acceptance_smoke_run', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: config.status,
+    steps,
+    failureClassification: config.failureClassification,
+    recoveryAction: config.recoveryAction,
+    prDraftStatus: config.prDraftStatus,
+    cleanupRequired: config.cleanupRequired,
+    evidenceRefIds,
+    auditEventIds,
+    evidenceCount: evidenceRefIds.length,
+    auditEventCount: auditEventIds.length,
+    fixtureOnly: true,
+    codexReadOnlyDryRunOnly: true,
+    patchGenerationAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      fixtureOnly: true,
+      simulatedScenario: scenario,
+      noLiveBoundary: true,
+    },
+    summary: `M11 acceptance smoke ${config.status} for ${scenario}; fixture metadata only.`,
+  });
+}
+
 function createM11Run(input: {
   input: M11ProductionPilotNarrowPathInput;
   m9Result: M9LocalPilotResult;
@@ -195,6 +272,127 @@ function createM11Run(input: {
     summary: `M11 narrow-path pilot ${status}; PR draft remains ${
       status === 'passed' ? 'not_ready_no_patch' : 'blocked'
     } because Codex is read-only/dry-run only.`,
+  });
+}
+
+function getAcceptanceSmokeScenarioConfig(
+  scenario: M11PilotAcceptanceScenario,
+): M11PilotAcceptanceSmokeScenarioConfig {
+  if (scenario === 'all-pass') {
+    return {
+      status: 'passed',
+      failureClassification: 'none',
+      recoveryAction: 'review_cleanup_handoff',
+      prDraftStatus: 'not_ready_no_patch',
+      cleanupRequired: true,
+    };
+  }
+
+  if (scenario === 'readiness-blocked') {
+    return {
+      status: 'blocked',
+      failureClassification: 'readiness_blocked',
+      recoveryAction: 'resolve_readiness',
+      prDraftStatus: 'blocked',
+      cleanupRequired: false,
+      failedPhase: 'readiness',
+    };
+  }
+
+  if (scenario === 'worktree-approval-blocked') {
+    return {
+      status: 'blocked',
+      failureClassification: 'approval_blocked',
+      recoveryAction: 'request_worktree_approval',
+      prDraftStatus: 'blocked',
+      cleanupRequired: false,
+      failedPhase: 'worktree',
+    };
+  }
+
+  if (scenario === 'worktree-boundary-failed') {
+    return {
+      status: 'failed',
+      failureClassification: 'worktree_boundary_failed',
+      recoveryAction: 'inspect_worktree_boundary',
+      prDraftStatus: 'blocked',
+      cleanupRequired: true,
+      failedPhase: 'worktree',
+    };
+  }
+
+  if (scenario === 'codex-failed') {
+    return {
+      status: 'failed',
+      failureClassification: 'codex_failed',
+      recoveryAction: 'review_codex_dry_run',
+      prDraftStatus: 'blocked',
+      cleanupRequired: true,
+      failedPhase: 'codex',
+    };
+  }
+
+  return {
+    status: 'failed',
+    failureClassification: 'nx_failed',
+    recoveryAction: 'review_nx_verification',
+    prDraftStatus: 'blocked',
+    cleanupRequired: true,
+    failedPhase: 'verification',
+  };
+}
+
+function createAcceptanceSmokeSteps(input: {
+  scenario: M11PilotAcceptanceScenario;
+  config: M11PilotAcceptanceSmokeScenarioConfig;
+  now: () => string;
+}): M11PilotAcceptanceSmokeStep[] {
+  const phases: M11PilotAcceptanceSmokeStep['phase'][] = [
+    'readiness',
+    'worktree',
+    'codex',
+    'verification',
+    'projection',
+    'recovery',
+    'summary',
+  ];
+  const failedIndex = input.config.failedPhase
+    ? phases.indexOf(input.config.failedPhase)
+    : -1;
+
+  return phases.map((phase, order) => {
+    let status: M11PilotAcceptanceSmokeStep['status'] = 'passed';
+    if (failedIndex >= 0) {
+      if (order < failedIndex) {
+        status = 'passed';
+      } else if (order === failedIndex) {
+        status = input.config.status === 'blocked' ? 'blocked' : 'failed';
+      } else {
+        status = 'skipped';
+      }
+    }
+
+    return M11PilotAcceptanceSmokeStepSchema.parse({
+      id: stableId(
+        'm11_pilot_acceptance_smoke_step',
+        `${input.scenario}:${order}:${phase}:${status}`,
+      ),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: input.now(),
+      scenario: input.scenario,
+      phase,
+      status,
+      order,
+      evidenceRefIds:
+        status === 'passed' ? [`m11_acceptance_smoke_evidence_${input.scenario}_${phase}`] : [],
+      auditEventIds:
+        status === 'passed' ? [`m11_acceptance_smoke_audit_${input.scenario}_${phase}`] : [],
+      boundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: `M11 ${input.scenario} smoke ${phase} stage ${status}; fixture only.`,
+    });
   });
 }
 

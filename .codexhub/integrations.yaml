@@ -439,10 +439,12 @@ integrations:
         - M11 Safe-Enable Checklist
         - M11 Operator Handoff
         - M11 Recovery Handoff
+        - M11 Acceptance Smoke
       cliCommands:
         - codexhub pilot m11 readiness
         - codexhub pilot m11 runs list
         - codexhub pilot m11 runs show
+        - codexhub pilot m11 rehearse --fixture --scenario <name>
       supervisorPostAllowed: false
       localControlTokenRequired: false
     m11b:
@@ -450,6 +452,24 @@ integrations:
       checklistHelper: createM11PilotEnablementChecklist
       runbookHelper: createM11PilotEnablementRunbookSummary
       output: ids-hashes-counts-statuses-summaries
+      noNewRoutes: true
+      noNewExecutionBoundary: true
+      dashboardWriteUi: false
+      cliWriteCommand: false
+    m11d:
+      stage: pilot-acceptance-smoke
+      smokeHelper: runM11PilotAcceptanceSmoke
+      scenarios:
+        - all-pass
+        - readiness-blocked
+        - worktree-approval-blocked
+        - worktree-boundary-failed
+        - codex-failed
+        - nx-failed
+      output: ids-hashes-counts-statuses-summaries
+      fixtureOnly: true
+      processBoundaryInvoked: false
+      externalProcessStarted: false
       noNewRoutes: true
       noNewExecutionBoundary: true
       dashboardWriteUi: false

@@ -161,6 +161,7 @@ import {
   type MockDevelopmentOrchestrationResult,
   runGoldenPathRehearsal,
   runM10PilotAcceptanceRehearsal,
+  runM11PilotAcceptanceSmoke,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
 import {
@@ -734,6 +735,20 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showM11PilotRunForCli(runId);
       console.log(formatM11PilotRunShowOutput(result, options));
+    });
+
+  pilotM11Command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the fixture-only M11 acceptance smoke')
+    .option(
+      '--scenario <scenario>',
+      'Fixture scenario: all-pass, readiness-blocked, worktree-approval-blocked, worktree-boundary-failed, codex-failed, or nx-failed',
+    )
+    .option('--json', 'Print full JSON output')
+    .description('Run the M11 acceptance smoke without live adapters')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runM11PilotAcceptanceSmokeForCli(options);
+      console.log(formatM11PilotAcceptanceSmokeOutput(result, options));
     });
 
   const rehearsalCommand = program
@@ -2680,6 +2695,19 @@ export function runM10PilotAcceptanceRehearsalForCli(options: {
   return runM10PilotAcceptanceRehearsal({ scenario });
 }
 
+export function runM11PilotAcceptanceSmokeForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runM11PilotAcceptanceSmoke> {
+  if (!options.fixture) {
+    throw new Error('M11 pilot acceptance smoke requires --fixture');
+  }
+
+  const scenario = normalizeM11PilotAcceptanceSmokeScenario(options.scenario);
+
+  return runM11PilotAcceptanceSmoke({ scenario });
+}
+
 export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
   const runs = await listM11PilotRunsForCli();
   const records = (runs.records as M11PilotRunApiRecord[] | undefined) ?? [];
@@ -3540,6 +3568,32 @@ function normalizeM10PilotAcceptanceScenario(
   }
 
   throw new Error(`Unsupported M10 pilot acceptance fixture scenario: ${scenario}`);
+}
+
+function normalizeM11PilotAcceptanceSmokeScenario(
+  scenario: string | undefined,
+):
+  | 'all-pass'
+  | 'readiness-blocked'
+  | 'worktree-approval-blocked'
+  | 'worktree-boundary-failed'
+  | 'codex-failed'
+  | 'nx-failed' {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'readiness-blocked' ||
+    scenario === 'worktree-approval-blocked' ||
+    scenario === 'worktree-boundary-failed' ||
+    scenario === 'codex-failed' ||
+    scenario === 'nx-failed'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported M11 pilot acceptance smoke fixture scenario: ${scenario}`);
 }
 
 async function listWorktreeCollection(
@@ -6823,6 +6877,39 @@ export function formatM10PilotAcceptanceRehearsalOutput(
     `rawPathStored=${String(result.rawPathStored)}`,
     'timeline:',
     ...result.steps.map((step) => `- ${step.order} ${step.code} ${step.phase}/${step.status}`),
+  ].join('\n');
+}
+
+export function formatM11PilotAcceptanceSmokeOutput(
+  result: ReturnType<typeof runM11PilotAcceptanceSmoke>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'CodexHub M11 pilot acceptance smoke',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.steps.length}`,
+    `failure: ${result.failureClassification}`,
+    `recovery: ${result.recoveryAction}`,
+    `prDraftStatus: ${result.prDraftStatus}`,
+    `cleanupRequired: ${String(result.cleanupRequired)}`,
+    `evidence: ${result.evidenceCount}`,
+    `audit: ${result.auditEventCount}`,
+    `fixtureOnly=${String(result.fixtureOnly)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `patchGenerationAllowed=${String(result.patchGenerationAllowed)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `pullRequestOpened=${String(result.pullRequestOpened)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+    'timeline:',
+    ...result.steps.map((step) => `- ${step.order} ${step.phase}/${step.status}`),
   ].join('\n');
 }
 

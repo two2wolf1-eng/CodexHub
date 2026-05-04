@@ -3205,6 +3205,99 @@ export const M11PilotRunSchema = createdEntityBaseSchema
   });
 export type M11PilotRun = z.infer<typeof M11PilotRunSchema>;
 
+export const M11PilotAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'readiness-blocked',
+  'worktree-approval-blocked',
+  'worktree-boundary-failed',
+  'codex-failed',
+  'nx-failed',
+]);
+export type M11PilotAcceptanceScenario = z.infer<
+  typeof M11PilotAcceptanceScenarioSchema
+>;
+
+export const M11PilotAcceptanceSmokeStepSchema = createdEntityBaseSchema
+  .extend({
+    scenario: M11PilotAcceptanceScenarioSchema,
+    phase: z.enum([
+      'readiness',
+      'worktree',
+      'codex',
+      'verification',
+      'projection',
+      'recovery',
+      'summary',
+    ]),
+    status: M11PilotStepStatusSchema,
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    boundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotAcceptanceSmokeStep = z.infer<
+  typeof M11PilotAcceptanceSmokeStepSchema
+>;
+
+export const M11PilotAcceptanceSmokeRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: M11PilotAcceptanceScenarioSchema,
+    status: M11PilotRunStatusSchema,
+    steps: z.array(M11PilotAcceptanceSmokeStepSchema),
+    failureClassification: M11PilotFailureClassificationSchema,
+    recoveryAction: M11PilotRecoveryActionSchema,
+    prDraftStatus: M11PilotPrDraftStatusSchema,
+    cleanupRequired: z.boolean(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    fixtureOnly: z.literal(true),
+    codexReadOnlyDryRunOnly: z.literal(true),
+    patchGenerationAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+    if (record.status === 'passed' && record.prDraftStatus !== 'not_ready_no_patch') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed M11 smoke remains not_ready_no_patch',
+        path: ['prDraftStatus'],
+      });
+    }
+    if (
+      record.pullRequestOpened !== false ||
+      record.pushAllowed !== false ||
+      record.patchGenerationAllowed !== false
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M11 smoke never patches, pushes, or opens pull requests',
+        path: ['pullRequestOpened'],
+      });
+    }
+  });
+export type M11PilotAcceptanceSmokeRun = z.infer<
+  typeof M11PilotAcceptanceSmokeRunSchema
+>;
+
 export const ApprovalUxTypeSchema = z.enum([
   'codex',
   'browser',

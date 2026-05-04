@@ -216,6 +216,9 @@ import {
   M11PilotRecoveryProjectionSchema,
   M11PilotRunSchema,
   M11PilotStepSchema,
+  M11PilotAcceptanceScenarioSchema,
+  M11PilotAcceptanceSmokeRunSchema,
+  M11PilotAcceptanceSmokeStepSchema,
   M10PilotChecklistSchema,
   M10PilotChecklistStatusSchema,
   M10PilotAcceptanceEvidenceSummarySchema,
@@ -3037,6 +3040,104 @@ describe('contracts schemas', () => {
         ...recovery,
         id: 'm11_pilot_recovery_bad_metadata',
         metadata: { path: 'C:/repo/worktree', diff: 'diff --git' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M11 acceptance smoke contracts as fixture-only metadata', () => {
+    expect(M11PilotAcceptanceScenarioSchema.options).toEqual([
+      'all-pass',
+      'readiness-blocked',
+      'worktree-approval-blocked',
+      'worktree-boundary-failed',
+      'codex-failed',
+      'nx-failed',
+    ]);
+
+    const step = M11PilotAcceptanceSmokeStepSchema.parse({
+      id: 'm11_pilot_acceptance_smoke_step_1',
+      schemaVersion,
+      createdAt,
+      scenario: 'all-pass',
+      phase: 'codex',
+      status: 'passed',
+      order: 2,
+      evidenceRefIds: ['m11_smoke_evidence_1'],
+      auditEventIds: ['m11_smoke_audit_1'],
+      boundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 smoke fixture marks Codex dry-run stage passed without execution.',
+    });
+    const run = M11PilotAcceptanceSmokeRunSchema.parse({
+      id: 'm11_pilot_acceptance_smoke_run_1',
+      schemaVersion,
+      createdAt,
+      scenario: 'all-pass',
+      status: 'passed',
+      steps: [step],
+      failureClassification: 'none',
+      recoveryAction: 'review_cleanup_handoff',
+      prDraftStatus: 'not_ready_no_patch',
+      cleanupRequired: true,
+      evidenceRefIds: ['m11_smoke_evidence_1'],
+      auditEventIds: ['m11_smoke_audit_1'],
+      evidenceCount: 1,
+      auditEventCount: 1,
+      fixtureOnly: true,
+      codexReadOnlyDryRunOnly: true,
+      patchGenerationAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 acceptance smoke passed using fixture-only metadata.',
+    });
+    const failed = M11PilotAcceptanceSmokeRunSchema.parse({
+      ...run,
+      id: 'm11_pilot_acceptance_smoke_run_failed',
+      scenario: 'nx-failed',
+      status: 'failed',
+      failureClassification: 'nx_failed',
+      recoveryAction: 'review_nx_verification',
+      prDraftStatus: 'blocked',
+      summary: 'M11 acceptance smoke failed at Nx fixture stage.',
+    });
+    const serialized = JSON.stringify({ run, failed });
+
+    expect(run.status).toBe('passed');
+    expect(run.fixtureOnly).toBe(true);
+    expect(run.prDraftStatus).toBe('not_ready_no_patch');
+    expect(failed.status).toBe('failed');
+    expect(failed.prDraftStatus).toBe('blocked');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('raw prompt body');
+    expect(() =>
+      M11PilotAcceptanceSmokeRunSchema.parse({
+        ...run,
+        id: 'm11_pilot_acceptance_smoke_bad_pr',
+        prDraftStatus: 'blocked',
+      }),
+    ).toThrow();
+    expect(() =>
+      M11PilotAcceptanceSmokeStepSchema.parse({
+        ...step,
+        id: 'm11_pilot_acceptance_smoke_bad_metadata',
+        metadata: { prompt: 'raw prompt body', path: 'C:/repo' },
+      }),
+    ).toThrow();
+    expect(() =>
+      M11PilotAcceptanceSmokeRunSchema.parse({
+        ...run,
+        id: 'm11_pilot_acceptance_smoke_bad_metadata',
+        metadata: { diff: 'diff --git', localControlKey: 'secret' },
       }),
     ).toThrow();
   });

@@ -926,6 +926,52 @@ workflows:
       - cliWriteCommand
       - localControlTokenReadByReadOnlyCli
       - adapterExecuteFromUiOrCli
+  m11d.pilot-acceptance-smoke:
+    risk: medium
+    trigger:
+      type: fixture-only-operator
+      entrypoint: packages/orchestrator-kernel apps/dashboard apps/cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: smoke-contracts
+        package: contracts
+        models:
+          - M11PilotAcceptanceScenario
+          - M11PilotAcceptanceSmokeStep
+          - M11PilotAcceptanceSmokeRun
+        output: ids-hashes-counts-statuses-summaries
+      - phase: fixture-smoke-helper
+        package: orchestrator-kernel
+        scenarios:
+          - all-pass
+          - readiness-blocked
+          - worktree-approval-blocked
+          - worktree-boundary-failed
+          - codex-failed
+          - nx-failed
+        processBoundaryInvoked: false
+        externalProcessStarted: false
+      - phase: dashboard-cli-read-only-view
+        dashboardRoute: '#/pilot'
+        dashboardSection: M11 Acceptance Smoke
+        cliCommand: codexhub pilot m11 rehearse --fixture --scenario <name>
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+        adapterExecuteAllowed: false
+    forbidden:
+      - newSupervisorRoute
+      - newProcessBoundary
+      - newBrowserBoundary
+      - newElectronBoundary
+      - newMcpExecution
+      - codexWorkspaceWrite
+      - patchGeneration
+      - gitPush
+      - openPullRequest
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
   m10b.approval-decision-history-projection:
     risk: medium
     trigger:

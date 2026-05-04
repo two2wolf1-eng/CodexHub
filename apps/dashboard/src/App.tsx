@@ -43,6 +43,7 @@ import {
   createGovernanceReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
+  createM11PilotAcceptanceSmokeReadOnlySummary,
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
@@ -406,6 +407,7 @@ export function App() {
     governanceRunCount: governanceSummary.runCount,
   });
   const pilotAcceptanceSummary = createM10PilotAcceptanceReadOnlySummary();
+  const m11PilotAcceptanceSmokeSummary = createM11PilotAcceptanceSmokeReadOnlySummary();
   const m11PilotSummary = createM11PilotReadOnlySummary({
     runCount: overview.m11PilotRuns.length,
     approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
@@ -2417,6 +2419,7 @@ export function App() {
           pilotSummary,
           pilotAcceptanceSummary,
           m11PilotSummary,
+          m11PilotAcceptanceSmokeSummary,
         )
       )}
     </main>
@@ -2435,6 +2438,9 @@ function renderReadOnlyDashboardView(
   pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
   pilotAcceptanceSummary: ReturnType<typeof createM10PilotAcceptanceReadOnlySummary>,
   m11PilotSummary: ReturnType<typeof createM11PilotReadOnlySummary>,
+  m11PilotAcceptanceSmokeSummary: ReturnType<
+    typeof createM11PilotAcceptanceSmokeReadOnlySummary
+  >,
 ) {
   if (activeView === 'development') {
     return (
@@ -3248,6 +3254,66 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
           </ul>
+        </Panel>
+        <Panel title="M11 Acceptance Smoke">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{m11PilotAcceptanceSmokeSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{m11PilotAcceptanceSmokeSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>failure</strong>
+              <span>{m11PilotAcceptanceSmokeSummary.failureClassification}</span>
+            </li>
+            <li>
+              <strong>recovery</strong>
+              <span>{m11PilotAcceptanceSmokeSummary.recoveryAction}</span>
+            </li>
+            <li>
+              <strong>PR draft</strong>
+              <span>{m11PilotAcceptanceSmokeSummary.prDraftStatus}</span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {m11PilotAcceptanceSmokeSummary.evidenceCount} /{' '}
+                {m11PilotAcceptanceSmokeSummary.auditEventCount}
+              </span>
+            </li>
+            <li>
+              <strong>fixture</strong>
+              <span>{String(m11PilotAcceptanceSmokeSummary.fixtureOnly)}</span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                process {String(m11PilotAcceptanceSmokeSummary.processBoundaryInvoked)}, external{' '}
+                {String(m11PilotAcceptanceSmokeSummary.externalProcessStarted)}, network{' '}
+                {String(m11PilotAcceptanceSmokeSummary.networkBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>controls</strong>
+              <span>
+                keyRead {String(m11PilotAcceptanceSmokeSummary.localControlKeyRead)}, postAllowed{' '}
+                {String(m11PilotAcceptanceSmokeSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(m11PilotAcceptanceSmokeSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>write bounds</strong>
+              <span>
+                patch {String(m11PilotAcceptanceSmokeSummary.patchGenerationAllowed)}, push{' '}
+                {String(m11PilotAcceptanceSmokeSummary.pushAllowed)}, openPR{' '}
+                {String(m11PilotAcceptanceSmokeSummary.pullRequestOpened)}
+              </span>
+            </li>
+          </ul>
+          <p>{m11PilotAcceptanceSmokeSummary.summary}</p>
         </Panel>
         <Panel title="M10 Pilot Checklist">
           <ul>
