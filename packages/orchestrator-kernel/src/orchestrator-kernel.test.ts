@@ -11,6 +11,7 @@ import {
   runM6bGovernedWorktreePrDraft,
   runGoldenPathRehearsal,
   runGovernedDevelopmentOrchestration,
+  runM9LocalPilot,
   runMockDevelopmentOrchestration,
 } from './index';
 
@@ -667,6 +668,110 @@ describe('orchestrator-kernel M6a controlled worktree PR draft foundation', () =
 
     expect(m6aRunner).not.toContain('child_process');
     expect(worktreeSources).not.toContain('child_process');
+  });
+});
+
+describe('orchestrator-kernel M9 local pilot', () => {
+  it('runs controlled worktree, Codex dry-run, and Nx verification with metadata-only output', async () => {
+    const worktreeRoot = mkdtempSync(join(tmpdir(), 'codexhub-m9-worktrees-'));
+    const worktreePath = resolve(worktreeRoot, 'pilot-m9');
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(
+      resolve(worktreePath, 'package.json'),
+      readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+    );
+
+    const result = await runM9LocalPilot({
+      title: 'M9 local pilot',
+      description: 'Run controlled worktree plus read-only Codex and Nx.',
+      repoRoot: process.cwd(),
+      worktreeRoot,
+      worktreePath,
+      worktreeSlug: 'pilot-m9',
+      branchName: 'codex/pilot-m9',
+      baseRef: 'HEAD',
+      allowedWorktreeRoots: [worktreeRoot],
+      codexDryRunId: 'codex_dry_run_1',
+      worktreeApprovalArtifactId: 'worktree_approval_1',
+      codexApprovalArtifactId: 'approval_artifact_1',
+      worktreeApprovalResolved: true,
+      pilotEnabled: true,
+      realGitBoundaryEnabled: true,
+      governedInput: createGovernedInputFixture(),
+      codexExecutablePath: 'codex-test',
+      nxExecutablePath: 'pnpm-test',
+      store: createApprovalStore(),
+      worktreeRunner: {
+        async run() {
+          return {
+            status: 'completed',
+            changedFiles: [],
+            diffHash: 'sha256:no-diff',
+            diffLineCount: 0,
+            commandSummaryHash: 'sha256:command',
+            gitProcessBoundaryInvoked: true,
+            processBoundaryInvoked: true,
+            externalProcessStarted: true,
+            noRealWrite: false,
+            cleanupRequired: true,
+            cleanupDeferred: true,
+          };
+        },
+      },
+      codexRunner: {
+        async start() {
+          return { exitCode: 0, stdout: '{"type":"turn.completed"}\n', stderr: '' };
+        },
+      },
+      nxRunner: {
+        async start(plan: { step?: string }) {
+          return plan.step === 'affected-projects'
+            ? { exitCode: 0, stdout: 'orchestrator-kernel\n', stderr: '' }
+            : { exitCode: 0, stdout: 'Successfully ran target lint,test,build', stderr: '' };
+        },
+      },
+    });
+
+    const serialized = JSON.stringify(result.run);
+    expect(result.run.status).toBe('passed');
+    expect(result.run.prDraftStatus).toBe('blocked_no_patch');
+    expect(result.run.changedFileCount).toBe(0);
+    expect(result.run.gitProcessBoundaryInvoked).toBe(true);
+    expect(result.run.codexProcessBoundaryInvoked).toBe(true);
+    expect(result.run.nxProcessBoundaryInvoked).toBe(true);
+    expect(result.run.codexNoRealWrite).toBe(true);
+    expect(result.run.pushAllowed).toBe(false);
+    expect(result.run.pullRequestOpened).toBe(false);
+    expect(serialized).not.toContain(worktreePath);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+  });
+
+  it('blocks before boundaries when approval authority is not store-resolved', async () => {
+    const result = await runM9LocalPilot({
+      title: 'M9 blocked pilot',
+      description: 'Missing store-resolved approval must block.',
+      repoRoot: process.cwd(),
+      worktreeRoot: resolve(process.cwd(), '..', 'CodexHub-worktrees'),
+      worktreePath: resolve(process.cwd(), '..', 'CodexHub-worktrees', 'pilot-m9'),
+      worktreeSlug: 'pilot-m9',
+      branchName: 'codex/pilot-m9',
+      baseRef: 'HEAD',
+      codexDryRunId: 'codex_dry_run_1',
+      worktreeApprovalArtifactId: 'worktree_approval_1',
+      codexApprovalArtifactId: 'approval_artifact_1',
+      worktreeApprovalResolved: false,
+      pilotEnabled: true,
+      realGitBoundaryEnabled: true,
+      governedInput: createGovernedInputFixture(),
+      store: createApprovalStore(),
+    });
+
+    expect(result.run.status).toBe('blocked');
+    expect(result.run.readiness.blockers).toContain('worktree_approval_not_store_resolved');
+    expect(result.run.processBoundaryInvoked).toBe(false);
+    expect(result.run.externalProcessStarted).toBe(false);
   });
 });
 

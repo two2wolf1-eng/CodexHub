@@ -233,6 +233,7 @@ import type {
   WorktreeCleanupDryRunRecord,
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
+  M9PilotRun,
   WorktreeRunStatus,
 } from '@codexhub/contracts';
 import {
@@ -274,7 +275,9 @@ import {
 import type { ElectronCdpObservationRunner } from '@codexhub/electron-cdp-adapter';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
+  type M9LocalPilotInput,
   type MockDevelopmentOrchestrationResult,
+  runM9LocalPilot,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
 import {
@@ -316,6 +319,9 @@ interface SupervisorServerOptions {
   worktreeManagerRunner?: WorktreeManagerFixtureRunner;
   worktreeCleanupEnabled?: boolean;
   worktreeCleanupRunner?: WorktreeCleanupRunner;
+  m9LocalPilotEnabled?: boolean;
+  m9CodexRunner?: M9LocalPilotInput['codexRunner'];
+  m9NxRunner?: M9LocalPilotInput['nxRunner'];
 }
 
 interface PersistenceState {
@@ -490,6 +496,32 @@ interface WorktreeCleanupRunRequestBody {
   authority?: unknown;
 }
 
+interface M9LocalPilotRunRequestBody {
+  title?: string;
+  description?: string;
+  worktreeDryRunId?: string;
+  worktreeApprovalArtifactId?: string;
+  codexDryRunId?: string;
+  codexApprovalArtifactId?: string;
+  repoRoot?: string;
+  worktreeRoot?: string;
+  worktreePath?: string;
+  worktreeSlug?: string;
+  branchName?: string;
+  baseRef?: string;
+  headRef?: string;
+  governedInput?: {
+    relativePath?: string;
+    expectedContentHash?: string;
+    contentHash?: string;
+  };
+  verificationTargets?: string[];
+  codexExecutablePath?: string;
+  nxExecutablePath?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+}
+
 const LOCAL_CONTROL_KEY_KIND = ['to', 'ken'].join('');
 const LOCAL_CONTROL_HEADER = ['x-codexhub-local', LOCAL_CONTROL_KEY_KIND].join('-');
 const LOCAL_CONTROL_ENV_VAR = [
@@ -563,6 +595,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const worktreeCleanupDryRunRecords: WorktreeCleanupDryRunRecord[] = [];
   const worktreeCleanupApprovalRecords: WorktreeCleanupApprovalArtifactRecord[] = [];
   const worktreeCleanupRunRecords: WorktreeCleanupControlPlaneRun[] = [];
+  const m9LocalPilotRunRecords: M9PilotRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
   let configLoadPromise: Promise<CodexExecConfigLoadResult> | undefined;
   let ownedStore: CodexHubStore | undefined;
@@ -1406,6 +1439,132 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createWorktreeRunResponse(record);
+  });
+
+  server.post('/api/pilots/m9/local-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send({
+        error: 'm9_pilot_store_unavailable',
+        status: 'blocked',
+        degraded: true,
+        notPersisted: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        rawPathStored: false,
+        bodyStored: false,
+      });
+    }
+
+    const body = request.body as M9LocalPilotRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send({
+        error: 'untrusted_m9_pilot_authority_body',
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+      });
+    }
+
+    const dryRunRecord = await resolveWorktreeDryRunRecord(body?.worktreeDryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'worktree dry-run record was not found' });
+    }
+
+    const worktreeApprovalRecord = body?.worktreeApprovalArtifactId
+      ? await resolveWorktreeApprovalRecordByArtifactId(body.worktreeApprovalArtifactId, store)
+      : undefined;
+    const worktreeApprovalReady = classifyWorktreeApproval(worktreeApprovalRecord) === 'ready';
+    const enabled =
+      options.m9LocalPilotEnabled === true ||
+      process.env.CODEXHUB_M9_LOCAL_PILOT_ENABLED === 'true';
+    const worktreeBoundaryEnabled =
+      options.worktreeManagerEnabled === true ||
+      process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED === 'true';
+    const pilotResult = await runM9LocalPilot({
+      title: body?.title ?? 'M9 local pilot',
+      description:
+        body?.description ??
+        'Run controlled worktree plus Codex read-only dry-run and Nx verification.',
+      repoRoot: body?.repoRoot ?? process.cwd(),
+      worktreeRoot: body?.worktreeRoot ?? '',
+      worktreePath: body?.worktreePath ?? '',
+      worktreeSlug: body?.worktreeSlug ?? 'm9-local-pilot',
+      branchName: body?.branchName ?? 'codex/m9-local-pilot',
+      baseRef: body?.baseRef ?? 'HEAD',
+      allowedWorktreeRoots: body?.worktreeRoot ? [body.worktreeRoot] : undefined,
+      codexDryRunId: body?.codexDryRunId ?? dryRunRecord.dryRunId,
+      worktreeApprovalArtifactId: body?.worktreeApprovalArtifactId,
+      codexApprovalArtifactId: body?.codexApprovalArtifactId,
+      worktreeApprovalResolved: worktreeApprovalReady,
+      pilotEnabled: enabled,
+      realGitBoundaryEnabled: worktreeBoundaryEnabled,
+      governedInput: body?.governedInput?.relativePath
+        ? {
+            relativePath: body.governedInput.relativePath,
+            expectedContentHash: body.governedInput.expectedContentHash,
+            contentHash: body.governedInput.contentHash,
+          }
+        : undefined,
+      verificationTargets: body?.verificationTargets,
+      headRef: body?.headRef,
+      codexExecutablePath: body?.codexExecutablePath ?? 'codex',
+      nxExecutablePath: body?.nxExecutablePath ?? 'pnpm',
+      store,
+      worktreeRunner: options.worktreeManagerRunner,
+      codexRunner: options.m9CodexRunner,
+      nxRunner: options.m9NxRunner,
+      actor: 'codexhub-supervisor.m9-pilot',
+    });
+
+    m9LocalPilotRunRecords.unshift(pilotResult.run);
+    m9LocalPilotRunRecords.splice(50);
+
+    if (pilotResult.worktree?.worktreeRun.gitProcessBoundaryInvoked && worktreeApprovalRecord) {
+      const usedApprovalRecord = createWorktreeApprovalRecord({
+        dryRunRecord,
+        baseRecord: worktreeApprovalRecord,
+        status: 'used',
+        reason: 'M9 local pilot reached controlled git boundary',
+      });
+      await persistWorktreeApprovalRecord(usedApprovalRecord, store);
+      await persistEvidenceRefs(usedApprovalRecord.evidenceRefs, store);
+      await persistWorktreeAuditEvents(
+        usedApprovalRecord.auditEventIds,
+        usedApprovalRecord.evidenceRefs,
+        store,
+        usedApprovalRecord.policyDecisionId,
+      );
+    }
+
+    return createM9PilotRunResponse(pilotResult.run);
+  });
+
+  server.get('/api/pilots/m9/local-runs', async () => ({
+    records: m9LocalPilotRunRecords.map(createM9PilotRunResponse),
+    count: m9LocalPilotRunRecords.length,
+    degraded: persistenceState.status !== 'ok',
+    processBoundaryInvoked: m9LocalPilotRunRecords.some((record) => record.processBoundaryInvoked),
+    externalProcessStarted: m9LocalPilotRunRecords.some((record) => record.externalProcessStarted),
+    rawPathStored: false,
+    bodyStored: false,
+  }));
+
+  server.get('/api/pilots/m9/local-runs/:id', async (request, reply) => {
+    const params = request.params as { id?: string };
+    const record = m9LocalPilotRunRecords.find((candidate) => candidate.id === params.id);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'm9 pilot run was not found' });
+    }
+
+    return createM9PilotRunResponse(record);
   });
 
   server.post('/api/worktrees/cleanup/dry-runs', async (request, reply) => {
@@ -10362,6 +10521,38 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       processBoundaryInvoked: record.processBoundaryInvoked,
       externalProcessStarted: record.externalProcessStarted,
       noRealWrite: record.noRealWrite,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createM9PilotRunResponse(record: M9PilotRun) {
+    return {
+      runId: record.id,
+      status: record.status,
+      readinessStatus: record.readiness.status,
+      readinessBlockers: record.readiness.blockers,
+      worktreeRunId: record.worktreeRunId,
+      codexStatus: record.codexStatus,
+      verificationStatus: record.verificationStatus,
+      prDraftStatus: record.prDraftStatus,
+      changedFileCount: record.changedFileCount,
+      cleanupRequired: record.cleanupRequired,
+      stepCount: record.steps.length,
+      evidenceRefIds: record.evidenceSummary.evidenceRefIds,
+      auditEventIds: record.evidenceSummary.auditEventIds,
+      evidenceCount: record.evidenceSummary.evidenceCount,
+      auditEventCount: record.evidenceSummary.auditEventCount,
+      bundleHash: record.evidenceSummary.bundleHash,
+      gitProcessBoundaryInvoked: record.gitProcessBoundaryInvoked,
+      codexProcessBoundaryInvoked: record.codexProcessBoundaryInvoked,
+      nxProcessBoundaryInvoked: record.nxProcessBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      codexNoRealWrite: true,
+      pushAllowed: false,
+      pullRequestOpened: false,
       rawPathStored: false,
       bodyStored: false,
       summary: record.summary,

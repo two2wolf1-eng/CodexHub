@@ -1021,6 +1021,101 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(runResponse.json())).not.toContain('diff --git');
   });
 
+  it('exposes M9 local pilot runs through local-control gated metadata routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m9-pilot-'));
+    const repoRoot = join(dir, 'repo');
+    const worktreeRoot = join(dir, 'CodexHub-worktrees');
+    const worktreeSlug = 'pilot-m9';
+    const branchName = 'codex/pilot-m9';
+    const baseRef = 'HEAD';
+    mkdirSync(repoRoot, { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+    writeFileSync(join(repoRoot, 'package.json'), '{"name":"fixture"}');
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store, m9LocalPilotEnabled: true });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/worktrees/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        repoRoot,
+        worktreeSlug,
+        branchName,
+        baseRef,
+        worktreeRoot,
+        runnerMode: 'controlled-git-worktree',
+      },
+    });
+    const dryRunId = dryRunResponse.json().dryRunId as string;
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/pilots/m9/local-runs',
+      payload: { worktreeDryRunId: dryRunId },
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/pilots/m9/local-runs',
+      headers: { ...localControlHeaders, origin: 'https://evil.example' },
+      payload: { worktreeDryRunId: dryRunId },
+    });
+    const untrustedBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/pilots/m9/local-runs',
+      headers: localControlHeaders,
+      payload: { worktreeDryRunId: dryRunId, authority: null },
+    });
+    const blockedRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/pilots/m9/local-runs',
+      headers: localControlHeaders,
+      payload: {
+        title: 'M9 pilot blocked fixture',
+        description: 'Missing approval artifacts should block before boundaries.',
+        worktreeDryRunId: dryRunId,
+        repoRoot,
+        worktreeRoot,
+        worktreePath: join(worktreeRoot, worktreeSlug),
+        worktreeSlug,
+        branchName,
+        baseRef,
+        codexDryRunId: 'codex_dry_run_1',
+        governedInput: {
+          relativePath: 'package.json',
+          expectedContentHash: 'sha256:governed-input',
+        },
+      },
+    });
+    const listResponse = await server.inject({ method: 'GET', url: '/api/pilots/m9/local-runs' });
+    const showResponse = await server.inject({
+      method: 'GET',
+      url: `/api/pilots/m9/local-runs/${blockedRunResponse.json().runId}`,
+    });
+
+    await server.close();
+    await store.close();
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(untrustedBodyResponse.statusCode).toBe(400);
+    expect(blockedRunResponse.statusCode).toBe(200);
+    expect(blockedRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+    });
+    expect(blockedRunResponse.json().readinessBlockers).toContain(
+      'worktree_approval_artifact_id_required',
+    );
+    expect(listResponse.json().count).toBe(1);
+    expect(showResponse.json().runId).toBe(blockedRunResponse.json().runId);
+    expect(blockedRunResponse.body).not.toContain(repoRoot);
+    expect(blockedRunResponse.body).not.toContain(worktreeRoot);
+    expect(blockedRunResponse.body).not.toContain('package.json');
+    expect(blockedRunResponse.body).not.toContain('expectedContentHash');
+  });
+
   it('governs worktree cleanup dry-run, approval, and injected controlled git cleanup', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-worktree-cleanup-'));
     const repoRoot = join(dir, 'repo');

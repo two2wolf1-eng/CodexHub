@@ -140,6 +140,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'patch.diff_summary',
     'pr.draft_summary',
     'release.audit_draft',
+    'pilot.m9.readiness_summary',
+    'pilot.m9.run_summary',
     'policy_backend.evaluation_plan',
     'policy_backend.raw_evaluation_summary',
     'policy_backend.normalized_decision_trace',
@@ -2401,6 +2403,188 @@ export const GoldenPathRehearsalRunSchema = createdEntityBaseSchema
     rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
   });
 export type GoldenPathRehearsalRun = z.infer<typeof GoldenPathRehearsalRunSchema>;
+
+export const M9PilotRunStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type M9PilotRunStatus = z.infer<typeof M9PilotRunStatusSchema>;
+
+export const M9PilotStepStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+  'skipped',
+]);
+export type M9PilotStepStatus = z.infer<typeof M9PilotStepStatusSchema>;
+
+export const M9PilotPrDraftStatusSchema = z.enum(['blocked_no_patch', 'not_ready']);
+export type M9PilotPrDraftStatus = z.infer<typeof M9PilotPrDraftStatusSchema>;
+
+const m9PilotForbiddenMetadataKeys = new Set([
+  'body',
+  'prompt',
+  'stdout',
+  'stderr',
+  'jsonl',
+  'diff',
+  'command',
+  'path',
+  'url',
+  'title',
+  'payload',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+]);
+
+function rejectM9PilotRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectM9PilotRawMetadata(item, context, [...path, index]));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (m9PilotForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw M9 pilot metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectM9PilotRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const M9PilotStepSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.enum([
+      'readiness',
+      'worktree',
+      'codex',
+      'verification',
+      'evidence',
+      'audit',
+      'telemetry',
+      'summary',
+    ]),
+    status: M9PilotStepStatusSchema,
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    boundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    summary: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM9PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M9PilotStep = z.infer<typeof M9PilotStepSchema>;
+
+export const M9PilotReadinessSchema = createdEntityBaseSchema
+  .extend({
+    status: z.enum(['ready', 'blocked', 'degraded']),
+    checkCount: z.number().int().nonnegative(),
+    passedCheckCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    worktreeManagerEnabled: z.boolean(),
+    codexDryRunOnly: z.literal(true),
+    nxVerificationPlanned: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM9PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M9PilotReadiness = z.infer<typeof M9PilotReadinessSchema>;
+
+export const M9PilotEvidenceSummarySchema = createdEntityBaseSchema
+  .extend({
+    runId: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    bundleHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM9PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M9PilotEvidenceSummary = z.infer<typeof M9PilotEvidenceSummarySchema>;
+
+export const M9PilotRunSchema = createdEntityBaseSchema
+  .extend({
+    status: M9PilotRunStatusSchema,
+    requestTitleHash: z.string().min(1),
+    requestDescriptionHash: z.string().min(1),
+    readiness: M9PilotReadinessSchema,
+    steps: z.array(M9PilotStepSchema),
+    evidenceSummary: M9PilotEvidenceSummarySchema,
+    worktreeRunId: z.string().min(1).optional(),
+    codexStatus: z.string().min(1).optional(),
+    verificationStatus: z.string().min(1).optional(),
+    prDraftStatus: M9PilotPrDraftStatusSchema,
+    changedFileCount: z.number().int().nonnegative(),
+    cleanupRequired: z.boolean(),
+    gitProcessBoundaryInvoked: z.boolean(),
+    codexProcessBoundaryInvoked: z.boolean(),
+    nxProcessBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    codexNoRealWrite: z.literal(true),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM9PilotRawMetadata(record.metadata, context, ['metadata']);
+    if (record.prDraftStatus === 'blocked_no_patch' && record.changedFileCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked_no_patch requires zero changed files',
+        path: ['prDraftStatus'],
+      });
+    }
+    if (record.pullRequestOpened !== false || record.pushAllowed !== false) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M9 pilot never pushes or opens pull requests',
+        path: ['pullRequestOpened'],
+      });
+    }
+  });
+export type M9PilotRun = z.infer<typeof M9PilotRunSchema>;
 
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;

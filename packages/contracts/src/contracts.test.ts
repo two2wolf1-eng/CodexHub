@@ -197,6 +197,10 @@ import {
   GoldenPathRehearsalRunSchema,
   GoldenPathStepSchema,
   GoldenPathStepStatusSchema,
+  M9PilotEvidenceSummarySchema,
+  M9PilotReadinessSchema,
+  M9PilotRunSchema,
+  M9PilotStepSchema,
   GovernanceProjectionSummarySchema,
   IntegrationReadinessSummarySchema,
   OperatorReadinessCheckSchema,
@@ -2370,6 +2374,104 @@ describe('contracts schemas', () => {
         ...run,
         id: 'golden_path_rehearsal_bad_metadata',
         metadata: { requestBody: 'raw body' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M9 pilot contracts as metadata-only', () => {
+    const step = M9PilotStepSchema.parse({
+      id: 'm9_pilot_step_1',
+      schemaVersion,
+      createdAt,
+      phase: 'codex',
+      status: 'completed',
+      order: 2,
+      evidenceRefIds: ['evidence_codex_1'],
+      auditEventIds: ['audit_codex_1'],
+      boundaryInvoked: true,
+      externalProcessStarted: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Codex read-only dry-run completed with metadata only.',
+    });
+    const readiness = M9PilotReadinessSchema.parse({
+      id: 'm9_pilot_readiness_1',
+      schemaVersion,
+      createdAt,
+      status: 'ready',
+      checkCount: 8,
+      passedCheckCount: 8,
+      blockerCount: 0,
+      blockers: [],
+      worktreeManagerEnabled: true,
+      codexDryRunOnly: true,
+      nxVerificationPlanned: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M9 pilot readiness is ready.',
+    });
+    const evidenceSummary = M9PilotEvidenceSummarySchema.parse({
+      id: 'm9_pilot_evidence_summary_1',
+      schemaVersion,
+      createdAt,
+      runId: 'm9_pilot_run_1',
+      evidenceRefIds: ['evidence_codex_1'],
+      auditEventIds: ['audit_codex_1'],
+      evidenceCount: 1,
+      auditEventCount: 1,
+      bundleHash: 'sha256:m9-bundle',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M9 pilot evidence summary stores ids and hashes only.',
+    });
+    const run = M9PilotRunSchema.parse({
+      id: 'm9_pilot_run_1',
+      schemaVersion,
+      createdAt,
+      status: 'passed',
+      requestTitleHash: 'sha256:title',
+      requestDescriptionHash: 'sha256:description',
+      readiness,
+      steps: [step],
+      evidenceSummary,
+      worktreeRunId: 'worktree_run_1',
+      codexStatus: 'passed',
+      verificationStatus: 'passed',
+      prDraftStatus: 'blocked_no_patch',
+      changedFileCount: 0,
+      cleanupRequired: true,
+      gitProcessBoundaryInvoked: true,
+      codexProcessBoundaryInvoked: true,
+      nxProcessBoundaryInvoked: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      codexNoRealWrite: true,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M9 pilot passed while PR draft remains blocked because no patch exists.',
+    });
+
+    const serialized = JSON.stringify(run);
+    expect(run.prDraftStatus).toBe('blocked_no_patch');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('raw prompt body');
+    expect(() =>
+      M9PilotRunSchema.parse({
+        ...run,
+        id: 'm9_pilot_run_bad_patch',
+        changedFileCount: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      M9PilotRunSchema.parse({
+        ...run,
+        id: 'm9_pilot_run_bad_metadata',
+        metadata: { prompt: 'raw prompt body' },
       }),
     ).toThrow();
   });
