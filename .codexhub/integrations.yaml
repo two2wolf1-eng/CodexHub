@@ -284,8 +284,8 @@ integrations:
     adapter: github-provider-adapter
     provider: github
     providerType: external-network
-    mode: governed-read-only-metadata-control-plane
-    stage: m15c-github-provider-read-only-ux
+    mode: governed-metadata-and-draft-pr-planning
+    stage: m16a-github-draft-pr-planning-contracts
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -299,6 +299,7 @@ integrations:
     productDefaultEnabled: false
     metadataReadEnabled: false
     draftPrCreationEnabled: false
+    draftPrPlanningEnabled: true
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     supervisorControlPlane:
@@ -340,6 +341,21 @@ integrations:
       remoteMutationAuditEnabled: true
       allowedGithubHttpBoundaryCount: 1
       uiCliReadOnlyRegressionTests: true
+    draftPrPlanning:
+      stage: m16a
+      helper: createGithubDraftPrPlan
+      sourceKinds:
+        - local_rc_readiness
+        - review_package
+      existingHeadBranchRequired: true
+      existingOpenPrBlocks: true
+      titleStorage: hash-only
+      bodyStorage: hash-only
+      networkBoundaryAdded: false
+      supervisorRouteAdded: false
+      authorityGrantedByPlan: false
+      approvalRequiredForCreation: true
+      output: ids-hashes-counts-statuses-summaries
     auditedBoundaryFiles:
       metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts
     allowedMetadataEndpoints:

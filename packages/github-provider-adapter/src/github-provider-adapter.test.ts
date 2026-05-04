@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   CapabilityManifestSchema,
+  GithubDraftPrPlanSchema,
   GithubMetadataDryRunRecordSchema,
   GithubTokenReadinessSchema,
 } from '@codexhub/contracts';
 import {
   GITHUB_PROVIDER_MANIFEST,
+  createGithubDraftPrPlan,
   createGithubMetadataApprovalRecord,
   createGithubMetadataDryRunRecord,
   createGithubProviderManifest,
@@ -283,5 +285,89 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(run.blockReasons).toContain('approval_artifact_expired');
     expect(run.networkBoundaryInvoked).toBe(false);
     expect(fetchCalled).toBe(false);
+  });
+
+  it('plans existing-branch draft PR creation with metadata hashes only', () => {
+    const plan = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m16-draft',
+      sourceKind: 'local_rc_readiness',
+      sourceId: 'local_rc_123',
+      sourceSummary: 'Local RC has passed verification and review.',
+      titleSummary: 'Draft PR: governed CodexHub change',
+      bodySectionSummaries: [
+        'Summary section from approved metadata',
+        'Verification section from hash-only gate',
+      ],
+      remoteHeadBranchExists: true,
+      existingPullRequestCount: 0,
+      runnerMode: 'controlled-github-draft-pr',
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(GithubDraftPrPlanSchema.parse(plan).status).toBe('planned');
+    expect(plan.readiness.status).toBe('ready_for_draft_pr');
+    expect(plan.requiresApproval).toBe(true);
+    expect(plan.policyDecision.actionMode).toBe('write');
+    expect(plan.policyDecision.outcome).toBe('approval_required');
+    expect(plan.networkBoundaryPlanned).toBe(true);
+    expect(plan.networkBoundaryInvoked).toBe(false);
+    expect(plan.noRealWrite).toBe(true);
+    expect(plan.titleHash).toMatch(/^sha256:/);
+    expect(plan.bodyHash).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub');
+    expect(serialized).not.toContain('codex/m16-draft');
+    expect(serialized).not.toContain('Draft PR: governed CodexHub change');
+    expect(serialized).not.toContain('Summary section from approved metadata');
+  });
+
+  it('blocks draft PR planning when the remote head branch is missing', () => {
+    const plan = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m16-draft',
+      sourceKind: 'review_package',
+      sourceId: 'review_package_123',
+      sourceSummary: 'Review package is approved for local RC.',
+      titleSummary: 'Draft PR from review package',
+      bodySectionSummaries: ['Review summary'],
+      remoteHeadBranchExists: false,
+      existingPullRequestCount: 0,
+      runnerMode: 'controlled-github-draft-pr',
+      now: fixedNow,
+    });
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.readiness.status).toBe('blocked_head_branch');
+    expect(plan.blockReasons).toContain('remote_head_branch_missing');
+    expect(plan.networkBoundaryPlanned).toBe(false);
+  });
+
+  it('blocks draft PR planning when an existing PR is found', () => {
+    const plan = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m16-draft',
+      sourceKind: 'local_rc_readiness',
+      sourceId: 'local_rc_123',
+      sourceSummary: 'Local RC has passed verification and review.',
+      titleSummary: 'Draft PR from local RC',
+      bodySectionSummaries: ['Local RC summary'],
+      remoteHeadBranchExists: true,
+      existingPullRequestCount: 1,
+      runnerMode: 'controlled-github-draft-pr',
+      now: fixedNow,
+    });
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.readiness.status).toBe('blocked_existing_pr');
+    expect(plan.blockReasons).toContain('existing_pull_request_found');
+    expect(plan.networkBoundaryPlanned).toBe(false);
   });
 });

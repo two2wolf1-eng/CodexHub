@@ -2037,3 +2037,51 @@ workflows:
       rawCredentialStored: false
       rawRemoteRefStored: false
       rawResponseBodyStored: false
+  m16a.github-draft-pr-planning-contracts:
+    risk: high
+    trigger:
+      type: planning-projection
+      entrypoint: packages/github-provider-adapter
+      localControlRequired: false
+    chain:
+      - phase: draft-pr-readiness
+        package: github-provider-adapter
+        helper: createGithubDraftPrPlan
+        source:
+          - local_rc_readiness
+          - review_package
+        requires:
+          - existing remote head branch metadata
+          - no existing open PR metadata
+          - hash-only title/body template summaries
+      - phase: policy-projection
+        action: github.draft_pr.create
+        actionMode: write
+        approvalRequired: true
+        authorityGranted: false
+      - phase: evidence-audit
+        output: ids-hashes-counts-statuses-summaries
+        evidenceKind: github.draft_pr_plan
+    safety:
+      networkBoundaryAdded: false
+      supervisorRouteAdded: false
+      draftPrCreated: false
+      pushAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false
+      rawCredentialStored: false
+      rawRemoteRefStored: false
+      rawPullRequestBodyStored: false
+      bodyStored: false
+    forbidden:
+      - githubNetworkPost
+      - supervisorPostRoute
+      - gitPush
+      - createRef
+      - updateRef
+      - merge
+      - labels
+      - reviewers
+      - comments
+      - rawPrBody
+      - rawToken

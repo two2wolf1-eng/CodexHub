@@ -1,6 +1,8 @@
 import {
   CapabilityManifestSchema,
   ExecutionAuthoritySchema,
+  GithubDraftPrPlanSchema,
+  GithubDraftPrReadinessSchema,
   GithubMetadataApprovalArtifactRecordSchema,
   GithubMetadataControlPlaneRunSchema,
   GithubMetadataDryRunRecordSchema,
@@ -12,6 +14,11 @@ import {
   foundationTimestamp,
   type CapabilityManifest,
   type ExecutionAuthority,
+  type GithubDraftPrPlan,
+  type GithubDraftPrReadiness,
+  type GithubDraftPrReadinessStatus,
+  type GithubDraftPrRunnerMode,
+  type GithubDraftPrSourceKind,
   type GithubMetadataApprovalArtifactRecord,
   type GithubMetadataControlPlaneRun,
   type GithubMetadataDryRunRecord,
@@ -41,6 +48,19 @@ export interface GithubRemoteRefInput {
 export interface GithubMetadataPlanInput extends GithubRemoteRefInput {
   requestedMetadata?: Array<'repo' | 'base_branch' | 'head_branch' | 'existing_pull_request'>;
   runnerMode?: 'planning-only' | 'controlled-github-http';
+  now?: () => string;
+}
+
+export interface GithubDraftPrPlanInput extends GithubRemoteRefInput {
+  sourceKind: GithubDraftPrSourceKind;
+  sourceId: string;
+  sourceSummary: string;
+  titleSummary: string;
+  bodySectionSummaries: string[];
+  existingPullRequestCount?: number;
+  remoteHeadBranchExists?: boolean;
+  metadataReady?: boolean;
+  runnerMode?: GithubDraftPrRunnerMode;
   now?: () => string;
 }
 
@@ -80,6 +100,8 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       'remote-repository-metadata-plan',
       'remote-branch-metadata-plan',
       'existing-pull-request-lookup-plan',
+      'existing-branch-draft-pr-plan',
+      'draft-pr-readiness-projection',
     ],
     defaultRisk: 'high',
     defaultActionMode: 'read',
@@ -101,6 +123,8 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       pushAllowed: false,
       createRefAllowed: false,
       mergeAllowed: false,
+      draftPullRequestPlanningOnly: true,
+      draftPullRequestCreationEnabled: false,
     },
   });
 }
@@ -258,6 +282,117 @@ export function createGithubMetadataDryRunRecord(
       status === 'planned'
         ? 'GitHub metadata dry-run is planned; execution remains disabled until approval and env enablement.'
         : `GitHub metadata dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubDraftPrPlan(input: GithubDraftPrPlanInput): GithubDraftPrPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectDraftPrPlanBlockReasons(input);
+  const targetRef =
+    blockReasons.includes('invalid_owner') ||
+    blockReasons.includes('invalid_repo') ||
+    blockReasons.includes('invalid_base_branch') ||
+    blockReasons.includes('invalid_head_branch')
+      ? createBlockedGithubRemoteRefSummary(input, now)
+      : createGithubRemoteRefSummary(input);
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const titleHash = stableHash(input.titleSummary);
+  const bodyHash = stableHash(JSON.stringify(input.bodySectionSummaries));
+  const bodyCharacterCount = input.bodySectionSummaries.reduce(
+    (total, section) => total + section.length,
+    0,
+  );
+  const readiness = createGithubDraftPrReadiness({
+    input,
+    targetRef,
+    blockReasons,
+    now,
+  });
+  const dryRunId = stableId(
+    'github_draft_pr_dry_run',
+    JSON.stringify({
+      sourceKind: input.sourceKind,
+      sourceIdHash: stableHash(input.sourceId),
+      sourceSummaryHash: stableHash(input.sourceSummary),
+      targetRefId: targetRef.id,
+      titleHash,
+      bodyHash,
+      runnerMode: input.runnerMode ?? 'planning-only',
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.draft_pr.create',
+    actionMode: 'write',
+    now,
+    allow: false,
+    reasons: ['remote draft PR creation requires persisted approval'],
+  });
+
+  return GithubDraftPrPlanSchema.parse({
+    id: stableId('github_draft_pr_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status,
+    runnerMode: input.runnerMode ?? 'planning-only',
+    readiness,
+    titleHash,
+    bodyHash,
+    bodySectionCount: input.bodySectionSummaries.length,
+    bodyCharacterCount,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    networkBoundaryPlanned:
+      status === 'planned' && input.runnerMode === 'controlled-github-draft-pr',
+    networkBoundaryInvoked: false,
+    draft: true,
+    pushAllowed: false,
+    createRefAllowed: false,
+    mergeAllowed: false,
+    rawPrBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.draft_pr_plan',
+        label: 'github-draft-pr-plan',
+        summary: 'GitHub draft PR plan stores remote refs and generated body as hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          sourceKind: input.sourceKind,
+          sourceIdHash: stableHash(input.sourceId),
+          targetRefIdHash: stableHash(targetRef.id),
+          titleHash,
+          bodyHash,
+          bodySectionCount: input.bodySectionSummaries.length,
+          blockerCount: blockReasons.length,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      sourceKind: input.sourceKind,
+      sourceIdHash: stableHash(input.sourceId),
+      targetRefIdHash: stableHash(targetRef.id),
+      titleHash,
+      bodyHash,
+      bodySectionCount: input.bodySectionSummaries.length,
+      bodyCharacterCount,
+      blockerCount: blockReasons.length,
+      existingPullRequestCount: input.existingPullRequestCount ?? 0,
+      remoteHeadBranchExists: input.remoteHeadBranchExists ?? false,
+      draftOnly: true,
+      productDefaultEnabled: false,
+    },
+    summary:
+      status === 'planned'
+        ? 'GitHub draft PR plan is ready for a future approval-gated existing-branch draft PR attempt.'
+        : `GitHub draft PR plan is blocked: ${blockReasons.join(', ')}.`,
   });
 }
 
@@ -426,6 +561,61 @@ function createGithubPolicyDecision(input: {
   });
 }
 
+function createGithubDraftPrReadiness(input: {
+  input: GithubDraftPrPlanInput;
+  targetRef: GithubRemoteRefSummary;
+  blockReasons: string[];
+  now: () => string;
+}): GithubDraftPrReadiness {
+  const status = resolveDraftPrReadinessStatus(input.blockReasons);
+
+  return GithubDraftPrReadinessSchema.parse({
+    id: stableId(
+      'github_draft_pr_readiness',
+      JSON.stringify({
+        sourceKind: input.input.sourceKind,
+        sourceIdHash: stableHash(input.input.sourceId),
+        sourceSummaryHash: stableHash(input.input.sourceSummary),
+        targetRefId: input.targetRef.id,
+        status,
+      }),
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.now(),
+    sourceKind: input.input.sourceKind,
+    sourceIdHash: stableHash(input.input.sourceId),
+    sourceSummaryHash: stableHash(input.input.sourceSummary),
+    targetRef: input.targetRef,
+    status,
+    blockerCount: input.blockReasons.length,
+    draftOnly: true,
+    remoteHeadBranchExistsRequired: true,
+    pushAllowed: false,
+    createRefAllowed: false,
+    mergeAllowed: false,
+    labelsAllowed: false,
+    reviewersAllowed: false,
+    commentsAllowed: false,
+    rawPrBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      sourceKind: input.input.sourceKind,
+      sourceIdHash: stableHash(input.input.sourceId),
+      targetRefIdHash: stableHash(input.targetRef.id),
+      blockerCount: input.blockReasons.length,
+      remoteHeadBranchExists: input.input.remoteHeadBranchExists ?? false,
+      existingPullRequestCount: input.input.existingPullRequestCount ?? 0,
+    },
+    summary:
+      status === 'ready_for_draft_pr'
+        ? 'Existing remote head branch and source metadata are ready for draft PR approval.'
+        : `Draft PR readiness is blocked: ${input.blockReasons.join(', ')}.`,
+  });
+}
+
 function collectExecutionBlockReasons(input: GithubMetadataExecutionInput, nowIso: string): string[] {
   const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
   const runtimeValidation = validateRemoteRefInput(input.runtime);
@@ -472,7 +662,11 @@ function matchesRemoteRefSummary(
 }
 
 function createGithubEvidenceRef(input: {
-  kind: 'github.provider_plan' | 'github.metadata_summary' | 'github.token_readiness';
+  kind:
+    | 'github.provider_plan'
+    | 'github.metadata_summary'
+    | 'github.token_readiness'
+    | 'github.draft_pr_plan';
   label: string;
   summary: string;
   metadata: Record<string, unknown>;
@@ -520,6 +714,52 @@ function collectPlanBlockReasons(input: GithubMetadataPlanInput): string[] {
   ].filter((reason): reason is string => Boolean(reason));
 }
 
+function collectDraftPrPlanBlockReasons(input: GithubDraftPrPlanInput): string[] {
+  const reasons = [
+    validateRemoteRefInput(input),
+    input.baseBranch ? undefined : 'missing_base_branch',
+    input.headBranch ? undefined : 'missing_head_branch',
+    isSafeSourceSummary(input.sourceId) ? undefined : 'missing_source_id',
+    isSafeSourceSummary(input.sourceSummary) ? undefined : 'missing_source_summary',
+    isSafeSourceSummary(input.titleSummary) ? undefined : 'missing_title_summary',
+    input.bodySectionSummaries.length > 0 ? undefined : 'missing_body_sections',
+    input.metadataReady === false ? 'metadata_not_ready' : undefined,
+    input.remoteHeadBranchExists === false ? 'remote_head_branch_missing' : undefined,
+    (input.existingPullRequestCount ?? 0) > 0 ? 'existing_pull_request_found' : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function resolveDraftPrReadinessStatus(
+  blockReasons: readonly string[],
+): GithubDraftPrReadinessStatus {
+  if (blockReasons.length === 0) {
+    return 'ready_for_draft_pr';
+  }
+
+  if (
+    blockReasons.includes('missing_source_id') ||
+    blockReasons.includes('missing_source_summary')
+  ) {
+    return 'blocked_source';
+  }
+
+  if (blockReasons.includes('existing_pull_request_found')) {
+    return 'blocked_existing_pr';
+  }
+
+  if (blockReasons.includes('remote_head_branch_missing') || blockReasons.includes('missing_head_branch')) {
+    return 'blocked_head_branch';
+  }
+
+  if (blockReasons.includes('metadata_not_ready')) {
+    return 'blocked_metadata';
+  }
+
+  return 'not_ready';
+}
+
 function validateRemoteRefInput(input: GithubRemoteRefInput): string | undefined {
   if (!isSafeGithubName(input.owner)) {
     return 'invalid_owner';
@@ -563,6 +803,10 @@ function isSafeGithubRef(value: string): boolean {
     !value.includes('..') &&
     /^[A-Za-z0-9._/-]+$/.test(value)
   );
+}
+
+function isSafeSourceSummary(value: string | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function stableId(prefix: string, seed: string): string {
