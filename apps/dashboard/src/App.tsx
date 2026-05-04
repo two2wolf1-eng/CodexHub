@@ -184,6 +184,23 @@ interface M11PilotControlSummary {
   readinessStatus?: string;
   readinessBlockers?: string[];
   failureClassification?: string;
+  recovery?: {
+    recoveryAction?: string;
+    cleanupRequired?: boolean;
+    cleanupDeferred?: boolean;
+    cleanupCompleted?: boolean;
+    cleanupDryRunId?: string;
+    cleanupRunId?: string;
+    cleanupApprovalStatus?: string;
+    cleanupBlockers?: string[];
+    cleanupEvidenceRefIds?: string[];
+    cleanupAuditEventIds?: string[];
+    processBoundaryInvoked?: boolean;
+    externalProcessStarted?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+    summary?: string;
+  };
   worktreeRunId?: string;
   codexStatus?: string;
   verificationStatus?: string;
@@ -398,6 +415,11 @@ export function App() {
     latestRunStatus: overview.m11PilotRuns[0]?.status,
     latestPrDraftStatus: overview.m11PilotRuns[0]?.prDraftStatus,
     latestFailureClassification: overview.m11PilotRuns[0]?.failureClassification,
+    latestRecoveryAction: overview.m11PilotRuns[0]?.recovery?.recoveryAction,
+    cleanupHandoffCount: overview.m11PilotRuns.filter((run) => run.recovery).length,
+    latestCleanupApprovalStatus: overview.m11PilotRuns[0]?.recovery?.cleanupApprovalStatus,
+    latestCleanupDeferred: overview.m11PilotRuns[0]?.recovery?.cleanupDeferred,
+    latestCleanupCompleted: overview.m11PilotRuns[0]?.recovery?.cleanupCompleted,
     processBoundaryInvoked: overview.m11PilotRuns.some((run) => run.processBoundaryInvoked),
     externalProcessStarted: overview.m11PilotRuns.some((run) => run.externalProcessStarted),
   });
@@ -3137,6 +3159,10 @@ function renderReadOnlyDashboardView(
               <span>{m11PilotSummary.latestFailureClassification}</span>
             </li>
             <li>
+              <strong>recovery</strong>
+              <span>{m11PilotSummary.latestRecoveryAction}</span>
+            </li>
+            <li>
               <strong>boundaries</strong>
               <span>
                 process {String(m11PilotSummary.processBoundaryInvoked)}, external{' '}
@@ -3190,6 +3216,36 @@ function renderReadOnlyDashboardView(
             <li>
               <strong>rollback</strong>
               <span>{m11PilotSummary.rollbackSummary}</span>
+            </li>
+          </ul>
+        </Panel>
+        <Panel title="M11 Recovery Handoff">
+          <ul>
+            <li>
+              <strong>cleanup handoffs</strong>
+              <span>{m11PilotSummary.cleanupHandoffCount}</span>
+            </li>
+            <li>
+              <strong>cleanup required</strong>
+              <span>{m11PilotSummary.cleanupRequiredCount}</span>
+            </li>
+            <li>
+              <strong>cleanup approval</strong>
+              <span>{m11PilotSummary.latestCleanupApprovalStatus}</span>
+            </li>
+            <li>
+              <strong>cleanup state</strong>
+              <span>
+                deferred {String(m11PilotSummary.latestCleanupDeferred)}, completed{' '}
+                {String(m11PilotSummary.latestCleanupCompleted)}
+              </span>
+            </li>
+            <li>
+              <strong>write controls</strong>
+              <span>
+                postAllowed {String(m11PilotSummary.supervisorPostAllowed)}, adapterExecute{' '}
+                {String(m11PilotSummary.adapterExecuteAllowed)}
+              </span>
             </li>
           </ul>
         </Panel>

@@ -395,6 +395,23 @@ interface M11PilotRunApiRecord {
   readinessStatus?: string;
   readinessBlockers?: string[];
   failureClassification?: string;
+  recovery?: {
+    recoveryAction?: string;
+    cleanupRequired?: boolean;
+    cleanupDeferred?: boolean;
+    cleanupCompleted?: boolean;
+    cleanupDryRunId?: string;
+    cleanupRunId?: string;
+    cleanupApprovalStatus?: string;
+    cleanupBlockers?: string[];
+    cleanupEvidenceRefIds?: string[];
+    cleanupAuditEventIds?: string[];
+    processBoundaryInvoked?: boolean;
+    externalProcessStarted?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+    summary?: string;
+  };
   worktreeRunId?: string;
   codexStatus?: string;
   verificationStatus?: string;
@@ -2700,6 +2717,10 @@ export async function getM11PilotReadinessForCli(): Promise<Record<string, unkno
     latestReadinessStatus: latest?.readinessStatus ?? 'none',
     latestPrDraftStatus: latest?.prDraftStatus ?? 'none',
     latestFailureClassification: latest?.failureClassification ?? 'none',
+    latestRecoveryAction: latest?.recovery?.recoveryAction ?? 'none',
+    latestCleanupApprovalStatus: latest?.recovery?.cleanupApprovalStatus ?? 'not_requested',
+    latestCleanupDeferred: latest?.recovery?.cleanupDeferred ?? false,
+    latestCleanupCompleted: latest?.recovery?.cleanupCompleted ?? false,
     blockers: latest?.readinessBlockers ?? [],
     codexReadOnlyDryRunOnly: true,
     patchGenerationAllowed: false,
@@ -6824,6 +6845,8 @@ export function formatM11PilotReadinessOutput(
     `latest: ${String(result.latestRunStatus ?? 'none')}`,
     `prDraft: ${String(result.latestPrDraftStatus ?? 'none')}`,
     `failure: ${String(result.latestFailureClassification ?? 'none')}`,
+    `recovery: ${String(result.latestRecoveryAction ?? 'none')}`,
+    `cleanupApproval: ${String(result.latestCleanupApprovalStatus ?? 'not_requested')}`,
     `nextAction: ${String(result.nextAction ?? 'none')}`,
     'codex: read-only dry-run only',
     'patchGenerationAllowed=false',
@@ -6851,7 +6874,9 @@ export function formatM11PilotRunsListOutput(
       (record) =>
         `- ${record.runId ?? 'unknown'} ${record.status ?? 'unknown'} pr=${
           record.prDraftStatus ?? 'unknown'
-        } failure=${record.failureClassification ?? 'none'}`,
+        } failure=${record.failureClassification ?? 'none'} recovery=${
+          record.recovery?.recoveryAction ?? 'none'
+        } cleanup=${record.recovery?.cleanupApprovalStatus ?? 'not_requested'}`,
     ),
     `note: ${String(result.note ?? '')}`,
   ].join('\n');
@@ -6874,6 +6899,10 @@ export function formatM11PilotRunShowOutput(
     `runStatus: ${record?.status ?? 'unknown'}`,
     `prDraft: ${record?.prDraftStatus ?? 'unknown'}`,
     `failure: ${record?.failureClassification ?? 'none'}`,
+    `recovery: ${record?.recovery?.recoveryAction ?? 'none'}`,
+    `cleanupRequired: ${String(record?.recovery?.cleanupRequired ?? record?.cleanupRequired ?? false)}`,
+    `cleanupApproval: ${record?.recovery?.cleanupApprovalStatus ?? 'not_requested'}`,
+    `cleanupDeferred: ${String(record?.recovery?.cleanupDeferred ?? false)}`,
     `readiness: ${record?.readinessStatus ?? 'unknown'}`,
     `evidence: ${record?.evidenceRefIds?.length ?? 0}`,
     `audit: ${record?.auditEventIds?.length ?? 0}`,

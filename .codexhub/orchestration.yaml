@@ -878,6 +878,54 @@ workflows:
       - cliWriteCommand
       - localControlTokenReadByReadOnlyCli
       - adapterExecuteFromUiOrCli
+  m11c.pilot-failure-recovery-projection:
+    risk: high
+    trigger:
+      type: read-only-operator
+      entrypoint: packages/orchestrator-kernel apps/dashboard apps/cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: recovery-contracts
+        package: contracts
+        models:
+          - M11PilotRecoveryProjection
+          - M11PilotCleanupHandoff
+        output: ids-hashes-counts-statuses-summaries
+      - phase: recovery-helper
+        package: orchestrator-kernel
+        maps:
+          - readiness_blocked
+          - approval_blocked
+          - worktree_boundary_failed
+          - codex_failed
+          - nx_failed
+          - projection_degraded
+        cleanupHandoffMetadataOnly: true
+      - phase: supervisor-read-projection
+        routes:
+          - GET /api/pilots/m11/local-runs
+          - GET /api/pilots/m11/local-runs/:id
+        newRoutes: false
+      - phase: dashboard-cli-read-only-view
+        dashboardRoute: '#/pilot'
+        dashboardSection: M11 Recovery Handoff
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+        adapterExecuteAllowed: false
+    forbidden:
+      - newSupervisorRoute
+      - newProcessBoundary
+      - newBrowserBoundary
+      - newElectronBoundary
+      - newMcpExecution
+      - codexWorkspaceWrite
+      - patchGeneration
+      - gitPush
+      - openPullRequest
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
   m10b.approval-decision-history-projection:
     risk: medium
     trigger:

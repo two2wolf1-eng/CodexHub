@@ -908,6 +908,11 @@ describe('orchestrator-kernel M11 production pilot narrow path', () => {
     expect(result.run.pushAllowed).toBe(false);
     expect(result.run.pullRequestOpened).toBe(false);
     expect(result.run.failureSummary.classification).toBe('none');
+    expect(result.recovery.failureClassification).toBe('none');
+    expect(result.recovery.recoveryAction).toBe('review_cleanup_handoff');
+    expect(result.recovery.cleanupHandoff.cleanupRequired).toBe(true);
+    expect(result.recovery.cleanupHandoff.cleanupApprovalStatus).toBe('not_requested');
+    expect(result.recovery.cleanupHandoff.processBoundaryInvoked).toBe(false);
     expect(result.run.gitProcessBoundaryInvoked).toBe(true);
     expect(result.run.codexProcessBoundaryInvoked).toBe(true);
     expect(result.run.nxProcessBoundaryInvoked).toBe(true);
@@ -941,6 +946,9 @@ describe('orchestrator-kernel M11 production pilot narrow path', () => {
     expect(result.run.status).toBe('blocked');
     expect(result.run.readiness.blockers).toContain('worktree_approval_not_store_resolved');
     expect(result.run.failureSummary.classification).toBe('approval_blocked');
+    expect(result.recovery.recoveryAction).toBe('request_worktree_approval');
+    expect(result.recovery.approvalConsumed).toBe(false);
+    expect(result.recovery.cleanupHandoff.cleanupRequired).toBe(false);
     expect(result.run.processBoundaryInvoked).toBe(false);
     expect(result.run.externalProcessStarted).toBe(false);
     expect(result.run.prDraftStatus).toBe('blocked');
@@ -958,9 +966,11 @@ describe('orchestrator-kernel M11 production pilot narrow path', () => {
 
     expect(codexFailed.run.status).toBe('failed');
     expect(codexFailed.run.failureSummary.classification).toBe('codex_failed');
+    expect(codexFailed.recovery.recoveryAction).toBe('review_codex_dry_run');
     expect(codexFailed.run.prDraftStatus).toBe('blocked');
     expect(nxFailed.run.status).toBe('failed');
     expect(nxFailed.run.failureSummary.classification).toBe('nx_failed');
+    expect(nxFailed.recovery.recoveryAction).toBe('review_nx_verification');
     expect(nxFailed.run.prDraftStatus).toBe('blocked');
   });
 });

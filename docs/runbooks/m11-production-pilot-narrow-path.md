@@ -29,6 +29,11 @@ the Dashboard `#/pilot` page and `codexhub pilot m11 readiness --json`. The proj
 required env flags, blocker codes, latest run status, cleanup handoff metadata, and next actions,
 but it cannot approve or execute the pilot.
 
+M11c adds a read-only recovery projection for failed or cleanup-required runs. The projection
+maps the failure classification to a recovery action and shows the governed cleanup handoff
+state. It uses existing M11 GET metadata only and does not create cleanup dry-runs, approvals,
+or runs.
+
 ## Operator Flow
 
 1. Run the readiness view:
@@ -80,6 +85,19 @@ The Dashboard `#/pilot` page is read-only. It displays M11 status, failure class
 - `codex_failed` or `codex_aborted`: leave PR status blocked or `not_ready_no_patch`; no patch should exist.
 - `nx_failed` or `nx_aborted`: inspect verification metadata; do not mark PR ready.
 - `projection_degraded`: keep evidence and audit ids, then inspect the degraded projection source.
+
+M11c recovery actions are:
+
+- `resolve_readiness`: fix readiness blockers before another attempt.
+- `request_worktree_approval`: use the governed approval UX or existing worktree control plane.
+- `inspect_worktree_boundary`: review boundary booleans, evidence ids, and cleanup handoff.
+- `review_codex_dry_run`: inspect Codex read-only dry-run status and evidence ids.
+- `review_nx_verification`: inspect verification status and evidence ids.
+- `inspect_projection_source`: review degraded projection source metadata.
+- `review_cleanup_handoff`: use the governed cleanup control plane when cleanup is required.
+
+The cleanup handoff remains metadata-only: ids, hashes, statuses, counts, evidence ids, and audit ids.
+It does not delete a worktree and does not grant approval.
 
 ## Expected Outcomes
 

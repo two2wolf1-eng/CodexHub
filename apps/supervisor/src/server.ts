@@ -285,6 +285,7 @@ import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer
 import {
   type M11ProductionPilotNarrowPathInput,
   type M9LocalPilotInput,
+  createM11PilotRecoveryProjection,
   type MockDevelopmentOrchestrationResult,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
@@ -10796,12 +10797,36 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   }
 
   function createM11PilotRunResponse(record: M11PilotRun) {
+    const recovery = createM11PilotRecoveryProjection(record);
+
     return {
       runId: record.id,
       status: record.status,
       readinessStatus: record.readiness.status,
       readinessBlockers: record.readiness.blockers,
       failureClassification: record.failureSummary.classification,
+      recovery: {
+        recoveryAction: recovery.recoveryAction,
+        cleanupRequired: recovery.cleanupHandoff.cleanupRequired,
+        cleanupDeferred: recovery.cleanupHandoff.cleanupDeferred,
+        cleanupCompleted: recovery.cleanupHandoff.cleanupCompleted,
+        cleanupDryRunId: recovery.cleanupHandoff.cleanupDryRunId,
+        cleanupRunId: recovery.cleanupHandoff.cleanupRunId,
+        cleanupApprovalStatus: recovery.cleanupHandoff.cleanupApprovalStatus,
+        cleanupBlockers: recovery.cleanupHandoff.cleanupBlockers,
+        cleanupEvidenceRefIds: recovery.cleanupHandoff.cleanupEvidenceRefIds,
+        cleanupAuditEventIds: recovery.cleanupHandoff.cleanupAuditEventIds,
+        cleanupEvidenceCount: recovery.cleanupHandoff.cleanupEvidenceCount,
+        cleanupAuditEventCount: recovery.cleanupHandoff.cleanupAuditEventCount,
+        boundaryReached: recovery.boundaryReached,
+        approvalConsumed: recovery.approvalConsumed,
+        gitProcessBoundaryInvoked: recovery.gitProcessBoundaryInvoked,
+        processBoundaryInvoked: recovery.processBoundaryInvoked,
+        externalProcessStarted: recovery.externalProcessStarted,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: recovery.summary,
+      },
       worktreeRunId: record.worktreeRunId,
       codexStatus: record.codexStatus,
       verificationStatus: record.verificationStatus,

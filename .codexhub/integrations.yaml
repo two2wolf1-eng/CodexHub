@@ -438,6 +438,7 @@ integrations:
       operatorEnablementSections:
         - M11 Safe-Enable Checklist
         - M11 Operator Handoff
+        - M11 Recovery Handoff
       cliCommands:
         - codexhub pilot m11 readiness
         - codexhub pilot m11 runs list
@@ -449,6 +450,15 @@ integrations:
       checklistHelper: createM11PilotEnablementChecklist
       runbookHelper: createM11PilotEnablementRunbookSummary
       output: ids-hashes-counts-statuses-summaries
+      noNewRoutes: true
+      noNewExecutionBoundary: true
+      dashboardWriteUi: false
+      cliWriteCommand: false
+    m11c:
+      stage: pilot-failure-recovery-projection
+      recoveryHelper: createM11PilotRecoveryProjection
+      output: ids-hashes-counts-statuses-summaries-cleanup-handoff
+      cleanupHandoffMetadataOnly: true
       noNewRoutes: true
       noNewExecutionBoundary: true
       dashboardWriteUi: false

@@ -208,8 +208,12 @@ import {
   ApprovalUxTypeSchema,
   M9PilotEvidenceSummarySchema,
   M11PilotEvidenceSummarySchema,
+  M11PilotCleanupApprovalStatusSchema,
+  M11PilotCleanupHandoffSchema,
   M11PilotFailureSummarySchema,
   M11PilotReadinessSchema,
+  M11PilotRecoveryActionSchema,
+  M11PilotRecoveryProjectionSchema,
   M11PilotRunSchema,
   M11PilotStepSchema,
   M10PilotChecklistSchema,
@@ -2916,6 +2920,57 @@ describe('contracts schemas', () => {
       bodyStored: false,
       summary: 'M11 pilot has no failure.',
     });
+    expect(M11PilotRecoveryActionSchema.options).toContain('review_cleanup_handoff');
+    expect(M11PilotCleanupApprovalStatusSchema.options).toContain('not_requested');
+    const cleanupHandoff = M11PilotCleanupHandoffSchema.parse({
+      id: 'm11_pilot_cleanup_handoff_1',
+      schemaVersion,
+      createdAt,
+      runId: 'm11_pilot_run_1',
+      worktreeRunId: 'worktree_run_1',
+      cleanupRequired: true,
+      cleanupDeferred: true,
+      cleanupCompleted: false,
+      cleanupDryRunId: 'worktree_cleanup_dry_run_1',
+      cleanupApprovalStatus: 'requested',
+      cleanupBlockers: ['cleanup_approval_pending'],
+      cleanupEvidenceRefIds: ['evidence_cleanup_1'],
+      cleanupAuditEventIds: ['audit_cleanup_1'],
+      cleanupEvidenceCount: 1,
+      cleanupAuditEventCount: 1,
+      worktreePathHash: 'sha256:worktree-path',
+      gitProcessBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 cleanup handoff records only ids and hashes.',
+    });
+    const recovery = M11PilotRecoveryProjectionSchema.parse({
+      id: 'm11_pilot_recovery_projection_1',
+      schemaVersion,
+      createdAt,
+      runId: 'm11_pilot_run_1',
+      status: 'passed',
+      failureClassification: 'none',
+      recoveryAction: 'review_cleanup_handoff',
+      cleanupHandoff,
+      evidenceRefIds: ['evidence_codex_1'],
+      auditEventIds: ['audit_codex_1'],
+      evidenceCount: 1,
+      auditEventCount: 1,
+      boundaryReached: true,
+      approvalConsumed: true,
+      gitProcessBoundaryInvoked: true,
+      codexProcessBoundaryInvoked: true,
+      nxProcessBoundaryInvoked: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      localControlRequired: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'M11 recovery projection points at cleanup handoff metadata.',
+    });
     const run = M11PilotRunSchema.parse({
       id: 'm11_pilot_run_1',
       schemaVersion,
@@ -2949,12 +3004,20 @@ describe('contracts schemas', () => {
     });
 
     const serialized = JSON.stringify(run);
+    const recoverySerialized = JSON.stringify(recovery);
     expect(run.prDraftStatus).toBe('not_ready_no_patch');
+    expect(recovery.recoveryAction).toBe('review_cleanup_handoff');
+    expect(recovery.cleanupHandoff.cleanupApprovalStatus).toBe('requested');
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('C:/');
     expect(serialized).not.toContain('stdout');
     expect(serialized).not.toContain('stderr');
     expect(serialized).not.toContain('raw prompt body');
+    expect(recoverySerialized).not.toContain('diff --git');
+    expect(recoverySerialized).not.toContain('C:/');
+    expect(recoverySerialized).not.toContain('stdout');
+    expect(recoverySerialized).not.toContain('stderr');
+    expect(recoverySerialized).not.toContain('raw prompt body');
     expect(() =>
       M11PilotRunSchema.parse({
         ...run,
@@ -2967,6 +3030,13 @@ describe('contracts schemas', () => {
         ...run,
         id: 'm11_pilot_run_bad_metadata',
         metadata: { localControlKey: 'secret', prompt: 'raw prompt body' },
+      }),
+    ).toThrow();
+    expect(() =>
+      M11PilotRecoveryProjectionSchema.parse({
+        ...recovery,
+        id: 'm11_pilot_recovery_bad_metadata',
+        metadata: { path: 'C:/repo/worktree', diff: 'diff --git' },
       }),
     ).toThrow();
   });

@@ -511,6 +511,15 @@ describe('cli development mock-run fallback', () => {
             readinessBlockers: ['worktree_approval_artifact_id_required'],
             prDraftStatus: 'blocked',
             failureClassification: 'approval_blocked',
+            recovery: {
+              recoveryAction: 'request_worktree_approval',
+              cleanupRequired: false,
+              cleanupDeferred: false,
+              cleanupCompleted: false,
+              cleanupApprovalStatus: 'not_requested',
+              rawPathStored: false,
+              bodyStored: false,
+            },
             evidenceRefIds: ['evidence_m11_1'],
             auditEventIds: ['audit_m11_1'],
             codexReadOnlyDryRunOnly: true,
@@ -535,6 +544,15 @@ describe('cli development mock-run fallback', () => {
                 readinessBlockers: ['worktree_approval_artifact_id_required'],
                 prDraftStatus: 'blocked',
                 failureClassification: 'approval_blocked',
+                recovery: {
+                  recoveryAction: 'request_worktree_approval',
+                  cleanupRequired: false,
+                  cleanupDeferred: false,
+                  cleanupCompleted: false,
+                  cleanupApprovalStatus: 'not_requested',
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
                 evidenceRefIds: ['evidence_m11_1'],
                 auditEventIds: ['audit_m11_1'],
                 codexReadOnlyDryRunOnly: true,
@@ -583,6 +601,8 @@ describe('cli development mock-run fallback', () => {
       enablementStatus: 'blocked',
       latestPrDraftStatus: 'blocked',
       latestFailureClassification: 'approval_blocked',
+      latestRecoveryAction: 'request_worktree_approval',
+      latestCleanupApprovalStatus: 'not_requested',
       codexReadOnlyDryRunOnly: true,
       patchGenerationAllowed: false,
       pushAllowed: false,
@@ -598,6 +618,8 @@ describe('cli development mock-run fallback', () => {
     expect((runs.records as unknown[])).toHaveLength(1);
     expect(detail.status).toBe('found');
     expect(output).toContain('CodexHub M11 pilot readiness');
+    expect(output).toContain('recovery: request_worktree_approval');
+    expect(output).toContain('cleanupApproval: not_requested');
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
     expect(m11CommandSource).not.toContain('.execute(');
     expect(m11CommandSource).not.toContain("method: 'POST'");

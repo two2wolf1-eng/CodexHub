@@ -322,6 +322,12 @@ export interface M11PilotReadOnlySummary {
   latestRunStatus: string;
   latestPrDraftStatus: string;
   latestFailureClassification: string;
+  latestRecoveryAction: string;
+  cleanupRequiredCount: number;
+  cleanupHandoffCount: number;
+  latestCleanupApprovalStatus: string;
+  latestCleanupDeferred: boolean;
+  latestCleanupCompleted: boolean;
   codexReadOnlyDryRunOnly: true;
   patchGenerationAllowed: false;
   pushAllowed: false;
@@ -760,6 +766,11 @@ export function createM11PilotReadOnlySummary(input: {
   approvalInboxItemCount?: number;
   governanceRunCount?: number;
   cleanupRequiredCount?: number;
+  cleanupHandoffCount?: number;
+  latestRecoveryAction?: string;
+  latestCleanupApprovalStatus?: string;
+  latestCleanupDeferred?: boolean;
+  latestCleanupCompleted?: boolean;
   latestRunStatus?: string;
   latestPrDraftStatus?: string;
   latestFailureClassification?: string;
@@ -798,6 +809,12 @@ export function createM11PilotReadOnlySummary(input: {
     latestRunStatus: input.latestRunStatus ?? 'none',
     latestPrDraftStatus: input.latestPrDraftStatus ?? 'none',
     latestFailureClassification: input.latestFailureClassification ?? 'none',
+    latestRecoveryAction: input.latestRecoveryAction ?? 'none',
+    cleanupRequiredCount: input.cleanupRequiredCount ?? 0,
+    cleanupHandoffCount: input.cleanupHandoffCount ?? 0,
+    latestCleanupApprovalStatus: input.latestCleanupApprovalStatus ?? 'not_requested',
+    latestCleanupDeferred: input.latestCleanupDeferred ?? false,
+    latestCleanupCompleted: input.latestCleanupCompleted ?? false,
     codexReadOnlyDryRunOnly: true,
     patchGenerationAllowed: false,
     pushAllowed: false,

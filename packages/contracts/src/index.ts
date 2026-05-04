@@ -2934,6 +2934,31 @@ export type M11PilotFailureClassification = z.infer<
 export const M11PilotPrDraftStatusSchema = z.enum(['not_ready_no_patch', 'blocked']);
 export type M11PilotPrDraftStatus = z.infer<typeof M11PilotPrDraftStatusSchema>;
 
+export const M11PilotRecoveryActionSchema = z.enum([
+  'none',
+  'resolve_readiness',
+  'request_worktree_approval',
+  'inspect_worktree_boundary',
+  'review_codex_dry_run',
+  'review_nx_verification',
+  'inspect_projection_source',
+  'review_cleanup_handoff',
+]);
+export type M11PilotRecoveryAction = z.infer<typeof M11PilotRecoveryActionSchema>;
+
+export const M11PilotCleanupApprovalStatusSchema = z.enum([
+  'not_requested',
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type M11PilotCleanupApprovalStatus = z.infer<
+  typeof M11PilotCleanupApprovalStatusSchema
+>;
+
 const m11PilotForbiddenMetadataKeys = new Set([
   'body',
   'prompt',
@@ -3065,6 +3090,67 @@ export const M11PilotFailureSummarySchema = createdEntityBaseSchema
     rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
   });
 export type M11PilotFailureSummary = z.infer<typeof M11PilotFailureSummarySchema>;
+
+export const M11PilotCleanupHandoffSchema = createdEntityBaseSchema
+  .extend({
+    runId: z.string().min(1),
+    worktreeRunId: z.string().min(1).optional(),
+    cleanupRequired: z.boolean(),
+    cleanupDeferred: z.boolean(),
+    cleanupCompleted: z.boolean(),
+    cleanupDryRunId: z.string().min(1).optional(),
+    cleanupRunId: z.string().min(1).optional(),
+    cleanupApprovalStatus: M11PilotCleanupApprovalStatusSchema,
+    cleanupBlockers: z.array(z.string().min(1)).default([]),
+    cleanupEvidenceRefIds: z.array(z.string().min(1)).default([]),
+    cleanupAuditEventIds: z.array(z.string().min(1)).default([]),
+    cleanupEvidenceCount: z.number().int().nonnegative(),
+    cleanupAuditEventCount: z.number().int().nonnegative(),
+    worktreePathHash: z.string().min(1).optional(),
+    gitProcessBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotCleanupHandoff = z.infer<typeof M11PilotCleanupHandoffSchema>;
+
+export const M11PilotRecoveryProjectionSchema = createdEntityBaseSchema
+  .extend({
+    runId: z.string().min(1),
+    status: M11PilotRunStatusSchema,
+    failureClassification: M11PilotFailureClassificationSchema,
+    failedPhase: z.string().min(1).optional(),
+    recoveryAction: M11PilotRecoveryActionSchema,
+    cleanupHandoff: M11PilotCleanupHandoffSchema,
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    gitProcessBoundaryInvoked: z.boolean(),
+    codexProcessBoundaryInvoked: z.boolean(),
+    nxProcessBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    localControlRequired: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM11PilotRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotRecoveryProjection = z.infer<
+  typeof M11PilotRecoveryProjectionSchema
+>;
 
 export const M11PilotRunSchema = createdEntityBaseSchema
   .extend({

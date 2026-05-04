@@ -3,11 +3,17 @@ import {
   type EvidenceRef,
   type M11PilotEvidenceSummary,
   M11PilotEvidenceSummarySchema,
+  type M11PilotCleanupApprovalStatus,
+  type M11PilotCleanupHandoff,
+  M11PilotCleanupHandoffSchema,
   type M11PilotFailureClassification,
   type M11PilotFailureSummary,
   M11PilotFailureSummarySchema,
   type M11PilotReadiness,
   M11PilotReadinessSchema,
+  type M11PilotRecoveryAction,
+  type M11PilotRecoveryProjection,
+  M11PilotRecoveryProjectionSchema,
   type M11PilotRun,
   M11PilotRunSchema,
   type M11PilotRunStatus,
@@ -35,6 +41,7 @@ export interface M11ProductionPilotNarrowPathInput extends M9LocalPilotInput {
 
 export interface M11ProductionPilotNarrowPathResult {
   run: M11PilotRun;
+  recovery: M11PilotRecoveryProjection;
   worktree?: WorktreeManagerExecuteResult;
   minimalRun?: MinimalOrchestratorRunResult;
   policyDecisions: PolicyDecision[];
@@ -63,9 +70,11 @@ export async function runM11ProductionPilotNarrowPath(
     actor: input.actor ?? 'orchestrator-kernel.m11-pilot',
   });
   const run = createM11Run({ input, m9Result, now });
+  const recovery = createM11PilotRecoveryProjection(run, { now });
 
   return {
     run,
+    recovery,
     worktree: m9Result.worktree,
     minimalRun: m9Result.minimalRun,
     policyDecisions: m9Result.policyDecisions,
@@ -73,6 +82,57 @@ export async function runM11ProductionPilotNarrowPath(
     auditEvents: m9Result.auditEvents,
     m9Result,
   };
+}
+
+export interface M11PilotRecoveryProjectionInput {
+  cleanupDryRunId?: string;
+  cleanupRunId?: string;
+  cleanupApprovalStatus?: M11PilotCleanupApprovalStatus;
+  cleanupBlockers?: readonly string[];
+  cleanupEvidenceRefIds?: readonly string[];
+  cleanupAuditEventIds?: readonly string[];
+  worktreePathHash?: string;
+  cleanupCompleted?: boolean;
+  now?: () => string;
+}
+
+export function createM11PilotRecoveryProjection(
+  run: M11PilotRun,
+  input: M11PilotRecoveryProjectionInput = {},
+): M11PilotRecoveryProjection {
+  const now = input.now ?? foundationTimestamp;
+  const recoveryAction = chooseRecoveryAction(run.failureSummary.classification, run.cleanupRequired);
+  const cleanupHandoff = createCleanupHandoff(run, input, now);
+
+  return M11PilotRecoveryProjectionSchema.parse({
+    id: stableId('m11_pilot_recovery_projection', `${run.id}:${recoveryAction}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    runId: run.id,
+    status: run.status,
+    failureClassification: run.failureSummary.classification,
+    failedPhase: run.failureSummary.failedPhase,
+    recoveryAction,
+    cleanupHandoff,
+    evidenceRefIds: run.evidenceSummary.evidenceRefIds,
+    auditEventIds: run.evidenceSummary.auditEventIds,
+    evidenceCount: run.evidenceSummary.evidenceCount,
+    auditEventCount: run.evidenceSummary.auditEventCount,
+    boundaryReached: run.failureSummary.boundaryReached,
+    approvalConsumed: run.failureSummary.approvalConsumed,
+    gitProcessBoundaryInvoked: run.gitProcessBoundaryInvoked,
+    codexProcessBoundaryInvoked: run.codexProcessBoundaryInvoked,
+    nxProcessBoundaryInvoked: run.nxProcessBoundaryInvoked,
+    processBoundaryInvoked: run.processBoundaryInvoked,
+    externalProcessStarted: run.externalProcessStarted,
+    localControlRequired: true,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      recoveryAction === 'none'
+        ? 'M11 pilot has no recovery action.'
+        : `M11 pilot recovery action is ${recoveryAction}.`,
+  });
 }
 
 function createM11Run(input: {
@@ -135,6 +195,46 @@ function createM11Run(input: {
     summary: `M11 narrow-path pilot ${status}; PR draft remains ${
       status === 'passed' ? 'not_ready_no_patch' : 'blocked'
     } because Codex is read-only/dry-run only.`,
+  });
+}
+
+function createCleanupHandoff(
+  run: M11PilotRun,
+  input: M11PilotRecoveryProjectionInput,
+  now: () => string,
+): M11PilotCleanupHandoff {
+  const cleanupEvidenceRefIds = [...(input.cleanupEvidenceRefIds ?? [])];
+  const cleanupAuditEventIds = [...(input.cleanupAuditEventIds ?? [])];
+  const cleanupApprovalStatus = input.cleanupApprovalStatus ?? 'not_requested';
+
+  return M11PilotCleanupHandoffSchema.parse({
+    id: stableId('m11_pilot_cleanup_handoff', `${run.id}:${cleanupApprovalStatus}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    runId: run.id,
+    worktreeRunId: run.worktreeRunId,
+    cleanupRequired: run.cleanupRequired,
+    cleanupDeferred: run.cleanupRequired && input.cleanupCompleted !== true,
+    cleanupCompleted: input.cleanupCompleted ?? false,
+    cleanupDryRunId: input.cleanupDryRunId,
+    cleanupRunId: input.cleanupRunId,
+    cleanupApprovalStatus,
+    cleanupBlockers:
+      input.cleanupBlockers ??
+      (run.cleanupRequired ? ['cleanup_dry_run_and_approval_required'] : []),
+    cleanupEvidenceRefIds,
+    cleanupAuditEventIds,
+    cleanupEvidenceCount: cleanupEvidenceRefIds.length,
+    cleanupAuditEventCount: cleanupAuditEventIds.length,
+    worktreePathHash: input.worktreePathHash,
+    gitProcessBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: run.cleanupRequired
+      ? 'M11 pilot cleanup remains deferred to the governed worktree cleanup control plane.'
+      : 'M11 pilot has no cleanup handoff requirement.',
   });
 }
 
@@ -293,6 +393,37 @@ function classifyFailure(input: {
   }
 
   return 'projection_degraded';
+}
+
+function chooseRecoveryAction(
+  classification: M11PilotFailureClassification,
+  cleanupRequired: boolean,
+): M11PilotRecoveryAction {
+  if (classification === 'none') {
+    return cleanupRequired ? 'review_cleanup_handoff' : 'none';
+  }
+
+  if (classification === 'readiness_blocked') {
+    return 'resolve_readiness';
+  }
+
+  if (classification === 'approval_blocked') {
+    return 'request_worktree_approval';
+  }
+
+  if (classification === 'worktree_boundary_failed') {
+    return 'inspect_worktree_boundary';
+  }
+
+  if (classification === 'codex_failed') {
+    return 'review_codex_dry_run';
+  }
+
+  if (classification === 'nx_failed') {
+    return 'review_nx_verification';
+  }
+
+  return 'inspect_projection_source';
 }
 
 function stableHash(value: string): string {

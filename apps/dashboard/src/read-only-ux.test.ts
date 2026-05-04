@@ -367,6 +367,12 @@ describe('dashboard read-only UX helpers', () => {
       latestRunStatus: 'blocked',
       latestPrDraftStatus: 'blocked',
       latestFailureClassification: 'approval_blocked',
+      latestRecoveryAction: 'request_worktree_approval',
+      cleanupRequiredCount: 1,
+      cleanupHandoffCount: 1,
+      latestCleanupApprovalStatus: 'not_requested',
+      latestCleanupDeferred: true,
+      latestCleanupCompleted: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
     });
@@ -381,6 +387,11 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.steps.length).toBeGreaterThan(0);
     expect(summary.nextAction).toContain('Resolve M11 enablement blockers');
     expect(summary.latestPrDraftStatus).toBe('blocked');
+    expect(summary.latestRecoveryAction).toBe('request_worktree_approval');
+    expect(summary.cleanupHandoffCount).toBe(1);
+    expect(summary.latestCleanupApprovalStatus).toBe('not_requested');
+    expect(summary.latestCleanupDeferred).toBe(true);
+    expect(summary.latestCleanupCompleted).toBe(false);
     expect(summary.codexReadOnlyDryRunOnly).toBe(true);
     expect(summary.patchGenerationAllowed).toBe(false);
     expect(summary.pushAllowed).toBe(false);

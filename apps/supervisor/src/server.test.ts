@@ -1316,6 +1316,15 @@ describe('supervisor mock development API', () => {
       externalProcessStarted: false,
       rawPathStored: false,
       bodyStored: false,
+      recovery: {
+        recoveryAction: 'request_worktree_approval',
+        cleanupRequired: false,
+        cleanupApprovalStatus: 'not_requested',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+      },
     });
     expect(blockedRunResponse.json().readinessBlockers).toContain(
       'worktree_approval_artifact_id_required',
