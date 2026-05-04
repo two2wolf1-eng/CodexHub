@@ -14,6 +14,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  GithubMetadataApprovalArtifactRecord,
+  GithubMetadataControlPlaneRun,
+  GithubMetadataDryRunRecord,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -85,6 +88,10 @@ import type {
   ElectronCdpObservationDryRunRepository,
   ElectronCdpObservationQuery,
   ElectronCdpObservationRunRepository,
+  GithubMetadataApprovalRepository,
+  GithubMetadataControlPlaneQuery,
+  GithubMetadataDryRunRepository,
+  GithubMetadataRunRepository,
   WorktreeApprovalRepository,
   WorktreeCleanupApprovalRepository,
   WorktreeCleanupDryRunRepository,
@@ -176,6 +183,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly releaseCandidateDryRuns: ReleaseCandidateDryRunRepository;
   readonly releaseCandidateApprovals: ReleaseCandidateApprovalRepository;
   readonly releaseCandidateRuns: ReleaseCandidateRunRepository;
+  readonly githubMetadataDryRuns: GithubMetadataDryRunRepository;
+  readonly githubMetadataApprovals: GithubMetadataApprovalRepository;
+  readonly githubMetadataRuns: GithubMetadataRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -227,6 +237,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.releaseCandidateDryRuns = new SqliteReleaseCandidateDryRunRepository(database);
     this.releaseCandidateApprovals = new SqliteReleaseCandidateApprovalRepository(database);
     this.releaseCandidateRuns = new SqliteReleaseCandidateRunRepository(database);
+    this.githubMetadataDryRuns = new SqliteGithubMetadataDryRunRepository(database);
+    this.githubMetadataApprovals = new SqliteGithubMetadataApprovalRepository(database);
+    this.githubMetadataRuns = new SqliteGithubMetadataRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -1136,6 +1149,110 @@ class SqliteReleaseCandidateRunRepository implements ReleaseCandidateRunReposito
     return listObservationControlPlaneRecords<LocalRcBundleControlPlaneRun>(
       this.database,
       'release_candidate_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubMetadataDryRunRepository implements GithubMetadataDryRunRepository {
+  private readonly repository: JsonEntityRepository<GithubMetadataDryRunRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubMetadataDryRunRecord>(
+      database,
+      'github_metadata_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubMetadataDryRunRecord): Promise<GithubMetadataDryRunRecord> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubMetadataDryRunRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubMetadataControlPlaneQuery = {},
+  ): Promise<GithubMetadataDryRunRecord[]> {
+    return listObservationControlPlaneRecords<GithubMetadataDryRunRecord>(
+      this.database,
+      'github_metadata_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubMetadataApprovalRepository implements GithubMetadataApprovalRepository {
+  private readonly repository: JsonEntityRepository<GithubMetadataApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubMetadataApprovalArtifactRecord>(
+      database,
+      'github_metadata_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubMetadataApprovalArtifactRecord,
+  ): Promise<GithubMetadataApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<GithubMetadataApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubMetadataApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM github_metadata_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubMetadataApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubMetadataControlPlaneQuery = {},
+  ): Promise<GithubMetadataApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<GithubMetadataApprovalArtifactRecord>(
+      this.database,
+      'github_metadata_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubMetadataRunRepository implements GithubMetadataRunRepository {
+  private readonly repository: JsonEntityRepository<GithubMetadataControlPlaneRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubMetadataControlPlaneRun>(
+      database,
+      'github_metadata_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubMetadataControlPlaneRun): Promise<GithubMetadataControlPlaneRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubMetadataControlPlaneRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubMetadataControlPlaneQuery = {},
+  ): Promise<GithubMetadataControlPlaneRun[]> {
+    return listObservationControlPlaneRecords<GithubMetadataControlPlaneRun>(
+      this.database,
+      'github_metadata_runs',
       query,
     );
   }
@@ -2136,6 +2253,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS release_candidate_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_metadata_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_metadata_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_metadata_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

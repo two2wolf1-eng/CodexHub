@@ -7,6 +7,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  GithubMetadataApprovalArtifactRecord,
+  GithubMetadataControlPlaneRun,
+  GithubMetadataDryRunRecord,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -85,6 +88,7 @@ export interface WorktreeControlPlaneQuery {
 
 export type ReviewPackageControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReleaseCandidateControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubMetadataControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -302,6 +306,31 @@ export interface ReleaseCandidateRunRepository {
   listRuns(query?: ReleaseCandidateControlPlaneQuery): Promise<LocalRcBundleControlPlaneRun[]>;
 }
 
+export interface GithubMetadataDryRunRepository {
+  saveDryRun(record: GithubMetadataDryRunRecord): Promise<GithubMetadataDryRunRecord>;
+  getDryRun(id: string): Promise<GithubMetadataDryRunRecord | undefined>;
+  listDryRuns(query?: GithubMetadataControlPlaneQuery): Promise<GithubMetadataDryRunRecord[]>;
+}
+
+export interface GithubMetadataApprovalRepository {
+  saveApproval(
+    record: GithubMetadataApprovalArtifactRecord,
+  ): Promise<GithubMetadataApprovalArtifactRecord>;
+  getApproval(id: string): Promise<GithubMetadataApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubMetadataApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: GithubMetadataControlPlaneQuery,
+  ): Promise<GithubMetadataApprovalArtifactRecord[]>;
+}
+
+export interface GithubMetadataRunRepository {
+  saveRun(record: GithubMetadataControlPlaneRun): Promise<GithubMetadataControlPlaneRun>;
+  getRun(id: string): Promise<GithubMetadataControlPlaneRun | undefined>;
+  listRuns(query?: GithubMetadataControlPlaneQuery): Promise<GithubMetadataControlPlaneRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -494,6 +523,9 @@ export interface CodexHubStore {
   releaseCandidateDryRuns: ReleaseCandidateDryRunRepository;
   releaseCandidateApprovals: ReleaseCandidateApprovalRepository;
   releaseCandidateRuns: ReleaseCandidateRunRepository;
+  githubMetadataDryRuns: GithubMetadataDryRunRepository;
+  githubMetadataApprovals: GithubMetadataApprovalRepository;
+  githubMetadataRuns: GithubMetadataRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

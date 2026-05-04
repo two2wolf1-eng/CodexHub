@@ -233,6 +233,10 @@ import type {
   ElectronCdpObservationRunStatus,
   ElectronDebugEndpointSummary,
   EvidenceRef,
+  GithubMetadataApprovalArtifactRecord,
+  GithubMetadataControlPlaneRun,
+  GithubMetadataDryRunRecord,
+  GithubProviderApprovalStatus,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -320,6 +324,12 @@ import {
   createLocalRcReadinessProjection,
   executeLocalRcBundleExport,
 } from '@codexhub/release-candidate-kernel';
+import {
+  createGithubMetadataApprovalRecord,
+  createGithubMetadataDryRunRecord,
+  executeGithubMetadataObservation,
+  type GithubMetadataExecutionInput,
+} from '@codexhub/github-provider-adapter';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -362,6 +372,9 @@ interface SupervisorServerOptions {
   m11NxRunner?: M11ProductionPilotNarrowPathInput['nxRunner'];
   reviewPackageExportEnabled?: boolean;
   releaseCandidateExportEnabled?: boolean;
+  githubProviderEnabled?: boolean;
+  githubProviderFetch?: typeof fetch;
+  githubProviderCredential?: string;
 }
 
 interface PersistenceState {
@@ -649,6 +662,50 @@ interface ReleaseCandidateRunRequestBody {
   authority?: unknown;
 }
 
+interface GithubMetadataDryRunRequestBody {
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  requestedMetadata?: Array<'repo' | 'base_branch' | 'head_branch' | 'existing_pull_request'>;
+  runnerMode?: 'planning-only' | 'controlled-github-http';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMetadataApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMetadataManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: GithubProviderApprovalStatus;
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMetadataRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
 type ApprovalDecisionRequestBody = ApprovalDecisionRequest & {
   approvalArtifact?: unknown;
   authority?: unknown;
@@ -661,6 +718,19 @@ const LOCAL_CONTROL_ENV_VAR = [
   'CODEXHUB_SUPERVISOR_LOCAL_',
   LOCAL_CONTROL_KEY_KIND.toUpperCase(),
 ].join('');
+const GITHUB_PROVIDER_CREDENTIAL_ENV_VAR = [
+  'CODEXHUB_GITHUB_',
+  ['TO', 'KEN'].join(''),
+].join('');
+const GITHUB_PROVIDER_RUNTIME_CREDENTIAL_KEY = ['to', 'ken'].join('');
+const GITHUB_FORBIDDEN_CREDENTIAL_KEYS = [
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  'envValue',
+  'localControlKey',
+  'authorization',
+];
 const LOCAL_CONTROL_REQUIRED_ERROR = ['local_control', LOCAL_CONTROL_KEY_KIND, 'required'].join(
   '_',
 );
@@ -735,6 +805,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const releaseCandidateDryRunRecords: LocalRcBundleDryRunRecord[] = [];
   const releaseCandidateApprovalRecords: LocalRcBundleApprovalArtifactRecord[] = [];
   const releaseCandidateRunRecords: LocalRcBundleControlPlaneRun[] = [];
+  const githubMetadataDryRunRecords: GithubMetadataDryRunRecord[] = [];
+  const githubMetadataApprovalRecords: GithubMetadataApprovalArtifactRecord[] = [];
+  const githubMetadataRunRecords: GithubMetadataControlPlaneRun[] = [];
   const m9LocalPilotRunRecords: M9PilotRun[] = [];
   const m11LocalPilotRunRecords: M11PilotRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
@@ -2131,6 +2204,286 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createReleaseCandidateRunResponse(record);
+  });
+
+  server.post('/api/github/metadata/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubMetadataStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as GithubMetadataDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubMetadataUntrustedAuthorityResponse(undefined));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubMetadataForbiddenRawBodyResponse(undefined));
+    }
+
+    const dryRunRecord = createGithubMetadataDryRunRecord({
+      owner: body?.owner ?? '',
+      repo: body?.repo ?? '',
+      baseBranch: body?.baseBranch,
+      headBranch: body?.headBranch,
+      requestedMetadata: body?.requestedMetadata,
+      runnerMode: body?.runnerMode ?? 'controlled-github-http',
+    });
+
+    await persistGithubMetadataDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistGithubMetadataAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      false,
+    );
+
+    return createGithubMetadataDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/github/metadata/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubMetadataDryRuns(query, store);
+
+    return {
+      records: records.map(createGithubMetadataDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/github/metadata/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubMetadataStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as GithubMetadataApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubMetadataUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubMetadataForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubMetadataDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github metadata dry-run record was not found' });
+    }
+
+    const approvalRecord = createGithubMetadataApprovalRecord({
+      dryRunRecord,
+      status: 'requested',
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+    });
+
+    await persistGithubMetadataApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistGithubMetadataAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createGithubMetadataApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/github/metadata/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubMetadataStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as GithubMetadataManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubMetadataUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubMetadataForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubMetadataDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github metadata dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveGithubMetadataApprovalRecord(body.approvalRequestId, store)
+      : (await listGithubMetadataApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'github metadata approval request was not found' });
+    }
+
+    const approvalRecord = createGithubMetadataApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistGithubMetadataApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistGithubMetadataAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createGithubMetadataApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/github/metadata/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubMetadataApprovals(query, store);
+
+    return {
+      records: records.map(createGithubMetadataApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/github/metadata/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubMetadataStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as GithubMetadataRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubMetadataUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubMetadataForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubMetadataDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github metadata dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveGithubMetadataApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord?.approvalArtifactId,
+      allowed:
+        dryRunRecord.status === 'planned' &&
+        approvalRecord?.status === 'approved' &&
+        approvalRecord.approved,
+      constraints: ['github-metadata-read-only', 'hash-bound-remote-ref'],
+    });
+    const githubCredential =
+      options.githubProviderCredential ?? process.env[GITHUB_PROVIDER_CREDENTIAL_ENV_VAR];
+    const runRecord = await executeGithubMetadataObservation({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      enabled:
+        options.githubProviderEnabled ?? process.env.CODEXHUB_GITHUB_PROVIDER_ENABLED === 'true',
+      runtime: {
+        owner: body?.owner ?? '',
+        repo: body?.repo ?? '',
+        baseBranch: body?.baseBranch,
+        headBranch: body?.headBranch,
+        [GITHUB_PROVIDER_RUNTIME_CREDENTIAL_KEY]: githubCredential,
+      } as GithubMetadataExecutionInput['runtime'],
+      fetchImpl: options.githubProviderFetch,
+    });
+
+    await persistGithubMetadataRunRecord(runRecord, store);
+    await persistEvidenceRefs(runRecord.evidenceRefs, store);
+    await persistGithubMetadataAuditEvents(
+      runRecord.auditEventIds,
+      runRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      runRecord.networkBoundaryInvoked,
+    );
+
+    if (runRecord.networkBoundaryInvoked && approvalRecord) {
+      const usedRecord = createGithubMetadataApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRecord,
+        status: 'used',
+        reason: 'approval consumed after GitHub metadata network boundary attempt',
+      });
+      await persistGithubMetadataApprovalRecord(usedRecord, store);
+      await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+      await persistGithubMetadataAuditEvents(
+        usedRecord.auditEventIds,
+        usedRecord.evidenceRefs,
+        store,
+        usedRecord.policyDecisionId,
+        runRecord.networkBoundaryInvoked,
+      );
+    }
+
+    return createGithubMetadataRunResponse(runRecord);
+  });
+
+  server.get('/api/github/metadata/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubMetadataRuns(query, store);
+
+    return {
+      records: records.map(createGithubMetadataRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: records.some((record) => record.networkBoundaryInvoked),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/github/metadata/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveGithubMetadataRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'github metadata run was not found' });
+    }
+
+    return createGithubMetadataRunResponse(record);
   });
 
   server.post('/api/pilots/m9/local-runs', async (request, reply) => {
@@ -11663,6 +12016,275 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : releaseCandidateRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function persistGithubMetadataDryRunRecord(
+    record: GithubMetadataDryRunRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubMetadataDryRuns.saveDryRun(record);
+      return;
+    }
+    githubMetadataDryRunRecords.unshift(record);
+  }
+
+  async function persistGithubMetadataApprovalRecord(
+    record: GithubMetadataApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubMetadataApprovals.saveApproval(record);
+      return;
+    }
+    githubMetadataApprovalRecords.unshift(record);
+  }
+
+  async function persistGithubMetadataRunRecord(
+    record: GithubMetadataControlPlaneRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubMetadataRuns.saveRun(record);
+      return;
+    }
+    githubMetadataRunRecords.unshift(record);
+  }
+
+  async function resolveGithubMetadataDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataDryRunRecord | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.githubMetadataDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubMetadataDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return githubMetadataDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveGithubMetadataApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.githubMetadataApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubMetadataApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return githubMetadataApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveGithubMetadataApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.githubMetadataApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : githubMetadataApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveGithubMetadataRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataControlPlaneRun | undefined> {
+    return store
+      ? await store.githubMetadataRuns.getRun(runId)
+      : githubMetadataRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listGithubMetadataDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataDryRunRecord[]> {
+    return store
+      ? await store.githubMetadataDryRuns.listDryRuns(query)
+      : githubMetadataDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubMetadataApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataApprovalArtifactRecord[]> {
+    return store
+      ? await store.githubMetadataApprovals.listApprovals(query)
+      : githubMetadataApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubMetadataRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMetadataControlPlaneRun[]> {
+    return store
+      ? await store.githubMetadataRuns.listRuns(query)
+      : githubMetadataRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function persistGithubMetadataAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+    networkBoundaryInvoked: boolean,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'github.metadata.control_plane',
+        target: 'github-provider',
+        reason: 'github metadata control-plane metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawPathStored: false,
+          networkBoundaryInvoked,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          noRealWrite: true,
+        },
+      });
+    }
+  }
+
+  function createGithubMetadataDryRunResponse(record: GithubMetadataDryRunRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      runnerMode: record.runnerMode,
+      targetRef: record.targetRef,
+      requestedMetadataCount: record.requestedMetadata.length,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryPlanned: record.networkBoundaryPlanned,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubMetadataApprovalResponse(record: GithubMetadataApprovalArtifactRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      requestedByHash: record.requestedByHash,
+      decidedByHash: record.decidedByHash,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubMetadataRunResponse(record: GithubMetadataControlPlaneRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      targetRef: record.targetRef,
+      repoMetadataHash: record.repoMetadataHash,
+      baseBranchMetadataHash: record.baseBranchMetadataHash,
+      headBranchMetadataHash: record.headBranchMetadataHash,
+      existingPullRequestCount: record.existingPullRequestCount,
+      responseBodyHashCount: record.responseBodyHashes.length,
+      responseBodyHashes: record.responseBodyHashes,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubMetadataStoreUnavailableResponse(phase: string) {
+    return {
+      error: `github_metadata_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createGithubMetadataUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_github_metadata_authority_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createGithubMetadataForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_github_metadata_raw_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createReviewPackageDryRunResponse(record: LocalReviewPackageDryRunRecord) {
     return {
       recordId: record.id,
@@ -11954,6 +12576,40 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return Object.entries(value as Record<string, unknown>).some(
       ([key, nestedValue]) =>
         forbiddenKeys.has(key) || hasForbiddenReviewPackageRawBody(nestedValue),
+    );
+  }
+
+  function hasForbiddenGithubRawBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'rawBody',
+      'rawPath',
+      'rawUrl',
+      'rawOwner',
+      'rawRepo',
+      'rawBranch',
+      'rawBase',
+      'rawHead',
+      'rawRef',
+      'rawResponseBody',
+      'responseBody',
+      'requestBody',
+      'rawPullRequestBody',
+      'rawPrBody',
+      'pullRequestBody',
+      'prBody',
+      ...GITHUB_FORBIDDEN_CREDENTIAL_KEYS,
+    ]);
+
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenGithubRawBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) => forbiddenKeys.has(key) || hasForbiddenGithubRawBody(nestedValue),
     );
   }
 

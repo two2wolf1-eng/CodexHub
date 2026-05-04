@@ -284,13 +284,13 @@ integrations:
     adapter: github-provider-adapter
     provider: github
     providerType: external-network
-    mode: metadata-readiness
-    stage: m15a-github-provider-foundation
+    mode: governed-read-only-metadata-control-plane
+    stage: m15b-governed-github-metadata-control-plane
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
     externalProcessBoundary: false
-    networkBoundary: planned-governed-only
+    networkBoundary: controlled-github-http-disabled-by-default
     token:
       env: CODEXHUB_GITHUB_TOKEN
       output: configured-hash-only
@@ -310,6 +310,17 @@ integrations:
       requestBodyApprovalArtifactTrusted: false
       executionAuthorityBodyTrusted: false
       hashBoundRuntimeInputRequired: true
+      metadataRoutes:
+        - POST /api/github/metadata/dry-runs
+        - GET /api/github/metadata/dry-runs
+        - POST /api/github/metadata/approval-requests
+        - POST /api/github/metadata/manual-approvals
+        - GET /api/github/metadata/approvals
+        - POST /api/github/metadata/runs
+        - GET /api/github/metadata/runs
+        - GET /api/github/metadata/runs/:id
+    auditedBoundaryFiles:
+      metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts
     allowedMetadataEndpoints:
       - GET /repos/{owner}/{repo}
       - GET /repos/{owner}/{repo}/branches/{branch}

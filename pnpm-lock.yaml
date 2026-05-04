@@ -232,6 +232,9 @@ importers:
       '@codexhub/electron-cdp-kernel':
         specifier: workspace:*
         version: link:../../packages/electron-cdp-kernel
+      '@codexhub/github-provider-adapter':
+        specifier: workspace:*
+        version: link:../../packages/github-provider-adapter
       '@codexhub/observer-kernel':
         specifier: workspace:*
         version: link:../../packages/observer-kernel

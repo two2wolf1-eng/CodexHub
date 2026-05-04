@@ -1,5 +1,8 @@
 import {
   CapabilityManifestSchema,
+  ExecutionAuthoritySchema,
+  GithubMetadataApprovalArtifactRecordSchema,
+  GithubMetadataControlPlaneRunSchema,
   GithubMetadataDryRunRecordSchema,
   GithubRemoteRefSummarySchema,
   GithubTokenReadinessSchema,
@@ -8,12 +11,20 @@ import {
   foundationId,
   foundationTimestamp,
   type CapabilityManifest,
+  type ExecutionAuthority,
+  type GithubMetadataApprovalArtifactRecord,
+  type GithubMetadataControlPlaneRun,
   type GithubMetadataDryRunRecord,
+  type GithubProviderApprovalStatus,
   type GithubRemoteRefSummary,
   type GithubTokenReadiness,
   type PolicyDecision,
 } from '@codexhub/contracts';
-import { hashText } from '@codexhub/evidence-kernel';
+import { createEvidenceRef, hashText } from '@codexhub/evidence-kernel';
+import {
+  runGithubMetadataHttpBoundary,
+  type GithubHttpBoundaryRequest,
+} from './github-http-boundary';
 
 export const GITHUB_PROVIDER_NAME = 'github-provider';
 export const GITHUB_PROVIDER_ALLOWED_HOST = 'api.github.com';
@@ -30,6 +41,28 @@ export interface GithubRemoteRefInput {
 export interface GithubMetadataPlanInput extends GithubRemoteRefInput {
   requestedMetadata?: Array<'repo' | 'base_branch' | 'head_branch' | 'existing_pull_request'>;
   runnerMode?: 'planning-only' | 'controlled-github-http';
+  now?: () => string;
+}
+
+export interface GithubMetadataApprovalInput {
+  dryRunRecord: GithubMetadataDryRunRecord;
+  baseRecord?: GithubMetadataApprovalArtifactRecord;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface GithubMetadataExecutionInput {
+  dryRunRecord: GithubMetadataDryRunRecord;
+  approvalRecord?: GithubMetadataApprovalArtifactRecord;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
   now?: () => string;
 }
 
@@ -192,7 +225,20 @@ export function createGithubMetadataDryRunRecord(
     blockReasons,
     policyDecision,
     requiresApproval: true,
-    evidenceRefs: [],
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.provider_plan',
+        label: 'github-provider-plan',
+        summary: 'GitHub metadata dry-run stores remote owner/repo/ref hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          ownerHash: targetRef.ownerHash,
+          repoHash: targetRef.repoHash,
+          requestedMetadataCount: requestedMetadata.length,
+        },
+      }),
+    ],
     auditEventIds: [foundationId('audit')],
     networkBoundaryPlanned: status === 'planned' && input.runnerMode === 'controlled-github-http',
     networkBoundaryInvoked: false,
@@ -212,6 +258,147 @@ export function createGithubMetadataDryRunRecord(
       status === 'planned'
         ? 'GitHub metadata dry-run is planned; execution remains disabled until approval and env enablement.'
         : `GitHub metadata dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubMetadataApprovalRecord(
+  input: GithubMetadataApprovalInput,
+): GithubMetadataApprovalArtifactRecord {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_metadata_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_metadata_approval_artifact', input.dryRunRecord.dryRunId);
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.provider_plan',
+      label: 'github-metadata-approval',
+      summary: 'GitHub metadata approval stores approval hashes and ids only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        approvalArtifactIdHash: stableHash(approvalArtifactId),
+        status: input.status,
+      },
+    }),
+  ];
+
+  return GithubMetadataApprovalArtifactRecordSchema.parse({
+    id: stableId(
+      'github_metadata_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt: baseRecord?.expiresAt,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub metadata approval status is ${input.status}.`,
+  });
+}
+
+export async function executeGithubMetadataObservation(
+  input: GithubMetadataExecutionInput,
+): Promise<GithubMetadataControlPlaneRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubMetadataHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        headBranch: boundaryInput.headBranch,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.metadata_summary',
+      label: 'github-metadata-summary',
+      summary: 'GitHub metadata run stores response hashes and counts only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        status,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+        responseBodyHashCount: responseBodyHashes.length,
+        existingPullRequestCount: boundaryResult?.existingPullRequestCount ?? 0,
+      },
+    }),
+  ];
+
+  return GithubMetadataControlPlaneRunSchema.parse({
+    id: stableId(
+      'github_metadata_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+    status,
+    targetRef: input.dryRunRecord.targetRef,
+    repoMetadataHash: boundaryResult?.repoMetadataHash,
+    baseBranchMetadataHash: boundaryResult?.baseBranchMetadataHash,
+    headBranchMetadataHash: boundaryResult?.headBranchMetadataHash,
+    existingPullRequestCount: boundaryResult?.existingPullRequestCount ?? 0,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      responseBodyHashCount: responseBodyHashes.length,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub metadata observation completed with hash-only response summaries.'
+        : `GitHub metadata observation ${status}: ${finalBlockReasons.join(', ')}.`,
   });
 }
 
@@ -236,6 +423,65 @@ function createGithubPolicyDecision(input: {
     requiresDryRun: true,
     requiresApproval: true,
     allow: input.allow,
+  });
+}
+
+function collectExecutionBlockReasons(input: GithubMetadataExecutionInput, nowIso: string): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const reasons = [
+    input.enabled ? undefined : 'github_provider_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.approvalRecord?.status === 'approved' && input.approvalRecord.approved
+      ? undefined
+      : 'missing_persisted_approval',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function matchesRemoteRefSummary(
+  targetRef: GithubRemoteRefSummary,
+  runtime: GithubMetadataExecutionInput['runtime'],
+): boolean {
+  const baseBranchMatches = targetRef.baseBranchHash
+    ? typeof runtime.baseBranch === 'string' &&
+      targetRef.baseBranchHash === stableHash(runtime.baseBranch)
+    : !runtime.baseBranch;
+  const headBranchMatches = targetRef.headBranchHash
+    ? typeof runtime.headBranch === 'string' &&
+      targetRef.headBranchHash === stableHash(runtime.headBranch)
+    : !runtime.headBranch;
+
+  return (
+    targetRef.ownerHash === stableHash(runtime.owner) &&
+    targetRef.repoHash === stableHash(runtime.repo) &&
+    baseBranchMatches &&
+    headBranchMatches
+  );
+}
+
+function createGithubEvidenceRef(input: {
+  kind: 'github.provider_plan' | 'github.metadata_summary' | 'github.token_readiness';
+  label: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+}) {
+  return createEvidenceRef({
+    kind: input.kind,
+    label: input.label,
+    summary: input.summary,
+    metadata: input.metadata,
   });
 }
 

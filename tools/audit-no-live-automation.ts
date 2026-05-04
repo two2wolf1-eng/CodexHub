@@ -43,6 +43,9 @@ const approvedCdpHttpBoundaryFiles = new Set([
 const approvedCdpWebSocketBoundaryFiles = new Set([
   'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
 ]);
+const approvedGithubHttpBoundaryFiles = new Set([
+  'packages/github-provider-adapter/src/github-http-boundary.ts',
+]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
 const liveAutomationModules = ['playwright'];
@@ -76,6 +79,11 @@ const localArtifactWriteTerms = [
   'review-package-summary.md',
   'release-candidate-summary.json',
   'release-candidate-summary.md',
+];
+const githubHttpBoundaryTerms = [
+  'application/vnd.github+json',
+  'x-github-api-version',
+  '/pulls?state=open',
 ];
 const policyTelemetryRuntimeTerms = [
   ['@open', 'telemetry/'].join(''),
@@ -117,6 +125,7 @@ const allTextTerms = [
   ...cdpCommandPassthroughTerms,
   ...gitBoundaryTerms,
   ...localArtifactWriteTerms,
+  ...githubHttpBoundaryTerms,
   ...policyTelemetryRuntimeTerms,
   ...sensitiveConceptTerms,
 ];
@@ -236,6 +245,15 @@ function validateBoundaryAllowlists(): void {
     });
   }
 
+  if (approvedGithubHttpBoundaryFiles.size !== 1) {
+    violations.push({
+      file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
+      line: 1,
+      term: 'approvedGithubHttpBoundaryFiles',
+      reason: 'M15b GitHub provider HTTP metadata observation must have exactly one audited boundary file.',
+    });
+  }
+
   for (const workspacePath of [
     ...approvedProcessBoundaryFiles,
     ...approvedLiveAutomationBoundaryFiles,
@@ -243,6 +261,7 @@ function validateBoundaryAllowlists(): void {
     ...approvedCdpWebSocketBoundaryFiles,
     ...approvedGitBoundaryFiles,
     ...approvedLocalArtifactWriteBoundaryFiles,
+    ...approvedGithubHttpBoundaryFiles,
   ]) {
     if (!existsSync(resolve(workspaceRoot, workspacePath))) {
       violations.push({
@@ -429,6 +448,22 @@ function auditTextTerms(file: string, sourceText: string): void {
       }
     }
 
+    for (const term of githubHttpBoundaryTerms) {
+      if (
+        line.includes(term) &&
+        !isApprovedGithubHttpBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'GitHub HTTP metadata endpoint/header text is allowed only in the audited GitHub provider boundary module, docs, or tests.',
+        });
+      }
+    }
+
     for (const term of policyTelemetryRuntimeTerms) {
       if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
         violations.push({
@@ -577,6 +612,10 @@ function isApprovedGitBoundary(workspacePath: string): boolean {
 
 function isApprovedLocalArtifactWriteBoundary(workspacePath: string): boolean {
   return approvedLocalArtifactWriteBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedGithubHttpBoundary(workspacePath: string): boolean {
+  return approvedGithubHttpBoundaryFiles.has(workspacePath);
 }
 
 function isPolicyTelemetryRuntimeImport(importPath: string): boolean {

@@ -8,6 +8,7 @@
     "codex-kernel",
     "electron-cdp-kernel",
     "electron-cdp-adapter",
+    "github-provider-adapter",
     "observer-kernel",
     "workflow-kernel",
     "orchestrator-kernel",

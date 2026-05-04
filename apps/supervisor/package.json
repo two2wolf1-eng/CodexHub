@@ -10,6 +10,7 @@
     "@codexhub/contracts": "workspace:*",
     "@codexhub/electron-cdp-adapter": "workspace:*",
     "@codexhub/electron-cdp-kernel": "workspace:*",
+    "@codexhub/github-provider-adapter": "workspace:*",
     "@codexhub/observer-kernel": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
     "@codexhub/playwright-observer-adapter": "workspace:*",

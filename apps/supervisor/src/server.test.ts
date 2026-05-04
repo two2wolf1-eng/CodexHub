@@ -5173,3 +5173,255 @@ describe('supervisor local release candidate control plane', () => {
     expect(rawBodyResponse.body).not.toContain('pull request body');
   });
 });
+
+describe('supervisor GitHub metadata control plane', () => {
+  it('requires token/origin gate, persisted approval, and hash-bound metadata runtime input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-metadata-store-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const requestedUrls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      requestedUrls.push(url);
+      const body = url.includes('/pulls?') ? '[{"number":1}]' : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: fetchImpl,
+    });
+
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/dry-runs',
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+      },
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/dry-runs',
+      headers: {
+        ...localControlHeaders,
+        origin: 'https://evil.example',
+      },
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m15',
+        runnerMode: 'controlled-github-http',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'approve metadata observation',
+      },
+    });
+    const approvalRequest = approvalRequestResponse.json();
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequest.approvalRequestId,
+        outcome: 'approved',
+        reason: 'approved for metadata observation',
+      },
+    });
+    const approval = approvalResponse.json();
+    const forbiddenAuthorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        approvalArtifact: approval,
+      },
+    });
+    const forbiddenTokenBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        token: 'ghp_secret',
+      },
+    });
+    const mismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'different',
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m15',
+      },
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/metadata/approvals',
+    });
+    const completed = completedResponse.json();
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.status).toBe('planned');
+    expect(dryRunResponse.body).not.toContain('octo-org');
+    expect(dryRunResponse.body).not.toContain('codex/m15');
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(forbiddenAuthorityResponse.json()).toMatchObject({
+      error: 'untrusted_github_metadata_authority_body',
+      networkBoundaryInvoked: false,
+    });
+    expect(forbiddenTokenBodyResponse.statusCode).toBe(400);
+    expect(forbiddenTokenBodyResponse.json()).toMatchObject({
+      error: 'forbidden_github_metadata_raw_body',
+      networkBoundaryInvoked: false,
+    });
+    expect(mismatchResponse.statusCode).toBe(200);
+    expect(mismatchResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completed.status).toBe('completed');
+    expect(completed.networkBoundaryInvoked).toBe(true);
+    expect(completed.responseBodyHashCount).toBe(4);
+    expect(completed.existingPullRequestCount).toBe(1);
+    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
+      true,
+    );
+    expect(requestedUrls).toEqual([
+      'https://api.github.com/repos/octo-org/codexhub',
+      'https://api.github.com/repos/octo-org/codexhub/branches/main',
+      'https://api.github.com/repos/octo-org/codexhub/branches/codex%2Fm15',
+      'https://api.github.com/repos/octo-org/codexhub/pulls?state=open&base=main&head=octo-org%3Acodex%2Fm15',
+    ]);
+    expect(completedResponse.body).not.toContain('octo-org');
+    expect(completedResponse.body).not.toContain('codex/m15');
+    expect(completedResponse.body).not.toContain('ghp_secret');
+    expect(completedResponse.body).not.toContain('{"ok":true}');
+  });
+
+  it('blocks GitHub metadata execution while the integration is disabled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-metadata-disabled-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    let fetchCalled = false;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: false,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m15',
+        runnerMode: 'controlled-github-http',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/metadata/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m15',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(runResponse.json().blockReasons).toContain('github_provider_disabled');
+    expect(fetchCalled).toBe(false);
+  });
+});

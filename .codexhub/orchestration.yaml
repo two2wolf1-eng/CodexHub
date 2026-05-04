@@ -1903,3 +1903,61 @@ workflows:
       - remoteGitProvider
       - gitPush
       - openPullRequest
+  m15b.governed-github-metadata-control-plane:
+    risk: high
+    trigger:
+      type: supervisor-control-plane
+      entrypoint: apps/supervisor packages/github-provider-adapter
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/github/metadata/dry-runs
+        output: ids-hashes-statuses-only
+        networkBoundaryInvoked: false
+      - phase: approval
+        routes:
+          - POST /api/github/metadata/approval-requests
+          - POST /api/github/metadata/manual-approvals
+        approvalArtifactFromStoreRequired: true
+      - phase: execution
+        route: POST /api/github/metadata/runs
+        boundary: packages/github-provider-adapter/src/github-http-boundary.ts
+        enabledByEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
+        allowedRequests:
+          - GET /repos/{owner}/{repo}
+          - GET /repos/{owner}/{repo}/branches/{branch}
+          - GET /repos/{owner}/{repo}/pulls
+        output: ids-hashes-counts-statuses-evidence-audit-boundaries
+      - phase: read-only-listing
+        routes:
+          - GET /api/github/metadata/dry-runs
+          - GET /api/github/metadata/approvals
+          - GET /api/github/metadata/runs
+          - GET /api/github/metadata/runs/:id
+    safety:
+      productDefaultEnabled: false
+      hostAllowlist:
+        - api.github.com
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      hashBoundRuntimeInputRequired: true
+      rawOwnerStored: false
+      rawRepoStored: false
+      rawBranchStored: false
+      rawUrlStored: false
+      rawRequestBodyStored: false
+      rawResponseBodyStored: false
+      credentialValueStored: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false
+    forbidden:
+      - gitPush
+      - createRef
+      - updateRef
+      - merge
+      - labels
+      - reviewers
+      - comments
+      - arbitraryUrlPassthrough
