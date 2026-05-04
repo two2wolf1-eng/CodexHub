@@ -502,3 +502,72 @@ workflows:
       - otlpNetworkExport
       - opaRuntime
       - cedarRuntime
+  m8a.release-candidate-hardening-baseline:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: docs tools
+      localControlRequired: false
+    chain:
+      - phase: capability-matrix
+        document: docs/releases/m8a-release-candidate-baseline.md
+        covers:
+          - codex-cli
+          - nx-affected
+          - mcp-server
+          - playwright-observer
+          - electron-cdp
+          - worktree-manager
+          - policy-backend
+          - otel-adapter
+      - phase: threat-model
+        document: docs/threat-model/m8a-release-candidate-threat-model.md
+        validates:
+          - authorityProviderSeparation
+          - localControlBoundary
+          - metadataOnlyEvidence
+          - noRuntimeExpansion
+      - phase: operator-runbook
+        documents:
+          - docs/runbooks/m8a-release-candidate-operator-runbook.md
+          - docs/runbooks/m8a-release-candidate-rollback.md
+          - docs/checklists/m8a-operator-readiness-checklist.md
+        validates:
+          - releaseGateCommands
+          - rollbackControls
+          - operatorStopConditions
+      - phase: health-registration
+        tool: tools/scaffold-health.ts
+        validates:
+          - releaseDocsPresent
+          - threatModelPresent
+          - runbookPresent
+          - rollbackPresent
+          - operatorChecklistPresent
+      - phase: release-verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:boundaries
+          - pnpm audit:sqlite-isolation
+          - pnpm audit:no-live-automation
+          - pnpm audit:skills
+          - pnpm verify:foundation
+          - git diff --check
+    forbidden:
+      - newSupervisorRoute
+      - newDashboardWriteUi
+      - newCliWriteCommand
+      - newMcpTool
+      - adapterExecuteFromUiOrCli
+      - newProcessBoundary
+      - newNetworkBoundary
+      - newWebSocketBoundary
+      - browserAct
+      - electronMainInspector
+      - runtimeEvaluate
+      - gitPush
+      - openPullRequest
+      - opaRuntime
+      - cedarRuntime
+      - openTelemetrySdk
+      - otlpNetworkExport

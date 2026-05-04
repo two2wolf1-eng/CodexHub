@@ -56,6 +56,11 @@ const requiredGovernanceFiles = [
   'docs/integration-decisions/0008-minimal-orchestrator.md',
   'docs/integration-decisions/0009-capability-adapter-kernel.md',
   'docs/integration-decisions/0010-worktree-manager.md',
+  'docs/releases/m8a-release-candidate-baseline.md',
+  'docs/threat-model/m8a-release-candidate-threat-model.md',
+  'docs/runbooks/m8a-release-candidate-operator-runbook.md',
+  'docs/runbooks/m8a-release-candidate-rollback.md',
+  'docs/checklists/m8a-operator-readiness-checklist.md',
 ];
 
 const requiredContractExports = [
