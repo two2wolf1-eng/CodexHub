@@ -84,6 +84,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m14-local-release-candidate-results.md',
   'docs/releases/m14.6-local-rc-acceptance.md',
   'docs/releases/m15-github-provider-results.md',
+  'docs/releases/m16-github-draft-pr-results.md',
   'docs/reviews/m8-final-release-audit.md',
   'docs/reviews/m9-approval-ux-hardening.md',
   'docs/reviews/m10-operator-pilot-hardening-review.md',
@@ -92,6 +93,7 @@ const requiredGovernanceFiles = [
   'docs/reviews/m13-review-package-hardening-review.md',
   'docs/reviews/m14-local-rc-hardening-review.md',
   'docs/reviews/m15-github-provider-hardening-review.md',
+  'docs/reviews/m16-github-draft-pr-hardening-review.md',
   'docs/threat-model/m8a-release-candidate-threat-model.md',
   'docs/threat-model/m15-github-provider-threat-model.md',
   'docs/runbooks/m8a-release-candidate-operator-runbook.md',
@@ -100,6 +102,7 @@ const requiredGovernanceFiles = [
   'docs/runbooks/m11-production-pilot-narrow-path.md',
   'docs/runbooks/m14-local-rc-operator-runbook.md',
   'docs/runbooks/m15-github-provider-operator-runbook.md',
+  'docs/runbooks/m16-github-draft-pr-operator-runbook.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
   'docs/checklists/m10-local-pilot-checklist.md',
 ];

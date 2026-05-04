@@ -1,6 +1,6 @@
 # 0011 GitHub Provider
 
-Status: M16d draft PR acceptance rehearsal.
+Status: M16.5 remote PR hardening release audit.
 
 CodexHub integrates GitHub as the first remote provider through a governed adapter. The provider is disabled by default and now supports metadata-only planning, an approval-gated read-only metadata HTTP control plane, Dashboard/CLI read-only views, draft PR readiness planning, an approval-gated existing-branch draft PR creation control plane, read-only Draft PR run projection, and fixture-only Draft PR acceptance rehearsal in the operator surfaces.
 
@@ -30,6 +30,7 @@ Boundary rules:
 - M16d fixture rehearsal: `runGithubDraftPrAcceptanceRehearsal` covers all-pass, token-missing, provider-disabled, approval-blocked, head-branch-missing, existing-pr-found, github-post-failed, and network-timeout scenarios.
 - M16d CLI: `codexhub github draft-prs rehearse --fixture --scenario <name>` returns only scenario, status, readiness status, creation status, counts, and boundary booleans. It does not read local-control keys, send Supervisor POST requests, call the HTTP boundary, or create a remote PR.
 - M16d Dashboard: `#/github` shows a read-only acceptance rehearsal panel. The panel does not accept tokens, does not expose approve/execute controls, and does not invoke the adapter.
+- M16.5 hardening: release evidence is recorded in `docs/releases/m16-github-draft-pr-results.md`, hardening review in `docs/reviews/m16-github-draft-pr-hardening-review.md`, and the operator runbook in `docs/runbooks/m16-github-draft-pr-operator-runbook.md`.
 - Runtime owner/repo/base/head values are transient and must hash-match the persisted dry-run before a request is sent. Public responses expose only ids, hashes, counts, statuses, evidence refs, audit ids, and boundary booleans.
 - Forbidden operations: push, create/update refs, merge, delete, labels, reviewers, comments, milestones, deployments, releases, and non-draft PR creation.
 - Provider cannot grant authority. CodexHub policy, approval, evidence, and audit remain authoritative.

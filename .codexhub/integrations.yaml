@@ -285,7 +285,7 @@ integrations:
     provider: github
     providerType: external-network
     mode: governed-metadata-and-existing-branch-draft-pr
-    stage: m16d-draft-pr-acceptance-rehearsal
+    stage: m16_5-remote-pr-hardening-release-audit
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -412,6 +412,23 @@ integrations:
       localControlKeyRead: false
       adapterExecuteAllowed: false
       output: ids-hashes-counts-statuses-summaries
+    m16_5:
+      stage: remote-pr-hardening-release-audit
+      releaseDocument: docs/releases/m16-github-draft-pr-results.md
+      reviewDocument: docs/reviews/m16-github-draft-pr-hardening-review.md
+      runbookDocument: docs/runbooks/m16-github-draft-pr-operator-runbook.md
+      tokenLeakageRegression: true
+      rawRemoteRefLeakageRegression: true
+      generatedPrBodyHashOnly: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliReadOnlyBoundariesIntact: true
+      noNewSupervisorRoute: true
+      noNewNetworkBoundary: true
+      pushAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false
+      labelsReviewersCommentsAllowed: false
     auditedBoundaryFiles:
       metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts
     allowedMetadataEndpoints:

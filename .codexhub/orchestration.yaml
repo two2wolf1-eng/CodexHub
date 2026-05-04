@@ -2220,3 +2220,44 @@ workflows:
       pushAllowed: false
       createRefAllowed: false
       mergeAllowed: false
+  m16_5.remote-pr-hardening-release-audit:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    chain:
+      - phase: review
+        scope:
+          - github-provider-contracts
+          - github-provider-adapter
+          - github-draft-pr-supervisor-control-plane
+          - dashboard-cli-read-only-ux
+          - no-live-audit
+      - phase: evidence
+        docs:
+          - docs/releases/m16-github-draft-pr-results.md
+          - docs/reviews/m16-github-draft-pr-hardening-review.md
+          - docs/runbooks/m16-github-draft-pr-operator-runbook.md
+      - phase: verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:boundaries
+          - pnpm audit:sqlite-isolation
+          - pnpm audit:no-live-automation
+          - pnpm audit:skills
+          - pnpm verify:foundation
+          - git diff --check
+    safety:
+      newSupervisorRoute: false
+      newNetworkBoundary: false
+      newProcessBoundary: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      createRefAllowed: false
+      mergeAllowed: false
