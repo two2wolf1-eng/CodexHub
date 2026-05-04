@@ -9,6 +9,7 @@ import {
   runMinimalGovernedOrchestration,
   runM6aControlledWorktreePrDraft,
   runM6bGovernedWorktreePrDraft,
+  runGoldenPathRehearsal,
   runGovernedDevelopmentOrchestration,
   runMockDevelopmentOrchestration,
 } from './index';
@@ -41,6 +42,51 @@ describe('orchestrator-kernel mock development orchestration', () => {
     expect(result.evidenceRefs.length).toBe(result.agentRuns.length + 1);
     expect(result.auditEvents.length).toBeGreaterThanOrEqual(result.agentRuns.length + 3);
     expect(result.summary.mockOnly).toBe(true);
+  });
+});
+
+describe('orchestrator-kernel golden path rehearsal', () => {
+  it('passes the fixture-only golden path without raw bodies or live boundaries', () => {
+    const run = runGoldenPathRehearsal({ scenario: 'all-pass' });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('passed');
+    expect(run.prDraftStatus).toBe('ready');
+    expect(run.releaseAuditStatus).toBe('ready');
+    expect(run.steps.map((step) => step.phase)).toEqual([
+      'development-request.fixture',
+      'worktree.fixture',
+      'codex.fixture',
+      'verification.fixture',
+      'pr-draft.fixture',
+      'release-audit.fixture',
+      'telemetry-projection.fixture',
+    ]);
+    expect(run.evidenceBundle.evidenceCount).toBe(7);
+    expect(run.telemetryProjectionHash).toMatch(/^sha256:/);
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(run.externalProcessStarted).toBe(false);
+    expect(run.noRealWrite).toBe(true);
+    expect(run.telemetryAuthoritative).toBe(false);
+    expect(serialized).not.toContain(process.cwd());
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw prompt');
+  });
+
+  it('blocks PR readiness when Codex or Nx fixture verification fails', () => {
+    const codexFailed = runGoldenPathRehearsal({ scenario: 'codex-failed' });
+    const nxFailed = runGoldenPathRehearsal({ scenario: 'nx-failed' });
+
+    expect(codexFailed.status).toBe('failed');
+    expect(codexFailed.prDraftStatus).toBe('blocked');
+    expect(codexFailed.steps.find((step) => step.phase === 'verification.fixture')?.status).toBe(
+      'blocked',
+    );
+    expect(nxFailed.status).toBe('failed');
+    expect(nxFailed.prDraftStatus).toBe('blocked');
+    expect(nxFailed.steps.find((step) => step.phase === 'verification.fixture')?.status).toBe(
+      'failed',
+    );
   });
 });
 

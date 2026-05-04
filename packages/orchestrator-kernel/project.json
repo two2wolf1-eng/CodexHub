@@ -9,6 +9,7 @@
     "workflow-kernel",
     "security-kernel",
     "nx-verification-adapter",
+    "otel-adapter",
     "skill-registry",
     "evidence-kernel",
     "store-core"

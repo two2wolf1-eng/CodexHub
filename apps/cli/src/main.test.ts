@@ -411,6 +411,29 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('session');
   });
 
+  it('runs the golden path rehearsal as fixture-only metadata', async () => {
+    const {
+      formatGoldenPathRehearsalOutput,
+      runGoldenPathRehearsalForCli,
+    } = await import('./main');
+    const passed = runGoldenPathRehearsalForCli({ fixture: true, scenario: 'all-pass' });
+    const failed = runGoldenPathRehearsalForCli({ fixture: true, scenario: 'nx-failed' });
+    const serialized = JSON.stringify({ passed, failed });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.prDraftStatus).toBe('ready');
+    expect(failed.status).toBe('failed');
+    expect(failed.prDraftStatus).toBe('blocked');
+    expect(formatGoldenPathRehearsalOutput(passed)).toContain('CodexHub golden path rehearsal');
+    expect(() => runGoldenPathRehearsalForCli({ fixture: false })).toThrow();
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('token');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
+  });
+
   it('lists Electron CDP observation metadata using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

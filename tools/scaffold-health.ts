@@ -127,6 +127,9 @@ const requiredContractExports = [
   'IntegrationReadinessSummarySchema',
   'ConfigHashSummarySchema',
   'OperatorReadinessReportSchema',
+  'GoldenPathStepSchema',
+  'GoldenPathEvidenceBundleSchema',
+  'GoldenPathRehearsalRunSchema',
 ];
 
 const projects = readNxProjects();

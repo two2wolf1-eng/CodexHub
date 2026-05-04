@@ -382,6 +382,9 @@ importers:
       '@codexhub/nx-verification-adapter':
         specifier: workspace:*
         version: link:../nx-verification-adapter
+      '@codexhub/otel-adapter':
+        specifier: workspace:*
+        version: link:../otel-adapter
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../security-kernel

@@ -193,6 +193,10 @@ import {
   AuditChainProjectionSchema,
   ConfigHashSummarySchema,
   EvidenceBundleProjectionSchema,
+  GoldenPathEvidenceBundleSchema,
+  GoldenPathRehearsalRunSchema,
+  GoldenPathStepSchema,
+  GoldenPathStepStatusSchema,
   GovernanceProjectionSummarySchema,
   IntegrationReadinessSummarySchema,
   OperatorReadinessCheckSchema,
@@ -2284,6 +2288,88 @@ describe('contracts schemas', () => {
         ...check,
         id: 'operator_readiness_check_bad_field',
         rawEnv: 'secret-value',
+      }),
+    ).toThrow();
+  });
+
+  it('parses golden path rehearsal contracts as metadata-only', () => {
+    expect(GoldenPathStepStatusSchema.options).toEqual([
+      'planned',
+      'running',
+      'passed',
+      'ready',
+      'completed',
+      'failed',
+      'blocked',
+      'aborted',
+    ]);
+
+    const step = GoldenPathStepSchema.parse({
+      id: 'golden_path_step_1',
+      schemaVersion,
+      createdAt,
+      phase: 'worktree.fixture',
+      status: 'completed',
+      order: 0,
+      evidenceRefIds: ['evidence_worktree_1'],
+      auditEventIds: ['audit_worktree_1'],
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Worktree fixture completed without raw path storage.',
+    });
+    const evidenceBundle = GoldenPathEvidenceBundleSchema.parse({
+      id: 'golden_path_evidence_bundle_1',
+      schemaVersion,
+      createdAt,
+      rehearsalRunId: 'golden_path_rehearsal_1',
+      evidenceRefIds: step.evidenceRefIds,
+      auditEventIds: step.auditEventIds,
+      evidenceCount: 1,
+      auditEventCount: 1,
+      bundleHash: 'golden:bundle',
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Golden path evidence bundle stores ids and hashes only.',
+    });
+    const run = GoldenPathRehearsalRunSchema.parse({
+      id: 'golden_path_rehearsal_1',
+      schemaVersion,
+      createdAt,
+      status: 'passed',
+      scenario: 'all-pass',
+      requestId: 'development_request_1',
+      requestTitleHash: 'golden:title',
+      requestDescriptionHash: 'golden:description',
+      steps: [step],
+      evidenceBundle,
+      telemetryProjectionHash: 'golden:telemetry',
+      prDraftStatus: 'ready',
+      releaseAuditStatus: 'ready',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceAuditAuthoritative: true,
+      telemetryAuthoritative: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      summary: 'Golden path rehearsal passed with fixture metadata only.',
+    });
+
+    const serialized = JSON.stringify(run);
+    expect(run.steps).toHaveLength(1);
+    expect(run.evidenceBundle.evidenceCount).toBe(1);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(() =>
+      GoldenPathRehearsalRunSchema.parse({
+        ...run,
+        id: 'golden_path_rehearsal_bad_metadata',
+        metadata: { requestBody: 'raw body' },
       }),
     ).toThrow();
   });

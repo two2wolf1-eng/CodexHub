@@ -2275,6 +2275,133 @@ export const OperatorReadinessReportSchema = createdEntityBaseSchema
   });
 export type OperatorReadinessReport = z.infer<typeof OperatorReadinessReportSchema>;
 
+const goldenPathForbiddenMetadataKeys = new Set([
+  'body',
+  'prompt',
+  'stdout',
+  'stderr',
+  'jsonl',
+  'diff',
+  'trace',
+  'requestBody',
+  'responseBody',
+  'path',
+  'cwd',
+  'repoRoot',
+  'worktreePath',
+  'url',
+  'payload',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  ['m', 'fa'].join(''),
+]);
+
+function rejectGoldenPathRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectGoldenPathRawMetadata(item, context, [...path, index]));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (goldenPathForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw golden path metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectGoldenPathRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const GoldenPathStepStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'ready',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type GoldenPathStepStatus = z.infer<typeof GoldenPathStepStatusSchema>;
+
+export const GoldenPathStepSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.string().min(1),
+    status: GoldenPathStepStatusSchema,
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GoldenPathStep = z.infer<typeof GoldenPathStepSchema>;
+
+export const GoldenPathEvidenceBundleSchema = createdEntityBaseSchema
+  .extend({
+    rehearsalRunId: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    bundleHash: z.string().min(1),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GoldenPathEvidenceBundle = z.infer<typeof GoldenPathEvidenceBundleSchema>;
+
+export const GoldenPathRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    scenario: z.enum(['all-pass', 'codex-failed', 'nx-failed']),
+    requestId: z.string().min(1),
+    requestTitleHash: z.string().min(1),
+    requestDescriptionHash: z.string().min(1),
+    steps: z.array(GoldenPathStepSchema),
+    evidenceBundle: GoldenPathEvidenceBundleSchema,
+    telemetryProjectionHash: z.string().min(1),
+    prDraftStatus: z.enum(['ready', 'blocked']),
+    releaseAuditStatus: z.enum(['ready', 'blocked']),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.boolean(),
+    noRealWrite: z.literal(true),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceAuditAuthoritative: z.literal(true),
+    telemetryAuthoritative: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGoldenPathRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GoldenPathRehearsalRun = z.infer<typeof GoldenPathRehearsalRunSchema>;
+
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;
 

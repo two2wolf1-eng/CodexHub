@@ -153,6 +153,7 @@ import type {
 } from '@codexhub/contracts';
 import {
   type MockDevelopmentOrchestrationResult,
+  runGoldenPathRehearsal,
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
 import {
@@ -585,6 +586,21 @@ export function buildProgram(): Command {
     .action(async (name: string, options: JsonCliOptions) => {
       const result = await getOperatorIntegrationReadinessForCli(name);
       console.log(formatOperatorIntegrationReadinessOutput(result, options));
+    });
+
+  const rehearsalCommand = program
+    .command('rehearsal')
+    .description('Fixture-only release rehearsal commands');
+
+  rehearsalCommand
+    .command('golden-path')
+    .requiredOption('--fixture', 'Run the fixture-only golden path rehearsal')
+    .option('--scenario <scenario>', 'Fixture scenario: all-pass, codex-failed, or nx-failed')
+    .option('--json', 'Print full JSON output')
+    .description('Run the metadata-only golden path rehearsal without live adapters')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGoldenPathRehearsalForCli(options);
+      console.log(formatGoldenPathRehearsalOutput(result, options));
     });
 
   const runsCommand = program
@@ -2384,6 +2400,19 @@ export async function getOperatorIntegrationReadinessForCli(
   };
 }
 
+export function runGoldenPathRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGoldenPathRehearsal> {
+  if (!options.fixture) {
+    throw new Error('golden-path rehearsal requires --fixture in M8d');
+  }
+
+  const scenario = normalizeGoldenPathScenario(options.scenario);
+
+  return runGoldenPathRehearsal({ scenario });
+}
+
 export async function listBrowserObservationRuns(): Promise<Record<string, unknown>> {
   try {
     const response = await getSupervisorJson<{
@@ -2907,6 +2936,20 @@ function countConfigEntries(text: string): number {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith('#')).length;
+}
+
+function normalizeGoldenPathScenario(
+  scenario: string | undefined,
+): 'all-pass' | 'codex-failed' | 'nx-failed' {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (scenario === 'codex-failed' || scenario === 'nx-failed') {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported golden path fixture scenario: ${scenario}`);
 }
 
 async function listWorktreeCollection(
@@ -6073,6 +6116,34 @@ export function formatOperatorIntegrationReadinessOutput(
     `blockers: ${integration && integration.blockers.length > 0 ? integration.blockers.join(',') : 'none'}`,
     `bodyStored=${String(result.bodyStored ?? false)}`,
     `rawPathStored=${String(result.rawPathStored ?? false)}`,
+  ].join('\n');
+}
+
+export function formatGoldenPathRehearsalOutput(
+  result: ReturnType<typeof runGoldenPathRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'CodexHub golden path rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.steps.length}`,
+    `evidence: ${result.evidenceBundle.evidenceCount}`,
+    `audit: ${result.evidenceBundle.auditEventCount}`,
+    `prDraftStatus: ${result.prDraftStatus}`,
+    `releaseAuditStatus: ${result.releaseAuditStatus}`,
+    `telemetryProjectionHash: ${result.telemetryProjectionHash}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+    'timeline:',
+    ...result.steps.map((step) => `- ${step.order} ${step.phase} ${step.status}`),
   ].join('\n');
 }
 

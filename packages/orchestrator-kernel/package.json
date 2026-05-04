@@ -16,6 +16,7 @@
     "@codexhub/contracts": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*",
     "@codexhub/nx-verification-adapter": "workspace:*",
+    "@codexhub/otel-adapter": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/skill-registry": "workspace:*",
     "@codexhub/store-core": "workspace:*",
