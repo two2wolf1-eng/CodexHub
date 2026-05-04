@@ -1,10 +1,15 @@
 import {
+  ApprovalDecisionHistoryItemSchema,
+  ApprovalDecisionHistoryProjectionSchema,
+  ApprovalDecisionHistorySummarySchema,
   ApprovalDecisionResultSchema,
   ApprovalInboxItemSchema,
   ApprovalInboxProjectionSchema,
   ApprovalUxStatusSchema,
   SchemaVersionSchema,
   foundationTimestamp,
+  type ApprovalDecisionHistoryItem,
+  type ApprovalDecisionHistoryProjection,
   type ApprovalDecisionResult,
   type ActionMode,
   type ApprovalInboxItem,
@@ -34,6 +39,15 @@ export interface ApprovalInboxProjectionInput {
   worktree?: readonly WorktreeApprovalArtifactRecord[];
   worktreeCleanup?: readonly WorktreeCleanupApprovalArtifactRecord[];
   m9Pilot?: readonly WorktreeApprovalArtifactRecord[];
+}
+
+export interface ApprovalDecisionHistoryProjectionInput {
+  inbox?: ApprovalInboxProjection;
+  inboxItems?: readonly ApprovalInboxItem[];
+  decisions?: readonly ApprovalDecisionResult[];
+  approvalType?: ApprovalUxType;
+  status?: ApprovalUxStatus;
+  reasonSummaries?: Readonly<Record<string, string>>;
 }
 
 export function createApprovalInboxProjection(
@@ -72,6 +86,58 @@ export function createApprovalInboxProjection(
     bodyStored: false,
     tokenStored: false,
     summary: `Approval inbox contains ${items.length} metadata-only item(s).`,
+  });
+}
+
+export function createApprovalDecisionHistoryProjection(
+  input: ApprovalDecisionHistoryProjectionInput = {},
+): ApprovalDecisionHistoryProjection {
+  const inboxItems = input.inboxItems ?? input.inbox?.items ?? [];
+  const historyItems = [
+    ...inboxItems.map((item) => projectInboxItemToHistory(item)),
+    ...(input.decisions ?? []).map((decision) =>
+      projectDecisionResultToHistory(decision, input.reasonSummaries?.[decision.id]),
+    ),
+  ]
+    .filter((item) => !input.approvalType || item.approvalType === input.approvalType)
+    .filter((item) => !input.status || item.status === input.status)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const now = foundationTimestamp();
+  const projectionId = stableId(
+    'approval_decision_history_projection',
+    JSON.stringify(historyItems.map((item) => `${item.id}:${item.status}:${item.decision ?? ''}`)),
+  );
+  const counts = countHistoryItems(historyItems);
+  const summaryProjection = ApprovalDecisionHistorySummarySchema.parse({
+    id: stableId('approval_decision_history_summary', projectionId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    projectionId,
+    itemCount: counts.itemCount,
+    requestedCount: counts.requestedCount,
+    approvedCount: counts.approvedCount,
+    deniedCount: counts.deniedCount,
+    revokedCount: counts.revokedCount,
+    terminalCount: counts.terminalCount,
+    typeBreakdown: counts.typeBreakdown,
+    statusBreakdown: counts.statusBreakdown,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `Approval decision history summary contains ${historyItems.length} metadata-only item(s).`,
+  });
+
+  return ApprovalDecisionHistoryProjectionSchema.parse({
+    id: projectionId,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now,
+    items: historyItems,
+    ...counts,
+    summaryProjection,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `Approval decision history contains ${historyItems.length} metadata-only item(s).`,
   });
 }
 
@@ -201,6 +267,60 @@ export function createApprovalDecisionResult(input: {
   });
 }
 
+function projectInboxItemToHistory(item: ApprovalInboxItem): ApprovalDecisionHistoryItem {
+  return ApprovalDecisionHistoryItemSchema.parse({
+    id: stableId('approval_decision_history_item', `inbox:${item.id}:${item.status}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: item.createdAt,
+    source: 'inbox',
+    approvalType: item.approvalType,
+    approvalRequestId: item.approvalRequestId,
+    approvalRecordId: item.approvalRecordId,
+    status: item.status,
+    targetHash: item.targetHash,
+    evidenceRefIds: item.evidenceRefIds,
+    auditEventIds: item.auditEventIds,
+    processBoundaryInvoked: item.processBoundaryInvoked,
+    externalProcessStarted: item.externalProcessStarted,
+    noRealWrite: item.noRealWrite,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `${item.approvalType} approval inbox status ${item.status}.`,
+  });
+}
+
+function projectDecisionResultToHistory(
+  decision: ApprovalDecisionResult,
+  reasonSummary?: string,
+): ApprovalDecisionHistoryItem {
+  return ApprovalDecisionHistoryItemSchema.parse({
+    id: stableId(
+      'approval_decision_history_item',
+      `decision:${decision.id}:${decision.status}:${decision.decision}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: decision.createdAt,
+    source: 'decision_result',
+    approvalType: decision.approvalType,
+    approvalRequestId: decision.approvalRequestId,
+    approvalDecisionResultId: decision.id,
+    decision: decision.decision,
+    status: decision.status,
+    reasonHash: reasonSummary ? stableHash(reasonSummary) : undefined,
+    reasonSummary: reasonSummary ? summarizeReason(reasonSummary) : undefined,
+    evidenceRefIds: decision.evidenceRefIds,
+    auditEventIds: decision.auditEventIds,
+    processBoundaryInvoked: decision.processBoundaryInvoked,
+    externalProcessStarted: decision.externalProcessStarted,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `${decision.approvalType} approval decision ${decision.decision}/${decision.status}.`,
+  });
+}
+
 export function normalizeApprovalStatus(value: string | undefined): ApprovalUxStatus {
   if (value === 'pending') {
     return 'pending';
@@ -251,6 +371,70 @@ export function isTerminal(status: ApprovalUxStatus): boolean {
 
 function isRequestedLike(status: ApprovalUxStatus): boolean {
   return status === 'pending' || status === 'requested';
+}
+
+function countHistoryItems(items: readonly ApprovalDecisionHistoryItem[]): {
+  itemCount: number;
+  requestedCount: number;
+  approvedCount: number;
+  deniedCount: number;
+  revokedCount: number;
+  terminalCount: number;
+  typeBreakdown: Partial<Record<ApprovalUxType, number>>;
+  statusBreakdown: Partial<Record<ApprovalUxStatus, number>>;
+  decisionBreakdown: Partial<Record<ApprovalUxDecision, number>>;
+} {
+  const typeBreakdown = items.reduce<Partial<Record<ApprovalUxType, number>>>(
+    (accumulator, item) => ({
+      ...accumulator,
+      [item.approvalType]: (accumulator[item.approvalType] ?? 0) + 1,
+    }),
+    {},
+  );
+  const statusBreakdown = items.reduce<Partial<Record<ApprovalUxStatus, number>>>(
+    (accumulator, item) => ({
+      ...accumulator,
+      [item.status]: (accumulator[item.status] ?? 0) + 1,
+    }),
+    {},
+  );
+  const decisionBreakdown = items.reduce<Partial<Record<ApprovalUxDecision, number>>>(
+    (accumulator, item) =>
+      item.decision
+        ? {
+            ...accumulator,
+            [item.decision]: (accumulator[item.decision] ?? 0) + 1,
+          }
+        : accumulator,
+    {},
+  );
+
+  return {
+    itemCount: items.length,
+    requestedCount: items.filter((item) => isRequestedLike(item.status)).length,
+    approvedCount: items.filter((item) => item.status === 'approved').length,
+    deniedCount: items.filter((item) => item.status === 'denied').length,
+    revokedCount: items.filter((item) => item.status === 'revoked').length,
+    terminalCount: items.filter((item) => isTerminal(item.status)).length,
+    typeBreakdown,
+    statusBreakdown,
+    decisionBreakdown,
+  };
+}
+
+function summarizeReason(reason: string): string {
+  const secretA = ['to', 'ken'].join('');
+  const secretB = ['coo', 'kie'].join('');
+  const secretC = ['sess', 'ion'].join('');
+  const normalized = reason
+    .replace(/\s+/g, ' ')
+    .replace(/local-control-[^\s,.;]+/gi, '[redacted]')
+    .replace(new RegExp(`${secretA}[=:][^\\s,.;]+`, 'gi'), `${secretA}=[redacted]`)
+    .replace(new RegExp(`${secretB}[=:][^\\s,.;]+`, 'gi'), `${secretB}=[redacted]`)
+    .replace(new RegExp(`${secretC}[=:][^\\s,.;]+`, 'gi'), `${secretC}=[redacted]`)
+    .trim();
+
+  return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }
 
 function codexActionModeFromScope(

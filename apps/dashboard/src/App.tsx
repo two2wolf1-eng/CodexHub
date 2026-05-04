@@ -37,6 +37,7 @@ import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-
 import {
   DASHBOARD_VIEWS,
   type DashboardView,
+  createApprovalDecisionHistoryReadOnlySummary,
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
@@ -347,6 +348,9 @@ export function App() {
   const pilotSummary = createM10PilotReadOnlySummary({
     approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
     governanceRunCount: governanceSummary.runCount,
+  });
+  const approvalHistorySummary = createApprovalDecisionHistoryReadOnlySummary({
+    inbox: overview.approvalInbox,
   });
 
   useEffect(() => {
@@ -899,6 +903,51 @@ export function App() {
               {overview.approvalInbox?.summary ??
                 'Approval inbox is unavailable; decisions remain Supervisor-gated.'}
             </p>
+          </Panel>
+          <Panel title="Decision History">
+            <ul>
+              <li>
+                <strong>items</strong>
+                <span>{approvalHistorySummary.itemCount}</span>
+              </li>
+              <li>
+                <strong>requested</strong>
+                <span>{approvalHistorySummary.requestedCount}</span>
+              </li>
+              <li>
+                <strong>approved</strong>
+                <span>{approvalHistorySummary.approvedCount}</span>
+              </li>
+              <li>
+                <strong>denied / revoked</strong>
+                <span>
+                  {approvalHistorySummary.deniedCount} / {approvalHistorySummary.revokedCount}
+                </span>
+              </li>
+              <li>
+                <strong>storage safety</strong>
+                <span>
+                  bodyStored {String(approvalHistorySummary.bodyStored)}, tokenStored{' '}
+                  {String(approvalHistorySummary.tokenStored)}
+                </span>
+              </li>
+            </ul>
+            {approvalHistorySummary.items.length > 0 ? (
+              <ul>
+                {approvalHistorySummary.items.slice(0, 6).map((item) => (
+                  <li key={`${item.source}:${item.approvalRequestId}:${item.status}`}>
+                    <strong>{item.approvalType}</strong>
+                    <span>
+                      {item.source}, decision {item.decision}, status {item.status}, target{' '}
+                      {item.targetHash}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No approval history metadata is available.</p>
+            )}
+            <p>{approvalHistorySummary.summary}</p>
           </Panel>
           <Panel title="Page-Memory Decision Key">
             <label className="stacked">

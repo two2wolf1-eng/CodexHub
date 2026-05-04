@@ -2836,6 +2836,86 @@ export const ApprovalDecisionResultSchema = createdEntityBaseSchema
   });
 export type ApprovalDecisionResult = z.infer<typeof ApprovalDecisionResultSchema>;
 
+export const ApprovalDecisionHistoryItemSchema = createdEntityBaseSchema
+  .extend({
+    source: z.enum(['inbox', 'decision_result']),
+    approvalType: ApprovalUxTypeSchema,
+    approvalRequestId: z.string().min(1),
+    approvalRecordId: z.string().min(1).optional(),
+    approvalDecisionResultId: z.string().min(1).optional(),
+    decision: ApprovalUxDecisionSchema.optional(),
+    status: ApprovalUxStatusSchema,
+    targetHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    reasonSummary: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    noRealWrite: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectApprovalUxRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ApprovalDecisionHistoryItem = z.infer<typeof ApprovalDecisionHistoryItemSchema>;
+
+export const ApprovalDecisionHistorySummarySchema = createdEntityBaseSchema
+  .extend({
+    projectionId: z.string().min(1),
+    itemCount: z.number().int().nonnegative(),
+    requestedCount: z.number().int().nonnegative(),
+    approvedCount: z.number().int().nonnegative(),
+    deniedCount: z.number().int().nonnegative(),
+    revokedCount: z.number().int().nonnegative(),
+    terminalCount: z.number().int().nonnegative(),
+    typeBreakdown: z.record(ApprovalUxTypeSchema, z.number().int().nonnegative()).default({}),
+    statusBreakdown: z.record(ApprovalUxStatusSchema, z.number().int().nonnegative()).default({}),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectApprovalUxRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ApprovalDecisionHistorySummary = z.infer<
+  typeof ApprovalDecisionHistorySummarySchema
+>;
+
+export const ApprovalDecisionHistoryProjectionSchema = createdEntityBaseSchema
+  .extend({
+    items: z.array(ApprovalDecisionHistoryItemSchema),
+    itemCount: z.number().int().nonnegative(),
+    requestedCount: z.number().int().nonnegative(),
+    approvedCount: z.number().int().nonnegative(),
+    deniedCount: z.number().int().nonnegative(),
+    revokedCount: z.number().int().nonnegative(),
+    terminalCount: z.number().int().nonnegative(),
+    typeBreakdown: z.record(ApprovalUxTypeSchema, z.number().int().nonnegative()).default({}),
+    statusBreakdown: z.record(ApprovalUxStatusSchema, z.number().int().nonnegative()).default({}),
+    decisionBreakdown: z
+      .record(ApprovalUxDecisionSchema, z.number().int().nonnegative())
+      .default({}),
+    summaryProjection: ApprovalDecisionHistorySummarySchema,
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    tokenStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectApprovalUxRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ApprovalDecisionHistoryProjection = z.infer<
+  typeof ApprovalDecisionHistoryProjectionSchema
+>;
+
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;
 

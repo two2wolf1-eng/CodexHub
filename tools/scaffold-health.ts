@@ -63,6 +63,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m8-release-candidate.md',
   'docs/releases/m9-local-pilot-results.md',
   'docs/releases/m10a-pilot-productization.md',
+  'docs/releases/m10b-approval-history-projection.md',
   'docs/reviews/m8-final-release-audit.md',
   'docs/reviews/m9-approval-ux-hardening.md',
   'docs/threat-model/m8a-release-candidate-threat-model.md',
@@ -150,6 +151,9 @@ const requiredContractExports = [
   'ApprovalInboxProjectionSchema',
   'ApprovalDecisionRequestSchema',
   'ApprovalDecisionResultSchema',
+  'ApprovalDecisionHistoryItemSchema',
+  'ApprovalDecisionHistoryProjectionSchema',
+  'ApprovalDecisionHistorySummarySchema',
 ];
 
 const projects = readNxProjects();

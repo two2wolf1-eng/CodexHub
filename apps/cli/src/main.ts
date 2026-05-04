@@ -149,10 +149,14 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
   ApprovalInboxProjection,
+  ApprovalUxStatus,
+  ApprovalUxType,
   WorkflowRun,
 } from '@codexhub/contracts';
+import { createApprovalDecisionHistoryProjection } from '@codexhub/approval-ux-kernel';
 import {
   type MockDevelopmentOrchestrationResult,
   runGoldenPathRehearsal,
@@ -288,6 +292,10 @@ export interface GovernanceRunsListCliOptions extends JsonCliOptions {
 
 export interface ApprovalInboxCliOptions extends JsonCliOptions {
   type?: string;
+}
+
+export interface ApprovalHistoryCliOptions extends ApprovalInboxCliOptions {
+  status?: string;
 }
 
 export interface ApprovalDecisionCliOptions extends JsonCliOptions {
@@ -831,6 +839,17 @@ export function buildProgram(): Command {
     .action(async (options: ApprovalInboxCliOptions) => {
       const result = await listApprovalInbox(options);
       console.log(formatApprovalInboxOutput(result, options));
+    });
+
+  approvalsCommand
+    .command('history')
+    .option('--type <type>', 'Filter by approval type')
+    .option('--status <status>', 'Filter by approval status')
+    .option('--json', 'Print full JSON output')
+    .description('Project approval decision history from read-only inbox metadata')
+    .action(async (options: ApprovalHistoryCliOptions) => {
+      const result = await listApprovalDecisionHistory(options);
+      console.log(formatApprovalDecisionHistoryOutput(result, options));
     });
 
   approvalsCommand
@@ -2801,6 +2820,70 @@ export async function listApprovalInbox(
       note: 'Approval inbox source is unavailable; no decision was sent.',
     };
   }
+}
+
+export async function listApprovalDecisionHistory(
+  options: ApprovalHistoryCliOptions = {},
+): Promise<ApprovalDecisionHistoryProjection | Record<string, unknown>> {
+  const inbox = await listApprovalInbox({ type: options.type });
+
+  if ('items' in inbox && Array.isArray(inbox.items)) {
+    return createApprovalDecisionHistoryProjection({
+      inbox: inbox as ApprovalInboxProjection,
+      approvalType: normalizeApprovalHistoryType(options.type),
+      status: normalizeApprovalHistoryStatus(options.status),
+    });
+  }
+
+  return {
+    status: 'degraded',
+    items: [],
+    itemCount: 0,
+    requestedCount: 0,
+    approvedCount: 0,
+    deniedCount: 0,
+    revokedCount: 0,
+    terminalCount: 0,
+    typeBreakdown: {},
+    statusBreakdown: {},
+    decisionBreakdown: {},
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary:
+      'Approval decision history is unavailable because the read-only approval inbox is degraded.',
+  };
+}
+
+function normalizeApprovalHistoryType(value: string | undefined): ApprovalUxType | undefined {
+  if (
+    value === 'codex' ||
+    value === 'browser' ||
+    value === 'electron_cdp' ||
+    value === 'worktree' ||
+    value === 'worktree_cleanup' ||
+    value === 'm9_pilot'
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function normalizeApprovalHistoryStatus(value: string | undefined): ApprovalUxStatus | undefined {
+  if (
+    value === 'pending' ||
+    value === 'requested' ||
+    value === 'approved' ||
+    value === 'denied' ||
+    value === 'expired' ||
+    value === 'used' ||
+    value === 'revoked'
+  ) {
+    return value;
+  }
+
+  return undefined;
 }
 
 export async function decideApproval(
@@ -6636,6 +6719,53 @@ export function formatApprovalDecisionOutput(
     `externalProcessStarted=${String(
       'externalProcessStarted' in result ? result.externalProcessStarted ?? false : false,
     )}`,
+    `bodyStored=${String('bodyStored' in result ? result.bodyStored ?? false : false)}`,
+    `tokenStored=${String('tokenStored' in result ? result.tokenStored ?? false : false)}`,
+  ].join('\n');
+}
+
+export function formatApprovalDecisionHistoryOutput(
+  result: ApprovalDecisionHistoryProjection | Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const items =
+    'items' in result && Array.isArray(result.items)
+      ? (result.items as Array<{
+          source?: string;
+          approvalType?: string;
+          approvalRequestId?: string;
+          decision?: string;
+          status?: string;
+          targetHash?: string;
+          evidenceRefIds?: string[];
+          auditEventIds?: string[];
+        }>)
+      : [];
+
+  return [
+    'Approval decision history',
+    `status: ${String('status' in result ? result.status ?? 'ready' : 'ready')}`,
+    `count: ${String('itemCount' in result ? result.itemCount ?? items.length : items.length)}`,
+    `requested: ${String('requestedCount' in result ? result.requestedCount ?? 0 : 0)}`,
+    `approved: ${String('approvedCount' in result ? result.approvedCount ?? 0 : 0)}`,
+    `denied: ${String('deniedCount' in result ? result.deniedCount ?? 0 : 0)}`,
+    `revoked: ${String('revokedCount' in result ? result.revokedCount ?? 0 : 0)}`,
+    ...items.slice(0, 10).map((item) =>
+      [
+        `${item.source ?? 'history'} ${item.approvalType ?? 'approval'} ${
+          item.approvalRequestId ?? 'unknown'
+        }`,
+        `decision=${item.decision ?? 'none'}`,
+        `status=${item.status ?? 'unknown'}`,
+        `target=${item.targetHash ?? 'unavailable'}`,
+        `evidence=${item.evidenceRefIds?.length ?? 0}`,
+        `audit=${item.auditEventIds?.length ?? 0}`,
+      ].join(' | '),
+    ),
     `bodyStored=${String('bodyStored' in result ? result.bodyStored ?? false : false)}`,
     `tokenStored=${String('tokenStored' in result ? result.tokenStored ?? false : false)}`,
   ].join('\n');

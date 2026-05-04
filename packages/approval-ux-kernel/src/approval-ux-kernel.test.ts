@@ -4,11 +4,13 @@ import type {
   WorktreeApprovalArtifactRecord,
 } from '@codexhub/contracts';
 import {
+  ApprovalDecisionHistoryProjectionSchema,
   ApprovalDecisionResultSchema,
   ApprovalInboxProjectionSchema,
   SchemaVersionSchema,
 } from '@codexhub/contracts';
 import {
+  createApprovalDecisionHistoryProjection,
   createApprovalDecisionResult,
   createApprovalInboxProjection,
   projectCodexApproval,
@@ -54,6 +56,46 @@ describe('approval-ux-kernel', () => {
     expect(ApprovalDecisionResultSchema.parse(result).approved).toBe(true);
     expect(result.processBoundaryInvoked).toBe(false);
     expect(result.externalProcessStarted).toBe(false);
+    expect(serialized).not.toContain('ExecutionAuthority');
+    expect(serialized).not.toContain('approvalArtifact');
+  });
+
+  it('projects approval decision history from inbox and decision metadata only', () => {
+    const inbox = createApprovalInboxProjection({
+      codex: [createCodexApprovalRecord('pending')],
+      worktree: [createWorktreeApprovalRecord('approved')],
+    });
+    const decision = createApprovalDecisionResult({
+      approvalType: 'worktree',
+      approvalRequestId: 'worktree_approval_request_1',
+      decision: 'approved',
+      status: 'approved',
+      evidenceRefIds: ['evidence_decision_1'],
+      auditEventIds: ['audit_decision_1'],
+    });
+    const projection = createApprovalDecisionHistoryProjection({
+      inbox,
+      decisions: [decision],
+      reasonSummaries: {
+        [decision.id]: 'Reviewed metadata-only evidence; do not store local-control-secret.',
+      },
+    });
+    const filtered = createApprovalDecisionHistoryProjection({
+      inbox,
+      decisions: [decision],
+      approvalType: 'worktree',
+      status: 'approved',
+    });
+    const serialized = JSON.stringify(projection);
+
+    expect(ApprovalDecisionHistoryProjectionSchema.parse(projection).itemCount).toBe(3);
+    expect(projection.approvedCount).toBe(2);
+    expect(projection.decisionBreakdown.approved).toBe(1);
+    expect(filtered.items.every((item) => item.approvalType === 'worktree')).toBe(true);
+    expect(filtered.items.every((item) => item.status === 'approved')).toBe(true);
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('local-control-secret');
     expect(serialized).not.toContain('ExecutionAuthority');
     expect(serialized).not.toContain('approvalArtifact');
   });

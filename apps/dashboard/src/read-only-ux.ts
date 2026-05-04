@@ -1,4 +1,4 @@
-import type { McpToolDefinition } from '@codexhub/contracts';
+import type { ApprovalInboxItem, ApprovalInboxProjection, McpToolDefinition } from '@codexhub/contracts';
 import {
   createGovernanceProjection,
   type GovernanceProjectionInputRun,
@@ -273,6 +273,32 @@ export interface M10PilotReadOnlySummary {
   localControlKeyRead: false;
   supervisorPostAllowed: false;
   adapterExecuteAllowed: false;
+  summary: string;
+}
+
+export interface ApprovalDecisionHistoryReadOnlySummary {
+  itemCount: number;
+  requestedCount: number;
+  approvedCount: number;
+  deniedCount: number;
+  revokedCount: number;
+  terminalCount: number;
+  typeBreakdown: Record<string, number>;
+  statusBreakdown: Record<string, number>;
+  decisionBreakdown: Record<string, number>;
+  items: Array<{
+    source: string;
+    approvalType: string;
+    approvalRequestId: string;
+    decision: string;
+    status: string;
+    targetHash: string;
+    evidenceCount: number;
+    auditEventCount: number;
+  }>;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
   summary: string;
 }
 
@@ -636,6 +662,48 @@ export function createM10PilotReadOnlySummary(input: {
   };
 }
 
+export function createApprovalDecisionHistoryReadOnlySummary(
+  input: {
+    inbox?: ApprovalInboxProjection;
+    inboxItems?: readonly ApprovalInboxItem[];
+  } = {},
+): ApprovalDecisionHistoryReadOnlySummary {
+  const items = [...(input.inboxItems ?? input.inbox?.items ?? [])].sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const typeBreakdown = countBy(items, (item) => item.approvalType);
+  const statusBreakdown = countBy(items, (item) => item.status);
+
+  return {
+    itemCount: items.length,
+    requestedCount: items.filter((item) => item.status === 'pending' || item.status === 'requested')
+      .length,
+    approvedCount: items.filter((item) => item.status === 'approved').length,
+    deniedCount: items.filter((item) => item.status === 'denied').length,
+    revokedCount: items.filter((item) => item.status === 'revoked').length,
+    terminalCount: items.filter((item) =>
+      ['denied', 'expired', 'used', 'revoked'].includes(item.status),
+    ).length,
+    typeBreakdown,
+    statusBreakdown,
+    decisionBreakdown: {},
+    items: items.slice(0, 10).map((item) => ({
+      source: 'inbox',
+      approvalType: item.approvalType,
+      approvalRequestId: item.approvalRequestId,
+      decision: 'none',
+      status: item.status,
+      targetHash: item.targetHash,
+      evidenceCount: item.evidenceRefIds.length,
+      auditEventCount: item.auditEventIds.length,
+    })),
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `Approval decision history contains ${items.length} metadata-only item(s).`,
+  };
+}
+
 export function summarizeDegradedState(status: string, message?: string): string {
   if (status === 'ready') {
     return 'Read-only data loaded.';
@@ -650,6 +718,17 @@ function isDashboardView(value: string): value is DashboardView {
 
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function countBy<T>(items: readonly T[], selectKey: (item: T) => string): Record<string, number> {
+  return items.reduce<Record<string, number>>((accumulator, item) => {
+    const key = selectKey(item);
+
+    return {
+      ...accumulator,
+      [key]: (accumulator[key] ?? 0) + 1,
+    };
+  }, {});
 }
 
 function stablePreviewHash(value: string): string {

@@ -958,21 +958,27 @@ describe('cli development mock-run fallback', () => {
     const {
       decideApproval,
       formatApprovalDecisionOutput,
+      formatApprovalDecisionHistoryOutput,
       formatApprovalInboxOutput,
+      listApprovalDecisionHistory,
       listApprovalInbox,
     } = await import('./main');
     const inbox = await listApprovalInbox({ type: 'worktree' });
+    const history = await listApprovalDecisionHistory({ type: 'worktree', status: 'requested' });
     const decision = await decideApproval('worktree_approval_request_1', {
       type: 'worktree',
       decision: 'approved',
       reason: 'Reviewed evidence',
     });
-    const serialized = JSON.stringify({ inbox, decision });
+    const serialized = JSON.stringify({ inbox, history, decision });
 
     expect(formatApprovalInboxOutput(inbox)).toContain('Approval inbox');
+    expect(formatApprovalDecisionHistoryOutput(history)).toContain('Approval decision history');
+    expect(formatApprovalDecisionHistoryOutput(history)).toContain('status=requested');
     expect(formatApprovalDecisionOutput(decision)).toContain('status: approved');
     expect(fetchCalls[0]?.init?.method).toBeUndefined();
-    expect(fetchCalls[1]?.init?.method).toBe('POST');
+    expect(fetchCalls[1]?.init?.method).toBeUndefined();
+    expect(fetchCalls[2]?.init?.method).toBe('POST');
     expect(JSON.stringify(fetchCalls.map((call) => call.url))).not.toContain(
       process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN,
     );

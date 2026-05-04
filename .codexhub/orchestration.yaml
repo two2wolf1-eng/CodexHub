@@ -772,3 +772,46 @@ workflows:
       - browserAutomation
       - electronAutomation
       - mcpRuntime
+  m10b.approval-decision-history-projection:
+    risk: medium
+    trigger:
+      type: manual
+      entrypoint: packages/approval-ux-kernel apps/dashboard apps/cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        package: contracts
+        models:
+          - ApprovalDecisionHistoryItem
+          - ApprovalDecisionHistoryProjection
+          - ApprovalDecisionHistorySummary
+        output: idsHashesCountsStatusesSummariesOnly
+      - phase: projection-helper
+        package: approval-ux-kernel
+        input:
+          - approval inbox metadata
+          - optional decision result metadata
+        output: metadataOnlyHistory
+      - phase: dashboard-read-only-view
+        route: '#/approvals'
+        section: Decision History
+        localControlTokenUsed: false
+        supervisorPostAdded: false
+      - phase: cli-read-only-command
+        command: codexhub approvals history
+        localControlTokenRead: false
+        supervisorPostAllowed: false
+      - phase: operator-docs
+        documents:
+          - docs/releases/m10b-approval-history-projection.md
+    forbidden:
+      - newSupervisorRoute
+      - newStoreRepository
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
+      - newProcessBoundary
+      - newNetworkBoundary
+      - rawReasonStorage
+      - approvalArtifactFromRequestBody

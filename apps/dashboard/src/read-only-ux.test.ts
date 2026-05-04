@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  createApprovalDecisionHistoryReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
   createM10PilotReadOnlySummary,
@@ -40,6 +41,46 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('sessionStorage');
     expect(appSource).not.toContain('indexedDB');
     expect(appSource).not.toContain('approvalToken=');
+  });
+
+  it('summarizes approval decision history without raw reason or token data', () => {
+    const summary = createApprovalDecisionHistoryReadOnlySummary({
+      inboxItems: [
+        {
+          id: 'approval_inbox_item_1',
+          schemaVersion: '2026-04-28.foundation',
+          createdAt: '2026-05-04T00:00:00.000Z',
+          approvalType: 'worktree',
+          approvalRequestId: 'worktree_approval_request_1',
+          status: 'requested',
+          targetHash: 'sha256:target',
+          evidenceRefIds: ['evidence_1'],
+          auditEventIds: ['audit_1'],
+          canApprove: true,
+          canDeny: true,
+          canRevoke: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          noRealWrite: true,
+          rawPathStored: false,
+          bodyStored: false,
+          tokenStored: false,
+          summary: 'Worktree approval pending.',
+        },
+      ],
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.itemCount).toBe(1);
+    expect(summary.requestedCount).toBe(1);
+    expect(summary.items[0]?.approvalType).toBe('worktree');
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.tokenStored).toBe(false);
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('diff --git');
   });
 
   it('summarizes MCP tools without write/admin or process boundary state', () => {

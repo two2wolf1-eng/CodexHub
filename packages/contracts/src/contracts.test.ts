@@ -197,6 +197,9 @@ import {
   GoldenPathRehearsalRunSchema,
   GoldenPathStepSchema,
   GoldenPathStepStatusSchema,
+  ApprovalDecisionHistoryItemSchema,
+  ApprovalDecisionHistoryProjectionSchema,
+  ApprovalDecisionHistorySummarySchema,
   ApprovalDecisionRequestSchema,
   ApprovalDecisionResultSchema,
   ApprovalInboxItemSchema,
@@ -2690,6 +2693,91 @@ describe('contracts schemas', () => {
         ...item,
         id: 'approval_inbox_item_bad_metadata',
         metadata: { executionAuthority: { allowed: true } },
+      }),
+    ).toThrow();
+  });
+
+  it('parses approval decision history projections as metadata-only', () => {
+    const historyItem = ApprovalDecisionHistoryItemSchema.parse({
+      id: 'approval_decision_history_item_1',
+      schemaVersion,
+      createdAt,
+      source: 'decision_result',
+      approvalType: 'worktree',
+      approvalRequestId: 'worktree_approval_request_1',
+      approvalDecisionResultId: 'approval_decision_result_1',
+      decision: 'approved',
+      status: 'approved',
+      targetHash: 'sha256:target',
+      reasonHash: 'sha256:reason',
+      reasonSummary: 'Operator reason stored as hash-only summary.',
+      evidenceRefIds: ['evidence_1'],
+      auditEventIds: ['audit_1'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'Approval decision history item stores metadata only.',
+    });
+    const historySummary = ApprovalDecisionHistorySummarySchema.parse({
+      id: 'approval_decision_history_summary_1',
+      schemaVersion,
+      createdAt,
+      projectionId: 'approval_decision_history_projection_1',
+      itemCount: 1,
+      requestedCount: 0,
+      approvedCount: 1,
+      deniedCount: 0,
+      revokedCount: 0,
+      terminalCount: 0,
+      typeBreakdown: { worktree: 1 },
+      statusBreakdown: { approved: 1 },
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'Approval decision history summary stores counts only.',
+    });
+    const projection = ApprovalDecisionHistoryProjectionSchema.parse({
+      id: 'approval_decision_history_projection_1',
+      schemaVersion,
+      createdAt,
+      items: [historyItem],
+      itemCount: 1,
+      requestedCount: 0,
+      approvedCount: 1,
+      deniedCount: 0,
+      revokedCount: 0,
+      terminalCount: 0,
+      typeBreakdown: { worktree: 1 },
+      statusBreakdown: { approved: 1 },
+      decisionBreakdown: { approved: 1 },
+      summaryProjection: historySummary,
+      rawPathStored: false,
+      bodyStored: false,
+      tokenStored: false,
+      summary: 'Approval decision history has one metadata-only item.',
+    });
+    const serialized = JSON.stringify(projection);
+
+    expect(projection.itemCount).toBe(1);
+    expect(serialized).not.toContain('approval-token');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('Reviewed raw private reason');
+    expect(() =>
+      ApprovalDecisionHistoryItemSchema.parse({
+        ...historyItem,
+        id: 'approval_decision_history_item_bad_reason',
+        reason: 'Reviewed raw private reason',
+      }),
+    ).toThrow();
+    expect(() =>
+      ApprovalDecisionHistoryProjectionSchema.parse({
+        ...projection,
+        id: 'approval_decision_history_projection_bad_metadata',
+        metadata: { token: 'approval-token' },
       }),
     ).toThrow();
   });
