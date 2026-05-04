@@ -7,11 +7,13 @@ import {
 } from '@codexhub/contracts';
 import {
   GITHUB_PROVIDER_MANIFEST,
+  createGithubDraftPrApprovalRecord,
   createGithubDraftPrPlan,
   createGithubMetadataApprovalRecord,
   createGithubMetadataDryRunRecord,
   createGithubProviderManifest,
   createGithubRemoteRefSummary,
+  executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
   readGithubTokenReadiness,
 } from './index';
@@ -369,5 +371,183 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(plan.readiness.status).toBe('blocked_existing_pr');
     expect(plan.blockReasons).toContain('existing_pull_request_found');
     expect(plan.networkBoundaryPlanned).toBe(false);
+  });
+
+  it('blocks draft PR creation before the network boundary without enablement and approval', async () => {
+    const dryRunRecord = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m16-draft',
+      sourceKind: 'local_rc_readiness',
+      sourceId: 'local_rc_123',
+      sourceSummary: 'Local RC has passed verification and review.',
+      titleSummary: 'Draft PR from local RC',
+      bodySectionSummaries: ['Local RC summary'],
+      remoteHeadBranchExists: true,
+      existingPullRequestCount: 0,
+      runnerMode: 'controlled-github-draft-pr',
+      now: fixedNow,
+    });
+    let fetchCalled = false;
+
+    const run = await executeGithubDraftPrCreation({
+      dryRunRecord,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m16-draft',
+        titleSummary: 'Draft PR from local RC',
+        bodySectionSummaries: ['Local RC summary'],
+        token: 'ghp_secret',
+      },
+      fetchImpl: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+      now: fixedNow,
+    });
+
+    expect(run.status).toBe('blocked');
+    expect(run.blockReasons).toContain('github_draft_pr_disabled');
+    expect(run.blockReasons).toContain('missing_persisted_approval');
+    expect(run.blockReasons).toContain('execution_authority_denied');
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('creates an approved draft PR through fixed GitHub requests and stores hashes only', async () => {
+    const dryRunRecord = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m16-draft',
+      sourceKind: 'local_rc_readiness',
+      sourceId: 'local_rc_123',
+      sourceSummary: 'Local RC has passed verification and review.',
+      titleSummary: 'Draft PR from local RC',
+      bodySectionSummaries: ['Local RC summary', 'Verification passed summary'],
+      remoteHeadBranchExists: true,
+      existingPullRequestCount: 0,
+      runnerMode: 'controlled-github-draft-pr',
+      now: fixedNow,
+    });
+    const approvalRecord = createGithubDraftPrApprovalRecord({
+      dryRunRecord,
+      status: 'approved',
+      now: fixedNow,
+    });
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+      const isPullRequestLookup = url.includes('/pulls?');
+      const isPullRequestPost = init?.method === 'POST';
+      const body = isPullRequestLookup
+        ? '[]'
+        : isPullRequestPost
+          ? '{"number":42,"html_url":"https://github.com/octo-org/codexhub/pull/42"}'
+          : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: isPullRequestPost ? 201 : 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const run = await executeGithubDraftPrCreation({
+      dryRunRecord,
+      approvalRecord,
+      authority: allowedAuthority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m16-draft',
+        titleSummary: 'Draft PR from local RC',
+        bodySectionSummaries: ['Local RC summary', 'Verification passed summary'],
+        token: 'ghp_secret',
+      },
+      fetchImpl,
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('completed');
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(run.noRealWrite).toBe(false);
+    expect(run.creationSummary.created).toBe(true);
+    expect(run.creationSummary.prNumberHash).toMatch(/^sha256:/);
+    expect(run.creationSummary.prUrlHash).toMatch(/^sha256:/);
+    expect(run.responseBodyHashes).toHaveLength(5);
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/branches/main',
+      'GET https://api.github.com/repos/octo-org/codexhub/branches/codex%2Fm16-draft',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls?state=open&base=main&head=octo-org%3Acodex%2Fm16-draft',
+      'POST https://api.github.com/repos/octo-org/codexhub/pulls',
+    ]);
+    expect(requested.at(-1)?.body).toContain('"draft":true');
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub');
+    expect(serialized).not.toContain('codex/m16-draft');
+    expect(serialized).not.toContain('Draft PR from local RC');
+    expect(serialized).not.toContain('Local RC summary');
+    expect(serialized).not.toContain('https://github.com/octo-org/codexhub/pull/42');
+  });
+
+  it('blocks draft PR creation on runtime hash mismatch before the network boundary', async () => {
+    const dryRunRecord = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m16-draft',
+      sourceKind: 'local_rc_readiness',
+      sourceId: 'local_rc_123',
+      sourceSummary: 'Local RC has passed verification and review.',
+      titleSummary: 'Draft PR from local RC',
+      bodySectionSummaries: ['Local RC summary'],
+      remoteHeadBranchExists: true,
+      existingPullRequestCount: 0,
+      runnerMode: 'controlled-github-draft-pr',
+      now: fixedNow,
+    });
+    const approvalRecord = createGithubDraftPrApprovalRecord({
+      dryRunRecord,
+      status: 'approved',
+      now: fixedNow,
+    });
+    let fetchCalled = false;
+
+    const run = await executeGithubDraftPrCreation({
+      dryRunRecord,
+      approvalRecord,
+      authority: allowedAuthority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'different',
+        titleSummary: 'Draft PR from local RC',
+        bodySectionSummaries: ['Local RC summary'],
+        token: 'ghp_secret',
+      },
+      fetchImpl: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+      now: fixedNow,
+    });
+
+    expect(run.status).toBe('blocked');
+    expect(run.blockReasons).toContain('github_remote_ref_hash_mismatch');
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(fetchCalled).toBe(false);
   });
 });

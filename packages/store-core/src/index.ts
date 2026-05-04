@@ -7,6 +7,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  GithubDraftPrApprovalArtifactRecord,
+  GithubDraftPrPlan,
+  GithubDraftPrRun,
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
@@ -89,6 +92,7 @@ export interface WorktreeControlPlaneQuery {
 export type ReviewPackageControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReleaseCandidateControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubMetadataControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubDraftPrControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -331,6 +335,31 @@ export interface GithubMetadataRunRepository {
   listRuns(query?: GithubMetadataControlPlaneQuery): Promise<GithubMetadataControlPlaneRun[]>;
 }
 
+export interface GithubDraftPrDryRunRepository {
+  saveDryRun(record: GithubDraftPrPlan): Promise<GithubDraftPrPlan>;
+  getDryRun(id: string): Promise<GithubDraftPrPlan | undefined>;
+  listDryRuns(query?: GithubDraftPrControlPlaneQuery): Promise<GithubDraftPrPlan[]>;
+}
+
+export interface GithubDraftPrApprovalRepository {
+  saveApproval(
+    record: GithubDraftPrApprovalArtifactRecord,
+  ): Promise<GithubDraftPrApprovalArtifactRecord>;
+  getApproval(id: string): Promise<GithubDraftPrApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubDraftPrApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: GithubDraftPrControlPlaneQuery,
+  ): Promise<GithubDraftPrApprovalArtifactRecord[]>;
+}
+
+export interface GithubDraftPrRunRepository {
+  saveRun(record: GithubDraftPrRun): Promise<GithubDraftPrRun>;
+  getRun(id: string): Promise<GithubDraftPrRun | undefined>;
+  listRuns(query?: GithubDraftPrControlPlaneQuery): Promise<GithubDraftPrRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -526,6 +555,9 @@ export interface CodexHubStore {
   githubMetadataDryRuns: GithubMetadataDryRunRepository;
   githubMetadataApprovals: GithubMetadataApprovalRepository;
   githubMetadataRuns: GithubMetadataRunRepository;
+  githubDraftPrDryRuns: GithubDraftPrDryRunRepository;
+  githubDraftPrApprovals: GithubDraftPrApprovalRepository;
+  githubDraftPrRuns: GithubDraftPrRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

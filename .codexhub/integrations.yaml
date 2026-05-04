@@ -284,8 +284,8 @@ integrations:
     adapter: github-provider-adapter
     provider: github
     providerType: external-network
-    mode: governed-metadata-and-draft-pr-planning
-    stage: m16a-github-draft-pr-planning-contracts
+    mode: governed-metadata-and-existing-branch-draft-pr
+    stage: m16b-governed-existing-branch-draft-pr-creation
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -356,6 +356,27 @@ integrations:
       authorityGrantedByPlan: false
       approvalRequiredForCreation: true
       output: ids-hashes-counts-statuses-summaries
+    draftPrCreation:
+      stage: m16b
+      helper: executeGithubDraftPrCreation
+      supervisorControlPlaneAdded: true
+      routePrefix: /api/github/draft-prs
+      enabledByDefault: false
+      requiredEnvFlags:
+        - CODEXHUB_GITHUB_PROVIDER_ENABLED
+        - CODEXHUB_GITHUB_DRAFT_PR_ENABLED
+      tokenEnv: CODEXHUB_GITHUB_TOKEN
+      persistedApprovalRequired: true
+      executionAuthorityRequired: true
+      hashBoundRemoteRefsRequired: true
+      existingRemoteHeadBranchRequired: true
+      existingOpenPrBlocks: true
+      approvalConsumedAfterNetworkBoundary: true
+      completedRunIsRemoteWrite: true
+      noPush: true
+      noCreateRef: true
+      noMerge: true
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
     auditedBoundaryFiles:
       metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts
     allowedMetadataEndpoints:

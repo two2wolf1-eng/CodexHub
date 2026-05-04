@@ -26,6 +26,10 @@ import {
   type ElectronCdpObservationControlPlaneRun,
   type ElectronCdpObservationDryRunRecord,
   type EvidenceRef,
+  type GithubDraftPrApprovalArtifactRecord,
+  type GithubDraftPrPlan,
+  type GithubDraftPrRun,
+  type GithubRemoteRefSummary,
   type MockDevelopmentRun,
   type WorktreeApprovalArtifactRecord,
   type WorktreeCleanupApprovalArtifactRecord,
@@ -840,7 +844,277 @@ describe('store-sqlite migration initialization', () => {
       'raw prompt body',
     );
   });
+
+  it('persists GitHub draft PR dry-runs, approvals, and runs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-store-github-draft-pr-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const dryRun = createGithubDraftPrDryRunFixture();
+    const approval = createGithubDraftPrApprovalFixture();
+    const run = createGithubDraftPrRunFixture(dryRun);
+
+    await first.githubDraftPrDryRuns.saveDryRun(dryRun);
+    await first.githubDraftPrApprovals.saveApproval(approval);
+    await first.githubDraftPrRuns.saveRun(run);
+    await first.close();
+
+    const second = await createSqliteStore({ dbPath });
+    const dryRuns = await second.githubDraftPrDryRuns.listDryRuns({
+      dryRunId: 'github_draft_pr_dry_run_1',
+      status: 'planned',
+      limit: 10,
+    });
+    const dryRunRecord = await second.githubDraftPrDryRuns.getDryRun('github_draft_pr_plan_1');
+    const approvals = await second.githubDraftPrApprovals.listApprovals({
+      dryRunId: 'github_draft_pr_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const approvalRecord =
+      await second.githubDraftPrApprovals.getApproval('github_draft_pr_approval_record_1');
+    const approvalByArtifact = await second.githubDraftPrApprovals.getApprovalByArtifactId(
+      'github_draft_pr_approval_artifact_1',
+    );
+    const runs = await second.githubDraftPrRuns.listRuns({
+      dryRunId: 'github_draft_pr_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const runRecord = await second.githubDraftPrRuns.getRun('github_draft_pr_run_1');
+    const serialized = JSON.stringify({ dryRunRecord, approvalRecord, runRecord });
+    await second.close();
+
+    expect(dryRuns).toHaveLength(1);
+    expect(dryRunRecord?.networkBoundaryPlanned).toBe(true);
+    expect(approvals).toHaveLength(1);
+    expect(approvalRecord?.approvalArtifactId).toBe('github_draft_pr_approval_artifact_1');
+    expect(approvalByArtifact?.id).toBe('github_draft_pr_approval_record_1');
+    expect(runs).toHaveLength(1);
+    expect(runRecord?.networkBoundaryInvoked).toBe(true);
+    expect(runRecord?.noRealWrite).toBe(false);
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub');
+    expect(serialized).not.toContain('codex/m16');
+    expect(serialized).not.toContain('https://github.com');
+  });
 });
+
+function createGithubRemoteRefFixture(): GithubRemoteRefSummary {
+  return {
+    id: 'github_remote_ref_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:00.000Z',
+    hostHash: 'sha256:host',
+    ownerHash: 'sha256:owner',
+    repoHash: 'sha256:repo',
+    baseBranchHash: 'sha256:base',
+    headBranchHash: 'sha256:head',
+    allowedHost: 'api.github.com',
+    rawOwnerStored: false,
+    rawRepoStored: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      hostHash: 'sha256:host',
+      ownerHash: 'sha256:owner',
+      repoHash: 'sha256:repo',
+    },
+    summary: 'GitHub remote ref fixture stores hashes only.',
+  };
+}
+
+function createGithubDraftPrDryRunFixture(): GithubDraftPrPlan {
+  const createdAt = '2026-05-05T00:00:00.000Z';
+  const targetRef = createGithubRemoteRefFixture();
+
+  return {
+    id: 'github_draft_pr_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'github_draft_pr_dry_run_1',
+    status: 'planned',
+    runnerMode: 'controlled-github-draft-pr',
+    readiness: {
+      id: 'github_draft_pr_readiness_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      sourceKind: 'local_rc_readiness',
+      sourceIdHash: 'sha256:source',
+      sourceSummaryHash: 'sha256:source-summary',
+      targetRef,
+      status: 'ready_for_draft_pr',
+      blockerCount: 0,
+      draftOnly: true,
+      remoteHeadBranchExistsRequired: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      labelsAllowed: false,
+      reviewersAllowed: false,
+      commentsAllowed: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      metadata: {
+        integration: 'github-provider',
+        sourceIdHash: 'sha256:source',
+        targetRefIdHash: 'sha256:target-ref',
+      },
+      summary: 'Draft PR readiness fixture is ready with hashes only.',
+    },
+    titleHash: 'sha256:title',
+    bodyHash: 'sha256:body',
+    bodySectionCount: 2,
+    bodyCharacterCount: 42,
+    blockReasons: [],
+    policyDecision: {
+      id: 'github_draft_pr_policy_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      actionId: 'github_draft_pr_dry_run_1',
+      actionType: 'github.draft_pr.create',
+      actionMode: 'write',
+      riskLevel: 'high',
+      outcome: 'approval_required',
+      reasons: ['approval required'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    },
+    requiresApproval: true,
+    networkBoundaryPlanned: true,
+    networkBoundaryInvoked: false,
+    draft: true,
+    pushAllowed: false,
+    createRefAllowed: false,
+    mergeAllowed: false,
+    rawPrBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_draft_pr_plan_1'],
+    metadata: {
+      integration: 'github-provider',
+      targetRefIdHash: 'sha256:target-ref',
+      titleHash: 'sha256:title',
+      bodyHash: 'sha256:body',
+    },
+    summary: 'GitHub draft PR dry-run fixture stores metadata only.',
+  };
+}
+
+function createGithubDraftPrApprovalFixture(): GithubDraftPrApprovalArtifactRecord {
+  return {
+    id: 'github_draft_pr_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:01.000Z',
+    dryRunId: 'github_draft_pr_dry_run_1',
+    dryRunRecordId: 'github_draft_pr_plan_1',
+    approvalRequestId: 'github_draft_pr_approval_request_1',
+    approvalArtifactId: 'github_draft_pr_approval_artifact_1',
+    status: 'approved',
+    approved: true,
+    policyDecisionId: 'github_draft_pr_policy_1',
+    requestedByHash: 'sha256:operator',
+    decidedByHash: 'sha256:approver',
+    reasonHash: 'sha256:reason',
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_draft_pr_approval_1'],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      dryRunIdHash: 'sha256:dry-run',
+      approvalArtifactIdHash: 'sha256:artifact',
+      status: 'approved',
+    },
+    summary: 'GitHub draft PR approval fixture stores hashes only.',
+  };
+}
+
+function createGithubDraftPrRunFixture(plan: GithubDraftPrPlan): GithubDraftPrRun {
+  return {
+    id: 'github_draft_pr_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:02.000Z',
+    dryRunId: 'github_draft_pr_dry_run_1',
+    dryRunRecordId: 'github_draft_pr_plan_1',
+    approvalArtifactId: 'github_draft_pr_approval_artifact_1',
+    status: 'completed',
+    plan,
+    creationSummary: {
+      id: 'github_draft_pr_creation_summary_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-05-05T00:00:02.000Z',
+      targetRef: plan.readiness.targetRef,
+      prNumberHash: 'sha256:pr-number',
+      prUrlHash: 'sha256:pr-url',
+      titleHash: 'sha256:title',
+      bodyHash: 'sha256:body',
+      draft: true,
+      created: true,
+      rawUrlStored: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: {
+        integration: 'github-provider',
+        prNumberHash: 'sha256:pr-number',
+        prUrlHash: 'sha256:pr-url',
+      },
+      summary: 'GitHub draft PR creation fixture stores remote identifiers as hashes only.',
+    },
+    auditChain: {
+      id: 'github_draft_pr_audit_chain_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-05-05T00:00:02.000Z',
+      draftPrRunIdHash: 'sha256:run',
+      auditEventIds: ['audit_github_draft_pr_run_1'],
+      auditEventCount: 1,
+      policyDecisionIds: ['github_draft_pr_policy_1'],
+      evidenceRefIds: ['evidence_github_draft_pr_run_1'],
+      evidenceRefCount: 1,
+      networkBoundaryCount: 1,
+      chainHash: 'sha256:chain',
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: {
+        integration: 'github-provider',
+        networkBoundaryCount: 1,
+      },
+      summary: 'GitHub draft PR audit chain fixture stores ids and counts only.',
+    },
+    responseBodyHashes: ['sha256:repo', 'sha256:base', 'sha256:head', 'sha256:pulls', 'sha256:post'],
+    blockReasons: [],
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_draft_pr_run_1'],
+    networkBoundaryInvoked: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: false,
+    draft: true,
+    pushAllowed: false,
+    createRefAllowed: false,
+    mergeAllowed: false,
+    rawPrBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      dryRunIdHash: 'sha256:dry-run',
+      status: 'completed',
+      networkBoundaryInvoked: true,
+    },
+    summary: 'GitHub draft PR run fixture completed with hash-only output.',
+  };
+}
 
 function createCodexExecLiveRunFixture(): CodexExecLiveRunRecord {
   const createdAt = '2026-04-28T00:00:03.000Z';

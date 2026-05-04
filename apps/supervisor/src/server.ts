@@ -233,6 +233,9 @@ import type {
   ElectronCdpObservationRunStatus,
   ElectronDebugEndpointSummary,
   EvidenceRef,
+  GithubDraftPrApprovalArtifactRecord,
+  GithubDraftPrPlan,
+  GithubDraftPrRun,
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
@@ -325,9 +328,13 @@ import {
   executeLocalRcBundleExport,
 } from '@codexhub/release-candidate-kernel';
 import {
+  createGithubDraftPrApprovalRecord,
+  createGithubDraftPrPlan,
   createGithubMetadataApprovalRecord,
   createGithubMetadataDryRunRecord,
+  executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
+  type GithubDraftPrExecutionInput,
   type GithubMetadataExecutionInput,
 } from '@codexhub/github-provider-adapter';
 import type { CodexHubStore } from '@codexhub/store-core';
@@ -373,6 +380,7 @@ interface SupervisorServerOptions {
   reviewPackageExportEnabled?: boolean;
   releaseCandidateExportEnabled?: boolean;
   githubProviderEnabled?: boolean;
+  githubDraftPrEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
 }
@@ -706,6 +714,59 @@ interface GithubMetadataRunRequestBody {
   executionAuthority?: unknown;
 }
 
+interface GithubDraftPrDryRunRequestBody {
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  sourceKind?: 'local_rc_readiness' | 'review_package';
+  sourceId?: string;
+  sourceSummary?: string;
+  titleSummary?: string;
+  bodySectionSummaries?: string[];
+  existingPullRequestCount?: number;
+  remoteHeadBranchExists?: boolean;
+  metadataReady?: boolean;
+  runnerMode?: 'planning-only' | 'controlled-github-draft-pr';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubDraftPrApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubDraftPrManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: GithubProviderApprovalStatus;
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubDraftPrRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  titleSummary?: string;
+  bodySectionSummaries?: string[];
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
 type ApprovalDecisionRequestBody = ApprovalDecisionRequest & {
   approvalArtifact?: unknown;
   authority?: unknown;
@@ -808,6 +869,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const githubMetadataDryRunRecords: GithubMetadataDryRunRecord[] = [];
   const githubMetadataApprovalRecords: GithubMetadataApprovalArtifactRecord[] = [];
   const githubMetadataRunRecords: GithubMetadataControlPlaneRun[] = [];
+  const githubDraftPrDryRunRecords: GithubDraftPrPlan[] = [];
+  const githubDraftPrApprovalRecords: GithubDraftPrApprovalArtifactRecord[] = [];
+  const githubDraftPrRunRecords: GithubDraftPrRun[] = [];
   const m9LocalPilotRunRecords: M9PilotRun[] = [];
   const m11LocalPilotRunRecords: M11PilotRun[] = [];
   const policyEngine = new DefaultPolicyEngine();
@@ -2484,6 +2548,303 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createGithubMetadataRunResponse(record);
+  });
+
+  server.post('/api/github/draft-prs/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubDraftPrStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as GithubDraftPrDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubDraftPrUntrustedAuthorityResponse(undefined));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubDraftPrForbiddenRawBodyResponse(undefined));
+    }
+
+    const dryRunRecord = createGithubDraftPrPlan({
+      owner: body?.owner ?? '',
+      repo: body?.repo ?? '',
+      baseBranch: body?.baseBranch,
+      headBranch: body?.headBranch,
+      sourceKind: body?.sourceKind ?? 'local_rc_readiness',
+      sourceId: body?.sourceId ?? '',
+      sourceSummary: body?.sourceSummary ?? '',
+      titleSummary: body?.titleSummary ?? '',
+      bodySectionSummaries: body?.bodySectionSummaries ?? [],
+      existingPullRequestCount: body?.existingPullRequestCount,
+      remoteHeadBranchExists: body?.remoteHeadBranchExists,
+      metadataReady: body?.metadataReady,
+      runnerMode: body?.runnerMode ?? 'controlled-github-draft-pr',
+    });
+
+    await persistGithubDraftPrDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistGithubDraftPrAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      false,
+      true,
+    );
+
+    return createGithubDraftPrDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/github/draft-prs/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubDraftPrDryRuns(query, store);
+
+    return {
+      records: records.map(createGithubDraftPrDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/github/draft-prs/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubDraftPrStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as GithubDraftPrApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubDraftPrUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubDraftPrForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubDraftPrDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github draft PR dry-run record was not found' });
+    }
+
+    const approvalRecord = createGithubDraftPrApprovalRecord({
+      dryRunRecord,
+      status: 'requested',
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+    });
+
+    await persistGithubDraftPrApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistGithubDraftPrAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+      true,
+    );
+
+    return createGithubDraftPrApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/github/draft-prs/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubDraftPrStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as GithubDraftPrManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubDraftPrUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubDraftPrForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubDraftPrDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github draft PR dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveGithubDraftPrApprovalRecord(body.approvalRequestId, store)
+      : (await listGithubDraftPrApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'github draft PR approval request was not found' });
+    }
+
+    const approvalRecord = createGithubDraftPrApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistGithubDraftPrApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistGithubDraftPrAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+      true,
+    );
+
+    return createGithubDraftPrApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/github/draft-prs/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubDraftPrApprovals(query, store);
+
+    return {
+      records: records.map(createGithubDraftPrApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/github/draft-prs/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubDraftPrStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as GithubDraftPrRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubDraftPrUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubDraftPrForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubDraftPrDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github draft PR dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveGithubDraftPrApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord?.approvalArtifactId,
+      allowed:
+        dryRunRecord.status === 'planned' &&
+        approvalRecord?.status === 'approved' &&
+        approvalRecord.approved,
+      constraints: ['github-draft-pr-existing-branch-only', 'hash-bound-remote-ref'],
+    });
+    const githubCredential =
+      options.githubProviderCredential ?? process.env[GITHUB_PROVIDER_CREDENTIAL_ENV_VAR];
+    const providerEnabled =
+      options.githubProviderEnabled ?? process.env.CODEXHUB_GITHUB_PROVIDER_ENABLED === 'true';
+    const draftPrEnabled =
+      options.githubDraftPrEnabled ?? process.env.CODEXHUB_GITHUB_DRAFT_PR_ENABLED === 'true';
+    const runRecord = await executeGithubDraftPrCreation({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      enabled: providerEnabled && draftPrEnabled,
+      runtime: {
+        owner: body?.owner ?? '',
+        repo: body?.repo ?? '',
+        baseBranch: body?.baseBranch ?? '',
+        headBranch: body?.headBranch ?? '',
+        titleSummary: body?.titleSummary ?? '',
+        bodySectionSummaries: body?.bodySectionSummaries ?? [],
+        [GITHUB_PROVIDER_RUNTIME_CREDENTIAL_KEY]: githubCredential,
+      } as GithubDraftPrExecutionInput['runtime'],
+      fetchImpl: options.githubProviderFetch,
+    });
+
+    await persistGithubDraftPrRunRecord(runRecord, store);
+    await persistEvidenceRefs(runRecord.evidenceRefs, store);
+    await persistGithubDraftPrAuditEvents(
+      runRecord.auditEventIds,
+      runRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      runRecord.networkBoundaryInvoked,
+      runRecord.noRealWrite,
+    );
+
+    if (runRecord.networkBoundaryInvoked && approvalRecord) {
+      const usedRecord = createGithubDraftPrApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRecord,
+        status: 'used',
+        reason: 'approval consumed after GitHub draft PR network boundary attempt',
+      });
+      await persistGithubDraftPrApprovalRecord(usedRecord, store);
+      await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+      await persistGithubDraftPrAuditEvents(
+        usedRecord.auditEventIds,
+        usedRecord.evidenceRefs,
+        store,
+        usedRecord.policyDecisionId,
+        runRecord.networkBoundaryInvoked,
+        true,
+      );
+    }
+
+    return createGithubDraftPrRunResponse(runRecord);
+  });
+
+  server.get('/api/github/draft-prs/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubDraftPrRuns(query, store);
+
+    return {
+      records: records.map(createGithubDraftPrRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: records.some((record) => record.networkBoundaryInvoked),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/github/draft-prs/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveGithubDraftPrRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'github draft PR run was not found' });
+    }
+
+    return createGithubDraftPrRunResponse(record);
   });
 
   server.post('/api/pilots/m9/local-runs', async (request, reply) => {
@@ -12135,6 +12496,125 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : githubMetadataRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function persistGithubDraftPrDryRunRecord(
+    record: GithubDraftPrPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubDraftPrDryRuns.saveDryRun(record);
+      return;
+    }
+    githubDraftPrDryRunRecords.unshift(record);
+  }
+
+  async function persistGithubDraftPrApprovalRecord(
+    record: GithubDraftPrApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubDraftPrApprovals.saveApproval(record);
+      return;
+    }
+    githubDraftPrApprovalRecords.unshift(record);
+  }
+
+  async function persistGithubDraftPrRunRecord(
+    record: GithubDraftPrRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubDraftPrRuns.saveRun(record);
+      return;
+    }
+    githubDraftPrRunRecords.unshift(record);
+  }
+
+  async function resolveGithubDraftPrDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.githubDraftPrDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubDraftPrDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return githubDraftPrDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveGithubDraftPrApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.githubDraftPrApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubDraftPrApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return githubDraftPrApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveGithubDraftPrApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.githubDraftPrApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : githubDraftPrApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveGithubDraftPrRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrRun | undefined> {
+    return store
+      ? await store.githubDraftPrRuns.getRun(runId)
+      : githubDraftPrRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listGithubDraftPrDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrPlan[]> {
+    return store
+      ? await store.githubDraftPrDryRuns.listDryRuns(query)
+      : githubDraftPrDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubDraftPrApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrApprovalArtifactRecord[]> {
+    return store
+      ? await store.githubDraftPrApprovals.listApprovals(query)
+      : githubDraftPrApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubDraftPrRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubDraftPrRun[]> {
+    return store
+      ? await store.githubDraftPrRuns.listRuns(query)
+      : githubDraftPrRunRecords.slice(0, query.limit ?? 50);
+  }
+
   async function persistGithubMetadataAuditEvents(
     auditEventIds: string[],
     evidenceRefs: EvidenceRef[],
@@ -12161,6 +12641,43 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
           processBoundaryInvoked: false,
           externalProcessStarted: false,
           noRealWrite: true,
+        },
+      });
+    }
+  }
+
+  async function persistGithubDraftPrAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+    networkBoundaryInvoked: boolean,
+    noRealWrite: boolean,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'github.draft_pr.control_plane',
+        target: 'github-provider',
+        reason: 'github draft PR control-plane metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawPathStored: false,
+          rawPrBodyStored: false,
+          networkBoundaryInvoked,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          noRealWrite,
+          draftOnly: true,
+          pushAllowed: false,
+          createRefAllowed: false,
+          mergeAllowed: false,
         },
       });
     }
@@ -12242,6 +12759,107 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createGithubDraftPrDryRunResponse(record: GithubDraftPrPlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      runnerMode: record.runnerMode,
+      readinessStatus: record.readiness.status,
+      sourceKind: record.readiness.sourceKind,
+      sourceIdHash: record.readiness.sourceIdHash,
+      sourceSummaryHash: record.readiness.sourceSummaryHash,
+      targetRef: record.readiness.targetRef,
+      titleHash: record.titleHash,
+      bodyHash: record.bodyHash,
+      bodySectionCount: record.bodySectionCount,
+      bodyCharacterCount: record.bodyCharacterCount,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      policyOutcome: record.policyDecision.outcome,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryPlanned: record.networkBoundaryPlanned,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      draft: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubDraftPrApprovalResponse(record: GithubDraftPrApprovalArtifactRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      requestedByHash: record.requestedByHash,
+      decidedByHash: record.decidedByHash,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubDraftPrRunResponse(record: GithubDraftPrRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      readinessStatus: record.plan.readiness.status,
+      sourceKind: record.plan.readiness.sourceKind,
+      sourceIdHash: record.plan.readiness.sourceIdHash,
+      sourceSummaryHash: record.plan.readiness.sourceSummaryHash,
+      targetRef: record.creationSummary.targetRef,
+      prNumberHash: record.creationSummary.prNumberHash,
+      prUrlHash: record.creationSummary.prUrlHash,
+      titleHash: record.creationSummary.titleHash,
+      bodyHash: record.creationSummary.bodyHash,
+      created: record.creationSummary.created,
+      responseBodyHashCount: record.responseBodyHashes.length,
+      responseBodyHashes: record.responseBodyHashes,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      auditChainId: record.auditChain.id,
+      auditChainHash: record.auditChain.chainHash,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
+      draft: true,
+      pushAllowed: false,
+      createRefAllowed: false,
+      mergeAllowed: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
   function createGithubMetadataStoreUnavailableResponse(phase: string) {
     return {
       error: `github_metadata_store_unavailable_${phase}`,
@@ -12252,6 +12870,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createGithubDraftPrStoreUnavailableResponse(phase: string) {
+    return {
+      error: `github_draft_pr_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPrBodyStored: false,
       rawPathStored: false,
       bodyStored: false,
     };
@@ -12271,6 +12905,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createGithubDraftPrUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_github_draft_pr_authority_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubMetadataForbiddenRawBodyResponse(dryRunId: string | undefined) {
     return {
       error: 'forbidden_github_metadata_raw_body',
@@ -12280,6 +12929,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createGithubDraftPrForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_github_draft_pr_raw_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPrBodyStored: false,
       rawPathStored: false,
       bodyStored: false,
     };
