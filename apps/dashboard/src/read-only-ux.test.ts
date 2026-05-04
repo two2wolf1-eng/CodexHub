@@ -4,6 +4,7 @@ import {
   createApprovalDecisionHistoryReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createLocalReviewPackageReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createM11PilotAcceptanceSmokeReadOnlySummary,
@@ -228,6 +229,38 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('git worktree remove');
     expect(serialized).not.toContain('diff --numstat');
     expect(serialized).not.toContain('payload');
+  });
+
+  it('summarizes local review packages without raw artifacts or decision reasons', () => {
+    const summary = createLocalReviewPackageReadOnlySummary({
+      dryRunCount: 1,
+      approvalCount: 1,
+      runCount: 1,
+      decisionCount: 1,
+      latestRunStatus: 'completed',
+      latestDecisionStatus: 'pending',
+      verificationStatuses: ['passed'],
+      exportedCount: 1,
+      artifactWriteBoundaryInvoked: true,
+      fileCount: 2,
+      byteCount: 512,
+      evidenceCount: 1,
+      auditEventCount: 1,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.runCount).toBe(1);
+    expect(summary.approvalRequired).toBe(true);
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.artifactWriteBoundaryInvoked).toBe(true);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.tokenStored).toBe(false);
+    expect(serialized).not.toContain('../CodexHub-artifacts');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw PR');
+    expect(serialized).not.toContain('raw reason');
+    expect(serialized).not.toContain('local-control-secret');
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {

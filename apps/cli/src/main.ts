@@ -278,6 +278,7 @@ export interface ReadOnlyRunSummary {
     | 'electron_cdp_observation'
     | 'worktree_run'
     | 'worktree_cleanup_run'
+    | 'review_package_run'
     | 'm11_pilot'
     | 'policy_backend_projection'
     | 'telemetry_projection';
@@ -388,6 +389,56 @@ interface WorktreeApiRecord {
   evidenceRefIds?: string[];
   auditEventIds?: string[];
   summary?: string;
+}
+
+interface ReviewPackageApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  reviewPackageIdHash?: string;
+  packageHash?: string;
+  artifactRootHash?: string;
+  artifactDirectoryHash?: string;
+  packageIdHash?: string;
+  fileCount?: number;
+  byteCount?: number;
+  contentHash?: string;
+  verificationStatus?: string;
+  readinessStatus?: string;
+  decisionStatus?: string;
+  exported?: boolean;
+  artifactWriteBoundaryPlanned?: boolean;
+  artifactWriteBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+  packageSummary?: {
+    status?: string;
+    verificationStatus?: string;
+    packageHash?: string;
+    changedFileCount?: number;
+    exported?: boolean;
+  };
+  decision?: {
+    status?: string;
+    blockerCount?: number;
+    findingCount?: number;
+    retryHandoffRequired?: boolean;
+    nextAction?: string;
+  };
+}
+
+export interface ReviewPackageApprovalListCliOptions extends JsonCliOptions {
+  dryRunId?: string;
+  status?: string;
 }
 
 interface M11PilotRunApiRecord {
@@ -1222,6 +1273,59 @@ export function buildProgram(): Command {
     .action(async (runId: string, options: JsonCliOptions) => {
       const result = await showWorktreeCleanupRun(runId);
       console.log(formatWorktreeCleanupRunDetailOutput(result, options));
+    });
+
+  const reviewPackagesCommand = program
+    .command('review-packages')
+    .description('Read-only local review package metadata commands');
+
+  const reviewPackageDryRunsCommand = reviewPackagesCommand
+    .command('dry-runs')
+    .description('Read local review package dry-run metadata from Supervisor GET endpoints');
+
+  reviewPackageDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List local review package dry-runs without exporting artifacts')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReviewPackageDryRuns();
+      console.log(formatReviewPackageDryRunsListOutput(result, options));
+    });
+
+  const reviewPackageRunsCommand = reviewPackagesCommand
+    .command('runs')
+    .description('Read local review package export run metadata from Supervisor GET endpoints');
+
+  reviewPackageRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List local review package export runs without writing artifacts')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReviewPackageRuns();
+      console.log(formatReviewPackageRunsListOutput(result, options));
+    });
+
+  reviewPackageRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show local review package export run metadata without writing artifacts')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showReviewPackageRun(runId);
+      console.log(formatReviewPackageRunDetailOutput(result, options));
+    });
+
+  const reviewPackageDecisionsCommand = reviewPackagesCommand
+    .command('decisions')
+    .description('Read local review package decision metadata from projected run summaries');
+
+  reviewPackageDecisionsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List local review package decision projections without recording decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReviewPackageDecisions();
+      console.log(formatReviewPackageDecisionsListOutput(result, options));
     });
 
   program
@@ -2387,6 +2491,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     electronCdpObservationResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
+    reviewPackageRunResult,
     m11PilotRunResult,
   ] =
     await Promise.allSettled([
@@ -2403,6 +2508,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       ),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
+      getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
       getSupervisorJson<{ records: M11PilotRunApiRecord[] }>('/api/pilots/m11/local-runs'),
     ]);
   const runs = [
@@ -2420,6 +2526,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       settledValue(worktreeCleanupRunResult)?.records ?? [],
       true,
     ),
+    ...summarizeReviewPackageRunRecords(settledValue(reviewPackageRunResult)?.records ?? []),
     ...summarizeM11PilotRunRecords(settledValue(m11PilotRunResult)?.records ?? []),
     ...summarizePolicyTelemetryLocalRuns(),
   ];
@@ -2431,11 +2538,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(electronCdpObservationResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
+    settledError(reviewPackageRunResult),
     settledError(m11PilotRunResult),
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 8 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 9 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -3078,6 +3186,77 @@ export async function showWorktreeCleanupRun(runId: string): Promise<Record<stri
   );
 }
 
+export async function listReviewPackageDryRuns(): Promise<Record<string, unknown>> {
+  return listReviewPackageCollection(
+    '/api/review-packages/dry-runs',
+    'Local review package dry-runs are read from Supervisor GET endpoints only.',
+    'Local review package dry-run source is unavailable; no artifact export was attempted.',
+  );
+}
+
+export async function listReviewPackageApprovals(
+  options: ReviewPackageApprovalListCliOptions = {},
+): Promise<Record<string, unknown>> {
+  return listReviewPackageCollection(
+    `/api/review-packages/approvals${createReadOnlyFilterQuery(options)}`,
+    'Local review package approvals are read from Supervisor GET endpoints only.',
+    'Local review package approval source is unavailable; no approval state was created.',
+  );
+}
+
+export async function listReviewPackageRuns(): Promise<Record<string, unknown>> {
+  return listReviewPackageCollection(
+    '/api/review-packages/runs',
+    'Local review package runs are read from Supervisor GET endpoints only.',
+    'Local review package run source is unavailable; no artifact export was attempted.',
+  );
+}
+
+export async function showReviewPackageRun(runId: string): Promise<Record<string, unknown>> {
+  return showReviewPackageRecord(
+    `/api/review-packages/runs/${encodeURIComponent(runId)}`,
+    runId,
+    'Local review package run detail is metadata-only.',
+    'Local review package run unavailable',
+  );
+}
+
+export async function listReviewPackageDecisions(): Promise<Record<string, unknown>> {
+  const [dryRunsResult, runsResult] = await Promise.all([listReviewPackageDryRuns(), listReviewPackageRuns()]);
+  const dryRunRecords = (dryRunsResult.records as ReviewPackageApiRecord[] | undefined) ?? [];
+  const runRecords = (runsResult.records as ReviewPackageApiRecord[] | undefined) ?? [];
+  const records = [...runRecords, ...dryRunRecords];
+  const decisions = records.map((record) => ({
+    source: record.runId ? 'run' : 'dry_run',
+    reviewPackageIdHash: record.reviewPackageIdHash ?? record.packageIdHash ?? 'unavailable',
+    packageHash: record.packageHash ?? record.packageSummary?.packageHash ?? 'unavailable',
+    decisionStatus: record.decisionStatus ?? record.decision?.status ?? 'pending',
+    verificationStatus: record.verificationStatus ?? record.packageSummary?.verificationStatus ?? 'unknown',
+    retryHandoffRequired: record.decision?.retryHandoffRequired ?? false,
+    nextAction: record.decision?.nextAction ?? 'none',
+    evidenceRefIds: record.evidenceRefIds ?? [],
+    auditEventIds: record.auditEventIds ?? [],
+    rawPathStored: false,
+    bodyStored: false,
+  }));
+
+  return {
+    status:
+      dryRunsResult.status === 'degraded' && runsResult.status === 'degraded'
+        ? 'degraded'
+        : 'ready',
+    count: decisions.length,
+    decisions,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    note:
+      'Local review package decisions are projected from GET metadata only; no decision was recorded.',
+  };
+}
+
 export async function listApprovalInbox(
   options: ApprovalInboxCliOptions = {},
 ): Promise<ApprovalInboxProjection | Record<string, unknown>> {
@@ -3328,6 +3507,22 @@ function summarizeWorktreeRunRecords(
     summary:
       run.summary ??
       (cleanup ? 'Worktree cleanup metadata summary.' : 'Worktree create metadata summary.'),
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeReviewPackageRunRecords(runs: ReviewPackageApiRecord[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
+    source: 'review_package_run',
+    title: `Local review package ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'Local review package export metadata summary.',
     evidenceCount: run.evidenceRefIds?.length ?? 0,
     auditEventCount: run.auditEventIds?.length ?? 0,
     liveExecution: false,
@@ -3664,6 +3859,83 @@ async function showWorktreeRecord(
       noRealWrite: true,
       bodyStored: false,
       note: 'No worktree action was attempted.',
+    };
+  }
+}
+
+async function listReviewPackageCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: ReviewPackageApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'local review package metadata source unavailable',
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function showReviewPackageRecord(
+  path: string,
+  runId: string,
+  note: string,
+  unavailableMessage: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<ReviewPackageApiRecord>(path);
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : unavailableMessage,
+      liveExecution: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'No local review package export was attempted.',
     };
   }
 }
@@ -7177,6 +7449,81 @@ export function formatWorktreeCleanupRunDetailOutput(
   return formatWorktreeRunDetail('Worktree cleanup run', result, options);
 }
 
+export function formatReviewPackageDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReviewPackageCollectionOutput('Local review package dry-runs', result, options);
+}
+
+export function formatReviewPackageApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReviewPackageCollectionOutput('Local review package approvals', result, options);
+}
+
+export function formatReviewPackageRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReviewPackageCollectionOutput('Local review package runs', result, options);
+}
+
+export function formatReviewPackageRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReviewPackageRunDetail('Local review package run', result, options);
+}
+
+export function formatReviewPackageDecisionsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const decisions =
+    (result.decisions as
+      | Array<{
+          source?: string;
+          reviewPackageIdHash?: string;
+          packageHash?: string;
+          decisionStatus?: string;
+          verificationStatus?: string;
+          retryHandoffRequired?: boolean;
+          evidenceRefIds?: string[];
+          auditEventIds?: string[];
+        }>
+      | undefined) ?? [];
+
+  return [
+    'Local review package decisions',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${decisions.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    decisions.length > 0 ? 'items:' : 'items: none',
+    ...decisions
+      .slice(0, 12)
+      .map((decision) =>
+        [
+          `- ${decision.source ?? 'projection'}`,
+          `reviewPackage=${decision.reviewPackageIdHash ?? 'unavailable'}`,
+          `package=${decision.packageHash ?? 'unavailable'}`,
+          `decision=${decision.decisionStatus ?? 'pending'}`,
+          `verification=${decision.verificationStatus ?? 'unknown'}`,
+          `retry=${String(decision.retryHandoffRequired ?? false)}`,
+          `evidence=${decision.evidenceRefIds?.length ?? 0}`,
+          `audit=${decision.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
 export function formatApprovalInboxOutput(
   result: ApprovalInboxProjection | Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -7409,6 +7756,93 @@ function formatWorktreeRunDetail(
     `noRealWrite=${String(run?.noRealWrite ?? true)}`,
     `bodyStored=${String(run?.bodyStored ?? false)}`,
     `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+function formatReviewPackageCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as ReviewPackageApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `reviewPackage=${record.reviewPackageIdHash ?? 'unavailable'}`,
+          `package=${record.packageHash ?? record.packageSummary?.packageHash ?? 'unavailable'}`,
+          `artifact=${record.artifactDirectoryHash ?? 'unavailable'}`,
+          `files=${String(record.fileCount ?? 0)}`,
+          `artifactWrite=${String(record.artifactWriteBoundaryInvoked ?? false)}`,
+          `decision=${record.decisionStatus ?? record.decision?.status ?? 'pending'}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatReviewPackageRunDetail(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as ReviewPackageApiRecord | undefined;
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.reviewPackageIdHash ? `reviewPackageIdHash: ${run.reviewPackageIdHash}` : undefined,
+    run?.packageHash ?? run?.packageSummary?.packageHash
+      ? `packageHash: ${run?.packageHash ?? run?.packageSummary?.packageHash}`
+      : undefined,
+    run?.artifactRootHash ? `artifactRootHash: ${run.artifactRootHash}` : undefined,
+    run?.artifactDirectoryHash
+      ? `artifactDirectoryHash: ${run.artifactDirectoryHash}`
+      : undefined,
+    run?.contentHash ? `contentHash: ${run.contentHash}` : undefined,
+    `fileCount=${String(run?.fileCount ?? 0)}`,
+    `byteCount=${String(run?.byteCount ?? 0)}`,
+    `verificationStatus=${
+      run?.verificationStatus ?? run?.packageSummary?.verificationStatus ?? 'unknown'
+    }`,
+    `decisionStatus=${run?.decisionStatus ?? run?.decision?.status ?? 'pending'}`,
+    `artifactWriteBoundaryInvoked=${String(run?.artifactWriteBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    `evidence=${run?.evidenceRefIds?.length ?? 0}`,
+    `audit=${run?.auditEventIds?.length ?? 0}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');

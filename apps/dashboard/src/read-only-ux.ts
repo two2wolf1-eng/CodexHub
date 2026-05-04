@@ -148,6 +148,28 @@ export interface WorktreeReadOnlySummary {
   summary: string;
 }
 
+export interface LocalReviewPackageReadOnlySummary {
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  decisionCount: number;
+  latestRunStatus: string;
+  latestDecisionStatus: string;
+  verificationStatuses: string[];
+  exportedCount: number;
+  artifactWriteBoundaryInvoked: boolean;
+  fileCount: number;
+  byteCount: number;
+  evidenceCount: number;
+  auditEventCount: number;
+  productDefaultEnabled: false;
+  approvalRequired: true;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
+}
+
 export interface PolicyTelemetryReadOnlySummary {
   policyBackend: {
     manifestName: string;
@@ -596,6 +618,45 @@ export function createWorktreeReadOnlySummary(input: {
     bodyStored: false,
     summary:
       'Worktree M6d shows Supervisor-gated create and cleanup metadata only. Dashboard remains read-only and cannot create, approve, run, remove, push, or open PRs.',
+  };
+}
+
+export function createLocalReviewPackageReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  decisionCount?: number;
+  latestRunStatus?: string;
+  latestDecisionStatus?: string;
+  verificationStatuses?: readonly string[];
+  exportedCount?: number;
+  artifactWriteBoundaryInvoked?: boolean;
+  fileCount?: number;
+  byteCount?: number;
+  evidenceCount?: number;
+  auditEventCount?: number;
+} = {}): LocalReviewPackageReadOnlySummary {
+  return {
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount: input.runCount ?? 0,
+    decisionCount: input.decisionCount ?? 0,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    latestDecisionStatus: input.latestDecisionStatus ?? 'pending',
+    verificationStatuses: uniqueSorted([...(input.verificationStatuses ?? [])]),
+    exportedCount: input.exportedCount ?? 0,
+    artifactWriteBoundaryInvoked: input.artifactWriteBoundaryInvoked ?? false,
+    fileCount: input.fileCount ?? 0,
+    byteCount: input.byteCount ?? 0,
+    evidenceCount: input.evidenceCount ?? 0,
+    auditEventCount: input.auditEventCount ?? 0,
+    productDefaultEnabled: false,
+    approvalRequired: true,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary:
+      'Local review package metadata is read-only in the Dashboard. Export remains Supervisor-gated and approval-bound.',
   };
 }
 

@@ -1485,3 +1485,47 @@ workflows:
       - rawPullRequestBody
       - rawReasonBody
       - genericFilesystemPassthrough
+  m13c.review-package-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: cli-read-only
+        commands:
+          - codexhub review-packages dry-runs list
+          - codexhub review-packages runs list
+          - codexhub review-packages runs show
+          - codexhub review-packages decisions list
+        routes:
+          - GET /api/review-packages/dry-runs
+          - GET /api/review-packages/runs
+      - phase: dashboard-read-only
+        route: "#/worktrees"
+        panels:
+          - Local Review Packages
+          - Review Package Runs
+      - phase: governance-projection
+        sourceAlias: review_package_run -> orchestrator
+    safety:
+      localOnly: true
+      newSupervisorRoute: false
+      dashboardPostAllowed: false
+      cliPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      rawPathStored: false
+      bodyStored: false
+    forbidden:
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlCredentialRead
+      - adapterDirectExecute
+      - artifactFileWrite
+      - remoteGitProvider
+      - gitPush
+      - openPullRequest

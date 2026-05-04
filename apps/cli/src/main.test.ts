@@ -281,6 +281,10 @@ describe('cli development mock-run fallback', () => {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
+      if (String(url).includes('/api/review-packages/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
       if (String(url).includes('/api/pilots/m11/local-runs')) {
         return new Response(
           JSON.stringify({
@@ -326,7 +330,7 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(16);
+    expect(fetchCalls).toHaveLength(18);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -376,6 +380,10 @@ describe('cli development mock-run fallback', () => {
       }
 
       if (String(url).includes('/api/worktrees/runs')) {
+        return new Response(JSON.stringify({ records: [] }), { status: 200 });
+      }
+
+      if (String(url).includes('/api/review-packages/runs')) {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
 
@@ -1148,6 +1156,154 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('../CodexHub-worktrees');
     expect(serialized).not.toContain('git worktree');
     expect(serialized).not.toContain('diff --numstat');
+    expect(serialized).not.toContain('token');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
+  });
+
+  it('lists local review package metadata using GET requests only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/review-packages/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'review_package_dry_run_record_1',
+                dryRunId: 'review_package_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-local-artifact-export',
+                reviewPackageIdHash: 'sha256:review-package',
+                packageHash: 'sha256:package',
+                artifactDirectoryHash: 'sha256:artifact-dir',
+                verificationStatus: 'passed',
+                decisionStatus: 'pending',
+                rawPathStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/review-packages/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'review_package_approval_record_1',
+                dryRunId: 'review_package_dry_run_1',
+                approvalArtifactId: 'review_package_approval_1',
+                status: 'approved',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/review-packages/runs/review_package_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'review_package_run_1',
+            dryRunId: 'review_package_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-local-artifact-export',
+            reviewPackageIdHash: 'sha256:review-package',
+            packageHash: 'sha256:package',
+            artifactDirectoryHash: 'sha256:artifact-dir',
+            fileCount: 2,
+            byteCount: 512,
+            contentHash: 'sha256:content',
+            verificationStatus: 'passed',
+            decisionStatus: 'pending',
+            exported: true,
+            artifactWriteBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: false,
+            rawPathStored: false,
+            bodyStored: false,
+            evidenceRefIds: ['review_package_evidence_1'],
+            auditEventIds: ['review_package_audit_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/review-packages/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'review_package_run_1',
+                dryRunId: 'review_package_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-local-artifact-export',
+                reviewPackageIdHash: 'sha256:review-package',
+                packageHash: 'sha256:package',
+                artifactDirectoryHash: 'sha256:artifact-dir',
+                fileCount: 2,
+                byteCount: 512,
+                contentHash: 'sha256:content',
+                verificationStatus: 'passed',
+                decisionStatus: 'pending',
+                exported: true,
+                artifactWriteBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                rawPathStored: false,
+                bodyStored: false,
+                evidenceRefIds: ['review_package_evidence_1'],
+                auditEventIds: ['review_package_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    });
+    const {
+      formatReadOnlyRunsListOutput,
+      formatReviewPackageDecisionsListOutput,
+      formatReviewPackageDryRunsListOutput,
+      formatReviewPackageRunDetailOutput,
+      formatReviewPackageRunsListOutput,
+      listReadOnlyRuns,
+      listReviewPackageDecisions,
+      listReviewPackageDryRuns,
+      listReviewPackageRuns,
+      showReviewPackageRun,
+    } = await import('./main');
+    const dryRuns = await listReviewPackageDryRuns();
+    const runs = await listReviewPackageRuns();
+    const detail = await showReviewPackageRun('review_package_run_1');
+    const decisions = await listReviewPackageDecisions();
+    const genericRuns = await listReadOnlyRuns();
+    const serialized = JSON.stringify({ dryRuns, runs, detail, decisions, genericRuns });
+
+    expect(formatReviewPackageDryRunsListOutput(dryRuns)).toContain(
+      'Local review package dry-runs',
+    );
+    expect(formatReviewPackageRunsListOutput(runs)).toContain('review_package_run_1');
+    expect(formatReviewPackageRunDetailOutput(detail)).toContain(
+      'artifactWriteBoundaryInvoked=true',
+    );
+    expect(formatReviewPackageDecisionsListOutput(decisions)).toContain(
+      'Local review package decisions',
+    );
+    expect(formatReadOnlyRunsListOutput(genericRuns)).toContain('review_package_run_1');
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('../CodexHub-artifacts');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw PR');
+    expect(serialized).not.toContain('raw reason');
     expect(serialized).not.toContain('token');
     expect(serialized).not.toContain('cookie');
     expect(serialized).not.toContain('session');

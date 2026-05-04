@@ -46,6 +46,7 @@ const SOURCE_ALIASES: Record<string, UnifiedRunSource> = {
   electron_cdp_observation: 'electron',
   worktree_run: 'worktree',
   worktree_cleanup_run: 'worktree',
+  review_package_run: 'orchestrator',
   m11_pilot: 'orchestrator',
   policy_backend_projection: 'policy',
   telemetry_projection: 'telemetry',

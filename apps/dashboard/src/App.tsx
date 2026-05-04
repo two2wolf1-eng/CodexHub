@@ -41,6 +41,7 @@ import {
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createLocalReviewPackageReadOnlySummary,
   createM10PilotAcceptanceReadOnlySummary,
   createM10PilotReadOnlySummary,
   createM11PilotAcceptanceSmokeReadOnlySummary,
@@ -100,6 +101,9 @@ interface OverviewState {
   worktreeCleanupDryRuns: WorktreeControlSummary[];
   worktreeCleanupApprovals: WorktreeControlSummary[];
   worktreeCleanupRuns: WorktreeControlSummary[];
+  reviewPackageDryRuns: ReviewPackageControlSummary[];
+  reviewPackageApprovals: ReviewPackageControlSummary[];
+  reviewPackageRuns: ReviewPackageControlSummary[];
   m11PilotRuns: M11PilotControlSummary[];
   approvalInbox?: ApprovalInboxProjection;
   message?: string;
@@ -177,6 +181,46 @@ interface WorktreeControlSummary {
   evidenceRefIds?: string[];
   auditEventIds?: string[];
   summary?: string;
+}
+
+interface ReviewPackageControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  reviewPackageIdHash?: string;
+  packageHash?: string;
+  artifactDirectoryHash?: string;
+  fileCount?: number;
+  byteCount?: number;
+  verificationStatus?: string;
+  decisionStatus?: string;
+  exported?: boolean;
+  artifactWriteBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+  packageSummary?: {
+    status?: string;
+    verificationStatus?: string;
+    packageHash?: string;
+    changedFileCount?: number;
+    exported?: boolean;
+  };
+  decision?: {
+    status?: string;
+    blockerCount?: number;
+    findingCount?: number;
+    retryHandoffRequired?: boolean;
+    nextAction?: string;
+  };
 }
 
 interface M11PilotControlSummary {
@@ -264,6 +308,9 @@ export function App() {
     worktreeCleanupDryRuns: [],
     worktreeCleanupApprovals: [],
     worktreeCleanupRuns: [],
+    reviewPackageDryRuns: [],
+    reviewPackageApprovals: [],
+    reviewPackageRuns: [],
     m11PilotRuns: [],
   });
   const [activeView, setActiveView] = useState<DashboardView>(() =>
@@ -319,6 +366,38 @@ export function App() {
     cleanupCompletedCount: overview.worktreeCleanupRuns.filter(
       (record) => record.cleanupCompleted === true,
     ).length,
+  });
+  const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
+    dryRunCount: overview.reviewPackageDryRuns.length,
+    approvalCount: overview.reviewPackageApprovals.length,
+    runCount: overview.reviewPackageRuns.length,
+    decisionCount: [...overview.reviewPackageDryRuns, ...overview.reviewPackageRuns].filter(
+      (record) => record.decisionStatus ?? record.decision?.status,
+    ).length,
+    latestRunStatus: overview.reviewPackageRuns[0]?.status,
+    latestDecisionStatus:
+      overview.reviewPackageRuns[0]?.decisionStatus ??
+      overview.reviewPackageRuns[0]?.decision?.status ??
+      overview.reviewPackageDryRuns[0]?.decisionStatus ??
+      overview.reviewPackageDryRuns[0]?.decision?.status,
+    verificationStatuses: [...overview.reviewPackageDryRuns, ...overview.reviewPackageRuns].map(
+      (record) =>
+        record.verificationStatus ?? record.packageSummary?.verificationStatus ?? 'unknown',
+    ),
+    exportedCount: overview.reviewPackageRuns.filter((record) => record.exported === true).length,
+    artifactWriteBoundaryInvoked: overview.reviewPackageRuns.some(
+      (record) => record.artifactWriteBoundaryInvoked === true,
+    ),
+    fileCount: overview.reviewPackageRuns.reduce((sum, record) => sum + (record.fileCount ?? 0), 0),
+    byteCount: overview.reviewPackageRuns.reduce((sum, record) => sum + (record.byteCount ?? 0), 0),
+    evidenceCount: overview.reviewPackageRuns.reduce(
+      (sum, record) => sum + (record.evidenceRefIds?.length ?? 0),
+      0,
+    ),
+    auditEventCount: overview.reviewPackageRuns.reduce(
+      (sum, record) => sum + (record.auditEventIds?.length ?? 0),
+      0,
+    ),
   });
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
   const readinessSummary = createOperatorReadinessReadOnlySummary();
@@ -384,6 +463,16 @@ export function App() {
     ...overview.worktreeCleanupRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'worktree_cleanup_run',
       source: 'worktree_cleanup_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      noRealWrite: run.noRealWrite,
+    })),
+    ...overview.reviewPackageRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
+      source: 'review_package_run',
       status: run.status,
       evidenceRefIds: run.evidenceRefIds,
       auditEventIds: run.auditEventIds,
@@ -713,6 +802,9 @@ export function App() {
           worktreeCleanupDryRunsResponse,
           worktreeCleanupApprovalsResponse,
           worktreeCleanupRunsResponse,
+          reviewPackageDryRunsResponse,
+          reviewPackageApprovalsResponse,
+          reviewPackageRunsResponse,
           m11PilotRunsResponse,
           approvalInboxResponse,
         ] = await Promise.all([
@@ -759,6 +851,18 @@ export function App() {
           ),
           getOptionalJson<{ records: WorktreeControlSummary[] }>(
             '/api/worktrees/cleanup/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReviewPackageControlSummary[] }>(
+            '/api/review-packages/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReviewPackageControlSummary[] }>(
+            '/api/review-packages/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReviewPackageControlSummary[] }>(
+            '/api/review-packages/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: M11PilotControlSummary[] }>('/api/pilots/m11/local-runs', {
@@ -834,6 +938,9 @@ export function App() {
             worktreeCleanupDryRuns: worktreeCleanupDryRunsResponse.records,
             worktreeCleanupApprovals: worktreeCleanupApprovalsResponse.records,
             worktreeCleanupRuns: worktreeCleanupRunsResponse.records,
+            reviewPackageDryRuns: reviewPackageDryRunsResponse.records,
+            reviewPackageApprovals: reviewPackageApprovalsResponse.records,
+            reviewPackageRuns: reviewPackageRunsResponse.records,
             m11PilotRuns: m11PilotRunsResponse.records,
             approvalInbox: approvalInboxResponse,
           });
@@ -880,6 +987,9 @@ export function App() {
             worktreeCleanupDryRuns: [],
             worktreeCleanupApprovals: [],
             worktreeCleanupRuns: [],
+            reviewPackageDryRuns: [],
+            reviewPackageApprovals: [],
+            reviewPackageRuns: [],
             m11PilotRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
@@ -2415,6 +2525,7 @@ export function App() {
           browserProfilesSummary,
           electronCdpSummary,
           worktreeSummary,
+          reviewPackageSummary,
           policyTelemetrySummary,
           pilotSummary,
           pilotAcceptanceSummary,
@@ -2434,6 +2545,7 @@ function renderReadOnlyDashboardView(
   browserProfilesSummary: ReturnType<typeof createBrowserProfilesReadOnlySummary>,
   electronCdpSummary: ReturnType<typeof createElectronCdpReadOnlySummary>,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
+  reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
   policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
   pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
   pilotAcceptanceSummary: ReturnType<typeof createM10PilotAcceptanceReadOnlySummary>,
@@ -2957,6 +3069,94 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
           </ul>
+        </Panel>
+        <Panel title="Local Review Packages">
+          <ul>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {reviewPackageSummary.dryRunCount}, approvals{' '}
+                {reviewPackageSummary.approvalCount}, runs {reviewPackageSummary.runCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest</strong>
+              <span>
+                run {reviewPackageSummary.latestRunStatus}, decision{' '}
+                {reviewPackageSummary.latestDecisionStatus}
+              </span>
+            </li>
+            <li>
+              <strong>export</strong>
+              <span>
+                exported {reviewPackageSummary.exportedCount}, files{' '}
+                {reviewPackageSummary.fileCount}, bytes {reviewPackageSummary.byteCount}
+              </span>
+            </li>
+            <li>
+              <strong>boundary</strong>
+              <span>
+                artifact write {String(reviewPackageSummary.artifactWriteBoundaryInvoked)}
+              </span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {reviewPackageSummary.evidenceCount} evidence,{' '}
+                {reviewPackageSummary.auditEventCount} audit events
+              </span>
+            </li>
+            <li>
+              <strong>storage</strong>
+              <span>
+                bodyStored {String(reviewPackageSummary.bodyStored)}, rawPathStored{' '}
+                {String(reviewPackageSummary.rawPathStored)}
+              </span>
+            </li>
+          </ul>
+          <p>{reviewPackageSummary.summary}</p>
+        </Panel>
+        <Panel title="Review Package Runs">
+          {overview.reviewPackageRuns.length > 0 ? (
+            <ul>
+              {overview.reviewPackageRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'review_package_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    review package {run.reviewPackageIdHash ?? 'unavailable'}, package{' '}
+                    {run.packageHash ?? run.packageSummary?.packageHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    artifact {run.artifactDirectoryHash ?? 'unavailable'}, files{' '}
+                    {run.fileCount ?? 0}, bytes {run.byteCount ?? 0}
+                  </span>
+                  <span>
+                    decision {run.decisionStatus ?? run.decision?.status ?? 'pending'},
+                    verification{' '}
+                    {run.verificationStatus ?? run.packageSummary?.verificationStatus ?? 'unknown'}
+                  </span>
+                  <span>
+                    artifactWrite {String(run.artifactWriteBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No local review package run metadata is available. Export remains Supervisor-gated
+              and cannot be triggered from the Dashboard.
+            </p>
+          )}
         </Panel>
         <Panel title="Worktree Create Runs">
           {overview.worktreeRuns.length > 0 ? (
