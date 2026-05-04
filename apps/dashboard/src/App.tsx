@@ -391,6 +391,10 @@ export function App() {
   const pilotAcceptanceSummary = createM10PilotAcceptanceReadOnlySummary();
   const m11PilotSummary = createM11PilotReadOnlySummary({
     runCount: overview.m11PilotRuns.length,
+    approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
+    governanceRunCount: governanceSummary.runCount,
+    cleanupRequiredCount: overview.m11PilotRuns.filter((run) => run.cleanupRequired === true)
+      .length,
     latestRunStatus: overview.m11PilotRuns[0]?.status,
     latestPrDraftStatus: overview.m11PilotRuns[0]?.prDraftStatus,
     latestFailureClassification: overview.m11PilotRuns[0]?.failureClassification,
@@ -3112,6 +3116,17 @@ function renderReadOnlyDashboardView(
               <span>{m11PilotSummary.runCount}</span>
             </li>
             <li>
+              <strong>enablement</strong>
+              <span>
+                {m11PilotSummary.enablementStatus}, blockers{' '}
+                {m11PilotSummary.enablementBlockerCount}
+              </span>
+            </li>
+            <li>
+              <strong>required env</strong>
+              <span>{m11PilotSummary.requiredEnvFlags.join(', ')}</span>
+            </li>
+            <li>
               <strong>latest</strong>
               <span>
                 {m11PilotSummary.latestRunStatus} / PR {m11PilotSummary.latestPrDraftStatus}
@@ -3147,6 +3162,36 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{m11PilotSummary.summary}</p>
+        </Panel>
+        <Panel title="M11 Safe-Enable Checklist">
+          <ul>
+            {m11PilotSummary.steps.map((step) => (
+              <li key={step.code} className="stacked">
+                <strong>{step.label}</strong>
+                <span>
+                  {step.phase} / {step.status} / blockers {step.blockerCount}
+                </span>
+                <span>{step.blockers.length > 0 ? step.blockers.join(', ') : 'none'}</span>
+                <p>{step.summary}</p>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+        <Panel title="M11 Operator Handoff">
+          <ul>
+            <li>
+              <strong>next action</strong>
+              <span>{m11PilotSummary.nextAction}</span>
+            </li>
+            <li>
+              <strong>failure handling</strong>
+              <span>{m11PilotSummary.failureHandlingSummary}</span>
+            </li>
+            <li>
+              <strong>rollback</strong>
+              <span>{m11PilotSummary.rollbackSummary}</span>
+            </li>
+          </ul>
         </Panel>
         <Panel title="M10 Pilot Checklist">
           <ul>

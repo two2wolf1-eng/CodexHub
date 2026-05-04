@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { M10PilotChecklistSchema, OperatorReadinessReportSchema } from '@codexhub/contracts';
+import {
+  M10PilotChecklistSchema,
+  M11PilotEnablementChecklistSchema,
+  OperatorReadinessReportSchema,
+} from '@codexhub/contracts';
 import {
   createConfigHashSummary,
   createDefaultOperatorReadinessPreview,
   createIntegrationReadinessSummary,
   createM10PilotChecklist,
   createM10PilotRunbookSummary,
+  createM11PilotEnablementChecklist,
+  createM11PilotEnablementRunbookSummary,
   createOperatorReadinessReport,
 } from './index';
 
@@ -152,6 +158,90 @@ describe('operator-readiness-kernel', () => {
       readinessReport: report,
       approvalInboxItemCount: 1,
       governanceRunCount: 1,
+    });
+
+    expect(checklist.status).toBe('ready');
+    expect(checklist.blockerCount).toBe(0);
+    expect(checklist.readyStepCount).toBe(checklist.steps.length);
+    expect(JSON.stringify(checklist)).not.toContain('do-not-print');
+  });
+
+  it('creates an M11 enablement checklist with pilot blockers and no execution', () => {
+    const checklist = createM11PilotEnablementChecklist();
+    const runbook = createM11PilotEnablementRunbookSummary({ checklist });
+    const serialized = JSON.stringify({ checklist, runbook });
+
+    expect(M11PilotEnablementChecklistSchema.parse(checklist).status).toBe('blocked');
+    expect(checklist.requiredEnvFlags).toEqual([
+      'CODEXHUB_M11_PRODUCTION_PILOT_ENABLED',
+      'CODEXHUB_WORKTREE_MANAGER_ENABLED',
+    ]);
+    expect(checklist.safeEnableBlockers).toContain('m11_pilot_not_safe_to_enable');
+    expect(checklist.codexReadOnlyDryRunOnly).toBe(true);
+    expect(checklist.patchGenerationAllowed).toBe(false);
+    expect(checklist.pushAllowed).toBe(false);
+    expect(checklist.pullRequestOpened).toBe(false);
+    expect(checklist.localControlKeyRead).toBe(false);
+    expect(checklist.supervisorPostAllowed).toBe(false);
+    expect(checklist.adapterExecuteAllowed).toBe(false);
+    expect(runbook.status).toBe(checklist.status);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout');
+    expect(serialized).not.toContain('stderr');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+  });
+
+  it('marks M11 enablement ready only after required pilot prerequisites are present', () => {
+    const report = createOperatorReadinessReport({
+      storeAvailable: true,
+      processBoundaryAllowlistPassed: true,
+      noLiveAuditPassed: true,
+      configs: [{ name: 'integrations', kind: 'integration', text: 'rules' }],
+      integrations: [
+        {
+          name: 'codex-cli',
+          enabled: true,
+          defaultEnabled: true,
+          riskLevel: 'medium',
+          approvalRequired: true,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+        {
+          name: 'nx-affected',
+          enabled: true,
+          defaultEnabled: true,
+          riskLevel: 'low',
+          approvalRequired: false,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+        {
+          name: 'worktree-manager',
+          enabled: true,
+          riskLevel: 'high',
+          approvalRequired: true,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+        {
+          name: 'm11-production-pilot',
+          enabled: true,
+          riskLevel: 'high',
+          approvalRequired: true,
+          processBoundary: true,
+          envFlagConfigured: true,
+        },
+      ],
+      localControlKeys: [{ name: 'supervisor', configured: true, value: 'do-not-print' }],
+    });
+    const checklist = createM11PilotEnablementChecklist({
+      readinessReport: report,
+      approvalInboxItemCount: 1,
+      governanceRunCount: 1,
+      latestRunCount: 1,
     });
 
     expect(checklist.status).toBe('ready');

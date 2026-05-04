@@ -435,9 +435,21 @@ integrations:
       body: forbidden
     readOnlyUx:
       dashboardRoute: '#/pilot'
+      operatorEnablementSections:
+        - M11 Safe-Enable Checklist
+        - M11 Operator Handoff
       cliCommands:
         - codexhub pilot m11 readiness
         - codexhub pilot m11 runs list
         - codexhub pilot m11 runs show
       supervisorPostAllowed: false
       localControlTokenRequired: false
+    m11b:
+      stage: pilot-operator-enablement
+      checklistHelper: createM11PilotEnablementChecklist
+      runbookHelper: createM11PilotEnablementRunbookSummary
+      output: ids-hashes-counts-statuses-summaries
+      noNewRoutes: true
+      noNewExecutionBoundary: true
+      dashboardWriteUi: false
+      cliWriteCommand: false

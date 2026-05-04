@@ -24,6 +24,11 @@ The pilot does not generate a patch, push, open a pull request, connect a browse
 - Codex remains read-only dry-run only.
 - Nx targets remain limited to `lint`, `test`, and `build`.
 
+M11b adds a read-only operator enablement projection for these checks. It is available through
+the Dashboard `#/pilot` page and `codexhub pilot m11 readiness --json`. The projection can show
+required env flags, blocker codes, latest run status, cleanup handoff metadata, and next actions,
+but it cannot approve or execute the pilot.
+
 ## Operator Flow
 
 1. Run the readiness view:
@@ -44,15 +49,37 @@ The pilot does not generate a patch, push, open a pull request, connect a browse
    codexhub pilot m11 runs show <runId> --json
    ```
 
-4. Create or approve required worktree records only through existing Supervisor-gated worktree control-plane routes or the governed approval UX. Do not pass approval artifacts or execution authority objects in request bodies.
+4. Resolve blocker codes from the M11 safe-enable checklist:
 
-5. Start the M11 pilot only through the Supervisor gated route:
+   - `m11_pilot_env_flag_missing`: set the M11 flag only for the pilot session.
+   - `worktree_manager_env_flag_missing`: enable the existing worktree manager boundary only when a worktree run is intended.
+   - `worktree_approval_missing_for_m11_pilot`: create and approve the worktree approval through the governed approval UX.
+   - `cleanup_handoff_requires_operator_review`: inspect worktree cleanup metadata before another pilot attempt.
+
+5. Create or approve required worktree records only through existing Supervisor-gated worktree control-plane routes or the governed approval UX. Do not pass approval artifacts or execution authority objects in request bodies.
+
+6. Start the M11 pilot only through the Supervisor gated route:
 
    ```text
    POST /api/pilots/m11/local-runs
    ```
 
 The Dashboard `#/pilot` page is read-only. It displays M11 status, failure classification, PR draft state, and boundary booleans, but it cannot execute or approve the pilot.
+
+## Disablement
+
+- Remove `CODEXHUB_M11_PRODUCTION_PILOT_ENABLED` after the pilot session.
+- Remove `CODEXHUB_WORKTREE_MANAGER_ENABLED` when no controlled worktree run should cross the git boundary.
+- Keep Dashboard and CLI pilot views usable after disablement; they will show blocked or degraded metadata instead of executing anything.
+
+## Failure Handling
+
+- `readiness_blocked`: resolve doctor, env, store, or audit blockers before a new attempt.
+- `approval_blocked`: create or approve the required persisted approval record; do not pass an approval artifact in the run body.
+- `worktree_boundary_failed`: inspect git boundary truth and cleanup handoff metadata.
+- `codex_failed` or `codex_aborted`: leave PR status blocked or `not_ready_no_patch`; no patch should exist.
+- `nx_failed` or `nx_aborted`: inspect verification metadata; do not mark PR ready.
+- `projection_degraded`: keep evidence and audit ids, then inspect the degraded projection source.
 
 ## Expected Outcomes
 

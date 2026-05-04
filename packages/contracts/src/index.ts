@@ -2376,6 +2376,122 @@ export const M10PilotRunbookSummarySchema = createdEntityBaseSchema
   });
 export type M10PilotRunbookSummary = z.infer<typeof M10PilotRunbookSummarySchema>;
 
+export const M11PilotEnablementStatusSchema = z.enum(['ready', 'blocked', 'review']);
+export type M11PilotEnablementStatus = z.infer<typeof M11PilotEnablementStatusSchema>;
+
+export const M11PilotEnablementStepPhaseSchema = z.enum([
+  'preflight',
+  'approval',
+  'worktree',
+  'codex',
+  'verification',
+  'projection',
+  'rollback',
+]);
+export type M11PilotEnablementStepPhase = z.infer<
+  typeof M11PilotEnablementStepPhaseSchema
+>;
+
+export const M11PilotEnablementStepStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'review',
+  'done',
+]);
+export type M11PilotEnablementStepStatus = z.infer<
+  typeof M11PilotEnablementStepStatusSchema
+>;
+
+export const M11PilotEnablementStepSchema = createdEntityBaseSchema
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    phase: M11PilotEnablementStepPhaseSchema,
+    status: M11PilotEnablementStepStatusSchema,
+    required: z.boolean(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    safeEnableNotes: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotEnablementStep = z.infer<typeof M11PilotEnablementStepSchema>;
+
+export const M11PilotEnablementChecklistSchema = createdEntityBaseSchema
+  .extend({
+    status: M11PilotEnablementStatusSchema,
+    steps: z.array(M11PilotEnablementStepSchema),
+    readyStepCount: z.number().int().nonnegative(),
+    blockedStepCount: z.number().int().nonnegative(),
+    reviewStepCount: z.number().int().nonnegative(),
+    requiredStepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    integrationCount: z.number().int().nonnegative(),
+    configuredLocalControlKeyCount: z.number().int().nonnegative(),
+    governanceRunCount: z.number().int().nonnegative(),
+    approvalInboxItemCount: z.number().int().nonnegative(),
+    latestRunCount: z.number().int().nonnegative(),
+    cleanupRequiredCount: z.number().int().nonnegative(),
+    requiredEnvFlags: z.array(z.string().min(1)).default([]),
+    safeEnableBlockers: z.array(z.string().min(1)).default([]),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    codexReadOnlyDryRunOnly: z.literal(true),
+    patchGenerationAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotEnablementChecklist = z.infer<
+  typeof M11PilotEnablementChecklistSchema
+>;
+
+export const M11PilotEnablementRunbookSummarySchema = createdEntityBaseSchema
+  .extend({
+    checklistId: z.string().min(1),
+    status: M11PilotEnablementStatusSchema,
+    phaseCount: z.number().int().nonnegative(),
+    requiredStepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    nextAction: z.string().min(1),
+    safeEnableSummary: z.string().min(1),
+    failureHandlingSummary: z.string().min(1),
+    rollbackSummary: z.string().min(1),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    localControlKeyRead: z.literal(false),
+    supervisorPostAllowed: z.literal(false),
+    adapterExecuteAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type M11PilotEnablementRunbookSummary = z.infer<
+  typeof M11PilotEnablementRunbookSummarySchema
+>;
+
 const goldenPathForbiddenMetadataKeys = new Set([
   'body',
   'prompt',

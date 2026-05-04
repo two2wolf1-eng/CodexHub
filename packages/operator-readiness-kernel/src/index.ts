@@ -4,6 +4,9 @@ import {
   M10PilotChecklistSchema,
   M10PilotOperatorStepSchema,
   M10PilotRunbookSummarySchema,
+  M11PilotEnablementChecklistSchema,
+  M11PilotEnablementRunbookSummarySchema,
+  M11PilotEnablementStepSchema,
   OperatorReadinessCheckSchema,
   OperatorReadinessReportSchema,
   SchemaVersionSchema,
@@ -16,6 +19,12 @@ import {
   type M10PilotOperatorStepPhase,
   type M10PilotOperatorStepStatus,
   type M10PilotRunbookSummary,
+  type M11PilotEnablementChecklist,
+  type M11PilotEnablementStatus,
+  type M11PilotEnablementStep,
+  type M11PilotEnablementStepPhase,
+  type M11PilotEnablementStepStatus,
+  type M11PilotEnablementRunbookSummary,
   type OperatorReadinessCheck,
   type OperatorReadinessReport,
   type OperatorReadinessStatus,
@@ -28,6 +37,9 @@ export type {
   M10PilotChecklist,
   M10PilotOperatorStep,
   M10PilotRunbookSummary,
+  M11PilotEnablementChecklist,
+  M11PilotEnablementStep,
+  M11PilotEnablementRunbookSummary,
   OperatorReadinessCheck,
   OperatorReadinessReport,
 } from '@codexhub/contracts';
@@ -71,6 +83,14 @@ export interface M10PilotChecklistInput {
   readinessReport?: OperatorReadinessReport;
   approvalInboxItemCount?: number;
   governanceRunCount?: number;
+}
+
+export interface M11PilotEnablementChecklistInput {
+  readinessReport?: OperatorReadinessReport;
+  approvalInboxItemCount?: number;
+  governanceRunCount?: number;
+  latestRunCount?: number;
+  cleanupRequiredCount?: number;
 }
 
 export function createOperatorReadinessReport(
@@ -515,6 +535,236 @@ export function createM10PilotRunbookSummary(input: {
   });
 }
 
+export function createM11PilotEnablementChecklist(
+  input: M11PilotEnablementChecklistInput = {},
+): M11PilotEnablementChecklist {
+  const createdAt = foundationTimestamp();
+  const readinessReport = input.readinessReport ?? createDefaultOperatorReadinessPreview();
+  const approvalInboxItemCount = input.approvalInboxItemCount ?? 0;
+  const governanceRunCount = input.governanceRunCount ?? 0;
+  const latestRunCount = input.latestRunCount ?? 0;
+  const cleanupRequiredCount = input.cleanupRequiredCount ?? 0;
+  const integrations = new Map(
+    readinessReport.integrations.map((integration) => [integration.name, integration]),
+  );
+  const m11Pilot = integrations.get('m11-production-pilot');
+  const worktree = integrations.get('worktree-manager');
+  const codex = integrations.get('codex-cli');
+  const nx = integrations.get('nx-affected');
+  const reportFailureBlockers =
+    readinessReport.status === 'fail' ? ['operator_readiness_report_failed'] : [];
+  const storeBlockers = readinessReport.storeAvailable ? [] : ['store_unavailable'];
+  const boundaryBlockers = readinessReport.processBoundaryAllowlistPassed
+    ? []
+    : ['process_boundary_allowlist_failed'];
+  const pilotIntegrationBlockers = [
+    ...(m11Pilot ? [] : ['m11_pilot_integration_missing']),
+    ...(m11Pilot?.safeToEnable ? [] : ['m11_pilot_not_safe_to_enable']),
+    ...(m11Pilot?.envFlagConfigured ? [] : ['m11_pilot_env_flag_missing']),
+    ...(m11Pilot?.blockers ?? []),
+  ];
+  const worktreeBlockers = [
+    ...(worktree?.safeToEnable ? [] : ['worktree_manager_not_safe_to_enable']),
+    ...(worktree?.envFlagConfigured ? [] : ['worktree_manager_env_flag_missing']),
+    ...(worktree?.blockers ?? []),
+  ];
+  const approvalBlockers =
+    approvalInboxItemCount > 0 ? [] : ['worktree_approval_missing_for_m11_pilot'];
+  const governanceBlockers =
+    governanceRunCount > 0 || latestRunCount > 0 ? [] : ['m11_pilot_has_no_recent_run_metadata'];
+  const cleanupBlockers =
+    cleanupRequiredCount > 0 ? ['cleanup_handoff_requires_operator_review'] : [];
+  const requiredEnvFlags = [
+    'CODEXHUB_M11_PRODUCTION_PILOT_ENABLED',
+    'CODEXHUB_WORKTREE_MANAGER_ENABLED',
+  ];
+  const steps = [
+    createM11PilotEnablementStep(
+      {
+        code: 'doctor_preflight',
+        label: 'Doctor preflight',
+        phase: 'preflight',
+        required: true,
+        blockers: [...reportFailureBlockers, ...storeBlockers, ...boundaryBlockers],
+        safeEnableNotes: ['Run codexhub doctor before enabling the M11 pilot.'],
+        readySummary: 'Doctor preflight is ready for the M11 pilot.',
+        blockedSummary: 'Doctor preflight has blockers that must be resolved first.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'm11_pilot_enablement',
+        label: 'M11 pilot enablement',
+        phase: 'preflight',
+        required: true,
+        blockers: uniqueSorted(pilotIntegrationBlockers),
+        safeEnableNotes: [
+          'Enable M11 only for the local pilot window with the explicit env flag.',
+        ],
+        readySummary: 'M11 pilot integration is explicitly enabled and safe to use.',
+        blockedSummary: 'M11 pilot integration remains disabled or unsafe to enable.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'worktree_enablement',
+        label: 'Controlled worktree enablement',
+        phase: 'worktree',
+        required: true,
+        blockers: uniqueSorted(worktreeBlockers),
+        safeEnableNotes: [
+          'Worktree creation must stay under sibling CodexHub-worktrees with persisted approval.',
+        ],
+        readySummary: 'Controlled worktree enablement is ready.',
+        blockedSummary: 'Controlled worktree enablement is missing a required flag or approval path.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'approval_ready',
+        label: 'Persisted approval ready',
+        phase: 'approval',
+        required: true,
+        blockers: approvalBlockers,
+        safeEnableNotes: ['Resolve approval artifacts from the store; never trust request bodies.'],
+        readySummary: 'Approval metadata is available for operator review.',
+        blockedSummary: 'No worktree approval metadata is available for the M11 pilot.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'codex_read_only_dry_run',
+        label: 'Codex read-only dry-run',
+        phase: 'codex',
+        required: true,
+        blockers: codex ? [] : ['codex_cli_integration_missing'],
+        safeEnableNotes: ['Codex must remain read-only/dry-run and cannot generate a patch.'],
+        readySummary: 'Codex step is constrained to read-only dry-run mode.',
+        blockedSummary: 'Codex integration metadata is missing.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'nx_verification_ready',
+        label: 'Nx affected verification ready',
+        phase: 'verification',
+        required: true,
+        blockers: nx ? [] : ['nx_verification_integration_missing'],
+        safeEnableNotes: ['Nx targets remain limited to lint, test, and build.'],
+        readySummary: 'Nx verification metadata is ready.',
+        blockedSummary: 'Nx verification integration metadata is missing.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'governance_projection_review',
+        label: 'Governance projection review',
+        phase: 'projection',
+        required: false,
+        blockers: governanceBlockers,
+        safeEnableNotes: ['Review M11 run, evidence, and audit summaries after the pilot.'],
+        readySummary: 'M11 governance projection metadata is available.',
+        blockedSummary: 'No recent M11 run metadata is available yet.',
+      },
+      createdAt,
+    ),
+    createM11PilotEnablementStep(
+      {
+        code: 'cleanup_handoff_review',
+        label: 'Cleanup handoff review',
+        phase: 'rollback',
+        required: true,
+        blockers: cleanupBlockers,
+        safeEnableNotes: ['Use governed non-force cleanup if a worktree was created.'],
+        readySummary: 'No cleanup handoff requires operator review.',
+        blockedSummary: 'Cleanup handoff metadata requires operator review.',
+      },
+      createdAt,
+    ),
+  ];
+  const counts = countM11PilotEnablementSteps(steps);
+  const status = deriveM11PilotEnablementStatus(counts);
+  const safeEnableBlockers = uniqueSorted(steps.flatMap((step) => step.blockers));
+
+  return M11PilotEnablementChecklistSchema.parse({
+    id: stableId('m11_pilot_enablement_checklist', JSON.stringify([steps, latestRunCount])),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    status,
+    steps,
+    readyStepCount: counts.ready + counts.done,
+    blockedStepCount: counts.blocked,
+    reviewStepCount: counts.review,
+    requiredStepCount: steps.filter((step) => step.required).length,
+    blockerCount: safeEnableBlockers.length,
+    integrationCount: readinessReport.integrations.length,
+    configuredLocalControlKeyCount: readinessReport.configuredLocalControlKeyCount,
+    governanceRunCount,
+    approvalInboxItemCount,
+    latestRunCount,
+    cleanupRequiredCount,
+    requiredEnvFlags,
+    safeEnableBlockers,
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    codexReadOnlyDryRunOnly: true,
+    patchGenerationAllowed: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    summary:
+      status === 'ready'
+        ? 'M11 pilot enablement is ready for the gated Supervisor route.'
+        : `M11 pilot enablement is ${status} with ${safeEnableBlockers.length} blocker(s).`,
+  });
+}
+
+export function createM11PilotEnablementRunbookSummary(input: {
+  checklist?: M11PilotEnablementChecklist;
+} = {}): M11PilotEnablementRunbookSummary {
+  const createdAt = foundationTimestamp();
+  const checklist = input.checklist ?? createM11PilotEnablementChecklist();
+  const phaseCount = new Set(checklist.steps.map((step) => step.phase)).size;
+  const nextAction =
+    checklist.status === 'ready'
+      ? 'Use only the Supervisor gated M11 route with persisted ids and hash-bound runtime input.'
+      : 'Resolve M11 enablement blockers before attempting the gated pilot route.';
+
+  return M11PilotEnablementRunbookSummarySchema.parse({
+    id: stableId('m11_pilot_enablement_runbook_summary', checklist.id),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    checklistId: checklist.id,
+    status: checklist.status,
+    phaseCount,
+    requiredStepCount: checklist.requiredStepCount,
+    blockerCount: checklist.blockerCount,
+    nextAction,
+    safeEnableSummary:
+      'M11 requires explicit env flags, store-resolved approval, hash-bound worktree input, Codex read-only dry-run, and Nx allowlisted verification.',
+    failureHandlingSummary:
+      'Use M11 failure classification and worktree cleanup handoff metadata; do not push or open PRs.',
+    rollbackSummary:
+      'Disable M11 and worktree env flags, inspect evidence/audit projections, and use governed cleanup if required.',
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    summary: `M11 pilot enablement runbook references checklist ${checklist.id} and remains read-only.`,
+  });
+}
+
 function createDefaultConfigInputs(): OperatorConfigInput[] {
   return [
     { name: 'policies', kind: 'policy', text: 'policy-config-present', itemCount: 1 },
@@ -566,6 +816,17 @@ function createDefaultIntegrationInputs(): OperatorIntegrationInput[] {
       approvalRequired: true,
       processBoundary: true,
       blockers: ['disabled_by_default'],
+    },
+    {
+      name: 'm11-production-pilot',
+      enabled: false,
+      riskLevel: 'high',
+      approvalRequired: true,
+      processBoundary: true,
+      blockers: ['disabled_by_default'],
+      safeEnableNotes: [
+        'Requires CODEXHUB_M11_PRODUCTION_PILOT_ENABLED and existing governed boundaries.',
+      ],
     },
     {
       name: 'policy-backend',
@@ -624,9 +885,55 @@ function createM10PilotOperatorStep(
   });
 }
 
+function createM11PilotEnablementStep(
+  input: {
+    code: string;
+    label: string;
+    phase: M11PilotEnablementStepPhase;
+    required: boolean;
+    blockers: readonly string[];
+    safeEnableNotes: readonly string[];
+    readySummary: string;
+    blockedSummary: string;
+  },
+  createdAt: string,
+): M11PilotEnablementStep {
+  const blockers = uniqueSorted(input.blockers);
+  const status = deriveM11PilotEnablementStepStatus(blockers);
+
+  return M11PilotEnablementStepSchema.parse({
+    id: stableId('m11_pilot_enablement_step', input.code),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    code: input.code,
+    label: input.label,
+    phase: input.phase,
+    status,
+    required: input.required,
+    blockerCount: blockers.length,
+    blockers,
+    safeEnableNotes: [...input.safeEnableNotes],
+    evidenceRefIds: [],
+    auditEventIds: [],
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    summary: blockers.length > 0 ? input.blockedSummary : input.readySummary,
+  });
+}
+
 function deriveM10PilotStepStatus(
   blockers: readonly string[],
 ): M10PilotOperatorStepStatus {
+  return blockers.length > 0 ? 'blocked' : 'ready';
+}
+
+function deriveM11PilotEnablementStepStatus(
+  blockers: readonly string[],
+): M11PilotEnablementStepStatus {
   return blockers.length > 0 ? 'blocked' : 'ready';
 }
 
@@ -642,9 +949,35 @@ function countM10PilotSteps(
   );
 }
 
+function countM11PilotEnablementSteps(
+  steps: readonly M11PilotEnablementStep[],
+): Record<M11PilotEnablementStepStatus, number> {
+  return steps.reduce<Record<M11PilotEnablementStepStatus, number>>(
+    (counts, step) => ({
+      ...counts,
+      [step.status]: counts[step.status] + 1,
+    }),
+    { ready: 0, blocked: 0, review: 0, done: 0 },
+  );
+}
+
 function deriveM10PilotChecklistStatus(
   counts: Record<M10PilotOperatorStepStatus, number>,
 ): M10PilotChecklistStatus {
+  if (counts.blocked > 0) {
+    return 'blocked';
+  }
+
+  if (counts.review > 0) {
+    return 'review';
+  }
+
+  return 'ready';
+}
+
+function deriveM11PilotEnablementStatus(
+  counts: Record<M11PilotEnablementStepStatus, number>,
+): M11PilotEnablementStatus {
   if (counts.blocked > 0) {
     return 'blocked';
   }

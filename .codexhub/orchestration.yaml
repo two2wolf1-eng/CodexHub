@@ -828,6 +828,56 @@ workflows:
       - browserAutomation
       - electronAutomation
       - mcpRuntime
+  m11b.pilot-operator-enablement:
+    risk: high
+    trigger:
+      type: read-only-operator
+      entrypoint: packages/operator-readiness-kernel apps/dashboard apps/cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: enablement-contracts
+        package: contracts
+        models:
+          - M11PilotEnablementStep
+          - M11PilotEnablementChecklist
+          - M11PilotEnablementRunbookSummary
+        output: ids-hashes-counts-statuses-summaries
+      - phase: readiness-helper
+        package: operator-readiness-kernel
+        validates:
+          - m11PilotEnvFlag
+          - worktreeManagerEnvFlag
+          - storeAvailability
+          - approvalInboxMetadata
+          - governanceRunMetadata
+          - cleanupHandoffMetadata
+      - phase: dashboard-read-only-view
+        route: '#/pilot'
+        sections:
+          - M11 Safe-Enable Checklist
+          - M11 Operator Handoff
+        supervisorPostAllowed: false
+      - phase: cli-read-only-view
+        commands:
+          - codexhub pilot m11 readiness
+          - codexhub pilot m11 runs list
+          - codexhub pilot m11 runs show
+        localControlTokenRead: false
+        adapterExecuteAllowed: false
+    forbidden:
+      - newSupervisorRoute
+      - newProcessBoundary
+      - newBrowserBoundary
+      - newElectronBoundary
+      - newMcpExecution
+      - codexWorkspaceWrite
+      - patchGeneration
+      - gitPush
+      - openPullRequest
+      - dashboardWriteUi
+      - cliWriteCommand
+      - localControlTokenReadByReadOnlyCli
+      - adapterExecuteFromUiOrCli
   m10b.approval-decision-history-projection:
     risk: medium
     trigger:

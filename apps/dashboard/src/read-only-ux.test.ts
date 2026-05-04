@@ -374,6 +374,12 @@ describe('dashboard read-only UX helpers', () => {
 
     expect(summary.status).toBe('available');
     expect(summary.runCount).toBe(1);
+    expect(summary.enablementStatus).toBe('blocked');
+    expect(summary.enablementBlockerCount).toBeGreaterThan(0);
+    expect(summary.requiredEnvFlags).toContain('CODEXHUB_M11_PRODUCTION_PILOT_ENABLED');
+    expect(summary.safeEnableBlockers).toContain('m11_pilot_not_safe_to_enable');
+    expect(summary.steps.length).toBeGreaterThan(0);
+    expect(summary.nextAction).toContain('Resolve M11 enablement blockers');
     expect(summary.latestPrDraftStatus).toBe('blocked');
     expect(summary.codexReadOnlyDryRunOnly).toBe(true);
     expect(summary.patchGenerationAllowed).toBe(false);

@@ -11,6 +11,8 @@ import {
   createM10PilotChecklist,
   createM10PilotRunbookSummary,
   createDefaultOperatorReadinessPreview,
+  createM11PilotEnablementChecklist,
+  createM11PilotEnablementRunbookSummary,
   type OperatorReadinessReport,
 } from '@codexhub/operator-readiness-kernel';
 
@@ -301,6 +303,22 @@ export interface M10PilotAcceptanceReadOnlySummary {
 export interface M11PilotReadOnlySummary {
   status: 'available' | 'degraded';
   runCount: number;
+  enablementStatus: string;
+  enablementBlockerCount: number;
+  requiredEnvFlags: string[];
+  safeEnableBlockers: string[];
+  nextAction: string;
+  failureHandlingSummary: string;
+  rollbackSummary: string;
+  steps: Array<{
+    code: string;
+    label: string;
+    phase: string;
+    status: string;
+    blockerCount: number;
+    blockers: string[];
+    summary: string;
+  }>;
   latestRunStatus: string;
   latestPrDraftStatus: string;
   latestFailureClassification: string;
@@ -737,7 +755,11 @@ export function createM10PilotAcceptanceReadOnlySummary(input: {
 }
 
 export function createM11PilotReadOnlySummary(input: {
+  readinessReport?: OperatorReadinessReport;
   runCount?: number;
+  approvalInboxItemCount?: number;
+  governanceRunCount?: number;
+  cleanupRequiredCount?: number;
   latestRunStatus?: string;
   latestPrDraftStatus?: string;
   latestFailureClassification?: string;
@@ -745,10 +767,34 @@ export function createM11PilotReadOnlySummary(input: {
   externalProcessStarted?: boolean;
 } = {}): M11PilotReadOnlySummary {
   const runCount = input.runCount ?? 0;
+  const checklist = createM11PilotEnablementChecklist({
+    readinessReport: input.readinessReport,
+    approvalInboxItemCount: input.approvalInboxItemCount,
+    governanceRunCount: input.governanceRunCount,
+    latestRunCount: runCount,
+    cleanupRequiredCount: input.cleanupRequiredCount,
+  });
+  const runbook = createM11PilotEnablementRunbookSummary({ checklist });
 
   return {
     status: runCount > 0 ? 'available' : 'degraded',
     runCount,
+    enablementStatus: checklist.status,
+    enablementBlockerCount: checklist.blockerCount,
+    requiredEnvFlags: checklist.requiredEnvFlags,
+    safeEnableBlockers: checklist.safeEnableBlockers,
+    nextAction: runbook.nextAction,
+    failureHandlingSummary: runbook.failureHandlingSummary,
+    rollbackSummary: runbook.rollbackSummary,
+    steps: checklist.steps.map((step) => ({
+      code: step.code,
+      label: step.label,
+      phase: step.phase,
+      status: step.status,
+      blockerCount: step.blockerCount,
+      blockers: step.blockers,
+      summary: step.summary,
+    })),
     latestRunStatus: input.latestRunStatus ?? 'none',
     latestPrDraftStatus: input.latestPrDraftStatus ?? 'none',
     latestFailureClassification: input.latestFailureClassification ?? 'none',

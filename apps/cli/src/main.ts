@@ -171,9 +171,13 @@ import {
 import {
   createM10PilotChecklist,
   createM10PilotRunbookSummary,
+  createM11PilotEnablementChecklist,
+  createM11PilotEnablementRunbookSummary,
   createOperatorReadinessReport,
   type M10PilotChecklist,
   type M10PilotRunbookSummary,
+  type M11PilotEnablementChecklist,
+  type M11PilotEnablementRunbookSummary,
   type OperatorConfigInput,
   type OperatorIntegrationInput,
   type OperatorReadinessReport,
@@ -2585,6 +2589,26 @@ export async function getM10PilotRunbookForCli(): Promise<M10PilotRunbookSummary
   return createM10PilotRunbookSummary({ checklist });
 }
 
+export async function getM11PilotEnablementChecklistForCli(): Promise<M11PilotEnablementChecklist> {
+  const report = await getM11PilotReadinessReportForCli();
+  const runs = await listM11PilotRunsForCli();
+  const records = (runs.records as M11PilotRunApiRecord[] | undefined) ?? [];
+
+  return createM11PilotEnablementChecklist({
+    readinessReport: report,
+    approvalInboxItemCount: 0,
+    governanceRunCount: records.length,
+    latestRunCount: records.length,
+    cleanupRequiredCount: records.filter((record) => record.cleanupRequired === true).length,
+  });
+}
+
+export async function getM11PilotEnablementRunbookForCli(): Promise<M11PilotEnablementRunbookSummary> {
+  const checklist = await getM11PilotEnablementChecklistForCli();
+
+  return createM11PilotEnablementRunbookSummary({ checklist });
+}
+
 async function getM10PilotReadinessReportForCli(): Promise<OperatorReadinessReport> {
   const workspaceRoot = findWorkspaceRoot(process.cwd());
   const configs: OperatorConfigInput[] = await Promise.all([
@@ -2607,6 +2631,10 @@ async function getM10PilotReadinessReportForCli(): Promise<OperatorReadinessRepo
     processBoundaryAllowlistPassed: true,
     noLiveAuditPassed: true,
   });
+}
+
+async function getM11PilotReadinessReportForCli(): Promise<OperatorReadinessReport> {
+  return getM10PilotReadinessReportForCli();
 }
 
 export function runGoldenPathRehearsalForCli(options: {
@@ -2639,10 +2667,35 @@ export async function getM11PilotReadinessForCli(): Promise<Record<string, unkno
   const runs = await listM11PilotRunsForCli();
   const records = (runs.records as M11PilotRunApiRecord[] | undefined) ?? [];
   const latest = records[0];
+  const report = await getM11PilotReadinessReportForCli();
+  const checklist = createM11PilotEnablementChecklist({
+    readinessReport: report,
+    approvalInboxItemCount: 0,
+    governanceRunCount: records.length,
+    latestRunCount: records.length,
+    cleanupRequiredCount: records.filter((record) => record.cleanupRequired === true).length,
+  });
+  const runbook = createM11PilotEnablementRunbookSummary({ checklist });
 
   return {
-    status: records.length > 0 ? 'available' : 'degraded',
+    status: checklist.status,
+    runSourceStatus: runs.status,
     runCount: records.length,
+    enablementStatus: checklist.status,
+    enablementBlockerCount: checklist.blockerCount,
+    safeEnableBlockers: checklist.safeEnableBlockers,
+    requiredEnvFlags: checklist.requiredEnvFlags,
+    stepCount: checklist.steps.length,
+    steps: checklist.steps.map((step) => ({
+      code: step.code,
+      phase: step.phase,
+      status: step.status,
+      blockers: step.blockers,
+      summary: step.summary,
+    })),
+    nextAction: runbook.nextAction,
+    failureHandlingSummary: runbook.failureHandlingSummary,
+    rollbackSummary: runbook.rollbackSummary,
     latestRunStatus: latest?.status ?? 'none',
     latestReadinessStatus: latest?.readinessStatus ?? 'none',
     latestPrDraftStatus: latest?.prDraftStatus ?? 'none',
@@ -3327,6 +3380,9 @@ async function readOperatorConfigInput(
 }
 
 function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
+  const worktreeManagerEnabled = Boolean(process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED);
+  const m11PilotEnabled = Boolean(process.env.CODEXHUB_M11_PRODUCTION_PILOT_ENABLED);
+
   return [
     {
       name: 'codex-cli',
@@ -3378,12 +3434,24 @@ function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
     },
     {
       name: 'worktree-manager',
-      enabled: false,
+      enabled: worktreeManagerEnabled,
       riskLevel: 'high',
       approvalRequired: true,
       processBoundary: true,
-      envFlagConfigured: Boolean(process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED),
-      blockers: ['disabled_by_default'],
+      envFlagConfigured: worktreeManagerEnabled,
+      blockers: worktreeManagerEnabled ? [] : ['disabled_by_default'],
+    },
+    {
+      name: 'm11-production-pilot',
+      enabled: m11PilotEnabled,
+      riskLevel: 'high',
+      approvalRequired: true,
+      processBoundary: true,
+      envFlagConfigured: m11PilotEnabled,
+      blockers: m11PilotEnabled ? [] : ['disabled_by_default'],
+      safeEnableNotes: [
+        'M11 reuses existing worktree, Codex read-only dry-run, and Nx boundaries.',
+      ],
     },
     {
       name: 'policy-backend',
@@ -6748,10 +6816,15 @@ export function formatM11PilotReadinessOutput(
   return [
     'CodexHub M11 pilot readiness',
     `status: ${String(result.status ?? 'unknown')}`,
+    `runSource: ${String(result.runSourceStatus ?? 'unknown')}`,
     `runs: ${String(result.runCount ?? 0)}`,
+    `enablement: ${String(result.enablementStatus ?? 'unknown')}`,
+    `blockers: ${String(result.enablementBlockerCount ?? 0)}`,
+    `requiredEnv: ${Array.isArray(result.requiredEnvFlags) ? result.requiredEnvFlags.join(', ') : 'none'}`,
     `latest: ${String(result.latestRunStatus ?? 'none')}`,
     `prDraft: ${String(result.latestPrDraftStatus ?? 'none')}`,
     `failure: ${String(result.latestFailureClassification ?? 'none')}`,
+    `nextAction: ${String(result.nextAction ?? 'none')}`,
     'codex: read-only dry-run only',
     'patchGenerationAllowed=false',
     'pushAllowed=false',

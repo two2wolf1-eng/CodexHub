@@ -222,6 +222,12 @@ import {
   M10PilotOperatorStepSchema,
   M10PilotOperatorStepStatusSchema,
   M10PilotRunbookSummarySchema,
+  M11PilotEnablementChecklistSchema,
+  M11PilotEnablementRunbookSummarySchema,
+  M11PilotEnablementStatusSchema,
+  M11PilotEnablementStepPhaseSchema,
+  M11PilotEnablementStepSchema,
+  M11PilotEnablementStepStatusSchema,
   M9PilotReadinessSchema,
   M9PilotRunSchema,
   M9PilotStepSchema,
@@ -2429,6 +2435,135 @@ describe('contracts schemas', () => {
       M10PilotRunbookSummarySchema.parse({
         ...runbook,
         id: 'm10_pilot_runbook_bad_metadata',
+        metadata: { rawEnv: 'secret-value' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M11 pilot enablement contracts as metadata-only', () => {
+    expect(M11PilotEnablementStatusSchema.options).toEqual(['ready', 'blocked', 'review']);
+    expect(M11PilotEnablementStepPhaseSchema.options).toEqual([
+      'preflight',
+      'approval',
+      'worktree',
+      'codex',
+      'verification',
+      'projection',
+      'rollback',
+    ]);
+    expect(M11PilotEnablementStepStatusSchema.options).toEqual([
+      'ready',
+      'blocked',
+      'review',
+      'done',
+    ]);
+
+    const step = M11PilotEnablementStepSchema.parse({
+      id: 'm11_enablement_step_1',
+      schemaVersion,
+      createdAt,
+      code: 'm11_env_flags',
+      label: 'M11 pilot env flags',
+      phase: 'preflight',
+      status: 'blocked',
+      required: true,
+      blockerCount: 1,
+      blockers: ['m11_pilot_env_flag_missing'],
+      safeEnableNotes: ['Enable only for a local pilot session.'],
+      evidenceRefIds: [],
+      auditEventIds: [],
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      summary: 'M11 enablement records blocker metadata only.',
+    });
+    const checklist = M11PilotEnablementChecklistSchema.parse({
+      id: 'm11_enablement_checklist_1',
+      schemaVersion,
+      createdAt,
+      status: 'blocked',
+      steps: [step],
+      readyStepCount: 0,
+      blockedStepCount: 1,
+      reviewStepCount: 0,
+      requiredStepCount: 1,
+      blockerCount: 1,
+      integrationCount: 8,
+      configuredLocalControlKeyCount: 0,
+      governanceRunCount: 0,
+      approvalInboxItemCount: 0,
+      latestRunCount: 0,
+      cleanupRequiredCount: 0,
+      requiredEnvFlags: [
+        'CODEXHUB_M11_PRODUCTION_PILOT_ENABLED',
+        'CODEXHUB_WORKTREE_MANAGER_ENABLED',
+      ],
+      safeEnableBlockers: ['m11_pilot_env_flag_missing'],
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      codexReadOnlyDryRunOnly: true,
+      patchGenerationAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      summary: 'M11 pilot enablement is blocked until prerequisites are ready.',
+    });
+    const runbook = M11PilotEnablementRunbookSummarySchema.parse({
+      id: 'm11_enablement_runbook_1',
+      schemaVersion,
+      createdAt,
+      checklistId: checklist.id,
+      status: checklist.status,
+      phaseCount: 7,
+      requiredStepCount: checklist.requiredStepCount,
+      blockerCount: checklist.blockerCount,
+      nextAction: 'Resolve M11 pilot blockers before using the gated route.',
+      safeEnableSummary: 'Use env flags, persisted approval, and hash-bound runtime input.',
+      failureHandlingSummary: 'Inspect failure classification and cleanup handoff metadata.',
+      rollbackSummary: 'Disable pilot flags and use governed cleanup if required.',
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      localControlKeyRead: false,
+      supervisorPostAllowed: false,
+      adapterExecuteAllowed: false,
+      summary: 'M11 enablement runbook is read-only.',
+    });
+    const serialized = JSON.stringify({ checklist, runbook });
+
+    expect(checklist.codexReadOnlyDryRunOnly).toBe(true);
+    expect(checklist.patchGenerationAllowed).toBe(false);
+    expect(runbook.checklistId).toBe(checklist.id);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('stdout body');
+    expect(serialized).not.toContain('stderr body');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:/');
+    expect(() =>
+      M11PilotEnablementChecklistSchema.parse({
+        ...checklist,
+        id: 'm11_enablement_checklist_bad_patch',
+        patchGenerationAllowed: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      M11PilotEnablementStepSchema.parse({
+        ...step,
+        id: 'm11_enablement_step_bad_token',
+        localControlKeyRead: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      M11PilotEnablementRunbookSummarySchema.parse({
+        ...runbook,
+        id: 'm11_enablement_runbook_bad_metadata',
         metadata: { rawEnv: 'secret-value' },
       }),
     ).toThrow();

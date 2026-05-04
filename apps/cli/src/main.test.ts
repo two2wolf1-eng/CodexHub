@@ -556,11 +556,13 @@ describe('cli development mock-run fallback', () => {
       formatM11PilotReadinessOutput,
       formatM11PilotRunShowOutput,
       formatM11PilotRunsListOutput,
+      getM11PilotEnablementChecklistForCli,
       getM11PilotReadinessForCli,
       listM11PilotRunsForCli,
       showM11PilotRunForCli,
     } = await import('./main');
     const readiness = await getM11PilotReadinessForCli();
+    const checklist = await getM11PilotEnablementChecklistForCli();
     const runs = await listM11PilotRunsForCli();
     const detail = await showM11PilotRunForCli('m11_pilot_run_1');
     const output = [
@@ -568,7 +570,7 @@ describe('cli development mock-run fallback', () => {
       formatM11PilotRunsListOutput(runs),
       formatM11PilotRunShowOutput(detail),
     ].join('\n');
-    const serialized = JSON.stringify({ readiness, runs, detail });
+    const serialized = JSON.stringify({ readiness, checklist, runs, detail });
     const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
     const m11CommandSource = source.slice(
       source.indexOf("const pilotM11Command = pilotCommand"),
@@ -576,7 +578,9 @@ describe('cli development mock-run fallback', () => {
     );
 
     expect(readiness).toMatchObject({
-      status: 'available',
+      status: 'blocked',
+      runSourceStatus: 'ready',
+      enablementStatus: 'blocked',
       latestPrDraftStatus: 'blocked',
       latestFailureClassification: 'approval_blocked',
       codexReadOnlyDryRunOnly: true,
@@ -589,6 +593,8 @@ describe('cli development mock-run fallback', () => {
       rawPathStored: false,
       bodyStored: false,
     });
+    expect(checklist.requiredEnvFlags).toContain('CODEXHUB_M11_PRODUCTION_PILOT_ENABLED');
+    expect(checklist.safeEnableBlockers).toContain('m11_pilot_not_safe_to_enable');
     expect((runs.records as unknown[])).toHaveLength(1);
     expect(detail.status).toBe('found');
     expect(output).toContain('CodexHub M11 pilot readiness');
