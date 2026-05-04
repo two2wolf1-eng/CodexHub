@@ -6,6 +6,7 @@ import type { AuditEvent, CodexExecManualApprovalRecord, EvidenceRef } from '@co
 import { hashText } from '@codexhub/evidence-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import {
+  type M9LocalPilotInput,
   runMinimalGovernedOrchestration,
   runM6aControlledWorktreePrDraft,
   runM6bGovernedWorktreePrDraft,
@@ -773,6 +774,36 @@ describe('orchestrator-kernel M9 local pilot', () => {
     expect(result.run.processBoundaryInvoked).toBe(false);
     expect(result.run.externalProcessStarted).toBe(false);
   });
+
+  it('fails the pilot and keeps PR draft blocked when Codex dry-run fails', async () => {
+    const result = await runM9PilotFixture({
+      codexExitCode: 1,
+      codexStdout: '{"type":"error","message":"fixture failure"}\n',
+    });
+
+    expect(result.run.status).toBe('failed');
+    expect(result.run.codexStatus).toBe('failed');
+    expect(result.run.verificationStatus).toBeUndefined();
+    expect(result.run.prDraftStatus).toBe('blocked_no_patch');
+    expect(result.run.codexNoRealWrite).toBe(true);
+    expect(result.run.pushAllowed).toBe(false);
+    expect(result.run.pullRequestOpened).toBe(false);
+  });
+
+  it('fails the pilot and keeps PR draft blocked when Nx verification fails', async () => {
+    const result = await runM9PilotFixture({
+      nxCommandExitCode: 1,
+      nxCommandStdout: 'Failed tasks: lint',
+    });
+
+    expect(result.run.status).toBe('failed');
+    expect(result.run.codexStatus).toBe('passed');
+    expect(result.run.verificationStatus).toBe('failed');
+    expect(result.run.prDraftStatus).toBe('blocked_no_patch');
+    expect(result.run.nxProcessBoundaryInvoked).toBe(true);
+    expect(result.run.pushAllowed).toBe(false);
+    expect(result.run.pullRequestOpened).toBe(false);
+  });
 });
 
 function createGovernedInputFixture() {
@@ -783,6 +814,82 @@ function createGovernedInputFixture() {
     relativePath,
     expectedContentHash: `sha256:${hashText(text)}`,
   };
+}
+
+async function runM9PilotFixture(overrides: {
+  codexExitCode?: number;
+  codexStdout?: string;
+  nxCommandExitCode?: number;
+  nxCommandStdout?: string;
+} = {}) {
+  const worktreeRoot = mkdtempSync(join(tmpdir(), 'codexhub-m9-hardening-worktrees-'));
+  const worktreePath = resolve(worktreeRoot, 'pilot-m9-hardening');
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(
+    resolve(worktreePath, 'package.json'),
+    readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+  );
+
+  const input: M9LocalPilotInput = {
+    title: 'M9 hardened pilot fixture',
+    description: 'Exercise M9 failure paths without raw output.',
+    repoRoot: process.cwd(),
+    worktreeRoot,
+    worktreePath,
+    worktreeSlug: 'pilot-m9-hardening',
+    branchName: 'codex/pilot-m9-hardening',
+    baseRef: 'HEAD',
+    allowedWorktreeRoots: [worktreeRoot],
+    codexDryRunId: 'codex_dry_run_1',
+    worktreeApprovalArtifactId: 'worktree_approval_1',
+    codexApprovalArtifactId: 'approval_artifact_1',
+    worktreeApprovalResolved: true,
+    pilotEnabled: true,
+    realGitBoundaryEnabled: true,
+    governedInput: createGovernedInputFixture(),
+    codexExecutablePath: 'codex-test',
+    nxExecutablePath: 'pnpm-test',
+    store: createApprovalStore(),
+    worktreeRunner: {
+      async run() {
+        return {
+          status: 'completed',
+          changedFiles: [],
+          diffHash: 'sha256:no-diff',
+          diffLineCount: 0,
+          commandSummaryHash: 'sha256:command',
+          gitProcessBoundaryInvoked: true,
+          processBoundaryInvoked: true,
+          externalProcessStarted: true,
+          noRealWrite: false,
+          cleanupRequired: true,
+          cleanupDeferred: true,
+        };
+      },
+    },
+    codexRunner: {
+      async start() {
+        return {
+          exitCode: overrides.codexExitCode ?? 0,
+          stdout: overrides.codexStdout ?? '{"type":"turn.completed"}\n',
+          stderr: '',
+        };
+      },
+    },
+    nxRunner: {
+      async start(plan: { step?: string }) {
+        return plan.step === 'affected-projects'
+          ? { exitCode: 0, stdout: 'orchestrator-kernel\n', stderr: '' }
+          : {
+              exitCode: overrides.nxCommandExitCode ?? 0,
+              stdout: overrides.nxCommandStdout ?? 'Successfully ran target lint,test,build',
+              stderr: '',
+            };
+      },
+    },
+  };
+
+  return runM9LocalPilot(input);
 }
 
 function createApprovalStore(): CodexHubStore & {

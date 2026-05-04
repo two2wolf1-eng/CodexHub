@@ -83,6 +83,17 @@ const policyTelemetryRuntimeTerms = [
   ['cedar', '-wasm'].join(''),
   ['@cedar', '-policy'].join(''),
 ];
+const directAdapterExecuteTerms = [
+  'executeCodexExecAdapter',
+  'executeNxVerificationAdapter',
+  'executeWorktreeManager',
+  'executeWorktreeCleanup',
+  'executePlaywrightObserverAdapter',
+  'executeElectronCdpAdapter',
+  'executePolicyBackendEvaluation',
+  'executeTelemetryExport',
+];
+const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
   ['to', 'ken'].join(''),
@@ -212,6 +223,7 @@ function auditFile(file: string): void {
   auditImports(file, sourceFile, sourceText);
   auditCallExpressions(file, sourceFile);
   auditTextTerms(file, sourceText);
+  auditM9ApprovalUxGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -385,6 +397,50 @@ function auditTextTerms(file: string, sourceText: string): void {
           line: index + 1,
           term,
           reason: 'Credential or account-control vocabulary is only allowed in documented redaction placeholders.',
+        });
+      }
+    }
+  }
+}
+
+function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+  const isDashboardSource = workspacePath.startsWith('apps/dashboard/src/');
+  const isCliSource = workspacePath.startsWith('apps/cli/src/');
+
+  if ((!isDashboardSource && !isCliSource) || workspacePath.endsWith('.test.ts')) {
+    return;
+  }
+
+  const lines = sourceText.split(/\r?\n/);
+
+  for (const [index, line] of lines.entries()) {
+    for (const term of directAdapterExecuteTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Dashboard and CLI must not directly call capability adapter execute functions; mutations must go through Supervisor/workflow governance.',
+        });
+      }
+    }
+  }
+
+  if (!isDashboardSource || !sourceText.includes('/api/approvals/decisions')) {
+    return;
+  }
+
+  for (const [index, line] of lines.entries()) {
+    for (const term of browserPersistenceTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Dashboard approval UX must keep the local control token in session memory only; browser storage is forbidden.',
         });
       }
     }
