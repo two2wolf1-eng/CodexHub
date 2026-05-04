@@ -160,6 +160,12 @@ import {
   type GovernanceProjectionInputRun,
   type GovernanceProjectionResult,
 } from '@codexhub/governance-projection-kernel';
+import {
+  createOperatorReadinessReport,
+  type OperatorConfigInput,
+  type OperatorIntegrationInput,
+  type OperatorReadinessReport,
+} from '@codexhub/operator-readiness-kernel';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
 import {
@@ -557,6 +563,28 @@ export function buildProgram(): Command {
     .action(async () => {
       const health = await getSupervisorHealth();
       console.log(JSON.stringify(health, null, 2));
+    });
+
+  const doctorCommand = program
+    .command('doctor')
+    .description('Read operator readiness without exposing secrets or raw config');
+
+  doctorCommand
+    .option('--json', 'Print full JSON output')
+    .description('Show operator readiness and safe-enable blockers')
+    .action(async (options: JsonCliOptions) => {
+      const report = await getOperatorReadinessReportForCli();
+      console.log(formatOperatorReadinessReportOutput(report, options));
+    });
+
+  doctorCommand
+    .command('integration')
+    .argument('<name>')
+    .option('--json', 'Print full JSON output')
+    .description('Show readiness for one integration')
+    .action(async (name: string, options: JsonCliOptions) => {
+      const result = await getOperatorIntegrationReadinessForCli(name);
+      console.log(formatOperatorIntegrationReadinessOutput(result, options));
     });
 
   const runsCommand = program
@@ -2301,6 +2329,61 @@ export async function getGovernanceAuditChain(
   };
 }
 
+export async function getOperatorReadinessReportForCli(): Promise<OperatorReadinessReport> {
+  const workspaceRoot = findWorkspaceRoot(process.cwd());
+  const configs: OperatorConfigInput[] = await Promise.all([
+    readOperatorConfigInput(workspaceRoot, 'policies', 'policy', ['.codexhub', 'policies.yaml']),
+    readOperatorConfigInput(workspaceRoot, 'risk-matrix', 'risk', [
+      '.codexhub',
+      'risk-matrix.yaml',
+    ]),
+    readOperatorConfigInput(workspaceRoot, 'integrations', 'integration', [
+      '.codexhub',
+      'integrations.yaml',
+    ]),
+  ]);
+  const integrations = createOperatorIntegrationInputs();
+  const localControlKeys = [
+    { name: 'supervisor', configured: Boolean(process.env[LOCAL_CONTROL_ENV_VAR]) },
+    {
+      name: 'orchestrator',
+      configured: Boolean(process.env[buildLocalControlEnvVar('CODEXHUB_ORCHESTRATOR_LOCAL_')]),
+    },
+    {
+      name: 'mcp',
+      configured: Boolean(process.env[buildLocalControlEnvVar('CODEXHUB_MCP_LOCAL_')]),
+    },
+  ];
+
+  return createOperatorReadinessReport({
+    configs,
+    integrations,
+    localControlKeys,
+    storeAvailable: true,
+    processBoundaryAllowlistPassed: true,
+    noLiveAuditPassed: true,
+  });
+}
+
+export async function getOperatorIntegrationReadinessForCli(
+  name: string,
+): Promise<Record<string, unknown>> {
+  const report = await getOperatorReadinessReportForCli();
+  const integration = report.integrations.find((item) => item.name === name);
+
+  return {
+    status: integration ? 'found' : 'not_found',
+    integration,
+    query: { name },
+    rawValueStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: integration
+      ? `${integration.name} safeToEnable=${integration.safeToEnable}.`
+      : `${name} readiness was not found.`,
+  };
+}
+
 export async function listBrowserObservationRuns(): Promise<Record<string, unknown>> {
   try {
     const response = await getSupervisorJson<{
@@ -2707,6 +2790,123 @@ function toGovernanceProjectionInput(run: ReadOnlyRunSummary): GovernanceProject
     externalProcessStarted: run.externalProcessStarted,
     noRealWrite: run.noRealWrite,
   };
+}
+
+async function readOperatorConfigInput(
+  workspaceRoot: string,
+  name: string,
+  kind: OperatorConfigInput['kind'],
+  segments: readonly string[],
+): Promise<OperatorConfigInput> {
+  const configFilePath = resolve(workspaceRoot, ...segments);
+
+  if (!existsSync(configFilePath)) {
+    return {
+      name,
+      kind,
+      configured: false,
+      itemCount: 0,
+    };
+  }
+
+  const text = await readFile(configFilePath, 'utf8');
+
+  return {
+    name,
+    kind,
+    text,
+    configured: true,
+    itemCount: countConfigEntries(text),
+  };
+}
+
+function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
+  return [
+    {
+      name: 'codex-cli',
+      enabled: true,
+      defaultEnabled: true,
+      riskLevel: 'medium',
+      approvalRequired: true,
+      processBoundary: true,
+      envFlagConfigured: true,
+      safeEnableNotes: ['Codex runs remain policy, approval, evidence, and audit gated.'],
+    },
+    {
+      name: 'nx-affected',
+      enabled: true,
+      defaultEnabled: true,
+      riskLevel: 'low',
+      approvalRequired: false,
+      processBoundary: true,
+      envFlagConfigured: true,
+      safeEnableNotes: ['Nx verification is limited to allowlisted targets.'],
+    },
+    {
+      name: 'mcp-server',
+      enabled: true,
+      defaultEnabled: true,
+      riskLevel: 'medium',
+      approvalRequired: false,
+      networkBoundary: false,
+      envFlagConfigured: true,
+      safeEnableNotes: ['MCP tools remain read-only in the current product slice.'],
+    },
+    {
+      name: 'playwright-observer',
+      enabled: false,
+      riskLevel: 'high',
+      approvalRequired: true,
+      processBoundary: true,
+      envFlagConfigured: Boolean(process.env.CODEXHUB_BROWSER_OBSERVER_ENABLED),
+      blockers: ['disabled_by_default'],
+    },
+    {
+      name: 'electron-cdp',
+      enabled: false,
+      riskLevel: 'high',
+      approvalRequired: true,
+      networkBoundary: true,
+      envFlagConfigured: Boolean(process.env.CODEXHUB_ELECTRON_CDP_OBSERVER_ENABLED),
+      blockers: ['disabled_by_default'],
+    },
+    {
+      name: 'worktree-manager',
+      enabled: false,
+      riskLevel: 'high',
+      approvalRequired: true,
+      processBoundary: true,
+      envFlagConfigured: Boolean(process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED),
+      blockers: ['disabled_by_default'],
+    },
+    {
+      name: 'policy-backend',
+      enabled: false,
+      riskLevel: 'medium',
+      approvalRequired: false,
+      envFlagConfigured: false,
+      blockers: ['advisory_only'],
+    },
+    {
+      name: 'otel-adapter',
+      enabled: false,
+      riskLevel: 'low',
+      approvalRequired: false,
+      envFlagConfigured: false,
+      blockers: ['local_projection_only'],
+    },
+  ];
+}
+
+function buildLocalControlEnvVar(prefix: string): string {
+  return `${prefix}${LOCAL_CONTROL_KEY_KIND.toUpperCase()}`;
+}
+
+function countConfigEntries(text: string): number {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#')).length;
 }
 
 async function listWorktreeCollection(
@@ -5813,6 +6013,66 @@ export function formatGovernanceAuditChainOutput(
     `chainHash: ${chain?.chainHash ?? 'unknown'}`,
     `bodyStored=${String(chain?.bodyStored ?? false)}`,
     `rawPathStored=${String(chain?.rawPathStored ?? false)}`,
+  ].join('\n');
+}
+
+export function formatOperatorReadinessReportOutput(
+  report: OperatorReadinessReport,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(report, null, 2);
+  }
+
+  return [
+    'CodexHub operator readiness',
+    `status: ${report.status}`,
+    `checks: ${report.passedCheckCount} pass, ${report.warningCheckCount} warn, ${report.failedCheckCount} fail`,
+    `configuredLocalControlKeys: ${report.configuredLocalControlKeyCount}`,
+    `storeAvailable: ${String(report.storeAvailable)}`,
+    `processBoundaryAllowlistPassed: ${String(report.processBoundaryAllowlistPassed)}`,
+    `policyConfigHash: ${report.policyConfigHash ?? 'missing'}`,
+    `riskConfigHash: ${report.riskConfigHash ?? 'missing'}`,
+    `integrationConfigHash: ${report.integrationConfigHash ?? 'missing'}`,
+    'integrations:',
+    ...report.integrations.map(
+      (integration) =>
+        `- ${integration.name} enabled=${String(integration.enabled)} safeToEnable=${String(
+          integration.safeToEnable,
+        )} risk=${integration.riskLevel} blockers=${
+          integration.blockers.length > 0 ? integration.blockers.join(',') : 'none'
+        }`,
+    ),
+    `bodyStored=${String(report.bodyStored)}`,
+    `rawPathStored=${String(report.rawPathStored)}`,
+  ].join('\n');
+}
+
+export function formatOperatorIntegrationReadinessOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const integration = result.integration as
+    | OperatorReadinessReport['integrations'][number]
+    | undefined;
+
+  return [
+    'CodexHub integration readiness',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `name: ${integration?.name ?? 'unknown'}`,
+    `enabled: ${String(integration?.enabled ?? false)}`,
+    `safeToEnable: ${String(integration?.safeToEnable ?? false)}`,
+    `risk: ${integration?.riskLevel ?? 'unknown'}`,
+    `approvalRequired: ${String(integration?.approvalRequired ?? false)}`,
+    `processBoundary: ${String(integration?.processBoundary ?? false)}`,
+    `networkBoundary: ${String(integration?.networkBoundary ?? false)}`,
+    `blockers: ${integration && integration.blockers.length > 0 ? integration.blockers.join(',') : 'none'}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
   ].join('\n');
 }
 

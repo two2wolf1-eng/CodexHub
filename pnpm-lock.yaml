@@ -90,6 +90,9 @@ importers:
       '@codexhub/nx-verification-adapter':
         specifier: workspace:*
         version: link:../../packages/nx-verification-adapter
+      '@codexhub/operator-readiness-kernel':
+        specifier: workspace:*
+        version: link:../../packages/operator-readiness-kernel
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
@@ -156,6 +159,9 @@ importers:
       '@codexhub/mcp-tool-contracts':
         specifier: workspace:*
         version: link:../../packages/mcp-tool-contracts
+      '@codexhub/operator-readiness-kernel':
+        specifier: workspace:*
+        version: link:../../packages/operator-readiness-kernel
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
@@ -355,6 +361,12 @@ importers:
       '@codexhub/evidence-kernel':
         specifier: workspace:*
         version: link:../evidence-kernel
+
+  packages/operator-readiness-kernel:
+    dependencies:
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/orchestrator-kernel:
     dependencies:

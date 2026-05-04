@@ -7,6 +7,10 @@ import {
   createCodexHubMcpServerManifest,
   createCodexHubMcpToolDefinitions,
 } from '@codexhub/mcp-tool-contracts';
+import {
+  createDefaultOperatorReadinessPreview,
+  type OperatorReadinessReport,
+} from '@codexhub/operator-readiness-kernel';
 
 export const DASHBOARD_VIEWS = [
   'overview',
@@ -21,6 +25,7 @@ export const DASHBOARD_VIEWS = [
   'worktrees',
   'policy-telemetry',
   'governance',
+  'readiness',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -197,6 +202,39 @@ export interface GovernanceReadOnlySummary {
     processBoundaryInvoked: boolean;
     externalProcessStarted: boolean;
     noRealWrite: boolean;
+  }>;
+  rawPathStored: false;
+  bodyStored: false;
+  summary: string;
+}
+
+export interface OperatorReadinessReadOnlySummary {
+  status: string;
+  checkCount: number;
+  passedCheckCount: number;
+  warningCheckCount: number;
+  failedCheckCount: number;
+  configuredLocalControlKeyCount: number;
+  storeAvailable: boolean;
+  processBoundaryAllowlistPassed: boolean;
+  policyConfigHash: string;
+  riskConfigHash: string;
+  integrationConfigHash: string;
+  integrations: Array<{
+    name: string;
+    enabled: boolean;
+    safeToEnable: boolean;
+    riskLevel: string;
+    approvalRequired: boolean;
+    blockers: string[];
+  }>;
+  checks: Array<{
+    code: string;
+    status: string;
+    category: string;
+    configured: boolean | undefined;
+    hash: string | undefined;
+    blockers: string[];
   }>;
   rawPathStored: false;
   bodyStored: false;
@@ -483,6 +521,43 @@ export function createGovernanceReadOnlySummary(
     rawPathStored: false,
     bodyStored: false,
     summary: projection.summary.summary,
+  };
+}
+
+export function createOperatorReadinessReadOnlySummary(
+  report: OperatorReadinessReport = createDefaultOperatorReadinessPreview(),
+): OperatorReadinessReadOnlySummary {
+  return {
+    status: report.status,
+    checkCount: report.checks.length,
+    passedCheckCount: report.passedCheckCount,
+    warningCheckCount: report.warningCheckCount,
+    failedCheckCount: report.failedCheckCount,
+    configuredLocalControlKeyCount: report.configuredLocalControlKeyCount,
+    storeAvailable: report.storeAvailable,
+    processBoundaryAllowlistPassed: report.processBoundaryAllowlistPassed,
+    policyConfigHash: report.policyConfigHash ?? 'missing',
+    riskConfigHash: report.riskConfigHash ?? 'missing',
+    integrationConfigHash: report.integrationConfigHash ?? 'missing',
+    integrations: report.integrations.map((integration) => ({
+      name: integration.name,
+      enabled: integration.enabled,
+      safeToEnable: integration.safeToEnable,
+      riskLevel: integration.riskLevel,
+      approvalRequired: integration.approvalRequired,
+      blockers: integration.blockers,
+    })),
+    checks: report.checks.map((check) => ({
+      code: check.code,
+      status: check.status,
+      category: check.category,
+      configured: check.configured,
+      hash: check.hash,
+      blockers: check.blockers,
+    })),
+    rawPathStored: false,
+    bodyStored: false,
+    summary: report.summary,
   };
 }
 

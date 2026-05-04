@@ -12,6 +12,7 @@ const expectedProjects = [
   'orchestrator-kernel',
   'evidence-kernel',
   'governance-projection-kernel',
+  'operator-readiness-kernel',
   'observer-kernel',
   'otel-adapter',
   'policy-backend-adapter',
@@ -121,6 +122,11 @@ const requiredContractExports = [
   'EvidenceBundleProjectionSchema',
   'AuditChainProjectionSchema',
   'GovernanceProjectionSummarySchema',
+  'OperatorReadinessStatusSchema',
+  'OperatorReadinessCheckSchema',
+  'IntegrationReadinessSummarySchema',
+  'ConfigHashSummarySchema',
+  'OperatorReadinessReportSchema',
 ];
 
 const projects = readNxProjects();

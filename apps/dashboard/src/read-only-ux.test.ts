@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
@@ -20,6 +21,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/worktrees')).toBe('worktrees');
     expect(getDashboardViewFromHash('#/policy-telemetry')).toBe('policy-telemetry');
     expect(getDashboardViewFromHash('#/governance')).toBe('governance');
+    expect(getDashboardViewFromHash('#/readiness')).toBe('readiness');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -210,5 +212,22 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('stderr');
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('payload');
+  });
+
+  it('summarizes operator readiness without secret values or raw config', () => {
+    const summary = createOperatorReadinessReadOnlySummary();
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.checkCount).toBeGreaterThan(0);
+    expect(summary.integrations.length).toBeGreaterThan(0);
+    expect(summary.policyConfigHash).toMatch(/^readiness:/);
+    expect(summary.riskConfigHash).toMatch(/^readiness:/);
+    expect(summary.integrationConfigHash).toMatch(/^readiness:/);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('secret-value');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('raw config body');
   });
 });

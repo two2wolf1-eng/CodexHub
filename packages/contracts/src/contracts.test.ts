@@ -191,8 +191,13 @@ import {
   TelemetrySpanSummarySchema,
   TelemetryTraceExportPlanSchema,
   AuditChainProjectionSchema,
+  ConfigHashSummarySchema,
   EvidenceBundleProjectionSchema,
   GovernanceProjectionSummarySchema,
+  IntegrationReadinessSummarySchema,
+  OperatorReadinessCheckSchema,
+  OperatorReadinessReportSchema,
+  OperatorReadinessStatusSchema,
   UnifiedRunProjectionSchema,
   UnifiedRunSourceSchema,
   UnifiedTimelineEventSchema,
@@ -2169,6 +2174,116 @@ describe('contracts schemas', () => {
         ...projection,
         id: 'unified_run_projection_bad_field',
         rawDiff: 'diff --git a/file',
+      }),
+    ).toThrow();
+  });
+
+  it('parses operator readiness contracts as metadata-only', () => {
+    expect(OperatorReadinessStatusSchema.options).toEqual([
+      'pass',
+      'warn',
+      'fail',
+      'unknown',
+    ]);
+
+    const configHash = ConfigHashSummarySchema.parse({
+      id: 'config_hash_summary_1',
+      schemaVersion,
+      createdAt,
+      name: 'integrations',
+      kind: 'integration',
+      configured: true,
+      hash: 'config:abc123',
+      itemCount: 8,
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Integration config is present and summarized by hash.',
+    });
+    const integration = IntegrationReadinessSummarySchema.parse({
+      id: 'integration_readiness_codex',
+      schemaVersion,
+      createdAt,
+      name: 'codex-cli',
+      enabled: true,
+      defaultEnabled: true,
+      riskLevel: 'medium',
+      approvalRequired: true,
+      evidenceRequired: true,
+      auditRequired: true,
+      processBoundary: true,
+      networkBoundary: false,
+      safeToEnable: true,
+      envFlagConfigured: true,
+      localControlKeyConfigured: true,
+      configHash: configHash.hash,
+      blockers: [],
+      safeEnableNotes: ['Persisted approval remains required for execution.'],
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Codex CLI is configured for governed execution.',
+    });
+    const check = OperatorReadinessCheckSchema.parse({
+      id: 'operator_readiness_check_1',
+      schemaVersion,
+      createdAt,
+      code: 'local_control_key_present',
+      label: 'Local control key configured',
+      category: 'security',
+      status: 'pass',
+      required: true,
+      configured: true,
+      hash: 'env:configured',
+      blockers: [],
+      safeEnableNotes: ['Configured value is never displayed.'],
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Required local-control key is configured.',
+    });
+    const report = OperatorReadinessReportSchema.parse({
+      id: 'operator_readiness_report_1',
+      schemaVersion,
+      createdAt,
+      status: 'pass',
+      checks: [check],
+      integrations: [integration],
+      configHashes: [configHash],
+      passedCheckCount: 1,
+      warningCheckCount: 0,
+      failedCheckCount: 0,
+      unknownCheckCount: 0,
+      configuredLocalControlKeyCount: 1,
+      storeAvailable: true,
+      processBoundaryAllowlistPassed: true,
+      policyConfigHash: 'config:policy',
+      riskConfigHash: 'config:risk',
+      integrationConfigHash: configHash.hash,
+      rawValueStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Operator readiness report stores hashes and statuses only.',
+    });
+
+    const serialized = JSON.stringify(report);
+    expect(report.status).toBe('pass');
+    expect(report.integrations[0]?.name).toBe('codex-cli');
+    expect(serialized).not.toContain('secret-value');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('raw config body');
+    expect(() =>
+      OperatorReadinessReportSchema.parse({
+        ...report,
+        id: 'operator_readiness_report_bad_metadata',
+        metadata: { rawValue: 'secret-value' },
+      }),
+    ).toThrow();
+    expect(() =>
+      OperatorReadinessCheckSchema.parse({
+        ...check,
+        id: 'operator_readiness_check_bad_field',
+        rawEnv: 'secret-value',
       }),
     ).toThrow();
   });

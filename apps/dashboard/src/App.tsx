@@ -36,6 +36,7 @@ import {
   createBrowserProfilesReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGovernanceReadOnlySummary,
+  createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
   createVerificationReadinessPreview,
   createWorktreeReadOnlySummary,
@@ -263,6 +264,7 @@ export function App() {
     ).length,
   });
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
+  const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
     ...overview.runs.map((run) => ({
       id: run.id,
@@ -798,7 +800,101 @@ export function App() {
         ))}
       </nav>
 
-      {activeView === 'governance' ? (
+      {activeView === 'readiness' ? (
+        <section className="grid">
+          <Panel title="Operator Readiness">
+            <ul>
+              <li>
+                <strong>status</strong>
+                <span>{readinessSummary.status}</span>
+              </li>
+              <li>
+                <strong>checks</strong>
+                <span>
+                  {readinessSummary.passedCheckCount} pass,{' '}
+                  {readinessSummary.warningCheckCount} warn,{' '}
+                  {readinessSummary.failedCheckCount} fail
+                </span>
+              </li>
+              <li>
+                <strong>store</strong>
+                <span>{String(readinessSummary.storeAvailable)}</span>
+              </li>
+              <li>
+                <strong>local-control keys</strong>
+                <span>{readinessSummary.configuredLocalControlKeyCount} configured</span>
+              </li>
+              <li>
+                <strong>boundary allowlist</strong>
+                <span>{String(readinessSummary.processBoundaryAllowlistPassed)}</span>
+              </li>
+            </ul>
+            <p>{readinessSummary.summary}</p>
+          </Panel>
+          <Panel title="Config Hashes">
+            <ul>
+              <li>
+                <strong>policies</strong>
+                <span>{readinessSummary.policyConfigHash}</span>
+              </li>
+              <li>
+                <strong>risk matrix</strong>
+                <span>{readinessSummary.riskConfigHash}</span>
+              </li>
+              <li>
+                <strong>integrations</strong>
+                <span>{readinessSummary.integrationConfigHash}</span>
+              </li>
+              <li>
+                <strong>storage</strong>
+                <span>
+                  bodyStored {String(readinessSummary.bodyStored)}, rawPathStored{' '}
+                  {String(readinessSummary.rawPathStored)}
+                </span>
+              </li>
+            </ul>
+          </Panel>
+          <Panel title="Integration Readiness">
+            <ul>
+              {readinessSummary.integrations.map((integration) => (
+                <li key={integration.name} className="stacked">
+                  <strong>{integration.name}</strong>
+                  <span>
+                    enabled {String(integration.enabled)}, safeToEnable{' '}
+                    {String(integration.safeToEnable)}
+                  </span>
+                  <span>
+                    risk {integration.riskLevel}, approval{' '}
+                    {String(integration.approvalRequired)}
+                  </span>
+                  <span>
+                    blockers{' '}
+                    {integration.blockers.length > 0
+                      ? integration.blockers.join(', ')
+                      : 'none'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+          <Panel title="Readiness Checks">
+            <ul>
+              {readinessSummary.checks.slice(0, 14).map((check) => (
+                <li key={check.code} className="stacked">
+                  <strong>{check.code}</strong>
+                  <span>
+                    {check.category} / {check.status}
+                  </span>
+                  <span>hash {check.hash ?? 'none'}</span>
+                  <span>
+                    blockers {check.blockers.length > 0 ? check.blockers.join(', ') : 'none'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </section>
+      ) : activeView === 'governance' ? (
         <section className="grid">
           <Panel title="Unified Governance Projection">
             <ul>

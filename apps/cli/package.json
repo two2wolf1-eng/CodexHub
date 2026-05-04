@@ -13,6 +13,7 @@
     "@codexhub/governance-projection-kernel": "workspace:*",
     "@codexhub/mcp-tool-contracts": "workspace:*",
     "@codexhub/nx-verification-adapter": "workspace:*",
+    "@codexhub/operator-readiness-kernel": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
     "@codexhub/playwright-observer-adapter": "workspace:*",
     "@codexhub/otel-adapter": "workspace:*",

@@ -385,6 +385,32 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('diff --git');
   });
 
+  it('reports operator readiness without POST, local-control key reads, or raw config output', async () => {
+    const {
+      formatOperatorIntegrationReadinessOutput,
+      formatOperatorReadinessReportOutput,
+      getOperatorIntegrationReadinessForCli,
+      getOperatorReadinessReportForCli,
+    } = await import('./main');
+    const report = await getOperatorReadinessReportForCli();
+    const integration = await getOperatorIntegrationReadinessForCli('worktree-manager');
+    const serialized = JSON.stringify({ report, integration });
+
+    expect(report.checks.length).toBeGreaterThan(0);
+    expect(report.configHashes.every((config) => config.bodyStored === false)).toBe(true);
+    expect(formatOperatorReadinessReportOutput(report)).toContain('CodexHub operator readiness');
+    expect(formatOperatorIntegrationReadinessOutput(integration)).toContain(
+      'CodexHub integration readiness',
+    );
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('requestBody');
+    expect(serialized).not.toContain('responseBody');
+    expect(serialized).not.toContain('token');
+    expect(serialized).not.toContain('cookie');
+    expect(serialized).not.toContain('session');
+  });
+
   it('lists Electron CDP observation metadata using GET requests only', async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {

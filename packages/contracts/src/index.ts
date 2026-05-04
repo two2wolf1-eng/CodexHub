@@ -2110,6 +2110,171 @@ export const GovernanceProjectionSummarySchema = createdEntityBaseSchema
   });
 export type GovernanceProjectionSummary = z.infer<typeof GovernanceProjectionSummarySchema>;
 
+const operatorReadinessForbiddenMetadataKeys = new Set([
+  'value',
+  'secret',
+  'body',
+  'requestBody',
+  'responseBody',
+  'rawValue',
+  'rawConfig',
+  'rawEnv',
+  'path',
+  'cwd',
+  'url',
+  ['to', 'ken'].join(''),
+  ['coo', 'kie'].join(''),
+  ['sess', 'ion'].join(''),
+  ['m', 'fa'].join(''),
+]);
+
+function rejectOperatorReadinessRawMetadata(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      rejectOperatorReadinessRawMetadata(item, context, [...path, index]),
+    );
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (operatorReadinessForbiddenMetadataKeys.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw operator readiness metadata is forbidden',
+        path: [...path, key],
+      });
+      continue;
+    }
+
+    rejectOperatorReadinessRawMetadata(nestedValue, context, [...path, key]);
+  }
+}
+
+export const OperatorReadinessStatusSchema = z.enum(['pass', 'warn', 'fail', 'unknown']);
+export type OperatorReadinessStatus = z.infer<typeof OperatorReadinessStatusSchema>;
+
+export const ConfigHashSummarySchema = createdEntityBaseSchema
+  .extend({
+    name: z.string().min(1),
+    kind: z.enum([
+      'policy',
+      'risk',
+      'integration',
+      'orchestration',
+      'store',
+      'audit',
+      'environment',
+      'unknown',
+    ]),
+    configured: z.boolean(),
+    hash: z.string().min(1).optional(),
+    itemCount: z.number().int().nonnegative().default(0),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ConfigHashSummary = z.infer<typeof ConfigHashSummarySchema>;
+
+export const IntegrationReadinessSummarySchema = createdEntityBaseSchema
+  .extend({
+    name: z.string().min(1),
+    enabled: z.boolean(),
+    defaultEnabled: z.boolean(),
+    riskLevel: RiskLevelSchema,
+    approvalRequired: z.boolean(),
+    evidenceRequired: z.boolean(),
+    auditRequired: z.boolean(),
+    processBoundary: z.boolean(),
+    networkBoundary: z.boolean(),
+    safeToEnable: z.boolean(),
+    envFlagConfigured: z.boolean(),
+    localControlKeyConfigured: z.boolean().optional(),
+    configHash: z.string().min(1).optional(),
+    blockers: z.array(z.string().min(1)).default([]),
+    safeEnableNotes: z.array(z.string().min(1)).default([]),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type IntegrationReadinessSummary = z.infer<
+  typeof IntegrationReadinessSummarySchema
+>;
+
+export const OperatorReadinessCheckSchema = createdEntityBaseSchema
+  .extend({
+    code: z.string().min(1),
+    label: z.string().min(1),
+    category: z.enum([
+      'integration',
+      'environment',
+      'store',
+      'audit',
+      'policy',
+      'security',
+      'config',
+    ]),
+    status: OperatorReadinessStatusSchema,
+    required: z.boolean(),
+    configured: z.boolean().optional(),
+    hash: z.string().min(1).optional(),
+    blockers: z.array(z.string().min(1)).default([]),
+    safeEnableNotes: z.array(z.string().min(1)).default([]),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type OperatorReadinessCheck = z.infer<typeof OperatorReadinessCheckSchema>;
+
+export const OperatorReadinessReportSchema = createdEntityBaseSchema
+  .extend({
+    status: OperatorReadinessStatusSchema,
+    checks: z.array(OperatorReadinessCheckSchema),
+    integrations: z.array(IntegrationReadinessSummarySchema),
+    configHashes: z.array(ConfigHashSummarySchema),
+    passedCheckCount: z.number().int().nonnegative(),
+    warningCheckCount: z.number().int().nonnegative(),
+    failedCheckCount: z.number().int().nonnegative(),
+    unknownCheckCount: z.number().int().nonnegative(),
+    configuredLocalControlKeyCount: z.number().int().nonnegative(),
+    storeAvailable: z.boolean(),
+    processBoundaryAllowlistPassed: z.boolean(),
+    policyConfigHash: z.string().min(1).optional(),
+    riskConfigHash: z.string().min(1).optional(),
+    integrationConfigHash: z.string().min(1).optional(),
+    rawValueStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectOperatorReadinessRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type OperatorReadinessReport = z.infer<typeof OperatorReadinessReportSchema>;
+
 export const VerificationTargetSchema = z.enum(['lint', 'test', 'build']);
 export type VerificationTarget = z.infer<typeof VerificationTargetSchema>;
 

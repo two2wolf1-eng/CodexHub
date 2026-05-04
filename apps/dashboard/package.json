@@ -8,6 +8,7 @@
     "@codexhub/contracts": "workspace:*",
     "@codexhub/governance-projection-kernel": "workspace:*",
     "@codexhub/mcp-tool-contracts": "workspace:*",
+    "@codexhub/operator-readiness-kernel": "workspace:*",
     "@codexhub/orchestrator-kernel": "workspace:*",
     "@vitejs/plugin-react": "^4.3.4",
     "react": "^19.0.0",
