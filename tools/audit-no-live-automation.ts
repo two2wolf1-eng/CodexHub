@@ -85,6 +85,15 @@ const githubHttpBoundaryTerms = [
   'x-github-api-version',
   '/pulls?state=open',
 ];
+const githubForbiddenRemoteMutationTerms = [
+  '/git/refs',
+  '/merges',
+  '/labels',
+  '/comments',
+  '/requested_reviewers',
+  'draft=false',
+  'draft: false',
+];
 const policyTelemetryRuntimeTerms = [
   ['@open', 'telemetry/'].join(''),
   ['OTLP', 'Trace', 'Exporter'].join(''),
@@ -126,6 +135,7 @@ const allTextTerms = [
   ...gitBoundaryTerms,
   ...localArtifactWriteTerms,
   ...githubHttpBoundaryTerms,
+  ...githubForbiddenRemoteMutationTerms,
   ...policyTelemetryRuntimeTerms,
   ...sensitiveConceptTerms,
 ];

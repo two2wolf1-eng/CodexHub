@@ -332,6 +332,14 @@ integrations:
       adapterExecuteAllowed: false
       credentialOutput: configured-hash-only
       publicOutput: ids-hashes-counts-statuses-evidence-audit-boundaries
+    hardening:
+      stage: m15.5
+      releaseDoc: docs/releases/m15-github-provider-results.md
+      reviewDoc: docs/reviews/m15-github-provider-hardening-review.md
+      runbook: docs/runbooks/m15-github-provider-operator-runbook.md
+      remoteMutationAuditEnabled: true
+      allowedGithubHttpBoundaryCount: 1
+      uiCliReadOnlyRegressionTests: true
     auditedBoundaryFiles:
       metadataHttp: packages/github-provider-adapter/src/github-http-boundary.ts
     allowedMetadataEndpoints:

@@ -2005,3 +2005,35 @@ workflows:
       - adapterDirectExecute
       - credentialPersistence
       - remoteMutation
+  m15_5.github-provider-hardening:
+    risk: high
+    trigger:
+      type: review-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    chain:
+      - phase: audit-hardening
+        script: tools/audit-no-live-automation.ts
+        checks:
+          - single-github-http-boundary
+          - forbid-github-ref-merge-label-comment-reviewer-mutation
+          - forbid-non-draft-pr-path
+      - phase: documentation
+        outputs:
+          - docs/releases/m15-github-provider-results.md
+          - docs/reviews/m15-github-provider-hardening-review.md
+          - docs/runbooks/m15-github-provider-operator-runbook.md
+      - phase: verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:no-live-automation
+          - pnpm verify:foundation
+    safety:
+      newCapabilityAdded: false
+      supervisorRouteAdded: false
+      networkBoundaryAdded: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawCredentialStored: false
+      rawRemoteRefStored: false
+      rawResponseBodyStored: false
