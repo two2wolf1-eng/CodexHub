@@ -150,7 +150,9 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
+  GithubPublishDraftPrAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
@@ -168,7 +170,11 @@ import {
   runMockDevelopmentOrchestration,
 } from '@codexhub/orchestrator-kernel';
 import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kernel';
-import { runGithubDraftPrAcceptanceRehearsal } from '@codexhub/github-provider-adapter';
+import {
+  runGithubBranchPublishAcceptanceRehearsal,
+  runGithubDraftPrAcceptanceRehearsal,
+  runGithubPublishDraftPrAcceptanceRehearsal,
+} from '@codexhub/github-provider-adapter';
 import {
   createGovernanceProjection,
   type GovernanceProjectionInputRun,
@@ -227,6 +233,10 @@ const GITHUB_DRAFT_PR_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
 ].join('-') as GithubDraftPrAcceptanceScenario;
+const GITHUB_BRANCH_PUBLISH_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
+  ['to', 'ken'].join(''),
+  'missing',
+].join('-') as GithubBranchPublishAcceptanceScenario;
 
 class MissingSupervisorLocalControlKeyError extends Error {
   constructor() {
@@ -288,6 +298,8 @@ export interface ReadOnlyRunSummary {
     | 'electron_cdp_observation'
     | 'github'
     | 'github_draft_pr_run'
+    | 'github_branch_publish_run'
+    | 'github_publish_draft_pr_chain_run'
     | 'worktree_run'
     | 'worktree_cleanup_run'
     | 'review_package_run'
@@ -492,6 +504,79 @@ interface GithubDraftPrApiRecord {
   bodyStored?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubBranchPublishApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  readinessStatus?: string;
+  sourceKind?: string;
+  sourceIdHash?: string;
+  targetRef?: {
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+  };
+  contentManifestHash?: string;
+  fileCount?: number;
+  totalByteCount?: number;
+  branchNameHash?: string;
+  commitShaHash?: string;
+  treeShaHash?: string;
+  created?: boolean;
+  responseBodyHashes?: string[];
+  responseBodyHashCount?: number;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  createRefAllowed?: boolean;
+  updateRefAllowed?: boolean;
+  forceAllowed?: boolean;
+  pushAllowed?: boolean;
+  mergeAllowed?: boolean;
+  rawFileContentStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubPublishDraftPrChainApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  runId?: string;
+  status?: string;
+  sourceKind?: string;
+  sourceIdHash?: string;
+  branchPublishDryRunId?: string;
+  draftPrDryRunId?: string;
+  branchPublishRunId?: string;
+  draftPrRunId?: string;
+  branchPublishStatus?: string;
+  draftPrStatus?: string;
+  lifecycleStatus?: string;
+  latestPrStatus?: string;
+  latestCheckStatus?: string;
+  evidenceRefCount?: number;
+  auditEventCount?: number;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  rawPrBodyStored?: boolean;
+  rawUrlStored?: boolean;
   summary?: string;
 }
 
@@ -1416,6 +1501,121 @@ export function buildProgram(): Command {
     .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
       const result = runGithubDraftPrAcceptanceRehearsalForCli(options);
       console.log(formatGithubDraftPrAcceptanceRehearsalOutput(result, options));
+    });
+
+  const githubBranchPublishesCommand = githubCommand
+    .command('branch-publishes')
+    .description('Read GitHub branch publish control-plane records from Supervisor GET endpoints');
+
+  const githubBranchPublishDryRunsCommand = githubBranchPublishesCommand
+    .command('dry-runs')
+    .description('Read GitHub branch publish dry-run records');
+
+  githubBranchPublishDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub branch publish dry-runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubBranchPublishDryRuns();
+      console.log(formatGithubBranchPublishDryRunsListOutput(result, options));
+    });
+
+  const githubBranchPublishApprovalsCommand = githubBranchPublishesCommand
+    .command('approvals')
+    .description('Read GitHub branch publish approval records');
+
+  githubBranchPublishApprovalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub branch publish approvals without making decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubBranchPublishApprovals();
+      console.log(formatGithubBranchPublishApprovalsListOutput(result, options));
+    });
+
+  const githubBranchPublishRunsCommand = githubBranchPublishesCommand
+    .command('runs')
+    .description('Read GitHub branch publish run records');
+
+  githubBranchPublishRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub branch publish runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubBranchPublishRuns();
+      console.log(formatGithubBranchPublishRunsListOutput(result, options));
+    });
+
+  githubBranchPublishRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub branch publish run details without sending remote requests')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubBranchPublishRun(runId);
+      console.log(formatGithubBranchPublishRunDetailOutput(result, options));
+    });
+
+  githubBranchPublishesCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse GitHub branch publish acceptance without network or branch creation')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubBranchPublishAcceptanceRehearsalForCli(options);
+      console.log(formatGithubBranchPublishAcceptanceRehearsalOutput(result, options));
+    });
+
+  const githubPublishDraftPrChainsCommand = githubCommand
+    .command('publish-draft-pr-chains')
+    .description('Read GitHub branch publish to draft PR chain records from Supervisor GET endpoints');
+
+  const githubPublishDraftPrChainDryRunsCommand = githubPublishDraftPrChainsCommand
+    .command('dry-runs')
+    .description('Read GitHub publish to draft PR chain dry-run records');
+
+  githubPublishDraftPrChainDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub publish to draft PR chain dry-runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPublishDraftPrChainDryRuns();
+      console.log(formatGithubPublishDraftPrChainDryRunsListOutput(result, options));
+    });
+
+  const githubPublishDraftPrChainRunsCommand = githubPublishDraftPrChainsCommand
+    .command('runs')
+    .description('Read GitHub publish to draft PR chain run records');
+
+  githubPublishDraftPrChainRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub publish to draft PR chain runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPublishDraftPrChainRuns();
+      console.log(formatGithubPublishDraftPrChainRunsListOutput(result, options));
+    });
+
+  githubPublishDraftPrChainRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub publish to draft PR chain run details without sending remote requests')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubPublishDraftPrChainRun(runId);
+      console.log(formatGithubPublishDraftPrChainRunDetailOutput(result, options));
+    });
+
+  githubPublishDraftPrChainsCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse GitHub publish to draft PR acceptance without network or remote writes')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubPublishDraftPrAcceptanceRehearsalForCli(options);
+      console.log(formatGithubPublishDraftPrAcceptanceRehearsalOutput(result, options));
     });
 
   const worktreesCommand = program
@@ -2805,6 +3005,8 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     electronCdpObservationResult,
     githubMetadataRunResult,
     githubDraftPrRunResult,
+    githubBranchPublishRunResult,
+    githubPublishDraftPrChainRunResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
     reviewPackageRunResult,
@@ -2825,6 +3027,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       ),
       getSupervisorJson<{ records: GithubMetadataApiRecord[] }>('/api/github/metadata/runs'),
       getSupervisorJson<{ records: GithubDraftPrApiRecord[] }>('/api/github/draft-prs/runs'),
+      getSupervisorJson<{ records: GithubBranchPublishApiRecord[] }>(
+        '/api/github/branch-publishes/runs',
+      ),
+      getSupervisorJson<{ records: GithubPublishDraftPrChainApiRecord[] }>(
+        '/api/github/publish-draft-pr-chains/runs',
+      ),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
       getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
@@ -2843,6 +3051,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ),
     ...summarizeGithubMetadataRunRecords(settledValue(githubMetadataRunResult)?.records ?? []),
     ...summarizeGithubDraftPrRunRecords(settledValue(githubDraftPrRunResult)?.records ?? []),
+    ...summarizeGithubBranchPublishRunRecords(
+      settledValue(githubBranchPublishRunResult)?.records ?? [],
+    ),
+    ...summarizeGithubPublishDraftPrChainRunRecords(
+      settledValue(githubPublishDraftPrChainRunResult)?.records ?? [],
+    ),
     ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
     ...summarizeWorktreeRunRecords(
       settledValue(worktreeCleanupRunResult)?.records ?? [],
@@ -2863,6 +3077,8 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(electronCdpObservationResult),
     settledError(githubMetadataRunResult),
     settledError(githubDraftPrRunResult),
+    settledError(githubBranchPublishRunResult),
+    settledError(githubPublishDraftPrChainRunResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
     settledError(reviewPackageRunResult),
@@ -2871,7 +3087,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 12 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 14 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -3168,6 +3384,32 @@ export function runGithubDraftPrAcceptanceRehearsalForCli(options: {
   const scenario = normalizeGithubDraftPrAcceptanceScenario(options.scenario);
 
   return runGithubDraftPrAcceptanceRehearsal({ scenario });
+}
+
+export function runGithubBranchPublishAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGithubBranchPublishAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('GitHub branch publish acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeGithubBranchPublishAcceptanceScenario(options.scenario);
+
+  return runGithubBranchPublishAcceptanceRehearsal({ scenario });
+}
+
+export function runGithubPublishDraftPrAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGithubPublishDraftPrAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('GitHub publish to draft PR acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeGithubPublishDraftPrAcceptanceScenario(options.scenario);
+
+  return runGithubPublishDraftPrAcceptanceRehearsal({ scenario });
 }
 
 export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
@@ -3477,12 +3719,22 @@ export function getGithubProviderStatusForCli(): Record<string, unknown> {
   return {
     status: credentialConfigured ? 'configured' : 'missing',
     manifestName: 'github-provider',
-    manifestVersion: '0.2.0-m16d',
+    manifestVersion: '0.3.0-m17c',
     productDefaultEnabled: false,
     approvalRequired: true,
     draftPrApprovalRequired: true,
+    branchPublishApprovalRequired: true,
     allowedHostHash: stableCliHash('api.github.com'),
     allowedDraftPrActions: ['existing_branch_preflight', 'draft_pr_create'],
+    allowedBranchPublishActions: [
+      'repo_preflight',
+      'base_ref_read',
+      'new_branch_absence_check',
+      'blob_create',
+      'tree_create',
+      'commit_create',
+      'codexhub_ref_create',
+    ],
     credentialConfigured,
     credentialHash: credentialConfigured ? stableCliHash(credential) : undefined,
     credentialHashOnly: true,
@@ -3497,8 +3749,9 @@ export function getGithubProviderStatusForCli(): Record<string, unknown> {
     noRealWrite: true,
     blockedOperations: [
       ['git ', 'push'].join(''),
-      'create_ref',
       'update_ref',
+      'force',
+      'overwrite_branch',
       'merge',
       'labels',
       'reviewers',
@@ -3612,6 +3865,123 @@ export async function showGithubDraftPrRun(runId: string): Promise<Record<string
       rawPathStored: false,
       bodyStored: false,
       note: 'No GitHub draft PR request was attempted.',
+    };
+  }
+}
+
+export async function listGithubBranchPublishDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubBranchPublishCollection(
+    '/api/github/branch-publishes/dry-runs',
+    'GitHub branch publish dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub branch publish dry-run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function listGithubBranchPublishApprovals(): Promise<Record<string, unknown>> {
+  return listGithubBranchPublishCollection(
+    '/api/github/branch-publishes/approvals',
+    'GitHub branch publish approvals are read from Supervisor GET endpoints only.',
+    'GitHub branch publish approval source is unavailable; no approval decision was made.',
+  );
+}
+
+export async function listGithubBranchPublishRuns(): Promise<Record<string, unknown>> {
+  return listGithubBranchPublishCollection(
+    '/api/github/branch-publishes/runs',
+    'GitHub branch publish runs are read from Supervisor GET endpoints only.',
+    'GitHub branch publish run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function showGithubBranchPublishRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubBranchPublishApiRecord>(
+      `/api/github/branch-publishes/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? false,
+      rawPathStored: false,
+      bodyStored: false,
+      rawFileContentStored: false,
+      note: 'GitHub branch publish run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'GitHub branch publish run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+      rawFileContentStored: false,
+      note: 'No GitHub branch publish request was attempted.',
+    };
+  }
+}
+
+export async function listGithubPublishDraftPrChainDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubPublishDraftPrChainCollection(
+    '/api/github/publish-draft-pr-chains/dry-runs',
+    'GitHub publish to draft PR chain dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub publish to draft PR chain dry-run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function listGithubPublishDraftPrChainRuns(): Promise<Record<string, unknown>> {
+  return listGithubPublishDraftPrChainCollection(
+    '/api/github/publish-draft-pr-chains/runs',
+    'GitHub publish to draft PR chain runs are read from Supervisor GET endpoints only.',
+    'GitHub publish to draft PR chain run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function showGithubPublishDraftPrChainRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubPublishDraftPrChainApiRecord>(
+      `/api/github/publish-draft-pr-chains/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? false,
+      rawPathStored: false,
+      rawPrBodyStored: false,
+      rawUrlStored: false,
+      bodyStored: false,
+      note: 'GitHub publish to draft PR chain detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message:
+        error instanceof Error ? error.message : 'GitHub publish to draft PR chain run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawPrBodyStored: false,
+      rawUrlStored: false,
+      bodyStored: false,
+      note: 'No GitHub publish to draft PR chain request was attempted.',
     };
   }
 }
@@ -4109,6 +4479,44 @@ function summarizeGithubDraftPrRunRecords(runs: GithubDraftPrApiRecord[]): ReadO
   }));
 }
 
+function summarizeGithubBranchPublishRunRecords(
+  runs: GithubBranchPublishApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_branch_publish_run',
+    source: 'github_branch_publish_run',
+    title: `GitHub branch publish ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'GitHub branch publish metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+    externalProcessStarted: false,
+    noRealWrite: run.noRealWrite ?? false,
+    bodyStored: false,
+  }));
+}
+
+function summarizeGithubPublishDraftPrChainRunRecords(
+  runs: GithubPublishDraftPrChainApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_publish_draft_pr_chain_run',
+    source: 'github_publish_draft_pr_chain_run',
+    title: `GitHub publish to draft PR chain ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'GitHub publish to draft PR chain metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? run.evidenceRefCount ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? run.auditEventCount ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+    externalProcessStarted: false,
+    noRealWrite: run.noRealWrite ?? false,
+    bodyStored: false,
+  }));
+}
+
 function summarizeReviewPackageRunRecords(runs: ReviewPackageApiRecord[]): ReadOnlyRunSummary[] {
   return runs.map((run) => ({
     id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -4443,6 +4851,53 @@ function normalizeGithubDraftPrAcceptanceScenario(
   throw new Error(`Unsupported GitHub draft PR acceptance fixture scenario: ${scenario}`);
 }
 
+function normalizeGithubBranchPublishAcceptanceScenario(
+  scenario: string | undefined,
+): GithubBranchPublishAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === GITHUB_BRANCH_PUBLISH_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO ||
+    scenario === 'provider-disabled' ||
+    scenario === 'approval-blocked' ||
+    scenario === 'branch-exists' ||
+    scenario === 'content-manifest-blocked' ||
+    scenario === 'blob-create-failed' ||
+    scenario === 'tree-create-failed' ||
+    scenario === 'commit-create-failed' ||
+    scenario === 'ref-create-failed' ||
+    scenario === 'network-timeout'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub branch publish acceptance fixture scenario: ${scenario}`);
+}
+
+function normalizeGithubPublishDraftPrAcceptanceScenario(
+  scenario: string | undefined,
+): GithubPublishDraftPrAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'publish-blocked' ||
+    scenario === 'branch-published-pr-blocked' ||
+    scenario === 'draft-pr-created-checks-pending' ||
+    scenario === 'checks-failed' ||
+    scenario === 'checks-passed' ||
+    scenario === 'stale-branch' ||
+    scenario === 'network-timeout'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub publish to draft PR acceptance fixture scenario: ${scenario}`);
+}
+
 async function listWorktreeCollection(
   path: string,
   note: string,
@@ -4567,6 +5022,104 @@ async function listGithubDraftPrCollection(
       externalProcessStarted: false,
       noRealWrite: true,
       rawPathStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubBranchPublishCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubBranchPublishApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawPathStored: false,
+      rawFileContentStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub branch publish source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawFileContentStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubPublishDraftPrChainCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubPublishDraftPrChainApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawPathStored: false,
+      rawPrBodyStored: false,
+      rawUrlStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error
+          ? error.message
+          : 'GitHub publish to draft PR chain source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawPrBodyStored: false,
+      rawUrlStored: false,
       bodyStored: false,
       note: degradedNote,
     };
@@ -8271,6 +8824,9 @@ export function formatGithubProviderStatusOutput(
   const draftPrActions = Array.isArray(result.allowedDraftPrActions)
     ? result.allowedDraftPrActions.join(', ')
     : 'unavailable';
+  const branchPublishActions = Array.isArray(result.allowedBranchPublishActions)
+    ? result.allowedBranchPublishActions.join(', ')
+    : 'unavailable';
 
   return [
     'GitHub provider status',
@@ -8281,12 +8837,14 @@ export function formatGithubProviderStatusOutput(
     `defaultEnabled=${String(result.productDefaultEnabled ?? false)}`,
     `approvalRequired=${String(result.approvalRequired ?? true)}`,
     `draftPrApprovalRequired=${String(result.draftPrApprovalRequired ?? true)}`,
+    `branchPublishApprovalRequired=${String(result.branchPublishApprovalRequired ?? true)}`,
     `credentialConfigured=${String(result.credentialConfigured ?? false)}`,
     result.credentialHash ? `credentialHash: ${String(result.credentialHash)}` : undefined,
     `credentialHashOnly=${String(result.credentialHashOnly ?? true)}`,
     `credentialValueStored=${String(result.credentialValueStored ?? false)}`,
     `allowedHostHash: ${String(result.allowedHostHash ?? 'unavailable')}`,
     `allowedDraftPrActions: ${draftPrActions}`,
+    `allowedBranchPublishActions: ${branchPublishActions}`,
     `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
     `processBoundaryInvoked=${String(result.processBoundaryInvoked ?? false)}`,
     `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
@@ -8460,6 +9018,216 @@ export function formatGithubDraftPrAcceptanceRehearsalOutput(
     `mergeAllowed=${String(result.mergeAllowed)}`,
     `bodyStored=${String(result.bodyStored)}`,
     `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
+}
+
+export function formatGithubBranchPublishDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubBranchPublishCollectionOutput(
+    'GitHub branch publish dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubBranchPublishApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubBranchPublishCollectionOutput(
+    'GitHub branch publish approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubBranchPublishRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubBranchPublishCollectionOutput(
+    'GitHub branch publish runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubBranchPublishRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubBranchPublishApiRecord | undefined;
+
+  return [
+    'GitHub branch publish run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `readiness: ${run?.readinessStatus ?? 'unknown'}`,
+    run?.targetRef?.ownerHash ? `ownerHash: ${run.targetRef.ownerHash}` : undefined,
+    run?.targetRef?.repoHash ? `repoHash: ${run.targetRef.repoHash}` : undefined,
+    run?.targetRef?.baseBranchHash
+      ? `baseBranchHash: ${run.targetRef.baseBranchHash}`
+      : undefined,
+    run?.targetRef?.headBranchHash
+      ? `branchHash: ${run.targetRef.headBranchHash}`
+      : undefined,
+    run?.contentManifestHash ? `contentManifestHash: ${run.contentManifestHash}` : undefined,
+    `fileCount=${String(run?.fileCount ?? 0)}`,
+    `totalByteCount=${String(run?.totalByteCount ?? 0)}`,
+    run?.commitShaHash ? `commitShaHash: ${run.commitShaHash}` : undefined,
+    run?.treeShaHash ? `treeShaHash: ${run.treeShaHash}` : undefined,
+    `created=${String(run?.created ?? false)}`,
+    `responseHashCount=${String(run?.responseBodyHashCount ?? run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? false)}`,
+    `createRefAllowed=${String(run?.createRefAllowed ?? false)}`,
+    `updateRefAllowed=${String(run?.updateRefAllowed ?? false)}`,
+    `forceAllowed=${String(run?.forceAllowed ?? false)}`,
+    `pushAllowed=${String(run?.pushAllowed ?? false)}`,
+    `mergeAllowed=${String(run?.mergeAllowed ?? false)}`,
+    `rawFileContentStored=${String(run?.rawFileContentStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubBranchPublishAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubBranchPublishAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub branch publish acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `readiness: ${result.readinessStatus}`,
+    `publish: ${result.branchPublishStatus}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `createRefAllowed=${String(result.createRefAllowed)}`,
+    `updateRefAllowed=${String(result.updateRefAllowed)}`,
+    `forceAllowed=${String(result.forceAllowed)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `mergeAllowed=${String(result.mergeAllowed)}`,
+    `rawFileContentStored=${String(result.rawFileContentStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
+}
+
+export function formatGithubPublishDraftPrChainDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPublishDraftPrChainCollectionOutput(
+    'GitHub publish to draft PR chain dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPublishDraftPrChainRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPublishDraftPrChainCollectionOutput(
+    'GitHub publish to draft PR chain runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPublishDraftPrChainRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubPublishDraftPrChainApiRecord | undefined;
+
+  return [
+    'GitHub publish to draft PR chain run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `sourceKind: ${run?.sourceKind ?? 'unknown'}`,
+    run?.sourceIdHash ? `sourceIdHash: ${run.sourceIdHash}` : undefined,
+    run?.branchPublishRunId ? `branchPublishRunId: ${run.branchPublishRunId}` : undefined,
+    run?.draftPrRunId ? `draftPrRunId: ${run.draftPrRunId}` : undefined,
+    `branchPublishStatus=${run?.branchPublishStatus ?? 'unknown'}`,
+    `draftPrStatus=${run?.draftPrStatus ?? 'unknown'}`,
+    `lifecycleStatus=${run?.lifecycleStatus ?? 'unknown'}`,
+    run?.latestPrStatus ? `latestPrStatus=${run.latestPrStatus}` : undefined,
+    run?.latestCheckStatus ? `latestCheckStatus=${run.latestCheckStatus}` : undefined,
+    `evidence=${String(run?.evidenceRefCount ?? run?.evidenceRefIds?.length ?? 0)}`,
+    `audit=${String(run?.auditEventCount ?? run?.auditEventIds?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? false)}`,
+    `rawPrBodyStored=${String(run?.rawPrBodyStored ?? false)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubPublishDraftPrAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubPublishDraftPrAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub publish to draft PR acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `branchPublish: ${result.branchPublishStatus}`,
+    `draftPr: ${result.draftPrStatus}`,
+    `lifecycle: ${result.lifecycleStatus}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `updateRefAllowed=${String(result.updateRefAllowed)}`,
+    `forceAllowed=${String(result.forceAllowed)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `mergeAllowed=${String(result.mergeAllowed)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
   ].join('\n');
 }
 
@@ -8866,6 +9634,99 @@ function formatGithubDraftPrCollectionOutput(
           `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,
           `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubBranchPublishCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubBranchPublishApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawFileContentStored=${String(result.rawFileContentStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `owner=${record.targetRef?.ownerHash ?? 'unavailable'}`,
+          `repo=${record.targetRef?.repoHash ?? 'unavailable'}`,
+          `base=${record.targetRef?.baseBranchHash ?? 'unavailable'}`,
+          `branch=${record.targetRef?.headBranchHash ?? record.branchNameHash ?? 'unavailable'}`,
+          `readiness=${record.readinessStatus ?? 'unknown'}`,
+          `created=${String(record.created ?? false)}`,
+          `files=${String(record.fileCount ?? 0)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `commit=${record.commitShaHash ?? 'none'}`,
+          `responseHashes=${String(
+            record.responseBodyHashCount ?? record.responseBodyHashes?.length ?? 0,
+          )}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubPublishDraftPrChainCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records =
+    (result.records as GithubPublishDraftPrChainApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawPrBodyStored=${String(result.rawPrBodyStored ?? false)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.recordId ?? record.dryRunId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `source=${record.sourceKind ?? 'unknown'}`,
+          `sourceHash=${record.sourceIdHash ?? 'unavailable'}`,
+          `branchRun=${record.branchPublishRunId ?? 'unavailable'}`,
+          `draftPrRun=${record.draftPrRunId ?? 'unavailable'}`,
+          `branchStatus=${record.branchPublishStatus ?? 'unknown'}`,
+          `draftPrStatus=${record.draftPrStatus ?? 'unknown'}`,
+          `lifecycle=${record.lifecycleStatus ?? 'unknown'}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `evidence=${record.evidenceRefCount ?? record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventCount ?? record.auditEventIds?.length ?? 0}`,
         ].join(' '),
       ),
   ].join('\n');

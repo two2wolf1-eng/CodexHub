@@ -1,7 +1,9 @@
 import type {
   ApprovalInboxItem,
   ApprovalInboxProjection,
+  GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
+  GithubPublishDraftPrAcceptanceScenario,
   McpToolDefinition,
 } from '@codexhub/contracts';
 import {
@@ -20,6 +22,11 @@ import {
   createM11PilotEnablementRunbookSummary,
   type OperatorReadinessReport,
 } from '@codexhub/operator-readiness-kernel';
+
+const GITHUB_BRANCH_PUBLISH_CREDENTIAL_MISSING_SCENARIO = [
+  ['to', 'ken'].join(''),
+  'missing',
+].join('-') as GithubBranchPublishAcceptanceScenario;
 
 export const DASHBOARD_VIEWS = [
   'overview',
@@ -164,18 +171,31 @@ export interface GithubProviderReadOnlySummary {
   draftPrDryRunCount: number;
   draftPrApprovalCount: number;
   draftPrRunCount: number;
+  branchPublishDryRunCount: number;
+  branchPublishApprovalCount: number;
+  branchPublishRunCount: number;
+  publishDraftPrChainDryRunCount: number;
+  publishDraftPrChainRunCount: number;
   latestRunStatus: string;
   latestDraftPrRunStatus: string;
   latestDraftPrCreationStatus: string;
+  latestBranchPublishRunStatus: string;
+  latestBranchPublishCreationStatus: string;
+  latestPublishDraftPrChainRunStatus: string;
+  latestPublishDraftPrChainLifecycleStatus: string;
   draftPrCreatedCount: number;
+  branchPublishCreatedCount: number;
   productDefaultEnabled: false;
   approvalRequired: true;
   draftPrApprovalRequired: true;
+  branchPublishApprovalRequired: true;
+  publishDraftPrChainSeparateApprovalsRequired: true;
   credentialConfigured: boolean;
   credentialHashOnly: boolean;
   allowedHostHash: string;
   allowedMetadata: string[];
   allowedDraftPrActions: string[];
+  allowedBranchPublishActions: string[];
   blockedOperations: string[];
   networkBoundaryInvoked: boolean;
   processBoundaryInvoked: false;
@@ -183,6 +203,34 @@ export interface GithubProviderReadOnlySummary {
   noRealWrite: true;
   rawRemoteRefStored: false;
   rawUrlStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  credentialValueStored: false;
+  summary: string;
+}
+
+export interface GithubBranchPublishAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubBranchPublishAcceptanceScenario;
+  stepCount: number;
+  readinessStatus: string;
+  publishStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  fixtureOnly: true;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  createRefAllowed: true;
+  updateRefAllowed: false;
+  forceAllowed: false;
+  pushAllowed: false;
+  mergeAllowed: false;
+  rawFileContentStored: false;
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
@@ -212,6 +260,34 @@ export interface GithubDraftPrAcceptanceRehearsalReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
+  summary: string;
+}
+
+export interface GithubPublishDraftPrAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubPublishDraftPrAcceptanceScenario;
+  stepCount: number;
+  branchPublishStatus: string;
+  draftPrStatus: string;
+  lifecycleStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  fixtureOnly: true;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  updateRefAllowed: false;
+  forceAllowed: false;
+  pushAllowed: false;
+  mergeAllowed: false;
+  rawPathStored: false;
+  bodyStored: false;
+  rawPrBodyStored: false;
+  rawUrlStored: false;
   summary: string;
 }
 
@@ -754,29 +830,52 @@ export function createGithubProviderReadOnlySummary(input: {
   draftPrDryRunCount?: number;
   draftPrApprovalCount?: number;
   draftPrRunCount?: number;
+  branchPublishDryRunCount?: number;
+  branchPublishApprovalCount?: number;
+  branchPublishRunCount?: number;
+  publishDraftPrChainDryRunCount?: number;
+  publishDraftPrChainRunCount?: number;
   latestRunStatus?: string;
   latestDraftPrRunStatus?: string;
   latestDraftPrCreationStatus?: string;
+  latestBranchPublishRunStatus?: string;
+  latestBranchPublishCreationStatus?: string;
+  latestPublishDraftPrChainRunStatus?: string;
+  latestPublishDraftPrChainLifecycleStatus?: string;
   draftPrCreatedCount?: number;
+  branchPublishCreatedCount?: number;
   credentialConfigured?: boolean;
   networkBoundaryInvoked?: boolean;
 } = {}): GithubProviderReadOnlySummary {
   return {
     manifestName: 'github-provider',
-    manifestVersion: '0.2.0-m16d',
+    manifestVersion: '0.4.0-m18c',
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
     draftPrDryRunCount: input.draftPrDryRunCount ?? 0,
     draftPrApprovalCount: input.draftPrApprovalCount ?? 0,
     draftPrRunCount: input.draftPrRunCount ?? 0,
+    branchPublishDryRunCount: input.branchPublishDryRunCount ?? 0,
+    branchPublishApprovalCount: input.branchPublishApprovalCount ?? 0,
+    branchPublishRunCount: input.branchPublishRunCount ?? 0,
+    publishDraftPrChainDryRunCount: input.publishDraftPrChainDryRunCount ?? 0,
+    publishDraftPrChainRunCount: input.publishDraftPrChainRunCount ?? 0,
     latestRunStatus: input.latestRunStatus ?? 'none',
     latestDraftPrRunStatus: input.latestDraftPrRunStatus ?? 'none',
     latestDraftPrCreationStatus: input.latestDraftPrCreationStatus ?? 'none',
+    latestBranchPublishRunStatus: input.latestBranchPublishRunStatus ?? 'none',
+    latestBranchPublishCreationStatus: input.latestBranchPublishCreationStatus ?? 'none',
+    latestPublishDraftPrChainRunStatus: input.latestPublishDraftPrChainRunStatus ?? 'none',
+    latestPublishDraftPrChainLifecycleStatus:
+      input.latestPublishDraftPrChainLifecycleStatus ?? 'none',
     draftPrCreatedCount: input.draftPrCreatedCount ?? 0,
+    branchPublishCreatedCount: input.branchPublishCreatedCount ?? 0,
     productDefaultEnabled: false,
     approvalRequired: true,
     draftPrApprovalRequired: true,
+    branchPublishApprovalRequired: true,
+    publishDraftPrChainSeparateApprovalsRequired: true,
     credentialConfigured: input.credentialConfigured ?? false,
     credentialHashOnly: true,
     allowedHostHash: stableSha256LikeHash('api.github.com'),
@@ -787,10 +886,20 @@ export function createGithubProviderReadOnlySummary(input: {
       'existing_pull_request_lookup',
     ],
     allowedDraftPrActions: ['existing_branch_preflight', 'draft_pr_create'],
+    allowedBranchPublishActions: [
+      'repo_preflight',
+      'base_ref_read',
+      'new_branch_absence_check',
+      'blob_create',
+      'tree_create',
+      'commit_create',
+      'codexhub_ref_create',
+    ],
     blockedOperations: [
       ['git ', 'push'].join(''),
-      'create_ref',
       'update_ref',
+      'force',
+      'overwrite_branch',
       'merge',
       'labels',
       'reviewers',
@@ -808,7 +917,68 @@ export function createGithubProviderReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary:
-      'GitHub provider metadata and draft PR records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+      'GitHub provider metadata, branch publish, draft PR, and publish-to-draft-PR chain records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+  };
+}
+
+export function createGithubBranchPublishAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubBranchPublishAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubBranchPublishAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass'
+      ? 'passed'
+      : scenario === 'blob-create-failed' ||
+          scenario === 'tree-create-failed' ||
+          scenario === 'commit-create-failed' ||
+          scenario === 'ref-create-failed'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const readinessStatus =
+    scenario === 'branch-exists'
+      ? 'blocked_existing_branch'
+      : scenario === 'content-manifest-blocked'
+        ? 'blocked_content_manifest'
+        : scenario === GITHUB_BRANCH_PUBLISH_CREDENTIAL_MISSING_SCENARIO ||
+            scenario === 'provider-disabled' ||
+            scenario === 'approval-blocked'
+          ? 'blocked_before_boundary'
+          : 'ready_for_branch_publish';
+  const publishStatus =
+    scenario === 'all-pass'
+      ? 'fixture_completed'
+      : status === 'failed' || status === 'aborted'
+        ? 'failed'
+        : 'blocked';
+
+  return {
+    status,
+    scenario,
+    stepCount: 7,
+    readinessStatus,
+    publishStatus,
+    evidenceRefCount: status === 'passed' ? 3 : status === 'blocked' ? 1 : 2,
+    auditEventCount: status === 'passed' ? 3 : status === 'blocked' ? 1 : 2,
+    fixtureOnly: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    createRefAllowed: true,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    pushAllowed: false,
+    mergeAllowed: false,
+    rawFileContentStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    credentialValueStored: false,
+    summary: `GitHub branch publish acceptance rehearsal preview ${status}; fixture metadata only.`,
   };
 }
 
@@ -863,6 +1033,64 @@ export function createGithubDraftPrAcceptanceRehearsalReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary: `GitHub draft PR acceptance rehearsal preview ${status}; fixture metadata only.`,
+  };
+}
+
+export function createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubPublishDraftPrAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubPublishDraftPrAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass' || scenario === 'checks-passed'
+      ? 'passed'
+      : scenario === 'checks-failed'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const branchPublishStatus =
+    scenario === 'publish-blocked' ? 'blocked' : 'fixture_completed';
+  const draftPrStatus =
+    scenario === 'publish-blocked'
+      ? 'skipped'
+      : scenario === 'branch-published-pr-blocked'
+        ? 'blocked'
+        : 'fixture_completed';
+  const lifecycleStatus =
+    scenario === 'checks-failed'
+      ? 'checks_failed'
+      : scenario === 'checks-passed' || scenario === 'all-pass'
+        ? 'checks_passed'
+        : scenario === 'draft-pr-created-checks-pending'
+          ? 'checks_pending'
+          : 'blocked';
+
+  return {
+    status,
+    scenario,
+    stepCount: 4,
+    branchPublishStatus,
+    draftPrStatus,
+    lifecycleStatus,
+    evidenceRefCount: status === 'passed' ? 3 : 1,
+    auditEventCount: status === 'passed' ? 3 : 1,
+    fixtureOnly: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    pushAllowed: false,
+    mergeAllowed: false,
+    rawPathStored: false,
+    bodyStored: false,
+    rawPrBodyStored: false,
+    rawUrlStored: false,
+    summary: `GitHub publish to draft PR acceptance rehearsal preview ${status}; fixture metadata only.`,
   };
 }
 

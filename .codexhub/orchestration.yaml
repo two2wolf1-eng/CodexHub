@@ -2179,6 +2179,457 @@ workflows:
       pushAllowed: false
       createRefAllowed: false
       mergeAllowed: false
+  m17a.github-branch-publish-planning-contracts:
+    risk: high
+    trigger:
+      type: planning-projection
+      entrypoint: packages/github-provider-adapter
+      localControlRequired: false
+    chain:
+      - phase: branch-publish-readiness
+        package: github-provider-adapter
+        helper: createGithubBranchPublishPlan
+        source:
+          - local_rc_readiness
+          - review_package
+          - patch_lifecycle
+        requires:
+          - codexhub branch prefix
+          - no existing remote branch metadata
+          - content manifest hash/count summary
+      - phase: policy-projection
+        action: github.branch_publish.create
+        actionMode: write
+        approvalRequired: true
+        authorityGranted: false
+      - phase: evidence-audit
+        output: ids-hashes-counts-statuses-summaries
+        evidenceKind: github.branch_publish_plan
+    safety:
+      networkBoundaryAdded: false
+      supervisorRouteAdded: false
+      branchCreated: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      overwriteExistingBranchAllowed: false
+      mergeAllowed: false
+      rawCredentialStored: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      bodyStored: false
+    forbidden:
+      - githubNetworkPost
+      - supervisorPostRoute
+      - gitPush
+      - updateRef
+      - force
+      - overwriteExistingBranch
+      - merge
+      - labels
+      - reviewers
+      - comments
+      - rawFileContent
+      - rawToken
+  m17b.governed-github-branch-publish-control-plane:
+    risk: high
+    trigger:
+      type: governed-remote-provider-control-plane
+      entrypoint: supervisor
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/github/branch-publishes/dry-runs
+        output: ids-hashes-counts-statuses-summaries
+      - phase: approval
+        routes:
+          - POST /api/github/branch-publishes/approval-requests
+          - POST /api/github/branch-publishes/manual-approvals
+        persistedApprovalRequired: true
+        requestBodyArtifactTrusted: false
+      - phase: execution
+        route: POST /api/github/branch-publishes/runs
+        adapterHelper: executeGithubBranchPublish
+        requiredEnv:
+          - CODEXHUB_GITHUB_PROVIDER_ENABLED
+          - CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
+          - CODEXHUB_GITHUB_TOKEN
+        hashBoundRuntimeInput:
+          - owner
+          - repo
+          - baseBranch
+          - branchSlug
+          - sourceSummary
+          - contentManifest
+      - phase: remote-boundary
+        boundaryFile: packages/github-provider-adapter/src/github-http-boundary.ts
+        allowedRequests:
+          - GET repo metadata
+          - GET base ref metadata
+          - GET new branch absence check
+          - GET base commit tree metadata
+          - POST blob create
+          - POST tree create
+          - POST commit create
+          - POST codexhub ref create
+        approvalConsumedAfterBoundary: true
+      - phase: public-projection
+        routes:
+          - GET /api/github/branch-publishes/dry-runs
+          - GET /api/github/branch-publishes/approvals
+          - GET /api/github/branch-publishes/runs
+          - GET /api/github/branch-publishes/runs/:id
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+    safety:
+      providerEnabledByDefault: false
+      branchPublishEnabledByDefault: false
+      tokenStored: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      responseBodyStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      overwriteExistingBranchAllowed: false
+      mergeAllowed: false
+      labelsReviewersCommentsAllowed: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+  m17c.github-branch-publish-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/github"
+        reads:
+          - GET /api/github/branch-publishes/dry-runs
+          - GET /api/github/branch-publishes/approvals
+          - GET /api/github/branch-publishes/runs
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+      - phase: cli
+        commands:
+          - codexhub github branch-publishes dry-runs list
+          - codexhub github branch-publishes approvals list
+          - codexhub github branch-publishes runs list
+          - codexhub github branch-publishes runs show <runId>
+        methods: GET-only
+      - phase: generic-projection
+        command: codexhub runs list/show
+        source: github_branch_publish_run
+    safety:
+      supervisorPostAllowed: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m17d.branch-publish-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: github-provider-adapter dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        package: github-provider-adapter
+        helper: runGithubBranchPublishAcceptanceRehearsal
+        scenarios:
+          - all-pass
+          - token-missing
+          - provider-disabled
+          - approval-blocked
+          - branch-exists
+          - content-manifest-blocked
+          - blob-create-failed
+          - tree-create-failed
+          - commit-create-failed
+          - ref-create-failed
+          - network-timeout
+      - phase: cli
+        command: codexhub github branch-publishes rehearse --fixture --scenario <name>
+        supervisorPostAllowed: false
+        networkBoundaryInvoked: false
+      - phase: dashboard
+        route: "#/github"
+        panel: GitHub Branch Publish Acceptance Rehearsal
+        supervisorPostAllowed: false
+    safety:
+      fixtureOnly: true
+      newSupervisorRoute: false
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m17_5.branch-publish-hardening-release-audit:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    chain:
+      - phase: review
+        scope:
+          - github-branch-publish-contracts
+          - github-provider-adapter
+          - github-branch-publish-supervisor-control-plane
+          - dashboard-cli-read-only-ux
+          - no-live-audit
+      - phase: evidence
+        docs:
+          - docs/releases/m17-github-branch-publish-results.md
+          - docs/reviews/m17-github-branch-publish-hardening-review.md
+          - docs/runbooks/m17-github-branch-publish-operator-runbook.md
+      - phase: verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:boundaries
+          - pnpm audit:sqlite-isolation
+          - pnpm audit:no-live-automation
+          - pnpm audit:skills
+          - pnpm verify:foundation
+          - git diff --check
+    safety:
+      newSupervisorRoute: false
+      newNetworkBoundaryFile: false
+      newProcessBoundary: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m18a.publish-draft-pr-chain-contracts:
+    risk: high
+    trigger:
+      type: planning-projection
+      entrypoint: packages/github-provider-adapter
+      localControlRequired: false
+    chain:
+      - phase: chain-plan
+        package: github-provider-adapter
+        helper: createGithubPublishDraftPrChainPlan
+        requires:
+          - completed github_branch_publish_run
+          - planned or completed github_draft_pr_run
+          - approved local RC or review source metadata
+        output: ids-hashes-counts-statuses-summaries
+      - phase: lifecycle-projection
+        helper: createGithubRemotePrLifecycleSummary
+        liveGithubGetBoundaryAdded: false
+        output: ids-hashes-counts-statuses-summaries
+    safety:
+      networkBoundaryAdded: false
+      supervisorRouteAdded: false
+      branchPublishDirectlyInvoked: false
+      draftPrDirectlyInvoked: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m18b.governed-publish-draft-pr-chain:
+    risk: high
+    trigger:
+      type: governed-chain-control-plane
+      entrypoint: supervisor
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/github/publish-draft-pr-chains/dry-runs
+        output: ids-hashes-counts-statuses-summaries
+      - phase: chain-projection
+        route: POST /api/github/publish-draft-pr-chains/runs
+        helper: createGithubPublishDraftPrChainRun
+        sourceRuns:
+          - github_branch_publish_run
+          - github_draft_pr_run
+        separateApprovalsRequired:
+          - branch-publish
+          - draft-pr-create
+        branchPublishFailureSkipsDraftPr: true
+        draftPrFailureAfterBranchCreationRecordsRecoveryOnly: true
+      - phase: public-projection
+        routes:
+          - GET /api/github/publish-draft-pr-chains/dry-runs
+          - GET /api/github/publish-draft-pr-chains/runs
+          - GET /api/github/publish-draft-pr-chains/runs/:id
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+    safety:
+      productDefaultEnabled: false
+      directGithubHttpBoundaryInvoked: false
+      newNetworkBoundaryFile: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      rawPullRequestBodyStored: false
+      remoteBranchAutoDeleteAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m18c.github-pr-lifecycle-read-only-observation:
+    risk: medium
+    trigger:
+      type: read-only-projection
+      entrypoint: github-provider-adapter
+      localControlRequired: false
+    chain:
+      - phase: lifecycle-summary
+        helper: createGithubRemotePrLifecycleSummary
+        source: existing branch publish and draft PR run metadata
+        output: ids-hashes-counts-statuses-summaries
+      - phase: evidence-audit-link
+        output: evidenceAndAuditIdsOnly
+    safety:
+      liveGithubGetBoundaryAdded: false
+      rawCheckLogsStored: false
+      rawCommentsStored: false
+      rawReviewBodiesStored: false
+      rawUrlStored: false
+      tokenValueDisplayed: false
+      adapterExecuteAllowed: false
+  m18d.remote-publish-draft-pr-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/github"
+        reads:
+          - GET /api/github/publish-draft-pr-chains/dry-runs
+          - GET /api/github/publish-draft-pr-chains/runs
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+      - phase: cli
+        commands:
+          - codexhub github publish-draft-pr-chains dry-runs list
+          - codexhub github publish-draft-pr-chains runs list
+          - codexhub github publish-draft-pr-chains runs show <runId>
+        methods: GET-only
+      - phase: generic-projection
+        command: codexhub runs list/show
+        source: github_publish_draft_pr_chain_run
+    safety:
+      supervisorPostAllowed: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m18e.publish-draft-pr-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: github-provider-adapter dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        package: github-provider-adapter
+        helper: runGithubPublishDraftPrAcceptanceRehearsal
+        scenarios:
+          - all-pass
+          - publish-blocked
+          - branch-published-pr-blocked
+          - draft-pr-created-checks-pending
+          - checks-failed
+          - checks-passed
+          - stale-branch
+          - network-timeout
+      - phase: cli
+        command: codexhub github publish-draft-pr-chains rehearse --fixture --scenario <name>
+        supervisorPostAllowed: false
+        networkBoundaryInvoked: false
+      - phase: dashboard
+        route: "#/github"
+        panel: GitHub Publish To Draft PR Acceptance Rehearsal
+        supervisorPostAllowed: false
+    safety:
+      fixtureOnly: true
+      newSupervisorRoute: false
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+  m18_5.remote-publish-draft-pr-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    chain:
+      - phase: review
+        scope:
+          - github-publish-draft-pr-chain-contracts
+          - github-provider-adapter
+          - github-publish-draft-pr-chain-supervisor-control-plane
+          - dashboard-cli-read-only-ux
+          - no-live-audit
+      - phase: evidence
+        docs:
+          - docs/releases/m18-remote-publish-draft-pr-results.md
+          - docs/reviews/m18-remote-publish-hardening-review.md
+          - docs/runbooks/m18-remote-publish-operator-runbook.md
+      - phase: verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:boundaries
+          - pnpm audit:sqlite-isolation
+          - pnpm audit:no-live-automation
+          - pnpm audit:skills
+          - pnpm verify:foundation
+          - git diff --check
+    safety:
+      newNetworkBoundaryFile: false
+      newProcessBoundary: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawFileContentStored: false
+      rawPullRequestBodyStored: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
   m16d.draft-pr-acceptance-rehearsal:
     risk: medium
     trigger:

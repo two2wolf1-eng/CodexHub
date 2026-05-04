@@ -5696,3 +5696,316 @@ describe('supervisor GitHub draft PR control plane', () => {
     expect(fetchCalled).toBe(false);
   });
 });
+
+describe('supervisor GitHub branch publish control plane', () => {
+  const branchPublishFiles = [
+    {
+      relativePath: 'packages/example/src/index.ts',
+      content: 'export const answer = 42;\n',
+    },
+    {
+      relativePath: 'docs/example.md',
+      content: '# Example\n\nMetadata only.\n',
+    },
+  ];
+  const branchPublishPlanFiles = branchPublishFiles.map((file) => ({
+    relativePath: file.relativePath,
+    contentHash: `sha256:${hashTestText(file.content)}`,
+    byteCount: Buffer.byteLength(file.content, 'utf8'),
+    text: true,
+  }));
+
+  it('creates an approved new codexhub branch through the governed control plane', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-branch-publish-store-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+
+      if (url.endsWith('/git/ref/heads/codexhub%2Fm17-publish')) {
+        return {
+          ok: false,
+          status: 404,
+          async text() {
+            return '{"message":"Not Found"}';
+          },
+        };
+      }
+
+      const method = init?.method ?? 'GET';
+      const body =
+        method === 'GET' && url.endsWith('/git/ref/heads/main')
+          ? '{"object":{"sha":"base-commit-sha"}}'
+          : method === 'GET' && url.endsWith('/git/commits/base-commit-sha')
+            ? '{"tree":{"sha":"base-tree-sha"}}'
+            : method === 'POST' && url.endsWith('/git/blobs')
+              ? '{"sha":"blob-sha"}'
+              : method === 'POST' && url.endsWith('/git/trees')
+                ? '{"sha":"new-tree-sha"}'
+                : method === 'POST' && url.endsWith('/git/commits')
+                  ? '{"sha":"new-commit-sha"}'
+                  : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: method === 'POST' ? 201 : 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubBranchPublishEnabled: true,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: fetchImpl,
+    });
+
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/dry-runs',
+      payload: { owner: 'octo-org', repo: 'codexhub' },
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/dry-runs',
+      headers: {
+        ...localControlHeaders,
+        origin: 'https://evil.example',
+      },
+      payload: { owner: 'octo-org', repo: 'codexhub' },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        sourceKind: 'local_rc_readiness',
+        sourceId: 'local_rc_123',
+        sourceSummary: 'Local RC metadata summary',
+        worktreePathHash: 'sha256:worktree',
+        branchSlug: 'm17-publish',
+        commitMessageSummary: 'Publish governed CodexHub patch',
+        files: branchPublishPlanFiles,
+        runnerMode: 'controlled-github-branch-publish',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'approve branch publish',
+      },
+    });
+    const approvalRequest = approvalRequestResponse.json();
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequest.approvalRequestId,
+        outcome: 'approved',
+        reason: 'approved for branch publish',
+      },
+    });
+    const approval = approvalResponse.json();
+    const forbiddenAuthorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        executionAuthority: { allowed: true },
+      },
+    });
+    const mismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        branchName: 'codexhub/different',
+        commitMessageSummary: 'Publish governed CodexHub patch',
+        files: branchPublishFiles,
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        branchName: 'codexhub/m17-publish',
+        commitMessageSummary: 'Publish governed CodexHub patch',
+        files: branchPublishFiles,
+      },
+    });
+    const runsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/branch-publishes/runs',
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/branch-publishes/approvals',
+    });
+    const completed = completedResponse.json();
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.status).toBe('planned');
+    expect(dryRun.readinessStatus).toBe('ready_for_branch_publish');
+    expect(dryRun.createRefAllowed).toBe(true);
+    expect(dryRun.updateRefAllowed).toBe(false);
+    expect(dryRun.forceAllowed).toBe(false);
+    expect(dryRun.pushAllowed).toBe(false);
+    expect(dryRunResponse.body).not.toContain('octo-org');
+    expect(dryRunResponse.body).not.toContain('m17-publish');
+    expect(dryRunResponse.body).not.toContain('packages/example/src/index.ts');
+    expect(dryRunResponse.body).not.toContain('Publish governed CodexHub patch');
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(forbiddenAuthorityResponse.json()).toMatchObject({
+      error: 'untrusted_github_branch_publish_authority_body',
+      networkBoundaryInvoked: false,
+    });
+    expect(mismatchResponse.statusCode).toBe(200);
+    expect(mismatchResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completed.status).toBe('completed');
+    expect(completed.created).toBe(true);
+    expect(completed.networkBoundaryInvoked).toBe(true);
+    expect(completed.noRealWrite).toBe(false);
+    expect(completed.responseBodyHashCount).toBe(9);
+    expect(completed.commitShaHash).toMatch(/^sha256:/);
+    expect(completed.treeShaHash).toMatch(/^sha256:/);
+    expect(runsResponse.json().records).toHaveLength(2);
+    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
+      true,
+    );
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/git/ref/heads/main',
+      'GET https://api.github.com/repos/octo-org/codexhub/git/ref/heads/codexhub%2Fm17-publish',
+      'GET https://api.github.com/repos/octo-org/codexhub/git/commits/base-commit-sha',
+      'POST https://api.github.com/repos/octo-org/codexhub/git/blobs',
+      'POST https://api.github.com/repos/octo-org/codexhub/git/blobs',
+      'POST https://api.github.com/repos/octo-org/codexhub/git/trees',
+      'POST https://api.github.com/repos/octo-org/codexhub/git/commits',
+      'POST https://api.github.com/repos/octo-org/codexhub/git/refs',
+    ]);
+    expect(requested.at(-1)?.body).toContain('"refs/heads/codexhub/m17-publish"');
+    expect(completedResponse.body).not.toContain('octo-org');
+    expect(completedResponse.body).not.toContain('codexhub/m17-publish');
+    expect(completedResponse.body).not.toContain('ghp_secret');
+    expect(completedResponse.body).not.toContain('Publish governed CodexHub patch');
+    expect(completedResponse.body).not.toContain('export const answer');
+    expect(completedResponse.body).not.toContain('packages/example/src/index.ts');
+    expect(completedResponse.body).not.toContain('new-commit-sha');
+  });
+
+  it('blocks GitHub branch publish while the integration is disabled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-branch-publish-disabled-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    let fetchCalled = false;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubBranchPublishEnabled: false,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        sourceKind: 'local_rc_readiness',
+        sourceId: 'local_rc_123',
+        sourceSummary: 'Local RC metadata summary',
+        worktreePathHash: 'sha256:worktree',
+        branchSlug: 'm17-publish',
+        commitMessageSummary: 'Publish governed CodexHub patch',
+        files: branchPublishPlanFiles,
+        runnerMode: 'controlled-github-branch-publish',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        branchName: 'codexhub/m17-publish',
+        commitMessageSummary: 'Publish governed CodexHub patch',
+        files: branchPublishFiles,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(runResponse.json().blockReasons).toContain('github_branch_publish_disabled');
+    expect(fetchCalled).toBe(false);
+  });
+});

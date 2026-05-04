@@ -26,9 +26,18 @@ import {
   type ElectronCdpObservationControlPlaneRun,
   type ElectronCdpObservationDryRunRecord,
   type EvidenceRef,
+  type GithubBranchPublishApprovalArtifactRecord,
+  type GithubCommitContentManifest,
+  type GithubBranchPublishPlan,
+  type GithubBranchPublishRun,
   type GithubDraftPrApprovalArtifactRecord,
   type GithubDraftPrPlan,
   type GithubDraftPrRun,
+  type GithubPublishDraftPrChainPlan,
+  type GithubPublishDraftPrChainRun,
+  type GithubPublishDraftPrChainStep,
+  type GithubRemoteCommitSummary,
+  type GithubRemotePrLifecycleSummary,
   type GithubRemoteRefSummary,
   type MockDevelopmentRun,
   type WorktreeApprovalArtifactRecord,
@@ -897,7 +906,218 @@ describe('store-sqlite migration initialization', () => {
     expect(serialized).not.toContain('codex/m16');
     expect(serialized).not.toContain('https://github.com');
   });
+
+  it('persists GitHub branch publish dry-runs, approvals, and runs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-store-github-branch-publish-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const dryRun = createGithubBranchPublishDryRunFixture();
+    const approval = createGithubBranchPublishApprovalFixture();
+    const run = createGithubBranchPublishRunFixture(dryRun);
+
+    await first.githubBranchPublishDryRuns.saveDryRun(dryRun);
+    await first.githubBranchPublishApprovals.saveApproval(approval);
+    await first.githubBranchPublishRuns.saveRun(run);
+    await first.close();
+
+    const second = await createSqliteStore({ dbPath });
+    const dryRuns = await second.githubBranchPublishDryRuns.listDryRuns({
+      dryRunId: 'github_branch_publish_dry_run_1',
+      status: 'planned',
+      limit: 10,
+    });
+    const dryRunRecord =
+      await second.githubBranchPublishDryRuns.getDryRun('github_branch_publish_plan_1');
+    const approvals = await second.githubBranchPublishApprovals.listApprovals({
+      dryRunId: 'github_branch_publish_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const approvalRecord = await second.githubBranchPublishApprovals.getApproval(
+      'github_branch_publish_approval_record_1',
+    );
+    const approvalByArtifact =
+      await second.githubBranchPublishApprovals.getApprovalByArtifactId(
+        'github_branch_publish_approval_artifact_1',
+      );
+    const runs = await second.githubBranchPublishRuns.listRuns({
+      dryRunId: 'github_branch_publish_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const runRecord = await second.githubBranchPublishRuns.getRun('github_branch_publish_run_1');
+    const serialized = JSON.stringify({ dryRunRecord, approvalRecord, runRecord });
+    await second.close();
+
+    expect(dryRuns).toHaveLength(1);
+    expect(dryRunRecord?.networkBoundaryPlanned).toBe(true);
+    expect(dryRunRecord?.updateRefAllowed).toBe(false);
+    expect(approvals).toHaveLength(1);
+    expect(approvalRecord?.approvalArtifactId).toBe(
+      'github_branch_publish_approval_artifact_1',
+    );
+    expect(approvalByArtifact?.id).toBe('github_branch_publish_approval_record_1');
+    expect(runs).toHaveLength(1);
+    expect(runRecord?.networkBoundaryInvoked).toBe(true);
+    expect(runRecord?.noRealWrite).toBe(false);
+    expect(runRecord?.updateRefAllowed).toBe(false);
+    expect(runRecord?.pushAllowed).toBe(false);
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m17');
+    expect(serialized).not.toContain('packages/example/src/index.ts');
+    expect(serialized).not.toContain('export const answer');
+    expect(serialized).not.toContain('new-commit-sha');
+  });
+
+  it('persists GitHub publish to draft PR chain dry-runs and runs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-store-github-chain-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const dryRun = createGithubPublishDraftPrChainDryRunFixture();
+    const run = createGithubPublishDraftPrChainRunFixture(dryRun);
+
+    await first.githubPublishDraftPrChainDryRuns.saveDryRun(dryRun);
+    await first.githubPublishDraftPrChainRuns.saveRun(run);
+    await first.close();
+
+    const second = await createSqliteStore({ dbPath });
+    const dryRuns = await second.githubPublishDraftPrChainDryRuns.listDryRuns({ limit: 10 });
+    const dryRunRecord = await second.githubPublishDraftPrChainDryRuns.getDryRun(
+      'github_publish_draft_pr_chain_plan_1',
+    );
+    const runs = await second.githubPublishDraftPrChainRuns.listRuns({
+      status: 'completed',
+      limit: 10,
+    });
+    const runRecord = await second.githubPublishDraftPrChainRuns.getRun(
+      'github_publish_draft_pr_chain_run_1',
+    );
+    const serialized = JSON.stringify({ dryRunRecord, runRecord });
+    await second.close();
+
+    expect(dryRuns).toHaveLength(1);
+    expect(dryRunRecord?.separateApprovalsRequired).toBe(true);
+    expect(runs).toHaveLength(1);
+    expect(runRecord?.networkBoundaryInvoked).toBe(true);
+    expect(runRecord?.stepCount).toBe(3);
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m18');
+    expect(serialized).not.toContain('https://github.com');
+    expect(serialized).not.toContain('ghp_');
+  });
 });
+
+function createGithubPublishDraftPrChainDryRunFixture(): GithubPublishDraftPrChainPlan {
+  return {
+    id: 'github_publish_draft_pr_chain_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:03.000Z',
+    chainId: 'github_publish_draft_pr_chain_1',
+    sourceKind: 'local_rc_readiness',
+    sourceIdHash: 'sha256:source',
+    branchPublishDryRunId: 'github_branch_publish_dry_run_1',
+    draftPrDryRunId: 'github_draft_pr_dry_run_1',
+    separateApprovalsRequired: true,
+    branchPublishApprovalRequired: true,
+    draftPrApprovalRequired: true,
+    networkBoundaryPlanned: true,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: 'github-provider',
+      chainIdHash: 'sha256:chain',
+    },
+    summary: 'GitHub publish to draft PR chain dry-run stores metadata only.',
+  };
+}
+
+function createGithubPublishDraftPrChainRunFixture(
+  plan: GithubPublishDraftPrChainPlan,
+): GithubPublishDraftPrChainRun {
+  const targetRef = createGithubRemoteRefFixture();
+  const lifecycleSummary: GithubRemotePrLifecycleSummary = {
+    id: 'github_pr_lifecycle_summary_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:04.000Z',
+    targetRef,
+    prNumberHash: 'sha256:pr-number',
+    prUrlHash: 'sha256:pr-url',
+    stateHash: 'sha256:state',
+    checkRunCount: 1,
+    statusContextCount: 1,
+    failedCheckCount: 0,
+    pendingCheckCount: 0,
+    passedCheckCount: 1,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      targetRefIdHash: 'sha256:target-ref',
+    },
+    summary: 'GitHub PR lifecycle summary stores hashes and counts only.',
+  };
+
+  return {
+    id: 'github_publish_draft_pr_chain_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:04.000Z',
+    chainId: plan.chainId,
+    status: 'completed',
+    plan,
+    steps: [
+      createGithubPublishDraftPrChainStepFixture('branch-publish', 0),
+      createGithubPublishDraftPrChainStepFixture('draft-pr-create', 1),
+      createGithubPublishDraftPrChainStepFixture('pr-lifecycle-observe', 2),
+    ],
+    stepCount: 3,
+    branchPublishRunId: 'github_branch_publish_run_1',
+    draftPrRunId: 'github_draft_pr_run_1',
+    lifecycleSummary,
+    blockReasons: [],
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_publish_draft_pr_chain_1'],
+    networkBoundaryInvoked: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      chainIdHash: 'sha256:chain',
+    },
+    summary: 'GitHub publish to draft PR chain run stores metadata only.',
+  };
+}
+
+function createGithubPublishDraftPrChainStepFixture(
+  phase: 'branch-publish' | 'draft-pr-create' | 'pr-lifecycle-observe',
+  order: number,
+): GithubPublishDraftPrChainStep {
+  return {
+    id: `github_publish_draft_pr_chain_step_${order}`,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:04.000Z',
+    phase,
+    status: 'completed' as const,
+    order,
+    evidenceRefIds: [],
+    auditEventIds: [`audit_github_publish_draft_pr_chain_step_${order}`],
+    networkBoundaryInvoked: order < 2,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      phase,
+    },
+    summary: `${phase} fixture step stores metadata only.`,
+  };
+}
 
 function createGithubRemoteRefFixture(): GithubRemoteRefSummary {
   return {
@@ -1113,6 +1333,219 @@ function createGithubDraftPrRunFixture(plan: GithubDraftPrPlan): GithubDraftPrRu
       networkBoundaryInvoked: true,
     },
     summary: 'GitHub draft PR run fixture completed with hash-only output.',
+  };
+}
+
+function createGithubBranchPublishDryRunFixture(): GithubBranchPublishPlan {
+  const createdAt = '2026-05-05T00:00:00.000Z';
+  const targetRef = createGithubRemoteRefFixture();
+  const contentManifest: GithubCommitContentManifest = {
+    id: 'github_branch_publish_content_manifest_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    sourceKind: 'local_rc_readiness' as const,
+    sourceIdHash: 'sha256:source',
+    worktreePathHash: 'sha256:worktree',
+    fileCount: 1,
+    totalByteCount: 26,
+    filePathHashes: ['sha256:file-path'],
+    fileContentHashes: ['sha256:file-content'],
+    maxFileByteCount: 26,
+    textOnly: true,
+    deletionsAllowed: false,
+    renamesAllowed: false,
+    binaryAllowed: false,
+    symlinkAllowed: false,
+    rawFileContentStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      fileCount: 1,
+    },
+    summary: 'GitHub branch publish content manifest fixture stores hashes only.',
+  };
+
+  return {
+    id: 'github_branch_publish_plan_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'github_branch_publish_dry_run_1',
+    status: 'planned',
+    runnerMode: 'controlled-github-branch-publish',
+    readiness: {
+      id: 'github_branch_publish_readiness_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      sourceKind: 'local_rc_readiness',
+      sourceIdHash: 'sha256:source',
+      sourceSummaryHash: 'sha256:source-summary',
+      targetRef,
+      contentManifest,
+      status: 'ready_for_branch_publish',
+      blockerCount: 0,
+      newBranchRequired: true,
+      branchPrefix: 'codexhub/',
+      existingBranchUpdateAllowed: false,
+      forceAllowed: false,
+      pushAllowed: false,
+      mergeAllowed: false,
+      labelsAllowed: false,
+      reviewersAllowed: false,
+      commentsAllowed: false,
+      rawFileContentStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      metadata: {
+        integration: 'github-provider',
+        sourceIdHash: 'sha256:source',
+        targetRefIdHash: 'sha256:target-ref',
+        contentManifestIdHash: 'sha256:manifest',
+      },
+      summary: 'Branch publish readiness fixture is ready with hashes only.',
+    },
+    commitMessageHash: 'sha256:commit-message',
+    blockReasons: [],
+    policyDecision: {
+      id: 'github_branch_publish_policy_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      actionId: 'github_branch_publish_dry_run_1',
+      actionType: 'github.branch_publish.create',
+      actionMode: 'write',
+      riskLevel: 'high',
+      outcome: 'approval_required',
+      reasons: ['approval required'],
+      requiresDryRun: true,
+      requiresApproval: true,
+    },
+    requiresApproval: true,
+    networkBoundaryPlanned: true,
+    networkBoundaryInvoked: false,
+    createRefAllowed: true,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    pushAllowed: false,
+    mergeAllowed: false,
+    rawFileContentStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_branch_publish_plan_1'],
+    metadata: {
+      integration: 'github-provider',
+      targetRefIdHash: 'sha256:target-ref',
+      contentManifestIdHash: 'sha256:manifest',
+      branchNameHash: 'sha256:branch',
+    },
+    summary: 'GitHub branch publish dry-run fixture stores metadata only.',
+  };
+}
+
+function createGithubBranchPublishApprovalFixture(): GithubBranchPublishApprovalArtifactRecord {
+  return {
+    id: 'github_branch_publish_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:01.000Z',
+    dryRunId: 'github_branch_publish_dry_run_1',
+    dryRunRecordId: 'github_branch_publish_plan_1',
+    approvalRequestId: 'github_branch_publish_approval_request_1',
+    approvalArtifactId: 'github_branch_publish_approval_artifact_1',
+    status: 'approved',
+    approved: true,
+    policyDecisionId: 'github_branch_publish_policy_1',
+    requestedByHash: 'sha256:operator',
+    decidedByHash: 'sha256:approver',
+    reasonHash: 'sha256:reason',
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_branch_publish_approval_1'],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      dryRunIdHash: 'sha256:dry-run',
+      approvalArtifactIdHash: 'sha256:artifact',
+      status: 'approved',
+    },
+    summary: 'GitHub branch publish approval fixture stores hashes only.',
+  };
+}
+
+function createGithubBranchPublishRunFixture(
+  plan: GithubBranchPublishPlan,
+): GithubBranchPublishRun {
+  return {
+    id: 'github_branch_publish_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-05T00:00:02.000Z',
+    dryRunId: 'github_branch_publish_dry_run_1',
+    dryRunRecordId: 'github_branch_publish_plan_1',
+    approvalArtifactId: 'github_branch_publish_approval_artifact_1',
+    status: 'completed',
+    plan,
+    commitSummary: {
+      id: 'github_branch_publish_commit_summary_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: '2026-05-05T00:00:02.000Z',
+      targetRef: plan.readiness.targetRef,
+      commitShaHash: 'sha256:commit',
+      treeShaHash: 'sha256:tree',
+      branchNameHash: 'sha256:branch',
+      contentManifestHash: 'sha256:manifest',
+      fileCount: 1,
+      created: true,
+      createRefAllowed: true,
+      updateRefAllowed: false,
+      forceAllowed: false,
+      pushAllowed: false,
+      mergeAllowed: false,
+      rawFileContentStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      metadata: {
+        integration: 'github-provider',
+        commitShaHash: 'sha256:commit',
+        treeShaHash: 'sha256:tree',
+      },
+      summary: 'GitHub branch publish commit summary stores remote identifiers as hashes only.',
+    } satisfies GithubRemoteCommitSummary,
+    responseBodyHashes: [
+      'sha256:repo',
+      'sha256:base-ref',
+      'sha256:branch-ref',
+      'sha256:base-commit',
+      'sha256:blob',
+      'sha256:tree',
+      'sha256:commit',
+      'sha256:ref',
+    ],
+    blockReasons: [],
+    evidenceRefs: [],
+    auditEventIds: ['audit_github_branch_publish_run_1'],
+    networkBoundaryInvoked: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: false,
+    createRefAllowed: true,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    pushAllowed: false,
+    mergeAllowed: false,
+    rawFileContentStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: 'github-provider',
+      dryRunIdHash: 'sha256:dry-run',
+      status: 'completed',
+      networkBoundaryInvoked: true,
+    },
+    summary: 'GitHub branch publish run fixture completed with hash-only output.',
   };
 }
 

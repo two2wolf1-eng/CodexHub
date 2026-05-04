@@ -7,12 +7,17 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  GithubBranchPublishApprovalArtifactRecord,
+  GithubBranchPublishPlan,
+  GithubBranchPublishRun,
   GithubDraftPrApprovalArtifactRecord,
   GithubDraftPrPlan,
   GithubDraftPrRun,
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
+  GithubPublishDraftPrChainPlan,
+  GithubPublishDraftPrChainRun,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -93,6 +98,8 @@ export type ReviewPackageControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReleaseCandidateControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubMetadataControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubDraftPrControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubBranchPublishControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubPublishDraftPrChainControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -360,6 +367,47 @@ export interface GithubDraftPrRunRepository {
   listRuns(query?: GithubDraftPrControlPlaneQuery): Promise<GithubDraftPrRun[]>;
 }
 
+export interface GithubBranchPublishDryRunRepository {
+  saveDryRun(record: GithubBranchPublishPlan): Promise<GithubBranchPublishPlan>;
+  getDryRun(id: string): Promise<GithubBranchPublishPlan | undefined>;
+  listDryRuns(query?: GithubBranchPublishControlPlaneQuery): Promise<GithubBranchPublishPlan[]>;
+}
+
+export interface GithubBranchPublishApprovalRepository {
+  saveApproval(
+    record: GithubBranchPublishApprovalArtifactRecord,
+  ): Promise<GithubBranchPublishApprovalArtifactRecord>;
+  getApproval(id: string): Promise<GithubBranchPublishApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubBranchPublishApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: GithubBranchPublishControlPlaneQuery,
+  ): Promise<GithubBranchPublishApprovalArtifactRecord[]>;
+}
+
+export interface GithubBranchPublishRunRepository {
+  saveRun(record: GithubBranchPublishRun): Promise<GithubBranchPublishRun>;
+  getRun(id: string): Promise<GithubBranchPublishRun | undefined>;
+  listRuns(query?: GithubBranchPublishControlPlaneQuery): Promise<GithubBranchPublishRun[]>;
+}
+
+export interface GithubPublishDraftPrChainDryRunRepository {
+  saveDryRun(record: GithubPublishDraftPrChainPlan): Promise<GithubPublishDraftPrChainPlan>;
+  getDryRun(id: string): Promise<GithubPublishDraftPrChainPlan | undefined>;
+  listDryRuns(
+    query?: GithubPublishDraftPrChainControlPlaneQuery,
+  ): Promise<GithubPublishDraftPrChainPlan[]>;
+}
+
+export interface GithubPublishDraftPrChainRunRepository {
+  saveRun(record: GithubPublishDraftPrChainRun): Promise<GithubPublishDraftPrChainRun>;
+  getRun(id: string): Promise<GithubPublishDraftPrChainRun | undefined>;
+  listRuns(
+    query?: GithubPublishDraftPrChainControlPlaneQuery,
+  ): Promise<GithubPublishDraftPrChainRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -558,6 +606,11 @@ export interface CodexHubStore {
   githubDraftPrDryRuns: GithubDraftPrDryRunRepository;
   githubDraftPrApprovals: GithubDraftPrApprovalRepository;
   githubDraftPrRuns: GithubDraftPrRunRepository;
+  githubBranchPublishDryRuns: GithubBranchPublishDryRunRepository;
+  githubBranchPublishApprovals: GithubBranchPublishApprovalRepository;
+  githubBranchPublishRuns: GithubBranchPublishRunRepository;
+  githubPublishDraftPrChainDryRuns: GithubPublishDraftPrChainDryRunRepository;
+  githubPublishDraftPrChainRuns: GithubPublishDraftPrChainRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

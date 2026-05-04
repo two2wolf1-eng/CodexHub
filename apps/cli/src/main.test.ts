@@ -360,6 +360,84 @@ describe('cli development mock-run fallback', () => {
         );
       }
 
+      if (String(url).includes('/api/github/branch-publishes/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_branch_publish_run_1',
+                dryRunId: 'github_branch_publish_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-branch-publish',
+                readinessStatus: 'ready_for_branch_publish',
+                targetRef: {
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:branch',
+                },
+                contentManifestHash: 'sha256:manifest',
+                fileCount: 2,
+                totalByteCount: 128,
+                branchNameHash: 'sha256:branch',
+                commitShaHash: 'sha256:commit',
+                treeShaHash: 'sha256:tree',
+                created: true,
+                responseBodyHashes: ['sha256:repo-response', 'sha256:ref-response'],
+                responseBodyHashCount: 2,
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                createRefAllowed: true,
+                updateRefAllowed: false,
+                forceAllowed: false,
+                pushAllowed: false,
+                mergeAllowed: false,
+                rawFileContentStored: false,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['github_branch_publish_evidence_1'],
+                auditEventIds: ['github_branch_publish_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/publish-draft-pr-chains/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_publish_draft_pr_chain_run_1',
+                dryRunId: 'github_publish_draft_pr_chain_dry_run_1',
+                status: 'completed',
+                sourceKind: 'local_rc_readiness',
+                sourceIdHash: 'sha256:source',
+                branchPublishRunId: 'github_branch_publish_run_1',
+                draftPrRunId: 'github_draft_pr_run_1',
+                branchPublishStatus: 'completed',
+                draftPrStatus: 'completed',
+                lifecycleStatus: 'checks_passed',
+                evidenceRefCount: 2,
+                auditEventCount: 2,
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                rawPathStored: false,
+                rawPrBodyStored: false,
+                rawUrlStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
       if (String(url).includes('/api/worktrees/cleanup/runs')) {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
@@ -411,7 +489,7 @@ describe('cli development mock-run fallback', () => {
 
     expect(result).toMatchObject({
       status: 'ready',
-      count: 6,
+      count: 8,
       liveExecution: false,
       externalProcessStarted: false,
       noRealWrite: true,
@@ -420,10 +498,12 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('workflow_1');
     expect(output).toContain('github_metadata_run_1');
     expect(output).toContain('github_draft_pr_run_1');
+    expect(output).toContain('github_branch_publish_run_1');
+    expect(output).toContain('github_publish_draft_pr_chain_run_1');
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(24);
+    expect(fetchCalls).toHaveLength(28);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -804,6 +884,390 @@ describe('cli development mock-run fallback', () => {
     expect(rehearsalJson).not.toContain('hello-world');
     expect(rehearsalJson).not.toContain('ghp_');
     expect(rehearsalJson).not.toContain('Authorization');
+  });
+
+  it('shows GitHub branch publish metadata using GET endpoints only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/github/branch-publishes/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'github_branch_publish_dry_run_record_1',
+                dryRunId: 'github_branch_publish_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-github-branch-publish',
+                readinessStatus: 'ready_for_branch_publish',
+                sourceKind: 'local_rc_readiness',
+                sourceIdHash: 'sha256:source',
+                targetRef: {
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:branch',
+                },
+                contentManifestHash: 'sha256:manifest',
+                fileCount: 2,
+                totalByteCount: 128,
+                networkBoundaryInvoked: false,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                createRefAllowed: true,
+                updateRefAllowed: false,
+                forceAllowed: false,
+                pushAllowed: false,
+                mergeAllowed: false,
+                rawFileContentStored: false,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/branch-publishes/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                approvalArtifactId: 'github_branch_publish_approval_1',
+                dryRunId: 'github_branch_publish_dry_run_1',
+                status: 'approved',
+                runnerMode: 'controlled-github-branch-publish',
+                readinessStatus: 'ready_for_branch_publish',
+                targetRef: {
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:branch',
+                },
+                contentManifestHash: 'sha256:manifest',
+                fileCount: 2,
+                totalByteCount: 128,
+                networkBoundaryInvoked: false,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                createRefAllowed: true,
+                updateRefAllowed: false,
+                forceAllowed: false,
+                pushAllowed: false,
+                mergeAllowed: false,
+                rawFileContentStored: false,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/github/branch-publishes/runs/github_branch_publish_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'github_branch_publish_run_1',
+            dryRunId: 'github_branch_publish_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-github-branch-publish',
+            readinessStatus: 'ready_for_branch_publish',
+            sourceKind: 'local_rc_readiness',
+            sourceIdHash: 'sha256:source',
+            targetRef: {
+              ownerHash: 'sha256:owner',
+              repoHash: 'sha256:repo',
+              baseBranchHash: 'sha256:base',
+              headBranchHash: 'sha256:branch',
+            },
+            contentManifestHash: 'sha256:manifest',
+            fileCount: 2,
+            totalByteCount: 128,
+            branchNameHash: 'sha256:branch',
+            commitShaHash: 'sha256:commit',
+            treeShaHash: 'sha256:tree',
+            created: true,
+            responseBodyHashes: ['sha256:repo-response', 'sha256:ref-response'],
+            responseBodyHashCount: 2,
+            networkBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: false,
+            createRefAllowed: true,
+            updateRefAllowed: false,
+            forceAllowed: false,
+            pushAllowed: false,
+            mergeAllowed: false,
+            rawFileContentStored: false,
+            bodyStored: false,
+            rawPathStored: false,
+            evidenceRefIds: ['github_branch_publish_evidence_1'],
+            auditEventIds: ['github_branch_publish_audit_1'],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/branch-publishes/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_branch_publish_run_1',
+                dryRunId: 'github_branch_publish_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-branch-publish',
+                readinessStatus: 'ready_for_branch_publish',
+                targetRef: {
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:branch',
+                },
+                contentManifestHash: 'sha256:manifest',
+                fileCount: 2,
+                totalByteCount: 128,
+                branchNameHash: 'sha256:branch',
+                commitShaHash: 'sha256:commit',
+                treeShaHash: 'sha256:tree',
+                created: true,
+                responseBodyHashes: ['sha256:repo-response', 'sha256:ref-response'],
+                responseBodyHashCount: 2,
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                createRefAllowed: true,
+                updateRefAllowed: false,
+                forceAllowed: false,
+                pushAllowed: false,
+                mergeAllowed: false,
+                rawFileContentStored: false,
+                bodyStored: false,
+                rawPathStored: false,
+                evidenceRefIds: ['github_branch_publish_evidence_1'],
+                auditEventIds: ['github_branch_publish_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      formatGithubBranchPublishApprovalsListOutput,
+      formatGithubBranchPublishAcceptanceRehearsalOutput,
+      formatGithubBranchPublishDryRunsListOutput,
+      formatGithubBranchPublishRunDetailOutput,
+      formatGithubBranchPublishRunsListOutput,
+      listGithubBranchPublishApprovals,
+      listGithubBranchPublishDryRuns,
+      listGithubBranchPublishRuns,
+      runGithubBranchPublishAcceptanceRehearsalForCli,
+      showGithubBranchPublishRun,
+    } = await import('./main');
+    const dryRuns = await listGithubBranchPublishDryRuns();
+    const approvals = await listGithubBranchPublishApprovals();
+    const runs = await listGithubBranchPublishRuns();
+    const detail = await showGithubBranchPublishRun('github_branch_publish_run_1');
+    const serialized = JSON.stringify({ dryRuns, approvals, runs, detail });
+    const output = [
+      formatGithubBranchPublishDryRunsListOutput(dryRuns),
+      formatGithubBranchPublishApprovalsListOutput(approvals),
+      formatGithubBranchPublishRunsListOutput(runs),
+      formatGithubBranchPublishRunDetailOutput(detail),
+    ].join('\n');
+
+    expect(output).toContain('GitHub branch publish runs');
+    expect(output).toContain('github_branch_publish_run_1');
+    expect(output).toContain('networkBoundaryInvoked=true');
+    expect(output).toContain('commitShaHash');
+    expect(fetchCalls).toHaveLength(4);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw file content');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('local-control');
+
+    const rehearsal = runGithubBranchPublishAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'branch-exists',
+    });
+    const rehearsalOutput = formatGithubBranchPublishAcceptanceRehearsalOutput(rehearsal);
+    const rehearsalJson = JSON.stringify(rehearsal);
+
+    expect(rehearsal.status).toBe('blocked');
+    expect(rehearsal.readinessStatus).toBe('blocked_existing_branch');
+    expect(rehearsal.networkBoundaryInvoked).toBe(false);
+    expect(rehearsalOutput).toContain('GitHub branch publish acceptance rehearsal');
+    expect(rehearsalOutput).toContain('pushAllowed=false');
+    expect(rehearsalOutput).toContain('createRefAllowed=true');
+    expect(() => runGithubBranchPublishAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(fetchCalls).toHaveLength(4);
+    expect(rehearsalJson).not.toContain('octocat');
+    expect(rehearsalJson).not.toContain('hello-world');
+    expect(rehearsalJson).not.toContain('ghp_');
+    expect(rehearsalJson).not.toContain('Authorization');
+  });
+
+  it('shows GitHub publish to draft PR chain metadata using GET endpoints only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/github/publish-draft-pr-chains/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'github_publish_draft_pr_chain_dry_run_record_1',
+                dryRunId: 'github_publish_draft_pr_chain_dry_run_1',
+                status: 'planned',
+                sourceKind: 'local_rc_readiness',
+                sourceIdHash: 'sha256:source',
+                branchPublishDryRunId: 'github_branch_publish_dry_run_1',
+                draftPrDryRunId: 'github_draft_pr_dry_run_1',
+                rawPathStored: false,
+                rawPrBodyStored: false,
+                rawUrlStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (
+        String(url).endsWith(
+          '/api/github/publish-draft-pr-chains/runs/github_publish_draft_pr_chain_run_1',
+        )
+      ) {
+        return new Response(
+          JSON.stringify({
+            runId: 'github_publish_draft_pr_chain_run_1',
+            dryRunId: 'github_publish_draft_pr_chain_dry_run_1',
+            status: 'completed',
+            sourceKind: 'local_rc_readiness',
+            sourceIdHash: 'sha256:source',
+            branchPublishRunId: 'github_branch_publish_run_1',
+            draftPrRunId: 'github_draft_pr_run_1',
+            branchPublishStatus: 'completed',
+            draftPrStatus: 'completed',
+            lifecycleStatus: 'checks_passed',
+            evidenceRefCount: 2,
+            auditEventCount: 2,
+            networkBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: false,
+            rawPathStored: false,
+            rawPrBodyStored: false,
+            rawUrlStored: false,
+            bodyStored: false,
+            summary: 'metadata-only chain run',
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/publish-draft-pr-chains/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_publish_draft_pr_chain_run_1',
+                dryRunId: 'github_publish_draft_pr_chain_dry_run_1',
+                status: 'completed',
+                sourceKind: 'local_rc_readiness',
+                sourceIdHash: 'sha256:source',
+                branchPublishRunId: 'github_branch_publish_run_1',
+                draftPrRunId: 'github_draft_pr_run_1',
+                branchPublishStatus: 'completed',
+                draftPrStatus: 'completed',
+                lifecycleStatus: 'checks_passed',
+                evidenceRefCount: 2,
+                auditEventCount: 2,
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: false,
+                rawPathStored: false,
+                rawPrBodyStored: false,
+                rawUrlStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      formatGithubPublishDraftPrAcceptanceRehearsalOutput,
+      formatGithubPublishDraftPrChainDryRunsListOutput,
+      formatGithubPublishDraftPrChainRunDetailOutput,
+      formatGithubPublishDraftPrChainRunsListOutput,
+      listGithubPublishDraftPrChainDryRuns,
+      listGithubPublishDraftPrChainRuns,
+      runGithubPublishDraftPrAcceptanceRehearsalForCli,
+      showGithubPublishDraftPrChainRun,
+    } = await import('./main');
+    const dryRuns = await listGithubPublishDraftPrChainDryRuns();
+    const runs = await listGithubPublishDraftPrChainRuns();
+    const detail = await showGithubPublishDraftPrChainRun(
+      'github_publish_draft_pr_chain_run_1',
+    );
+    const serialized = JSON.stringify({ dryRuns, runs, detail });
+    const output = [
+      formatGithubPublishDraftPrChainDryRunsListOutput(dryRuns),
+      formatGithubPublishDraftPrChainRunsListOutput(runs),
+      formatGithubPublishDraftPrChainRunDetailOutput(detail),
+    ].join('\n');
+
+    expect(output).toContain('GitHub publish to draft PR chain runs');
+    expect(output).toContain('github_publish_draft_pr_chain_run_1');
+    expect(output).toContain('networkBoundaryInvoked=true');
+    expect(output).toContain('lifecycleStatus=checks_passed');
+    expect(fetchCalls).toHaveLength(3);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('local-control');
+
+    const rehearsal = runGithubPublishDraftPrAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'checks-failed',
+    });
+    const rehearsalOutput = formatGithubPublishDraftPrAcceptanceRehearsalOutput(rehearsal);
+
+    expect(rehearsal.status).toBe('failed');
+    expect(rehearsal.lifecycleStatus).toBe('checks_failed');
+    expect(rehearsal.networkBoundaryInvoked).toBe(false);
+    expect(rehearsalOutput).toContain('GitHub publish to draft PR acceptance rehearsal');
+    expect(rehearsalOutput).toContain('pushAllowed=false');
+    expect(rehearsalOutput).toContain('updateRefAllowed=false');
+    expect(() => runGithubPublishDraftPrAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(fetchCalls).toHaveLength(3);
   });
 
   it('projects unified governance runs, evidence bundles, and audit chains read-only', async () => {

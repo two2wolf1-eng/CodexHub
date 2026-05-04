@@ -175,6 +175,14 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'github.draft_pr_plan',
     'github.draft_pr_summary',
     'github.draft_pr_rehearsal',
+    'github.branch_publish_plan',
+    'github.branch_publish_content_manifest',
+    'github.branch_publish_summary',
+    'github.branch_publish_rehearsal',
+    'github.publish_draft_pr_chain_plan',
+    'github.publish_draft_pr_chain_summary',
+    'github.pr_lifecycle_summary',
+    'github.publish_draft_pr_rehearsal',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -3620,6 +3628,478 @@ export const GithubDraftPrAcceptanceRehearsalRunSchema = createdEntityBaseSchema
   });
 export type GithubDraftPrAcceptanceRehearsalRun = z.infer<
   typeof GithubDraftPrAcceptanceRehearsalRunSchema
+>;
+
+export const GithubBranchPublishRunnerModeSchema = z.enum([
+  'planning-only',
+  'controlled-github-branch-publish',
+]);
+export type GithubBranchPublishRunnerMode = z.infer<typeof GithubBranchPublishRunnerModeSchema>;
+
+export const GithubBranchPublishSourceKindSchema = z.enum([
+  'local_rc_readiness',
+  'review_package',
+  'patch_lifecycle',
+]);
+export type GithubBranchPublishSourceKind = z.infer<typeof GithubBranchPublishSourceKindSchema>;
+
+export const GithubBranchPublishReadinessStatusSchema = z.enum([
+  'not_ready',
+  'ready_for_branch_publish',
+  'blocked_source',
+  'blocked_content_manifest',
+  'blocked_existing_branch',
+  'blocked_branch_policy',
+  'blocked_policy',
+]);
+export type GithubBranchPublishReadinessStatus = z.infer<
+  typeof GithubBranchPublishReadinessStatusSchema
+>;
+
+export const GithubCommitContentManifestSchema = createdEntityBaseSchema
+  .extend({
+    sourceKind: GithubBranchPublishSourceKindSchema,
+    sourceIdHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    fileCount: z.number().int().nonnegative().max(100),
+    totalByteCount: z.number().int().nonnegative().max(5 * 1024 * 1024),
+    filePathHashes: z.array(z.string().min(1)).default([]),
+    fileContentHashes: z.array(z.string().min(1)).default([]),
+    maxFileByteCount: z.number().int().nonnegative().max(512 * 1024),
+    textOnly: z.literal(true),
+    deletionsAllowed: z.literal(false),
+    renamesAllowed: z.literal(false),
+    binaryAllowed: z.literal(false),
+    symlinkAllowed: z.literal(false),
+    rawFileContentStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.fileCount !== record.filePathHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'fileCount must match filePathHashes length',
+        path: ['fileCount'],
+      });
+    }
+
+    if (record.fileCount !== record.fileContentHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'fileCount must match fileContentHashes length',
+        path: ['fileContentHashes'],
+      });
+    }
+  });
+export type GithubCommitContentManifest = z.infer<typeof GithubCommitContentManifestSchema>;
+
+export const GithubBranchPublishReadinessSchema = createdEntityBaseSchema
+  .extend({
+    sourceKind: GithubBranchPublishSourceKindSchema,
+    sourceIdHash: z.string().min(1),
+    sourceSummaryHash: z.string().min(1),
+    targetRef: GithubRemoteRefSummarySchema,
+    contentManifest: GithubCommitContentManifestSchema,
+    status: GithubBranchPublishReadinessStatusSchema,
+    blockerCount: z.number().int().nonnegative(),
+    newBranchRequired: z.literal(true),
+    branchPrefix: z.literal('codexhub/'),
+    existingBranchUpdateAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    labelsAllowed: z.literal(false),
+    reviewersAllowed: z.literal(false),
+    commentsAllowed: z.literal(false),
+    rawFileContentStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'ready_for_branch_publish' && record.blockerCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready GitHub branch publish readiness cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type GithubBranchPublishReadiness = z.infer<typeof GithubBranchPublishReadinessSchema>;
+
+export const GithubBranchPublishPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    runnerMode: GithubBranchPublishRunnerModeSchema,
+    readiness: GithubBranchPublishReadinessSchema,
+    commitMessageHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    networkBoundaryPlanned: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    createRefAllowed: z.literal(true),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawFileContentStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'blocked' && record.networkBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked GitHub branch publish plans cannot plan a network boundary',
+        path: ['networkBoundaryPlanned'],
+      });
+    }
+  });
+export type GithubBranchPublishPlan = z.infer<typeof GithubBranchPublishPlanSchema>;
+
+export const GithubBranchPublishApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedByHash: z.string().min(1).optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match approved GitHub branch publish approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type GithubBranchPublishApprovalArtifactRecord = z.infer<
+  typeof GithubBranchPublishApprovalArtifactRecordSchema
+>;
+
+export const GithubRemoteCommitSummarySchema = createdEntityBaseSchema
+  .extend({
+    targetRef: GithubRemoteRefSummarySchema,
+    commitShaHash: z.string().min(1).optional(),
+    treeShaHash: z.string().min(1).optional(),
+    branchNameHash: z.string().min(1),
+    contentManifestHash: z.string().min(1),
+    fileCount: z.number().int().nonnegative(),
+    created: z.boolean(),
+    createRefAllowed: z.literal(true),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawFileContentStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubRemoteCommitSummary = z.infer<typeof GithubRemoteCommitSummarySchema>;
+
+export const GithubBranchPublishRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: GithubControlPlaneRunStatusSchema,
+    plan: GithubBranchPublishPlanSchema,
+    commitSummary: GithubRemoteCommitSummarySchema,
+    responseBodyHashes: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean(),
+    createRefAllowed: z.literal(true),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawFileContentStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'completed' && !record.networkBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed GitHub branch publish runs must invoke network boundary',
+        path: ['networkBoundaryInvoked'],
+      });
+    }
+
+    if (record.status === 'completed' && record.noRealWrite) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed GitHub branch publish run is a real remote write',
+        path: ['noRealWrite'],
+      });
+    }
+  });
+export type GithubBranchPublishRun = z.infer<typeof GithubBranchPublishRunSchema>;
+
+export const GithubBranchPublishAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'token-missing',
+  'provider-disabled',
+  'approval-blocked',
+  'branch-exists',
+  'content-manifest-blocked',
+  'blob-create-failed',
+  'tree-create-failed',
+  'commit-create-failed',
+  'ref-create-failed',
+  'network-timeout',
+]);
+export type GithubBranchPublishAcceptanceScenario = z.infer<
+  typeof GithubBranchPublishAcceptanceScenarioSchema
+>;
+
+export const GithubBranchPublishAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: GithubBranchPublishAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: GithubBranchPublishReadinessStatusSchema,
+    branchPublishStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    stepCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    createRefAllowed: z.literal(true),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawFileContentStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'passed' && record.scenario !== 'all-pass') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass GitHub branch publish rehearsals can pass',
+        path: ['status'],
+      });
+    }
+  });
+export type GithubBranchPublishAcceptanceRehearsalRun = z.infer<
+  typeof GithubBranchPublishAcceptanceRehearsalRunSchema
+>;
+
+export const GithubPublishDraftPrChainStepSchema = createdEntityBaseSchema
+  .extend({
+    phase: z.enum(['branch-publish', 'draft-pr-create', 'pr-lifecycle-observe']),
+    status: z.enum(['pending', 'completed', 'failed', 'blocked', 'skipped', 'aborted']),
+    order: z.number().int().nonnegative(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubPublishDraftPrChainStep = z.infer<typeof GithubPublishDraftPrChainStepSchema>;
+
+export const GithubPublishDraftPrChainPlanSchema = createdEntityBaseSchema
+  .extend({
+    chainId: z.string().min(1),
+    sourceKind: GithubBranchPublishSourceKindSchema,
+    sourceIdHash: z.string().min(1),
+    branchPublishDryRunId: z.string().min(1),
+    draftPrDryRunId: z.string().min(1),
+    separateApprovalsRequired: z.literal(true),
+    branchPublishApprovalRequired: z.literal(true),
+    draftPrApprovalRequired: z.literal(true),
+    networkBoundaryPlanned: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubPublishDraftPrChainPlan = z.infer<
+  typeof GithubPublishDraftPrChainPlanSchema
+>;
+
+export const GithubRemotePrLifecycleSummarySchema = createdEntityBaseSchema
+  .extend({
+    targetRef: GithubRemoteRefSummarySchema,
+    prNumberHash: z.string().min(1).optional(),
+    prUrlHash: z.string().min(1).optional(),
+    stateHash: z.string().min(1).optional(),
+    checkRunCount: z.number().int().nonnegative(),
+    statusContextCount: z.number().int().nonnegative(),
+    failedCheckCount: z.number().int().nonnegative(),
+    pendingCheckCount: z.number().int().nonnegative(),
+    passedCheckCount: z.number().int().nonnegative(),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubRemotePrLifecycleSummary = z.infer<
+  typeof GithubRemotePrLifecycleSummarySchema
+>;
+
+export const GithubPublishDraftPrChainRunSchema = createdEntityBaseSchema
+  .extend({
+    chainId: z.string().min(1),
+    status: GithubControlPlaneRunStatusSchema,
+    plan: GithubPublishDraftPrChainPlanSchema,
+    steps: z.array(GithubPublishDraftPrChainStepSchema),
+    stepCount: z.number().int().nonnegative(),
+    branchPublishRunId: z.string().min(1).optional(),
+    draftPrRunId: z.string().min(1).optional(),
+    lifecycleSummary: GithubRemotePrLifecycleSummarySchema.optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.stepCount !== record.steps.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'stepCount must match publish draft PR chain steps length',
+        path: ['stepCount'],
+      });
+    }
+  });
+export type GithubPublishDraftPrChainRun = z.infer<typeof GithubPublishDraftPrChainRunSchema>;
+
+export const GithubPublishDraftPrAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'publish-blocked',
+  'branch-published-pr-blocked',
+  'draft-pr-created-checks-pending',
+  'checks-failed',
+  'checks-passed',
+  'stale-branch',
+  'network-timeout',
+]);
+export type GithubPublishDraftPrAcceptanceScenario = z.infer<
+  typeof GithubPublishDraftPrAcceptanceScenarioSchema
+>;
+
+export const GithubPublishDraftPrAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: GithubPublishDraftPrAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    branchPublishStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    draftPrStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    lifecycleStatus: z.enum(['checks_pending', 'checks_failed', 'checks_passed', 'blocked']),
+    stepCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (
+      record.status === 'passed' &&
+      record.scenario !== 'all-pass' &&
+      record.scenario !== 'checks-passed'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass or checks-passed publish draft PR rehearsals can pass',
+        path: ['status'],
+      });
+    }
+  });
+export type GithubPublishDraftPrAcceptanceRehearsalRun = z.infer<
+  typeof GithubPublishDraftPrAcceptanceRehearsalRunSchema
 >;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);

@@ -84,6 +84,11 @@ const githubHttpBoundaryTerms = [
   'application/vnd.github+json',
   'x-github-api-version',
   '/pulls?state=open',
+  '/git/ref/heads/',
+  '/git/blobs',
+  '/git/trees',
+  '/git/commits',
+  '/git/refs',
 ];
 const githubForbiddenRemoteMutationTerms = [
   '/git/refs',
@@ -91,6 +96,8 @@ const githubForbiddenRemoteMutationTerms = [
   '/labels',
   '/comments',
   '/requested_reviewers',
+  'force=true',
+  'force: true',
   'draft=false',
   'draft: false',
 ];
@@ -470,6 +477,22 @@ function auditTextTerms(file: string, sourceText: string): void {
           term,
           reason:
             'GitHub HTTP metadata endpoint/header text is allowed only in the audited GitHub provider boundary module, docs, or tests.',
+        });
+      }
+    }
+
+    for (const term of githubForbiddenRemoteMutationTerms) {
+      if (
+        lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedGithubHttpBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'GitHub remote mutation endpoint text is allowed only in the audited GitHub provider boundary module, docs, or tests.',
         });
       }
     }

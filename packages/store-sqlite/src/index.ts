@@ -14,12 +14,17 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  GithubBranchPublishApprovalArtifactRecord,
+  GithubBranchPublishPlan,
+  GithubBranchPublishRun,
   GithubDraftPrApprovalArtifactRecord,
   GithubDraftPrPlan,
   GithubDraftPrRun,
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
+  GithubPublishDraftPrChainPlan,
+  GithubPublishDraftPrChainRun,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -91,6 +96,10 @@ import type {
   ElectronCdpObservationDryRunRepository,
   ElectronCdpObservationQuery,
   ElectronCdpObservationRunRepository,
+  GithubBranchPublishApprovalRepository,
+  GithubBranchPublishControlPlaneQuery,
+  GithubBranchPublishDryRunRepository,
+  GithubBranchPublishRunRepository,
   GithubDraftPrApprovalRepository,
   GithubDraftPrControlPlaneQuery,
   GithubDraftPrDryRunRepository,
@@ -99,6 +108,9 @@ import type {
   GithubMetadataControlPlaneQuery,
   GithubMetadataDryRunRepository,
   GithubMetadataRunRepository,
+  GithubPublishDraftPrChainControlPlaneQuery,
+  GithubPublishDraftPrChainDryRunRepository,
+  GithubPublishDraftPrChainRunRepository,
   WorktreeApprovalRepository,
   WorktreeCleanupApprovalRepository,
   WorktreeCleanupDryRunRepository,
@@ -196,6 +208,11 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubDraftPrDryRuns: GithubDraftPrDryRunRepository;
   readonly githubDraftPrApprovals: GithubDraftPrApprovalRepository;
   readonly githubDraftPrRuns: GithubDraftPrRunRepository;
+  readonly githubBranchPublishDryRuns: GithubBranchPublishDryRunRepository;
+  readonly githubBranchPublishApprovals: GithubBranchPublishApprovalRepository;
+  readonly githubBranchPublishRuns: GithubBranchPublishRunRepository;
+  readonly githubPublishDraftPrChainDryRuns: GithubPublishDraftPrChainDryRunRepository;
+  readonly githubPublishDraftPrChainRuns: GithubPublishDraftPrChainRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -253,6 +270,13 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.githubDraftPrDryRuns = new SqliteGithubDraftPrDryRunRepository(database);
     this.githubDraftPrApprovals = new SqliteGithubDraftPrApprovalRepository(database);
     this.githubDraftPrRuns = new SqliteGithubDraftPrRunRepository(database);
+    this.githubBranchPublishDryRuns = new SqliteGithubBranchPublishDryRunRepository(database);
+    this.githubBranchPublishApprovals = new SqliteGithubBranchPublishApprovalRepository(database);
+    this.githubBranchPublishRuns = new SqliteGithubBranchPublishRunRepository(database);
+    this.githubPublishDraftPrChainDryRuns =
+      new SqliteGithubPublishDraftPrChainDryRunRepository(database);
+    this.githubPublishDraftPrChainRuns =
+      new SqliteGithubPublishDraftPrChainRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -1373,6 +1397,181 @@ class SqliteGithubDraftPrRunRepository implements GithubDraftPrRunRepository {
   }
 }
 
+class SqliteGithubBranchPublishDryRunRepository implements GithubBranchPublishDryRunRepository {
+  private readonly repository: JsonEntityRepository<GithubBranchPublishPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubBranchPublishPlan>(
+      database,
+      'github_branch_publish_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubBranchPublishPlan): Promise<GithubBranchPublishPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubBranchPublishPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubBranchPublishControlPlaneQuery = {},
+  ): Promise<GithubBranchPublishPlan[]> {
+    return listObservationControlPlaneRecords<GithubBranchPublishPlan>(
+      this.database,
+      'github_branch_publish_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubBranchPublishApprovalRepository
+  implements GithubBranchPublishApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubBranchPublishApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubBranchPublishApprovalArtifactRecord>(
+      database,
+      'github_branch_publish_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubBranchPublishApprovalArtifactRecord,
+  ): Promise<GithubBranchPublishApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<GithubBranchPublishApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubBranchPublishApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM github_branch_publish_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubBranchPublishApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubBranchPublishControlPlaneQuery = {},
+  ): Promise<GithubBranchPublishApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<GithubBranchPublishApprovalArtifactRecord>(
+      this.database,
+      'github_branch_publish_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubBranchPublishRunRepository implements GithubBranchPublishRunRepository {
+  private readonly repository: JsonEntityRepository<GithubBranchPublishRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubBranchPublishRun>(
+      database,
+      'github_branch_publish_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubBranchPublishRun): Promise<GithubBranchPublishRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubBranchPublishRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubBranchPublishControlPlaneQuery = {},
+  ): Promise<GithubBranchPublishRun[]> {
+    return listObservationControlPlaneRecords<GithubBranchPublishRun>(
+      this.database,
+      'github_branch_publish_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubPublishDraftPrChainDryRunRepository
+  implements GithubPublishDraftPrChainDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<GithubPublishDraftPrChainPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubPublishDraftPrChainPlan>(
+      database,
+      'github_publish_draft_pr_chain_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(
+    record: GithubPublishDraftPrChainPlan,
+  ): Promise<GithubPublishDraftPrChainPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubPublishDraftPrChainPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubPublishDraftPrChainControlPlaneQuery = {},
+  ): Promise<GithubPublishDraftPrChainPlan[]> {
+    const records = await this.repository.list();
+    return records.slice(0, normalizeLimit(query.limit));
+  }
+}
+
+class SqliteGithubPublishDraftPrChainRunRepository
+  implements GithubPublishDraftPrChainRunRepository
+{
+  private readonly repository: JsonEntityRepository<GithubPublishDraftPrChainRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubPublishDraftPrChainRun>(
+      database,
+      'github_publish_draft_pr_chain_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: GithubPublishDraftPrChainRun,
+  ): Promise<GithubPublishDraftPrChainRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubPublishDraftPrChainRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubPublishDraftPrChainControlPlaneQuery = {},
+  ): Promise<GithubPublishDraftPrChainRun[]> {
+    return listObservationControlPlaneRecords<GithubPublishDraftPrChainRun>(
+      this.database,
+      'github_publish_draft_pr_chain_runs',
+      query,
+    );
+  }
+}
+
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
 
@@ -2404,6 +2603,36 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_draft_pr_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_branch_publish_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_branch_publish_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_branch_publish_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_publish_draft_pr_chain_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_publish_draft_pr_chain_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL
