@@ -178,6 +178,8 @@ import {
   ControlledPatchRejectionReasonSchema,
   ControlledPatchRunSchema,
   DiffReviewSummarySchema,
+  GovernedCodexPatchPlanSchema,
+  GovernedCodexPatchRunSchema,
   PatchRunSchema,
   PatchSummarySchema,
   PolicyBackendEvaluationPlanSchema,
@@ -1748,6 +1750,116 @@ describe('contracts schemas', () => {
         createdAt,
         kind: 'patch.raw_diff_body',
         hash: 'sha256:bad',
+      }),
+    ).toThrow();
+  });
+
+  it('parses M12 governed Codex patch contracts for isolated worktree handoff', () => {
+    const planEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_codex_patch_plan',
+      schemaVersion,
+      createdAt,
+      kind: 'codex.patch_plan',
+      hash: 'sha256:codex-patch-plan',
+    });
+    const runEvidence = EvidenceRefSchema.parse({
+      id: 'evidence_codex_patch_run',
+      schemaVersion,
+      createdAt,
+      kind: 'codex.patch_run_summary',
+      hash: 'sha256:codex-patch-run',
+    });
+    const plan = GovernedCodexPatchPlanSchema.parse({
+      id: 'codex_patch_plan_1',
+      schemaVersion,
+      createdAt,
+      mode: 'governed-worktree',
+      dryRunIdHash: 'sha256:dry-run',
+      policyDecisionIdHash: 'sha256:policy',
+      approvalArtifactIdHash: 'sha256:approval',
+      worktreeRunIdHash: 'sha256:worktree-run',
+      worktreePathHash: 'sha256:worktree-path',
+      governedInputHash: 'sha256:governed-input',
+      expectedInputHash: 'sha256:expected-input',
+      sandboxMode: 'workspace-write-limited',
+      writeScope: 'isolated-worktree-only',
+      approvalRequired: true,
+      persistedApprovalRequired: true,
+      hashBoundWorktreeRequired: true,
+      repoRootWriteAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      rawPromptStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      processBoundaryPlanned: true,
+      externalProcessStarted: false,
+      evidenceRefs: [planEvidence],
+      summary: 'Codex patch is governed and limited to the approved isolated worktree.',
+    });
+    const run = GovernedCodexPatchRunSchema.parse({
+      id: 'codex_patch_run_1',
+      schemaVersion,
+      createdAt,
+      planId: plan.id,
+      mode: 'governed-worktree',
+      status: 'completed',
+      changedFiles: ['packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'],
+      changedFileCount: 1,
+      diffHash: 'sha256:diff',
+      diffLineCount: 42,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      codexPatchExecuted: true,
+      realWriteExecuted: true,
+      writeScope: 'isolated-worktree-only',
+      repoRootWriteAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+      rawStdoutStored: false,
+      rawStderrStored: false,
+      rawDiffStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [runEvidence],
+      auditEventIds: ['audit_codex_patch_run'],
+      summary: 'Codex patch completed inside the isolated worktree only.',
+    });
+    const serialized = JSON.stringify({ plan, run });
+
+    expect(run.codexPatchExecuted).toBe(true);
+    expect(run.realWriteExecuted).toBe(true);
+    expect(run.repoRootWriteAllowed).toBe(false);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('Full PR markdown body');
+    expect(serialized).not.toContain('C:/');
+    expect(serialized).not.toContain('secret-token');
+    expect(() =>
+      GovernedCodexPatchPlanSchema.parse({
+        ...plan,
+        id: 'codex_patch_plan_bad_boundary',
+        processBoundaryPlanned: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      GovernedCodexPatchRunSchema.parse({
+        ...run,
+        id: 'codex_patch_run_bad_count',
+        changedFileCount: 2,
+      }),
+    ).toThrow();
+    expect(() =>
+      GovernedCodexPatchRunSchema.parse({
+        ...run,
+        id: 'codex_patch_run_missing_boundary',
+        processBoundaryInvoked: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      GovernedCodexPatchRunSchema.parse({
+        ...run,
+        id: 'codex_patch_run_raw_metadata',
+        metadata: { nested: { rawDiff: 'diff --git a/private b/private' } },
       }),
     ).toThrow();
   });

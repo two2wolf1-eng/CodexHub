@@ -14,6 +14,7 @@ import {
   runGovernedDevelopmentOrchestration,
   runM11PilotAcceptanceSmoke,
   runM12ControlledPatchLifecycleFixture,
+  runM12GovernedCodexPatchInWorktree,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
@@ -1091,12 +1092,71 @@ describe('orchestrator-kernel M12 controlled patch lifecycle foundation', () => 
     }
   });
 
-  it('does not add a process boundary to the M12a fixture runner', () => {
-    const repoRootForSourceScan = resolve(process.cwd(), '../..');
-    const source = readFileSync(
-      resolve(repoRootForSourceScan, 'packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'),
-      'utf8',
+  it('records M12b governed Codex patch as generated and pending verification', () => {
+    const result = runM12GovernedCodexPatchInWorktree({
+      status: 'completed',
+      changedFiles: ['packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'],
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.codexPatch.run.status).toBe('completed');
+    expect(result.codexPatch.run.codexPatchExecuted).toBe(true);
+    expect(result.codexPatch.run.realWriteExecuted).toBe(true);
+    expect(result.codexPatch.run.repoRootWriteAllowed).toBe(false);
+    expect(result.lifecycle.status).toBe('generated');
+    expect(result.lifecycle.patchRun.codexPatchExecuted).toBe(true);
+    expect(result.lifecycle.patchRun.noRealWrite).toBe(false);
+    expect(result.lifecycle.readiness.status).toBe('not_ready_pending_verification');
+    expect(result.lifecycle.readiness.verificationStatus).toBe('not_run');
+    expect(result.lifecycle.readiness.readyForReviewDraftOnly).toBe(false);
+    expect(result.lifecycle.pushAllowed).toBe(false);
+    expect(result.lifecycle.pullRequestOpened).toBe(false);
+    expect(result.lifecycle.evidenceRefs.map((evidenceRef) => evidenceRef.kind)).toEqual(
+      expect.arrayContaining([
+        'codex.patch_plan',
+        'codex.patch_run_summary',
+        'patch.lifecycle_plan',
+        'patch.lifecycle_run_summary',
+        'patch.diff_review_summary',
+        'patch.readiness_summary',
+      ]),
     );
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('Full PR markdown body');
+    expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('secret-token');
+  });
+
+  it('keeps failed or blocked M12b Codex patch attempts out of PR-ready state', () => {
+    const failed = runM12GovernedCodexPatchInWorktree({ status: 'failed' });
+    const blocked = runM12GovernedCodexPatchInWorktree({ status: 'blocked' });
+
+    expect(failed.lifecycle.status).toBe('rejected');
+    expect(failed.lifecycle.codexPatchExecuted).toBe(false);
+    expect(failed.lifecycle.readiness.status).toBe('not_ready_no_patch');
+    expect(blocked.lifecycle.status).toBe('blocked');
+    expect(blocked.lifecycle.processBoundaryInvoked).toBe(false);
+    expect(blocked.lifecycle.readiness.status).toBe('blocked_policy');
+
+    for (const result of [failed, blocked]) {
+      expect(result.lifecycle.readiness.readyForReviewDraftOnly).toBe(false);
+      expect(result.lifecycle.pushAllowed).toBe(false);
+      expect(result.lifecycle.pullRequestOpened).toBe(false);
+    }
+  });
+
+  it('does not add a process launcher to M12 patch lifecycle helpers', () => {
+    const repoRootForSourceScan = resolve(process.cwd(), '../..');
+    const source = [
+      readFileSync(
+        resolve(repoRootForSourceScan, 'packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'),
+        'utf8',
+      ),
+      readFileSync(
+        resolve(repoRootForSourceScan, 'packages/codex-exec-adapter/src/patch-mode.ts'),
+        'utf8',
+      ),
+    ].join('\n');
 
     expect(source).not.toContain('child_process');
     expect(source).not.toContain('spawn(');

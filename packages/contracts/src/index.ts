@@ -118,6 +118,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.read_only_adapter.final_readiness',
     'codex.exec.real_read_only_adapter.readiness_package',
     'codex.exec.real_read_only_adapter.readiness_review',
+    'codex.patch_plan',
+    'codex.patch_run_summary',
     'verification.dry_run_plan',
     'verification.command_summary',
     'verification.run_summary',
@@ -1781,6 +1783,7 @@ export type ControlledPatchLifecycleStatus = z.infer<
 
 export const ControlledPatchReadinessStatusSchema = z.enum([
   'not_ready_no_patch',
+  'not_ready_pending_verification',
   'ready_for_review_draft_only',
   'blocked_verification_failed',
   'blocked_policy',
@@ -1806,6 +1809,7 @@ export const ControlledPatchRejectionReasonSchema = z.enum([
   'verification_failed',
   'codex_failed',
   'empty_patch',
+  'pending_verification',
   'unsafe_target',
   'raw_body_forbidden',
 ]);
@@ -1821,8 +1825,8 @@ export const ControlledPatchPlanSchema = createdEntityBaseSchema
     plannedChangedFileCount: z.number().int().nonnegative(),
     plannedChangedFilePathHashes: z.array(z.string().min(1)).default([]),
     patchBodyHash: z.string().min(1).optional(),
-    codexPatchAllowed: z.literal(false),
-    fixtureOnly: z.literal(true),
+    codexPatchAllowed: z.boolean(),
+    fixtureOnly: z.boolean(),
     noRealWrite: z.literal(true),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
@@ -1858,13 +1862,13 @@ export const ControlledPatchRunSchema = createdEntityBaseSchema
     rejectionReasons: z.array(ControlledPatchRejectionReasonSchema).default([]),
     evidenceRefs: z.array(EvidenceRefSchema).default([]),
     auditEventIds: z.array(z.string().min(1)).default([]),
-    fixtureOnly: z.literal(true),
-    codexPatchExecuted: z.literal(false),
-    noRealWrite: z.literal(true),
+    fixtureOnly: z.boolean(),
+    codexPatchExecuted: z.boolean(),
+    noRealWrite: z.boolean(),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
-    processBoundaryInvoked: z.literal(false),
-    externalProcessStarted: z.literal(false),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
     summary: z.string().min(1),
   })
   .strict()
@@ -1876,6 +1880,22 @@ export const ControlledPatchRunSchema = createdEntityBaseSchema
         code: z.ZodIssueCode.custom,
         message: 'changedFileCount must match changedFiles length',
         path: ['changedFileCount'],
+      });
+    }
+
+    if (record.codexPatchExecuted && !record.processBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'codexPatchExecuted requires processBoundaryInvoked',
+        path: ['codexPatchExecuted'],
+      });
+    }
+
+    if (record.status === 'verified' && record.codexPatchExecuted && record.noRealWrite) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'executed Codex patch in isolated worktree is a real write',
+        path: ['noRealWrite'],
       });
     }
   });
@@ -1949,6 +1969,17 @@ export const ControlledPatchReadinessSchema = createdEntityBaseSchema
         path: ['changedFileCount'],
       });
     }
+
+    if (
+      record.status === 'not_ready_pending_verification' &&
+      (record.changedFileCount === 0 || record.verificationStatus !== 'not_run')
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'not_ready_pending_verification requires changed files and no verification run',
+        path: ['status'],
+      });
+    }
   });
 export type ControlledPatchReadiness = z.infer<typeof ControlledPatchReadinessSchema>;
 
@@ -1963,13 +1994,13 @@ export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema
     auditEventIds: z.array(z.string().min(1)).default([]),
     evidenceRefIds: z.array(z.string().min(1)).default([]),
     auditEventCount: z.number().int().nonnegative(),
-    fixtureOnly: z.literal(true),
-    codexPatchExecuted: z.literal(false),
-    noRealWrite: z.literal(true),
+    fixtureOnly: z.boolean(),
+    codexPatchExecuted: z.boolean(),
+    noRealWrite: z.boolean(),
     rawPathStored: z.literal(false),
     bodyStored: z.literal(false),
-    processBoundaryInvoked: z.literal(false),
-    externalProcessStarted: z.literal(false),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
     pushAllowed: z.literal(false),
     pullRequestOpened: z.literal(false),
     summary: z.string().min(1),
@@ -2002,6 +2033,22 @@ export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema
       });
     }
 
+    if (record.codexPatchExecuted && !record.patchRun.codexPatchExecuted) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'lifecycle codexPatchExecuted must match patchRun execution',
+        path: ['codexPatchExecuted'],
+      });
+    }
+
+    if (record.codexPatchExecuted && !record.processBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'executed lifecycle must preserve process boundary truth',
+        path: ['processBoundaryInvoked'],
+      });
+    }
+
     if (record.evidenceRefIds.length !== record.evidenceRefs.length) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -2030,6 +2077,138 @@ export const ControlledPatchLifecycleRunSchema = createdEntityBaseSchema
 export type ControlledPatchLifecycleRun = z.infer<
   typeof ControlledPatchLifecycleRunSchema
 >;
+
+export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);
+export type GovernedCodexPatchMode = z.infer<typeof GovernedCodexPatchModeSchema>;
+
+export const GovernedCodexPatchRunStatusSchema = z.enum([
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type GovernedCodexPatchRunStatus = z.infer<typeof GovernedCodexPatchRunStatusSchema>;
+
+export const GovernedCodexPatchPlanSchema = createdEntityBaseSchema
+  .extend({
+    mode: GovernedCodexPatchModeSchema,
+    dryRunIdHash: z.string().min(1),
+    policyDecisionIdHash: z.string().min(1),
+    approvalArtifactIdHash: z.string().min(1),
+    worktreeRunIdHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    governedInputHash: z.string().min(1),
+    expectedInputHash: z.string().min(1),
+    sandboxMode: z.literal('workspace-write-limited'),
+    writeScope: z.literal('isolated-worktree-only'),
+    approvalRequired: z.literal(true),
+    persistedApprovalRequired: z.literal(true),
+    hashBoundWorktreeRequired: z.literal(true),
+    repoRootWriteAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    rawPromptStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    processBoundaryPlanned: z.boolean(),
+    externalProcessStarted: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.mode === 'governed-worktree' && !record.processBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'governed-worktree patch plans must declare a planned Codex boundary',
+        path: ['processBoundaryPlanned'],
+      });
+    }
+  });
+export type GovernedCodexPatchPlan = z.infer<typeof GovernedCodexPatchPlanSchema>;
+
+export const GovernedCodexPatchRunSchema = createdEntityBaseSchema
+  .extend({
+    planId: z.string().min(1),
+    mode: GovernedCodexPatchModeSchema,
+    status: GovernedCodexPatchRunStatusSchema,
+    changedFiles: z.array(RepoRelativePathSchema).default([]),
+    changedFileCount: z.number().int().nonnegative(),
+    diffHash: z.string().min(1).optional(),
+    diffLineCount: z.number().int().nonnegative().default(0),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    codexPatchExecuted: z.boolean(),
+    realWriteExecuted: z.boolean(),
+    writeScope: z.literal('isolated-worktree-only'),
+    repoRootWriteAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    pullRequestOpened: z.literal(false),
+    rawStdoutStored: z.literal(false),
+    rawStderrStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectM12PatchRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.changedFileCount !== record.changedFiles.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'changedFileCount must match changedFiles length',
+        path: ['changedFileCount'],
+      });
+    }
+
+    if (record.status === 'completed' && record.changedFileCount === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed governed Codex patch run requires changed-file metadata',
+        path: ['changedFileCount'],
+      });
+    }
+
+    if (record.status === 'completed' && !record.diffHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed governed Codex patch run requires a diff hash',
+        path: ['diffHash'],
+      });
+    }
+
+    if (record.codexPatchExecuted && !record.processBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'codexPatchExecuted requires processBoundaryInvoked',
+        path: ['codexPatchExecuted'],
+      });
+    }
+
+    if (record.codexPatchExecuted && !record.realWriteExecuted) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'executed Codex patch must record an isolated worktree write',
+        path: ['realWriteExecuted'],
+      });
+    }
+
+    if (record.realWriteExecuted && record.status !== 'completed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'realWriteExecuted is only valid for completed patch runs',
+        path: ['realWriteExecuted'],
+      });
+    }
+  });
+export type GovernedCodexPatchRun = z.infer<typeof GovernedCodexPatchRunSchema>;
 
 export const PolicyBackendKindSchema = z.enum(['opa', 'cedar', 'fixture']);
 export type PolicyBackendKind = z.infer<typeof PolicyBackendKindSchema>;

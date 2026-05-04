@@ -13,10 +13,16 @@ import {
   CapabilityExecutionResultSchema,
   CapabilityManifestSchema,
   ExecutionAuthoritySchema,
+  GovernedCodexPatchPlanSchema,
+  GovernedCodexPatchRunSchema,
 } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
 import { describe, expect, it } from 'vitest';
 import { createCodexExecAdapterManifest } from './manifest';
+import {
+  createGovernedCodexPatchAdapterResult,
+  createGovernedCodexPatchPlan,
+} from './patch-mode';
 import { createCodexExecAdapterPlan } from './plan';
 import { executeCodexExecAdapter } from './execute';
 import { parseCodexExecAdapterJsonl } from './jsonl-parser';
@@ -228,6 +234,82 @@ describe('codex-exec-adapter JSONL normalization', () => {
     expect(failed.errorCount).toBeGreaterThan(0);
     expect(unknown.unknownCount).toBeGreaterThan(0);
     expect(unknown.eventPayloadHashes.every((hash) => hash.startsWith('sha256:'))).toBe(true);
+  });
+});
+
+describe('codex-exec-adapter governed patch mode', () => {
+  it('creates metadata-only isolated worktree patch plans and injected run summaries', () => {
+    const plan = createGovernedCodexPatchPlan({
+      dryRunIdHash: `sha256:${hashText('dry-run')}`,
+      policyDecisionIdHash: `sha256:${hashText('policy')}`,
+      approvalArtifactIdHash: `sha256:${hashText('approval')}`,
+      worktreeRunIdHash: `sha256:${hashText('worktree-run')}`,
+      worktreePathHash: `sha256:${hashText('worktree-path')}`,
+      governedInputHash: `sha256:${hashText('input')}`,
+      expectedInputHash: `sha256:${hashText('input')}`,
+      metadata: {
+        token: 'private-token',
+        path: 'C:\\private\\worktree',
+      },
+    });
+    const result = createGovernedCodexPatchAdapterResult({
+      plan,
+      status: 'completed',
+      changedFiles: ['packages/orchestrator-kernel/src/m12-patch-lifecycle.ts'],
+      actor: 'codexhub.test',
+      policyDecisionId: 'policy_m12b',
+      metadata: {
+        rawDiff: 'diff --git a/private b/private',
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(GovernedCodexPatchPlanSchema.parse(plan)).toBeTruthy();
+    expect(GovernedCodexPatchRunSchema.parse(result.run)).toBeTruthy();
+    expect(result.run.status).toBe('completed');
+    expect(result.run.writeScope).toBe('isolated-worktree-only');
+    expect(result.run.repoRootWriteAllowed).toBe(false);
+    expect(result.run.pushAllowed).toBe(false);
+    expect(result.run.pullRequestOpened).toBe(false);
+    expect(result.run.codexPatchExecuted).toBe(true);
+    expect(result.run.realWriteExecuted).toBe(true);
+    expect(result.evidenceRefs.map((evidenceRef) => evidenceRef.kind)).toEqual([
+      'codex.patch_plan',
+      'codex.patch_run_summary',
+    ]);
+    expect(CapabilityAuditEventSchema.parse(result.auditEvents[0])).toBeTruthy();
+    expect(serialized).not.toContain('private-token');
+    expect(serialized).not.toContain('C:\\private\\worktree');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('Full PR markdown body');
+  });
+
+  it('keeps blocked governed patch attempts before process boundaries', () => {
+    const plan = createGovernedCodexPatchPlan({
+      mode: 'fixture',
+      dryRunIdHash: `sha256:${hashText('dry-run-blocked')}`,
+      policyDecisionIdHash: `sha256:${hashText('policy-blocked')}`,
+      approvalArtifactIdHash: `sha256:${hashText('approval-blocked')}`,
+      worktreeRunIdHash: `sha256:${hashText('worktree-run-blocked')}`,
+      worktreePathHash: `sha256:${hashText('worktree-path-blocked')}`,
+      governedInputHash: `sha256:${hashText('input-blocked')}`,
+      expectedInputHash: `sha256:${hashText('input-blocked')}`,
+    });
+    const result = createGovernedCodexPatchAdapterResult({
+      plan,
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      codexPatchExecuted: false,
+      realWriteExecuted: false,
+    });
+
+    expect(result.run.status).toBe('blocked');
+    expect(result.run.processBoundaryInvoked).toBe(false);
+    expect(result.run.externalProcessStarted).toBe(false);
+    expect(result.run.codexPatchExecuted).toBe(false);
+    expect(result.run.realWriteExecuted).toBe(false);
+    expect(result.run.changedFileCount).toBe(0);
   });
 });
 

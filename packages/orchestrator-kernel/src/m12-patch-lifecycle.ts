@@ -1,4 +1,9 @@
 import {
+  createGovernedCodexPatchAdapterResult,
+  createGovernedCodexPatchPlan,
+  type GovernedCodexPatchAdapterResult,
+} from '@codexhub/codex-exec-adapter';
+import {
   type ControlledPatchLifecycleRun,
   ControlledPatchLifecycleRunSchema,
   type ControlledPatchLifecycleStatus,
@@ -11,6 +16,7 @@ import {
   DiffReviewSummarySchema,
   type DiffReviewStatus,
   type EvidenceRef,
+  type GovernedCodexPatchRunStatus,
   SchemaVersionSchema,
   foundationTimestamp,
 } from '@codexhub/contracts';
@@ -31,6 +37,24 @@ export interface M12ControlledPatchLifecycleFixtureInput {
   worktreePathLabel?: string;
   changedFiles?: string[];
   now?: () => string;
+}
+
+export interface M12GovernedCodexPatchInWorktreeInput {
+  status?: GovernedCodexPatchRunStatus;
+  requestId?: string;
+  dryRunId?: string;
+  policyDecisionId?: string;
+  approvalArtifactId?: string;
+  worktreeRunId?: string;
+  worktreePathLabel?: string;
+  governedInputLabel?: string;
+  changedFiles?: string[];
+  now?: () => string;
+}
+
+export interface M12GovernedCodexPatchInWorktreeResult {
+  codexPatch: GovernedCodexPatchAdapterResult;
+  lifecycle: ControlledPatchLifecycleRun;
 }
 
 interface M12PatchLifecycleScenarioConfig {
@@ -209,6 +233,219 @@ export function runM12ControlledPatchLifecycleFixture(
   });
 }
 
+export function runM12GovernedCodexPatchInWorktree(
+  input: M12GovernedCodexPatchInWorktreeInput = {},
+): M12GovernedCodexPatchInWorktreeResult {
+  const status = input.status ?? 'completed';
+  const now = input.now ?? foundationTimestamp;
+  const stableSeed = [
+    'm12b',
+    status,
+    input.requestId ?? 'request:m12b',
+    input.worktreeRunId ?? 'worktree:m12b',
+    input.worktreePathLabel ?? 'worktree:path:m12b',
+  ].join(':');
+  const plan = createGovernedCodexPatchPlan({
+    dryRunIdHash: stableHash(input.dryRunId ?? 'dry-run:m12b'),
+    policyDecisionIdHash: stableHash(input.policyDecisionId ?? 'policy:m12b'),
+    approvalArtifactIdHash: stableHash(input.approvalArtifactId ?? 'approval:m12b'),
+    worktreeRunIdHash: stableHash(input.worktreeRunId ?? 'worktree:m12b'),
+    worktreePathHash: stableHash(input.worktreePathLabel ?? 'worktree:path:m12b'),
+    governedInputHash: stableHash(input.governedInputLabel ?? 'governed-input:m12b'),
+    expectedInputHash: stableHash(input.governedInputLabel ?? 'governed-input:m12b'),
+    metadata: {
+      stage: 'm12b',
+      source: 'orchestrator-kernel.m12-governed-codex-patch',
+    },
+  });
+  const codexPatch = createGovernedCodexPatchAdapterResult({
+    plan,
+    status,
+    changedFiles: input.changedFiles ?? defaultGovernedChangedFiles(status),
+    actor: 'orchestrator-kernel.m12b',
+    policyDecisionId: input.policyDecisionId ?? 'policy_m12b',
+    metadata: {
+      stage: 'm12b',
+      source: 'orchestrator-kernel.m12-governed-codex-patch',
+    },
+  });
+  const lifecycle = createLifecycleFromGovernedCodexPatch({
+    codexPatch,
+    stableSeed,
+    now,
+  });
+
+  return {
+    codexPatch,
+    lifecycle,
+  };
+}
+
+function createLifecycleFromGovernedCodexPatch(input: {
+  codexPatch: GovernedCodexPatchAdapterResult;
+  stableSeed: string;
+  now: () => string;
+}): ControlledPatchLifecycleRun {
+  const { codexPatch, stableSeed, now } = input;
+  const config = getGovernedPatchConfig(codexPatch.run);
+  const evidenceRefs = [
+    ...codexPatch.evidenceRefs,
+    ...createEvidenceRefs(`${stableSeed}:lifecycle`, now),
+  ];
+  const lifecycleAuditEventIds = [
+    stableId('audit_m12b_patch_plan', stableSeed),
+    stableId('audit_m12b_patch_run', stableSeed),
+    stableId('audit_m12b_diff_review', stableSeed),
+    stableId('audit_m12b_readiness', stableSeed),
+  ];
+  const auditEventIds = [
+    ...codexPatch.auditEvents.map((auditEvent) => auditEvent.id),
+    ...lifecycleAuditEventIds,
+  ];
+  const changedFileHashes = codexPatch.run.changedFiles.map((filePath) => stableHash(filePath));
+  const plan = ControlledPatchPlanSchema.parse({
+    id: stableId('m12b_patch_plan', stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    requestIdHash: stableHash(`${stableSeed}:request`),
+    worktreeRunIdHash: codexPatch.plan.worktreeRunIdHash,
+    worktreePathHash: codexPatch.plan.worktreePathHash,
+    plannedChangedFileCount: codexPatch.run.changedFileCount,
+    plannedChangedFilePathHashes: changedFileHashes,
+    patchBodyHash: codexPatch.run.diffHash,
+    codexPatchAllowed: true,
+    fixtureOnly: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      stage: 'm12b',
+      codexPatchPlanIdHash: stableHash(codexPatch.plan.id),
+      noPush: true,
+      noPullRequestOpened: true,
+    },
+    summary: 'M12b governed Codex patch plan is bound to the approved isolated worktree.',
+  });
+  const patchRun = ControlledPatchRunSchema.parse({
+    id: stableId('m12b_patch_run', stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    planId: plan.id,
+    status: config.lifecycleStatus,
+    attemptNumber: 1,
+    changedFiles: codexPatch.run.changedFiles,
+    changedFileCount: codexPatch.run.changedFileCount,
+    diffHash: codexPatch.run.diffHash,
+    diffLineCount: codexPatch.run.diffLineCount,
+    diffSummaryHash: codexPatch.run.diffHash
+      ? stableHash(`m12b:diff-review:${codexPatch.run.diffHash}`)
+      : undefined,
+    worktreePathHash: codexPatch.plan.worktreePathHash,
+    rejectionReasons: config.rejectionReasons,
+    evidenceRefs: codexPatch.evidenceRefs,
+    auditEventIds: codexPatch.auditEvents.map((auditEvent) => auditEvent.id),
+    fixtureOnly: false,
+    codexPatchExecuted: codexPatch.run.codexPatchExecuted,
+    noRealWrite: !codexPatch.run.realWriteExecuted,
+    rawPathStored: false,
+    bodyStored: false,
+    processBoundaryInvoked: codexPatch.run.processBoundaryInvoked,
+    externalProcessStarted: codexPatch.run.externalProcessStarted,
+    metadata: {
+      stage: 'm12b',
+      writeScope: codexPatch.run.writeScope,
+      repoRootWriteAllowed: false,
+      pushAllowed: false,
+      pullRequestOpened: false,
+    },
+    summary: `M12b patch run is ${config.lifecycleStatus}; PR readiness awaits verification.`,
+  });
+  const diffReview = DiffReviewSummarySchema.parse({
+    id: stableId('m12b_diff_review', stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    patchRunId: patchRun.id,
+    status: config.diffReviewStatus,
+    changedFileCount: codexPatch.run.changedFileCount,
+    diffHash: codexPatch.run.diffHash,
+    diffLineCount: codexPatch.run.diffLineCount,
+    findingCount: config.blockerCodes.length,
+    reviewerLabel: 'orchestrator-kernel.m12b-governed-codex-patch',
+    evidenceRefs: codexPatch.evidenceRefs,
+    auditEventIds: codexPatch.auditEvents.map((auditEvent) => auditEvent.id),
+    rawDiffStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      stage: 'm12b',
+      verificationPending: config.verificationStatus === 'not_run',
+    },
+    summary: `M12b diff review is ${config.diffReviewStatus}; raw diff is not stored.`,
+  });
+  const readiness = ControlledPatchReadinessSchema.parse({
+    id: stableId('m12b_patch_readiness', stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    patchRunId: patchRun.id,
+    status: config.readinessStatus,
+    verificationStatus: config.verificationStatus,
+    changedFileCount: codexPatch.run.changedFileCount,
+    blockerCount: config.blockerCodes.length,
+    blockers: config.blockerCodes,
+    readyForReviewDraftOnly: false,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    evidenceRefs: codexPatch.evidenceRefs,
+    auditEventIds: codexPatch.auditEvents.map((auditEvent) => auditEvent.id),
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      stage: 'm12b',
+      verificationPending: config.verificationStatus === 'not_run',
+    },
+    summary:
+      config.readinessStatus === 'not_ready_pending_verification'
+        ? 'Patch metadata exists, but Nx verification has not run yet.'
+        : `Patch readiness is ${config.readinessStatus}.`,
+  });
+
+  return ControlledPatchLifecycleRunSchema.parse({
+    id: stableId('m12b_patch_lifecycle_run', stableSeed),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    status: config.lifecycleStatus,
+    plan,
+    patchRun,
+    diffReview,
+    readiness,
+    evidenceRefs,
+    auditEventIds,
+    evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
+    auditEventCount: auditEventIds.length,
+    fixtureOnly: false,
+    codexPatchExecuted: codexPatch.run.codexPatchExecuted,
+    noRealWrite: !codexPatch.run.realWriteExecuted,
+    rawPathStored: false,
+    bodyStored: false,
+    processBoundaryInvoked: codexPatch.run.processBoundaryInvoked,
+    externalProcessStarted: codexPatch.run.externalProcessStarted,
+    pushAllowed: false,
+    pullRequestOpened: false,
+    metadata: {
+      stage: 'm12b',
+      writeScope: codexPatch.run.writeScope,
+      repoRootWriteAllowed: false,
+      noPush: true,
+      noPullRequestOpened: true,
+    },
+    summary: `M12b governed Codex patch lifecycle is ${config.lifecycleStatus}.`,
+  });
+}
+
 function getScenarioConfig(
   scenario: M12PatchLifecycleScenario,
   changedFilesOverride?: string[],
@@ -284,6 +521,66 @@ function getScenarioConfig(
         blockerCodes: ['empty_patch'],
       };
   }
+}
+
+function getGovernedPatchConfig(
+  run: GovernedCodexPatchAdapterResult['run'],
+): M12PatchLifecycleScenarioConfig {
+  if (run.status === 'completed') {
+    return {
+      lifecycleStatus: 'generated',
+      readinessStatus: 'not_ready_pending_verification',
+      verificationStatus: 'not_run',
+      diffReviewStatus: 'blocked',
+      rejectionReasons: ['pending_verification'],
+      changedFiles: run.changedFiles,
+      readyForReviewDraftOnly: false,
+      blockerCodes: ['verification_pending'],
+    };
+  }
+
+  if (run.status === 'failed') {
+    return {
+      lifecycleStatus: 'rejected',
+      readinessStatus: 'not_ready_no_patch',
+      verificationStatus: 'not_run',
+      diffReviewStatus: 'failed',
+      rejectionReasons: ['codex_failed'],
+      changedFiles: [],
+      readyForReviewDraftOnly: false,
+      blockerCodes: ['codex_failed'],
+    };
+  }
+
+  if (run.status === 'aborted') {
+    return {
+      lifecycleStatus: 'aborted',
+      readinessStatus: 'blocked_policy',
+      verificationStatus: 'aborted',
+      diffReviewStatus: 'blocked',
+      rejectionReasons: ['policy_blocked'],
+      changedFiles: [],
+      readyForReviewDraftOnly: false,
+      blockerCodes: ['codex_patch_aborted'],
+    };
+  }
+
+  return {
+    lifecycleStatus: 'blocked',
+    readinessStatus: 'blocked_policy',
+    verificationStatus: 'blocked',
+    diffReviewStatus: 'blocked',
+    rejectionReasons: ['policy_blocked'],
+    changedFiles: [],
+    readyForReviewDraftOnly: false,
+    blockerCodes: ['codex_patch_blocked'],
+  };
+}
+
+function defaultGovernedChangedFiles(status: GovernedCodexPatchRunStatus): string[] {
+  return status === 'completed'
+    ? ['packages/orchestrator-kernel/src/m12-patch-lifecycle.ts']
+    : [];
 }
 
 function createEvidenceRefs(seed: string, now: () => string): EvidenceRef[] {

@@ -1196,3 +1196,49 @@ workflows:
       - rawPullRequestBody
       - gitPush
       - openPullRequest
+  m12b.governed-codex-patch-in-worktree:
+    risk: high
+    trigger:
+      type: manual
+      entrypoint: codex-exec-adapter orchestrator-kernel contracts
+      localControlRequired: true
+    chain:
+      - phase: codex-patch-plan
+        package: codex-exec-adapter
+        helper: createGovernedCodexPatchPlan
+        requires:
+          - persistedApproval
+          - policyDecision
+          - hashBoundWorktree
+          - governedInputHash
+      - phase: codex-patch-handoff
+        package: codex-exec-adapter
+        helper: createGovernedCodexPatchAdapterResult
+        output: metadata-only run summary
+      - phase: lifecycle-projection
+        package: orchestrator-kernel
+        helper: runM12GovernedCodexPatchInWorktree
+        readiness: not_ready_pending_verification
+      - phase: release-evidence
+        documents:
+          - docs/releases/m12b-governed-codex-patch-worktree.md
+    safety:
+      writeScope: isolated-worktree-only
+      repoRootWriteAllowed: false
+      pushAllowed: false
+      openPullRequestAllowed: false
+      rawPromptStored: false
+      rawDiffStored: false
+      rawPathStored: false
+      bodyStored: false
+      newProcessBoundary: false
+      supervisorRouteAdded: false
+    forbidden:
+      - repoRootLiveMutation
+      - arbitraryCodexArgs
+      - requestBodyApprovalArtifact
+      - rawPromptBody
+      - rawDiffBody
+      - rawPullRequestBody
+      - gitPush
+      - openPullRequest
