@@ -210,6 +210,7 @@ import {
   createCustomWorkflowTemplateFixture,
   loadCustomWorkflowTemplatesFromDirectory,
   runCustomWorkflowFixtureRehearsal,
+  runProductionWorkflowPilotRehearsal,
   validateCustomWorkflowTemplateInput,
   createMockWorkflowDefinition,
 } from '@codexhub/workflow-kernel';
@@ -1489,6 +1490,51 @@ export function buildProgram(): Command {
           options.scenario,
         );
         console.log(formatCustomWorkflowRehearsalOutput(result, options));
+      },
+    );
+
+  const workflowProductionPilotsCommand = workflowProductionCommand
+    .command('pilots')
+    .description('Read production workflow pilot metadata without execution');
+
+  workflowProductionPilotsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List production workflow pilot records from read-only Supervisor GET data')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listCustomWorkflowRuns();
+      console.log(formatProductionWorkflowPilotListOutput(result, options));
+    });
+
+  workflowProductionPilotsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one production workflow pilot metadata summary')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showCustomWorkflowRun(runId);
+      console.log(formatProductionWorkflowPilotDetailOutput(result, options));
+    });
+
+  workflowProductionPilotsCommand
+    .command('rehearse')
+    .requiredOption('--template-id <templateId>', 'Production template id to rehearse')
+    .requiredOption('--fixture', 'Use fixture-only pilot rehearsal data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Run a fixture-only production workflow pilot rehearsal without execution')
+    .action(
+      async (
+        options: JsonCliOptions & {
+          templateId: string;
+          scenario: string;
+        },
+      ) => {
+        const result = rehearseProductionWorkflowPilotForCli(
+          options.templateId,
+          options.scenario,
+        );
+        console.log(formatProductionWorkflowPilotRehearsalOutput(result, options));
       },
     );
 
@@ -5574,6 +5620,36 @@ export function rehearseCustomWorkflowProductionForCli(
     validation,
     found: Boolean(template),
     productionRehearsal: true,
+    fixtureOnly: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    supervisorPostAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+export function rehearseProductionWorkflowPilotForCli(
+  templateId: string,
+  scenario: string,
+): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const template = catalog.templates.find((item) => item.templateId === templateId);
+  const catalogEntry = catalog.entries.find((item) => item.templateId === templateId);
+  const readiness = catalog.readiness.find((item) => item.templateId === templateId);
+  const rehearsal = runProductionWorkflowPilotRehearsal({
+    template: template ?? createCustomWorkflowTemplateFixture({ templateId }),
+    scenario: template ? (scenario as never) : 'invalid-template',
+  });
+
+  return {
+    record: rehearsal,
+    catalogEntry,
+    readiness,
+    found: Boolean(template),
+    productionPilot: true,
     fixtureOnly: true,
     processBoundaryInvoked: false,
     externalProcessStarted: false,
@@ -10796,6 +10872,58 @@ export function formatCustomWorkflowRunDetailOutput(
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');
+}
+
+export function formatProductionWorkflowPilotListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowCollectionOutput('Production workflow pilots', result, options);
+}
+
+export function formatProductionWorkflowPilotDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowRunDetailOutput(result, options).replace(
+    'Custom workflow run',
+    'Production workflow pilot',
+  );
+}
+
+export function formatProductionWorkflowPilotRehearsalOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+  const readiness = record?.readiness as Record<string, unknown> | undefined;
+  const evidence = record?.evidenceSummary as Record<string, unknown> | undefined;
+
+  return [
+    'Production workflow pilot rehearsal',
+    `pilotRunId: ${String(record?.pilotRunId ?? record?.id ?? 'unknown')}`,
+    `templateId: ${String(record?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(record?.templateHash ?? 'unavailable')}`,
+    `status: ${String(record?.status ?? 'unknown')}`,
+    `readiness: ${String(readiness?.status ?? 'unknown')}`,
+    `blockers: ${String(readiness?.blockerCount ?? 0)}`,
+    `steps: ${String(record?.completedStepCount ?? 0)} completed, ${String(
+      record?.blockedStepCount ?? 0,
+    )} blocked, ${String(record?.failedStepCount ?? 0)} failed`,
+    `evidenceRefs=${String(evidence?.evidenceRefCount ?? 0)}`,
+    `auditEvents=${String(evidence?.auditEventCount ?? 0)}`,
+    `directAdapterExecutionAllowed=${String(record?.directAdapterExecutionAllowed ?? false)}`,
+    `processBoundaryInvoked=${String(record?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(record?.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(record?.networkBoundaryInvoked ?? false)}`,
+    `bodyStored=${String(record?.bodyStored ?? false)}`,
+    `rawPathStored=${String(record?.rawPathStored ?? false)}`,
+    `summary: ${String(record?.summary ?? 'Production workflow pilot metadata summary.')}`,
+  ].join('\n');
 }
 
 export function formatGithubProviderStatusOutput(

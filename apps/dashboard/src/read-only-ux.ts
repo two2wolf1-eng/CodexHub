@@ -278,6 +278,12 @@ export interface CustomWorkflowReadOnlySummary {
   latestProductionRehearsalScenario: string;
   latestProductionRehearsalStatus: string;
   productionRehearsalFixtureOnly: true;
+  latestProductionPilotTemplateId: string;
+  latestProductionPilotStatus: string;
+  latestProductionPilotReadinessStatus: string;
+  productionPilotEvidenceRefCount: number;
+  productionPilotAuditEventCount: number;
+  productionPilotFixtureOnly: true;
   approvalRequired: true;
   childApprovalsRequired: true;
   productDefaultEnabled: false;
@@ -1616,6 +1622,11 @@ export function createCustomWorkflowReadOnlySummary(input: {
   latestRunStatus?: string;
   latestProductionRehearsalScenario?: string;
   latestProductionRehearsalStatus?: string;
+  latestProductionPilotTemplateId?: string;
+  latestProductionPilotStatus?: string;
+  latestProductionPilotReadinessStatus?: string;
+  productionPilotEvidenceRefCount?: number;
+  productionPilotAuditEventCount?: number;
   processBoundaryInvoked?: boolean;
   networkBoundaryInvoked?: boolean;
 } = {}): CustomWorkflowReadOnlySummary {
@@ -1643,6 +1654,13 @@ export function createCustomWorkflowReadOnlySummary(input: {
       input.latestProductionRehearsalScenario ?? 'template-disabled',
     latestProductionRehearsalStatus: input.latestProductionRehearsalStatus ?? 'blocked',
     productionRehearsalFixtureOnly: true,
+    latestProductionPilotTemplateId: input.latestProductionPilotTemplateId ?? 'local-patch-review',
+    latestProductionPilotStatus: input.latestProductionPilotStatus ?? 'blocked',
+    latestProductionPilotReadinessStatus:
+      input.latestProductionPilotReadinessStatus ?? 'disabled',
+    productionPilotEvidenceRefCount: input.productionPilotEvidenceRefCount ?? 0,
+    productionPilotAuditEventCount: input.productionPilotAuditEventCount ?? 0,
+    productionPilotFixtureOnly: true,
     approvalRequired: true,
     childApprovalsRequired: true,
     productDefaultEnabled: false,

@@ -192,6 +192,7 @@ describe('cli development mock-run fallback', () => {
       'validateCustomWorkflowTemplateForCli',
       'rehearseCustomWorkflowForCli',
       'rehearseCustomWorkflowProductionForCli',
+      'rehearseProductionWorkflowPilotForCli',
     ];
 
     for (const helperName of readOnlyHelperNames) {
@@ -215,7 +216,9 @@ describe('cli development mock-run fallback', () => {
       formatCustomWorkflowCatalogListOutput,
       formatCustomWorkflowCatalogReadinessOutput,
       formatCustomWorkflowRehearsalOutput,
+      formatProductionWorkflowPilotRehearsalOutput,
       rehearseCustomWorkflowProductionForCli,
+      rehearseProductionWorkflowPilotForCli,
     } = await import('./main');
     const catalog = createCustomWorkflowCatalog();
     const localPatch = catalog.entries.find((entry) => entry.templateId === 'local-patch-review');
@@ -258,14 +261,20 @@ describe('cli development mock-run fallback', () => {
       'github-draft-pr-chain',
       'stale-template-hash',
     );
+    const pilotRehearsal = rehearseProductionWorkflowPilotForCli(
+      'github-draft-pr-chain',
+      'remote-step-blocked',
+    );
     const rehearsalOutput = formatCustomWorkflowRehearsalOutput(productionRehearsal);
+    const pilotOutput = formatProductionWorkflowPilotRehearsalOutput(pilotRehearsal);
     const serialized = [
       JSON.stringify(catalog),
-      JSON.stringify({ productionRehearsal, staleHashRehearsal }),
+      JSON.stringify({ productionRehearsal, staleHashRehearsal, pilotRehearsal }),
       listOutput,
       detailOutput,
       readinessOutput,
       rehearsalOutput,
+      pilotOutput,
     ].join('\n');
 
     expect(listOutput).toContain('Custom workflow production catalog');
@@ -283,6 +292,15 @@ describe('cli development mock-run fallback', () => {
       'stale-template-hash',
     );
     expect(rehearsalOutput).toContain('scenario: template-disabled');
+    expect(pilotRehearsal).toMatchObject({
+      found: true,
+      productionPilot: true,
+      fixtureOnly: true,
+      directAdapterExecutionAllowed: false,
+      supervisorPostAllowed: false,
+    });
+    expect(pilotOutput).toContain('Production workflow pilot rehearsal');
+    expect(pilotOutput).toContain('status: blocked');
     expect(serialized).toContain('directAdapterExecutionAllowed=false');
     expectNoForbiddenCliRawOutput(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');

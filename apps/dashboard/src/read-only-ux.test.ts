@@ -327,6 +327,11 @@ describe('dashboard read-only UX helpers', () => {
       latestRunStatus: 'blocked',
       latestProductionRehearsalScenario: 'stale-template-hash',
       latestProductionRehearsalStatus: 'blocked',
+      latestProductionPilotTemplateId: 'github-draft-pr-chain',
+      latestProductionPilotStatus: 'blocked',
+      latestProductionPilotReadinessStatus: 'blocked',
+      productionPilotEvidenceRefCount: 2,
+      productionPilotAuditEventCount: 2,
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
     });
@@ -343,6 +348,12 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.latestProductionRehearsalScenario).toBe('stale-template-hash');
     expect(summary.latestProductionRehearsalStatus).toBe('blocked');
     expect(summary.productionRehearsalFixtureOnly).toBe(true);
+    expect(summary.latestProductionPilotTemplateId).toBe('github-draft-pr-chain');
+    expect(summary.latestProductionPilotStatus).toBe('blocked');
+    expect(summary.latestProductionPilotReadinessStatus).toBe('blocked');
+    expect(summary.productionPilotEvidenceRefCount).toBe(2);
+    expect(summary.productionPilotAuditEventCount).toBe(2);
+    expect(summary.productionPilotFixtureOnly).toBe(true);
     expect(summary.dryRunCount).toBe(2);
     expect(summary.approvalRequired).toBe(true);
     expect(summary.childApprovalsRequired).toBe(true);

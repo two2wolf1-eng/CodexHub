@@ -5055,6 +5055,22 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>production pilot</strong>
+              <span>
+                {customWorkflowSummary.latestProductionPilotTemplateId} /{' '}
+                {customWorkflowSummary.latestProductionPilotStatus}, readiness{' '}
+                {customWorkflowSummary.latestProductionPilotReadinessStatus}, fixture{' '}
+                {String(customWorkflowSummary.productionPilotFixtureOnly)}
+              </span>
+            </li>
+            <li>
+              <strong>pilot evidence</strong>
+              <span>
+                {customWorkflowSummary.productionPilotEvidenceRefCount} evidence refs,{' '}
+                {customWorkflowSummary.productionPilotAuditEventCount} audit events
+              </span>
+            </li>
+            <li>
               <strong>write controls</strong>
               <span>
                 supervisor POST {String(customWorkflowSummary.supervisorPostAllowed)},
