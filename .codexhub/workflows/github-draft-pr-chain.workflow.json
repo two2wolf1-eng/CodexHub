@@ -1,0 +1,16 @@
+{
+  "templateVersion": 1,
+  "templateId": "github-draft-pr-chain",
+  "family": "github",
+  "name": "GitHub Draft PR Chain",
+  "description": "Disabled-by-default GitHub branch publish and draft PR workflow template.",
+  "enabledByDefault": false,
+  "productionExecutionEnabled": false,
+  "steps": [
+    { "stepId": "readiness", "kind": "readiness" },
+    { "stepId": "github-branch-publish", "kind": "github-branch-publish" },
+    { "stepId": "github-draft-pr", "kind": "github-draft-pr" },
+    { "stepId": "github-pr-lifecycle", "kind": "github-pr-lifecycle" },
+    { "stepId": "governance-projection", "kind": "governance-projection" }
+  ]
+}

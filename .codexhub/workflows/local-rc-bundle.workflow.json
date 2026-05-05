@@ -1,0 +1,15 @@
+{
+  "templateVersion": 1,
+  "templateId": "local-rc-bundle",
+  "family": "local",
+  "name": "Local RC Bundle",
+  "description": "Disabled-by-default local release candidate bundle workflow template.",
+  "enabledByDefault": false,
+  "productionExecutionEnabled": false,
+  "steps": [
+    { "stepId": "review-package", "kind": "review-package" },
+    { "stepId": "rc-bundle", "kind": "rc-bundle" },
+    { "stepId": "governance-projection", "kind": "governance-projection" },
+    { "stepId": "telemetry-projection", "kind": "telemetry-projection" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "templateVersion": 1,
+  "templateId": "local-patch-review",
+  "family": "local",
+  "name": "Local Patch Review",
+  "description": "Disabled-by-default local patch review workflow template.",
+  "enabledByDefault": false,
+  "productionExecutionEnabled": false,
+  "steps": [
+    { "stepId": "readiness", "kind": "readiness" },
+    { "stepId": "worktree", "kind": "worktree" },
+    { "stepId": "codex-patch", "kind": "codex-patch" },
+    { "stepId": "nx-verification", "kind": "nx-verification" },
+    { "stepId": "review-package", "kind": "review-package" },
+    { "stepId": "governance-projection", "kind": "governance-projection" }
+  ]
+}

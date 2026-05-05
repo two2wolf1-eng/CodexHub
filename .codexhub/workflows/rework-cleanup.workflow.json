@@ -1,0 +1,15 @@
+{
+  "templateVersion": 1,
+  "templateId": "rework-cleanup",
+  "family": "github",
+  "name": "Rework Cleanup",
+  "description": "Disabled-by-default remote rework supersede and cleanup workflow template.",
+  "enabledByDefault": false,
+  "productionExecutionEnabled": false,
+  "steps": [
+    { "stepId": "github-pr-lifecycle", "kind": "github-pr-lifecycle" },
+    { "stepId": "remote-supersede", "kind": "remote-supersede" },
+    { "stepId": "remote-cleanup", "kind": "remote-cleanup" },
+    { "stepId": "governance-projection", "kind": "governance-projection" }
+  ]
+}
