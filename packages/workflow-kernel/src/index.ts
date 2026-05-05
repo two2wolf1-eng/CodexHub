@@ -18,6 +18,18 @@ import {
   type CustomWorkflowRehearsalRun,
   CustomWorkflowRehearsalScenarioSchema,
   type CustomWorkflowRehearsalScenario,
+  ProductionWorkflowPilotEvidenceSummarySchema,
+  type ProductionWorkflowPilotEvidenceSummary,
+  ProductionWorkflowPilotPlanSchema,
+  type ProductionWorkflowPilotPlan,
+  ProductionWorkflowPilotReadinessSchema,
+  type ProductionWorkflowPilotReadiness,
+  ProductionWorkflowPilotRunSchema,
+  type ProductionWorkflowPilotRun,
+  type ProductionWorkflowPilotSource,
+  type ProductionWorkflowPilotStatus,
+  ProductionWorkflowPilotStepSchema,
+  type ProductionWorkflowPilotStep,
   CustomWorkflowProductionTemplateValidationSummarySchema,
   type CustomWorkflowProductionTemplateValidationSummary,
   CustomWorkflowRunSchema,
@@ -91,6 +103,30 @@ export interface CustomWorkflowCoordinatorOptions {
   approvalArtifact?: CustomWorkflowApprovalArtifactRecord;
   childRecordHashes?: Record<string, string>;
   blockedStepIds?: string[];
+}
+
+export type ProductionWorkflowChildRecordStatus =
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'aborted'
+  | 'stale';
+
+export interface ProductionWorkflowPilotOptions {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  templateHash?: string;
+  childRecordHashes?: Record<string, string>;
+  childRunStatuses?: Record<string, ProductionWorkflowChildRecordStatus>;
+  productionExecutionEnabled?: boolean;
+  workflowApprovalApproved?: boolean;
+  source?: ProductionWorkflowPilotSource;
+}
+
+export interface ProductionWorkflowPilotRehearsalOptions {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  scenario?: CustomWorkflowRehearsalScenario;
 }
 
 const customWorkflowForbiddenKeys = new Set([
@@ -977,6 +1013,367 @@ export function runCustomWorkflowFixtureRehearsal(input: {
   });
 }
 
+export function createProductionWorkflowPilotPlan(
+  input: ProductionWorkflowPilotOptions = {},
+): ProductionWorkflowPilotPlan {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const childRecordHashes = input.childRecordHashes ?? {};
+  const readiness = createProductionWorkflowPilotReadiness(input);
+  const evidenceSummary = createProductionWorkflowPilotEvidenceSummary({
+    template,
+    childRecordHashes,
+    blockReasons: readiness.blockers,
+  });
+
+  return ProductionWorkflowPilotPlanSchema.parse({
+    id: foundationId('production_workflow_pilot_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    pilotPlanId: foundationId('production_workflow_pilot_plan'),
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    source: input.source ?? 'catalog-template',
+    status: readiness.status === 'ready' ? 'ready' : 'blocked',
+    stepCount: template.steps.length,
+    childRecordHashCount: Object.keys(childRecordHashes).length,
+    blockReasons: readiness.blockers,
+    evidenceSummary,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      readiness.status === 'ready'
+        ? 'Production workflow pilot plan is ready for metadata-only child coordination.'
+        : 'Production workflow pilot plan is blocked before child coordination.',
+    metadata: {
+      templateHash: template.templateHash,
+      blockerCount: readiness.blockerCount,
+    },
+  });
+}
+
+export function runProductionWorkflowPilot(
+  input: ProductionWorkflowPilotOptions = {},
+): ProductionWorkflowPilotRun {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const readiness = createProductionWorkflowPilotReadiness({ ...input, template });
+  const childRecordHashes = input.childRecordHashes ?? {};
+  const childRunStatuses = input.childRunStatuses ?? {};
+  const globalBlockers = readiness.blockers.filter(
+    (reason) =>
+      reason.startsWith('custom_workflow_production') ||
+      reason.startsWith('custom_workflow_approval') ||
+      reason.startsWith('custom_workflow_template'),
+  );
+  let blockedByPriorStep = globalBlockers.length > 0;
+  const steps: ProductionWorkflowPilotStep[] = template.steps.map((step) => {
+    const childStatus = childRunStatuses[step.stepId];
+    const stepBlockers = readiness.blockers.filter((reason) =>
+      reason.endsWith(`:${step.stepId}`),
+    );
+    let status: ProductionWorkflowPilotStatus = 'completed';
+    if (blockedByPriorStep || stepBlockers.length > 0) {
+      status = 'blocked';
+    }
+    if (childStatus === 'failed' || childStatus === 'aborted') {
+      status = 'failed';
+    }
+    if (childStatus === 'blocked' || childStatus === 'stale') {
+      status = 'blocked';
+    }
+    if (status !== 'completed') {
+      blockedByPriorStep = true;
+    }
+
+    return ProductionWorkflowPilotStepSchema.parse({
+      stepId: step.stepId,
+      kind: step.kind,
+      status,
+      childRecordIdHash: childRecordHashes[step.stepId],
+      childHashBindingMatched: Boolean(childRecordHashes[step.stepId]),
+      childApprovalRequired: step.capabilityBinding.childApprovalRequired,
+      blockReasons:
+        status === 'completed'
+          ? []
+          : stepBlockers.length > 0
+            ? stepBlockers
+            : globalBlockers,
+      evidenceRefIds:
+        status === 'completed' ? [`evidence:${hashText(step.stepId)}`] : [],
+      auditEventIds:
+        status === 'completed' ? [`audit:${hashText(step.stepId)}`] : [],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary:
+        status === 'completed'
+          ? `${step.kind} pilot step is satisfied by existing child record metadata.`
+          : `${step.kind} pilot step is blocked by governance or child record state.`,
+    });
+  });
+  const completedStepCount = steps.filter((step) => step.status === 'completed').length;
+  const blockedStepCount = steps.filter((step) => step.status === 'blocked').length;
+  const failedStepCount = steps.filter((step) => step.status === 'failed').length;
+  const evidenceSummary = createProductionWorkflowPilotEvidenceSummary({
+    template,
+    childRecordHashes,
+    blockReasons: readiness.blockers,
+  });
+  const status: ProductionWorkflowPilotStatus =
+    failedStepCount > 0
+      ? 'failed'
+      : blockedStepCount > 0 || readiness.blockerCount > 0
+        ? 'blocked'
+        : 'completed';
+
+  return ProductionWorkflowPilotRunSchema.parse({
+    id: foundationId('production_workflow_pilot_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    pilotRunId: foundationId('production_workflow_pilot_run'),
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    source: input.source ?? 'catalog-template',
+    status,
+    steps,
+    stepCount: steps.length,
+    completedStepCount,
+    blockedStepCount,
+    failedStepCount,
+    readiness,
+    evidenceSummary,
+    blockReasons: readiness.blockers,
+    evidenceRefIds: steps.flatMap((step) => step.evidenceRefIds),
+    auditEventIds: steps.flatMap((step) => step.auditEventIds),
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      status === 'completed'
+        ? 'Production workflow pilot completed as metadata-only child coordination.'
+        : 'Production workflow pilot did not complete because a prerequisite or child record is blocked.',
+    metadata: {
+      templateHash: template.templateHash,
+      completedStepCount,
+      blockedStepCount,
+      failedStepCount,
+    },
+  });
+}
+
+export function runProductionWorkflowPilotRehearsal(
+  input: ProductionWorkflowPilotRehearsalOptions = {},
+): ProductionWorkflowPilotRun {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const scenario = input.scenario ?? 'all-pass';
+  const childRecordHashes = Object.fromEntries(
+    template.steps
+      .filter((step) => step.capabilityBinding.childApprovalRequired)
+      .map((step) => [step.stepId, `sha256:${step.stepId}`]),
+  );
+  const childRunStatuses: Record<string, ProductionWorkflowChildRecordStatus> = {};
+  let productionExecutionEnabled = true;
+  let workflowApprovalApproved = true;
+
+  switch (CustomWorkflowRehearsalScenarioSchema.parse(scenario)) {
+    case 'template-disabled':
+    case 'stale-template-hash':
+      productionExecutionEnabled = false;
+      break;
+    case 'workflow-approval-blocked':
+    case 'approval-blocked':
+      workflowApprovalApproved = false;
+      break;
+    case 'child-approval-blocked':
+    case 'child-run-missing':
+    case 'missing-child-reference':
+      for (const key of Object.keys(childRecordHashes)) {
+        delete childRecordHashes[key];
+      }
+      break;
+    case 'child-run-failed':
+    case 'verification-failed': {
+      const target =
+        template.steps.find((step) => step.kind === 'nx-verification') ??
+        template.steps.find((step) => step.capabilityBinding.childApprovalRequired);
+      if (target) {
+        childRunStatuses[target.stepId] = 'failed';
+      }
+      break;
+    }
+    case 'remote-step-blocked': {
+      const target = template.steps.find((step) => step.kind.startsWith('github-'));
+      if (target) {
+        childRunStatuses[target.stepId] = 'blocked';
+      }
+      break;
+    }
+    case 'cleanup-blocked': {
+      const target = template.steps.find((step) => step.kind === 'remote-cleanup');
+      if (target) {
+        childRunStatuses[target.stepId] = 'blocked';
+      }
+      break;
+    }
+    case 'superseded-source': {
+      const target = template.steps.find((step) => step.kind === 'remote-supersede');
+      if (target) {
+        childRunStatuses[target.stepId] = 'stale';
+      }
+      break;
+    }
+    case 'invalid-template':
+      productionExecutionEnabled = false;
+      break;
+    case 'all-pass':
+      break;
+  }
+
+  return runProductionWorkflowPilot({
+    template,
+    childRecordHashes,
+    childRunStatuses,
+    productionExecutionEnabled,
+    workflowApprovalApproved,
+    source: 'fixture',
+  });
+}
+
+function resolveProductionWorkflowPilotTemplate(input: {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  templateHash?: string;
+}): CustomWorkflowTemplate {
+  const template =
+    input.template ??
+    findCustomWorkflowCatalogTemplate(input.templateId ?? 'local-patch-review') ??
+    createCustomWorkflowTemplateFixture({
+      templateId: input.templateId ?? 'local-patch-review',
+    });
+  if (input.templateHash && input.templateHash !== template.templateHash) {
+    return CustomWorkflowTemplateSchema.parse({
+      ...template,
+      templateHash: input.templateHash,
+      summary: 'Production workflow pilot template hash was provided as runtime metadata.',
+    });
+  }
+  return template;
+}
+
+function createProductionWorkflowPilotReadiness(
+  input: ProductionWorkflowPilotOptions = {},
+): ProductionWorkflowPilotReadiness {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const childRecordHashes = input.childRecordHashes ?? {};
+  const childRunStatuses = input.childRunStatuses ?? {};
+  const requiredChildSteps = template.steps.filter(
+    (step) => step.capabilityBinding.childApprovalRequired,
+  );
+  const blockers: string[] = [];
+  let missingChildRecordCount = 0;
+  let staleChildRecordCount = 0;
+  let failedChildRecordCount = 0;
+
+  if (!builtInProductionTemplateIds.has(template.templateId)) {
+    blockers.push('custom_workflow_template_not_from_catalog');
+  }
+  if (input.productionExecutionEnabled !== true) {
+    blockers.push('custom_workflow_production_execution_disabled');
+  }
+  if (input.workflowApprovalApproved !== true) {
+    blockers.push('custom_workflow_approval_missing_or_not_approved');
+  }
+  for (const step of requiredChildSteps) {
+    const childHash = childRecordHashes[step.stepId];
+    const childStatus = childRunStatuses[step.stepId];
+    if (!childHash) {
+      missingChildRecordCount += 1;
+      blockers.push(`custom_workflow_child_run_missing:${step.stepId}`);
+      continue;
+    }
+    if (childStatus === 'stale') {
+      staleChildRecordCount += 1;
+      blockers.push(`custom_workflow_child_run_stale:${step.stepId}`);
+    }
+    if (
+      childStatus === 'failed' ||
+      childStatus === 'blocked' ||
+      childStatus === 'aborted'
+    ) {
+      failedChildRecordCount += 1;
+      blockers.push(`custom_workflow_child_run_${childStatus}:${step.stepId}`);
+    }
+  }
+  const status: ProductionWorkflowPilotStatus =
+    blockers.length === 0 ? 'ready' : 'blocked';
+
+  return ProductionWorkflowPilotReadinessSchema.parse({
+    id: foundationId('production_workflow_pilot_readiness'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    source: input.source ?? 'catalog-template',
+    status,
+    requiredChildStepCount: requiredChildSteps.length,
+    missingChildRecordCount,
+    staleChildRecordCount,
+    failedChildRecordCount,
+    blockerCount: blockers.length,
+    blockers,
+    approvalRequired: true,
+    childApprovalsRequired: requiredChildSteps.length,
+    productionExecutionEnabled: input.productionExecutionEnabled ?? false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      status === 'ready'
+        ? 'Production workflow pilot prerequisites are satisfied by existing child records.'
+        : 'Production workflow pilot is blocked by template, approval, or child record state.',
+    metadata: {
+      templateHash: template.templateHash,
+      blockerCount: blockers.length,
+    },
+  });
+}
+
+function createProductionWorkflowPilotEvidenceSummary(input: {
+  template: CustomWorkflowTemplate;
+  childRecordHashes: Record<string, string>;
+  blockReasons: string[];
+}): ProductionWorkflowPilotEvidenceSummary {
+  const hashInput = JSON.stringify({
+    templateHash: input.template.templateHash,
+    childRecordHashCount: Object.keys(input.childRecordHashes).length,
+    blockerCount: input.blockReasons.length,
+  });
+  const evidenceRefCount =
+    input.template.steps.length + Object.keys(input.childRecordHashes).length;
+  const auditEventCount = input.template.steps.length;
+
+  return ProductionWorkflowPilotEvidenceSummarySchema.parse({
+    evidenceRefCount,
+    auditEventCount,
+    evidenceBundleHash: hashText(`evidence:${hashInput}`),
+    auditChainHash: hashText(`audit:${hashInput}`),
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow pilot evidence and audit are represented by hashes and counts.',
+  });
+}
+
 function createCustomWorkflowStepTemplate(
   kind: CustomWorkflowStepKind,
   order: number,
@@ -1340,6 +1737,8 @@ function createCustomWorkflowRehearsalBlockReasons(
       return ['custom_workflow_cleanup_blocked'];
     case 'child-approval-blocked':
       return ['custom_workflow_child_approval_blocked'];
+    case 'child-run-missing':
+      return ['custom_workflow_child_run_missing'];
     case 'child-run-failed':
       return ['custom_workflow_child_run_failed'];
     case 'superseded-source':

@@ -16,8 +16,11 @@ import {
   createMockWorkflowDefinition,
   findCustomWorkflowCatalogTemplate,
   loadCustomWorkflowTemplatesFromDirectory,
+  createProductionWorkflowPilotPlan,
   runCustomWorkflowCoordinator,
   runCustomWorkflowFixtureRehearsal,
+  runProductionWorkflowPilot,
+  runProductionWorkflowPilotRehearsal,
   validateCustomWorkflowTemplateInput,
 } from './index';
 
@@ -280,5 +283,67 @@ describe('workflow-kernel custom workflows', () => {
     expect(template?.configPathHash).toMatch(/^sha256:/);
     expect(JSON.stringify(template)).not.toContain('.codexhub');
     expect(JSON.stringify(template)).not.toContain('workflow.json');
+  });
+
+  it('runs local production workflow pilot from existing child record hashes only', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+    expect(template).toBeTruthy();
+    const childRecordHashes = Object.fromEntries(
+      template!.steps
+        .filter((step) => step.capabilityBinding.childApprovalRequired)
+        .map((step) => [step.stepId, `sha256:${step.stepId}`]),
+    );
+    const plan = createProductionWorkflowPilotPlan({
+      template: template!,
+      childRecordHashes,
+      productionExecutionEnabled: true,
+      workflowApprovalApproved: true,
+    });
+    const run = runProductionWorkflowPilot({
+      template: template!,
+      childRecordHashes,
+      productionExecutionEnabled: true,
+      workflowApprovalApproved: true,
+    });
+    const missingChild = runProductionWorkflowPilot({
+      template: template!,
+      productionExecutionEnabled: true,
+      workflowApprovalApproved: true,
+    });
+
+    expect(plan.status).toBe('ready');
+    expect(run.status).toBe('completed');
+    expect(run.directAdapterExecutionAllowed).toBe(false);
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(missingChild.status).toBe('blocked');
+    expect(missingChild.readiness.missingChildRecordCount).toBeGreaterThan(0);
+    expect(findAdversarialPublicOutputRoundTripLeaks({ plan, run, missingChild })).toEqual([]);
+  });
+
+  it('runs remote production workflow pilot and blocks failed remote child records', () => {
+    const template = findCustomWorkflowCatalogTemplate('github-draft-pr-chain');
+    expect(template).toBeTruthy();
+    const childRecordHashes = Object.fromEntries(
+      template!.steps
+        .filter((step) => step.capabilityBinding.childApprovalRequired)
+        .map((step) => [step.stepId, `sha256:${step.stepId}`]),
+    );
+    const completed = runProductionWorkflowPilot({
+      template: template!,
+      childRecordHashes,
+      productionExecutionEnabled: true,
+      workflowApprovalApproved: true,
+    });
+    const blocked = runProductionWorkflowPilotRehearsal({
+      template: template!,
+      scenario: 'remote-step-blocked',
+    });
+
+    expect(completed.status).toBe('completed');
+    expect(completed.networkBoundaryInvoked).toBe(false);
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.blockReasons.join(' ')).toContain('github-branch-publish');
+    expect(JSON.stringify({ completed, blocked })).not.toContain('git push');
+    expect(JSON.stringify({ completed, blocked })).not.toContain('reviewer');
   });
 });
