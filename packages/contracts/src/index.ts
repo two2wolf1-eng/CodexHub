@@ -203,6 +203,9 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'workflow.rehearsal_summary',
     'workflow.custom_dry_run',
     'workflow.custom_run_summary',
+    'workflow.catalog_entry',
+    'workflow.catalog_readiness',
+    'workflow.catalog_validation',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -448,6 +451,25 @@ export type CustomWorkflowValidationStatus = z.infer<
   typeof CustomWorkflowValidationStatusSchema
 >;
 
+export const CustomWorkflowCatalogSourceSchema = z.enum([
+  'built-in',
+  'workspace',
+  'fixture',
+]);
+export type CustomWorkflowCatalogSource = z.infer<
+  typeof CustomWorkflowCatalogSourceSchema
+>;
+
+export const CustomWorkflowCatalogReadinessStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'disabled',
+  'degraded',
+]);
+export type CustomWorkflowCatalogReadinessStatus = z.infer<
+  typeof CustomWorkflowCatalogReadinessStatusSchema
+>;
+
 export const CustomWorkflowPlanStatusSchema = z.enum([
   'planned',
   'blocked',
@@ -591,6 +613,103 @@ export const CustomWorkflowValidationReportSchema = createdEntityBaseSchema
   .superRefine(rejectCustomWorkflowRawMetadata);
 export type CustomWorkflowValidationReport = z.infer<
   typeof CustomWorkflowValidationReportSchema
+>;
+
+export const CustomWorkflowCatalogEntrySchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    family: z.string().min(1),
+    displayName: z.string().min(1),
+    source: CustomWorkflowCatalogSourceSchema,
+    validationStatus: CustomWorkflowValidationStatusSchema,
+    riskLevel: RiskLevelSchema,
+    stepCount: z.number().int().nonnegative(),
+    capabilityCount: z.number().int().nonnegative(),
+    requiredStepKinds: z.array(CustomWorkflowStepKindSchema).default([]),
+    requiredCapabilityKinds: z.array(CapabilityKindSchema).default([]),
+    approvalRequired: z.boolean(),
+    childApprovalsRequired: z.number().int().nonnegative(),
+    enabledByDefault: z.literal(false).default(false),
+    productionExecutionEnabled: z.boolean().default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    configBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowCatalogEntry = z.infer<
+  typeof CustomWorkflowCatalogEntrySchema
+>;
+
+export const CustomWorkflowTemplateFamilySummarySchema = createdEntityBaseSchema
+  .extend({
+    family: z.string().min(1),
+    templateCount: z.number().int().nonnegative(),
+    validTemplateCount: z.number().int().nonnegative(),
+    blockedTemplateCount: z.number().int().nonnegative(),
+    highestRisk: RiskLevelSchema,
+    enabledByDefault: z.literal(false).default(false),
+    productionExecutionEnabled: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowTemplateFamilySummary = z.infer<
+  typeof CustomWorkflowTemplateFamilySummarySchema
+>;
+
+export const CustomWorkflowProductionTemplateValidationSummarySchema =
+  createdEntityBaseSchema
+    .extend({
+      templateId: z.string().min(1),
+      templateHash: z.string().min(1),
+      status: CustomWorkflowValidationStatusSchema,
+      issueCount: z.number().int().nonnegative(),
+      unknownStepKindCount: z.number().int().nonnegative().default(0),
+      policyWeakeningDetected: z.literal(false).default(false),
+      rawBodyDetected: z.literal(false).default(false),
+      rawPathStored: z.literal(false).default(false),
+      bodyStored: z.literal(false).default(false),
+      configBodyStored: z.literal(false).default(false),
+      summary: z.string().min(1),
+    })
+    .strict()
+    .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowProductionTemplateValidationSummary = z.infer<
+  typeof CustomWorkflowProductionTemplateValidationSummarySchema
+>;
+
+export const CustomWorkflowCatalogReadinessSchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    status: CustomWorkflowCatalogReadinessStatusSchema,
+    productionExecutionEnabled: z.boolean().default(false),
+    integrationEnabled: z.boolean().default(false),
+    requiredEnvFlags: z.array(z.string().min(1)).default([]),
+    configuredEnvFlagCount: z.number().int().nonnegative().default(0),
+    missingEnvFlagCount: z.number().int().nonnegative().default(0),
+    childCapabilityCount: z.number().int().nonnegative(),
+    approvalRequired: z.boolean(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowCatalogReadiness = z.infer<
+  typeof CustomWorkflowCatalogReadinessSchema
 >;
 
 export const CustomWorkflowStepPlanSchema = z

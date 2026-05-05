@@ -205,13 +205,17 @@ import {
   GithubRemoteCleanupPlanSchema,
   GithubRemoteCleanupRunSchema,
   GithubRemoteCleanupSummarySchema,
+  CustomWorkflowCatalogEntrySchema,
+  CustomWorkflowCatalogReadinessSchema,
   CustomWorkflowApprovalArtifactRecordSchema,
   CustomWorkflowCapabilityBindingSchema,
   CustomWorkflowPlanSchema,
+  CustomWorkflowProductionTemplateValidationSummarySchema,
   CustomWorkflowRehearsalRunSchema,
   CustomWorkflowRunSchema,
   CustomWorkflowStepTemplateSchema,
   CustomWorkflowTemplateSchema,
+  CustomWorkflowTemplateFamilySummarySchema,
   CustomWorkflowValidationReportSchema,
   GithubPublishDraftPrAcceptanceRehearsalRunSchema,
   GithubPublishDraftPrChainPlanSchema,
@@ -10386,6 +10390,125 @@ describe('contracts schemas', () => {
         ...rehearsal,
         id: 'custom_workflow_rehearsal_raw_path',
         metadata: { path: 'C:/Users/Thomas/CodexHub' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses custom workflow catalog contracts and rejects unsafe public fields', () => {
+    const createdAt = '2026-04-28T00:00:00.000Z';
+    const schemaVersion = '2026-04-28.foundation';
+    const entry = CustomWorkflowCatalogEntrySchema.parse({
+      id: 'custom_workflow_catalog_entry_1',
+      schemaVersion,
+      createdAt,
+      templateId: 'local-patch-review',
+      templateHash: 'sha256:template',
+      family: 'local',
+      displayName: 'Local patch review',
+      source: 'built-in',
+      validationStatus: 'valid',
+      riskLevel: 'high',
+      stepCount: 6,
+      capabilityCount: 6,
+      requiredStepKinds: [
+        'readiness',
+        'worktree',
+        'codex-patch',
+        'nx-verification',
+        'review-package',
+        'governance-projection',
+      ],
+      requiredCapabilityKinds: ['policy', 'git', 'codex', 'verification', 'filesystem'],
+      approvalRequired: true,
+      childApprovalsRequired: 3,
+      enabledByDefault: false,
+      productionExecutionEnabled: false,
+      directAdapterExecutionAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      configBodyStored: false,
+      summary: 'Built-in workflow template catalog entry is metadata-only.',
+    });
+    const family = CustomWorkflowTemplateFamilySummarySchema.parse({
+      id: 'custom_workflow_family_local',
+      schemaVersion,
+      createdAt,
+      family: 'local',
+      templateCount: 1,
+      validTemplateCount: 1,
+      blockedTemplateCount: 0,
+      highestRisk: 'high',
+      enabledByDefault: false,
+      productionExecutionEnabled: false,
+      summary: 'Local workflow family is disabled by default.',
+    });
+    const validation = CustomWorkflowProductionTemplateValidationSummarySchema.parse({
+      id: 'custom_workflow_catalog_validation_1',
+      schemaVersion,
+      createdAt,
+      templateId: entry.templateId,
+      templateHash: entry.templateHash,
+      status: 'valid',
+      issueCount: 0,
+      unknownStepKindCount: 0,
+      policyWeakeningDetected: false,
+      rawBodyDetected: false,
+      rawPathStored: false,
+      bodyStored: false,
+      configBodyStored: false,
+      summary: 'Production workflow template validation is metadata-only.',
+    });
+    const readiness = CustomWorkflowCatalogReadinessSchema.parse({
+      id: 'custom_workflow_catalog_readiness_1',
+      schemaVersion,
+      createdAt,
+      templateId: entry.templateId,
+      templateHash: entry.templateHash,
+      status: 'disabled',
+      productionExecutionEnabled: false,
+      integrationEnabled: false,
+      requiredEnvFlags: ['CODEXHUB_CUSTOM_WORKFLOWS_ENABLED'],
+      configuredEnvFlagCount: 0,
+      missingEnvFlagCount: 1,
+      childCapabilityCount: entry.requiredCapabilityKinds.length,
+      approvalRequired: true,
+      blockerCount: 1,
+      blockers: ['custom_workflow_production_disabled'],
+      evidenceRefIds: ['evidence_workflow_catalog_1'],
+      auditEventIds: ['audit_workflow_catalog_1'],
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow catalog readiness is disabled by default.',
+    });
+
+    const serialized = JSON.stringify([entry, family, validation, readiness]);
+    expect(readiness.status).toBe('disabled');
+    expect(entry.directAdapterExecutionAllowed).toBe(false);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('raw template');
+    expect(() =>
+      CustomWorkflowCatalogEntrySchema.parse({
+        ...entry,
+        id: 'custom_workflow_catalog_entry_raw_body',
+        metadata: { body: 'raw template body' },
+      }),
+    ).toThrow();
+    expect(() =>
+      CustomWorkflowCatalogReadinessSchema.parse({
+        ...readiness,
+        id: 'custom_workflow_catalog_readiness_token',
+        metadata: { token: 'ghp_secret' },
+      }),
+    ).toThrow();
+    expect(() =>
+      CustomWorkflowCatalogEntrySchema.parse({
+        ...entry,
+        id: 'custom_workflow_catalog_entry_execute',
+        directAdapterExecutionAllowed: true,
       }),
     ).toThrow();
   });
