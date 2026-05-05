@@ -1599,3 +1599,41 @@ integrations:
       forceAllowed: false
       mergeAllowed: false
       tokenStorageAllowed: false
+  m0-m24-foundation-hardening:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-hardening
+    providerType: builtin
+    mode: review-only
+    stage: m24.6-foundation-hardening
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: high
+    reviewedCapabilityChains:
+      - codex
+      - nx-verification
+      - mcp-readonly
+      - browser-observation
+      - electron-cdp-observation
+      - worktree
+      - policy-backend
+      - telemetry
+      - github-provider
+      - review-package
+      - release-candidate
+      - rework-loop
+      - remote-supersede
+      - remote-cleanup
+      - custom-workflows
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noRemoteWriteSmoke: true
+      metadataOnlyReviewDocs: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliDirectAdapterExecuteAllowed: false
+      auditNoLiveAutomationExtended: true

@@ -3467,3 +3467,35 @@ workflows:
       requestBodyApprovalArtifactTrusted: false
       requestBodyAuthorityTrusted: false
       uiCliReadOnly: true
+  m24_6.m0-m24-foundation-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits tests
+      localControlRequired: false
+    scope:
+      baseline:
+        - contracts
+        - security-kernel
+        - evidence-kernel
+        - workflow-kernel
+        - store-core
+        - store-sqlite
+        - supervisor
+        - cli
+        - dashboard
+        - M2-M24 capability chains
+      docs:
+        - docs/releases/m24.6-foundation-hardening.md
+        - docs/reviews/m0-m24-foundation-hardening-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noRemoteWriteSmoke: true
+      noBrowserAct: true
+      noElectronMainInspector: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliDirectAdapterExecuteAllowed: false
+      metadataOnlyPublicOutput: true

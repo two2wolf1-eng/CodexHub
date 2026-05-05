@@ -129,6 +129,15 @@ const directAdapterExecuteTerms = [
   'executeElectronCdpAdapter',
   'executePolicyBackendEvaluation',
   'executeTelemetryExport',
+  'executeLocalTelemetryProjection',
+  'executeLocalReviewPackageExport',
+  'executeLocalRcBundleExport',
+  'executeGithubMetadataObservation',
+  'executeGithubPrLifecycleObservation',
+  'executeGithubDraftPrCreation',
+  'executeGithubBranchPublish',
+  'executeGithubRemoteCleanup',
+  'executeReworkLoop',
 ];
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
 const sensitiveConceptTerms = [
