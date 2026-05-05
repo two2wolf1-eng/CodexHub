@@ -1486,7 +1486,7 @@ integrations:
     provider: codexhub-governed-coordinator
     providerType: builtin
     mode: json-template-governed-control-plane
-    stage: m24-custom-workflow-control-plane
+    stage: m25-custom-workflow-production-catalog
     defaultActionMode: dry-run
     defaultRisk: high
     processBoundary: false
@@ -1497,6 +1497,11 @@ integrations:
       templateVersion: 1
       format: json-only
       productionTemplatesEnabled: false
+      builtInProductionTemplates:
+        - local-patch-review
+        - local-rc-bundle
+        - github-draft-pr-chain
+        - rework-cleanup
       rawTemplateBodyStorage: forbidden
       rawConfigPathStorage: forbidden
       templateHashRequired: true
@@ -1550,6 +1555,9 @@ integrations:
     readOnlyUx:
       dashboardRoute: "#/workflows"
       cliCommands:
+        - codexhub workflows catalog list
+        - codexhub workflows catalog show <templateId>
+        - codexhub workflows catalog readiness <templateId>
         - codexhub workflows templates list
         - codexhub workflows templates show <templateId>
         - codexhub workflows validate --template-id <templateId>

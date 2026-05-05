@@ -47,6 +47,37 @@ const approvedGithubHttpBoundaryFiles = new Set([
   'packages/github-provider-adapter/src/github-http-boundary.ts',
 ]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
+const customWorkflowTemplateForbiddenKeys = new Set([
+  'prompt',
+  'rawPrompt',
+  'stdout',
+  'stderr',
+  'diff',
+  'rawDiff',
+  'diffBody',
+  'pullRequestBody',
+  'pullRequestMarkdown',
+  'prBody',
+  'prMarkdown',
+  'path',
+  'rawPath',
+  'configPath',
+  'url',
+  'rawUrl',
+  'token',
+  'cookie',
+  'session',
+  'env',
+  'envValue',
+  'requestBody',
+  'responseBody',
+  'body',
+  'rawBody',
+  'approvalArtifact',
+  'executionAuthority',
+  'policyOverride',
+  'approvalOverride',
+]);
 const externalProcessModules = [['child', '_process'].join(''), ['node:', 'child', '_process'].join('')];
 const liveAutomationModules = ['playwright'];
 const executableTextTerms = [
@@ -222,6 +253,7 @@ const violations: Violation[] = [];
 
 validateBoundaryAllowlists();
 validateAdversarialAuditSentinels();
+auditCustomWorkflowTemplateFiles();
 
 for (const root of scanRoots) {
   const absoluteRoot = resolve(workspaceRoot, root);
@@ -465,6 +497,72 @@ function validateAdversarialAuditSentinels(): void {
       term: sentinel.expectedTerm,
       reason: `Adversarial no-live audit sentinel failed to catch ${sentinel.description}.`,
     });
+  }
+}
+
+function auditCustomWorkflowTemplateFiles(): void {
+  const workflowDirectory = resolve(workspaceRoot, '.codexhub', 'workflows');
+  if (!existsSync(workflowDirectory)) {
+    return;
+  }
+
+  for (const entry of readdirSync(workflowDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.workflow.json')) {
+      continue;
+    }
+
+    const file = resolve(workflowDirectory, entry.name);
+    const sourceText = readFileSync(file, 'utf8');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(sourceText);
+    } catch {
+      violations.push({
+        file,
+        line: 1,
+        term: entry.name,
+        reason: 'Production custom workflow templates must be valid JSON.',
+      });
+      continue;
+    }
+
+    auditCustomWorkflowTemplateValue(file, parsed);
+  }
+}
+
+function auditCustomWorkflowTemplateValue(file: string, value: unknown): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      auditCustomWorkflowTemplateValue(file, item);
+    }
+    return;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (customWorkflowTemplateForbiddenKeys.has(key)) {
+      violations.push({
+        file,
+        line: 1,
+        term: key,
+        reason:
+          'Production custom workflow templates must not include raw bodies, paths, secrets, authority artifacts, or policy-weakening fields.',
+      });
+    }
+
+    if (key === 'approvalRequired' && nested === false) {
+      violations.push({
+        file,
+        line: 1,
+        term: key,
+        reason: 'Production custom workflow templates cannot weaken approval requirements.',
+      });
+    }
+
+    auditCustomWorkflowTemplateValue(file, nested);
   }
 }
 

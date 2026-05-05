@@ -3627,3 +3627,98 @@ workflows:
       requestBodyApprovalArtifactTrusted: false
       requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
+  m25a.custom-workflow-catalog-contracts:
+    risk: high
+    trigger:
+      type: metadata-contracts
+      entrypoint: packages/contracts
+      localControlRequired: false
+    chain:
+      - phase: catalog-contracts
+        schemas:
+          - CustomWorkflowCatalogEntry
+          - CustomWorkflowCatalogReadiness
+          - CustomWorkflowTemplateFamilySummary
+          - CustomWorkflowProductionTemplateValidationSummary
+        output: ids-hashes-counts-statuses-summaries
+    safety:
+      noNewRoute: true
+      noNewExecutionBoundary: true
+      metadataOnlyPublicOutput: true
+  m25b.disabled-production-workflow-templates:
+    risk: high
+    trigger:
+      type: built-in-template-registration
+      entrypoint: .codexhub/workflows
+      localControlRequired: false
+    templates:
+      - local-patch-review
+      - local-rc-bundle
+      - github-draft-pr-chain
+      - rework-cleanup
+    safety:
+      productionExecutionEnabled: false
+      directAdapterExecutionAllowed: false
+      noNewExecutionProvider: true
+      rawTemplateBodyStored: false
+      policyWeakeningAllowed: false
+  m25c.custom-workflow-catalog-readiness:
+    risk: high
+    trigger:
+      type: metadata-readiness
+      entrypoint: packages/workflow-kernel
+      localControlRequired: false
+    chain:
+      - phase: catalog-load
+        templateGlob: .codexhub/workflows/*.workflow.json
+        storesRawConfigPath: false
+      - phase: readiness
+        reports:
+          - childCapabilityDependencies
+          - requiredEnvFlags
+          - productionDisabledBlockers
+        invokesChildControlPlanes: false
+    safety:
+      noNewRoute: true
+      noNewExecutionBoundary: true
+      metadataOnlyPublicOutput: true
+  m25d.custom-workflow-catalog-read-only-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/workflows"
+        shows:
+          - catalog inventory
+          - template families
+          - readiness blockers
+      - phase: cli
+        commands:
+          - codexhub workflows catalog list
+          - codexhub workflows catalog show <templateId>
+          - codexhub workflows catalog readiness <templateId>
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowedFromUiCli: false
+      metadataOnlyPublicOutput: true
+  m25_5.custom-workflow-catalog-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m25-custom-workflow-catalog-results.md
+      - docs/reviews/m25-custom-workflow-catalog-hardening-review.md
+      - docs/runbooks/m25-custom-workflow-catalog-operator-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noDirectAdapterExecutionFromUiCliMcp: true
+      productionTemplatesDisabledByDefault: true
+      metadataOnlyPublicOutput: true
