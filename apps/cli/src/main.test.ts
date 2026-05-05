@@ -1920,11 +1920,25 @@ describe('cli development mock-run fallback', () => {
     const report = await getOperatorReadinessReportForCli();
     const integration = await getOperatorIntegrationReadinessForCli('worktree-manager');
     const githubIntegration = await getOperatorIntegrationReadinessForCli('github-provider');
-    const serialized = JSON.stringify({ report, integration, githubIntegration });
+    const customWorkflowIntegration = await getOperatorIntegrationReadinessForCli(
+      'custom-workflow-production',
+    );
+    const serialized = JSON.stringify({
+      report,
+      integration,
+      githubIntegration,
+      customWorkflowIntegration,
+    });
 
     expect(report.checks.length).toBeGreaterThan(0);
     expect(report.integrations.some((item) => item.name === 'github-provider')).toBe(true);
+    expect(report.integrations.some((item) => item.name === 'custom-workflow-production')).toBe(
+      true,
+    );
     expect(JSON.stringify(githubIntegration)).toContain('github_remote_base_branch_not_observed');
+    expect(JSON.stringify(customWorkflowIntegration)).toContain(
+      'custom_workflow_production_execution_disabled',
+    );
     expect(report.configHashes.every((config) => config.bodyStored === false)).toBe(true);
     expect(formatOperatorReadinessReportOutput(report)).toContain('CodexHub operator readiness');
     expect(formatOperatorIntegrationReadinessOutput(integration)).toContain(

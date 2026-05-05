@@ -172,11 +172,18 @@ describe('operator-readiness-kernel', () => {
   it('creates a degraded-safe default preview', () => {
     const preview = createDefaultOperatorReadinessPreview();
     const github = preview.integrations.find((integration) => integration.name === 'github-provider');
+    const customWorkflow = preview.integrations.find(
+      (integration) => integration.name === 'custom-workflow-production',
+    );
 
     expect(preview.integrations.length).toBeGreaterThan(0);
     expect(github?.networkBoundary).toBe(true);
     expect(github?.blockers).toContain('github_credential_missing');
     expect(github?.blockers).toContain('github_remote_base_branch_not_observed');
+    expect(customWorkflow?.safeToEnable).toBe(false);
+    expect(customWorkflow?.approvalRequired).toBe(true);
+    expect(customWorkflow?.blockers).toContain('custom_workflow_production_execution_disabled');
+    expect(customWorkflow?.blockers).toContain('custom_workflow_child_capability_approval_required');
     expect(preview.rawValueStored).toBe(false);
     expect(preview.rawPathStored).toBe(false);
     expect(preview.bodyStored).toBe(false);

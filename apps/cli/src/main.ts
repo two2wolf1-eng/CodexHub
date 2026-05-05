@@ -5987,6 +5987,7 @@ function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
   const worktreeManagerEnabled = Boolean(process.env.CODEXHUB_WORKTREE_MANAGER_ENABLED);
   const m11PilotEnabled = Boolean(process.env.CODEXHUB_M11_PRODUCTION_PILOT_ENABLED);
   const githubProviderEnabled = Boolean(process.env.CODEXHUB_GITHUB_PROVIDER_ENABLED);
+  const customWorkflowProductionEnabled = Boolean(process.env.CODEXHUB_CUSTOM_WORKFLOWS_ENABLED);
   const githubCredentialConfigured = Boolean(process.env[GITHUB_CREDENTIAL_ENV_VAR]);
   const githubRemoteTarget = createGithubRemoteTargetStatusForCli();
   const githubProviderBlockers = [
@@ -6078,6 +6079,23 @@ function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
       configHash: githubRemoteTarget.remoteUrlHash,
       safeEnableNotes: [
         'GitHub provider requires env enablement, configured credential, local origin match, and approval-gated remote observation before remote writes.',
+      ],
+    },
+    {
+      name: 'custom-workflow-production',
+      enabled: customWorkflowProductionEnabled,
+      riskLevel: 'high',
+      approvalRequired: true,
+      envFlagConfigured: customWorkflowProductionEnabled,
+      blockers: customWorkflowProductionEnabled
+        ? ['custom_workflow_template_catalog_disabled_by_default']
+        : [
+            'disabled_by_default',
+            'custom_workflow_production_execution_disabled',
+            'custom_workflow_child_capability_approval_required',
+          ],
+      safeEnableNotes: [
+        'Production workflow catalog execution stays disabled by default and coordinates only existing child control-plane records.',
       ],
     },
     {

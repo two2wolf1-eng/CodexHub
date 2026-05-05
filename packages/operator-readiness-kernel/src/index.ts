@@ -769,7 +769,7 @@ function createDefaultConfigInputs(): OperatorConfigInput[] {
   return [
     { name: 'policies', kind: 'policy', text: 'policy-config-present', itemCount: 1 },
     { name: 'risk-matrix', kind: 'risk', text: 'risk-config-present', itemCount: 1 },
-    { name: 'integrations', kind: 'integration', text: 'integrations-config-present', itemCount: 8 },
+    { name: 'integrations', kind: 'integration', text: 'integrations-config-present', itemCount: 10 },
   ];
 }
 
@@ -842,6 +842,20 @@ function createDefaultIntegrationInputs(): OperatorIntegrationInput[] {
       ],
       safeEnableNotes: [
         'GitHub provider enablement requires explicit env flags, configured credential, origin remote readiness, and persisted approval before remote observation or writes.',
+      ],
+    },
+    {
+      name: 'custom-workflow-production',
+      enabled: false,
+      riskLevel: 'high',
+      approvalRequired: true,
+      blockers: [
+        'disabled_by_default',
+        'custom_workflow_production_execution_disabled',
+        'custom_workflow_child_capability_approval_required',
+      ],
+      safeEnableNotes: [
+        'Production workflows bind committed catalog templates to existing Supervisor custom workflow routes; workflow approval never replaces child capability approvals.',
       ],
     },
     {

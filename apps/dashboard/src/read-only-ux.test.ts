@@ -882,6 +882,10 @@ describe('dashboard read-only UX helpers', () => {
 
     expect(summary.checkCount).toBeGreaterThan(0);
     expect(summary.integrations.length).toBeGreaterThan(0);
+    expect(summary.integrations.some((integration) => integration.name === 'custom-workflow-production')).toBe(
+      true,
+    );
+    expect(serialized).toContain('custom_workflow_production_execution_disabled');
     expect(summary.policyConfigHash).toMatch(/^readiness:/);
     expect(summary.riskConfigHash).toMatch(/^readiness:/);
     expect(summary.integrationConfigHash).toMatch(/^readiness:/);
