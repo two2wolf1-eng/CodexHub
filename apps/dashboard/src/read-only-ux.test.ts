@@ -331,7 +331,13 @@ describe('dashboard read-only UX helpers', () => {
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('custom-workflow');
-    expect(summary.manifestVersion).toContain('m24');
+    expect(summary.manifestVersion).toContain('m25');
+    expect(summary.catalogTemplateCount).toBe(4);
+    expect(summary.catalogReadyCount).toBe(0);
+    expect(summary.catalogBlockedOrDisabledCount).toBe(4);
+    expect(summary.catalogFamilies).toEqual(['local', 'github']);
+    expect(summary.productionTemplateIds).toContain('local-patch-review');
+    expect(summary.productionExecutionEnabled).toBe(false);
     expect(summary.dryRunCount).toBe(2);
     expect(summary.approvalRequired).toBe(true);
     expect(summary.childApprovalsRequired).toBe(true);

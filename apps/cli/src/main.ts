@@ -205,6 +205,7 @@ import {
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
 import {
   WorkflowRunner,
+  createCustomWorkflowCatalog,
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
   loadCustomWorkflowTemplatesFromDirectory,
@@ -1377,6 +1378,39 @@ export function buildProgram(): Command {
   const workflowsCommand = program
     .command('workflows')
     .description('Read custom workflow templates and governed workflow records');
+  const workflowCatalogCommand = workflowsCommand
+    .command('catalog')
+    .description('Read production workflow catalog metadata and readiness');
+
+  workflowCatalogCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List disabled production workflow catalog entries')
+    .action(async (options: JsonCliOptions) => {
+      const result = listCustomWorkflowCatalogForCli();
+      console.log(formatCustomWorkflowCatalogListOutput(result, options));
+    });
+
+  workflowCatalogCommand
+    .command('show')
+    .argument('<templateId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one production workflow catalog entry')
+    .action(async (templateId: string, options: JsonCliOptions) => {
+      const result = showCustomWorkflowCatalogEntryForCli(templateId);
+      console.log(formatCustomWorkflowCatalogDetailOutput(result, options));
+    });
+
+  workflowCatalogCommand
+    .command('readiness')
+    .argument('<templateId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show production workflow readiness blockers without execution')
+    .action(async (templateId: string, options: JsonCliOptions) => {
+      const result = getCustomWorkflowCatalogReadinessForCli(templateId);
+      console.log(formatCustomWorkflowCatalogReadinessOutput(result, options));
+    });
+
   const workflowTemplatesCommand = workflowsCommand
     .command('templates')
     .description('Read local JSON custom workflow template metadata');
@@ -5327,6 +5361,64 @@ async function getSupervisorJson<T>(path: string): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+function listCustomWorkflowCatalogForCli(): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+
+  return {
+    records: catalog.entries,
+    readiness: catalog.readiness,
+    validationSummaries: catalog.validationSummaries,
+    familySummaries: catalog.familySummaries,
+    count: catalog.entries.length,
+    readyCount: catalog.readiness.filter((item) => item.status === 'ready').length,
+    blockedOrDisabledCount: catalog.readiness.filter((item) => item.status !== 'ready').length,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+function showCustomWorkflowCatalogEntryForCli(templateId: string): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const record = catalog.entries.find((entry) => entry.templateId === templateId);
+  const readiness = catalog.readiness.find((entry) => entry.templateId === templateId);
+  const validation = catalog.validationSummaries.find((entry) => entry.templateId === templateId);
+
+  return {
+    record,
+    readiness,
+    validation,
+    found: Boolean(record),
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+function getCustomWorkflowCatalogReadinessForCli(templateId: string): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const readiness = catalog.readiness.find((entry) => entry.templateId === templateId);
+  const record = catalog.entries.find((entry) => entry.templateId === templateId);
+
+  return {
+    record,
+    readiness,
+    found: Boolean(readiness),
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
 }
 
 function listCustomWorkflowTemplatesForCli(): Record<string, unknown> {
@@ -10368,6 +10460,101 @@ export function formatWorktreeDryRunsListOutput(
   options: JsonCliOptions = {},
 ): string {
   return formatWorktreeCollectionOutput('Worktree dry-runs', result, options);
+}
+
+export function formatCustomWorkflowCatalogListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as Array<Record<string, unknown>> | undefined) ?? [];
+  const readiness = (result.readiness as Array<Record<string, unknown>> | undefined) ?? [];
+  const readinessByTemplate = new Map(
+    readiness.map((item) => [String(item.templateId ?? 'unknown'), item]),
+  );
+
+  return [
+    'Custom workflow production catalog',
+    `count: ${records.length}`,
+    `ready=${String(result.readyCount ?? 0)}`,
+    `blockedOrDisabled=${String(result.blockedOrDisabledCount ?? 0)}`,
+    `directAdapterExecutionAllowed=${String(result.directAdapterExecutionAllowed ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records.slice(0, 12).map((record) => {
+      const readinessRecord = readinessByTemplate.get(String(record.templateId ?? 'unknown'));
+      return `- ${String(record.templateId ?? 'unknown')} family=${String(
+        record.family ?? 'unknown',
+      )} status=${String(readinessRecord?.status ?? 'unknown')} hash=${String(
+        record.templateHash ?? 'unavailable',
+      )}`;
+    }),
+  ].join('\n');
+}
+
+export function formatCustomWorkflowCatalogDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+  const readiness = result.readiness as Record<string, unknown> | undefined;
+  const validation = result.validation as Record<string, unknown> | undefined;
+
+  return [
+    'Custom workflow catalog entry',
+    `found=${String(result.found ?? false)}`,
+    `templateId: ${String(record?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(record?.templateHash ?? 'unavailable')}`,
+    `family: ${String(record?.family ?? 'unknown')}`,
+    `source: ${String(record?.source ?? 'unknown')}`,
+    `validation: ${String(validation?.status ?? record?.validationStatus ?? 'unknown')}`,
+    `readiness: ${String(readiness?.status ?? 'unknown')}`,
+    `approvalRequired=${String(record?.approvalRequired ?? true)}`,
+    `childApprovalsRequired=${String(record?.childApprovalsRequired ?? 0)}`,
+    `directAdapterExecutionAllowed=${String(record?.directAdapterExecutionAllowed ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `summary: ${String(record?.summary ?? 'Custom workflow catalog entry unavailable.')}`,
+  ].join('\n');
+}
+
+export function formatCustomWorkflowCatalogReadinessOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+  const readiness = result.readiness as Record<string, unknown> | undefined;
+  const blockers = (readiness?.blockers as string[] | undefined) ?? [];
+
+  return [
+    'Custom workflow catalog readiness',
+    `found=${String(result.found ?? false)}`,
+    `templateId: ${String(record?.templateId ?? readiness?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(record?.templateHash ?? readiness?.templateHash ?? 'unavailable')}`,
+    `status: ${String(readiness?.status ?? 'unknown')}`,
+    `integrationEnabled=${String(readiness?.integrationEnabled ?? false)}`,
+    `productionExecutionEnabled=${String(readiness?.productionExecutionEnabled ?? false)}`,
+    `blockerCount=${String(readiness?.blockerCount ?? 0)}`,
+    `blockers=${blockers.length > 0 ? blockers.join(',') : 'none'}`,
+    `directAdapterExecutionAllowed=${String(
+      readiness?.directAdapterExecutionAllowed ?? false,
+    )}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `summary: ${String(readiness?.summary ?? 'Custom workflow readiness unavailable.')}`,
+  ].join('\n');
 }
 
 export function formatCustomWorkflowTemplatesListOutput(

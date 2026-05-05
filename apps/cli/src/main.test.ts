@@ -184,6 +184,9 @@ describe('cli development mock-run fallback', () => {
       'runReworkLoopAcceptanceRehearsalForCli',
       'getGithubProviderStatusForCli',
       'createGithubRemoteTargetStatusForCli',
+      'listCustomWorkflowCatalogForCli',
+      'showCustomWorkflowCatalogEntryForCli',
+      'getCustomWorkflowCatalogReadinessForCli',
       'listCustomWorkflowTemplatesForCli',
       'showCustomWorkflowTemplateForCli',
       'validateCustomWorkflowTemplateForCli',
@@ -202,6 +205,58 @@ describe('cli development mock-run fallback', () => {
       expect(helperSource, helperName).not.toContain('method: "POST"');
       expect(helperSource, helperName).not.toMatch(/\bexecute[A-Z][A-Za-z0-9_]*/);
     }
+  });
+
+  it('formats custom workflow catalog metadata without raw output or write controls', async () => {
+    const { createCustomWorkflowCatalog } = await import('@codexhub/workflow-kernel');
+    const {
+      formatCustomWorkflowCatalogDetailOutput,
+      formatCustomWorkflowCatalogListOutput,
+      formatCustomWorkflowCatalogReadinessOutput,
+    } = await import('./main');
+    const catalog = createCustomWorkflowCatalog();
+    const localPatch = catalog.entries.find((entry) => entry.templateId === 'local-patch-review');
+    const readiness = catalog.readiness.find(
+      (entry) => entry.templateId === 'local-patch-review',
+    );
+    const validation = catalog.validationSummaries.find(
+      (entry) => entry.templateId === 'local-patch-review',
+    );
+    const listOutput = formatCustomWorkflowCatalogListOutput({
+      records: catalog.entries,
+      readiness: catalog.readiness,
+      count: catalog.entries.length,
+      readyCount: 0,
+      blockedOrDisabledCount: catalog.entries.length,
+      directAdapterExecutionAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    const detailOutput = formatCustomWorkflowCatalogDetailOutput({
+      record: localPatch,
+      readiness,
+      validation,
+      found: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    const readinessOutput = formatCustomWorkflowCatalogReadinessOutput({
+      record: localPatch,
+      readiness,
+      found: true,
+      bodyStored: false,
+      rawPathStored: false,
+    });
+    const serialized = [JSON.stringify(catalog), listOutput, detailOutput, readinessOutput].join('\n');
+
+    expect(listOutput).toContain('Custom workflow production catalog');
+    expect(detailOutput).toContain('local-patch-review');
+    expect(readinessOutput).toContain('status: disabled');
+    expect(serialized).toContain('directAdapterExecutionAllowed=false');
+    expectNoForbiddenCliRawOutput(serialized);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('x-codexhub-local-token');
+    expect(serialized).not.toContain('diff --git');
   });
 
   it('creates an Nx verification dry-run summary without starting a process', async () => {

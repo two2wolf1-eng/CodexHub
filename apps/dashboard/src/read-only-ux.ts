@@ -264,6 +264,12 @@ export interface CustomWorkflowReadOnlySummary {
   manifestName: string;
   manifestVersion: string;
   templateCount: number;
+  catalogTemplateCount: number;
+  catalogReadyCount: number;
+  catalogBlockedOrDisabledCount: number;
+  catalogFamilies: string[];
+  productionTemplateIds: string[];
+  productionExecutionEnabled: false;
   validationCount: number;
   dryRunCount: number;
   approvalCount: number;
@@ -1593,6 +1599,11 @@ export function createLocalReviewPackageReadOnlySummary(input: {
 
 export function createCustomWorkflowReadOnlySummary(input: {
   templateCount?: number;
+  catalogTemplateCount?: number;
+  catalogReadyCount?: number;
+  catalogBlockedOrDisabledCount?: number;
+  catalogFamilies?: string[];
+  productionTemplateIds?: string[];
   validationCount?: number;
   dryRunCount?: number;
   approvalCount?: number;
@@ -1603,8 +1614,19 @@ export function createCustomWorkflowReadOnlySummary(input: {
 } = {}): CustomWorkflowReadOnlySummary {
   return {
     manifestName: 'custom-workflow',
-    manifestVersion: '0.1.0-m24',
+    manifestVersion: '0.2.0-m25',
     templateCount: input.templateCount ?? 0,
+    catalogTemplateCount: input.catalogTemplateCount ?? 4,
+    catalogReadyCount: input.catalogReadyCount ?? 0,
+    catalogBlockedOrDisabledCount: input.catalogBlockedOrDisabledCount ?? 4,
+    catalogFamilies: input.catalogFamilies ?? ['local', 'github'],
+    productionTemplateIds: input.productionTemplateIds ?? [
+      'local-patch-review',
+      'local-rc-bundle',
+      'github-draft-pr-chain',
+      'rework-cleanup',
+    ],
+    productionExecutionEnabled: false,
     validationCount: input.validationCount ?? 0,
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,

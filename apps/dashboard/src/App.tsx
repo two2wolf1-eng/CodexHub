@@ -971,7 +971,7 @@ export function App() {
       overview.releaseCandidateRuns.every((record) => record.noRealWrite === true),
   });
   const customWorkflowSummary = createCustomWorkflowReadOnlySummary({
-    templateCount: 0,
+    templateCount: 4,
     validationCount: overview.customWorkflowDryRuns.length,
     dryRunCount: overview.customWorkflowDryRuns.length,
     approvalCount: overview.customWorkflowApprovals.length,
@@ -5021,6 +5021,18 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>production catalog</strong>
+              <span>
+                {customWorkflowSummary.catalogTemplateCount} templates, ready{' '}
+                {customWorkflowSummary.catalogReadyCount}, blocked{' '}
+                {customWorkflowSummary.catalogBlockedOrDisabledCount}
+              </span>
+            </li>
+            <li>
+              <strong>template families</strong>
+              <span>{customWorkflowSummary.catalogFamilies.join(', ')}</span>
+            </li>
+            <li>
               <strong>approval model</strong>
               <span>
                 workflow {String(customWorkflowSummary.approvalRequired)}, child{' '}
@@ -5043,6 +5055,19 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{customWorkflowSummary.summary}</p>
+        </Panel>
+        <Panel title="Production Workflow Catalog">
+          <ul>
+            {customWorkflowSummary.productionTemplateIds.map((templateId) => (
+              <li key={templateId}>
+                <strong>{templateId}</strong>
+                <span>
+                  productionExecutionEnabled{' '}
+                  {String(customWorkflowSummary.productionExecutionEnabled)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </Panel>
         <Panel title="Custom Workflow Control Records">
           <ul>
