@@ -8,11 +8,14 @@ import {
 import {
   WorkflowRunner,
   createCustomWorkflowApprovalRecord,
+  createCustomWorkflowCatalog,
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
   createCustomWorkflowTemplateFromJson,
   createDevelopmentRequestWorkflowDefinition,
   createMockWorkflowDefinition,
+  findCustomWorkflowCatalogTemplate,
+  loadCustomWorkflowTemplatesFromDirectory,
   runCustomWorkflowCoordinator,
   runCustomWorkflowFixtureRehearsal,
   validateCustomWorkflowTemplateInput,
@@ -232,5 +235,50 @@ describe('workflow-kernel custom workflows', () => {
     expect(completed.status).toBe('completed');
     expect(completed.directAdapterExecutionAllowed).toBe(false);
     expect(JSON.stringify(completed)).not.toContain('raw diff');
+  });
+
+  it('loads built-in production templates as disabled catalog entries', () => {
+    const loaded = loadCustomWorkflowTemplatesFromDirectory();
+    const catalog = createCustomWorkflowCatalog();
+
+    expect(loaded.templates.map((template) => template.templateId).sort()).toEqual([
+      'github-draft-pr-chain',
+      'local-patch-review',
+      'local-rc-bundle',
+      'rework-cleanup',
+    ]);
+    expect(catalog.entries).toHaveLength(4);
+    expect(catalog.entries.every((entry) => entry.source === 'built-in')).toBe(true);
+    expect(catalog.entries.every((entry) => entry.enabledByDefault === false)).toBe(true);
+    expect(catalog.readiness.every((entry) => entry.status === 'disabled')).toBe(true);
+    expect(catalog.readiness.every((entry) => entry.directAdapterExecutionAllowed === false)).toBe(
+      true,
+    );
+    expect(catalog.familySummaries.map((summary) => summary.family).sort()).toEqual([
+      'github',
+      'local',
+    ]);
+    expect(findAdversarialPublicOutputRoundTripLeaks(catalog)).toEqual([]);
+  });
+
+  it('reports production workflow catalog readiness when explicitly enabled', () => {
+    const catalog = createCustomWorkflowCatalog(process.cwd(), {
+      integrationEnabled: true,
+      productionExecutionEnabled: true,
+      configuredEnvFlags: ['CODEXHUB_CUSTOM_WORKFLOWS_ENABLED'],
+    });
+
+    expect(catalog.readiness.every((entry) => entry.status === 'ready')).toBe(true);
+    expect(catalog.readiness.every((entry) => entry.blockerCount === 0)).toBe(true);
+    expect(catalog.entries.some((entry) => entry.approvalRequired)).toBe(true);
+  });
+
+  it('finds production catalog templates by id without exposing file paths', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+
+    expect(template?.templateId).toBe('local-patch-review');
+    expect(template?.configPathHash).toMatch(/^sha256:/);
+    expect(JSON.stringify(template)).not.toContain('.codexhub');
+    expect(JSON.stringify(template)).not.toContain('workflow.json');
   });
 });

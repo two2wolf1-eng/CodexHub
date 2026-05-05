@@ -1,9 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import {
   ActionModeSchema,
   CapabilityKindSchema,
+  CustomWorkflowCatalogEntrySchema,
+  type CustomWorkflowCatalogEntry,
+  CustomWorkflowCatalogReadinessSchema,
+  type CustomWorkflowCatalogReadiness,
   CustomWorkflowApprovalArtifactRecordSchema,
   type CustomWorkflowApprovalArtifactRecord,
   CustomWorkflowCapabilityBindingSchema,
@@ -14,12 +18,16 @@ import {
   type CustomWorkflowRehearsalRun,
   CustomWorkflowRehearsalScenarioSchema,
   type CustomWorkflowRehearsalScenario,
+  CustomWorkflowProductionTemplateValidationSummarySchema,
+  type CustomWorkflowProductionTemplateValidationSummary,
   CustomWorkflowRunSchema,
   type CustomWorkflowRun,
   CustomWorkflowStepKindSchema,
   type CustomWorkflowStepKind,
   type CustomWorkflowStepPlan,
   type CustomWorkflowStepRunSummary,
+  CustomWorkflowTemplateFamilySummarySchema,
+  type CustomWorkflowTemplateFamilySummary,
   CustomWorkflowTemplateSchema,
   type CustomWorkflowTemplate,
   CustomWorkflowValidationReportSchema,
@@ -54,6 +62,20 @@ export interface WorkflowRunnerOptions {
 export interface CustomWorkflowLoadResult {
   templates: CustomWorkflowTemplate[];
   validationReports: CustomWorkflowValidationReport[];
+}
+
+export interface CustomWorkflowCatalogOptions {
+  integrationEnabled?: boolean;
+  productionExecutionEnabled?: boolean;
+  configuredEnvFlags?: string[];
+  requiredEnvFlags?: string[];
+}
+
+export interface CustomWorkflowCatalogResult extends CustomWorkflowLoadResult {
+  entries: CustomWorkflowCatalogEntry[];
+  readiness: CustomWorkflowCatalogReadiness[];
+  validationSummaries: CustomWorkflowProductionTemplateValidationSummary[];
+  familySummaries: CustomWorkflowTemplateFamilySummary[];
 }
 
 export interface CustomWorkflowPlannerOptions {
@@ -106,6 +128,15 @@ const customWorkflowForbiddenKeys = new Set([
   'approvalOverride',
   'configPath',
 ]);
+
+const builtInProductionTemplateIds = new Set([
+  'local-patch-review',
+  'local-rc-bundle',
+  'github-draft-pr-chain',
+  'rework-cleanup',
+]);
+
+const defaultCustomWorkflowRequiredEnvFlags = ['CODEXHUB_CUSTOM_WORKFLOWS_ENABLED'];
 
 const customWorkflowStepProfiles: Record<
   CustomWorkflowStepKind,
@@ -501,7 +532,8 @@ export function createCustomWorkflowTemplateFixture(
 export function loadCustomWorkflowTemplatesFromDirectory(
   workspaceRoot = process.cwd(),
 ): CustomWorkflowLoadResult {
-  const workflowsDir = resolve(workspaceRoot, '.codexhub', 'workflows');
+  const resolvedWorkspaceRoot = findCustomWorkflowWorkspaceRoot(workspaceRoot);
+  const workflowsDir = resolve(resolvedWorkspaceRoot, '.codexhub', 'workflows');
   if (!existsSync(workflowsDir)) {
     return { templates: [], validationReports: [] };
   }
@@ -545,6 +577,35 @@ export function loadCustomWorkflowTemplatesFromDirectory(
   }
 
   return { templates, validationReports };
+}
+
+export function createCustomWorkflowCatalog(
+  workspaceRoot = process.cwd(),
+  options: CustomWorkflowCatalogOptions = {},
+): CustomWorkflowCatalogResult {
+  const { templates, validationReports } =
+    loadCustomWorkflowTemplatesFromDirectory(workspaceRoot);
+  const entries = templates.map((template) =>
+    createCustomWorkflowCatalogEntry(template, findValidationReport(validationReports, template)),
+  );
+  const readiness = entries.map((entry) =>
+    createCustomWorkflowCatalogReadiness(entry, options),
+  );
+  const validationSummaries = validationReports.map((report) =>
+    createCustomWorkflowProductionValidationSummary(report),
+  );
+  const familySummaries = createCustomWorkflowFamilySummaries(entries, readiness);
+
+  return { templates, validationReports, entries, readiness, validationSummaries, familySummaries };
+}
+
+export function findCustomWorkflowCatalogTemplate(
+  templateId: string,
+  workspaceRoot = process.cwd(),
+): CustomWorkflowTemplate | undefined {
+  return loadCustomWorkflowTemplatesFromDirectory(workspaceRoot).templates.find(
+    (template) => template.templateId === templateId,
+  );
 }
 
 export function validateCustomWorkflowTemplateInput(
@@ -666,7 +727,13 @@ export function createCustomWorkflowTemplateFromJson(
     configBodyStored: false,
     noRealWrite: true,
     summary: `Custom workflow ${templateId} with ${steps.length} ordered steps.`,
-    metadata: { templateHash: validationReport.templateHash },
+    metadata: {
+      templateHash: validationReport.templateHash,
+      family: getCustomWorkflowTemplateFamily(templateId),
+      source: builtInProductionTemplateIds.has(templateId) ? 'built-in' : 'workspace',
+      enabledByDefault: false,
+      productionExecutionEnabled: false,
+    },
   });
 }
 
@@ -970,6 +1037,250 @@ function createCustomWorkflowValidationReport(input: {
         : `Custom workflow template has ${input.issues.length} validation issues.`,
     metadata: { templateHash: input.templateHash },
   });
+}
+
+function createCustomWorkflowCatalogEntry(
+  template: CustomWorkflowTemplate,
+  validationReport?: CustomWorkflowValidationReport,
+): CustomWorkflowCatalogEntry {
+  const requiredStepKinds = uniqueValues(template.steps.map((step) => step.kind));
+  const requiredCapabilityKinds = uniqueValues(
+    template.steps.map((step) => step.capabilityBinding.capabilityKind),
+  );
+  const childApprovalsRequired = template.steps.filter(
+    (step) => step.capabilityBinding.childApprovalRequired,
+  ).length;
+  const approvalRequired = template.steps.some(
+    (step) =>
+      step.capabilityBinding.requiresApproval ||
+      step.actionMode === 'write' ||
+      step.actionMode === 'admin',
+  );
+  const source = builtInProductionTemplateIds.has(template.templateId)
+    ? 'built-in'
+    : 'workspace';
+  const family = getCustomWorkflowTemplateFamily(template.templateId);
+
+  return CustomWorkflowCatalogEntrySchema.parse({
+    id: foundationId('custom_workflow_catalog_entry'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    family,
+    displayName: getCustomWorkflowDisplayName(template.templateId),
+    source,
+    validationStatus: validationReport?.status ?? 'valid',
+    riskLevel: template.riskLevel,
+    stepCount: template.stepCount,
+    capabilityCount: requiredCapabilityKinds.length,
+    requiredStepKinds,
+    requiredCapabilityKinds,
+    approvalRequired,
+    childApprovalsRequired,
+    enabledByDefault: false,
+    productionExecutionEnabled: false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+    configBodyStored: false,
+    summary: `${getCustomWorkflowDisplayName(template.templateId)} is registered as a disabled production workflow template.`,
+    metadata: {
+      templateHash: template.templateHash,
+      source,
+      family,
+    },
+  });
+}
+
+function createCustomWorkflowCatalogReadiness(
+  entry: CustomWorkflowCatalogEntry,
+  options: CustomWorkflowCatalogOptions,
+): CustomWorkflowCatalogReadiness {
+  const requiredEnvFlags =
+    options.requiredEnvFlags ?? defaultCustomWorkflowRequiredEnvFlags;
+  const configuredEnvFlags = new Set(options.configuredEnvFlags ?? []);
+  const missingEnvFlags = requiredEnvFlags.filter(
+    (flag) => !configuredEnvFlags.has(flag),
+  );
+  const integrationEnabled = options.integrationEnabled ?? false;
+  const productionExecutionEnabled = options.productionExecutionEnabled ?? false;
+  const blockers: string[] = [];
+  if (entry.validationStatus !== 'valid') {
+    blockers.push('custom_workflow_template_invalid');
+  }
+  if (!integrationEnabled) {
+    blockers.push('custom_workflow_integration_disabled');
+  }
+  if (!productionExecutionEnabled) {
+    blockers.push('custom_workflow_production_execution_disabled');
+  }
+  for (const flag of missingEnvFlags) {
+    blockers.push(`custom_workflow_env_missing:${flag}`);
+  }
+  const status =
+    blockers.length === 0
+      ? 'ready'
+      : !integrationEnabled || !productionExecutionEnabled
+        ? 'disabled'
+        : 'blocked';
+
+  return CustomWorkflowCatalogReadinessSchema.parse({
+    id: foundationId('custom_workflow_catalog_readiness'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    templateId: entry.templateId,
+    templateHash: entry.templateHash,
+    status,
+    productionExecutionEnabled,
+    integrationEnabled,
+    requiredEnvFlags,
+    configuredEnvFlagCount: requiredEnvFlags.length - missingEnvFlags.length,
+    missingEnvFlagCount: missingEnvFlags.length,
+    childCapabilityCount: entry.requiredCapabilityKinds.length,
+    approvalRequired: entry.approvalRequired,
+    blockerCount: blockers.length,
+    blockers,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    directAdapterExecutionAllowed: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      status === 'ready'
+        ? `${entry.displayName} is ready for governed production dry-run binding.`
+        : `${entry.displayName} remains blocked or disabled for production execution.`,
+    metadata: {
+      templateHash: entry.templateHash,
+      blockerCount: blockers.length,
+    },
+  });
+}
+
+function createCustomWorkflowProductionValidationSummary(
+  report: CustomWorkflowValidationReport,
+): CustomWorkflowProductionTemplateValidationSummary {
+  return CustomWorkflowProductionTemplateValidationSummarySchema.parse({
+    id: foundationId('custom_workflow_catalog_validation'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    templateId: report.templateId,
+    templateHash: report.templateHash,
+    status: report.status,
+    issueCount: report.issueCount,
+    unknownStepKindCount: report.unknownStepKindCount,
+    policyWeakeningDetected: false,
+    rawBodyDetected: false,
+    rawPathStored: false,
+    bodyStored: false,
+    configBodyStored: false,
+    summary:
+      report.status === 'valid'
+        ? 'Production workflow template validation passed.'
+        : `Production workflow template validation found ${report.issueCount} issues.`,
+    metadata: { templateHash: report.templateHash },
+  });
+}
+
+function createCustomWorkflowFamilySummaries(
+  entries: CustomWorkflowCatalogEntry[],
+  readiness: CustomWorkflowCatalogReadiness[],
+): CustomWorkflowTemplateFamilySummary[] {
+  const readinessByTemplate = new Map(
+    readiness.map((item) => [item.templateId, item]),
+  );
+  const groups = new Map<string, CustomWorkflowCatalogEntry[]>();
+  for (const entry of entries) {
+    groups.set(entry.family, [...(groups.get(entry.family) ?? []), entry]);
+  }
+
+  return [...groups.entries()].map(([family, familyEntries]) => {
+    const validTemplateCount = familyEntries.filter(
+      (entry) => entry.validationStatus === 'valid',
+    ).length;
+    const blockedTemplateCount = familyEntries.filter((entry) => {
+      const item = readinessByTemplate.get(entry.templateId);
+      return item?.status !== 'ready';
+    }).length;
+    const highestRisk = familyEntries
+      .map((entry) => entry.riskLevel)
+      .sort(compareRiskDescending)[0] ?? 'low';
+
+    return CustomWorkflowTemplateFamilySummarySchema.parse({
+      id: foundationId('custom_workflow_family'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      family,
+      templateCount: familyEntries.length,
+      validTemplateCount,
+      blockedTemplateCount,
+      highestRisk,
+      enabledByDefault: false,
+      productionExecutionEnabled: false,
+      summary: `Workflow family ${family} has ${familyEntries.length} disabled production templates.`,
+      metadata: { family, templateCount: familyEntries.length },
+    });
+  });
+}
+
+function findValidationReport(
+  reports: CustomWorkflowValidationReport[],
+  template: CustomWorkflowTemplate,
+): CustomWorkflowValidationReport | undefined {
+  return reports.find(
+    (report) =>
+      report.templateId === template.templateId &&
+      report.templateHash === template.templateHash,
+  );
+}
+
+function findCustomWorkflowWorkspaceRoot(startPath: string): string {
+  let current = resolve(startPath);
+  while (true) {
+    if (existsSync(resolve(current, '.codexhub', 'workflows'))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return resolve(startPath);
+    }
+    current = parent;
+  }
+}
+
+function getCustomWorkflowTemplateFamily(templateId: string): string {
+  if (templateId.startsWith('local-')) {
+    return 'local';
+  }
+  if (templateId.startsWith('github-') || templateId.startsWith('rework-')) {
+    return 'github';
+  }
+  return 'custom';
+}
+
+function getCustomWorkflowDisplayName(templateId: string): string {
+  return templateId
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function uniqueValues<T extends string>(values: T[]): T[] {
+  return [...new Set(values)];
+}
+
+function compareRiskDescending(a: RiskLevel, b: RiskLevel): number {
+  const order: Record<RiskLevel, number> = {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1,
+  };
+  return order[b] - order[a];
 }
 
 function collectCustomWorkflowPolicyIssues(
