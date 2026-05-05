@@ -16,6 +16,9 @@ import type {
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
+  GithubPrLifecycleApprovalArtifactRecord,
+  GithubPrLifecycleObservationPlan,
+  GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
   LocalReviewPackageApprovalArtifactRecord,
@@ -100,6 +103,7 @@ export type GithubMetadataControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubDraftPrControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubBranchPublishControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPublishDraftPrChainControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubPrLifecycleControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -408,6 +412,39 @@ export interface GithubPublishDraftPrChainRunRepository {
   ): Promise<GithubPublishDraftPrChainRun[]>;
 }
 
+export interface GithubPrLifecycleDryRunRepository {
+  saveDryRun(
+    record: GithubPrLifecycleObservationPlan,
+  ): Promise<GithubPrLifecycleObservationPlan>;
+  getDryRun(id: string): Promise<GithubPrLifecycleObservationPlan | undefined>;
+  listDryRuns(
+    query?: GithubPrLifecycleControlPlaneQuery,
+  ): Promise<GithubPrLifecycleObservationPlan[]>;
+}
+
+export interface GithubPrLifecycleApprovalRepository {
+  saveApproval(
+    record: GithubPrLifecycleApprovalArtifactRecord,
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord>;
+  getApproval(id: string): Promise<GithubPrLifecycleApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: GithubPrLifecycleControlPlaneQuery,
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord[]>;
+}
+
+export interface GithubPrLifecycleRunRepository {
+  saveRun(
+    record: GithubPrLifecycleObservationRun,
+  ): Promise<GithubPrLifecycleObservationRun>;
+  getRun(id: string): Promise<GithubPrLifecycleObservationRun | undefined>;
+  listRuns(
+    query?: GithubPrLifecycleControlPlaneQuery,
+  ): Promise<GithubPrLifecycleObservationRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -611,6 +648,9 @@ export interface CodexHubStore {
   githubBranchPublishRuns: GithubBranchPublishRunRepository;
   githubPublishDraftPrChainDryRuns: GithubPublishDraftPrChainDryRunRepository;
   githubPublishDraftPrChainRuns: GithubPublishDraftPrChainRunRepository;
+  githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
+  githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
+  githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

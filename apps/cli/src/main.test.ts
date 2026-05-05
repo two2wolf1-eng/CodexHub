@@ -438,6 +438,52 @@ describe('cli development mock-run fallback', () => {
         );
       }
 
+      if (String(url).includes('/api/github/pr-lifecycle/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_pr_lifecycle_run_1',
+                dryRunId: 'github_pr_lifecycle_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-pr-lifecycle',
+                targetRef: {
+                  hostHash: 'sha256:host',
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                prNumberHash: 'sha256:pr-number',
+                commitShaHash: 'sha256:commit',
+                prStateSummary: 'open',
+                combinedStatusState: 'success',
+                statusContextCount: 2,
+                checkRunCount: 3,
+                responseBodyHashes: ['sha256:pr-response', 'sha256:checks-response'],
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                rawUrlStored: false,
+                rawResponseBodyStored: false,
+                rawPathStored: false,
+                bodyStored: false,
+                evidenceRefIds: ['github_pr_lifecycle_evidence_1'],
+                auditEventIds: ['github_pr_lifecycle_audit_1'],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
       if (String(url).includes('/api/worktrees/cleanup/runs')) {
         return new Response(JSON.stringify({ records: [] }), { status: 200 });
       }
@@ -489,7 +535,7 @@ describe('cli development mock-run fallback', () => {
 
     expect(result).toMatchObject({
       status: 'ready',
-      count: 8,
+      count: 9,
       liveExecution: false,
       externalProcessStarted: false,
       noRealWrite: true,
@@ -500,10 +546,11 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('github_draft_pr_run_1');
     expect(output).toContain('github_branch_publish_run_1');
     expect(output).toContain('github_publish_draft_pr_chain_run_1');
+    expect(output).toContain('github_pr_lifecycle_run_1');
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(28);
+    expect(fetchCalls).toHaveLength(30);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -1277,6 +1324,190 @@ describe('cli development mock-run fallback', () => {
     expect(rehearsalOutput).toContain('updateRefAllowed=false');
     expect(() => runGithubPublishDraftPrAcceptanceRehearsalForCli({ fixture: false })).toThrow();
     expect(fetchCalls).toHaveLength(3);
+  });
+
+  it('shows GitHub PR lifecycle metadata using GET endpoints only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/github/pr-lifecycle/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'github_pr_lifecycle_dry_run_record_1',
+                dryRunId: 'github_pr_lifecycle_dry_run_1',
+                status: 'ready',
+                runnerMode: 'controlled-github-pr-lifecycle',
+                targetRef: {
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                  rawOwnerStored: false,
+                  rawRepoStored: false,
+                  rawRefStored: false,
+                  rawUrlStored: false,
+                  rawPathStored: false,
+                  bodyStored: false,
+                },
+                requestedMetadata: ['pr', 'branch_ref', 'combined_status', 'check_runs'],
+                networkBoundaryPlanned: true,
+                networkBoundaryInvoked: false,
+                rawUrlStored: false,
+                rawResponseBodyStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/pr-lifecycle/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'github_pr_lifecycle_approval_record_1',
+                dryRunId: 'github_pr_lifecycle_dry_run_1',
+                approvalArtifactId: 'github_pr_lifecycle_approval_1',
+                status: 'approved',
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/github/pr-lifecycle/runs/github_pr_lifecycle_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'github_pr_lifecycle_run_1',
+            dryRunId: 'github_pr_lifecycle_dry_run_1',
+            status: 'completed',
+            runnerMode: 'controlled-github-pr-lifecycle',
+            targetRef: {
+              ownerHash: 'sha256:owner',
+              repoHash: 'sha256:repo',
+              baseBranchHash: 'sha256:base',
+              headBranchHash: 'sha256:head',
+            },
+            prNumberHash: 'sha256:pr-number',
+            commitShaHash: 'sha256:commit',
+            prStateSummary: 'open',
+            combinedStatusState: 'success',
+            statusContextCount: 2,
+            checkRunCount: 3,
+            responseBodyHashes: ['sha256:pr-response'],
+            networkBoundaryInvoked: true,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: true,
+            rawUrlStored: false,
+            rawResponseBodyStored: false,
+            bodyStored: false,
+            rawPathStored: false,
+            summary: 'metadata-only lifecycle run',
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/github/pr-lifecycle/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'github_pr_lifecycle_run_1',
+                dryRunId: 'github_pr_lifecycle_dry_run_1',
+                status: 'completed',
+                runnerMode: 'controlled-github-pr-lifecycle',
+                targetRef: {
+                  ownerHash: 'sha256:owner',
+                  repoHash: 'sha256:repo',
+                  baseBranchHash: 'sha256:base',
+                  headBranchHash: 'sha256:head',
+                },
+                prNumberHash: 'sha256:pr-number',
+                commitShaHash: 'sha256:commit',
+                prStateSummary: 'open',
+                combinedStatusState: 'success',
+                statusContextCount: 2,
+                checkRunCount: 3,
+                responseBodyHashes: ['sha256:pr-response'],
+                networkBoundaryInvoked: true,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                rawUrlStored: false,
+                rawResponseBodyStored: false,
+                bodyStored: false,
+                rawPathStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      formatGithubPrLifecycleAcceptanceRehearsalOutput,
+      formatGithubPrLifecycleApprovalsListOutput,
+      formatGithubPrLifecycleDryRunsListOutput,
+      formatGithubPrLifecycleRunDetailOutput,
+      formatGithubPrLifecycleRunsListOutput,
+      listGithubPrLifecycleApprovals,
+      listGithubPrLifecycleDryRuns,
+      listGithubPrLifecycleRuns,
+      runGithubPrLifecycleAcceptanceRehearsalForCli,
+      showGithubPrLifecycleRun,
+    } = await import('./main');
+    const dryRuns = await listGithubPrLifecycleDryRuns();
+    const approvals = await listGithubPrLifecycleApprovals();
+    const runs = await listGithubPrLifecycleRuns();
+    const detail = await showGithubPrLifecycleRun('github_pr_lifecycle_run_1');
+    const serialized = JSON.stringify({ dryRuns, approvals, runs, detail });
+    const output = [
+      formatGithubPrLifecycleDryRunsListOutput(dryRuns),
+      formatGithubPrLifecycleApprovalsListOutput(approvals),
+      formatGithubPrLifecycleRunsListOutput(runs),
+      formatGithubPrLifecycleRunDetailOutput(detail),
+    ].join('\n');
+
+    expect(output).toContain('GitHub PR lifecycle runs');
+    expect(output).toContain('github_pr_lifecycle_run_1');
+    expect(output).toContain('networkBoundaryInvoked=true');
+    expect(output).toContain('combinedStatus=success');
+    expect(fetchCalls).toHaveLength(4);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('check logs');
+    expect(serialized).not.toContain('local-control');
+
+    const rehearsal = runGithubPrLifecycleAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'checks-failed',
+    });
+    const rehearsalOutput = formatGithubPrLifecycleAcceptanceRehearsalOutput(rehearsal);
+
+    expect(rehearsal.status).toBe('failed');
+    expect(rehearsal.lifecycleStatus).toBe('checks_failed');
+    expect(rehearsal.networkBoundaryInvoked).toBe(false);
+    expect(rehearsalOutput).toContain('GitHub PR lifecycle acceptance rehearsal');
+    expect(rehearsalOutput).toContain('rawResponseBodyStored=false');
+    expect(() => runGithubPrLifecycleAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(fetchCalls).toHaveLength(4);
   });
 
   it('projects unified governance runs, evidence bundles, and audit chains read-only', async () => {

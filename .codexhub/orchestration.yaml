@@ -2630,6 +2630,155 @@ workflows:
       updateRefAllowed: false
       forceAllowed: false
       mergeAllowed: false
+  m19.github-pr-lifecycle-observation:
+    risk: high
+    trigger:
+      type: governed-read-only-remote-observation
+      entrypoint: supervisor
+      localControlRequired: true
+    chain:
+      - phase: dry-run
+        route: POST /api/github/pr-lifecycle/dry-runs
+        output: ids-hashes-counts-statuses-summaries
+      - phase: approval
+        routes:
+          - POST /api/github/pr-lifecycle/approval-requests
+          - POST /api/github/pr-lifecycle/manual-approvals
+        persistedApprovalRequired: true
+        requestBodyArtifactTrusted: false
+      - phase: execution
+        route: POST /api/github/pr-lifecycle/runs
+        adapterHelper: executeGithubPrLifecycleObservation
+        requiredEnv:
+          - CODEXHUB_GITHUB_PROVIDER_ENABLED
+          - CODEXHUB_GITHUB_PR_LIFECYCLE_OBSERVER_ENABLED
+          - CODEXHUB_GITHUB_TOKEN
+        hashBoundRuntimeInput:
+          - owner
+          - repo
+          - baseBranch
+          - headBranch
+          - prNumber
+          - commitSha
+      - phase: remote-boundary
+        boundaryFile: packages/github-provider-adapter/src/github-http-boundary.ts
+        allowedRequests:
+          - GET repo metadata
+          - GET PR metadata or existing PR lookup
+          - GET branch ref metadata
+          - GET combined commit status
+          - GET check-run summary
+        approvalConsumedAfterBoundary: true
+      - phase: public-projection
+        routes:
+          - GET /api/github/pr-lifecycle/dry-runs
+          - GET /api/github/pr-lifecycle/approvals
+          - GET /api/github/pr-lifecycle/runs
+          - GET /api/github/pr-lifecycle/runs/:id
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+    safety:
+      providerEnabledByDefault: false
+      prLifecycleObserverEnabledByDefault: false
+      tokenStored: false
+      rawRemoteRefStored: false
+      rawPrBodyStored: false
+      rawUrlStored: false
+      rawResponseBodyStored: false
+      responseBodyStored: false
+      checkLogsStored: false
+      commentsAllowed: false
+      labelsReviewersAllowed: false
+      mergeAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      dashboardWriteUi: false
+      cliWriteCommand: false
+  m19d.github-pr-lifecycle-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard-cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/github"
+        reads:
+          - GET /api/github/pr-lifecycle/dry-runs
+          - GET /api/github/pr-lifecycle/approvals
+          - GET /api/github/pr-lifecycle/runs
+        output: ids-hashes-counts-statuses-evidence-audit-boundary-booleans
+      - phase: cli
+        commands:
+          - codexhub github pr-lifecycle dry-runs list
+          - codexhub github pr-lifecycle approvals list
+          - codexhub github pr-lifecycle runs list
+          - codexhub github pr-lifecycle runs show <runId>
+        methods: GET-only
+      - phase: generic-projection
+        command: codexhub runs list/show
+        source: github_pr_lifecycle_run
+    safety:
+      supervisorPostAllowed: false
+      adapterExecuteAllowed: false
+      localControlKeyRead: false
+      tokenValueDisplayed: false
+      rawRemoteRefStored: false
+      rawPrBodyStored: false
+      rawUrlStored: false
+      rawResponseBodyStored: false
+      commentsAllowed: false
+      labelsReviewersAllowed: false
+      mergeAllowed: false
+  m19e.github-pr-lifecycle-rehearsal-hardening:
+    risk: high
+    trigger:
+      type: fixture-rehearsal-and-release-hardening
+      entrypoint: github-provider-adapter dashboard-cli docs tools
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        package: github-provider-adapter
+        helper: runGithubPrLifecycleAcceptanceRehearsal
+        scenarios:
+          - all-pass
+          - token-missing
+          - provider-disabled
+          - approval-blocked
+          - pr-not-found
+          - checks-pending
+          - checks-failed
+          - checks-passed
+          - stale-branch
+          - network-timeout
+      - phase: release-evidence
+        docs:
+          - docs/releases/m19-github-pr-lifecycle-results.md
+          - docs/reviews/m19-github-pr-lifecycle-hardening-review.md
+          - docs/runbooks/m19-github-pr-lifecycle-operator-runbook.md
+      - phase: verification
+        commands:
+          - pnpm scaffold:health
+          - pnpm audit:boundaries
+          - pnpm audit:sqlite-isolation
+          - pnpm audit:no-live-automation
+          - pnpm audit:skills
+          - pnpm verify:foundation
+          - git diff --check
+    safety:
+      fixtureOnly: true
+      newNetworkBoundaryFile: false
+      newProcessBoundary: false
+      networkBoundaryInvokedInRehearsal: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      adapterExecuteAllowedFromUiCli: false
+      localControlKeyReadByUiCli: false
+      tokenValueDisplayed: false
+      rawPrBodyStored: false
+      rawResponseBodyStored: false
+      commentsAllowed: false
+      labelsReviewersAllowed: false
+      mergeAllowed: false
   m16d.draft-pr-acceptance-rehearsal:
     risk: medium
     trigger:

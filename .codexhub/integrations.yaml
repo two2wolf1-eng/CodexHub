@@ -285,7 +285,7 @@ integrations:
     provider: github
     providerType: external-network
     mode: governed-branch-publish-draft-pr-chain
-    stage: m18_5-remote-publish-draft-pr-hardening-release-audit
+    stage: m19-github-pr-lifecycle-observation
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -312,9 +312,11 @@ integrations:
     draftPrPlanningEnabled: true
     branchPublishPlanningEnabled: true
     branchPublishCreationEnabled: false
+    prLifecycleObservationEnabled: false
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     branchPublishEnablementEnv: CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
+    prLifecycleObservationEnablementEnv: CODEXHUB_GITHUB_PR_LIFECYCLE_OBSERVER_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -342,8 +344,17 @@ integrations:
         - POST /api/github/branch-publishes/runs
         - GET /api/github/branch-publishes/runs
         - GET /api/github/branch-publishes/runs/:id
+      prLifecycleRoutes:
+        - POST /api/github/pr-lifecycle/dry-runs
+        - GET /api/github/pr-lifecycle/dry-runs
+        - POST /api/github/pr-lifecycle/approval-requests
+        - POST /api/github/pr-lifecycle/manual-approvals
+        - GET /api/github/pr-lifecycle/approvals
+        - POST /api/github/pr-lifecycle/runs
+        - GET /api/github/pr-lifecycle/runs
+        - GET /api/github/pr-lifecycle/runs/:id
     readOnlyUx:
-      stage: m18d
+      stage: m19d
       dashboardRoute: "#/github"
       cliCommands:
         - codexhub github status
@@ -364,6 +375,11 @@ integrations:
         - codexhub github publish-draft-pr-chains runs list
         - codexhub github publish-draft-pr-chains runs show <runId>
         - codexhub github publish-draft-pr-chains rehearse --fixture --scenario <name>
+        - codexhub github pr-lifecycle dry-runs list
+        - codexhub github pr-lifecycle approvals list
+        - codexhub github pr-lifecycle runs list
+        - codexhub github pr-lifecycle runs show <runId>
+        - codexhub github pr-lifecycle rehearse --fixture --scenario <name>
       localControlRequired: false
       supervisorPostAllowed: false
       adapterExecuteAllowed: false
@@ -552,14 +568,66 @@ integrations:
         - draft-pr-creation-approval
       output: ids-hashes-counts-statuses-evidence-audit-boundaries
     prLifecycleReadOnlyObservation:
-      stage: m18c
-      helper: createGithubRemotePrLifecycleSummary
-      liveGithubGetBoundaryAdded: false
-      source: existing-chain-child-run-metadata
+      stage: m19
+      helper: executeGithubPrLifecycleObservation
+      liveGithubGetBoundaryAdded: true
+      source: approved-pr-lifecycle-dry-run
+      supervisorControlPlaneAdded: true
+      routePrefix: /api/github/pr-lifecycle
+      enabledByDefault: false
+      requiredEnvFlags:
+        - CODEXHUB_GITHUB_PROVIDER_ENABLED
+        - CODEXHUB_GITHUB_PR_LIFECYCLE_OBSERVER_ENABLED
+      tokenEnv: CODEXHUB_GITHUB_TOKEN
+      persistedApprovalRequired: true
+      executionAuthorityRequired: true
+      hashBoundRemoteRefsRequired: true
+      approvalConsumedAfterNetworkBoundary: true
+      fixedGetOnly: true
+      allowedRequests:
+        - GET /repos/{owner}/{repo}
+        - GET /repos/{owner}/{repo}/pulls/{number}
+        - GET /repos/{owner}/{repo}/pulls?state=open
+        - GET /repos/{owner}/{repo}/git/ref/heads/{branch}
+        - GET /repos/{owner}/{repo}/commits/{sha}/status
+        - GET /repos/{owner}/{repo}/commits/{sha}/check-runs
       rawCheckLogsStored: false
       rawCommentsStored: false
       rawReviewBodiesStored: false
       rawUrlsStored: false
+      rawResponseBodyStored: false
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    prLifecycleReadOnlyUx:
+      stage: m19d
+      dashboardRoute: "#/github"
+      genericRunsProjection: github_pr_lifecycle_run
+      supervisorMethods: GET-only
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    prLifecycleAcceptanceRehearsal:
+      stage: m19e
+      helper: runGithubPrLifecycleAcceptanceRehearsal
+      dashboardRoute: "#/github"
+      fixtureOnly: true
+      scenarios:
+        - all-pass
+        - token-missing
+        - provider-disabled
+        - approval-blocked
+        - pr-not-found
+        - checks-pending
+        - checks-failed
+        - checks-passed
+        - stale-branch
+        - network-timeout
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      supervisorRouteAdded: false
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
       output: ids-hashes-counts-statuses-summaries
     publishDraftPrChainReadOnlyUx:
       stage: m18d
@@ -630,6 +698,25 @@ integrations:
       overwriteExistingBranchAllowed: false
       mergeAllowed: false
       labelsReviewersCommentsAllowed: false
+    m19_5:
+      stage: github-pr-lifecycle-hardening-release-audit
+      releaseDocument: docs/releases/m19-github-pr-lifecycle-results.md
+      reviewDocument: docs/reviews/m19-github-pr-lifecycle-hardening-review.md
+      runbookDocument: docs/runbooks/m19-github-pr-lifecycle-operator-runbook.md
+      tokenLeakageRegression: true
+      rawRemoteRefLeakageRegression: true
+      rawPrBodyStorageRegression: true
+      rawCheckLogStorageRegression: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliReadOnlyBoundariesIntact: true
+      noNewNetworkBoundaryFile: true
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      overwriteExistingBranchAllowed: false
+      mergeAllowed: false
+      labelsReviewersCommentsAllowed: false
     m16_5:
       stage: remote-pr-hardening-release-audit
       releaseDocument: docs/releases/m16-github-draft-pr-results.md
@@ -664,6 +751,13 @@ integrations:
       - POST /repos/{owner}/{repo}/git/trees
       - POST /repos/{owner}/{repo}/git/commits
       - POST /repos/{owner}/{repo}/git/refs
+    allowedPrLifecycleEndpoints:
+      - GET /repos/{owner}/{repo}
+      - GET /repos/{owner}/{repo}/pulls/{number}
+      - GET /repos/{owner}/{repo}/pulls?state=open
+      - GET /repos/{owner}/{repo}/git/ref/heads/{branch}
+      - GET /repos/{owner}/{repo}/commits/{sha}/status
+      - GET /repos/{owner}/{repo}/commits/{sha}/check-runs
     forbiddenOperations:
       - git push
       - update-ref
@@ -700,6 +794,8 @@ integrations:
       publishDraftPrChainPlan: hash-only
       publishDraftPrChainSummary: hash-only
       prLifecycleSummary: hash-only
+      prLifecyclePlan: hash-only
+      prLifecycleRun: hash-only
       publishDraftPrRehearsal: hash-only
   policy-backend:
     enabled: false

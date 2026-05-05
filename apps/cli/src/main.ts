@@ -152,6 +152,7 @@ import type {
   CodexReplaySummary,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
+  GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
   ApprovalDecisionHistoryProjection,
@@ -173,6 +174,7 @@ import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kerne
 import {
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
+  runGithubPrLifecycleAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
 } from '@codexhub/github-provider-adapter';
 import {
@@ -243,6 +245,10 @@ const GITHUB_BRANCH_PUBLISH_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
 ].join('-') as GithubBranchPublishAcceptanceScenario;
+const GITHUB_PR_LIFECYCLE_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
+  ['to', 'ken'].join(''),
+  'missing',
+].join('-') as GithubPrLifecycleAcceptanceScenario;
 
 class MissingSupervisorLocalControlKeyError extends Error {
   constructor() {
@@ -306,6 +312,7 @@ export interface ReadOnlyRunSummary {
     | 'github_draft_pr_run'
     | 'github_branch_publish_run'
     | 'github_publish_draft_pr_chain_run'
+    | 'github_pr_lifecycle_run'
     | 'worktree_run'
     | 'worktree_cleanup_run'
     | 'review_package_run'
@@ -601,6 +608,51 @@ interface GithubPublishDraftPrChainApiRecord {
   bodyStored?: boolean;
   rawPrBodyStored?: boolean;
   rawUrlStored?: boolean;
+  summary?: string;
+}
+
+interface GithubPrLifecycleApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  requestedMetadata?: string[];
+  prNumberHash?: string;
+  prUrlHash?: string;
+  commitShaHash?: string;
+  prStateSummary?: string;
+  combinedStatusState?: string;
+  statusContextCount?: number;
+  checkRunCount?: number;
+  checkRunStatusCounts?: Record<string, number>;
+  checkRunConclusionCounts?: Record<string, number>;
+  responseBodyHashes?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
   summary?: string;
 }
 
@@ -1640,6 +1692,70 @@ export function buildProgram(): Command {
     .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
       const result = runGithubPublishDraftPrAcceptanceRehearsalForCli(options);
       console.log(formatGithubPublishDraftPrAcceptanceRehearsalOutput(result, options));
+    });
+
+  const githubPrLifecycleCommand = githubCommand
+    .command('pr-lifecycle')
+    .description('Read GitHub PR lifecycle observation records from Supervisor GET endpoints');
+
+  const githubPrLifecycleDryRunsCommand = githubPrLifecycleCommand
+    .command('dry-runs')
+    .description('Read GitHub PR lifecycle dry-run records');
+
+  githubPrLifecycleDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub PR lifecycle dry-runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPrLifecycleDryRuns();
+      console.log(formatGithubPrLifecycleDryRunsListOutput(result, options));
+    });
+
+  const githubPrLifecycleApprovalsCommand = githubPrLifecycleCommand
+    .command('approvals')
+    .description('Read GitHub PR lifecycle approval records');
+
+  githubPrLifecycleApprovalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub PR lifecycle approvals without making decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPrLifecycleApprovals();
+      console.log(formatGithubPrLifecycleApprovalsListOutput(result, options));
+    });
+
+  const githubPrLifecycleRunsCommand = githubPrLifecycleCommand
+    .command('runs')
+    .description('Read GitHub PR lifecycle run records');
+
+  githubPrLifecycleRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub PR lifecycle runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPrLifecycleRuns();
+      console.log(formatGithubPrLifecycleRunsListOutput(result, options));
+    });
+
+  githubPrLifecycleRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub PR lifecycle run details without sending remote requests')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubPrLifecycleRun(runId);
+      console.log(formatGithubPrLifecycleRunDetailOutput(result, options));
+    });
+
+  githubPrLifecycleCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse GitHub PR lifecycle observation without network or PR writes')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubPrLifecycleAcceptanceRehearsalForCli(options);
+      console.log(formatGithubPrLifecycleAcceptanceRehearsalOutput(result, options));
     });
 
   const worktreesCommand = program
@@ -3031,6 +3147,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     githubDraftPrRunResult,
     githubBranchPublishRunResult,
     githubPublishDraftPrChainRunResult,
+    githubPrLifecycleRunResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
     reviewPackageRunResult,
@@ -3057,6 +3174,9 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: GithubPublishDraftPrChainApiRecord[] }>(
         '/api/github/publish-draft-pr-chains/runs',
       ),
+      getSupervisorJson<{ records: GithubPrLifecycleApiRecord[] }>(
+        '/api/github/pr-lifecycle/runs',
+      ),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
       getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
@@ -3081,6 +3201,9 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ...summarizeGithubPublishDraftPrChainRunRecords(
       settledValue(githubPublishDraftPrChainRunResult)?.records ?? [],
     ),
+    ...summarizeGithubPrLifecycleRunRecords(
+      settledValue(githubPrLifecycleRunResult)?.records ?? [],
+    ),
     ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
     ...summarizeWorktreeRunRecords(
       settledValue(worktreeCleanupRunResult)?.records ?? [],
@@ -3103,6 +3226,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(githubDraftPrRunResult),
     settledError(githubBranchPublishRunResult),
     settledError(githubPublishDraftPrChainRunResult),
+    settledError(githubPrLifecycleRunResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
     settledError(reviewPackageRunResult),
@@ -3111,7 +3235,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 14 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 15 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -3434,6 +3558,19 @@ export function runGithubPublishDraftPrAcceptanceRehearsalForCli(options: {
   const scenario = normalizeGithubPublishDraftPrAcceptanceScenario(options.scenario);
 
   return runGithubPublishDraftPrAcceptanceRehearsal({ scenario });
+}
+
+export function runGithubPrLifecycleAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGithubPrLifecycleAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('GitHub PR lifecycle acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeGithubPrLifecycleAcceptanceScenario(options.scenario);
+
+  return runGithubPrLifecycleAcceptanceRehearsal({ scenario });
 }
 
 export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
@@ -4043,6 +4180,70 @@ export async function showGithubPublishDraftPrChainRun(
   }
 }
 
+export async function listGithubPrLifecycleDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubPrLifecycleCollection(
+    '/api/github/pr-lifecycle/dry-runs',
+    'GitHub PR lifecycle dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub PR lifecycle dry-run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function listGithubPrLifecycleApprovals(): Promise<Record<string, unknown>> {
+  return listGithubPrLifecycleCollection(
+    '/api/github/pr-lifecycle/approvals',
+    'GitHub PR lifecycle approvals are read from Supervisor GET endpoints only.',
+    'GitHub PR lifecycle approval source is unavailable; no approval decision was made.',
+  );
+}
+
+export async function listGithubPrLifecycleRuns(): Promise<Record<string, unknown>> {
+  return listGithubPrLifecycleCollection(
+    '/api/github/pr-lifecycle/runs',
+    'GitHub PR lifecycle runs are read from Supervisor GET endpoints only.',
+    'GitHub PR lifecycle run source is unavailable; no remote request was attempted.',
+  );
+}
+
+export async function showGithubPrLifecycleRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubPrLifecycleApiRecord>(
+      `/api/github/pr-lifecycle/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: 'GitHub PR lifecycle run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message:
+        error instanceof Error ? error.message : 'GitHub PR lifecycle run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: 'No GitHub PR lifecycle request was attempted.',
+    };
+  }
+}
+
 export async function listWorktreeDryRuns(): Promise<Record<string, unknown>> {
   return listWorktreeCollection(
     '/api/worktrees/dry-runs',
@@ -4574,6 +4775,25 @@ function summarizeGithubPublishDraftPrChainRunRecords(
   }));
 }
 
+function summarizeGithubPrLifecycleRunRecords(
+  runs: GithubPrLifecycleApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_pr_lifecycle_run',
+    source: 'github_pr_lifecycle_run',
+    title: `GitHub PR lifecycle ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'GitHub PR lifecycle observation metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+    externalProcessStarted: false,
+    noRealWrite: run.noRealWrite ?? true,
+    bodyStored: false,
+  }));
+}
+
 function summarizeReviewPackageRunRecords(runs: ReviewPackageApiRecord[]): ReadOnlyRunSummary[] {
   return runs.map((run) => ({
     id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -4978,6 +5198,30 @@ function normalizeGithubPublishDraftPrAcceptanceScenario(
   throw new Error(`Unsupported GitHub publish to draft PR acceptance fixture scenario: ${scenario}`);
 }
 
+function normalizeGithubPrLifecycleAcceptanceScenario(
+  scenario: string | undefined,
+): GithubPrLifecycleAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === GITHUB_PR_LIFECYCLE_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO ||
+    scenario === 'provider-disabled' ||
+    scenario === 'approval-blocked' ||
+    scenario === 'pr-not-found' ||
+    scenario === 'checks-pending' ||
+    scenario === 'checks-failed' ||
+    scenario === 'checks-passed' ||
+    scenario === 'stale-branch' ||
+    scenario === 'network-timeout'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub PR lifecycle acceptance fixture scenario: ${scenario}`);
+}
+
 async function listWorktreeCollection(
   path: string,
   note: string,
@@ -5200,6 +5444,55 @@ async function listGithubPublishDraftPrChainCollection(
       rawPathStored: false,
       rawPrBodyStored: false,
       rawUrlStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubPrLifecycleCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubPrLifecycleApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub PR lifecycle source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
       bodyStored: false,
       note: degradedNote,
     };
@@ -9332,6 +9625,113 @@ export function formatGithubPublishDraftPrAcceptanceRehearsalOutput(
   ].join('\n');
 }
 
+export function formatGithubPrLifecycleDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPrLifecycleCollectionOutput(
+    'GitHub PR lifecycle dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPrLifecycleApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPrLifecycleCollectionOutput(
+    'GitHub PR lifecycle approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPrLifecycleRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPrLifecycleCollectionOutput(
+    'GitHub PR lifecycle runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPrLifecycleRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubPrLifecycleApiRecord | undefined;
+
+  return [
+    'GitHub PR lifecycle run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.targetRef?.ownerHash ? `ownerHash: ${run.targetRef.ownerHash}` : undefined,
+    run?.targetRef?.repoHash ? `repoHash: ${run.targetRef.repoHash}` : undefined,
+    run?.targetRef?.baseBranchHash
+      ? `baseBranchHash: ${run.targetRef.baseBranchHash}`
+      : undefined,
+    run?.targetRef?.headBranchHash
+      ? `headBranchHash: ${run.targetRef.headBranchHash}`
+      : undefined,
+    run?.prNumberHash ? `prNumberHash: ${run.prNumberHash}` : undefined,
+    run?.commitShaHash ? `commitShaHash: ${run.commitShaHash}` : undefined,
+    `prState=${run?.prStateSummary ?? 'unknown'}`,
+    `combinedStatus=${run?.combinedStatusState ?? 'unknown'}`,
+    `statusContexts=${String(run?.statusContextCount ?? 0)}`,
+    `checkRuns=${String(run?.checkRunCount ?? 0)}`,
+    `responseHashCount=${String(run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(run?.rawResponseBodyStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubPrLifecycleAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubPrLifecycleAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub PR lifecycle acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `lifecycle: ${result.lifecycleStatus}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `blockers: ${result.blockerCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `rawUrlStored=${String(result.rawUrlStored)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
+}
+
 export function formatWorktreeApprovalsListOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -9828,6 +10228,54 @@ function formatGithubPublishDraftPrChainCollectionOutput(
           `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `evidence=${record.evidenceRefCount ?? record.evidenceRefIds?.length ?? 0}`,
           `audit=${record.auditEventCount ?? record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubPrLifecycleCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubPrLifecycleApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `owner=${record.targetRef?.ownerHash ?? 'unavailable'}`,
+          `repo=${record.targetRef?.repoHash ?? 'unavailable'}`,
+          `base=${record.targetRef?.baseBranchHash ?? 'unavailable'}`,
+          `head=${record.targetRef?.headBranchHash ?? 'unavailable'}`,
+          `pr=${record.prNumberHash ?? 'unavailable'}`,
+          `commit=${record.commitShaHash ?? 'unavailable'}`,
+          `state=${record.prStateSummary ?? 'unknown'}`,
+          `status=${record.combinedStatusState ?? 'unknown'}`,
+          `checks=${String(record.checkRunCount ?? 0)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
         ].join(' '),
       ),
   ].join('\n');

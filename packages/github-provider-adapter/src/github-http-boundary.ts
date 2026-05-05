@@ -64,6 +64,29 @@ export interface GithubBranchPublishHttpBoundaryResult {
   summary: string;
 }
 
+export interface GithubPrLifecycleHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  baseBranch: string;
+  headBranch: string;
+  prNumber?: string;
+  commitSha?: string;
+}
+
+export interface GithubPrLifecycleHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  prNumberHash?: string;
+  prUrlHash?: string;
+  stateSummary?: string;
+  checkRunCount: number;
+  statusContextCount: number;
+  failedCheckCount: number;
+  pendingCheckCount: number;
+  passedCheckCount: number;
+  blockReasons: string[];
+  summary: string;
+}
+
 interface GithubBoundaryResponse {
   ok: boolean;
   status: number;
@@ -151,6 +174,127 @@ export async function runGithubMetadataHttpBoundary(
   } catch {
     return {
       ...createFailedBoundaryResult(true, ['github_metadata_network_failure']),
+      responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubPrLifecycleHttpBoundary(
+  request: GithubPrLifecycleHttpBoundaryRequest,
+): Promise<GithubPrLifecycleHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedPrLifecycleBoundaryResult(false, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+
+  try {
+    const repo = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}`,
+    );
+    responseBodyHashes.push(repo.bodyHash);
+    if (!repo.ok) {
+      blockReasons.push(`repo_metadata_http_${repo.status}`);
+    }
+
+    const pulls = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      request.prNumber
+        ? `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/pulls/${encodePathSegment(request.prNumber)}`
+        : `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/pulls?state=open&base=${encodeQueryValue(request.baseBranch)}&head=${encodeQueryValue(`${request.owner}:${request.headBranch}`)}`,
+    );
+    responseBodyHashes.push(pulls.bodyHash);
+    if (!pulls.ok) {
+      blockReasons.push(`pull_request_metadata_http_${pulls.status}`);
+    }
+
+    const prMetadata = pulls.ok
+      ? extractPullRequestLifecycleMetadata(pulls.bodyText, request.prNumber)
+      : {};
+    const prNumberHash =
+      prMetadata.prNumberHash ??
+      (request.prNumber ? `sha256:${hashText(request.prNumber)}` : undefined);
+    const commitSha = request.commitSha ?? prMetadata.headCommitSha;
+    if (!commitSha) {
+      blockReasons.push('missing_commit_sha');
+    }
+
+    const headRef = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/git/ref/heads/${encodePathSegment(request.headBranch)}`,
+    );
+    responseBodyHashes.push(headRef.bodyHash);
+    if (!headRef.ok) {
+      blockReasons.push(`head_ref_http_${headRef.status}`);
+    }
+
+    let statusContextCount = 0;
+    let checkRunCount = 0;
+    let failedCheckCount = 0;
+    let pendingCheckCount = 0;
+    let passedCheckCount = 0;
+    if (commitSha) {
+      const combinedStatus = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/commits/${encodePathSegment(commitSha)}/status`,
+      );
+      responseBodyHashes.push(combinedStatus.bodyHash);
+      if (!combinedStatus.ok) {
+        blockReasons.push(`combined_status_http_${combinedStatus.status}`);
+      } else {
+        const counts = countCombinedStatusContexts(combinedStatus.bodyText);
+        statusContextCount = counts.total;
+        failedCheckCount += counts.failed;
+        pendingCheckCount += counts.pending;
+        passedCheckCount += counts.passed;
+      }
+
+      const checkRuns = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/commits/${encodePathSegment(commitSha)}/check-runs`,
+      );
+      responseBodyHashes.push(checkRuns.bodyHash);
+      if (!checkRuns.ok) {
+        blockReasons.push(`check_runs_http_${checkRuns.status}`);
+      } else {
+        const counts = countCheckRuns(checkRuns.bodyText);
+        checkRunCount = counts.total;
+        failedCheckCount += counts.failed;
+        pendingCheckCount += counts.pending;
+        passedCheckCount += counts.passed;
+      }
+    }
+
+    return {
+      status: blockReasons.length === 0 ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      prNumberHash,
+      prUrlHash: prMetadata.prUrlHash,
+      stateSummary: prMetadata.stateSummary,
+      checkRunCount,
+      statusContextCount,
+      failedCheckCount,
+      pendingCheckCount,
+      passedCheckCount,
+      blockReasons,
+      summary:
+        blockReasons.length === 0
+          ? 'GitHub PR lifecycle GET boundary completed with hash-only status/check summaries.'
+          : `GitHub PR lifecycle GET boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedPrLifecycleBoundaryResult(true, ['network_error']),
       responseBodyHashes,
     };
   }
@@ -611,6 +755,24 @@ function createFailedBranchPublishBoundaryResult(
   };
 }
 
+function createFailedPrLifecycleBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  blockReasons: string[],
+): GithubPrLifecycleHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    checkRunCount: 0,
+    statusContextCount: 0,
+    failedCheckCount: 0,
+    pendingCheckCount: 0,
+    passedCheckCount: 0,
+    blockReasons,
+    summary: `GitHub PR lifecycle HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
 function countArrayItems(bodyText: string): number {
   try {
     const parsed = JSON.parse(bodyText) as unknown;
@@ -680,6 +842,121 @@ function extractCreatedPullRequestMetadata(bodyText: string): {
     return { prNumberHash, prUrlHash };
   } catch {
     return {};
+  }
+}
+
+function extractPullRequestLifecycleMetadata(
+  bodyText: string,
+  requestedPrNumber: string | undefined,
+): {
+  prNumberHash?: string;
+  prUrlHash?: string;
+  stateSummary?: string;
+  headCommitSha?: string;
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as unknown;
+    const record = Array.isArray(parsed) ? parsed[0] : parsed;
+
+    if (!record || typeof record !== 'object') {
+      return {};
+    }
+
+    const objectRecord = record as Record<string, unknown>;
+    const head = objectRecord.head;
+    const headCommitSha =
+      head && typeof head === 'object'
+        ? (head as Record<string, unknown>).sha
+        : undefined;
+    const prNumber =
+      typeof objectRecord.number === 'number'
+        ? String(objectRecord.number)
+        : requestedPrNumber;
+    const prNumberHash = prNumber ? `sha256:${hashText(prNumber)}` : undefined;
+    const prUrlHash =
+      typeof objectRecord.html_url === 'string'
+        ? `sha256:${hashText(objectRecord.html_url)}`
+        : undefined;
+    const stateSummary =
+      typeof objectRecord.state === 'string' ? objectRecord.state : undefined;
+
+    return {
+      prNumberHash,
+      prUrlHash,
+      stateSummary,
+      headCommitSha: typeof headCommitSha === 'string' ? headCommitSha : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function countCombinedStatusContexts(bodyText: string): {
+  total: number;
+  failed: number;
+  pending: number;
+  passed: number;
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const statuses = Array.isArray(parsed.statuses) ? parsed.statuses : [];
+
+    return statuses.reduce(
+      (counts, status) => {
+        const state =
+          status && typeof status === 'object'
+            ? (status as Record<string, unknown>).state
+            : undefined;
+        counts.total += 1;
+        if (state === 'success') {
+          counts.passed += 1;
+        } else if (state === 'pending' || state === 'expected') {
+          counts.pending += 1;
+        } else {
+          counts.failed += 1;
+        }
+        return counts;
+      },
+      { total: 0, failed: 0, pending: 0, passed: 0 },
+    );
+  } catch {
+    return { total: 0, failed: 0, pending: 0, passed: 0 };
+  }
+}
+
+function countCheckRuns(bodyText: string): {
+  total: number;
+  failed: number;
+  pending: number;
+  passed: number;
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const runs = Array.isArray(parsed.check_runs) ? parsed.check_runs : [];
+
+    return runs.reduce(
+      (counts, run) => {
+        const runRecord = run && typeof run === 'object' ? (run as Record<string, unknown>) : {};
+        const status = runRecord.status;
+        const conclusion = runRecord.conclusion;
+        counts.total += 1;
+        if (status !== 'completed' || conclusion === null || conclusion === undefined) {
+          counts.pending += 1;
+        } else if (
+          conclusion === 'success' ||
+          conclusion === 'neutral' ||
+          conclusion === 'skipped'
+        ) {
+          counts.passed += 1;
+        } else {
+          counts.failed += 1;
+        }
+        return counts;
+      },
+      { total: 0, failed: 0, pending: 0, passed: 0 },
+    );
+  } catch {
+    return { total: 0, failed: 0, pending: 0, passed: 0 };
   }
 }
 

@@ -5426,6 +5426,252 @@ describe('supervisor GitHub metadata control plane', () => {
   });
 });
 
+describe('supervisor GitHub PR lifecycle control plane', () => {
+  it('observes PR status and check metadata through approval-gated fixed GETs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-pr-lifecycle-store-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const requestedUrls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      requestedUrls.push(url);
+      const body = url.endsWith('/pulls/42')
+        ? '{"number":42,"html_url":"https://github.com/octo-org/codexhub/pull/42","state":"open","head":{"sha":"abc123"}}'
+        : url.endsWith('/status')
+          ? '{"state":"success","statuses":[{"state":"success"}]}'
+          : url.endsWith('/check-runs')
+            ? '{"total_count":2,"check_runs":[{"conclusion":"success","status":"completed"},{"conclusion":null,"status":"in_progress"}]}'
+            : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubPrLifecycleObserverEnabled: true,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: fetchImpl,
+    });
+
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/dry-runs',
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m19',
+        prNumber: '42',
+        commitSha: 'abc123',
+        runnerMode: 'controlled-github-pr-lifecycle',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'approve PR lifecycle observation',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'approved for PR lifecycle observation',
+      },
+    });
+    const approval = approvalResponse.json();
+    const forbiddenAuthorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        executionAuthority: approval,
+      },
+    });
+    const mismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'different',
+        prNumber: '42',
+        commitSha: 'abc123',
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m19',
+        prNumber: '42',
+        commitSha: 'abc123',
+      },
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/pr-lifecycle/approvals',
+    });
+    const runsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/pr-lifecycle/runs',
+    });
+    const completed = completedResponse.json();
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.status).toBe('planned');
+    expect(dryRunResponse.body).not.toContain('octo-org');
+    expect(dryRunResponse.body).not.toContain('codex/m19');
+    expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(forbiddenAuthorityResponse.json()).toMatchObject({
+      error: 'untrusted_github_pr_lifecycle_authority_body',
+      networkBoundaryInvoked: false,
+    });
+    expect(mismatchResponse.statusCode).toBe(200);
+    expect(mismatchResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completed.status).toBe('completed');
+    expect(completed.networkBoundaryInvoked).toBe(true);
+    expect(completed.responseBodyHashCount).toBe(5);
+    expect(completed.checkRunCount).toBe(2);
+    expect(completed.statusContextCount).toBe(1);
+    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
+      true,
+    );
+    expect(runsResponse.json().count).toBe(2);
+    expect(requestedUrls).toEqual([
+      'https://api.github.com/repos/octo-org/codexhub',
+      'https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'https://api.github.com/repos/octo-org/codexhub/git/ref/heads/codex%2Fm19',
+      'https://api.github.com/repos/octo-org/codexhub/commits/abc123/status',
+      'https://api.github.com/repos/octo-org/codexhub/commits/abc123/check-runs',
+    ]);
+    expect(completedResponse.body).not.toContain('octo-org');
+    expect(completedResponse.body).not.toContain('codex/m19');
+    expect(completedResponse.body).not.toContain('ghp_secret');
+    expect(completedResponse.body).not.toContain('html_url');
+    expect(completedResponse.body).not.toContain('check_runs');
+  });
+
+  it('blocks PR lifecycle observation while the observer integration is disabled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-pr-lifecycle-disabled-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    let fetchCalled = false;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubPrLifecycleObserverEnabled: false,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m19',
+        prNumber: '42',
+        commitSha: 'abc123',
+        runnerMode: 'controlled-github-pr-lifecycle',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-lifecycle/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m19',
+        prNumber: '42',
+        commitSha: 'abc123',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(runResponse.json().blockReasons).toContain('github_pr_lifecycle_disabled');
+    expect(fetchCalled).toBe(false);
+  });
+});
+
 describe('supervisor GitHub draft PR control plane', () => {
   it('creates an approved existing-branch draft PR through the governed control plane', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-draft-pr-store-'));

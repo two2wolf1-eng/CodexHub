@@ -3,6 +3,7 @@ import type {
   ApprovalInboxProjection,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
+  GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
   McpToolDefinition,
 } from '@codexhub/contracts';
@@ -176,6 +177,9 @@ export interface GithubProviderReadOnlySummary {
   branchPublishRunCount: number;
   publishDraftPrChainDryRunCount: number;
   publishDraftPrChainRunCount: number;
+  prLifecycleDryRunCount: number;
+  prLifecycleApprovalCount: number;
+  prLifecycleRunCount: number;
   latestRunStatus: string;
   latestDraftPrRunStatus: string;
   latestDraftPrCreationStatus: string;
@@ -183,6 +187,8 @@ export interface GithubProviderReadOnlySummary {
   latestBranchPublishCreationStatus: string;
   latestPublishDraftPrChainRunStatus: string;
   latestPublishDraftPrChainLifecycleStatus: string;
+  latestPrLifecycleRunStatus: string;
+  latestPrLifecycleStatusSummary: string;
   draftPrCreatedCount: number;
   branchPublishCreatedCount: number;
   productDefaultEnabled: false;
@@ -190,12 +196,14 @@ export interface GithubProviderReadOnlySummary {
   draftPrApprovalRequired: true;
   branchPublishApprovalRequired: true;
   publishDraftPrChainSeparateApprovalsRequired: true;
+  prLifecycleApprovalRequired: true;
   credentialConfigured: boolean;
   credentialHashOnly: boolean;
   allowedHostHash: string;
   allowedMetadata: string[];
   allowedDraftPrActions: string[];
   allowedBranchPublishActions: string[];
+  allowedPrLifecycleActions: string[];
   blockedOperations: string[];
   networkBoundaryInvoked: boolean;
   processBoundaryInvoked: false;
@@ -288,6 +296,34 @@ export interface GithubPublishDraftPrAcceptanceRehearsalReadOnlySummary {
   bodyStored: false;
   rawPrBodyStored: false;
   rawUrlStored: false;
+  summary: string;
+}
+
+export interface GithubPrLifecycleAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubPrLifecycleAcceptanceScenario;
+  stepCount: number;
+  lifecycleStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  fixtureOnly: true;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  fixedGetOnly: true;
+  commentsAllowed: false;
+  labelsAllowed: false;
+  reviewersAllowed: false;
+  mergeAllowed: false;
+  rawUrlStored: false;
+  rawResponseBodyStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  credentialValueStored: false;
   summary: string;
 }
 
@@ -835,6 +871,9 @@ export function createGithubProviderReadOnlySummary(input: {
   branchPublishRunCount?: number;
   publishDraftPrChainDryRunCount?: number;
   publishDraftPrChainRunCount?: number;
+  prLifecycleDryRunCount?: number;
+  prLifecycleApprovalCount?: number;
+  prLifecycleRunCount?: number;
   latestRunStatus?: string;
   latestDraftPrRunStatus?: string;
   latestDraftPrCreationStatus?: string;
@@ -842,6 +881,8 @@ export function createGithubProviderReadOnlySummary(input: {
   latestBranchPublishCreationStatus?: string;
   latestPublishDraftPrChainRunStatus?: string;
   latestPublishDraftPrChainLifecycleStatus?: string;
+  latestPrLifecycleRunStatus?: string;
+  latestPrLifecycleStatusSummary?: string;
   draftPrCreatedCount?: number;
   branchPublishCreatedCount?: number;
   credentialConfigured?: boolean;
@@ -849,7 +890,7 @@ export function createGithubProviderReadOnlySummary(input: {
 } = {}): GithubProviderReadOnlySummary {
   return {
     manifestName: 'github-provider',
-    manifestVersion: '0.4.0-m18c',
+    manifestVersion: '0.5.0-m19',
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
@@ -861,6 +902,9 @@ export function createGithubProviderReadOnlySummary(input: {
     branchPublishRunCount: input.branchPublishRunCount ?? 0,
     publishDraftPrChainDryRunCount: input.publishDraftPrChainDryRunCount ?? 0,
     publishDraftPrChainRunCount: input.publishDraftPrChainRunCount ?? 0,
+    prLifecycleDryRunCount: input.prLifecycleDryRunCount ?? 0,
+    prLifecycleApprovalCount: input.prLifecycleApprovalCount ?? 0,
+    prLifecycleRunCount: input.prLifecycleRunCount ?? 0,
     latestRunStatus: input.latestRunStatus ?? 'none',
     latestDraftPrRunStatus: input.latestDraftPrRunStatus ?? 'none',
     latestDraftPrCreationStatus: input.latestDraftPrCreationStatus ?? 'none',
@@ -869,6 +913,8 @@ export function createGithubProviderReadOnlySummary(input: {
     latestPublishDraftPrChainRunStatus: input.latestPublishDraftPrChainRunStatus ?? 'none',
     latestPublishDraftPrChainLifecycleStatus:
       input.latestPublishDraftPrChainLifecycleStatus ?? 'none',
+    latestPrLifecycleRunStatus: input.latestPrLifecycleRunStatus ?? 'none',
+    latestPrLifecycleStatusSummary: input.latestPrLifecycleStatusSummary ?? 'none',
     draftPrCreatedCount: input.draftPrCreatedCount ?? 0,
     branchPublishCreatedCount: input.branchPublishCreatedCount ?? 0,
     productDefaultEnabled: false,
@@ -876,6 +922,7 @@ export function createGithubProviderReadOnlySummary(input: {
     draftPrApprovalRequired: true,
     branchPublishApprovalRequired: true,
     publishDraftPrChainSeparateApprovalsRequired: true,
+    prLifecycleApprovalRequired: true,
     credentialConfigured: input.credentialConfigured ?? false,
     credentialHashOnly: true,
     allowedHostHash: stableSha256LikeHash('api.github.com'),
@@ -895,6 +942,13 @@ export function createGithubProviderReadOnlySummary(input: {
       'commit_create',
       'codexhub_ref_create',
     ],
+    allowedPrLifecycleActions: [
+      'repo_metadata_get',
+      'pull_request_metadata_get',
+      'branch_ref_metadata_get',
+      'combined_status_get',
+      'check_runs_summary_get',
+    ],
     blockedOperations: [
       ['git ', 'push'].join(''),
       'update_ref',
@@ -906,6 +960,8 @@ export function createGithubProviderReadOnlySummary(input: {
       'comments',
       'non_draft_pr',
       'generic_network_request',
+      'raw_check_logs',
+      'raw_pr_body',
     ],
     networkBoundaryInvoked: input.networkBoundaryInvoked ?? false,
     processBoundaryInvoked: false,
@@ -917,7 +973,7 @@ export function createGithubProviderReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary:
-      'GitHub provider metadata, branch publish, draft PR, and publish-to-draft-PR chain records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, and PR lifecycle records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
   };
 }
 
@@ -1091,6 +1147,59 @@ export function createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary(inp
     rawPrBodyStored: false,
     rawUrlStored: false,
     summary: `GitHub publish to draft PR acceptance rehearsal preview ${status}; fixture metadata only.`,
+  };
+}
+
+export function createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubPrLifecycleAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubPrLifecycleAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass' || scenario === 'checks-passed'
+      ? 'passed'
+      : scenario === 'checks-failed'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const lifecycleStatus =
+    scenario === 'all-pass' || scenario === 'checks-passed'
+      ? 'checks_passed'
+      : scenario === 'checks-failed'
+        ? 'checks_failed'
+        : scenario === 'checks-pending'
+          ? 'checks_pending'
+          : scenario === 'pr-not-found'
+            ? 'not_found'
+            : 'blocked';
+
+  return {
+    status,
+    scenario,
+    stepCount: 5,
+    lifecycleStatus,
+    evidenceRefCount: status === 'passed' || scenario.startsWith('checks-') ? 3 : 1,
+    auditEventCount: status === 'passed' || scenario.startsWith('checks-') ? 3 : 1,
+    fixtureOnly: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    fixedGetOnly: true,
+    commentsAllowed: false,
+    labelsAllowed: false,
+    reviewersAllowed: false,
+    mergeAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    credentialValueStored: false,
+    summary:
+      'GitHub PR lifecycle rehearsal is fixture-only and covers fixed GET metadata for PR state, branch refs, combined status, and check-run counts without remote writes.',
   };
 }
 

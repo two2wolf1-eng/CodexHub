@@ -23,6 +23,9 @@ import type {
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
+  GithubPrLifecycleApprovalArtifactRecord,
+  GithubPrLifecycleObservationPlan,
+  GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
   LocalReviewPackageApprovalArtifactRecord,
@@ -108,6 +111,10 @@ import type {
   GithubMetadataControlPlaneQuery,
   GithubMetadataDryRunRepository,
   GithubMetadataRunRepository,
+  GithubPrLifecycleApprovalRepository,
+  GithubPrLifecycleControlPlaneQuery,
+  GithubPrLifecycleDryRunRepository,
+  GithubPrLifecycleRunRepository,
   GithubPublishDraftPrChainControlPlaneQuery,
   GithubPublishDraftPrChainDryRunRepository,
   GithubPublishDraftPrChainRunRepository,
@@ -213,6 +220,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubBranchPublishRuns: GithubBranchPublishRunRepository;
   readonly githubPublishDraftPrChainDryRuns: GithubPublishDraftPrChainDryRunRepository;
   readonly githubPublishDraftPrChainRuns: GithubPublishDraftPrChainRunRepository;
+  readonly githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
+  readonly githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
+  readonly githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -277,6 +287,9 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteGithubPublishDraftPrChainDryRunRepository(database);
     this.githubPublishDraftPrChainRuns =
       new SqliteGithubPublishDraftPrChainRunRepository(database);
+    this.githubPrLifecycleDryRuns = new SqliteGithubPrLifecycleDryRunRepository(database);
+    this.githubPrLifecycleApprovals = new SqliteGithubPrLifecycleApprovalRepository(database);
+    this.githubPrLifecycleRuns = new SqliteGithubPrLifecycleRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -1572,6 +1585,120 @@ class SqliteGithubPublishDraftPrChainRunRepository
   }
 }
 
+class SqliteGithubPrLifecycleDryRunRepository implements GithubPrLifecycleDryRunRepository {
+  private readonly repository: JsonEntityRepository<GithubPrLifecycleObservationPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubPrLifecycleObservationPlan>(
+      database,
+      'github_pr_lifecycle_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(
+    record: GithubPrLifecycleObservationPlan,
+  ): Promise<GithubPrLifecycleObservationPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubPrLifecycleObservationPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubPrLifecycleControlPlaneQuery = {},
+  ): Promise<GithubPrLifecycleObservationPlan[]> {
+    return listObservationControlPlaneRecords<GithubPrLifecycleObservationPlan>(
+      this.database,
+      'github_pr_lifecycle_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubPrLifecycleApprovalRepository
+  implements GithubPrLifecycleApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubPrLifecycleApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubPrLifecycleApprovalArtifactRecord>(
+      database,
+      'github_pr_lifecycle_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubPrLifecycleApprovalArtifactRecord,
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM github_pr_lifecycle_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubPrLifecycleApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubPrLifecycleControlPlaneQuery = {},
+  ): Promise<GithubPrLifecycleApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<GithubPrLifecycleApprovalArtifactRecord>(
+      this.database,
+      'github_pr_lifecycle_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubPrLifecycleRunRepository implements GithubPrLifecycleRunRepository {
+  private readonly repository: JsonEntityRepository<GithubPrLifecycleObservationRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubPrLifecycleObservationRun>(
+      database,
+      'github_pr_lifecycle_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(
+    record: GithubPrLifecycleObservationRun,
+  ): Promise<GithubPrLifecycleObservationRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubPrLifecycleObservationRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubPrLifecycleControlPlaneQuery = {},
+  ): Promise<GithubPrLifecycleObservationRun[]> {
+    return listObservationControlPlaneRecords<GithubPrLifecycleObservationRun>(
+      this.database,
+      'github_pr_lifecycle_runs',
+      query,
+    );
+  }
+}
+
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
 
@@ -2633,6 +2760,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_publish_draft_pr_chain_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_lifecycle_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_lifecycle_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_lifecycle_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

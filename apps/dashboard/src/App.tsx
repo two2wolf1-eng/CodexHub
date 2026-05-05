@@ -42,6 +42,7 @@ import {
   createElectronCdpReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
+  createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary,
   createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
@@ -112,6 +113,9 @@ interface OverviewState {
   githubBranchPublishRuns: GithubBranchPublishControlSummary[];
   githubPublishDraftPrChainDryRuns: GithubPublishDraftPrChainControlSummary[];
   githubPublishDraftPrChainRuns: GithubPublishDraftPrChainControlSummary[];
+  githubPrLifecycleDryRuns: GithubPrLifecycleControlSummary[];
+  githubPrLifecycleApprovals: GithubPrLifecycleControlSummary[];
+  githubPrLifecycleRuns: GithubPrLifecycleControlSummary[];
   worktreeDryRuns: WorktreeControlSummary[];
   worktreeApprovals: WorktreeControlSummary[];
   worktreeRuns: WorktreeControlSummary[];
@@ -379,6 +383,51 @@ interface GithubPublishDraftPrChainControlSummary {
   summary?: string;
 }
 
+interface GithubPrLifecycleControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  requestedMetadata?: string[];
+  prNumberHash?: string;
+  prUrlHash?: string;
+  commitShaHash?: string;
+  prStateSummary?: string;
+  combinedStatusState?: string;
+  statusContextCount?: number;
+  checkRunCount?: number;
+  checkRunStatusCounts?: Record<string, number>;
+  checkRunConclusionCounts?: Record<string, number>;
+  responseBodyHashes?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
 interface ReviewPackageControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -547,6 +596,9 @@ export function App() {
     githubBranchPublishRuns: [],
     githubPublishDraftPrChainDryRuns: [],
     githubPublishDraftPrChainRuns: [],
+    githubPrLifecycleDryRuns: [],
+    githubPrLifecycleApprovals: [],
+    githubPrLifecycleRuns: [],
     worktreeDryRuns: [],
     worktreeApprovals: [],
     worktreeRuns: [],
@@ -627,6 +679,9 @@ export function App() {
     branchPublishRunCount: overview.githubBranchPublishRuns.length,
     publishDraftPrChainDryRunCount: overview.githubPublishDraftPrChainDryRuns.length,
     publishDraftPrChainRunCount: overview.githubPublishDraftPrChainRuns.length,
+    prLifecycleDryRunCount: overview.githubPrLifecycleDryRuns.length,
+    prLifecycleApprovalCount: overview.githubPrLifecycleApprovals.length,
+    prLifecycleRunCount: overview.githubPrLifecycleRuns.length,
     latestRunStatus: overview.githubMetadataRuns[0]?.status,
     latestDraftPrRunStatus: overview.githubDraftPrRuns[0]?.status,
     latestDraftPrCreationStatus:
@@ -640,6 +695,10 @@ export function App() {
     latestPublishDraftPrChainLifecycleStatus:
       overview.githubPublishDraftPrChainRuns[0]?.lifecycleStatus ??
       overview.githubPublishDraftPrChainRuns[0]?.latestCheckStatus,
+    latestPrLifecycleRunStatus: overview.githubPrLifecycleRuns[0]?.status,
+    latestPrLifecycleStatusSummary:
+      overview.githubPrLifecycleRuns[0]?.combinedStatusState ??
+      overview.githubPrLifecycleRuns[0]?.prStateSummary,
     draftPrCreatedCount: overview.githubDraftPrRuns.filter(
       (record) => record.creationSummary?.created === true || record.prNumberHash !== undefined,
     ).length,
@@ -652,7 +711,8 @@ export function App() {
       overview.githubBranchPublishRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubPublishDraftPrChainRuns.some(
         (record) => record.networkBoundaryInvoked === true,
-      ),
+      ) ||
+      overview.githubPrLifecycleRuns.some((record) => record.networkBoundaryInvoked === true),
   });
   const githubBranchPublishAcceptanceRehearsalSummary =
     createGithubBranchPublishAcceptanceRehearsalReadOnlySummary();
@@ -660,6 +720,8 @@ export function App() {
     createGithubDraftPrAcceptanceRehearsalReadOnlySummary();
   const githubPublishDraftPrAcceptanceRehearsalSummary =
     createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary();
+  const githubPrLifecycleAcceptanceRehearsalSummary =
+    createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary();
   const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
     dryRunCount: overview.reviewPackageDryRuns.length,
     approvalCount: overview.reviewPackageApprovals.length,
@@ -858,6 +920,17 @@ export function App() {
       externalProcessStarted: false,
       networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
       noRealWrite: run.noRealWrite ?? false,
+    })),
+    ...overview.githubPrLifecycleRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_pr_lifecycle_run',
+      source: 'github_pr_lifecycle_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+      noRealWrite: run.noRealWrite ?? true,
     })),
     ...overview.reviewPackageRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -1207,6 +1280,9 @@ export function App() {
           githubBranchPublishRunsResponse,
           githubPublishDraftPrChainDryRunsResponse,
           githubPublishDraftPrChainRunsResponse,
+          githubPrLifecycleDryRunsResponse,
+          githubPrLifecycleApprovalsResponse,
+          githubPrLifecycleRunsResponse,
           worktreeDryRunsResponse,
           worktreeApprovalsResponse,
           worktreeRunsResponse,
@@ -1288,6 +1364,18 @@ export function App() {
           ),
           getOptionalJson<{ records: GithubPublishDraftPrChainControlSummary[] }>(
             '/api/github/publish-draft-pr-chains/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrLifecycleControlSummary[] }>(
+            '/api/github/pr-lifecycle/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrLifecycleControlSummary[] }>(
+            '/api/github/pr-lifecycle/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrLifecycleControlSummary[] }>(
+            '/api/github/pr-lifecycle/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
@@ -1413,6 +1501,9 @@ export function App() {
             githubBranchPublishRuns: githubBranchPublishRunsResponse.records,
             githubPublishDraftPrChainDryRuns: githubPublishDraftPrChainDryRunsResponse.records,
             githubPublishDraftPrChainRuns: githubPublishDraftPrChainRunsResponse.records,
+            githubPrLifecycleDryRuns: githubPrLifecycleDryRunsResponse.records,
+            githubPrLifecycleApprovals: githubPrLifecycleApprovalsResponse.records,
+            githubPrLifecycleRuns: githubPrLifecycleRunsResponse.records,
             worktreeDryRuns: worktreeDryRunsResponse.records,
             worktreeApprovals: worktreeApprovalsResponse.records,
             worktreeRuns: worktreeRunsResponse.records,
@@ -1476,6 +1567,9 @@ export function App() {
             githubBranchPublishRuns: [],
             githubPublishDraftPrChainDryRuns: [],
             githubPublishDraftPrChainRuns: [],
+            githubPrLifecycleDryRuns: [],
+            githubPrLifecycleApprovals: [],
+            githubPrLifecycleRuns: [],
             worktreeDryRuns: [],
             worktreeApprovals: [],
             worktreeRuns: [],
@@ -3026,6 +3120,7 @@ export function App() {
           githubBranchPublishAcceptanceRehearsalSummary,
           githubDraftPrAcceptanceRehearsalSummary,
           githubPublishDraftPrAcceptanceRehearsalSummary,
+          githubPrLifecycleAcceptanceRehearsalSummary,
           worktreeSummary,
           reviewPackageSummary,
           releaseCandidateSummary,
@@ -3057,6 +3152,9 @@ function renderReadOnlyDashboardView(
   >,
   githubPublishDraftPrAcceptanceRehearsalSummary: ReturnType<
     typeof createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary
+  >,
+  githubPrLifecycleAcceptanceRehearsalSummary: ReturnType<
+    typeof createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary
   >,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
@@ -3546,6 +3644,14 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>PR lifecycle records</strong>
+              <span>
+                dry-runs {githubProviderSummary.prLifecycleDryRunCount}, approvals{' '}
+                {githubProviderSummary.prLifecycleApprovalCount}, runs{' '}
+                {githubProviderSummary.prLifecycleRunCount}
+              </span>
+            </li>
+            <li>
               <strong>latest run</strong>
               <span>{githubProviderSummary.latestRunStatus}</span>
             </li>
@@ -3571,6 +3677,13 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>latest PR lifecycle</strong>
+              <span>
+                {githubProviderSummary.latestPrLifecycleRunStatus} /{' '}
+                {githubProviderSummary.latestPrLifecycleStatusSummary}
+              </span>
+            </li>
+            <li>
               <strong>enablement</strong>
               <span>default {String(githubProviderSummary.productDefaultEnabled)}</span>
             </li>
@@ -3580,7 +3693,8 @@ function renderReadOnlyDashboardView(
                 metadata {String(githubProviderSummary.approvalRequired)}, draft PR{' '}
                 {String(githubProviderSummary.draftPrApprovalRequired)}, branch publish{' '}
                 {String(githubProviderSummary.branchPublishApprovalRequired)}, publish chain
-                separate {String(githubProviderSummary.publishDraftPrChainSeparateApprovalsRequired)}
+                separate {String(githubProviderSummary.publishDraftPrChainSeparateApprovalsRequired)},
+                PR lifecycle {String(githubProviderSummary.prLifecycleApprovalRequired)}
               </span>
             </li>
             <li>
@@ -3610,6 +3724,10 @@ function renderReadOnlyDashboardView(
             <li>
               <strong>branch publish actions</strong>
               <span>{githubProviderSummary.allowedBranchPublishActions.join(', ')}</span>
+            </li>
+            <li>
+              <strong>PR lifecycle actions</strong>
+              <span>{githubProviderSummary.allowedPrLifecycleActions.join(', ')}</span>
             </li>
             <li>
               <strong>blocked operations</strong>
@@ -3826,6 +3944,56 @@ function renderReadOnlyDashboardView(
             </p>
           )}
         </Panel>
+        <Panel title="GitHub PR Lifecycle Runs">
+          {overview.githubPrLifecycleRuns.length > 0 ? (
+            <ul>
+              {overview.githubPrLifecycleRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_pr_lifecycle_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, base{' '}
+                    {run.targetRef?.baseBranchHash ?? 'unavailable'}, head{' '}
+                    {run.targetRef?.headBranchHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    PR {run.prNumberHash ?? 'unavailable'}, commit{' '}
+                    {run.commitShaHash ?? 'unavailable'}, state{' '}
+                    {run.prStateSummary ?? 'unknown'}
+                  </span>
+                  <span>
+                    combined status {run.combinedStatusState ?? 'unknown'}, contexts{' '}
+                    {run.statusContextCount ?? 0}, check runs {run.checkRunCount ?? 0}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}, response hashes{' '}
+                    {run.responseBodyHashes?.length ?? 0}
+                  </span>
+                  <span>
+                    rawUrlStored {String(run.rawUrlStored ?? false)}, rawResponseBodyStored{' '}
+                    {String(run.rawResponseBodyStored ?? false)}, bodyStored{' '}
+                    {String(run.bodyStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub PR lifecycle summaries are available. This view is read-only and only
+              shows persisted ids, hashes, counts, statuses, evidence ids, and audit ids.
+            </p>
+          )}
+        </Panel>
         <Panel title="GitHub Branch Publish Acceptance Rehearsal">
           <ul>
             <li>
@@ -3994,6 +4162,58 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{githubPublishDraftPrAcceptanceRehearsalSummary.summary}</p>
+        </Panel>
+        <Panel title="GitHub PR Lifecycle Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{githubPrLifecycleAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{githubPrLifecycleAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>lifecycle</strong>
+              <span>{githubPrLifecycleAcceptanceRehearsalSummary.lifecycleStatus}</span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {githubPrLifecycleAcceptanceRehearsalSummary.evidenceRefCount} /{' '}
+                {githubPrLifecycleAcceptanceRehearsalSummary.auditEventCount}
+              </span>
+            </li>
+            <li>
+              <strong>live boundaries</strong>
+              <span>
+                network {String(githubPrLifecycleAcceptanceRehearsalSummary.networkBoundaryInvoked)},
+                process {String(githubPrLifecycleAcceptanceRehearsalSummary.processBoundaryInvoked)},
+                external {String(githubPrLifecycleAcceptanceRehearsalSummary.externalProcessStarted)}
+              </span>
+            </li>
+            <li>
+              <strong>read-only bounds</strong>
+              <span>
+                keyRead {String(githubPrLifecycleAcceptanceRehearsalSummary.localControlKeyRead)},
+                postAllowed{' '}
+                {String(githubPrLifecycleAcceptanceRehearsalSummary.supervisorPostAllowed)},
+                adapterExecute{' '}
+                {String(githubPrLifecycleAcceptanceRehearsalSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>remote actions</strong>
+              <span>
+                fixedGet {String(githubPrLifecycleAcceptanceRehearsalSummary.fixedGetOnly)},
+                comments {String(githubPrLifecycleAcceptanceRehearsalSummary.commentsAllowed)},
+                labels {String(githubPrLifecycleAcceptanceRehearsalSummary.labelsAllowed)},
+                reviewers {String(githubPrLifecycleAcceptanceRehearsalSummary.reviewersAllowed)},
+                merge {String(githubPrLifecycleAcceptanceRehearsalSummary.mergeAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{githubPrLifecycleAcceptanceRehearsalSummary.summary}</p>
         </Panel>
       </section>
     );

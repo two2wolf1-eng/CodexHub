@@ -5,6 +5,7 @@ import {
   createElectronCdpReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
+  createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary,
   createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
@@ -252,6 +253,9 @@ describe('dashboard read-only UX helpers', () => {
       branchPublishRunCount: 1,
       publishDraftPrChainDryRunCount: 1,
       publishDraftPrChainRunCount: 1,
+      prLifecycleDryRunCount: 1,
+      prLifecycleApprovalCount: 1,
+      prLifecycleRunCount: 1,
       latestRunStatus: 'completed',
       latestDraftPrRunStatus: 'completed',
       latestDraftPrCreationStatus: 'created',
@@ -259,6 +263,8 @@ describe('dashboard read-only UX helpers', () => {
       latestBranchPublishCreationStatus: 'created',
       latestPublishDraftPrChainRunStatus: 'completed',
       latestPublishDraftPrChainLifecycleStatus: 'checks_passed',
+      latestPrLifecycleRunStatus: 'completed',
+      latestPrLifecycleStatusSummary: 'checks_passed',
       draftPrCreatedCount: 1,
       branchPublishCreatedCount: 1,
       credentialConfigured: true,
@@ -267,10 +273,11 @@ describe('dashboard read-only UX helpers', () => {
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('github-provider');
-    expect(summary.manifestVersion).toContain('m18c');
+    expect(summary.manifestVersion).toContain('m19');
     expect(summary.draftPrRunCount).toBe(1);
     expect(summary.branchPublishRunCount).toBe(1);
     expect(summary.publishDraftPrChainRunCount).toBe(1);
+    expect(summary.prLifecycleRunCount).toBe(1);
     expect(summary.latestDraftPrCreationStatus).toBe('created');
     expect(summary.latestBranchPublishCreationStatus).toBe('created');
     expect(summary.draftPrCreatedCount).toBe(1);
@@ -280,6 +287,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.draftPrApprovalRequired).toBe(true);
     expect(summary.branchPublishApprovalRequired).toBe(true);
     expect(summary.publishDraftPrChainSeparateApprovalsRequired).toBe(true);
+    expect(summary.prLifecycleApprovalRequired).toBe(true);
     expect(summary.credentialHashOnly).toBe(true);
     expect(summary.credentialValueStored).toBe(false);
     expect(summary.networkBoundaryInvoked).toBe(true);
@@ -297,6 +305,42 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('responseBody');
     expect(serialized).not.toContain('file contents');
+  });
+
+  it('summarizes GitHub PR lifecycle acceptance rehearsal without network or raw response use', () => {
+    const passed = createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary({
+      scenario: 'checks-passed',
+    });
+    const failed = createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary({
+      scenario: 'checks-failed',
+    });
+    const blocked = createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary({
+      scenario: 'pr-not-found',
+    });
+    const serialized = JSON.stringify({ passed, failed, blocked });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.lifecycleStatus).toBe('checks_passed');
+    expect(failed.status).toBe('failed');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.lifecycleStatus).toBe('not_found');
+    expect(passed.fixedGetOnly).toBe(true);
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.supervisorPostAllowed).toBe(false);
+    expect(passed.adapterExecuteAllowed).toBe(false);
+    expect(passed.commentsAllowed).toBe(false);
+    expect(passed.labelsAllowed).toBe(false);
+    expect(passed.reviewersAllowed).toBe(false);
+    expect(passed.mergeAllowed).toBe(false);
+    expect(passed.rawUrlStored).toBe(false);
+    expect(passed.rawResponseBodyStored).toBe(false);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('check logs');
   });
 
   it('summarizes GitHub branch publish acceptance rehearsal without network or file content use', () => {
@@ -541,9 +585,11 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).toContain('GitHub Draft PR Runs');
     expect(githubRoute).toContain('GitHub Branch Publish Runs');
     expect(githubRoute).toContain('GitHub Publish To Draft PR Chains');
+    expect(githubRoute).toContain('GitHub PR Lifecycle Runs');
     expect(githubRoute).toContain('GitHub Branch Publish Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Draft PR Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Publish To Draft PR Acceptance Rehearsal');
+    expect(githubRoute).toContain('GitHub PR Lifecycle Acceptance Rehearsal');
     expect(githubRoute).not.toContain('<button');
     expect(githubRoute).not.toContain('fetch(');
     expect(githubRoute).not.toContain("method: 'POST'");

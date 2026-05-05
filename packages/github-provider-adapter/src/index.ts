@@ -16,6 +16,10 @@ import {
   GithubMetadataApprovalArtifactRecordSchema,
   GithubMetadataControlPlaneRunSchema,
   GithubMetadataDryRunRecordSchema,
+  GithubPrLifecycleAcceptanceRehearsalRunSchema,
+  GithubPrLifecycleApprovalArtifactRecordSchema,
+  GithubPrLifecycleObservationPlanSchema,
+  GithubPrLifecycleObservationRunSchema,
   GithubPublishDraftPrAcceptanceRehearsalRunSchema,
   GithubPublishDraftPrChainPlanSchema,
   GithubPublishDraftPrChainRunSchema,
@@ -54,6 +58,12 @@ import {
   type GithubMetadataApprovalArtifactRecord,
   type GithubMetadataControlPlaneRun,
   type GithubMetadataDryRunRecord,
+  type GithubPrLifecycleAcceptanceRehearsalRun,
+  type GithubPrLifecycleAcceptanceScenario,
+  type GithubPrLifecycleApprovalArtifactRecord,
+  type GithubPrLifecycleObservationPlan,
+  type GithubPrLifecycleObservationRun,
+  type GithubPrLifecycleRunnerMode,
   type GithubProviderApprovalStatus,
   type GithubPublishDraftPrAcceptanceRehearsalRun,
   type GithubPublishDraftPrAcceptanceScenario,
@@ -72,8 +82,10 @@ import {
   runGithubBranchPublishHttpBoundary,
   runGithubDraftPrHttpBoundary,
   runGithubMetadataHttpBoundary,
+  runGithubPrLifecycleHttpBoundary,
   type GithubBranchPublishHttpBoundaryRequest,
   type GithubHttpBoundaryRequest,
+  type GithubPrLifecycleHttpBoundaryRequest,
 } from './github-http-boundary';
 
 export const GITHUB_PROVIDER_NAME = 'github-provider';
@@ -130,6 +142,18 @@ export interface GithubBranchPublishPlanInput extends GithubRemoteRefInput {
   now?: () => string;
 }
 
+export interface GithubPrLifecyclePlanInput extends GithubRemoteRefInput {
+  prNumber?: string;
+  prNumberHash?: string;
+  commitSha?: string;
+  commitShaHash?: string;
+  requestedMetadata?: Array<
+    'repo' | 'pull_request' | 'branch_ref' | 'combined_status' | 'check_runs'
+  >;
+  runnerMode?: GithubPrLifecycleRunnerMode;
+  now?: () => string;
+}
+
 export interface GithubMetadataApprovalInput {
   dryRunRecord: GithubMetadataDryRunRecord;
   baseRecord?: GithubMetadataApprovalArtifactRecord;
@@ -153,6 +177,16 @@ export interface GithubDraftPrApprovalInput {
 export interface GithubBranchPublishApprovalInput {
   dryRunRecord: GithubBranchPublishPlan;
   baseRecord?: GithubBranchPublishApprovalArtifactRecord;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface GithubPrLifecycleApprovalInput {
+  dryRunRecord: GithubPrLifecycleObservationPlan;
+  baseRecord?: GithubPrLifecycleApprovalArtifactRecord;
   status: GithubProviderApprovalStatus;
   requestedBy?: string;
   decidedBy?: string;
@@ -206,6 +240,18 @@ export interface GithubBranchPublishExecutionInput {
   now?: () => string;
 }
 
+export interface GithubPrLifecycleExecutionInput {
+  dryRunRecord: GithubPrLifecycleObservationPlan;
+  approvalRecord?: GithubPrLifecycleApprovalArtifactRecord;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubPrLifecycleHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
 export interface GithubDraftPrAcceptanceRehearsalInput {
   scenario?: GithubDraftPrAcceptanceScenario;
   now?: () => string;
@@ -213,6 +259,11 @@ export interface GithubDraftPrAcceptanceRehearsalInput {
 
 export interface GithubBranchPublishAcceptanceRehearsalInput {
   scenario?: GithubBranchPublishAcceptanceScenario;
+  now?: () => string;
+}
+
+export interface GithubPrLifecycleAcceptanceRehearsalInput {
+  scenario?: GithubPrLifecycleAcceptanceScenario;
   now?: () => string;
 }
 
@@ -274,6 +325,7 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       'publish-draft-pr-chain-plan',
       'publish-draft-pr-chain-projection',
       'pr-lifecycle-read-only-projection',
+      'pr-lifecycle-fixed-get-observation',
       'publish-draft-pr-acceptance-rehearsal',
     ],
     defaultRisk: 'high',
@@ -460,6 +512,101 @@ export function createGithubMetadataDryRunRecord(
       status === 'planned'
         ? 'GitHub metadata dry-run is planned; execution remains disabled until approval and env enablement.'
         : `GitHub metadata dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubPrLifecycleObservationPlan(
+  input: GithubPrLifecyclePlanInput,
+): GithubPrLifecycleObservationPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectPrLifecyclePlanBlockReasons(input);
+  const targetRef =
+    blockReasons.includes('invalid_owner') ||
+    blockReasons.includes('invalid_repo') ||
+    blockReasons.includes('invalid_base_branch') ||
+    blockReasons.includes('invalid_head_branch')
+      ? createBlockedGithubRemoteRefSummary(input, now)
+      : createGithubRemoteRefSummary(input);
+  const requestedMetadata = input.requestedMetadata ?? [
+    'repo',
+    'pull_request',
+    'branch_ref',
+    'combined_status',
+    'check_runs',
+  ];
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const dryRunId = stableId(
+    'github_pr_lifecycle_dry_run',
+    JSON.stringify({
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      baseBranchHash: targetRef.baseBranchHash,
+      headBranchHash: targetRef.headBranchHash,
+      prNumberHash: input.prNumberHash ?? stableHash(input.prNumber ?? 'missing'),
+      commitShaHash: input.commitShaHash ?? stableHash(input.commitSha ?? 'missing'),
+      requestedMetadata,
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.pr_lifecycle.observe',
+    actionMode: 'read',
+    now,
+    allow: false,
+    reasons: ['live GitHub PR lifecycle observation requires persisted approval'],
+  });
+
+  return GithubPrLifecycleObservationPlanSchema.parse({
+    id: stableId('github_pr_lifecycle_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status,
+    runnerMode: input.runnerMode ?? 'planning-only',
+    targetRef,
+    prNumberHash: input.prNumberHash ?? (input.prNumber ? stableHash(input.prNumber) : undefined),
+    commitShaHash:
+      input.commitShaHash ?? (input.commitSha ? stableHash(input.commitSha) : undefined),
+    requestedMetadata,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.pr_lifecycle_plan',
+        label: 'github-pr-lifecycle-plan',
+        summary: 'GitHub PR lifecycle dry-run stores remote refs and PR ids as hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          ownerHash: targetRef.ownerHash,
+          repoHash: targetRef.repoHash,
+          requestedMetadataCount: requestedMetadata.length,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryPlanned:
+      status === 'planned' && input.runnerMode === 'controlled-github-pr-lifecycle',
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      requestedMetadataCount: requestedMetadata.length,
+      productDefaultEnabled: false,
+    },
+    summary:
+      status === 'planned'
+        ? 'GitHub PR lifecycle observation dry-run is planned; live GETs require approval and env enablement.'
+        : `GitHub PR lifecycle observation dry-run is blocked: ${blockReasons.join(', ')}.`,
   });
 }
 
@@ -747,6 +894,69 @@ export function createGithubMetadataApprovalRecord(
   });
 }
 
+export function createGithubPrLifecycleApprovalRecord(
+  input: GithubPrLifecycleApprovalInput,
+): GithubPrLifecycleApprovalArtifactRecord {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_pr_lifecycle_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_pr_lifecycle_approval_artifact', input.dryRunRecord.dryRunId);
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.pr_lifecycle_plan',
+      label: 'github-pr-lifecycle-approval',
+      summary: 'GitHub PR lifecycle approval stores approval hashes and ids only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        approvalArtifactIdHash: stableHash(approvalArtifactId),
+        status: input.status,
+      },
+    }),
+  ];
+
+  return GithubPrLifecycleApprovalArtifactRecordSchema.parse({
+    id: stableId(
+      'github_pr_lifecycle_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt: baseRecord?.expiresAt,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub PR lifecycle approval status is ${input.status}.`,
+  });
+}
+
 export function createGithubDraftPrApprovalRecord(
   input: GithubDraftPrApprovalInput,
 ): GithubDraftPrApprovalArtifactRecord {
@@ -945,6 +1155,101 @@ export async function executeGithubMetadataObservation(
       status === 'completed'
         ? 'GitHub metadata observation completed with hash-only response summaries.'
         : `GitHub metadata observation ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
+export async function executeGithubPrLifecycleObservation(
+  input: GithubPrLifecycleExecutionInput,
+): Promise<GithubPrLifecycleObservationRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectPrLifecycleExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubPrLifecycleHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        headBranch: boundaryInput.headBranch,
+        prNumber: boundaryInput.prNumber,
+        commitSha: boundaryInput.commitSha,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.pr_lifecycle_run',
+      label: 'github-pr-lifecycle-run',
+      summary: 'GitHub PR lifecycle run stores response hashes and status/check counts only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        status,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+        responseBodyHashCount: responseBodyHashes.length,
+        checkRunCount: boundaryResult?.checkRunCount ?? 0,
+        statusContextCount: boundaryResult?.statusContextCount ?? 0,
+      },
+    }),
+  ];
+  const lifecycleSummary = createGithubRemotePrLifecycleSummary({
+    targetRef: input.dryRunRecord.targetRef,
+    prNumberHash: boundaryResult?.prNumberHash ?? input.dryRunRecord.prNumberHash,
+    prUrlHash: boundaryResult?.prUrlHash,
+    stateSummary: boundaryResult?.stateSummary ?? status,
+    checkRunCount: boundaryResult?.checkRunCount ?? 0,
+    statusContextCount: boundaryResult?.statusContextCount ?? 0,
+    failedCheckCount: boundaryResult?.failedCheckCount ?? 0,
+    pendingCheckCount: boundaryResult?.pendingCheckCount ?? 0,
+    passedCheckCount: boundaryResult?.passedCheckCount ?? 0,
+    now,
+  });
+
+  return GithubPrLifecycleObservationRunSchema.parse({
+    id: stableId(
+      'github_pr_lifecycle_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+    status,
+    plan: input.dryRunRecord,
+    lifecycleSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      responseBodyHashCount: responseBodyHashes.length,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub PR lifecycle observation completed with hash-only status and check summaries.'
+        : `GitHub PR lifecycle observation ${status}: ${finalBlockReasons.join(', ')}.`,
   });
 }
 
@@ -1234,6 +1539,43 @@ export function runGithubBranchPublishAcceptanceRehearsal(
       newBranchOnly: true,
     },
     summary: `GitHub branch publish acceptance rehearsal ${state.status}; fixture metadata only.`,
+  });
+}
+
+export function runGithubPrLifecycleAcceptanceRehearsal(
+  input: GithubPrLifecycleAcceptanceRehearsalInput = {},
+): GithubPrLifecycleAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'all-pass';
+  const state = getGithubPrLifecycleAcceptanceScenarioState(scenario);
+
+  return GithubPrLifecycleAcceptanceRehearsalRunSchema.parse({
+    id: stableId('github_pr_lifecycle_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: state.status,
+    lifecycleStatus: state.lifecycleStatus,
+    stepCount: 5,
+    evidenceRefCount: state.evidenceRefCount,
+    auditEventCount: state.auditEventCount,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    blockerCount: state.blockerCount,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      scenario,
+      fixtureOnly: true,
+      lifecycleStatus: state.lifecycleStatus,
+      networkBoundaryInvoked: false,
+    },
+    summary: `GitHub PR lifecycle acceptance rehearsal ${state.status}; fixture metadata only.`,
   });
 }
 
@@ -1846,6 +2188,50 @@ function collectExecutionBlockReasons(input: GithubMetadataExecutionInput, nowIs
   return [...new Set(reasons)];
 }
 
+function collectPrLifecycleExecutionBlockReasons(
+  input: GithubPrLifecycleExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const prNumberMatches =
+    !input.dryRunRecord.prNumberHash ||
+    (input.runtime.prNumber && stableHash(input.runtime.prNumber) === input.dryRunRecord.prNumberHash);
+  const commitShaMatches =
+    !input.dryRunRecord.commitShaHash ||
+    (input.runtime.commitSha && stableHash(input.runtime.commitSha) === input.dryRunRecord.commitShaHash);
+  const reasons = [
+    input.enabled ? undefined : 'github_pr_lifecycle_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-pr-lifecycle'
+      ? undefined
+      : 'pr_lifecycle_runner_mode_not_controlled',
+    input.approvalRecord?.status === 'approved' && input.approvalRecord.approved
+      ? undefined
+      : 'missing_persisted_approval',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    input.runtime.prNumber || input.runtime.commitSha ? undefined : 'missing_pr_or_commit_identifier',
+    prNumberMatches ? undefined : 'github_pr_number_hash_mismatch',
+    commitShaMatches ? undefined : 'github_commit_sha_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
 function collectDraftPrExecutionBlockReasons(
   input: GithubDraftPrExecutionInput,
   nowIso: string,
@@ -2114,7 +2500,9 @@ function createGithubEvidenceRef(input: {
     | 'github.branch_publish_rehearsal'
     | 'github.publish_draft_pr_chain_plan'
     | 'github.publish_draft_pr_chain_summary'
+    | 'github.pr_lifecycle_plan'
     | 'github.pr_lifecycle_summary'
+    | 'github.pr_lifecycle_run'
     | 'github.publish_draft_pr_rehearsal';
   label: string;
   summary: string;
@@ -2160,6 +2548,18 @@ function collectPlanBlockReasons(input: GithubMetadataPlanInput): string[] {
   return [
     validateRemoteRefInput(input),
     validateRequestedMetadata(input.requestedMetadata ?? []),
+  ].filter((reason): reason is string => Boolean(reason));
+}
+
+function collectPrLifecyclePlanBlockReasons(input: GithubPrLifecyclePlanInput): string[] {
+  return [
+    validateRemoteRefInput(input),
+    validatePrLifecycleRequestedMetadata(input.requestedMetadata ?? []),
+    input.baseBranch ? undefined : 'missing_base_branch',
+    input.headBranch ? undefined : 'missing_head_branch',
+    input.prNumber || input.prNumberHash || input.commitSha || input.commitShaHash
+      ? undefined
+      : 'missing_pr_or_commit_identifier',
   ].filter((reason): reason is string => Boolean(reason));
 }
 
@@ -2303,6 +2703,71 @@ function getGithubBranchPublishAcceptanceScenarioState(
         status: 'blocked',
         readinessStatus: 'ready_for_branch_publish',
         branchPublishStatus: 'blocked',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+  }
+}
+
+function getGithubPrLifecycleAcceptanceScenarioState(
+  scenario: GithubPrLifecycleAcceptanceScenario,
+): {
+  status: GithubPrLifecycleAcceptanceRehearsalRun['status'];
+  lifecycleStatus: GithubPrLifecycleAcceptanceRehearsalRun['lifecycleStatus'];
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+} {
+  switch (scenario) {
+    case 'all-pass':
+    case 'checks-passed':
+      return {
+        status: 'passed',
+        lifecycleStatus: 'checks_passed',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 0,
+      };
+    case 'checks-failed':
+      return {
+        status: 'failed',
+        lifecycleStatus: 'checks_failed',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 1,
+      };
+    case 'checks-pending':
+      return {
+        status: 'blocked',
+        lifecycleStatus: 'checks_pending',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 1,
+      };
+    case 'pr-not-found':
+      return {
+        status: 'blocked',
+        lifecycleStatus: 'not_found',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'network-timeout':
+      return {
+        status: 'aborted',
+        lifecycleStatus: 'blocked',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'token-missing':
+    case 'provider-disabled':
+    case 'approval-blocked':
+    case 'stale-branch':
+      return {
+        status: 'blocked',
+        lifecycleStatus: 'blocked',
         evidenceRefCount: 1,
         auditEventCount: 1,
         blockerCount: 1,
@@ -2521,6 +2986,22 @@ function validateRequestedMetadata(
   return requestedMetadata.every((item) => allowed.has(item))
     ? undefined
     : 'unsupported_metadata_request';
+}
+
+function validatePrLifecycleRequestedMetadata(
+  requestedMetadata: readonly string[],
+): string | undefined {
+  const allowed = new Set([
+    'repo',
+    'pull_request',
+    'branch_ref',
+    'combined_status',
+    'check_runs',
+  ]);
+
+  return requestedMetadata.every((item) => allowed.has(item))
+    ? undefined
+    : 'unsupported_pr_lifecycle_metadata_request';
 }
 
 function isSafeGithubName(value: string | undefined): value is string {

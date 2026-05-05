@@ -4,6 +4,7 @@ import {
   GithubBranchPublishPlanSchema,
   GithubDraftPrPlanSchema,
   GithubMetadataDryRunRecordSchema,
+  GithubPrLifecycleObservationPlanSchema,
   GithubPublishDraftPrChainPlanSchema,
   GithubTokenReadinessSchema,
 } from '@codexhub/contracts';
@@ -16,6 +17,8 @@ import {
   createGithubDraftPrPlan,
   createGithubMetadataApprovalRecord,
   createGithubMetadataDryRunRecord,
+  createGithubPrLifecycleApprovalRecord,
+  createGithubPrLifecycleObservationPlan,
   createGithubProviderManifest,
   createGithubPublishDraftPrChainPlan,
   createGithubPublishDraftPrChainRun,
@@ -24,9 +27,11 @@ import {
   executeGithubBranchPublish,
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
+  executeGithubPrLifecycleObservation,
   readGithubTokenReadiness,
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
+  runGithubPrLifecycleAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
 } from './index';
 
@@ -405,6 +410,123 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(run.blockReasons).toContain('github_remote_ref_hash_mismatch');
     expect(run.networkBoundaryInvoked).toBe(false);
     expect(fetchCalled).toBe(false);
+  });
+
+  it('plans PR lifecycle observation as approval-gated fixed GET metadata', () => {
+    const plan = createGithubPrLifecycleObservationPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m19',
+      prNumber: '42',
+      commitSha: 'abc123',
+      runnerMode: 'controlled-github-pr-lifecycle',
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(GithubPrLifecycleObservationPlanSchema.parse(plan).status).toBe('planned');
+    expect(plan.requiresApproval).toBe(true);
+    expect(plan.networkBoundaryPlanned).toBe(true);
+    expect(plan.networkBoundaryInvoked).toBe(false);
+    expect(plan.rawUrlStored).toBe(false);
+    expect(plan.rawResponseBodyStored).toBe(false);
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub');
+    expect(serialized).not.toContain('codex/m19');
+    expect(serialized).not.toContain('abc123');
+  });
+
+  it('runs PR lifecycle fixed GETs through the injected boundary and stores counts only', async () => {
+    const dryRunRecord = createGithubPrLifecycleObservationPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codex/m19',
+      prNumber: '42',
+      commitSha: 'abc123',
+      runnerMode: 'controlled-github-pr-lifecycle',
+      now: fixedNow,
+    });
+    const approvalRecord = createGithubPrLifecycleApprovalRecord({
+      dryRunRecord,
+      status: 'approved',
+      now: fixedNow,
+    });
+    const requestedUrls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      requestedUrls.push(url);
+      const body = url.endsWith('/pulls/42')
+        ? '{"number":42,"html_url":"https://github.com/octo-org/codexhub/pull/42","state":"open","head":{"sha":"abc123"}}'
+        : url.endsWith('/status')
+          ? '{"state":"success","statuses":[{"state":"success"},{"state":"failure"}]}'
+          : url.endsWith('/check-runs')
+            ? '{"total_count":3,"check_runs":[{"conclusion":"success","status":"completed"},{"conclusion":"failure","status":"completed"},{"conclusion":null,"status":"in_progress"}]}'
+            : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const run = await executeGithubPrLifecycleObservation({
+      dryRunRecord,
+      approvalRecord,
+      authority: allowedAuthority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codex/m19',
+        prNumber: '42',
+        commitSha: 'abc123',
+        token: 'ghp_secret',
+      },
+      fetchImpl,
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('completed');
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(run.responseBodyHashes).toHaveLength(5);
+    expect(run.lifecycleSummary.checkRunCount).toBe(3);
+    expect(run.lifecycleSummary.statusContextCount).toBe(2);
+    expect(run.lifecycleSummary.failedCheckCount).toBe(2);
+    expect(run.lifecycleSummary.pendingCheckCount).toBe(1);
+    expect(run.lifecycleSummary.passedCheckCount).toBe(2);
+    expect(requestedUrls).toEqual([
+      'https://api.github.com/repos/octo-org/codexhub',
+      'https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'https://api.github.com/repos/octo-org/codexhub/git/ref/heads/codex%2Fm19',
+      'https://api.github.com/repos/octo-org/codexhub/commits/abc123/status',
+      'https://api.github.com/repos/octo-org/codexhub/commits/abc123/check-runs',
+    ]);
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub');
+    expect(serialized).not.toContain('codex/m19');
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('html_url');
+    expect(serialized).not.toContain('total_count');
+    expect(serialized).not.toContain('in_progress');
+  });
+
+  it('keeps PR lifecycle rehearsal fixture-only', () => {
+    const run = runGithubPrLifecycleAcceptanceRehearsal({
+      scenario: 'checks-failed',
+      now: fixedNow,
+    });
+
+    expect(run.status).toBe('failed');
+    expect(run.lifecycleStatus).toBe('checks_failed');
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(run.noRealWrite).toBe(true);
   });
 
   it('plans new-branch publish with a hash-only content manifest', () => {
