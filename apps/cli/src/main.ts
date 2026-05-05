@@ -1466,6 +1466,32 @@ export function buildProgram(): Command {
       },
     );
 
+  const workflowProductionCommand = workflowsCommand
+    .command('production')
+    .description('Read production workflow rehearsal metadata');
+
+  workflowProductionCommand
+    .command('rehearse')
+    .requiredOption('--template-id <templateId>', 'Production template id to rehearse')
+    .requiredOption('--fixture', 'Use fixture-only production rehearsal data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Run a fixture-only production workflow rehearsal without execution')
+    .action(
+      async (
+        options: JsonCliOptions & {
+          templateId: string;
+          scenario: string;
+        },
+      ) => {
+        const result = rehearseCustomWorkflowProductionForCli(
+          options.templateId,
+          options.scenario,
+        );
+        console.log(formatCustomWorkflowRehearsalOutput(result, options));
+      },
+    );
+
   const workflowDryRunsCommand = workflowsCommand
     .command('dry-runs')
     .description('Read custom workflow dry-run records from Supervisor GET endpoints');
@@ -5522,6 +5548,38 @@ function rehearseCustomWorkflowForCli(
     externalProcessStarted: false,
     networkBoundaryInvoked: false,
     directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+export function rehearseCustomWorkflowProductionForCli(
+  templateId: string,
+  scenario: string,
+): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const template = catalog.templates.find((item) => item.templateId === templateId);
+  const catalogEntry = catalog.entries.find((item) => item.templateId === templateId);
+  const readiness = catalog.readiness.find((item) => item.templateId === templateId);
+  const validation = catalog.validationSummaries.find((item) => item.templateId === templateId);
+  const rehearsal = runCustomWorkflowFixtureRehearsal({
+    template: template ?? createCustomWorkflowTemplateFixture({ templateId }),
+    scenario: template ? (scenario as never) : 'invalid-template',
+  });
+
+  return {
+    record: rehearsal,
+    catalogEntry,
+    readiness,
+    validation,
+    found: Boolean(template),
+    productionRehearsal: true,
+    fixtureOnly: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    supervisorPostAllowed: false,
     bodyStored: false,
     rawPathStored: false,
   };

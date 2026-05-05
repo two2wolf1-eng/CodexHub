@@ -191,6 +191,7 @@ describe('cli development mock-run fallback', () => {
       'showCustomWorkflowTemplateForCli',
       'validateCustomWorkflowTemplateForCli',
       'rehearseCustomWorkflowForCli',
+      'rehearseCustomWorkflowProductionForCli',
     ];
 
     for (const helperName of readOnlyHelperNames) {
@@ -213,6 +214,8 @@ describe('cli development mock-run fallback', () => {
       formatCustomWorkflowCatalogDetailOutput,
       formatCustomWorkflowCatalogListOutput,
       formatCustomWorkflowCatalogReadinessOutput,
+      formatCustomWorkflowRehearsalOutput,
+      rehearseCustomWorkflowProductionForCli,
     } = await import('./main');
     const catalog = createCustomWorkflowCatalog();
     const localPatch = catalog.entries.find((entry) => entry.templateId === 'local-patch-review');
@@ -247,11 +250,39 @@ describe('cli development mock-run fallback', () => {
       bodyStored: false,
       rawPathStored: false,
     });
-    const serialized = [JSON.stringify(catalog), listOutput, detailOutput, readinessOutput].join('\n');
+    const productionRehearsal = rehearseCustomWorkflowProductionForCli(
+      'local-patch-review',
+      'template-disabled',
+    );
+    const staleHashRehearsal = rehearseCustomWorkflowProductionForCli(
+      'github-draft-pr-chain',
+      'stale-template-hash',
+    );
+    const rehearsalOutput = formatCustomWorkflowRehearsalOutput(productionRehearsal);
+    const serialized = [
+      JSON.stringify(catalog),
+      JSON.stringify({ productionRehearsal, staleHashRehearsal }),
+      listOutput,
+      detailOutput,
+      readinessOutput,
+      rehearsalOutput,
+    ].join('\n');
 
     expect(listOutput).toContain('Custom workflow production catalog');
     expect(detailOutput).toContain('local-patch-review');
     expect(readinessOutput).toContain('status: disabled');
+    expect(productionRehearsal).toMatchObject({
+      found: true,
+      productionRehearsal: true,
+      fixtureOnly: true,
+      directAdapterExecutionAllowed: false,
+      supervisorPostAllowed: false,
+    });
+    expect((productionRehearsal.record as { scenario: string }).scenario).toBe('template-disabled');
+    expect((staleHashRehearsal.record as { scenario: string }).scenario).toBe(
+      'stale-template-hash',
+    );
+    expect(rehearsalOutput).toContain('scenario: template-disabled');
     expect(serialized).toContain('directAdapterExecutionAllowed=false');
     expectNoForbiddenCliRawOutput(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');

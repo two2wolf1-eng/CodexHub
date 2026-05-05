@@ -325,23 +325,30 @@ describe('dashboard read-only UX helpers', () => {
       approvalCount: 1,
       runCount: 1,
       latestRunStatus: 'blocked',
+      latestProductionRehearsalScenario: 'stale-template-hash',
+      latestProductionRehearsalStatus: 'blocked',
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
     });
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('custom-workflow');
-    expect(summary.manifestVersion).toContain('m25');
+    expect(summary.manifestVersion).toContain('m26');
     expect(summary.catalogTemplateCount).toBe(4);
     expect(summary.catalogReadyCount).toBe(0);
     expect(summary.catalogBlockedOrDisabledCount).toBe(4);
     expect(summary.catalogFamilies).toEqual(['local', 'github']);
     expect(summary.productionTemplateIds).toContain('local-patch-review');
     expect(summary.productionExecutionEnabled).toBe(false);
+    expect(summary.latestProductionRehearsalScenario).toBe('stale-template-hash');
+    expect(summary.latestProductionRehearsalStatus).toBe('blocked');
+    expect(summary.productionRehearsalFixtureOnly).toBe(true);
     expect(summary.dryRunCount).toBe(2);
     expect(summary.approvalRequired).toBe(true);
     expect(summary.childApprovalsRequired).toBe(true);
     expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.supervisorPostAllowed).toBe(false);
+    expect(summary.localControlKeyRead).toBe(false);
     expect(summary.directAdapterExecutionAllowed).toBe(false);
     expect(summary.directChildExecutionAllowed).toBe(false);
     expect(summary.processBoundaryInvoked).toBe(false);

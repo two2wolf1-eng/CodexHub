@@ -5047,6 +5047,21 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>production rehearsal</strong>
+              <span>
+                {customWorkflowSummary.latestProductionRehearsalScenario} /{' '}
+                {customWorkflowSummary.latestProductionRehearsalStatus}, fixture{' '}
+                {String(customWorkflowSummary.productionRehearsalFixtureOnly)}
+              </span>
+            </li>
+            <li>
+              <strong>write controls</strong>
+              <span>
+                supervisor POST {String(customWorkflowSummary.supervisorPostAllowed)},
+                local-control key read {String(customWorkflowSummary.localControlKeyRead)}
+              </span>
+            </li>
+            <li>
               <strong>storage</strong>
               <span>
                 bodyStored {String(customWorkflowSummary.bodyStored)}, rawPathStored{' '}

@@ -275,9 +275,14 @@ export interface CustomWorkflowReadOnlySummary {
   approvalCount: number;
   runCount: number;
   latestRunStatus: string;
+  latestProductionRehearsalScenario: string;
+  latestProductionRehearsalStatus: string;
+  productionRehearsalFixtureOnly: true;
   approvalRequired: true;
   childApprovalsRequired: true;
   productDefaultEnabled: false;
+  supervisorPostAllowed: false;
+  localControlKeyRead: false;
   directAdapterExecutionAllowed: false;
   directChildExecutionAllowed: false;
   processBoundaryInvoked: boolean;
@@ -1609,12 +1614,14 @@ export function createCustomWorkflowReadOnlySummary(input: {
   approvalCount?: number;
   runCount?: number;
   latestRunStatus?: string;
+  latestProductionRehearsalScenario?: string;
+  latestProductionRehearsalStatus?: string;
   processBoundaryInvoked?: boolean;
   networkBoundaryInvoked?: boolean;
 } = {}): CustomWorkflowReadOnlySummary {
   return {
     manifestName: 'custom-workflow',
-    manifestVersion: '0.2.0-m25',
+    manifestVersion: '0.3.0-m26',
     templateCount: input.templateCount ?? 0,
     catalogTemplateCount: input.catalogTemplateCount ?? 4,
     catalogReadyCount: input.catalogReadyCount ?? 0,
@@ -1632,9 +1639,15 @@ export function createCustomWorkflowReadOnlySummary(input: {
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
     latestRunStatus: input.latestRunStatus ?? 'none',
+    latestProductionRehearsalScenario:
+      input.latestProductionRehearsalScenario ?? 'template-disabled',
+    latestProductionRehearsalStatus: input.latestProductionRehearsalStatus ?? 'blocked',
+    productionRehearsalFixtureOnly: true,
     approvalRequired: true,
     childApprovalsRequired: true,
     productDefaultEnabled: false,
+    supervisorPostAllowed: false,
+    localControlKeyRead: false,
     directAdapterExecutionAllowed: false,
     directChildExecutionAllowed: false,
     processBoundaryInvoked: input.processBoundaryInvoked ?? false,
