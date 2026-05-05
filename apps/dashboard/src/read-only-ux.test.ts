@@ -7,6 +7,7 @@ import {
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary,
   createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary,
+  createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
@@ -18,6 +19,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createRemoteSupersedeAcceptanceRehearsalReadOnlySummary,
   createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
@@ -257,6 +259,11 @@ describe('dashboard read-only UX helpers', () => {
       prLifecycleDryRunCount: 1,
       prLifecycleApprovalCount: 1,
       prLifecycleRunCount: 1,
+      remoteSupersedeDryRunCount: 1,
+      remoteSupersedeRunCount: 1,
+      remoteCleanupDryRunCount: 1,
+      remoteCleanupApprovalCount: 1,
+      remoteCleanupRunCount: 1,
       latestRunStatus: 'completed',
       latestDraftPrRunStatus: 'completed',
       latestDraftPrCreationStatus: 'created',
@@ -266,6 +273,9 @@ describe('dashboard read-only UX helpers', () => {
       latestPublishDraftPrChainLifecycleStatus: 'checks_passed',
       latestPrLifecycleRunStatus: 'completed',
       latestPrLifecycleStatusSummary: 'checks_passed',
+      latestRemoteSupersedeRunStatus: 'projected',
+      latestRemoteCleanupRunStatus: 'completed',
+      latestRemoteCleanupReadinessStatus: 'ready_for_cleanup',
       draftPrCreatedCount: 1,
       branchPublishCreatedCount: 1,
       credentialConfigured: true,
@@ -274,11 +284,14 @@ describe('dashboard read-only UX helpers', () => {
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('github-provider');
-    expect(summary.manifestVersion).toContain('m19');
+    expect(summary.manifestVersion).toContain('m22');
     expect(summary.draftPrRunCount).toBe(1);
     expect(summary.branchPublishRunCount).toBe(1);
     expect(summary.publishDraftPrChainRunCount).toBe(1);
     expect(summary.prLifecycleRunCount).toBe(1);
+    expect(summary.remoteSupersedeRunCount).toBe(1);
+    expect(summary.remoteCleanupRunCount).toBe(1);
+    expect(summary.latestRemoteCleanupReadinessStatus).toBe('ready_for_cleanup');
     expect(summary.latestDraftPrCreationStatus).toBe('created');
     expect(summary.latestBranchPublishCreationStatus).toBe('created');
     expect(summary.draftPrCreatedCount).toBe(1);
@@ -289,6 +302,12 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.branchPublishApprovalRequired).toBe(true);
     expect(summary.publishDraftPrChainSeparateApprovalsRequired).toBe(true);
     expect(summary.prLifecycleApprovalRequired).toBe(true);
+    expect(summary.remoteSupersedeProjectionOnly).toBe(true);
+    expect(summary.remoteCleanupApprovalRequired).toBe(true);
+    expect(summary.allowedRemoteCleanupActions).toContain('codexhub_ref_delete');
+    expect(summary.blockedOperations).toEqual(
+      expect.arrayContaining(['non_codexhub_branch_delete', 'release', 'deployment']),
+    );
     expect(summary.credentialHashOnly).toBe(true);
     expect(summary.credentialValueStored).toBe(false);
     expect(summary.networkBoundaryInvoked).toBe(true);
@@ -306,6 +325,37 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('responseBody');
     expect(serialized).not.toContain('file contents');
+  });
+
+  it('summarizes remote supersede and cleanup rehearsals without network or write controls', () => {
+    const supersede = createRemoteSupersedeAcceptanceRehearsalReadOnlySummary({
+      scenario: 'old-pr-open',
+    });
+    const cleanup = createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary({
+      scenario: 'branch-not-codexhub',
+    });
+    const serialized = JSON.stringify({ supersede, cleanup });
+
+    expect(supersede.status).toBe('passed');
+    expect(supersede.remoteWriteInvoked).toBe(false);
+    expect(supersede.cleanupRecommended).toBe(true);
+    expect(supersede.supervisorPostAllowed).toBe(false);
+    expect(cleanup.status).toBe('blocked');
+    expect(cleanup.deleteNonCodexhubBranchAllowed).toBe(false);
+    expect(cleanup.closePrAllowed).toBe(true);
+    expect(cleanup.deleteRefAllowed).toBe(true);
+    expect(cleanup.updateRefAllowed).toBe(false);
+    expect(cleanup.forceAllowed).toBe(false);
+    expect(cleanup.commentAllowed).toBe(false);
+    expect(cleanup.labelAllowed).toBe(false);
+    expect(cleanup.reviewerAllowed).toBe(false);
+    expect(cleanup.networkBoundaryInvoked).toBe(false);
+    expect(cleanup.localControlKeyRead).toBe(false);
+    expect(cleanup.adapterExecuteAllowed).toBe(false);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('raw PR markdown');
   });
 
   it('summarizes GitHub PR lifecycle acceptance rehearsal without network or raw response use', () => {
@@ -616,10 +666,14 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).toContain('GitHub Branch Publish Runs');
     expect(githubRoute).toContain('GitHub Publish To Draft PR Chains');
     expect(githubRoute).toContain('GitHub PR Lifecycle Runs');
+    expect(githubRoute).toContain('GitHub Remote Supersede Runs');
+    expect(githubRoute).toContain('GitHub Remote Cleanup Runs');
     expect(githubRoute).toContain('GitHub Branch Publish Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Draft PR Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Publish To Draft PR Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub PR Lifecycle Acceptance Rehearsal');
+    expect(githubRoute).toContain('GitHub Remote Supersede Acceptance Rehearsal');
+    expect(githubRoute).toContain('GitHub Remote Cleanup Acceptance Rehearsal');
     expect(githubRoute).not.toContain('<button');
     expect(githubRoute).not.toContain('fetch(');
     expect(githubRoute).not.toContain("method: 'POST'");

@@ -28,6 +28,9 @@ import type {
   GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
+  GithubRemoteCleanupApprovalArtifactRecord,
+  GithubRemoteCleanupPlan,
+  GithubRemoteCleanupRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -121,6 +124,10 @@ import type {
   GithubPublishDraftPrChainControlPlaneQuery,
   GithubPublishDraftPrChainDryRunRepository,
   GithubPublishDraftPrChainRunRepository,
+  GithubRemoteCleanupApprovalRepository,
+  GithubRemoteCleanupControlPlaneQuery,
+  GithubRemoteCleanupDryRunRepository,
+  GithubRemoteCleanupRunRepository,
   ReworkLoopApprovalRepository,
   ReworkLoopControlPlaneQuery,
   ReworkLoopDryRunRepository,
@@ -230,6 +237,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
   readonly githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
   readonly githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
+  readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
+  readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
+  readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
   readonly reworkLoopDryRuns: ReworkLoopDryRunRepository;
   readonly reworkLoopApprovals: ReworkLoopApprovalRepository;
   readonly reworkLoopRuns: ReworkLoopRunRepository;
@@ -300,6 +310,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.githubPrLifecycleDryRuns = new SqliteGithubPrLifecycleDryRunRepository(database);
     this.githubPrLifecycleApprovals = new SqliteGithubPrLifecycleApprovalRepository(database);
     this.githubPrLifecycleRuns = new SqliteGithubPrLifecycleRunRepository(database);
+    this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
+    this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
+    this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
     this.reworkLoopDryRuns = new SqliteReworkLoopDryRunRepository(database);
     this.reworkLoopApprovals = new SqliteReworkLoopApprovalRepository(database);
     this.reworkLoopRuns = new SqliteReworkLoopRunRepository(database);
@@ -1712,6 +1725,118 @@ class SqliteGithubPrLifecycleRunRepository implements GithubPrLifecycleRunReposi
   }
 }
 
+class SqliteGithubRemoteCleanupDryRunRepository
+  implements GithubRemoteCleanupDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<GithubRemoteCleanupPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubRemoteCleanupPlan>(
+      database,
+      'github_remote_cleanup_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubRemoteCleanupControlPlaneQuery = {},
+  ): Promise<GithubRemoteCleanupPlan[]> {
+    return listObservationControlPlaneRecords<GithubRemoteCleanupPlan>(
+      this.database,
+      'github_remote_cleanup_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubRemoteCleanupApprovalRepository
+  implements GithubRemoteCleanupApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubRemoteCleanupApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubRemoteCleanupApprovalArtifactRecord>(
+      database,
+      'github_remote_cleanup_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubRemoteCleanupApprovalArtifactRecord,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM github_remote_cleanup_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubRemoteCleanupApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubRemoteCleanupControlPlaneQuery = {},
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<GithubRemoteCleanupApprovalArtifactRecord>(
+      this.database,
+      'github_remote_cleanup_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubRemoteCleanupRunRepository implements GithubRemoteCleanupRunRepository {
+  private readonly repository: JsonEntityRepository<GithubRemoteCleanupRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubRemoteCleanupRun>(
+      database,
+      'github_remote_cleanup_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubRemoteCleanupRun): Promise<GithubRemoteCleanupRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubRemoteCleanupRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubRemoteCleanupControlPlaneQuery = {},
+  ): Promise<GithubRemoteCleanupRun[]> {
+    return listObservationControlPlaneRecords<GithubRemoteCleanupRun>(
+      this.database,
+      'github_remote_cleanup_runs',
+      query,
+    );
+  }
+}
+
 class SqliteReworkLoopDryRunRepository implements ReworkLoopDryRunRepository {
   private readonly repository: JsonEntityRepository<ReworkLoopPlan>;
 
@@ -2891,6 +3016,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_pr_lifecycle_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_remote_cleanup_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_remote_cleanup_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_remote_cleanup_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

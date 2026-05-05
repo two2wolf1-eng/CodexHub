@@ -550,7 +550,7 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(32);
+    expect(fetchCalls).toHaveLength(36);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -5059,5 +5059,53 @@ describe('cli development mock-run fallback', () => {
     expect(JSON.stringify(comparison)).not.toContain('Local control-plane fallback for');
     expect(JSON.stringify(handoff)).not.toContain('Local control-plane fallback for');
     expect(JSON.stringify(governancePackage)).not.toContain('Local control-plane fallback for');
+  });
+
+  it('runs GitHub remote supersede and cleanup rehearsals as read-only CLI metadata', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+      return new Response('{}', { status: 200 });
+    });
+    const {
+      formatGithubRemoteCleanupAcceptanceRehearsalOutput,
+      formatRemoteSupersedeAcceptanceRehearsalOutput,
+      runGithubRemoteCleanupAcceptanceRehearsalForCli,
+      runRemoteSupersedeAcceptanceRehearsalForCli,
+    } = await import('./main');
+    const supersede = runRemoteSupersedeAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'old-pr-open',
+    });
+    const cleanup = runGithubRemoteCleanupAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'branch-not-codexhub',
+    });
+    const supersedeOutput = formatRemoteSupersedeAcceptanceRehearsalOutput(supersede);
+    const cleanupOutput = formatGithubRemoteCleanupAcceptanceRehearsalOutput(cleanup);
+    const serialized = JSON.stringify({ supersede, cleanup });
+
+    expect(supersede.status).toBe('passed');
+    expect(supersede.remoteWriteInvoked).toBe(false);
+    expect(cleanup.status).toBe('blocked');
+    expect(cleanup.deleteNonCodexhubBranchAllowed).toBe(false);
+    expect(cleanup.updateRefAllowed).toBe(false);
+    expect(cleanup.forceAllowed).toBe(false);
+    expect(cleanup.mergeAllowed).toBe(false);
+    expect(cleanup.commentAllowed).toBe(false);
+    expect(cleanup.labelAllowed).toBe(false);
+    expect(cleanup.reviewerAllowed).toBe(false);
+    expect(cleanup.networkBoundaryInvoked).toBe(false);
+    expect(supersedeOutput).toContain('GitHub remote supersede acceptance rehearsal');
+    expect(supersedeOutput).toContain('remoteWriteInvoked=false');
+    expect(cleanupOutput).toContain('GitHub remote cleanup acceptance rehearsal');
+    expect(cleanupOutput).toContain('deleteNonCodexhubBranchAllowed=false');
+    expect(() => runRemoteSupersedeAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(() => runGithubRemoteCleanupAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(fetchCalls).toHaveLength(0);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('local-control');
   });
 });

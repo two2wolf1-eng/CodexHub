@@ -284,8 +284,8 @@ integrations:
     adapter: github-provider-adapter
     provider: github
     providerType: external-network
-    mode: governed-branch-publish-draft-pr-chain
-    stage: m19-github-pr-lifecycle-observation
+    mode: governed-remote-lifecycle
+    stage: m22-remote-cleanup-control-plane
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -313,10 +313,13 @@ integrations:
     branchPublishPlanningEnabled: true
     branchPublishCreationEnabled: false
     prLifecycleObservationEnabled: false
+    remoteSupersedeProjectionEnabled: true
+    remoteCleanupEnabled: false
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     branchPublishEnablementEnv: CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
     prLifecycleObservationEnablementEnv: CODEXHUB_GITHUB_PR_LIFECYCLE_OBSERVER_ENABLED
+    remoteCleanupEnablementEnv: CODEXHUB_GITHUB_REMOTE_CLEANUP_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -353,6 +356,19 @@ integrations:
         - POST /api/github/pr-lifecycle/runs
         - GET /api/github/pr-lifecycle/runs
         - GET /api/github/pr-lifecycle/runs/:id
+      remoteSupersedeRoutes:
+        - GET /api/github/supersedes/dry-runs
+        - GET /api/github/supersedes/runs
+        - GET /api/github/supersedes/runs/:id
+      remoteCleanupRoutes:
+        - POST /api/github/remote-cleanups/dry-runs
+        - GET /api/github/remote-cleanups/dry-runs
+        - POST /api/github/remote-cleanups/approval-requests
+        - POST /api/github/remote-cleanups/manual-approvals
+        - GET /api/github/remote-cleanups/approvals
+        - POST /api/github/remote-cleanups/runs
+        - GET /api/github/remote-cleanups/runs
+        - GET /api/github/remote-cleanups/runs/:id
     readOnlyUx:
       stage: m19d
       dashboardRoute: "#/github"
@@ -380,6 +396,15 @@ integrations:
         - codexhub github pr-lifecycle runs list
         - codexhub github pr-lifecycle runs show <runId>
         - codexhub github pr-lifecycle rehearse --fixture --scenario <name>
+        - codexhub github supersedes dry-runs list
+        - codexhub github supersedes runs list
+        - codexhub github supersedes runs show <runId>
+        - codexhub github supersedes rehearse --fixture --scenario <name>
+        - codexhub github remote-cleanups dry-runs list
+        - codexhub github remote-cleanups approvals list
+        - codexhub github remote-cleanups runs list
+        - codexhub github remote-cleanups runs show <runId>
+        - codexhub github remote-cleanups rehearse --fixture --scenario <name>
       localControlRequired: false
       supervisorPostAllowed: false
       adapterExecuteAllowed: false
@@ -629,6 +654,93 @@ integrations:
       localControlKeyRead: false
       adapterExecuteAllowed: false
       output: ids-hashes-counts-statuses-summaries
+    remoteSupersedeProjection:
+      stage: m21
+      helper: createRemoteSupersedeChainProjection
+      projectionOnly: true
+      supervisorPostRouteAdded: false
+      networkBoundaryInvoked: false
+      cleanupRequiresSeparateM22Approval: true
+      sourceAggregates:
+        - rework-loop-run
+        - github-branch-publish-run
+        - github-draft-pr-run
+        - github-pr-lifecycle-run
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    remoteSupersedeAcceptanceRehearsal:
+      stage: m21b
+      helper: runRemoteSupersedeAcceptanceRehearsal
+      dashboardRoute: "#/github"
+      fixtureOnly: true
+      scenarios:
+        - all-pass
+        - no-successor
+        - old-pr-open
+        - old-branch-live
+        - checks-pending
+        - superseded-source-missing
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+    remoteCleanupControlPlane:
+      stage: m22
+      helper: executeGithubRemoteCleanup
+      routePrefix: /api/github/remote-cleanups
+      enabledByDefault: false
+      requiredEnvFlags:
+        - CODEXHUB_GITHUB_PROVIDER_ENABLED
+        - CODEXHUB_GITHUB_REMOTE_CLEANUP_ENABLED
+      tokenEnv: CODEXHUB_GITHUB_TOKEN
+      persistedApprovalRequired: true
+      executionAuthorityRequired: true
+      hashBoundRemoteRefsRequired: true
+      oldBranchPrefixRequired: codexhub/
+      successorMetadataRequired: true
+      sourceMustBeCodexHubBranchPublishRun: true
+      sourcePrMustBeDraftOrSuperseded: true
+      approvalConsumedAfterNetworkWriteBoundary: true
+      completedRunIsRemoteWrite: true
+      noPush: true
+      noUpdateRef: true
+      noForce: true
+      noMerge: true
+      noComments: true
+      noLabels: true
+      noReviewers: true
+      noRelease: true
+      noDeployment: true
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    remoteCleanupReadOnlyUx:
+      stage: m22c
+      dashboardRoute: "#/github"
+      genericRunsProjection: github_remote_cleanup_run
+      supervisorMethods: GET-only
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+    remoteCleanupAcceptanceRehearsal:
+      stage: m22d
+      helper: runGithubRemoteCleanupAcceptanceRehearsal
+      dashboardRoute: "#/github"
+      fixtureOnly: true
+      scenarios:
+        - all-pass
+        - token-missing
+        - approval-blocked
+        - old-pr-not-found
+        - branch-not-codexhub
+        - successor-missing
+        - close-pr-failed
+        - delete-ref-failed
+        - network-timeout
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
     publishDraftPrChainReadOnlyUx:
       stage: m18d
       dashboardRoute: "#/github"
@@ -717,6 +829,37 @@ integrations:
       overwriteExistingBranchAllowed: false
       mergeAllowed: false
       labelsReviewersCommentsAllowed: false
+    m21_5:
+      stage: remote-supersede-hardening-release-audit
+      releaseDocument: docs/releases/m21-remote-supersede-results.md
+      reviewDocument: docs/reviews/m21-remote-supersede-hardening-review.md
+      runbookDocument: docs/runbooks/m21-remote-supersede-operator-runbook.md
+      projectionOnly: true
+      noSupervisorPostRoute: true
+      noNetworkBoundaryInvoked: true
+      tokenLeakageRegression: true
+      rawRemoteRefLeakageRegression: true
+      uiCliReadOnlyBoundariesIntact: true
+    m22_5:
+      stage: remote-cleanup-hardening-release-audit
+      releaseDocument: docs/releases/m22-remote-cleanup-results.md
+      reviewDocument: docs/reviews/m22-remote-cleanup-hardening-review.md
+      runbookDocument: docs/runbooks/m22-remote-cleanup-operator-runbook.md
+      tokenLeakageRegression: true
+      rawRemoteRefLeakageRegression: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliReadOnlyBoundariesIntact: true
+      noNewNetworkBoundaryFile: true
+      closeOldDraftPrAllowed: true
+      deleteCodexhubBranchAllowed: true
+      deleteNonCodexhubBranchAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+      commentsLabelsReviewersAllowed: false
+      releaseDeploymentAllowed: false
     m16_5:
       stage: remote-pr-hardening-release-audit
       releaseDocument: docs/releases/m16-github-draft-pr-results.md
@@ -758,6 +901,12 @@ integrations:
       - GET /repos/{owner}/{repo}/git/ref/heads/{branch}
       - GET /repos/{owner}/{repo}/commits/{sha}/status
       - GET /repos/{owner}/{repo}/commits/{sha}/check-runs
+    allowedRemoteCleanupEndpoints:
+      - GET /repos/{owner}/{repo}
+      - GET /repos/{owner}/{repo}/pulls/{number}
+      - GET /repos/{owner}/{repo}/git/ref/heads/codexhub/{safe-slug}
+      - PATCH /repos/{owner}/{repo}/pulls/{number} state=closed
+      - DELETE /repos/{owner}/{repo}/git/refs/heads/codexhub/{safe-slug}
     forbiddenOperations:
       - git push
       - update-ref
@@ -797,6 +946,13 @@ integrations:
       prLifecyclePlan: hash-only
       prLifecycleRun: hash-only
       publishDraftPrRehearsal: hash-only
+      remoteSupersedePlan: hash-only
+      remoteSupersedeSummary: hash-only
+      remoteSupersedeRehearsal: hash-only
+      remoteCleanupPlan: hash-only
+      remoteCleanupSummary: hash-only
+      remoteCleanupRun: hash-only
+      remoteCleanupRehearsal: hash-only
   policy-backend:
     enabled: false
     adapter: policy-backend-adapter

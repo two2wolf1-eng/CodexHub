@@ -21,6 +21,9 @@ import type {
   GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
+  GithubRemoteCleanupApprovalArtifactRecord,
+  GithubRemoteCleanupPlan,
+  GithubRemoteCleanupRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -107,6 +110,7 @@ export type GithubDraftPrControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubBranchPublishControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPublishDraftPrChainControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPrLifecycleControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
@@ -449,6 +453,35 @@ export interface GithubPrLifecycleRunRepository {
   ): Promise<GithubPrLifecycleObservationRun[]>;
 }
 
+export interface GithubRemoteCleanupDryRunRepository {
+  saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
+  getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
+  listDryRuns(
+    query?: GithubRemoteCleanupControlPlaneQuery,
+  ): Promise<GithubRemoteCleanupPlan[]>;
+}
+
+export interface GithubRemoteCleanupApprovalRepository {
+  saveApproval(
+    record: GithubRemoteCleanupApprovalArtifactRecord,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord>;
+  getApproval(id: string): Promise<GithubRemoteCleanupApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: GithubRemoteCleanupControlPlaneQuery,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord[]>;
+}
+
+export interface GithubRemoteCleanupRunRepository {
+  saveRun(record: GithubRemoteCleanupRun): Promise<GithubRemoteCleanupRun>;
+  getRun(id: string): Promise<GithubRemoteCleanupRun | undefined>;
+  listRuns(
+    query?: GithubRemoteCleanupControlPlaneQuery,
+  ): Promise<GithubRemoteCleanupRun[]>;
+}
+
 export interface ReworkLoopDryRunRepository {
   saveDryRun(record: ReworkLoopPlan): Promise<ReworkLoopPlan>;
   getDryRun(id: string): Promise<ReworkLoopPlan | undefined>;
@@ -680,6 +713,9 @@ export interface CodexHubStore {
   githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
   githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
   githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
+  githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
+  githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
+  githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
   reworkLoopDryRuns: ReworkLoopDryRunRepository;
   reworkLoopApprovals: ReworkLoopApprovalRepository;
   reworkLoopRuns: ReworkLoopRunRepository;

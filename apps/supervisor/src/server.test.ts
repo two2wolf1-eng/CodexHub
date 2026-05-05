@@ -6254,4 +6254,202 @@ describe('supervisor GitHub branch publish control plane', () => {
     expect(runResponse.json().blockReasons).toContain('github_branch_publish_disabled');
     expect(fetchCalled).toBe(false);
   });
+
+  it('governs GitHub remote cleanup with token/origin gates and store-resolved approval', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-remote-cleanup-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+      const method = init?.method ?? 'GET';
+      const body =
+        method === 'GET' && url.endsWith('/pulls/42')
+          ? '{"number":42,"draft":true,"state":"open"}'
+          : method === 'GET' && url.includes('/git/ref/heads/codexhub%2Fm20-r1')
+            ? '{"ref":"refs/heads/codexhub/m20-r1"}'
+            : method === 'PATCH'
+              ? '{"number":42,"state":"closed"}'
+              : method === 'DELETE'
+                ? ''
+                : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: method === 'DELETE' ? 204 : 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubRemoteCleanupEnabled: true,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: fetchImpl,
+    });
+
+    const supersedesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/supersedes/runs',
+    });
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/dry-runs',
+      payload: { owner: 'octo-org', repo: 'codexhub' },
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/dry-runs',
+      headers: { ...localControlHeaders, origin: 'https://evil.example' },
+      payload: { owner: 'octo-org', repo: 'codexhub' },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        oldBranchName: 'codexhub/m20-r1',
+        oldPrNumber: '42',
+        sourceBranchPublishRunId: 'branch_publish_run_1',
+        sourceDraftPrRunId: 'draft_pr_run_1',
+        successorRunId: 'draft_pr_run_2',
+        successorReady: true,
+        oldPrDraft: true,
+        supersededByNewerDraftPr: true,
+        runnerMode: 'controlled-github-remote-cleanup',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const forgedApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifact: { approved: true },
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'approve remote cleanup',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'approved for cleanup',
+      },
+    });
+    const forbiddenAuthorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        executionAuthority: { allowed: true },
+      },
+    });
+    const mismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        oldBranchName: 'codexhub/different',
+        oldPrNumber: '42',
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/remote-cleanups/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        oldBranchName: 'codexhub/m20-r1',
+        oldPrNumber: '42',
+      },
+    });
+    const runsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/remote-cleanups/runs',
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/remote-cleanups/approvals',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(supersedesResponse.statusCode).toBe(200);
+    expect(supersedesResponse.json().records).toEqual([]);
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.status).toBe('planned');
+    expect(dryRun.deleteRefAllowed).toBe(true);
+    expect(dryRun.deleteNonCodexhubBranchAllowed).toBe(false);
+    expect(dryRunResponse.body).not.toContain('octo-org');
+    expect(dryRunResponse.body).not.toContain('codexhub/m20-r1');
+    expect(forgedApprovalRequestResponse.statusCode).toBe(400);
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(forbiddenAuthorityResponse.json()).toMatchObject({
+      networkBoundaryInvoked: false,
+    });
+    expect(mismatchResponse.statusCode).toBe(200);
+    expect(mismatchResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json()).toMatchObject({
+      status: 'completed',
+      oldPrClosed: true,
+      oldBranchDeleted: true,
+      networkBoundaryInvoked: true,
+      noRealWrite: false,
+    });
+    expect(runsResponse.json().records).toHaveLength(2);
+    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
+      true,
+    );
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'GET https://api.github.com/repos/octo-org/codexhub/git/ref/heads/codexhub%2Fm20-r1',
+      'PATCH https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'DELETE https://api.github.com/repos/octo-org/codexhub/git/refs/heads/codexhub%2Fm20-r1',
+    ]);
+    expect(requested.at(3)?.body).toBe('{"state":"closed"}');
+    expect(completedResponse.body).not.toContain('octo-org');
+    expect(completedResponse.body).not.toContain('codexhub/m20-r1');
+    expect(completedResponse.body).not.toContain('ghp_secret');
+    expect(completedResponse.body).not.toContain('refs/heads');
+    expect(completedResponse.body).not.toContain('/merge');
+  });
 });

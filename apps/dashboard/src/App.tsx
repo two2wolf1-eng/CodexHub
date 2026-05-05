@@ -45,6 +45,7 @@ import {
   createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary,
   createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
+  createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary,
   createGovernanceReadOnlySummary,
   createLocalReviewPackageReadOnlySummary,
   createLocalRcAcceptanceRehearsalReadOnlySummary,
@@ -55,6 +56,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createRemoteSupersedeAcceptanceRehearsalReadOnlySummary,
   createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
   createWorktreeReadOnlySummary,
@@ -117,6 +119,11 @@ interface OverviewState {
   githubPrLifecycleDryRuns: GithubPrLifecycleControlSummary[];
   githubPrLifecycleApprovals: GithubPrLifecycleControlSummary[];
   githubPrLifecycleRuns: GithubPrLifecycleControlSummary[];
+  githubRemoteSupersedeDryRuns: GithubRemoteSupersedeControlSummary[];
+  githubRemoteSupersedeRuns: GithubRemoteSupersedeControlSummary[];
+  githubRemoteCleanupDryRuns: GithubRemoteCleanupControlSummary[];
+  githubRemoteCleanupApprovals: GithubRemoteCleanupControlSummary[];
+  githubRemoteCleanupRuns: GithubRemoteCleanupControlSummary[];
   reworkLoopDryRuns: ReworkLoopControlSummary[];
   reworkLoopApprovals: ReworkLoopControlSummary[];
   reworkLoopRuns: ReworkLoopControlSummary[];
@@ -432,6 +439,74 @@ interface GithubPrLifecycleControlSummary {
   summary?: string;
 }
 
+interface GithubRemoteSupersedeControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  runId?: string;
+  status?: string;
+  targetKind?: string;
+  sourceReworkRunIdHash?: string;
+  successorDraftPrRunIdHash?: string;
+  oldBranchNameHash?: string;
+  oldPrNumberHash?: string;
+  cleanupReadinessStatus?: string;
+  cleanupRecommended?: boolean;
+  blockReasons?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawRefStored?: boolean;
+  rawUrlStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubRemoteCleanupControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+  };
+  oldPrNumberHash?: string;
+  oldBranchNameHash?: string;
+  successorRunIdHash?: string;
+  cleanupReadinessStatus?: string;
+  oldPrClosed?: boolean;
+  oldBranchDeleted?: boolean;
+  responseBodyHashCount?: number;
+  blockReasons?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  closePrAllowed?: boolean;
+  deleteRefAllowed?: boolean;
+  deleteNonCodexhubBranchAllowed?: boolean;
+  updateRefAllowed?: boolean;
+  forceAllowed?: boolean;
+  mergeAllowed?: boolean;
+  rawRefStored?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
 interface ReworkLoopControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -634,6 +709,11 @@ export function App() {
     githubPrLifecycleDryRuns: [],
     githubPrLifecycleApprovals: [],
     githubPrLifecycleRuns: [],
+    githubRemoteSupersedeDryRuns: [],
+    githubRemoteSupersedeRuns: [],
+    githubRemoteCleanupDryRuns: [],
+    githubRemoteCleanupApprovals: [],
+    githubRemoteCleanupRuns: [],
     reworkLoopDryRuns: [],
     reworkLoopApprovals: [],
     reworkLoopRuns: [],
@@ -720,6 +800,11 @@ export function App() {
     prLifecycleDryRunCount: overview.githubPrLifecycleDryRuns.length,
     prLifecycleApprovalCount: overview.githubPrLifecycleApprovals.length,
     prLifecycleRunCount: overview.githubPrLifecycleRuns.length,
+    remoteSupersedeDryRunCount: overview.githubRemoteSupersedeDryRuns.length,
+    remoteSupersedeRunCount: overview.githubRemoteSupersedeRuns.length,
+    remoteCleanupDryRunCount: overview.githubRemoteCleanupDryRuns.length,
+    remoteCleanupApprovalCount: overview.githubRemoteCleanupApprovals.length,
+    remoteCleanupRunCount: overview.githubRemoteCleanupRuns.length,
     latestRunStatus: overview.githubMetadataRuns[0]?.status,
     latestDraftPrRunStatus: overview.githubDraftPrRuns[0]?.status,
     latestDraftPrCreationStatus:
@@ -737,6 +822,11 @@ export function App() {
     latestPrLifecycleStatusSummary:
       overview.githubPrLifecycleRuns[0]?.combinedStatusState ??
       overview.githubPrLifecycleRuns[0]?.prStateSummary,
+    latestRemoteSupersedeRunStatus: overview.githubRemoteSupersedeRuns[0]?.status,
+    latestRemoteCleanupRunStatus: overview.githubRemoteCleanupRuns[0]?.status,
+    latestRemoteCleanupReadinessStatus:
+      overview.githubRemoteCleanupRuns[0]?.cleanupReadinessStatus ??
+      overview.githubRemoteCleanupDryRuns[0]?.cleanupReadinessStatus,
     draftPrCreatedCount: overview.githubDraftPrRuns.filter(
       (record) => record.creationSummary?.created === true || record.prNumberHash !== undefined,
     ).length,
@@ -750,7 +840,8 @@ export function App() {
       overview.githubPublishDraftPrChainRuns.some(
         (record) => record.networkBoundaryInvoked === true,
       ) ||
-      overview.githubPrLifecycleRuns.some((record) => record.networkBoundaryInvoked === true),
+      overview.githubPrLifecycleRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubRemoteCleanupRuns.some((record) => record.networkBoundaryInvoked === true),
   });
   const githubBranchPublishAcceptanceRehearsalSummary =
     createGithubBranchPublishAcceptanceRehearsalReadOnlySummary();
@@ -969,6 +1060,28 @@ export function App() {
       externalProcessStarted: false,
       networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
       noRealWrite: run.noRealWrite ?? true,
+    })),
+    ...overview.githubRemoteSupersedeRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_remote_supersede_run',
+      source: 'github_remote_supersede_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+    })),
+    ...overview.githubRemoteCleanupRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_remote_cleanup_run',
+      source: 'github_remote_cleanup_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+      noRealWrite: run.noRealWrite ?? false,
     })),
     ...overview.reworkLoopRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'rework_loop_run',
@@ -1334,6 +1447,11 @@ export function App() {
           githubPrLifecycleDryRunsResponse,
           githubPrLifecycleApprovalsResponse,
           githubPrLifecycleRunsResponse,
+          githubRemoteSupersedeDryRunsResponse,
+          githubRemoteSupersedeRunsResponse,
+          githubRemoteCleanupDryRunsResponse,
+          githubRemoteCleanupApprovalsResponse,
+          githubRemoteCleanupRunsResponse,
           reworkLoopDryRunsResponse,
           reworkLoopApprovalsResponse,
           reworkLoopRunsResponse,
@@ -1430,6 +1548,26 @@ export function App() {
           ),
           getOptionalJson<{ records: GithubPrLifecycleControlSummary[] }>(
             '/api/github/pr-lifecycle/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubRemoteSupersedeControlSummary[] }>(
+            '/api/github/supersedes/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubRemoteSupersedeControlSummary[] }>(
+            '/api/github/supersedes/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubRemoteCleanupControlSummary[] }>(
+            '/api/github/remote-cleanups/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubRemoteCleanupControlSummary[] }>(
+            '/api/github/remote-cleanups/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubRemoteCleanupControlSummary[] }>(
+            '/api/github/remote-cleanups/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: ReworkLoopControlSummary[] }>(
@@ -1569,6 +1707,11 @@ export function App() {
             githubPrLifecycleDryRuns: githubPrLifecycleDryRunsResponse.records,
             githubPrLifecycleApprovals: githubPrLifecycleApprovalsResponse.records,
             githubPrLifecycleRuns: githubPrLifecycleRunsResponse.records,
+            githubRemoteSupersedeDryRuns: githubRemoteSupersedeDryRunsResponse.records,
+            githubRemoteSupersedeRuns: githubRemoteSupersedeRunsResponse.records,
+            githubRemoteCleanupDryRuns: githubRemoteCleanupDryRunsResponse.records,
+            githubRemoteCleanupApprovals: githubRemoteCleanupApprovalsResponse.records,
+            githubRemoteCleanupRuns: githubRemoteCleanupRunsResponse.records,
             reworkLoopDryRuns: reworkLoopDryRunsResponse.records,
             reworkLoopApprovals: reworkLoopApprovalsResponse.records,
             reworkLoopRuns: reworkLoopRunsResponse.records,
@@ -1638,6 +1781,11 @@ export function App() {
             githubPrLifecycleDryRuns: [],
             githubPrLifecycleApprovals: [],
             githubPrLifecycleRuns: [],
+            githubRemoteSupersedeDryRuns: [],
+            githubRemoteSupersedeRuns: [],
+            githubRemoteCleanupDryRuns: [],
+            githubRemoteCleanupApprovals: [],
+            githubRemoteCleanupRuns: [],
             reworkLoopDryRuns: [],
             reworkLoopApprovals: [],
             reworkLoopRuns: [],
@@ -3717,6 +3865,11 @@ function renderReadOnlyDashboardView(
   }
 
   if (activeView === 'github') {
+    const remoteSupersedeAcceptanceRehearsalSummary =
+      createRemoteSupersedeAcceptanceRehearsalReadOnlySummary();
+    const githubRemoteCleanupAcceptanceRehearsalSummary =
+      createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary();
+
     return (
       <section className="grid">
         <Panel title="GitHub Provider Readiness">
@@ -4108,6 +4261,96 @@ function renderReadOnlyDashboardView(
             </p>
           )}
         </Panel>
+        <Panel title="GitHub Remote Supersede Runs">
+          {overview.githubRemoteSupersedeRuns.length > 0 ? (
+            <ul>
+              {overview.githubRemoteSupersedeRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_remote_supersede_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, target {run.targetKind ?? 'unknown'}
+                  </span>
+                  <span>
+                    source {run.sourceReworkRunIdHash ?? 'unavailable'}, successor{' '}
+                    {run.successorDraftPrRunIdHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    old branch {run.oldBranchNameHash ?? 'unavailable'}, old PR{' '}
+                    {run.oldPrNumberHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    cleanup {run.cleanupReadinessStatus ?? 'unknown'}, recommended{' '}
+                    {String(run.cleanupRecommended ?? false)}, blockers{' '}
+                    {run.blockReasons?.length ?? 0}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}, rawRefStored{' '}
+                    {String(run.rawRefStored ?? false)}, rawUrlStored{' '}
+                    {String(run.rawUrlStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub remote supersede summaries are available. M21 is projection-only
+              and does not invoke GitHub writes.
+            </p>
+          )}
+        </Panel>
+        <Panel title="GitHub Remote Cleanup Runs">
+          {overview.githubRemoteCleanupRuns.length > 0 ? (
+            <ul>
+              {overview.githubRemoteCleanupRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_remote_cleanup_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, readiness{' '}
+                    {run.cleanupReadinessStatus ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, branch{' '}
+                    {run.oldBranchNameHash ?? run.targetRef?.headBranchHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    old PR {run.oldPrNumberHash ?? 'unavailable'}, closed{' '}
+                    {String(run.oldPrClosed ?? false)}, deleted{' '}
+                    {String(run.oldBranchDeleted ?? false)}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    closePr {String(run.closePrAllowed ?? false)}, deleteRef{' '}
+                    {String(run.deleteRefAllowed ?? false)}, nonCodexhubDelete{' '}
+                    {String(run.deleteNonCodexhubBranchAllowed ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}, response hashes{' '}
+                    {run.responseBodyHashCount ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub remote cleanup summaries are available. Live cleanup remains
+              disabled by default and approval-gated.
+            </p>
+          )}
+        </Panel>
         <Panel title="GitHub Branch Publish Acceptance Rehearsal">
           <ul>
             <li>
@@ -4328,6 +4571,95 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{githubPrLifecycleAcceptanceRehearsalSummary.summary}</p>
+        </Panel>
+        <Panel title="GitHub Remote Supersede Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{remoteSupersedeAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{remoteSupersedeAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>cleanup readiness</strong>
+              <span>
+                {remoteSupersedeAcceptanceRehearsalSummary.cleanupReadinessStatus},{' '}
+                target {remoteSupersedeAcceptanceRehearsalSummary.targetKind}
+              </span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {remoteSupersedeAcceptanceRehearsalSummary.evidenceRefCount} /{' '}
+                {remoteSupersedeAcceptanceRehearsalSummary.auditEventCount}, blockers{' '}
+                {remoteSupersedeAcceptanceRehearsalSummary.blockerCount}
+              </span>
+            </li>
+            <li>
+              <strong>remote write</strong>
+              <span>
+                invoked {String(remoteSupersedeAcceptanceRehearsalSummary.remoteWriteInvoked)},
+                cleanup recommended{' '}
+                {String(remoteSupersedeAcceptanceRehearsalSummary.cleanupRecommended)}
+              </span>
+            </li>
+          </ul>
+          <p>{remoteSupersedeAcceptanceRehearsalSummary.summary}</p>
+        </Panel>
+        <Panel title="GitHub Remote Cleanup Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{githubRemoteCleanupAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{githubRemoteCleanupAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>cleanup path</strong>
+              <span>
+                {githubRemoteCleanupAcceptanceRehearsalSummary.cleanupReadinessStatus} /{' '}
+                {githubRemoteCleanupAcceptanceRehearsalSummary.closePrStatus} /{' '}
+                {githubRemoteCleanupAcceptanceRehearsalSummary.deleteRefStatus}
+              </span>
+            </li>
+            <li>
+              <strong>remote actions</strong>
+              <span>
+                closePr {String(githubRemoteCleanupAcceptanceRehearsalSummary.closePrAllowed)},
+                deleteRef{' '}
+                {String(githubRemoteCleanupAcceptanceRehearsalSummary.deleteRefAllowed)},
+                nonCodexhubDelete{' '}
+                {String(
+                  githubRemoteCleanupAcceptanceRehearsalSummary.deleteNonCodexhubBranchAllowed,
+                )}
+              </span>
+            </li>
+            <li>
+              <strong>blocked actions</strong>
+              <span>
+                updateRef {String(githubRemoteCleanupAcceptanceRehearsalSummary.updateRefAllowed)},
+                force {String(githubRemoteCleanupAcceptanceRehearsalSummary.forceAllowed)}, merge{' '}
+                {String(githubRemoteCleanupAcceptanceRehearsalSummary.mergeAllowed)}, push{' '}
+                {String(githubRemoteCleanupAcceptanceRehearsalSummary.pushAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>read-only bounds</strong>
+              <span>
+                postAllowed{' '}
+                {String(githubRemoteCleanupAcceptanceRehearsalSummary.supervisorPostAllowed)},
+                adapterExecute{' '}
+                {String(githubRemoteCleanupAcceptanceRehearsalSummary.adapterExecuteAllowed)},
+                rawResponseBody{' '}
+                {String(githubRemoteCleanupAcceptanceRehearsalSummary.rawResponseBodyStored)}
+              </span>
+            </li>
+          </ul>
+          <p>{githubRemoteCleanupAcceptanceRehearsalSummary.summary}</p>
         </Panel>
       </section>
     );

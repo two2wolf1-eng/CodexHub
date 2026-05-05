@@ -154,7 +154,9 @@ import type {
   GithubDraftPrAcceptanceScenario,
   GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
+  GithubRemoteCleanupAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
+  RemoteSupersedeAcceptanceScenario,
   ReworkLoopAcceptanceScenario,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
@@ -178,6 +180,8 @@ import {
   runGithubDraftPrAcceptanceRehearsal,
   runGithubPrLifecycleAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
+  runGithubRemoteCleanupAcceptanceRehearsal,
+  runRemoteSupersedeAcceptanceRehearsal,
 } from '@codexhub/github-provider-adapter';
 import {
   createGovernanceProjection,
@@ -251,6 +255,10 @@ const GITHUB_PR_LIFECYCLE_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
 ].join('-') as GithubPrLifecycleAcceptanceScenario;
+const GITHUB_REMOTE_CLEANUP_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
+  ['to', 'ken'].join(''),
+  'missing',
+].join('-') as GithubRemoteCleanupAcceptanceScenario;
 
 class MissingSupervisorLocalControlKeyError extends Error {
   constructor() {
@@ -315,6 +323,8 @@ export interface ReadOnlyRunSummary {
     | 'github_branch_publish_run'
     | 'github_publish_draft_pr_chain_run'
     | 'github_pr_lifecycle_run'
+    | 'github_remote_supersede_run'
+    | 'github_remote_cleanup_run'
     | 'rework_loop_run'
     | 'worktree_run'
     | 'worktree_cleanup_run'
@@ -653,6 +663,92 @@ interface GithubPrLifecycleApiRecord {
   rawPathStored?: boolean;
   rawUrlStored?: boolean;
   rawResponseBodyStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubRemoteSupersedeApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  runId?: string;
+  status?: string;
+  targetKind?: string;
+  sourceReworkRunIdHash?: string;
+  sourceBranchPublishRunIdHash?: string;
+  sourceDraftPrRunIdHash?: string;
+  sourcePrLifecycleRunIdHash?: string;
+  successorBranchPublishRunIdHash?: string;
+  successorDraftPrRunIdHash?: string;
+  oldBranchNameHash?: string;
+  oldPrNumberHash?: string;
+  cleanupReadinessStatus?: string;
+  cleanupRecommended?: boolean;
+  blockReasons?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  rawUrlStored?: boolean;
+  rawRefStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubRemoteCleanupApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  oldPrNumberHash?: string;
+  oldPrUrlHash?: string;
+  oldBranchNameHash?: string;
+  successorRunIdHash?: string;
+  cleanupReadinessStatus?: string;
+  closePrAllowed?: boolean;
+  deleteRefAllowed?: boolean;
+  deleteNonCodexhubBranchAllowed?: boolean;
+  oldPrClosed?: boolean;
+  oldBranchDeleted?: boolean;
+  responseBodyHashes?: string[];
+  responseBodyHashCount?: number;
+  blockReasons?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  mergeAllowed?: boolean;
+  forceAllowed?: boolean;
+  updateRefAllowed?: boolean;
+  pushAllowed?: boolean;
+  commentAllowed?: boolean;
+  labelAllowed?: boolean;
+  reviewerAllowed?: boolean;
+  releaseAllowed?: boolean;
+  deploymentAllowed?: boolean;
+  rawPathStored?: boolean;
+  rawUrlStored?: boolean;
+  rawRefStored?: boolean;
   bodyStored?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
@@ -1802,6 +1898,121 @@ export function buildProgram(): Command {
     .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
       const result = runGithubPrLifecycleAcceptanceRehearsalForCli(options);
       console.log(formatGithubPrLifecycleAcceptanceRehearsalOutput(result, options));
+    });
+
+  const githubSupersedesCommand = githubCommand
+    .command('supersedes')
+    .description('Read GitHub remote supersede projections without remote writes');
+
+  const githubSupersedeDryRunsCommand = githubSupersedesCommand
+    .command('dry-runs')
+    .description('Read GitHub remote supersede dry-run projections');
+
+  githubSupersedeDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub remote supersede projections without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubRemoteSupersedeDryRuns();
+      console.log(formatGithubRemoteSupersedeDryRunsListOutput(result, options));
+    });
+
+  const githubSupersedeRunsCommand = githubSupersedesCommand
+    .command('runs')
+    .description('Read GitHub remote supersede run projections');
+
+  githubSupersedeRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub remote supersede runs without remote cleanup')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubRemoteSupersedeRuns();
+      console.log(formatGithubRemoteSupersedeRunsListOutput(result, options));
+    });
+
+  githubSupersedeRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub remote supersede run metadata without remote cleanup')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubRemoteSupersedeRun(runId);
+      console.log(formatGithubRemoteSupersedeRunDetailOutput(result, options));
+    });
+
+  githubSupersedesCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse remote supersede projection without network or cleanup')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runRemoteSupersedeAcceptanceRehearsalForCli(options);
+      console.log(formatRemoteSupersedeAcceptanceRehearsalOutput(result, options));
+    });
+
+  const githubRemoteCleanupsCommand = githubCommand
+    .command('remote-cleanups')
+    .description('Read GitHub remote cleanup control-plane records from Supervisor GET endpoints');
+
+  const githubRemoteCleanupDryRunsCommand = githubRemoteCleanupsCommand
+    .command('dry-runs')
+    .description('Read GitHub remote cleanup dry-run records');
+
+  githubRemoteCleanupDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub remote cleanup dry-runs without remote writes')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubRemoteCleanupDryRuns();
+      console.log(formatGithubRemoteCleanupDryRunsListOutput(result, options));
+    });
+
+  const githubRemoteCleanupApprovalsCommand = githubRemoteCleanupsCommand
+    .command('approvals')
+    .description('Read GitHub remote cleanup approval records');
+
+  githubRemoteCleanupApprovalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub remote cleanup approvals without making decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubRemoteCleanupApprovals();
+      console.log(formatGithubRemoteCleanupApprovalsListOutput(result, options));
+    });
+
+  const githubRemoteCleanupRunsCommand = githubRemoteCleanupsCommand
+    .command('runs')
+    .description('Read GitHub remote cleanup run records');
+
+  githubRemoteCleanupRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub remote cleanup runs without sending remote requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubRemoteCleanupRuns();
+      console.log(formatGithubRemoteCleanupRunsListOutput(result, options));
+    });
+
+  githubRemoteCleanupRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub remote cleanup run details without sending remote requests')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubRemoteCleanupRun(runId);
+      console.log(formatGithubRemoteCleanupRunDetailOutput(result, options));
+    });
+
+  githubRemoteCleanupsCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse GitHub remote cleanup without network or PR/branch deletion')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubRemoteCleanupAcceptanceRehearsalForCli(options);
+      console.log(formatGithubRemoteCleanupAcceptanceRehearsalOutput(result, options));
     });
 
   const reworkLoopsCommand = program
@@ -3258,6 +3469,8 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     githubBranchPublishRunResult,
     githubPublishDraftPrChainRunResult,
     githubPrLifecycleRunResult,
+    githubRemoteSupersedeRunResult,
+    githubRemoteCleanupRunResult,
     reworkLoopRunResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
@@ -3288,6 +3501,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: GithubPrLifecycleApiRecord[] }>(
         '/api/github/pr-lifecycle/runs',
       ),
+      getSupervisorJson<{ records: GithubRemoteSupersedeApiRecord[] }>(
+        '/api/github/supersedes/runs',
+      ),
+      getSupervisorJson<{ records: GithubRemoteCleanupApiRecord[] }>(
+        '/api/github/remote-cleanups/runs',
+      ),
       getSupervisorJson<{ records: ReworkLoopApiRecord[] }>('/api/rework-loops/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
@@ -3316,6 +3535,12 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ...summarizeGithubPrLifecycleRunRecords(
       settledValue(githubPrLifecycleRunResult)?.records ?? [],
     ),
+    ...summarizeGithubRemoteSupersedeRunRecords(
+      settledValue(githubRemoteSupersedeRunResult)?.records ?? [],
+    ),
+    ...summarizeGithubRemoteCleanupRunRecords(
+      settledValue(githubRemoteCleanupRunResult)?.records ?? [],
+    ),
     ...summarizeReworkLoopRunRecords(settledValue(reworkLoopRunResult)?.records ?? []),
     ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
     ...summarizeWorktreeRunRecords(
@@ -3340,6 +3565,8 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(githubBranchPublishRunResult),
     settledError(githubPublishDraftPrChainRunResult),
     settledError(githubPrLifecycleRunResult),
+    settledError(githubRemoteSupersedeRunResult),
+    settledError(githubRemoteCleanupRunResult),
     settledError(reworkLoopRunResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
@@ -3349,7 +3576,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 15 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 17 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -3685,6 +3912,32 @@ export function runGithubPrLifecycleAcceptanceRehearsalForCli(options: {
   const scenario = normalizeGithubPrLifecycleAcceptanceScenario(options.scenario);
 
   return runGithubPrLifecycleAcceptanceRehearsal({ scenario });
+}
+
+export function runRemoteSupersedeAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runRemoteSupersedeAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('Remote supersede acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeRemoteSupersedeAcceptanceScenario(options.scenario);
+
+  return runRemoteSupersedeAcceptanceRehearsal({ scenario });
+}
+
+export function runGithubRemoteCleanupAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGithubRemoteCleanupAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('GitHub remote cleanup acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeGithubRemoteCleanupAcceptanceScenario(options.scenario);
+
+  return runGithubRemoteCleanupAcceptanceRehearsal({ scenario });
 }
 
 export function runReworkLoopAcceptanceRehearsalForCli(options: {
@@ -4371,6 +4624,124 @@ export async function showGithubPrLifecycleRun(
   }
 }
 
+export async function listGithubRemoteSupersedeDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubRemoteSupersedeCollection(
+    '/api/github/supersedes/dry-runs',
+    'GitHub remote supersede dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub remote supersede dry-run source is unavailable; no network or cleanup was attempted.',
+  );
+}
+
+export async function listGithubRemoteSupersedeRuns(): Promise<Record<string, unknown>> {
+  return listGithubRemoteSupersedeCollection(
+    '/api/github/supersedes/runs',
+    'GitHub remote supersede runs are read from Supervisor GET endpoints only.',
+    'GitHub remote supersede run source is unavailable; no network or cleanup was attempted.',
+  );
+}
+
+export async function showGithubRemoteSupersedeRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubRemoteSupersedeApiRecord>(
+      `/api/github/supersedes/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note: 'GitHub remote supersede detail is projection-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'GitHub remote supersede run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note: 'No GitHub remote supersede cleanup or network request was attempted.',
+    };
+  }
+}
+
+export async function listGithubRemoteCleanupDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubRemoteCleanupCollection(
+    '/api/github/remote-cleanups/dry-runs',
+    'GitHub remote cleanup dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub remote cleanup dry-run source is unavailable; no remote cleanup was attempted.',
+  );
+}
+
+export async function listGithubRemoteCleanupApprovals(): Promise<Record<string, unknown>> {
+  return listGithubRemoteCleanupCollection(
+    '/api/github/remote-cleanups/approvals',
+    'GitHub remote cleanup approvals are read from Supervisor GET endpoints only.',
+    'GitHub remote cleanup approval source is unavailable; no approval decision was made.',
+  );
+}
+
+export async function listGithubRemoteCleanupRuns(): Promise<Record<string, unknown>> {
+  return listGithubRemoteCleanupCollection(
+    '/api/github/remote-cleanups/runs',
+    'GitHub remote cleanup runs are read from Supervisor GET endpoints only.',
+    'GitHub remote cleanup run source is unavailable; no remote cleanup was attempted.',
+  );
+}
+
+export async function showGithubRemoteCleanupRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubRemoteCleanupApiRecord>(
+      `/api/github/remote-cleanups/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? false,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note: 'GitHub remote cleanup run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'GitHub remote cleanup run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note: 'No GitHub remote cleanup request was attempted.',
+    };
+  }
+}
+
 export async function listReworkLoopDryRuns(): Promise<Record<string, unknown>> {
   return listReworkLoopCollection(
     '/api/rework-loops/dry-runs',
@@ -4984,6 +5355,44 @@ function summarizeGithubPrLifecycleRunRecords(
   }));
 }
 
+function summarizeGithubRemoteSupersedeRunRecords(
+  runs: GithubRemoteSupersedeApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_remote_supersede_run',
+    source: 'github_remote_supersede_run',
+    title: `GitHub remote supersede ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'GitHub remote supersede projection metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeGithubRemoteCleanupRunRecords(
+  runs: GithubRemoteCleanupApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'github_remote_cleanup_run',
+    source: 'github_remote_cleanup_run',
+    title: `GitHub remote cleanup ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'GitHub remote cleanup metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+    externalProcessStarted: false,
+    noRealWrite: run.noRealWrite ?? false,
+    bodyStored: false,
+  }));
+}
+
 function summarizeReworkLoopRunRecords(runs: ReworkLoopApiRecord[]): ReadOnlyRunSummary[] {
   return runs.map((run) => ({
     id: run.runId ?? run.recordId ?? run.dryRunId ?? 'rework_loop_run',
@@ -5429,6 +5838,49 @@ function normalizeGithubPrLifecycleAcceptanceScenario(
   throw new Error(`Unsupported GitHub PR lifecycle acceptance fixture scenario: ${scenario}`);
 }
 
+function normalizeRemoteSupersedeAcceptanceScenario(
+  scenario: string | undefined,
+): RemoteSupersedeAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'no-successor' ||
+    scenario === 'old-pr-open' ||
+    scenario === 'old-branch-live' ||
+    scenario === 'checks-pending' ||
+    scenario === 'superseded-source-missing'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported remote supersede acceptance fixture scenario: ${scenario}`);
+}
+
+function normalizeGithubRemoteCleanupAcceptanceScenario(
+  scenario: string | undefined,
+): GithubRemoteCleanupAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === GITHUB_REMOTE_CLEANUP_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO ||
+    scenario === 'approval-blocked' ||
+    scenario === 'old-pr-not-found' ||
+    scenario === 'branch-not-codexhub' ||
+    scenario === 'successor-missing' ||
+    scenario === 'close-pr-failed' ||
+    scenario === 'delete-ref-failed' ||
+    scenario === 'network-timeout'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub remote cleanup acceptance fixture scenario: ${scenario}`);
+}
+
 function normalizeReworkLoopAcceptanceScenario(
   scenario: string | undefined,
 ): ReworkLoopAcceptanceScenario {
@@ -5724,6 +6176,103 @@ async function listGithubPrLifecycleCollection(
       rawPathStored: false,
       rawUrlStored: false,
       rawResponseBodyStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubRemoteSupersedeCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubRemoteSupersedeApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub remote supersede source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubRemoteCleanupCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubRemoteCleanupApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message: error instanceof Error ? error.message : 'GitHub remote cleanup source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawRefStored: false,
       bodyStored: false,
       note: degradedNote,
     };
@@ -10013,6 +10562,233 @@ export function formatGithubPrLifecycleAcceptanceRehearsalOutput(
   ].join('\n');
 }
 
+export function formatGithubRemoteSupersedeDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubRemoteSupersedeCollectionOutput(
+    'GitHub remote supersede dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubRemoteSupersedeRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubRemoteSupersedeCollectionOutput(
+    'GitHub remote supersede runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubRemoteSupersedeRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubRemoteSupersedeApiRecord | undefined;
+
+  return [
+    'GitHub remote supersede run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.sourceReworkRunIdHash
+      ? `sourceReworkRunIdHash: ${run.sourceReworkRunIdHash}`
+      : undefined,
+    run?.successorDraftPrRunIdHash
+      ? `successorDraftPrRunIdHash: ${run.successorDraftPrRunIdHash}`
+      : undefined,
+    run?.targetKind ? `targetKind: ${run.targetKind}` : undefined,
+    run?.oldBranchNameHash ? `oldBranchHash: ${run.oldBranchNameHash}` : undefined,
+    run?.oldPrNumberHash ? `oldPrNumberHash: ${run.oldPrNumberHash}` : undefined,
+    `cleanupReadiness=${run?.cleanupReadinessStatus ?? 'unknown'}`,
+    `cleanupRecommended=${String(run?.cleanupRecommended ?? false)}`,
+    `blockers=${String(run?.blockReasons?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `rawRefStored=${String(run?.rawRefStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatRemoteSupersedeAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runRemoteSupersedeAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub remote supersede acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `cleanupReadiness: ${result.cleanupReadinessStatus}`,
+    `targetKind: ${result.targetKind}`,
+    `blockers: ${result.blockerCount}`,
+    `cleanupRecommended=${String(result.cleanupRecommended)}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `remoteWriteInvoked=${String(result.remoteWriteInvoked)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `rawUrlStored=${String(result.rawUrlStored)}`,
+    `rawRefStored=${String(result.rawRefStored)}`,
+    `rawReasonStored=${String(result.rawReasonStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
+}
+
+export function formatGithubRemoteCleanupDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubRemoteCleanupCollectionOutput(
+    'GitHub remote cleanup dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubRemoteCleanupApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubRemoteCleanupCollectionOutput(
+    'GitHub remote cleanup approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubRemoteCleanupRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubRemoteCleanupCollectionOutput(
+    'GitHub remote cleanup runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubRemoteCleanupRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubRemoteCleanupApiRecord | undefined;
+
+  return [
+    'GitHub remote cleanup run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `readiness: ${run?.cleanupReadinessStatus ?? 'unknown'}`,
+    run?.targetRef?.ownerHash ? `ownerHash: ${run.targetRef.ownerHash}` : undefined,
+    run?.targetRef?.repoHash ? `repoHash: ${run.targetRef.repoHash}` : undefined,
+    run?.targetRef?.baseBranchHash
+      ? `baseBranchHash: ${run.targetRef.baseBranchHash}`
+      : undefined,
+    run?.oldBranchNameHash ?? run?.targetRef?.headBranchHash
+      ? `oldBranchHash: ${run.oldBranchNameHash ?? run.targetRef?.headBranchHash}`
+      : undefined,
+    run?.oldPrNumberHash ? `oldPrNumberHash: ${run.oldPrNumberHash}` : undefined,
+    run?.successorRunIdHash ? `successorRunIdHash: ${run.successorRunIdHash}` : undefined,
+    `oldPrClosed=${String(run?.oldPrClosed ?? false)}`,
+    `oldBranchDeleted=${String(run?.oldBranchDeleted ?? false)}`,
+    `responseHashCount=${String(run?.responseBodyHashCount ?? run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? false)}`,
+    `closePrAllowed=${String(run?.closePrAllowed ?? false)}`,
+    `deleteRefAllowed=${String(run?.deleteRefAllowed ?? false)}`,
+    `deleteNonCodexhubBranchAllowed=${String(run?.deleteNonCodexhubBranchAllowed ?? false)}`,
+    `mergeAllowed=${String(run?.mergeAllowed ?? false)}`,
+    `forceAllowed=${String(run?.forceAllowed ?? false)}`,
+    `updateRefAllowed=${String(run?.updateRefAllowed ?? false)}`,
+    `pushAllowed=${String(run?.pushAllowed ?? false)}`,
+    `commentAllowed=${String(run?.commentAllowed ?? false)}`,
+    `labelAllowed=${String(run?.labelAllowed ?? false)}`,
+    `reviewerAllowed=${String(run?.reviewerAllowed ?? false)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `rawRefStored=${String(run?.rawRefStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubRemoteCleanupAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubRemoteCleanupAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub remote cleanup acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `cleanupReadiness: ${result.cleanupReadinessStatus}`,
+    `closePr: ${result.closePrStatus}`,
+    `deleteRef: ${result.deleteRefStatus}`,
+    `blockers: ${result.blockerCount}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `closePrAllowed=${String(result.closePrAllowed)}`,
+    `deleteRefAllowed=${String(result.deleteRefAllowed)}`,
+    `deleteNonCodexhubBranchAllowed=${String(result.deleteNonCodexhubBranchAllowed)}`,
+    `mergeAllowed=${String(result.mergeAllowed)}`,
+    `forceAllowed=${String(result.forceAllowed)}`,
+    `updateRefAllowed=${String(result.updateRefAllowed)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `commentAllowed=${String(result.commentAllowed)}`,
+    `labelAllowed=${String(result.labelAllowed)}`,
+    `reviewerAllowed=${String(result.reviewerAllowed)}`,
+    `releaseAllowed=${String(result.releaseAllowed)}`,
+    `deploymentAllowed=${String(result.deploymentAllowed)}`,
+    `rawRefStored=${String(result.rawRefStored)}`,
+    `rawUrlStored=${String(result.rawUrlStored)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
+}
+
 export function formatReworkLoopDryRunsListOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -10657,6 +11433,93 @@ function formatGithubPrLifecycleCollectionOutput(
           `checks=${String(record.checkRunCount ?? 0)}`,
           `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubRemoteSupersedeCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubRemoteSupersedeApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawRefStored=${String(result.rawRefStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.recordId ?? record.dryRunId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `source=${record.sourceReworkRunIdHash ?? 'unavailable'}`,
+          `successor=${record.successorDraftPrRunIdHash ?? 'unavailable'}`,
+          `target=${record.targetKind ?? 'unknown'}`,
+          `cleanupReadiness=${record.cleanupReadinessStatus ?? 'unknown'}`,
+          `cleanupRecommended=${String(record.cleanupRecommended ?? false)}`,
+          `blockers=${String(record.blockReasons?.length ?? 0)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubRemoteCleanupCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubRemoteCleanupApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawRefStored=${String(result.rawRefStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `owner=${record.targetRef?.ownerHash ?? 'unavailable'}`,
+          `repo=${record.targetRef?.repoHash ?? 'unavailable'}`,
+          `branch=${record.oldBranchNameHash ?? record.targetRef?.headBranchHash ?? 'unavailable'}`,
+          `pr=${record.oldPrNumberHash ?? 'unavailable'}`,
+          `closed=${String(record.oldPrClosed ?? false)}`,
+          `deleted=${String(record.oldBranchDeleted ?? false)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,
           `audit=${record.auditEventIds?.length ?? 0}`,
         ].join(' '),

@@ -24,12 +24,23 @@ import {
   GithubPublishDraftPrChainPlanSchema,
   GithubPublishDraftPrChainRunSchema,
   GithubPublishDraftPrChainStepSchema,
+  GithubRemoteCleanupAcceptanceRehearsalRunSchema,
+  GithubRemoteCleanupApprovalArtifactRecordSchema,
+  GithubRemoteCleanupPlanSchema,
+  GithubRemoteCleanupRunSchema,
+  GithubRemoteCleanupSummarySchema,
   GithubRemotePrLifecycleSummarySchema,
   GithubRemoteCommitSummarySchema,
   GithubRemoteRefSummarySchema,
   GithubTokenReadinessSchema,
   PolicyDecisionSchema,
   RemotePrAuditChainSchema,
+  RemoteCleanupReadinessSchema,
+  RemoteSupersedeAcceptanceRehearsalRunSchema,
+  RemoteSupersedeChainProjectionSchema,
+  RemoteSupersedePlanSchema,
+  RemoteSupersedeRunSchema,
+  RemoteSupersedeTargetSummarySchema,
   SchemaVersionSchema,
   foundationId,
   foundationTimestamp,
@@ -70,12 +81,27 @@ import {
   type GithubPublishDraftPrChainPlan,
   type GithubPublishDraftPrChainRun,
   type GithubPublishDraftPrChainStep,
+  type GithubRemoteCleanupAcceptanceRehearsalRun,
+  type GithubRemoteCleanupAcceptanceScenario,
+  type GithubRemoteCleanupApprovalArtifactRecord,
+  type GithubRemoteCleanupPlan,
+  type GithubRemoteCleanupRun,
+  type GithubRemoteCleanupRunnerMode,
   type GithubRemotePrLifecycleSummary,
   type GithubRemoteCommitSummary,
   type GithubRemoteRefSummary,
   type GithubTokenReadiness,
   type PolicyDecision,
+  type RemoteCleanupReadiness,
+  type RemoteCleanupReadinessStatus,
   type RemotePrAuditChain,
+  type RemoteSupersedeAcceptanceRehearsalRun,
+  type RemoteSupersedeAcceptanceScenario,
+  type RemoteSupersedeChainProjection,
+  type RemoteSupersedePlan,
+  type RemoteSupersedeRun,
+  type RemoteSupersedeTargetKind,
+  type RemoteSupersedeTargetSummary,
 } from '@codexhub/contracts';
 import { createEvidenceRef, hashText } from '@codexhub/evidence-kernel';
 import {
@@ -83,9 +109,11 @@ import {
   runGithubDraftPrHttpBoundary,
   runGithubMetadataHttpBoundary,
   runGithubPrLifecycleHttpBoundary,
+  runGithubRemoteCleanupHttpBoundary,
   type GithubBranchPublishHttpBoundaryRequest,
   type GithubHttpBoundaryRequest,
   type GithubPrLifecycleHttpBoundaryRequest,
+  type GithubRemoteCleanupHttpBoundaryRequest,
 } from './github-http-boundary';
 
 export const GITHUB_PROVIDER_NAME = 'github-provider';
@@ -154,6 +182,38 @@ export interface GithubPrLifecyclePlanInput extends GithubRemoteRefInput {
   now?: () => string;
 }
 
+export interface RemoteSupersedeProjectionInput {
+  sourceRunId: string;
+  sourceSummary: string;
+  targetKind?: RemoteSupersedeTargetKind;
+  sourceReworkRunId?: string;
+  sourceBranchPublishRunId?: string;
+  sourceDraftPrRunId?: string;
+  sourcePrLifecycleRunId?: string;
+  successorBranchPublishRunId?: string;
+  successorDraftPrRunId?: string;
+  oldBranchName?: string;
+  oldPrNumber?: string;
+  oldPrUrl?: string;
+  successorReady?: boolean;
+  checksPending?: boolean;
+  metadataReady?: boolean;
+  now?: () => string;
+}
+
+export interface GithubRemoteCleanupPlanInput extends GithubRemoteRefInput {
+  oldBranchName: string;
+  oldPrNumber?: string;
+  sourceBranchPublishRunId: string;
+  sourceDraftPrRunId?: string;
+  successorRunId: string;
+  successorReady?: boolean;
+  oldPrDraft?: boolean;
+  supersededByNewerDraftPr?: boolean;
+  runnerMode?: GithubRemoteCleanupRunnerMode;
+  now?: () => string;
+}
+
 export interface GithubMetadataApprovalInput {
   dryRunRecord: GithubMetadataDryRunRecord;
   baseRecord?: GithubMetadataApprovalArtifactRecord;
@@ -191,6 +251,17 @@ export interface GithubPrLifecycleApprovalInput {
   requestedBy?: string;
   decidedBy?: string;
   reason?: string;
+  now?: () => string;
+}
+
+export interface GithubRemoteCleanupApprovalInput {
+  dryRunRecord: GithubRemoteCleanupPlan;
+  baseRecord?: GithubRemoteCleanupApprovalArtifactRecord;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  expiresAt?: string;
   now?: () => string;
 }
 
@@ -252,6 +323,18 @@ export interface GithubPrLifecycleExecutionInput {
   now?: () => string;
 }
 
+export interface GithubRemoteCleanupExecutionInput {
+  dryRunRecord: GithubRemoteCleanupPlan;
+  approvalRecord?: GithubRemoteCleanupApprovalArtifactRecord;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubRemoteCleanupHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
 export interface GithubDraftPrAcceptanceRehearsalInput {
   scenario?: GithubDraftPrAcceptanceScenario;
   now?: () => string;
@@ -264,6 +347,16 @@ export interface GithubBranchPublishAcceptanceRehearsalInput {
 
 export interface GithubPrLifecycleAcceptanceRehearsalInput {
   scenario?: GithubPrLifecycleAcceptanceScenario;
+  now?: () => string;
+}
+
+export interface RemoteSupersedeAcceptanceRehearsalInput {
+  scenario?: RemoteSupersedeAcceptanceScenario;
+  now?: () => string;
+}
+
+export interface GithubRemoteCleanupAcceptanceRehearsalInput {
+  scenario?: GithubRemoteCleanupAcceptanceScenario;
   now?: () => string;
 }
 
@@ -327,6 +420,12 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       'pr-lifecycle-read-only-projection',
       'pr-lifecycle-fixed-get-observation',
       'publish-draft-pr-acceptance-rehearsal',
+      'remote-supersede-projection',
+      'remote-supersede-acceptance-rehearsal',
+      'remote-cleanup-plan',
+      'remote-cleanup-close-draft-pr',
+      'remote-cleanup-delete-codexhub-ref',
+      'remote-cleanup-acceptance-rehearsal',
     ],
     defaultRisk: 'high',
     defaultActionMode: 'read',
@@ -354,7 +453,14 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       branchPublishCreationEnabled: false,
       publishDraftPrChainPlanningOnly: true,
       prLifecycleObservationPlanningOnly: true,
+      remoteSupersedeProjectionOnly: true,
+      remoteCleanupEnabled: false,
       localGitPushAllowed: false,
+      updateRefAllowed: false,
+      forceAllowed: false,
+      commentsAllowed: false,
+      labelsAllowed: false,
+      reviewersAllowed: false,
     },
   });
 }
@@ -1885,6 +1991,650 @@ export function createGithubPublishDraftPrChainRun(
   });
 }
 
+export function createRemoteSupersedePlan(
+  input: RemoteSupersedeProjectionInput,
+): RemoteSupersedePlan {
+  const now = input.now ?? foundationTimestamp;
+  const target = createRemoteSupersedeTargetSummary(input, now);
+  const cleanupReadiness = createRemoteCleanupReadiness({
+    target,
+    successorRunId: input.successorDraftPrRunId ?? input.successorBranchPublishRunId,
+    blockReasons: collectRemoteSupersedeBlockReasons(input),
+    now,
+  });
+  const blockReasons = collectRemoteSupersedeBlockReasons(input);
+  const dryRunId = stableId(
+    'remote_supersede_dry_run',
+    JSON.stringify({
+      sourceRunIdHash: stableHash(input.sourceRunId),
+      successorBranchPublishRunIdHash: input.successorBranchPublishRunId
+        ? stableHash(input.successorBranchPublishRunId)
+        : undefined,
+      successorDraftPrRunIdHash: input.successorDraftPrRunId
+        ? stableHash(input.successorDraftPrRunId)
+        : undefined,
+      oldBranchNameHash: input.oldBranchName ? stableHash(input.oldBranchName) : undefined,
+      oldPrNumberHash: input.oldPrNumber ? stableHash(input.oldPrNumber) : undefined,
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.remote_supersede.project',
+    actionMode: 'read',
+    now,
+    allow: true,
+    reasons: ['remote supersede projection is metadata-only and does not invoke GitHub writes'],
+  });
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.remote_supersede_plan',
+      label: 'github-remote-supersede-plan',
+      summary: 'Remote supersede projection stores source and successor ids as hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(dryRunId),
+        sourceRunIdHash: stableHash(input.sourceRunId),
+        successorPresent: Boolean(input.successorBranchPublishRunId || input.successorDraftPrRunId),
+        blockerCount: blockReasons.length,
+      },
+    }),
+  ];
+
+  return RemoteSupersedePlanSchema.parse({
+    id: stableId('remote_supersede_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status: blockReasons.length === 0 ? 'planned' : 'blocked',
+    target,
+    cleanupReadiness,
+    sourceRunIdHash: stableHash(input.sourceRunId),
+    successorRunIdHash:
+      input.successorDraftPrRunId || input.successorBranchPublishRunId
+        ? stableHash(input.successorDraftPrRunId ?? input.successorBranchPublishRunId ?? '')
+        : undefined,
+    blockReasons,
+    policyDecision,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    remoteCleanupRequiresApproval: true,
+    cleanupExecutionAllowed: false,
+    closePrAllowed: false,
+    deleteBranchAllowed: false,
+    mergeAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(dryRunId),
+      sourceRunIdHash: stableHash(input.sourceRunId),
+      cleanupReadinessStatus: cleanupReadiness.status,
+      blockerCount: blockReasons.length,
+      projectionOnly: true,
+    },
+    summary:
+      blockReasons.length === 0
+        ? 'Remote supersede projection is ready; cleanup remains a separate approval-gated operation.'
+        : `Remote supersede projection is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createRemoteSupersedeRun(input: {
+  plan: RemoteSupersedePlan;
+  now?: () => string;
+}): RemoteSupersedeRun {
+  const now = input.now ?? foundationTimestamp;
+  const status: RemoteSupersedeRun['status'] =
+    input.plan.status === 'planned' ? 'completed' : 'blocked';
+  const evidenceRefs = [
+    ...input.plan.evidenceRefs,
+    createGithubEvidenceRef({
+      kind: 'github.remote_supersede_summary',
+      label: 'github-remote-supersede-summary',
+      summary: 'Remote supersede run stores cleanup readiness and target hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.plan.dryRunId),
+        status,
+        cleanupReadinessStatus: input.plan.cleanupReadiness.status,
+      },
+    }),
+  ];
+
+  return RemoteSupersedeRunSchema.parse({
+    id: stableId('remote_supersede_run', `${input.plan.dryRunId}:${status}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.plan.dryRunId,
+    dryRunRecordId: input.plan.id,
+    status,
+    plan: input.plan,
+    target: input.plan.target,
+    cleanupReadiness: input.plan.cleanupReadiness,
+    blockReasons: input.plan.blockReasons,
+    evidenceRefs,
+    evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+    auditEventIds: [...input.plan.auditEventIds, foundationId('audit')],
+    remoteCleanupRequiresApproval: true,
+    cleanupExecutionAllowed: false,
+    closePrAllowed: false,
+    deleteBranchAllowed: false,
+    mergeAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.plan.dryRunId),
+      status,
+      projectionOnly: true,
+    },
+    summary:
+      status === 'completed'
+        ? 'Remote supersede projection completed without invoking GitHub writes.'
+        : `Remote supersede projection blocked: ${input.plan.blockReasons.join(', ')}.`,
+  });
+}
+
+export function createRemoteSupersedeChainProjection(input: {
+  plan: RemoteSupersedePlan;
+  runs?: RemoteSupersedeRun[];
+  now?: () => string;
+}): RemoteSupersedeChainProjection {
+  const now = input.now ?? foundationTimestamp;
+  const runs = input.runs ?? [];
+  const evidenceRefIds = [
+    ...input.plan.evidenceRefs.map((ref) => ref.id),
+    ...runs.flatMap((run) => run.evidenceRefIds),
+  ];
+  const auditEventIds = [...input.plan.auditEventIds, ...runs.flatMap((run) => run.auditEventIds)];
+  const chainHash = stableHash(
+    JSON.stringify({
+      planId: input.plan.id,
+      runIds: runs.map((run) => run.id),
+      cleanupReadinessStatus: input.plan.cleanupReadiness.status,
+    }),
+  );
+
+  return RemoteSupersedeChainProjectionSchema.parse({
+    id: stableId('remote_supersede_chain_projection', chainHash),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    plan: input.plan,
+    runs,
+    runCount: runs.length,
+    cleanupReadiness: input.plan.cleanupReadiness,
+    evidenceRefIds,
+    auditEventIds,
+    chainHash,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      planIdHash: stableHash(input.plan.id),
+      runCount: runs.length,
+      cleanupReadinessStatus: input.plan.cleanupReadiness.status,
+    },
+    summary: 'Remote supersede chain projection links old and successor remote metadata only.',
+  });
+}
+
+export function createGithubRemoteCleanupPlan(
+  input: GithubRemoteCleanupPlanInput,
+): GithubRemoteCleanupPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectRemoteCleanupPlanBlockReasons(input);
+  const targetInput = { ...input, headBranch: input.oldBranchName };
+  const targetRef =
+    blockReasons.includes('invalid_owner') ||
+    blockReasons.includes('invalid_repo') ||
+    blockReasons.includes('invalid_old_branch')
+      ? createBlockedGithubRemoteRefSummary(targetInput, now)
+      : createGithubRemoteRefSummary(targetInput);
+  const target = createRemoteSupersedeTargetSummary(
+    {
+      sourceRunId: input.sourceBranchPublishRunId,
+      sourceSummary: input.successorRunId,
+      targetKind: input.oldPrNumber ? 'draft_pr_and_branch' : 'branch',
+      sourceBranchPublishRunId: input.sourceBranchPublishRunId,
+      sourceDraftPrRunId: input.sourceDraftPrRunId,
+      successorDraftPrRunId: input.successorRunId,
+      oldBranchName: input.oldBranchName,
+      oldPrNumber: input.oldPrNumber,
+      successorReady: input.successorReady,
+      metadataReady: true,
+      now,
+    },
+    now,
+  );
+  const cleanupReadiness = createRemoteCleanupReadiness({
+    target,
+    successorRunId: input.successorRunId,
+    blockReasons,
+    now,
+  });
+  const dryRunId = stableId(
+    'github_remote_cleanup_dry_run',
+    JSON.stringify({
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      oldBranchNameHash: stableHash(input.oldBranchName),
+      oldPrNumberHash: input.oldPrNumber ? stableHash(input.oldPrNumber) : undefined,
+      successorRunIdHash: stableHash(input.successorRunId),
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.remote_cleanup.execute',
+    actionMode: 'write',
+    now,
+    allow: false,
+    reasons: ['remote cleanup closes old draft PRs and deletes old codexhub refs only after approval'],
+  });
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.remote_cleanup_plan',
+      label: 'github-remote-cleanup-plan',
+      summary: 'GitHub remote cleanup plan stores old PR/branch identifiers as hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(dryRunId),
+        oldBranchNameHash: stableHash(input.oldBranchName),
+        oldPrNumberHash: input.oldPrNumber ? stableHash(input.oldPrNumber) : undefined,
+        blockerCount: blockReasons.length,
+      },
+    }),
+  ];
+
+  return GithubRemoteCleanupPlanSchema.parse({
+    id: stableId('github_remote_cleanup_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status: blockReasons.length === 0 ? 'planned' : 'blocked',
+    runnerMode: input.runnerMode ?? 'planning-only',
+    targetRef,
+    target,
+    cleanupReadiness,
+    oldPrNumberHash: input.oldPrNumber ? stableHash(input.oldPrNumber) : undefined,
+    oldBranchNameHash: stableHash(input.oldBranchName),
+    successorRunIdHash: stableHash(input.successorRunId),
+    sourceBranchPublishRunIdHash: stableHash(input.sourceBranchPublishRunId),
+    sourceDraftPrRunIdHash: input.sourceDraftPrRunId
+      ? stableHash(input.sourceDraftPrRunId)
+      : undefined,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryPlanned:
+      blockReasons.length === 0 && input.runnerMode === 'controlled-github-remote-cleanup',
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    closePrAllowed: true,
+    deleteRefAllowed: true,
+    deleteNonCodexhubBranchAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    mergeAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    releaseAllowed: false,
+    deploymentAllowed: false,
+    pushAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(dryRunId),
+      oldBranchNameHash: stableHash(input.oldBranchName),
+      cleanupReadinessStatus: cleanupReadiness.status,
+      blockerCount: blockReasons.length,
+      productDefaultEnabled: false,
+    },
+    summary:
+      blockReasons.length === 0
+        ? 'GitHub remote cleanup dry-run is ready for approval-gated close/delete execution.'
+        : `GitHub remote cleanup dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubRemoteCleanupApprovalRecord(
+  input: GithubRemoteCleanupApprovalInput,
+): GithubRemoteCleanupApprovalArtifactRecord {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_remote_cleanup_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_remote_cleanup_approval_artifact', input.dryRunRecord.dryRunId);
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.remote_cleanup_plan',
+      label: 'github-remote-cleanup-approval',
+      summary: 'GitHub remote cleanup approval stores approval ids and hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        approvalArtifactIdHash: stableHash(approvalArtifactId),
+        status: input.status,
+      },
+    }),
+  ];
+
+  return GithubRemoteCleanupApprovalArtifactRecordSchema.parse({
+    id: stableId(
+      'github_remote_cleanup_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt:
+      input.expiresAt ??
+      baseRecord?.expiresAt ??
+      (input.status === 'approved'
+        ? new Date(Date.parse(now()) + 60 * 60 * 1000).toISOString()
+        : undefined),
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawReasonStored: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub remote cleanup approval status is ${input.status}.`,
+  });
+}
+
+export async function executeGithubRemoteCleanup(
+  input: GithubRemoteCleanupExecutionInput,
+): Promise<GithubRemoteCleanupRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectRemoteCleanupExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubRemoteCleanupHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        oldBranchName: boundaryInput.oldBranchName,
+        oldPrNumber: boundaryInput.oldPrNumber,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status: GithubRemoteCleanupRun['status'] =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const cleanupSummary = GithubRemoteCleanupSummarySchema.parse({
+    id: stableId(
+      'github_remote_cleanup_summary',
+      `${input.dryRunRecord.dryRunId}:${status}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    targetRef: input.dryRunRecord.targetRef,
+    oldPrNumberHash: boundaryResult?.oldPrNumberHash ?? input.dryRunRecord.oldPrNumberHash,
+    oldBranchNameHash: boundaryResult?.oldBranchNameHash ?? input.dryRunRecord.oldBranchNameHash,
+    oldPrClosed: boundaryResult?.oldPrClosed ?? false,
+    oldBranchDeleted: boundaryResult?.oldBranchDeleted ?? false,
+    responseBodyHashes,
+    responseBodyHashCount: responseBodyHashes.length,
+    closePrAllowed: true,
+    deleteRefAllowed: true,
+    deleteNonCodexhubBranchAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    mergeAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    releaseAllowed: false,
+    deploymentAllowed: false,
+    pushAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      responseBodyHashCount: responseBodyHashes.length,
+      oldPrClosed: boundaryResult?.oldPrClosed ?? false,
+      oldBranchDeleted: boundaryResult?.oldBranchDeleted ?? false,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub remote cleanup completed with hash-only close/delete response summaries.'
+        : `GitHub remote cleanup ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.remote_cleanup_run',
+      label: 'github-remote-cleanup-run',
+      summary: 'GitHub remote cleanup run stores response hashes and cleanup booleans only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        status,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+        responseBodyHashCount: responseBodyHashes.length,
+      },
+    }),
+  ];
+
+  return GithubRemoteCleanupRunSchema.parse({
+    id: stableId(
+      'github_remote_cleanup_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+    status,
+    plan: input.dryRunRecord,
+    cleanupSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: !(boundaryResult?.networkBoundaryInvoked ?? false),
+    closePrAllowed: true,
+    deleteRefAllowed: true,
+    deleteNonCodexhubBranchAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    mergeAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    releaseAllowed: false,
+    deploymentAllowed: false,
+    pushAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      responseBodyHashCount: responseBodyHashes.length,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub remote cleanup completed using the fixed close PR and delete codexhub ref sequence.'
+        : `GitHub remote cleanup ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
+export function runRemoteSupersedeAcceptanceRehearsal(
+  input: RemoteSupersedeAcceptanceRehearsalInput = {},
+): RemoteSupersedeAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'all-pass';
+  const state = getRemoteSupersedeAcceptanceScenarioState(scenario);
+
+  return RemoteSupersedeAcceptanceRehearsalRunSchema.parse({
+    id: stableId('remote_supersede_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: state.status,
+    cleanupReadinessStatus: state.cleanupReadinessStatus,
+    targetKind: state.targetKind,
+    stepCount: 4,
+    evidenceRefCount: state.evidenceRefCount,
+    auditEventCount: state.auditEventCount,
+    blockerCount: state.blockerCount,
+    cleanupRecommended: state.cleanupRecommended,
+    remoteWriteInvoked: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      scenarioHash: stableHash(scenario),
+      fixtureOnly: true,
+      cleanupReadinessStatus: state.cleanupReadinessStatus,
+      blockerCount: state.blockerCount,
+    },
+    summary: `Remote supersede acceptance rehearsal ${state.status}; fixture metadata only.`,
+  });
+}
+
+export function runGithubRemoteCleanupAcceptanceRehearsal(
+  input: GithubRemoteCleanupAcceptanceRehearsalInput = {},
+): GithubRemoteCleanupAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'all-pass';
+  const state = getGithubRemoteCleanupAcceptanceScenarioState(scenario);
+
+  return GithubRemoteCleanupAcceptanceRehearsalRunSchema.parse({
+    id: stableId('github_remote_cleanup_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: state.status,
+    cleanupReadinessStatus: state.cleanupReadinessStatus,
+    closePrStatus: state.closePrStatus,
+    deleteRefStatus: state.deleteRefStatus,
+    stepCount: 6,
+    evidenceRefCount: state.evidenceRefCount,
+    auditEventCount: state.auditEventCount,
+    blockerCount: state.blockerCount,
+    closePrAllowed: true,
+    deleteRefAllowed: true,
+    deleteNonCodexhubBranchAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    mergeAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    releaseAllowed: false,
+    deploymentAllowed: false,
+    pushAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      scenarioHash: stableHash(scenario),
+      fixtureOnly: true,
+      cleanupReadinessStatus: state.cleanupReadinessStatus,
+      blockerCount: state.blockerCount,
+    },
+    summary: `GitHub remote cleanup acceptance rehearsal ${state.status}; fixture metadata only.`,
+  });
+}
+
 export function runGithubPublishDraftPrAcceptanceRehearsal(
   input: GithubPublishDraftPrAcceptanceRehearsalInput = {},
 ): GithubPublishDraftPrAcceptanceRehearsalRun {
@@ -2487,6 +3237,263 @@ function createGithubPublishDraftPrChainStep(input: {
   });
 }
 
+function createRemoteSupersedeTargetSummary(
+  input: RemoteSupersedeProjectionInput,
+  now: () => string,
+): RemoteSupersedeTargetSummary {
+  const cleanupRecommended = Boolean(input.oldBranchName || input.oldPrNumber);
+  const targetKind: RemoteSupersedeTargetKind =
+    input.targetKind ?? (input.oldPrNumber && input.oldBranchName ? 'draft_pr_and_branch' : input.oldPrNumber ? 'draft_pr' : 'branch');
+
+  return RemoteSupersedeTargetSummarySchema.parse({
+    id: stableId(
+      'remote_supersede_target',
+      JSON.stringify({
+        sourceRunIdHash: stableHash(input.sourceRunId),
+        oldBranchNameHash: input.oldBranchName ? stableHash(input.oldBranchName) : undefined,
+        oldPrNumberHash: input.oldPrNumber ? stableHash(input.oldPrNumber) : undefined,
+        successorBranchPublishRunIdHash: input.successorBranchPublishRunId
+          ? stableHash(input.successorBranchPublishRunId)
+          : undefined,
+        successorDraftPrRunIdHash: input.successorDraftPrRunId
+          ? stableHash(input.successorDraftPrRunId)
+          : undefined,
+      }),
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    targetKind,
+    sourceReworkRunIdHash: input.sourceReworkRunId
+      ? stableHash(input.sourceReworkRunId)
+      : undefined,
+    sourceBranchPublishRunIdHash: input.sourceBranchPublishRunId
+      ? stableHash(input.sourceBranchPublishRunId)
+      : undefined,
+    sourceDraftPrRunIdHash: input.sourceDraftPrRunId ? stableHash(input.sourceDraftPrRunId) : undefined,
+    sourcePrLifecycleRunIdHash: input.sourcePrLifecycleRunId
+      ? stableHash(input.sourcePrLifecycleRunId)
+      : undefined,
+    successorBranchPublishRunIdHash: input.successorBranchPublishRunId
+      ? stableHash(input.successorBranchPublishRunId)
+      : undefined,
+    successorDraftPrRunIdHash: input.successorDraftPrRunId
+      ? stableHash(input.successorDraftPrRunId)
+      : undefined,
+    oldBranchNameHash: input.oldBranchName ? stableHash(input.oldBranchName) : undefined,
+    oldPrNumberHash: input.oldPrNumber ? stableHash(input.oldPrNumber) : undefined,
+    oldPrUrlHash: input.oldPrUrl ? stableHash(input.oldPrUrl) : undefined,
+    oldBranchPreserved: true,
+    oldDraftPrClosed: false,
+    successorRequired: true,
+    closePrRecommended: Boolean(input.oldPrNumber),
+    deleteBranchRecommended: Boolean(input.oldBranchName),
+    cleanupRecommended,
+    branchPrefix: 'codexhub/',
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      sourceRunIdHash: stableHash(input.sourceRunId),
+      cleanupRecommended,
+      targetKind,
+    },
+    summary: cleanupRecommended
+      ? 'Remote supersede target points at old CodexHub remote artifacts by hash.'
+      : 'Remote supersede target has no old remote artifact to clean up.',
+  });
+}
+
+function createRemoteCleanupReadiness(input: {
+  target: RemoteSupersedeTargetSummary;
+  successorRunId?: string;
+  blockReasons: string[];
+  now: () => string;
+}): RemoteCleanupReadiness {
+  const status = resolveRemoteCleanupReadinessStatus(input.blockReasons);
+
+  return RemoteCleanupReadinessSchema.parse({
+    id: stableId(
+      'remote_cleanup_readiness',
+      JSON.stringify({
+        targetId: input.target.id,
+        successorRunIdHash: input.successorRunId ? stableHash(input.successorRunId) : undefined,
+        status,
+      }),
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.now(),
+    status,
+    target: input.target,
+    blockerCount: input.blockReasons.length,
+    successorRunIdHash: input.successorRunId ? stableHash(input.successorRunId) : undefined,
+    requiresApproval: true,
+    closePrAllowed: status === 'ready_for_cleanup' && Boolean(input.target.oldPrNumberHash),
+    deleteBranchAllowed: status === 'ready_for_cleanup' && Boolean(input.target.oldBranchNameHash),
+    deleteNonCodexhubBranchAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    mergeAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      targetIdHash: stableHash(input.target.id),
+      successorRunIdHash: input.successorRunId ? stableHash(input.successorRunId) : undefined,
+      blockerCount: input.blockReasons.length,
+      status,
+    },
+    summary:
+      status === 'ready_for_cleanup'
+        ? 'Remote cleanup readiness is ready; execution still requires persisted approval.'
+        : `Remote cleanup readiness is blocked: ${input.blockReasons.join(', ')}.`,
+  });
+}
+
+function collectRemoteSupersedeBlockReasons(input: RemoteSupersedeProjectionInput): string[] {
+  const hasSuccessor = Boolean(input.successorBranchPublishRunId || input.successorDraftPrRunId);
+  const hasOldTarget = Boolean(input.oldBranchName || input.oldPrNumber);
+  const reasons = [
+    isSafeSourceSummary(input.sourceRunId) ? undefined : 'missing_source_run',
+    isSafeSourceSummary(input.sourceSummary) ? undefined : 'missing_source_summary',
+    input.metadataReady === false ? 'metadata_not_ready' : undefined,
+    hasSuccessor && input.successorReady !== false ? undefined : 'missing_successor',
+    hasOldTarget ? undefined : 'missing_old_remote_target',
+    input.checksPending ? 'checks_pending' : undefined,
+    input.oldBranchName && !input.oldBranchName.startsWith('codexhub/')
+      ? 'branch_not_codexhub'
+      : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectRemoteCleanupPlanBlockReasons(input: GithubRemoteCleanupPlanInput): string[] {
+  const reasons = [
+    validateRemoteRefInput({ ...input, headBranch: input.oldBranchName }),
+    input.baseBranch ? undefined : 'missing_base_branch',
+    input.oldBranchName ? undefined : 'missing_old_branch',
+    input.oldBranchName.startsWith('codexhub/') ? undefined : 'branch_not_codexhub',
+    isSafeSourceSummary(input.sourceBranchPublishRunId)
+      ? undefined
+      : 'missing_source_branch_publish_run',
+    isSafeSourceSummary(input.successorRunId) ? undefined : 'missing_successor_run',
+    input.successorReady === false ? 'successor_missing' : undefined,
+    input.oldPrNumber || input.oldBranchName ? undefined : 'missing_cleanup_target',
+    input.oldPrNumber && !(input.oldPrDraft || input.supersededByNewerDraftPr)
+      ? 'old_pr_not_eligible'
+      : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectRemoteCleanupExecutionBlockReasons(
+  input: GithubRemoteCleanupExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const oldPrNumberMatches =
+    !input.dryRunRecord.oldPrNumberHash ||
+    (input.runtime.oldPrNumber &&
+      stableHash(input.runtime.oldPrNumber) === input.dryRunRecord.oldPrNumberHash);
+  const reasons = [
+    input.enabled ? undefined : 'github_remote_cleanup_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-remote-cleanup'
+      ? undefined
+      : 'remote_cleanup_runner_mode_not_controlled',
+    input.dryRunRecord.cleanupReadiness.status === 'ready_for_cleanup'
+      ? undefined
+      : 'remote_cleanup_readiness_not_ready',
+    input.approvalRecord?.status === 'approved' && input.approvalRecord.approved
+      ? undefined
+      : 'missing_persisted_approval',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    validateRemoteRefInput({
+      owner: input.runtime.owner,
+      repo: input.runtime.repo,
+      baseBranch: input.runtime.baseBranch,
+      headBranch: input.runtime.oldBranchName,
+    }),
+    matchesRemoteCleanupRuntime(input.dryRunRecord, input.runtime)
+      ? undefined
+      : 'github_remote_cleanup_hash_mismatch',
+    input.runtime.oldBranchName.startsWith('codexhub/') ? undefined : 'branch_not_codexhub',
+    oldPrNumberMatches ? undefined : 'github_old_pr_number_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function matchesRemoteCleanupRuntime(
+  plan: GithubRemoteCleanupPlan,
+  runtime: GithubRemoteCleanupExecutionInput['runtime'],
+): boolean {
+  const ownerRepoBaseMatch = matchesRemoteRefSummary(plan.targetRef, {
+    owner: runtime.owner,
+    repo: runtime.repo,
+    baseBranch: runtime.baseBranch,
+    headBranch: runtime.oldBranchName,
+  });
+
+  return ownerRepoBaseMatch && plan.oldBranchNameHash === stableHash(runtime.oldBranchName);
+}
+
+function resolveRemoteCleanupReadinessStatus(
+  blockReasons: readonly string[],
+): RemoteCleanupReadinessStatus {
+  if (blockReasons.length === 0) {
+    return 'ready_for_cleanup';
+  }
+
+  if (blockReasons.includes('missing_successor') || blockReasons.includes('successor_missing')) {
+    return 'blocked_no_successor';
+  }
+
+  if (blockReasons.includes('checks_pending')) {
+    return 'blocked_checks_pending';
+  }
+
+  if (blockReasons.includes('branch_not_codexhub')) {
+    return 'blocked_non_codexhub_branch';
+  }
+
+  if (
+    blockReasons.includes('missing_old_remote_target') ||
+    blockReasons.includes('missing_cleanup_target') ||
+    blockReasons.includes('missing_old_branch')
+  ) {
+    return 'blocked_missing_target';
+  }
+
+  return 'blocked_policy';
+}
+
 function createGithubEvidenceRef(input: {
   kind:
     | 'github.provider_plan'
@@ -2503,7 +3510,14 @@ function createGithubEvidenceRef(input: {
     | 'github.pr_lifecycle_plan'
     | 'github.pr_lifecycle_summary'
     | 'github.pr_lifecycle_run'
-    | 'github.publish_draft_pr_rehearsal';
+    | 'github.publish_draft_pr_rehearsal'
+    | 'github.remote_supersede_plan'
+    | 'github.remote_supersede_summary'
+    | 'github.remote_supersede_rehearsal'
+    | 'github.remote_cleanup_plan'
+    | 'github.remote_cleanup_summary'
+    | 'github.remote_cleanup_run'
+    | 'github.remote_cleanup_rehearsal';
   label: string;
   summary: string;
   metadata: Record<string, unknown>;
@@ -2635,6 +3649,151 @@ function resolveBranchPublishReadinessStatus(
   }
 
   return 'not_ready';
+}
+
+function getRemoteSupersedeAcceptanceScenarioState(
+  scenario: RemoteSupersedeAcceptanceScenario,
+): {
+  status: RemoteSupersedeAcceptanceRehearsalRun['status'];
+  cleanupReadinessStatus: RemoteCleanupReadinessStatus;
+  targetKind: RemoteSupersedeTargetKind;
+  cleanupRecommended: boolean;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+} {
+  switch (scenario) {
+    case 'all-pass':
+      return {
+        status: 'passed',
+        cleanupReadinessStatus: 'ready_for_cleanup',
+        targetKind: 'draft_pr_and_branch',
+        cleanupRecommended: true,
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 0,
+      };
+    case 'old-pr-open':
+    case 'old-branch-live':
+      return {
+        status: 'passed',
+        cleanupReadinessStatus: 'ready_for_cleanup',
+        targetKind: scenario === 'old-pr-open' ? 'draft_pr' : 'branch',
+        cleanupRecommended: true,
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 0,
+      };
+    case 'checks-pending':
+      return {
+        status: 'blocked',
+        cleanupReadinessStatus: 'blocked_checks_pending',
+        targetKind: 'draft_pr_and_branch',
+        cleanupRecommended: true,
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'no-successor':
+    case 'superseded-source-missing':
+      return {
+        status: 'blocked',
+        cleanupReadinessStatus:
+          scenario === 'no-successor' ? 'blocked_no_successor' : 'blocked_missing_target',
+        targetKind: 'draft_pr_and_branch',
+        cleanupRecommended: scenario === 'no-successor',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+  }
+}
+
+function getGithubRemoteCleanupAcceptanceScenarioState(
+  scenario: GithubRemoteCleanupAcceptanceScenario,
+): {
+  status: GithubRemoteCleanupAcceptanceRehearsalRun['status'];
+  cleanupReadinessStatus: RemoteCleanupReadinessStatus;
+  closePrStatus: GithubRemoteCleanupAcceptanceRehearsalRun['closePrStatus'];
+  deleteRefStatus: GithubRemoteCleanupAcceptanceRehearsalRun['deleteRefStatus'];
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+} {
+  switch (scenario) {
+    case 'all-pass':
+      return {
+        status: 'passed',
+        cleanupReadinessStatus: 'ready_for_cleanup',
+        closePrStatus: 'fixture_completed',
+        deleteRefStatus: 'fixture_completed',
+        evidenceRefCount: 4,
+        auditEventCount: 4,
+        blockerCount: 0,
+      };
+    case 'close-pr-failed':
+    case 'delete-ref-failed':
+      return {
+        status: 'failed',
+        cleanupReadinessStatus: 'ready_for_cleanup',
+        closePrStatus: scenario === 'close-pr-failed' ? 'failed' : 'fixture_completed',
+        deleteRefStatus: scenario === 'delete-ref-failed' ? 'failed' : 'skipped',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'network-timeout':
+      return {
+        status: 'aborted',
+        cleanupReadinessStatus: 'ready_for_cleanup',
+        closePrStatus: 'failed',
+        deleteRefStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'branch-not-codexhub':
+      return {
+        status: 'blocked',
+        cleanupReadinessStatus: 'blocked_non_codexhub_branch',
+        closePrStatus: 'skipped',
+        deleteRefStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'successor-missing':
+      return {
+        status: 'blocked',
+        cleanupReadinessStatus: 'blocked_no_successor',
+        closePrStatus: 'skipped',
+        deleteRefStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'old-pr-not-found':
+      return {
+        status: 'blocked',
+        cleanupReadinessStatus: 'blocked_missing_target',
+        closePrStatus: 'blocked',
+        deleteRefStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'token-missing':
+    case 'approval-blocked':
+      return {
+        status: 'blocked',
+        cleanupReadinessStatus: 'ready_for_cleanup',
+        closePrStatus: 'blocked',
+        deleteRefStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+  }
 }
 
 function getGithubBranchPublishAcceptanceScenarioState(

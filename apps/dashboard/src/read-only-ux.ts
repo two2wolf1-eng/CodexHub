@@ -5,7 +5,9 @@ import type {
   GithubDraftPrAcceptanceScenario,
   GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
+  GithubRemoteCleanupAcceptanceScenario,
   McpToolDefinition,
+  RemoteSupersedeAcceptanceScenario,
   ReworkLoopAcceptanceScenario,
 } from '@codexhub/contracts';
 import {
@@ -29,7 +31,6 @@ const GITHUB_BRANCH_PUBLISH_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
 ].join('-') as GithubBranchPublishAcceptanceScenario;
-
 export const DASHBOARD_VIEWS = [
   'overview',
   'development',
@@ -181,6 +182,11 @@ export interface GithubProviderReadOnlySummary {
   prLifecycleDryRunCount: number;
   prLifecycleApprovalCount: number;
   prLifecycleRunCount: number;
+  remoteSupersedeDryRunCount: number;
+  remoteSupersedeRunCount: number;
+  remoteCleanupDryRunCount: number;
+  remoteCleanupApprovalCount: number;
+  remoteCleanupRunCount: number;
   latestRunStatus: string;
   latestDraftPrRunStatus: string;
   latestDraftPrCreationStatus: string;
@@ -190,6 +196,9 @@ export interface GithubProviderReadOnlySummary {
   latestPublishDraftPrChainLifecycleStatus: string;
   latestPrLifecycleRunStatus: string;
   latestPrLifecycleStatusSummary: string;
+  latestRemoteSupersedeRunStatus: string;
+  latestRemoteCleanupRunStatus: string;
+  latestRemoteCleanupReadinessStatus: string;
   draftPrCreatedCount: number;
   branchPublishCreatedCount: number;
   productDefaultEnabled: false;
@@ -198,6 +207,8 @@ export interface GithubProviderReadOnlySummary {
   branchPublishApprovalRequired: true;
   publishDraftPrChainSeparateApprovalsRequired: true;
   prLifecycleApprovalRequired: true;
+  remoteSupersedeProjectionOnly: true;
+  remoteCleanupApprovalRequired: true;
   credentialConfigured: boolean;
   credentialHashOnly: boolean;
   allowedHostHash: string;
@@ -205,6 +216,8 @@ export interface GithubProviderReadOnlySummary {
   allowedDraftPrActions: string[];
   allowedBranchPublishActions: string[];
   allowedPrLifecycleActions: string[];
+  allowedRemoteSupersedeActions: string[];
+  allowedRemoteCleanupActions: string[];
   blockedOperations: string[];
   networkBoundaryInvoked: boolean;
   processBoundaryInvoked: false;
@@ -325,6 +338,71 @@ export interface GithubPrLifecycleAcceptanceRehearsalReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
+  summary: string;
+}
+
+export interface RemoteSupersedeAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: RemoteSupersedeAcceptanceScenario;
+  stepCount: number;
+  cleanupReadinessStatus: string;
+  targetKind: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+  cleanupRecommended: boolean;
+  fixtureOnly: true;
+  remoteWriteInvoked: false;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  rawRefStored: false;
+  rawUrlStored: false;
+  rawReasonStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  summary: string;
+}
+
+export interface GithubRemoteCleanupAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubRemoteCleanupAcceptanceScenario;
+  stepCount: number;
+  cleanupReadinessStatus: string;
+  closePrStatus: string;
+  deleteRefStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+  fixtureOnly: true;
+  closePrAllowed: true;
+  deleteRefAllowed: true;
+  deleteNonCodexhubBranchAllowed: false;
+  updateRefAllowed: false;
+  forceAllowed: false;
+  mergeAllowed: false;
+  commentAllowed: false;
+  labelAllowed: false;
+  reviewerAllowed: false;
+  releaseAllowed: false;
+  deploymentAllowed: false;
+  pushAllowed: false;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  rawRefStored: false;
+  rawUrlStored: false;
+  rawResponseBodyStored: false;
+  rawPathStored: false;
+  bodyStored: false;
   summary: string;
 }
 
@@ -908,6 +986,11 @@ export function createGithubProviderReadOnlySummary(input: {
   prLifecycleDryRunCount?: number;
   prLifecycleApprovalCount?: number;
   prLifecycleRunCount?: number;
+  remoteSupersedeDryRunCount?: number;
+  remoteSupersedeRunCount?: number;
+  remoteCleanupDryRunCount?: number;
+  remoteCleanupApprovalCount?: number;
+  remoteCleanupRunCount?: number;
   latestRunStatus?: string;
   latestDraftPrRunStatus?: string;
   latestDraftPrCreationStatus?: string;
@@ -917,6 +1000,9 @@ export function createGithubProviderReadOnlySummary(input: {
   latestPublishDraftPrChainLifecycleStatus?: string;
   latestPrLifecycleRunStatus?: string;
   latestPrLifecycleStatusSummary?: string;
+  latestRemoteSupersedeRunStatus?: string;
+  latestRemoteCleanupRunStatus?: string;
+  latestRemoteCleanupReadinessStatus?: string;
   draftPrCreatedCount?: number;
   branchPublishCreatedCount?: number;
   credentialConfigured?: boolean;
@@ -924,7 +1010,7 @@ export function createGithubProviderReadOnlySummary(input: {
 } = {}): GithubProviderReadOnlySummary {
   return {
     manifestName: 'github-provider',
-    manifestVersion: '0.5.0-m19',
+    manifestVersion: '0.8.0-m22',
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
@@ -939,6 +1025,11 @@ export function createGithubProviderReadOnlySummary(input: {
     prLifecycleDryRunCount: input.prLifecycleDryRunCount ?? 0,
     prLifecycleApprovalCount: input.prLifecycleApprovalCount ?? 0,
     prLifecycleRunCount: input.prLifecycleRunCount ?? 0,
+    remoteSupersedeDryRunCount: input.remoteSupersedeDryRunCount ?? 0,
+    remoteSupersedeRunCount: input.remoteSupersedeRunCount ?? 0,
+    remoteCleanupDryRunCount: input.remoteCleanupDryRunCount ?? 0,
+    remoteCleanupApprovalCount: input.remoteCleanupApprovalCount ?? 0,
+    remoteCleanupRunCount: input.remoteCleanupRunCount ?? 0,
     latestRunStatus: input.latestRunStatus ?? 'none',
     latestDraftPrRunStatus: input.latestDraftPrRunStatus ?? 'none',
     latestDraftPrCreationStatus: input.latestDraftPrCreationStatus ?? 'none',
@@ -949,6 +1040,10 @@ export function createGithubProviderReadOnlySummary(input: {
       input.latestPublishDraftPrChainLifecycleStatus ?? 'none',
     latestPrLifecycleRunStatus: input.latestPrLifecycleRunStatus ?? 'none',
     latestPrLifecycleStatusSummary: input.latestPrLifecycleStatusSummary ?? 'none',
+    latestRemoteSupersedeRunStatus: input.latestRemoteSupersedeRunStatus ?? 'none',
+    latestRemoteCleanupRunStatus: input.latestRemoteCleanupRunStatus ?? 'none',
+    latestRemoteCleanupReadinessStatus:
+      input.latestRemoteCleanupReadinessStatus ?? 'not_ready',
     draftPrCreatedCount: input.draftPrCreatedCount ?? 0,
     branchPublishCreatedCount: input.branchPublishCreatedCount ?? 0,
     productDefaultEnabled: false,
@@ -957,6 +1052,8 @@ export function createGithubProviderReadOnlySummary(input: {
     branchPublishApprovalRequired: true,
     publishDraftPrChainSeparateApprovalsRequired: true,
     prLifecycleApprovalRequired: true,
+    remoteSupersedeProjectionOnly: true,
+    remoteCleanupApprovalRequired: true,
     credentialConfigured: input.credentialConfigured ?? false,
     credentialHashOnly: true,
     allowedHostHash: stableSha256LikeHash('api.github.com'),
@@ -983,6 +1080,14 @@ export function createGithubProviderReadOnlySummary(input: {
       'combined_status_get',
       'check_runs_summary_get',
     ],
+    allowedRemoteSupersedeActions: ['metadata_projection', 'fixture_rehearsal'],
+    allowedRemoteCleanupActions: [
+      'repo_metadata_get',
+      'old_pr_metadata_get',
+      'old_branch_ref_metadata_get',
+      'draft_pr_close',
+      'codexhub_ref_delete',
+    ],
     blockedOperations: [
       ['git ', 'push'].join(''),
       'update_ref',
@@ -996,6 +1101,9 @@ export function createGithubProviderReadOnlySummary(input: {
       'generic_network_request',
       'raw_check_logs',
       'raw_pr_body',
+      'non_codexhub_branch_delete',
+      'release',
+      'deployment',
     ],
     networkBoundaryInvoked: input.networkBoundaryInvoked ?? false,
     processBoundaryInvoked: false,
@@ -1007,7 +1115,7 @@ export function createGithubProviderReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary:
-      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, and PR lifecycle records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, PR lifecycle, remote supersede, and remote cleanup records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
   };
 }
 
@@ -1234,6 +1342,130 @@ export function createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary(input:
     credentialValueStored: false,
     summary:
       'GitHub PR lifecycle rehearsal is fixture-only and covers fixed GET metadata for PR state, branch refs, combined status, and check-run counts without remote writes.',
+  };
+}
+
+export function createRemoteSupersedeAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: RemoteSupersedeAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): RemoteSupersedeAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass' || scenario === 'old-pr-open' || scenario === 'old-branch-live'
+      ? 'passed'
+      : scenario === 'checks-pending'
+        ? 'aborted'
+        : 'blocked';
+  const cleanupReadinessStatus =
+    scenario === 'all-pass'
+      ? 'ready'
+      : scenario === 'old-pr-open' || scenario === 'old-branch-live'
+        ? 'requires_cleanup'
+        : 'blocked';
+
+  return {
+    status,
+    scenario,
+    stepCount: 5,
+    cleanupReadinessStatus,
+    targetKind:
+      scenario === 'old-pr-open'
+        ? 'draft_pr'
+        : scenario === 'old-branch-live'
+          ? 'branch'
+          : 'draft_pr_and_branch',
+    evidenceRefCount: status === 'passed' ? 3 : 1,
+    auditEventCount: status === 'passed' ? 3 : 1,
+    blockerCount: status === 'passed' ? 0 : 1,
+    cleanupRecommended: scenario === 'all-pass' || scenario === 'old-pr-open' || scenario === 'old-branch-live',
+    fixtureOnly: true,
+    remoteWriteInvoked: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      'Remote supersede rehearsal is projection-only. It identifies old CodexHub draft PR and branch cleanup readiness without invoking GitHub writes.',
+  };
+}
+
+export function createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubRemoteCleanupAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubRemoteCleanupAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass'
+      ? 'passed'
+      : scenario === 'close-pr-failed' || scenario === 'delete-ref-failed'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const cleanupReadinessStatus =
+    scenario === 'all-pass' || scenario === 'close-pr-failed' || scenario === 'delete-ref-failed'
+      ? 'ready'
+      : 'blocked';
+  const closePrStatus =
+    scenario === 'all-pass' || scenario === 'delete-ref-failed'
+      ? 'fixture_completed'
+      : scenario === 'close-pr-failed'
+        ? 'failed'
+        : status === 'aborted'
+          ? 'failed'
+          : 'blocked';
+  const deleteRefStatus =
+    scenario === 'all-pass'
+      ? 'fixture_completed'
+      : scenario === 'delete-ref-failed'
+        ? 'failed'
+        : closePrStatus === 'fixture_completed'
+          ? 'skipped'
+          : 'blocked';
+
+  return {
+    status,
+    scenario,
+    stepCount: 5,
+    cleanupReadinessStatus,
+    closePrStatus,
+    deleteRefStatus,
+    evidenceRefCount: status === 'passed' || status === 'failed' ? 3 : 1,
+    auditEventCount: status === 'passed' || status === 'failed' ? 3 : 1,
+    blockerCount: status === 'passed' ? 0 : 1,
+    fixtureOnly: true,
+    closePrAllowed: true,
+    deleteRefAllowed: true,
+    deleteNonCodexhubBranchAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    mergeAllowed: false,
+    commentAllowed: false,
+    labelAllowed: false,
+    reviewerAllowed: false,
+    releaseAllowed: false,
+    deploymentAllowed: false,
+    pushAllowed: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      'Remote cleanup rehearsal is fixture-only. Live cleanup remains Supervisor-gated, approval-bound, and restricted to closing old draft PRs plus deleting old codexhub/* refs.',
   };
 }
 

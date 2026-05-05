@@ -6,7 +6,11 @@ import {
   GithubMetadataDryRunRecordSchema,
   GithubPrLifecycleObservationPlanSchema,
   GithubPublishDraftPrChainPlanSchema,
+  GithubRemoteCleanupPlanSchema,
+  GithubRemoteCleanupRunSchema,
   GithubTokenReadinessSchema,
+  RemoteSupersedePlanSchema,
+  RemoteSupersedeRunSchema,
 } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
 import {
@@ -20,19 +24,27 @@ import {
   createGithubPrLifecycleApprovalRecord,
   createGithubPrLifecycleObservationPlan,
   createGithubProviderManifest,
+  createGithubRemoteCleanupApprovalRecord,
+  createGithubRemoteCleanupPlan,
   createGithubPublishDraftPrChainPlan,
   createGithubPublishDraftPrChainRun,
   createGithubRemotePrLifecycleSummary,
   createGithubRemoteRefSummary,
+  createRemoteSupersedeChainProjection,
+  createRemoteSupersedePlan,
+  createRemoteSupersedeRun,
   executeGithubBranchPublish,
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
   executeGithubPrLifecycleObservation,
+  executeGithubRemoteCleanup,
   readGithubTokenReadiness,
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
   runGithubPrLifecycleAcceptanceRehearsal,
+  runGithubRemoteCleanupAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
+  runRemoteSupersedeAcceptanceRehearsal,
 } from './index';
 
 const fixedNow = () => '2026-05-04T00:00:00.000Z';
@@ -1343,5 +1355,212 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(serialized).not.toContain('octo-org');
     expect(serialized).not.toContain('codexhub');
     expect(serialized).not.toContain('Authorization');
+  });
+
+  it('projects remote supersede metadata without invoking GitHub boundaries', () => {
+    const plan = createRemoteSupersedePlan({
+      sourceRunId: 'rework_run_1',
+      sourceSummary: 'Rework run one superseded by draft PR run two.',
+      targetKind: 'draft_pr_and_branch',
+      sourceBranchPublishRunId: 'branch_publish_run_1',
+      sourceDraftPrRunId: 'draft_pr_run_1',
+      sourcePrLifecycleRunId: 'pr_lifecycle_run_1',
+      successorBranchPublishRunId: 'branch_publish_run_2',
+      successorDraftPrRunId: 'draft_pr_run_2',
+      oldBranchName: 'codexhub/m20-r1',
+      oldPrNumber: '42',
+      oldPrUrl: 'https://github.com/octo-org/codexhub/pull/42',
+      successorReady: true,
+      metadataReady: true,
+      now: fixedNow,
+    });
+    const run = createRemoteSupersedeRun({ plan, now: fixedNow });
+    const projection = createRemoteSupersedeChainProjection({ plan, runs: [run], now: fixedNow });
+    const rehearsal = runRemoteSupersedeAcceptanceRehearsal({
+      scenario: 'old-pr-open',
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify({ plan, run, projection, rehearsal });
+
+    expect(RemoteSupersedePlanSchema.parse(plan).status).toBe('planned');
+    expect(RemoteSupersedeRunSchema.parse(run).networkBoundaryInvoked).toBe(false);
+    expect(projection.runCount).toBe(1);
+    expect(projection.noRealWrite).toBe(true);
+    expect(rehearsal.status).toBe('passed');
+    expect(rehearsal.remoteWriteInvoked).toBe(false);
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m20-r1');
+    expect(serialized).not.toContain('https://github.com');
+    expect(serialized).not.toContain('ghp_');
+  });
+
+  it('blocks remote cleanup before boundary without authority, approval, or enabled config', async () => {
+    const dryRunRecord = createGithubRemoteCleanupPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      oldBranchName: 'codexhub/m20-r1',
+      oldPrNumber: '42',
+      sourceBranchPublishRunId: 'branch_publish_run_1',
+      sourceDraftPrRunId: 'draft_pr_run_1',
+      successorRunId: 'draft_pr_run_2',
+      successorReady: true,
+      oldPrDraft: true,
+      supersededByNewerDraftPr: true,
+      runnerMode: 'controlled-github-remote-cleanup',
+      now: fixedNow,
+    });
+    let fetchCalled = false;
+    const run = await executeGithubRemoteCleanup({
+      dryRunRecord,
+      authority: { ...allowedAuthority, allowed: false },
+      enabled: false,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        oldBranchName: 'codexhub/m20-r1',
+        oldPrNumber: '42',
+        token: 'ghp_secret',
+      },
+      fetchImpl: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+      now: fixedNow,
+    });
+
+    expect(GithubRemoteCleanupPlanSchema.parse(dryRunRecord).status).toBe('planned');
+    expect(GithubRemoteCleanupRunSchema.parse(run).status).toBe('blocked');
+    expect(run.blockReasons).toEqual(
+      expect.arrayContaining([
+        'github_remote_cleanup_disabled',
+        'missing_persisted_approval',
+        'execution_authority_denied',
+      ]),
+    );
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('runs remote cleanup through the fixed GitHub cleanup sequence and stores hashes only', async () => {
+    const dryRunRecord = createGithubRemoteCleanupPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      oldBranchName: 'codexhub/m20-r1',
+      oldPrNumber: '42',
+      sourceBranchPublishRunId: 'branch_publish_run_1',
+      sourceDraftPrRunId: 'draft_pr_run_1',
+      successorRunId: 'draft_pr_run_2',
+      successorReady: true,
+      oldPrDraft: true,
+      supersededByNewerDraftPr: true,
+      runnerMode: 'controlled-github-remote-cleanup',
+      now: fixedNow,
+    });
+    const approvalRecord = createGithubRemoteCleanupApprovalRecord({
+      dryRunRecord,
+      status: 'approved',
+      now: fixedNow,
+    });
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+      const method = init?.method ?? 'GET';
+      const body =
+        method === 'GET' && url.endsWith('/pulls/42')
+          ? '{"number":42,"draft":true,"state":"open"}'
+          : method === 'GET' && url.includes('/git/ref/heads/codexhub%2Fm20-r1')
+            ? '{"ref":"refs/heads/codexhub/m20-r1"}'
+            : method === 'PATCH'
+              ? '{"number":42,"state":"closed"}'
+              : method === 'DELETE'
+                ? ''
+                : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: method === 'DELETE' ? 204 : 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const run = await executeGithubRemoteCleanup({
+      dryRunRecord,
+      approvalRecord,
+      authority: allowedAuthority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        oldBranchName: 'codexhub/m20-r1',
+        oldPrNumber: '42',
+        token: 'ghp_secret',
+      },
+      fetchImpl,
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(run.status).toBe('completed');
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(run.noRealWrite).toBe(false);
+    expect(run.cleanupSummary.oldPrClosed).toBe(true);
+    expect(run.cleanupSummary.oldBranchDeleted).toBe(true);
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'GET https://api.github.com/repos/octo-org/codexhub/git/ref/heads/codexhub%2Fm20-r1',
+      'PATCH https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'DELETE https://api.github.com/repos/octo-org/codexhub/git/refs/heads/codexhub%2Fm20-r1',
+    ]);
+    expect(requested.at(3)?.body).toBe('{"state":"closed"}');
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m20-r1');
+    expect(serialized).not.toContain('refs/heads');
+    expect(serialized).not.toContain('/merge');
+    expect(serialized).not.toContain('/labels');
+    expect(serialized).not.toContain('/comments');
+    expect(serialized).not.toContain('requested_reviewers');
+  });
+
+  it('runs remote cleanup acceptance rehearsal as fixture-only metadata', () => {
+    const passed = runGithubRemoteCleanupAcceptanceRehearsal({
+      scenario: 'all-pass',
+      now: fixedNow,
+    });
+    const blocked = runGithubRemoteCleanupAcceptanceRehearsal({
+      scenario: 'branch-not-codexhub',
+      now: fixedNow,
+    });
+    const failed = runGithubRemoteCleanupAcceptanceRehearsal({
+      scenario: 'delete-ref-failed',
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify({ passed, blocked, failed });
+
+    expect(passed.status).toBe('passed');
+    expect(blocked.status).toBe('blocked');
+    expect(failed.status).toBe('failed');
+    expect(passed.closePrAllowed).toBe(true);
+    expect(passed.deleteRefAllowed).toBe(true);
+    expect(passed.deleteNonCodexhubBranchAllowed).toBe(false);
+    expect(passed.updateRefAllowed).toBe(false);
+    expect(passed.forceAllowed).toBe(false);
+    expect(passed.mergeAllowed).toBe(false);
+    expect(passed.commentAllowed).toBe(false);
+    expect(passed.labelAllowed).toBe(false);
+    expect(passed.reviewerAllowed).toBe(false);
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.processBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m20-r1');
+    expect(serialized).not.toContain('https://api.github.com');
   });
 });

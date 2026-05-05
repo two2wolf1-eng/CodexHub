@@ -247,7 +247,12 @@ import type {
   GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
+  GithubRemoteCleanupApprovalArtifactRecord,
+  GithubRemoteCleanupPlan,
+  GithubRemoteCleanupRun,
   GithubProviderApprovalStatus,
+  RemoteSupersedePlan,
+  RemoteSupersedeRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -352,16 +357,21 @@ import {
   createGithubPrLifecycleObservationPlan,
   createGithubPublishDraftPrChainPlan,
   createGithubPublishDraftPrChainRun,
+  createGithubRemoteCleanupApprovalRecord,
+  createGithubRemoteCleanupPlan,
   executeGithubBranchPublish,
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
   executeGithubPrLifecycleObservation,
+  executeGithubRemoteCleanup,
   type GithubBranchPublishExecutionInput,
   type GithubBranchPublishPlanInput,
   type GithubDraftPrExecutionInput,
   type GithubMetadataExecutionInput,
   type GithubPrLifecycleExecutionInput,
   type GithubPrLifecyclePlanInput,
+  type GithubRemoteCleanupExecutionInput,
+  type GithubRemoteCleanupPlanInput,
 } from '@codexhub/github-provider-adapter';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
@@ -409,6 +419,7 @@ interface SupervisorServerOptions {
   githubDraftPrEnabled?: boolean;
   githubBranchPublishEnabled?: boolean;
   githubPrLifecycleObserverEnabled?: boolean;
+  githubRemoteCleanupEnabled?: boolean;
   reworkLoopEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
@@ -843,6 +854,57 @@ interface ReworkLoopRunRequestBody {
   executionAuthority?: unknown;
 }
 
+interface GithubRemoteCleanupDryRunRequestBody {
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  oldBranchName?: string;
+  oldPrNumber?: string;
+  sourceBranchPublishRunId?: string;
+  sourceDraftPrRunId?: string;
+  successorRunId?: string;
+  successorReady?: boolean;
+  oldPrDraft?: boolean;
+  supersededByNewerDraftPr?: boolean;
+  runnerMode?: 'planning-only' | 'controlled-github-remote-cleanup';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubRemoteCleanupApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubRemoteCleanupManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: GithubProviderApprovalStatus;
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubRemoteCleanupRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  oldBranchName?: string;
+  oldPrNumber?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
 interface GithubDraftPrDryRunRequestBody {
   owner?: string;
   repo?: string;
@@ -1091,6 +1153,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const githubPrLifecycleDryRunRecords: GithubPrLifecycleObservationPlan[] = [];
   const githubPrLifecycleApprovalRecords: GithubPrLifecycleApprovalArtifactRecord[] = [];
   const githubPrLifecycleRunRecords: GithubPrLifecycleObservationRun[] = [];
+  const remoteSupersedeDryRunRecords: RemoteSupersedePlan[] = [];
+  const remoteSupersedeRunRecords: RemoteSupersedeRun[] = [];
+  const githubRemoteCleanupDryRunRecords: GithubRemoteCleanupPlan[] = [];
+  const githubRemoteCleanupApprovalRecords: GithubRemoteCleanupApprovalArtifactRecord[] = [];
+  const githubRemoteCleanupRunRecords: GithubRemoteCleanupRun[] = [];
   const reworkLoopDryRunRecords: ReworkLoopPlan[] = [];
   const reworkLoopApprovalRecords: ReworkLoopApprovalArtifactRecord[] = [];
   const reworkLoopRunRecords: ReworkLoopRun[] = [];
@@ -3074,6 +3141,349 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createGithubPrLifecycleRunResponse(record);
+  });
+
+  server.get('/api/github/supersedes/dry-runs', async (request) => {
+    const query = parseReviewPackageQuery(request.query);
+    const records = listInMemoryControlPlaneRecords(remoteSupersedeDryRunRecords, query);
+
+    return {
+      records: records.map(createRemoteSupersedeDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/github/supersedes/runs', async (request) => {
+    const query = parseReviewPackageQuery(request.query);
+    const records = listInMemoryControlPlaneRecords(remoteSupersedeRunRecords, query);
+
+    return {
+      records: records.map(createRemoteSupersedeRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/github/supersedes/runs/:id', async (request, reply) => {
+    const params = request.params as { id?: string };
+    const record = remoteSupersedeRunRecords.find((candidate) => candidate.id === params.id);
+
+    if (!record) {
+      return reply.code(404).send({ error: 'remote supersede run was not found' });
+    }
+
+    return createRemoteSupersedeRunResponse(record);
+  });
+
+  server.post('/api/github/remote-cleanups/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubRemoteCleanupStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as GithubRemoteCleanupDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupUntrustedAuthorityResponse(undefined));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupForbiddenRawBodyResponse(undefined));
+    }
+
+    const dryRunRecord = createGithubRemoteCleanupPlan({
+      owner: body?.owner ?? '',
+      repo: body?.repo ?? '',
+      baseBranch: body?.baseBranch,
+      oldBranchName: body?.oldBranchName ?? '',
+      oldPrNumber: body?.oldPrNumber,
+      sourceBranchPublishRunId: body?.sourceBranchPublishRunId ?? '',
+      sourceDraftPrRunId: body?.sourceDraftPrRunId,
+      successorRunId: body?.successorRunId ?? '',
+      successorReady: body?.successorReady,
+      oldPrDraft: body?.oldPrDraft,
+      supersededByNewerDraftPr: body?.supersededByNewerDraftPr,
+      runnerMode: body?.runnerMode ?? 'controlled-github-remote-cleanup',
+    } satisfies GithubRemoteCleanupPlanInput);
+
+    await persistGithubRemoteCleanupDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistGithubRemoteCleanupAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      false,
+    );
+
+    return createGithubRemoteCleanupDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/github/remote-cleanups/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubRemoteCleanupDryRuns(query, store);
+
+    return {
+      records: records.map(createGithubRemoteCleanupDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/github/remote-cleanups/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubRemoteCleanupStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as GithubRemoteCleanupApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubRemoteCleanupDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github remote cleanup dry-run record was not found' });
+    }
+
+    const approvalRecord = createGithubRemoteCleanupApprovalRecord({
+      dryRunRecord,
+      status: 'requested',
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+    });
+
+    await persistGithubRemoteCleanupApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistGithubRemoteCleanupAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createGithubRemoteCleanupApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/github/remote-cleanups/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubRemoteCleanupStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as GithubRemoteCleanupManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubRemoteCleanupDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github remote cleanup dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveGithubRemoteCleanupApprovalRecord(body.approvalRequestId, store)
+      : (
+          await listGithubRemoteCleanupApprovals(
+            { dryRunId: dryRunRecord.dryRunId, limit: 1 },
+            store,
+          )
+        )[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'github remote cleanup approval request was not found' });
+    }
+
+    const approvalRecord = createGithubRemoteCleanupApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistGithubRemoteCleanupApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistGithubRemoteCleanupAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+      false,
+    );
+
+    return createGithubRemoteCleanupApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/github/remote-cleanups/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubRemoteCleanupApprovals(query, store);
+
+    return {
+      records: records.map(createGithubRemoteCleanupApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/github/remote-cleanups/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createGithubRemoteCleanupStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as GithubRemoteCleanupRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createGithubRemoteCleanupForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveGithubRemoteCleanupDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'github remote cleanup dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveGithubRemoteCleanupApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord?.approvalArtifactId,
+      allowed:
+        dryRunRecord.status === 'planned' &&
+        approvalRecord?.status === 'approved' &&
+        approvalRecord.approved,
+      constraints: [
+        'github-remote-cleanup-fixed-close-delete-only',
+        'hash-bound-remote-ref',
+        'codexhub-branch-only',
+      ],
+    });
+    const githubCredential =
+      options.githubProviderCredential ?? process.env[GITHUB_PROVIDER_CREDENTIAL_ENV_VAR];
+    const providerEnabled =
+      options.githubProviderEnabled ?? process.env.CODEXHUB_GITHUB_PROVIDER_ENABLED === 'true';
+    const cleanupEnabled =
+      options.githubRemoteCleanupEnabled ??
+      process.env.CODEXHUB_GITHUB_REMOTE_CLEANUP_ENABLED === 'true';
+    const runRecord = await executeGithubRemoteCleanup({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      enabled: providerEnabled && cleanupEnabled,
+      runtime: {
+        owner: body?.owner ?? '',
+        repo: body?.repo ?? '',
+        baseBranch: body?.baseBranch,
+        oldBranchName: body?.oldBranchName ?? '',
+        oldPrNumber: body?.oldPrNumber,
+        [GITHUB_PROVIDER_RUNTIME_CREDENTIAL_KEY]: githubCredential,
+      } as GithubRemoteCleanupExecutionInput['runtime'],
+      fetchImpl: options.githubProviderFetch,
+    });
+
+    await persistGithubRemoteCleanupRunRecord(runRecord, store);
+    await persistEvidenceRefs(runRecord.evidenceRefs, store);
+    await persistGithubRemoteCleanupAuditEvents(
+      runRecord.auditEventIds,
+      runRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+      runRecord.networkBoundaryInvoked,
+    );
+
+    if (runRecord.networkBoundaryInvoked && approvalRecord) {
+      const usedRecord = createGithubRemoteCleanupApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRecord,
+        status: 'used',
+        reason: 'approval consumed after GitHub remote cleanup network boundary attempt',
+      });
+      await persistGithubRemoteCleanupApprovalRecord(usedRecord, store);
+      await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+      await persistGithubRemoteCleanupAuditEvents(
+        usedRecord.auditEventIds,
+        usedRecord.evidenceRefs,
+        store,
+        usedRecord.policyDecisionId,
+        runRecord.networkBoundaryInvoked,
+      );
+    }
+
+    return createGithubRemoteCleanupRunResponse(runRecord);
+  });
+
+  server.get('/api/github/remote-cleanups/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listGithubRemoteCleanupRuns(query, store);
+
+    return {
+      records: records.map(createGithubRemoteCleanupRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      networkBoundaryInvoked: records.some((record) => record.networkBoundaryInvoked),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/github/remote-cleanups/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveGithubRemoteCleanupRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'github remote cleanup run was not found' });
+    }
+
+    return createGithubRemoteCleanupRunResponse(record);
   });
 
   server.post('/api/rework-loops/dry-runs', async (request, reply) => {
@@ -13886,6 +14296,126 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : githubPrLifecycleRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function persistGithubRemoteCleanupDryRunRecord(
+    record: GithubRemoteCleanupPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubRemoteCleanupDryRuns.saveDryRun(record);
+      return;
+    }
+    githubRemoteCleanupDryRunRecords.unshift(record);
+  }
+
+  async function persistGithubRemoteCleanupApprovalRecord(
+    record: GithubRemoteCleanupApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubRemoteCleanupApprovals.saveApproval(record);
+      return;
+    }
+    githubRemoteCleanupApprovalRecords.unshift(record);
+  }
+
+  async function persistGithubRemoteCleanupRunRecord(
+    record: GithubRemoteCleanupRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubRemoteCleanupRuns.saveRun(record);
+      return;
+    }
+    githubRemoteCleanupRunRecords.unshift(record);
+  }
+
+  async function resolveGithubRemoteCleanupDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.githubRemoteCleanupDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubRemoteCleanupDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return githubRemoteCleanupDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveGithubRemoteCleanupApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.githubRemoteCleanupApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubRemoteCleanupApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return githubRemoteCleanupApprovalRecords.find(
+      (record) =>
+        record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveGithubRemoteCleanupApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.githubRemoteCleanupApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : githubRemoteCleanupApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveGithubRemoteCleanupRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupRun | undefined> {
+    return store
+      ? await store.githubRemoteCleanupRuns.getRun(runId)
+      : githubRemoteCleanupRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listGithubRemoteCleanupDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupPlan[]> {
+    return store
+      ? await store.githubRemoteCleanupDryRuns.listDryRuns(query)
+      : githubRemoteCleanupDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubRemoteCleanupApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupApprovalArtifactRecord[]> {
+    return store
+      ? await store.githubRemoteCleanupApprovals.listApprovals(query)
+      : githubRemoteCleanupApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubRemoteCleanupRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubRemoteCleanupRun[]> {
+    return store
+      ? await store.githubRemoteCleanupRuns.listRuns(query)
+      : githubRemoteCleanupRunRecords.slice(0, query.limit ?? 50);
+  }
+
   async function persistReworkLoopDryRunRecord(
     record: ReworkLoopPlan,
     store: CodexHubStore | undefined,
@@ -14384,6 +14914,49 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
   }
 
+  async function persistGithubRemoteCleanupAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+    networkBoundaryInvoked: boolean,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'github.remote_cleanup.control_plane',
+        target: 'github-provider',
+        reason: 'github remote cleanup fixed close/delete control-plane transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawRefStored: false,
+          rawUrlStored: false,
+          rawResponseBodyStored: false,
+          rawPathStored: false,
+          networkBoundaryInvoked,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          closePrAllowed: true,
+          deleteRefAllowed: true,
+          deleteNonCodexhubBranchAllowed: false,
+          updateRefAllowed: false,
+          forceAllowed: false,
+          pushAllowed: false,
+          mergeAllowed: false,
+          commentsAllowed: false,
+          labelsAllowed: false,
+          reviewersAllowed: false,
+        },
+      });
+    }
+  }
+
   async function persistReworkLoopAuditEvents(
     auditEventIds: string[],
     evidenceRefs: EvidenceRef[],
@@ -14812,6 +15385,166 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createRemoteSupersedeDryRunResponse(record: RemoteSupersedePlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      targetKind: record.target.targetKind,
+      oldBranchNameHash: record.target.oldBranchNameHash,
+      oldPrNumberHash: record.target.oldPrNumberHash,
+      cleanupReadinessStatus: record.cleanupReadiness.status,
+      cleanupRecommended: record.target.cleanupRecommended,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      remoteCleanupRequiresApproval: true,
+      cleanupExecutionAllowed: false,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createRemoteSupersedeRunResponse(record: RemoteSupersedeRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      status: record.status,
+      targetKind: record.target.targetKind,
+      oldBranchNameHash: record.target.oldBranchNameHash,
+      oldPrNumberHash: record.target.oldPrNumberHash,
+      cleanupReadinessStatus: record.cleanupReadiness.status,
+      cleanupRecommended: record.target.cleanupRecommended,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      remoteCleanupRequiresApproval: true,
+      cleanupExecutionAllowed: false,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubRemoteCleanupDryRunResponse(record: GithubRemoteCleanupPlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      runnerMode: record.runnerMode,
+      targetRef: record.targetRef,
+      oldPrNumberHash: record.oldPrNumberHash,
+      oldBranchNameHash: record.oldBranchNameHash,
+      successorRunIdHash: record.successorRunIdHash,
+      cleanupReadinessStatus: record.cleanupReadiness.status,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryPlanned: record.networkBoundaryPlanned,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      fixedCleanupOnly: true,
+      closePrAllowed: true,
+      deleteRefAllowed: true,
+      deleteNonCodexhubBranchAllowed: false,
+      updateRefAllowed: false,
+      forceAllowed: false,
+      mergeAllowed: false,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubRemoteCleanupApprovalResponse(
+    record: GithubRemoteCleanupApprovalArtifactRecord,
+  ) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      requestedByHash: record.requestedByHash,
+      decidedByHash: record.decidedByHash,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawReasonStored: false,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubRemoteCleanupRunResponse(record: GithubRemoteCleanupRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      targetRef: record.plan.targetRef,
+      oldPrNumberHash: record.cleanupSummary.oldPrNumberHash,
+      oldBranchNameHash: record.cleanupSummary.oldBranchNameHash,
+      oldPrClosed: record.cleanupSummary.oldPrClosed,
+      oldBranchDeleted: record.cleanupSummary.oldBranchDeleted,
+      responseBodyHashCount: record.responseBodyHashes.length,
+      responseBodyHashes: record.responseBodyHashes,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
+      fixedCleanupOnly: true,
+      closePrAllowed: true,
+      deleteRefAllowed: true,
+      deleteNonCodexhubBranchAllowed: false,
+      updateRefAllowed: false,
+      forceAllowed: false,
+      mergeAllowed: false,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
   function createGithubDraftPrDryRunResponse(record: GithubDraftPrPlan) {
     return {
       recordId: record.id,
@@ -15209,6 +15942,24 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createGithubRemoteCleanupStoreUnavailableResponse(phase: string) {
+    return {
+      error: `github_remote_cleanup_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubMetadataUntrustedAuthorityResponse(dryRunId: string | undefined) {
     return {
       error: 'untrusted_github_metadata_authority_body',
@@ -15302,6 +16053,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createGithubRemoteCleanupUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_github_remote_cleanup_authority_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubMetadataForbiddenRawBodyResponse(dryRunId: string | undefined) {
     return {
       error: 'forbidden_github_metadata_raw_body',
@@ -15390,6 +16158,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       noRealWrite: true,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createGithubRemoteCleanupForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_github_remote_cleanup_raw_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawRefStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
       rawPathStored: false,
       bodyStored: false,
     };
@@ -15567,6 +16352,16 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       status: readQueryValue(query, 'status'),
       limit: limitResult.allowed ? limitResult.limit : undefined,
     };
+  }
+
+  function listInMemoryControlPlaneRecords<T extends { dryRunId?: string; status?: string }>(
+    records: T[],
+    query: { dryRunId?: string; status?: string; limit?: number },
+  ): T[] {
+    return records
+      .filter((record) => (query.dryRunId ? record.dryRunId === query.dryRunId : true))
+      .filter((record) => (query.status ? record.status === query.status : true))
+      .slice(0, query.limit ?? 50);
   }
 
   function createReviewPackageStoreUnavailableResponse(phase: string) {

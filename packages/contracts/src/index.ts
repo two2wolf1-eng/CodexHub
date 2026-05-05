@@ -190,6 +190,13 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'rework.attempt_summary',
     'rework.supersede_projection',
     'rework.rehearsal',
+    'github.remote_supersede_plan',
+    'github.remote_supersede_summary',
+    'github.remote_supersede_rehearsal',
+    'github.remote_cleanup_plan',
+    'github.remote_cleanup_summary',
+    'github.remote_cleanup_run',
+    'github.remote_cleanup_rehearsal',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -1856,6 +1863,15 @@ const githubForbiddenMetadataKeys = new Set([
   'pullRequestMarkdown',
   'prBody',
   'prMarkdown',
+  'comment',
+  'comments',
+  'label',
+  'labels',
+  'reviewer',
+  'reviewers',
+  'merge',
+  'deployment',
+  'release',
   'rawReason',
   'reasonBody',
   'reasonText',
@@ -4622,6 +4638,537 @@ export const ReworkLoopAcceptanceRehearsalRunSchema = createdEntityBaseSchema
   });
 export type ReworkLoopAcceptanceRehearsalRun = z.infer<
   typeof ReworkLoopAcceptanceRehearsalRunSchema
+>;
+
+export const RemoteSupersedeStatusSchema = z.enum(['planned', 'completed', 'blocked', 'failed', 'aborted']);
+export type RemoteSupersedeStatus = z.infer<typeof RemoteSupersedeStatusSchema>;
+
+export const RemoteSupersedeTargetKindSchema = z.enum([
+  'draft_pr',
+  'branch',
+  'draft_pr_and_branch',
+]);
+export type RemoteSupersedeTargetKind = z.infer<typeof RemoteSupersedeTargetKindSchema>;
+
+export const RemoteCleanupReadinessStatusSchema = z.enum([
+  'ready_for_cleanup',
+  'not_ready',
+  'blocked_no_successor',
+  'blocked_checks_pending',
+  'blocked_non_codexhub_branch',
+  'blocked_missing_target',
+  'blocked_policy',
+]);
+export type RemoteCleanupReadinessStatus = z.infer<typeof RemoteCleanupReadinessStatusSchema>;
+
+export const RemoteSupersedeTargetSummarySchema = createdEntityBaseSchema
+  .extend({
+    targetKind: RemoteSupersedeTargetKindSchema,
+    sourceReworkRunIdHash: z.string().min(1).optional(),
+    sourceBranchPublishRunIdHash: z.string().min(1).optional(),
+    sourceDraftPrRunIdHash: z.string().min(1).optional(),
+    sourcePrLifecycleRunIdHash: z.string().min(1).optional(),
+    successorBranchPublishRunIdHash: z.string().min(1).optional(),
+    successorDraftPrRunIdHash: z.string().min(1).optional(),
+    oldBranchNameHash: z.string().min(1).optional(),
+    oldPrNumberHash: z.string().min(1).optional(),
+    oldPrUrlHash: z.string().min(1).optional(),
+    oldBranchPreserved: z.literal(true),
+    oldDraftPrClosed: z.literal(false),
+    successorRequired: z.literal(true),
+    closePrRecommended: z.boolean().default(false),
+    deleteBranchRecommended: z.boolean().default(false),
+    cleanupRecommended: z.boolean().default(false),
+    branchPrefix: z.literal('codexhub/'),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.cleanupRecommended && !record.oldBranchNameHash && !record.oldPrNumberHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'cleanup target requires an old branch or PR hash',
+        path: ['cleanupRecommended'],
+      });
+    }
+  });
+export type RemoteSupersedeTargetSummary = z.infer<
+  typeof RemoteSupersedeTargetSummarySchema
+>;
+
+export const RemoteCleanupReadinessSchema = createdEntityBaseSchema
+  .extend({
+    status: RemoteCleanupReadinessStatusSchema,
+    target: RemoteSupersedeTargetSummarySchema,
+    blockerCount: z.number().int().nonnegative(),
+    successorRunIdHash: z.string().min(1).optional(),
+    requiresApproval: z.literal(true),
+    closePrAllowed: z.boolean().default(false),
+    deleteBranchAllowed: z.boolean().default(false),
+    deleteNonCodexhubBranchAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'ready_for_cleanup' && record.blockerCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready cleanup readiness cannot contain blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type RemoteCleanupReadiness = z.infer<typeof RemoteCleanupReadinessSchema>;
+
+export const RemoteSupersedePlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    target: RemoteSupersedeTargetSummarySchema,
+    cleanupReadiness: RemoteCleanupReadinessSchema,
+    sourceRunIdHash: z.string().min(1),
+    successorRunIdHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    remoteCleanupRequiresApproval: z.literal(true),
+    cleanupExecutionAllowed: z.literal(false),
+    closePrAllowed: z.literal(false),
+    deleteBranchAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'planned' && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'planned remote supersede projection cannot contain block reasons',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type RemoteSupersedePlan = z.infer<typeof RemoteSupersedePlanSchema>;
+
+export const RemoteSupersedeRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    status: RemoteSupersedeStatusSchema,
+    plan: RemoteSupersedePlanSchema,
+    target: RemoteSupersedeTargetSummarySchema,
+    cleanupReadiness: RemoteCleanupReadinessSchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    remoteCleanupRequiresApproval: z.literal(true),
+    cleanupExecutionAllowed: z.literal(false),
+    closePrAllowed: z.literal(false),
+    deleteBranchAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RemoteSupersedeRun = z.infer<typeof RemoteSupersedeRunSchema>;
+
+export const RemoteSupersedeChainProjectionSchema = createdEntityBaseSchema
+  .extend({
+    plan: RemoteSupersedePlanSchema,
+    runs: z.array(RemoteSupersedeRunSchema).default([]),
+    runCount: z.number().int().nonnegative(),
+    cleanupReadiness: RemoteCleanupReadinessSchema,
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    chainHash: z.string().min(1),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.runs.length !== record.runCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'remote supersede run count must match runs length',
+        path: ['runCount'],
+      });
+    }
+  });
+export type RemoteSupersedeChainProjection = z.infer<
+  typeof RemoteSupersedeChainProjectionSchema
+>;
+
+export const RemoteSupersedeAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'no-successor',
+  'old-pr-open',
+  'old-branch-live',
+  'checks-pending',
+  'superseded-source-missing',
+]);
+export type RemoteSupersedeAcceptanceScenario = z.infer<
+  typeof RemoteSupersedeAcceptanceScenarioSchema
+>;
+
+export const RemoteSupersedeAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: RemoteSupersedeAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    cleanupReadinessStatus: RemoteCleanupReadinessStatusSchema,
+    targetKind: RemoteSupersedeTargetKindSchema,
+    stepCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    cleanupRecommended: z.boolean(),
+    remoteWriteInvoked: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'passed' && record.blockerCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed remote supersede rehearsal cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type RemoteSupersedeAcceptanceRehearsalRun = z.infer<
+  typeof RemoteSupersedeAcceptanceRehearsalRunSchema
+>;
+
+export const GithubRemoteCleanupRunnerModeSchema = z.enum([
+  'planning-only',
+  'controlled-github-remote-cleanup',
+]);
+export type GithubRemoteCleanupRunnerMode = z.infer<typeof GithubRemoteCleanupRunnerModeSchema>;
+
+export const GithubRemoteCleanupPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    runnerMode: GithubRemoteCleanupRunnerModeSchema,
+    targetRef: GithubRemoteRefSummarySchema,
+    target: RemoteSupersedeTargetSummarySchema,
+    cleanupReadiness: RemoteCleanupReadinessSchema,
+    oldPrNumberHash: z.string().min(1).optional(),
+    oldBranchNameHash: z.string().min(1),
+    successorRunIdHash: z.string().min(1),
+    sourceBranchPublishRunIdHash: z.string().min(1),
+    sourceDraftPrRunIdHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryPlanned: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    closePrAllowed: z.literal(true),
+    deleteRefAllowed: z.literal(true),
+    deleteNonCodexhubBranchAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    releaseAllowed: z.literal(false),
+    deploymentAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'planned' && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'planned remote cleanup cannot contain block reasons',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type GithubRemoteCleanupPlan = z.infer<typeof GithubRemoteCleanupPlanSchema>;
+
+export const GithubRemoteCleanupApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    status: z.enum(['requested', 'approved', 'denied', 'expired', 'used', 'revoked']),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedByHash: z.string().min(1).optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'approved' && (!record.approved || !record.expiresAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved remote cleanup approvals require approved=true and expiration',
+        path: ['status'],
+      });
+    }
+  });
+export type GithubRemoteCleanupApprovalArtifactRecord = z.infer<
+  typeof GithubRemoteCleanupApprovalArtifactRecordSchema
+>;
+
+export const GithubRemoteCleanupSummarySchema = createdEntityBaseSchema
+  .extend({
+    targetRef: GithubRemoteRefSummarySchema,
+    oldPrNumberHash: z.string().min(1).optional(),
+    oldBranchNameHash: z.string().min(1),
+    oldPrClosed: z.boolean(),
+    oldBranchDeleted: z.boolean(),
+    responseBodyHashes: z.array(z.string().min(1)).default([]),
+    responseBodyHashCount: z.number().int().nonnegative(),
+    closePrAllowed: z.literal(true),
+    deleteRefAllowed: z.literal(true),
+    deleteNonCodexhubBranchAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    releaseAllowed: z.literal(false),
+    deploymentAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.responseBodyHashes.length !== record.responseBodyHashCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'response body hash count must match responseBodyHashes length',
+        path: ['responseBodyHashCount'],
+      });
+    }
+  });
+export type GithubRemoteCleanupSummary = z.infer<typeof GithubRemoteCleanupSummarySchema>;
+
+export const GithubRemoteCleanupRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: GithubControlPlaneRunStatusSchema,
+    plan: GithubRemoteCleanupPlanSchema,
+    cleanupSummary: GithubRemoteCleanupSummarySchema,
+    responseBodyHashes: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean(),
+    closePrAllowed: z.literal(true),
+    deleteRefAllowed: z.literal(true),
+    deleteNonCodexhubBranchAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    releaseAllowed: z.literal(false),
+    deploymentAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubRemoteCleanupRun = z.infer<typeof GithubRemoteCleanupRunSchema>;
+
+export const GithubRemoteCleanupAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'token-missing',
+  'approval-blocked',
+  'old-pr-not-found',
+  'branch-not-codexhub',
+  'successor-missing',
+  'close-pr-failed',
+  'delete-ref-failed',
+  'network-timeout',
+]);
+export type GithubRemoteCleanupAcceptanceScenario = z.infer<
+  typeof GithubRemoteCleanupAcceptanceScenarioSchema
+>;
+
+export const GithubRemoteCleanupAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: GithubRemoteCleanupAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    cleanupReadinessStatus: RemoteCleanupReadinessStatusSchema,
+    closePrStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    deleteRefStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    stepCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    closePrAllowed: z.literal(true),
+    deleteRefAllowed: z.literal(true),
+    deleteNonCodexhubBranchAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    releaseAllowed: z.literal(false),
+    deploymentAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'passed' && record.blockerCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed remote cleanup rehearsal cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type GithubRemoteCleanupAcceptanceRehearsalRun = z.infer<
+  typeof GithubRemoteCleanupAcceptanceRehearsalRunSchema
 >;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);

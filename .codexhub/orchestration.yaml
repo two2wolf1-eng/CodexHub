@@ -2979,3 +2979,240 @@ workflows:
       noGenericGitHubOrGitPassthrough: true
       uiCliReadOnly: true
       childApprovalsCannotBeBypassed: true
+  m21a.remote-supersede-projection-foundation:
+    risk: high
+    trigger:
+      type: metadata-projection
+      entrypoint: packages/contracts packages/github-provider-adapter
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        schemas:
+          - RemoteSupersedePlan
+          - RemoteSupersedeRun
+          - RemoteSupersedeTargetSummary
+          - RemoteCleanupReadiness
+          - RemoteSupersedeChainProjection
+      - phase: aggregate
+        sources:
+          - m20.rework-loop
+          - m17.branch-publish
+          - m16.draft-pr
+          - m19.pr-lifecycle
+      - phase: projection
+        helper: createRemoteSupersedeChainProjection
+        output: ids-hashes-counts-statuses-summaries-evidence-audit
+    safety:
+      noSupervisorPostRoute: true
+      noNetworkBoundary: true
+      noRemoteWrite: true
+      rawRemoteRefStored: false
+      rawUrlStored: false
+      rawReasonStored: false
+      tokenValueDisplayed: false
+  m21b.remote-supersede-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: github-provider-adapter dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        helper: runRemoteSupersedeAcceptanceRehearsal
+        scenarios:
+          - all-pass
+          - no-successor
+          - old-pr-open
+          - old-branch-live
+          - checks-pending
+          - superseded-source-missing
+      - phase: read-only-ux
+        dashboardRoute: "#/github"
+        cliCommand: codexhub github supersedes rehearse --fixture --scenario <name>
+    safety:
+      fixtureOnly: true
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      supervisorPostAllowed: false
+      adapterExecuteAllowedFromUiCli: false
+  m21c.remote-supersede-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/github"
+        reads:
+          - GET /api/github/supersedes/dry-runs
+          - GET /api/github/supersedes/runs
+      - phase: cli
+        commands:
+          - codexhub github supersedes dry-runs list
+          - codexhub github supersedes runs list
+          - codexhub github supersedes runs show <id>
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowedFromUiCli: false
+      tokenValueDisplayed: false
+  m21_5.remote-supersede-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m21-remote-supersede-results.md
+      - docs/reviews/m21-remote-supersede-hardening-review.md
+      - docs/runbooks/m21-remote-supersede-operator-runbook.md
+    safety:
+      noNewRoute: true
+      noNewExecutionBoundary: true
+      noNetworkBoundaryInvoked: true
+      uiCliReadOnly: true
+  m22a.remote-cleanup-contracts-and-planning:
+    risk: high
+    trigger:
+      type: governed-remote-write-planning
+      entrypoint: packages/contracts packages/github-provider-adapter
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        schemas:
+          - GithubRemoteCleanupPlan
+          - GithubRemoteCleanupRun
+          - GithubRemoteCleanupApprovalArtifact
+          - GithubRemoteCleanupSummary
+      - phase: dry-run-plan
+        helper: createGithubRemoteCleanupPlan
+        output: ids-hashes-counts-statuses-summaries
+    safety:
+      enabledByDefault: false
+      persistedApprovalRequiredForExecution: true
+      oldBranchPrefixRequired: codexhub/
+      deleteNonCodexhubBranchAllowed: false
+      rawRemoteRefStored: false
+      rawUrlStored: false
+      rawResponseBodyStored: false
+  m22b.governed-remote-cleanup-control-plane:
+    risk: high
+    trigger:
+      type: supervisor-control-plane
+      entrypoint: /api/github/remote-cleanups
+      localControlRequired: true
+    routes:
+      - POST/GET /api/github/remote-cleanups/dry-runs
+      - POST /api/github/remote-cleanups/approval-requests
+      - POST /api/github/remote-cleanups/manual-approvals
+      - GET /api/github/remote-cleanups/approvals
+      - POST/GET /api/github/remote-cleanups/runs
+      - GET /api/github/remote-cleanups/runs/:id
+    chain:
+      - phase: dry-run
+        output: ids-hashes-counts-statuses-summaries
+      - phase: approval
+        authority: supervisor-store
+        requestBodyArtifactTrusted: false
+      - phase: execution
+        helper: executeGithubRemoteCleanup
+        boundaryFile: packages/github-provider-adapter/src/github-http-boundary.ts
+        requiredEnv:
+          - CODEXHUB_GITHUB_PROVIDER_ENABLED
+          - CODEXHUB_GITHUB_REMOTE_CLEANUP_ENABLED
+          - CODEXHUB_GITHUB_TOKEN
+        allowedRequests:
+          - GET repo metadata
+          - GET old PR metadata
+          - GET old codexhub branch ref metadata
+          - PATCH old draft PR state closed
+          - DELETE old codexhub branch ref
+    safety:
+      newNetworkBoundaryFile: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      tokenStored: false
+      deleteNonCodexhubBranchAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+      commentsAllowed: false
+      labelsAllowed: false
+      reviewersAllowed: false
+      releasesAllowed: false
+      deploymentsAllowed: false
+  m22c.remote-cleanup-read-only-ux:
+    risk: medium
+    trigger:
+      type: human-read-only
+      entrypoint: dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/github"
+        reads:
+          - GET /api/github/remote-cleanups/dry-runs
+          - GET /api/github/remote-cleanups/approvals
+          - GET /api/github/remote-cleanups/runs
+      - phase: cli
+        commands:
+          - codexhub github remote-cleanups dry-runs list
+          - codexhub github remote-cleanups approvals list
+          - codexhub github remote-cleanups runs list
+          - codexhub github remote-cleanups runs show <id>
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowedFromUiCli: false
+      tokenValueDisplayed: false
+  m22d.remote-cleanup-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: github-provider-adapter dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        helper: runGithubRemoteCleanupAcceptanceRehearsal
+        scenarios:
+          - all-pass
+          - token-missing
+          - approval-blocked
+          - old-pr-not-found
+          - branch-not-codexhub
+          - successor-missing
+          - close-pr-failed
+          - delete-ref-failed
+          - network-timeout
+    safety:
+      fixtureOnly: true
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      supervisorPostAllowed: false
+      adapterExecuteAllowedFromUiCli: false
+  m22_5.remote-cleanup-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m22-remote-cleanup-results.md
+      - docs/reviews/m22-remote-cleanup-hardening-review.md
+      - docs/runbooks/m22-remote-cleanup-operator-runbook.md
+    safety:
+      noNewNetworkBoundaryFile: true
+      tokenLeakageRegression: true
+      rawRemoteRefLeakageRegression: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliReadOnly: true
+      deleteNonCodexhubBranchAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false

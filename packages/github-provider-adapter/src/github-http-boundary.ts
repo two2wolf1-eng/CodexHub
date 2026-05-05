@@ -87,6 +87,24 @@ export interface GithubPrLifecycleHttpBoundaryResult {
   summary: string;
 }
 
+export interface GithubRemoteCleanupHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  baseBranch?: string;
+  oldBranchName: string;
+  oldPrNumber?: string;
+}
+
+export interface GithubRemoteCleanupHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  oldPrNumberHash?: string;
+  oldBranchNameHash: string;
+  oldPrClosed: boolean;
+  oldBranchDeleted: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
 interface GithubBoundaryResponse {
   ok: boolean;
   status: number;
@@ -296,6 +314,136 @@ export async function runGithubPrLifecycleHttpBoundary(
     return {
       ...createFailedPrLifecycleBoundaryResult(true, ['network_error']),
       responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubRemoteCleanupHttpBoundary(
+  request: GithubRemoteCleanupHttpBoundaryRequest,
+): Promise<GithubRemoteCleanupHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedRemoteCleanupBoundaryResult(false, request.oldBranchName, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const oldBranchNameHash = `sha256:${hashText(request.oldBranchName)}`;
+  const oldPrNumberHash = request.oldPrNumber
+    ? `sha256:${hashText(request.oldPrNumber)}`
+    : undefined;
+
+  try {
+    const repo = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}`,
+    );
+    responseBodyHashes.push(repo.bodyHash);
+    if (!repo.ok) {
+      blockReasons.push(`repo_metadata_http_${repo.status}`);
+    }
+
+    let oldPrClosed = false;
+    if (request.oldPrNumber) {
+      const oldPr = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/pulls/${encodePathSegment(request.oldPrNumber)}`,
+      );
+      responseBodyHashes.push(oldPr.bodyHash);
+      if (!oldPr.ok) {
+        blockReasons.push(`old_pr_metadata_http_${oldPr.status}`);
+      }
+    }
+
+    const oldBranchRef = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/git/ref/heads/${encodePathSegment(request.oldBranchName)}`,
+    );
+    responseBodyHashes.push(oldBranchRef.bodyHash);
+    if (!oldBranchRef.ok) {
+      blockReasons.push(`old_branch_ref_http_${oldBranchRef.status}`);
+    }
+
+    if (!request.oldBranchName.startsWith('codexhub/')) {
+      blockReasons.push('branch_not_codexhub');
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        oldPrNumberHash,
+        oldBranchNameHash,
+        oldPrClosed: false,
+        oldBranchDeleted: false,
+        blockReasons,
+        summary: `GitHub remote cleanup preflight failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    if (request.oldPrNumber) {
+      const closePr = await fetchFixedGithubPatchJson(
+        fetchImpl,
+        request,
+        `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/pulls/${encodePathSegment(request.oldPrNumber)}`,
+        { state: 'closed' },
+      );
+      responseBodyHashes.push(closePr.bodyHash);
+      if (!closePr.ok) {
+        blockReasons.push(`close_pr_http_${closePr.status}`);
+      }
+      oldPrClosed = closePr.ok;
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        oldPrNumberHash,
+        oldBranchNameHash,
+        oldPrClosed,
+        oldBranchDeleted: false,
+        blockReasons,
+        summary: `GitHub remote cleanup close PR step failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const deleteRef = await fetchFixedGithubDelete(
+      fetchImpl,
+      request,
+      `/repos/${encodePathSegment(request.owner)}/${encodePathSegment(request.repo)}/git/refs/heads/${encodePathSegment(request.oldBranchName)}`,
+    );
+    responseBodyHashes.push(deleteRef.bodyHash);
+    if (!deleteRef.ok) {
+      blockReasons.push(`delete_ref_http_${deleteRef.status}`);
+    }
+
+    return {
+      status: deleteRef.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      oldPrNumberHash,
+      oldBranchNameHash,
+      oldPrClosed,
+      oldBranchDeleted: deleteRef.ok,
+      blockReasons,
+      summary: deleteRef.ok
+        ? 'GitHub remote cleanup HTTP boundary completed with hash-only close/delete summaries.'
+        : `GitHub remote cleanup HTTP boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedRemoteCleanupBoundaryResult(true, request.oldBranchName, [
+        'github_remote_cleanup_network_failure',
+      ]),
+      responseBodyHashes,
+      oldPrNumberHash,
     };
   }
 }
@@ -674,6 +822,65 @@ async function fetchFixedGithubPostJson(
   };
 }
 
+async function fetchFixedGithubPatchJson(
+  fetchImpl: typeof fetch,
+  request: GithubHttpBoundaryRequest,
+  pathAndQuery: string,
+  body: Record<string, unknown>,
+): Promise<{
+  ok: boolean;
+  status: number;
+  bodyHash: string;
+  bodyText: string;
+}> {
+  const response = (await fetchImpl(`https://${GITHUB_API_HOST}${pathAndQuery}`, {
+    method: 'PATCH',
+    headers: {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${request.token}`,
+      'content-type': 'application/json',
+      'x-github-api-version': '2022-11-28',
+    },
+    body: JSON.stringify(body),
+  })) as GithubBoundaryResponse;
+  const bodyText = await response.text();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    bodyHash: `sha256:${hashText(bodyText)}`,
+    bodyText,
+  };
+}
+
+async function fetchFixedGithubDelete(
+  fetchImpl: typeof fetch,
+  request: GithubHttpBoundaryRequest,
+  pathAndQuery: string,
+): Promise<{
+  ok: boolean;
+  status: number;
+  bodyHash: string;
+  bodyText: string;
+}> {
+  const response = (await fetchImpl(`https://${GITHUB_API_HOST}${pathAndQuery}`, {
+    method: 'DELETE',
+    headers: {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${request.token}`,
+      'x-github-api-version': '2022-11-28',
+    },
+  })) as GithubBoundaryResponse;
+  const bodyText = await response.text();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    bodyHash: `sha256:${hashText(bodyText)}`,
+    bodyText,
+  };
+}
+
 async function fetchFixedGithubPostDraftPullRequest(
   fetchImpl: typeof fetch,
   request: GithubDraftPrHttpBoundaryRequest,
@@ -770,6 +977,23 @@ function createFailedPrLifecycleBoundaryResult(
     passedCheckCount: 0,
     blockReasons,
     summary: `GitHub PR lifecycle HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
+function createFailedRemoteCleanupBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  oldBranchName: string,
+  blockReasons: string[],
+): GithubRemoteCleanupHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    oldBranchNameHash: `sha256:${hashText(oldBranchName)}`,
+    oldPrClosed: false,
+    oldBranchDeleted: false,
+    blockReasons,
+    summary: `GitHub remote cleanup HTTP boundary failed: ${blockReasons.join(', ')}.`,
   };
 }
 
