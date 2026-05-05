@@ -39,6 +39,7 @@ import {
   type DashboardView,
   createApprovalDecisionHistoryReadOnlySummary,
   createBrowserProfilesReadOnlySummary,
+  createCustomWorkflowReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
@@ -127,6 +128,9 @@ interface OverviewState {
   reworkLoopDryRuns: ReworkLoopControlSummary[];
   reworkLoopApprovals: ReworkLoopControlSummary[];
   reworkLoopRuns: ReworkLoopControlSummary[];
+  customWorkflowDryRuns: CustomWorkflowControlSummary[];
+  customWorkflowApprovals: CustomWorkflowControlSummary[];
+  customWorkflowRuns: CustomWorkflowControlSummary[];
   worktreeDryRuns: WorktreeControlSummary[];
   worktreeApprovals: WorktreeControlSummary[];
   worktreeRuns: WorktreeControlSummary[];
@@ -538,6 +542,34 @@ interface ReworkLoopControlSummary {
   summary?: string;
 }
 
+interface CustomWorkflowControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  templateId?: string;
+  templateHash?: string;
+  status?: string;
+  stepCount?: number;
+  completedStepCount?: number;
+  blockedStepCount?: number;
+  failedStepCount?: number;
+  approvalRequired?: boolean;
+  childApprovalsRequired?: boolean;
+  directAdapterExecutionAllowed?: boolean;
+  directChildExecutionAllowed?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryInvoked?: boolean;
+  noRealWrite?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  blockReasons?: string[];
+  summary?: string;
+}
+
 interface ReviewPackageControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -717,6 +749,9 @@ export function App() {
     reworkLoopDryRuns: [],
     reworkLoopApprovals: [],
     reworkLoopRuns: [],
+    customWorkflowDryRuns: [],
+    customWorkflowApprovals: [],
+    customWorkflowRuns: [],
     worktreeDryRuns: [],
     worktreeApprovals: [],
     worktreeRuns: [],
@@ -935,6 +970,20 @@ export function App() {
       overview.releaseCandidateRuns.length === 0 ||
       overview.releaseCandidateRuns.every((record) => record.noRealWrite === true),
   });
+  const customWorkflowSummary = createCustomWorkflowReadOnlySummary({
+    templateCount: 0,
+    validationCount: overview.customWorkflowDryRuns.length,
+    dryRunCount: overview.customWorkflowDryRuns.length,
+    approvalCount: overview.customWorkflowApprovals.length,
+    runCount: overview.customWorkflowRuns.length,
+    latestRunStatus: overview.customWorkflowRuns[0]?.status,
+    processBoundaryInvoked: overview.customWorkflowRuns.some(
+      (record) => record.processBoundaryInvoked === true,
+    ),
+    networkBoundaryInvoked: overview.customWorkflowRuns.some(
+      (record) => record.networkBoundaryInvoked === true,
+    ),
+  });
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
   const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
@@ -1086,6 +1135,17 @@ export function App() {
     ...overview.reworkLoopRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'rework_loop_run',
       source: 'rework_loop_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+      noRealWrite: run.noRealWrite ?? true,
+    })),
+    ...overview.customWorkflowRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'custom_workflow_run',
+      source: 'custom_workflow_run',
       status: run.status,
       evidenceRefIds: run.evidenceRefIds,
       auditEventIds: run.auditEventIds,
@@ -1455,6 +1515,9 @@ export function App() {
           reworkLoopDryRunsResponse,
           reworkLoopApprovalsResponse,
           reworkLoopRunsResponse,
+          customWorkflowDryRunsResponse,
+          customWorkflowApprovalsResponse,
+          customWorkflowRunsResponse,
           worktreeDryRunsResponse,
           worktreeApprovalsResponse,
           worktreeRunsResponse,
@@ -1581,6 +1644,18 @@ export function App() {
           getOptionalJson<{ records: ReworkLoopControlSummary[] }>('/api/rework-loops/runs', {
             records: [],
           }),
+          getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+            '/api/workflows/custom/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+            '/api/workflows/custom/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+            '/api/workflows/custom/runs',
+            { records: [] },
+          ),
           getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
             records: [],
           }),
@@ -1715,6 +1790,9 @@ export function App() {
             reworkLoopDryRuns: reworkLoopDryRunsResponse.records,
             reworkLoopApprovals: reworkLoopApprovalsResponse.records,
             reworkLoopRuns: reworkLoopRunsResponse.records,
+            customWorkflowDryRuns: customWorkflowDryRunsResponse.records,
+            customWorkflowApprovals: customWorkflowApprovalsResponse.records,
+            customWorkflowRuns: customWorkflowRunsResponse.records,
             worktreeDryRuns: worktreeDryRunsResponse.records,
             worktreeApprovals: worktreeApprovalsResponse.records,
             worktreeRuns: worktreeRunsResponse.records,
@@ -1789,6 +1867,9 @@ export function App() {
             reworkLoopDryRuns: [],
             reworkLoopApprovals: [],
             reworkLoopRuns: [],
+            customWorkflowDryRuns: [],
+            customWorkflowApprovals: [],
+            customWorkflowRuns: [],
             worktreeDryRuns: [],
             worktreeApprovals: [],
             worktreeRuns: [],
@@ -3386,6 +3467,7 @@ export function App() {
           worktreeSummary,
           reviewPackageSummary,
           releaseCandidateSummary,
+          customWorkflowSummary,
           policyTelemetrySummary,
           pilotSummary,
           pilotAcceptanceSummary,
@@ -3421,6 +3503,7 @@ function renderReadOnlyDashboardView(
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
   releaseCandidateSummary: ReturnType<typeof createLocalRcOperatorReadOnlySummary>,
+  customWorkflowSummary: ReturnType<typeof createCustomWorkflowReadOnlySummary>,
   policyTelemetrySummary: ReturnType<typeof createPolicyTelemetryReadOnlySummary>,
   pilotSummary: ReturnType<typeof createM10PilotReadOnlySummary>,
   pilotAcceptanceSummary: ReturnType<typeof createM10PilotAcceptanceReadOnlySummary>,
@@ -4912,6 +4995,111 @@ function renderReadOnlyDashboardView(
             <p>
               No worktree cleanup run metadata is available. Cleanup remains Supervisor-gated and
               cannot be triggered from the Dashboard.
+            </p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'workflows') {
+    return (
+      <section className="grid">
+        <Panel title="Custom Workflow Templates">
+          <ul>
+            <li>
+              <strong>manifest</strong>
+              <span>
+                {customWorkflowSummary.manifestName} {customWorkflowSummary.manifestVersion}
+              </span>
+            </li>
+            <li>
+              <strong>templates / validations</strong>
+              <span>
+                {customWorkflowSummary.templateCount} /{' '}
+                {customWorkflowSummary.validationCount}
+              </span>
+            </li>
+            <li>
+              <strong>approval model</strong>
+              <span>
+                workflow {String(customWorkflowSummary.approvalRequired)}, child{' '}
+                {String(customWorkflowSummary.childApprovalsRequired)}
+              </span>
+            </li>
+            <li>
+              <strong>execution boundary</strong>
+              <span>
+                direct adapter {String(customWorkflowSummary.directAdapterExecutionAllowed)},
+                direct child {String(customWorkflowSummary.directChildExecutionAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>storage</strong>
+              <span>
+                bodyStored {String(customWorkflowSummary.bodyStored)}, rawPathStored{' '}
+                {String(customWorkflowSummary.rawPathStored)}
+              </span>
+            </li>
+          </ul>
+          <p>{customWorkflowSummary.summary}</p>
+        </Panel>
+        <Panel title="Custom Workflow Control Records">
+          <ul>
+            <li>
+              <strong>dry-runs</strong>
+              <span>{customWorkflowSummary.dryRunCount}</span>
+            </li>
+            <li>
+              <strong>approvals</strong>
+              <span>{customWorkflowSummary.approvalCount}</span>
+            </li>
+            <li>
+              <strong>runs</strong>
+              <span>{customWorkflowSummary.runCount}</span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>{customWorkflowSummary.latestRunStatus}</span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                process {String(customWorkflowSummary.processBoundaryInvoked)}, network{' '}
+                {String(customWorkflowSummary.networkBoundaryInvoked)}, external{' '}
+                {String(customWorkflowSummary.externalProcessStarted)}
+              </span>
+            </li>
+          </ul>
+        </Panel>
+        <Panel title="Latest Custom Workflow Runs">
+          {overview.customWorkflowRuns.length > 0 ? (
+            <ul>
+              {overview.customWorkflowRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? run.dryRunId}</strong>
+                  <span>
+                    {run.status ?? 'unknown'}, template {run.templateId ?? 'unknown'}
+                  </span>
+                  <span>
+                    steps {run.completedStepCount ?? 0} completed, {run.blockedStepCount ?? 0}{' '}
+                    blocked, {run.failedStepCount ?? 0} failed
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    adapterExecute {String(run.directAdapterExecutionAllowed ?? false)}, childExec{' '}
+                    {String(run.directChildExecutionAllowed ?? false)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No custom workflow run metadata is available. This view stays read-only and cannot
+              execute a workflow.
             </p>
           )}
         </Panel>

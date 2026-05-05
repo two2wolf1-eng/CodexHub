@@ -49,6 +49,7 @@ export const DASHBOARD_VIEWS = [
   'pilot',
   'approvals',
   'release-candidates',
+  'workflows',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -256,6 +257,29 @@ export interface GithubBranchPublishAcceptanceRehearsalReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
+  summary: string;
+}
+
+export interface CustomWorkflowReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  templateCount: number;
+  validationCount: number;
+  dryRunCount: number;
+  approvalCount: number;
+  runCount: number;
+  latestRunStatus: string;
+  approvalRequired: true;
+  childApprovalsRequired: true;
+  productDefaultEnabled: false;
+  directAdapterExecutionAllowed: false;
+  directChildExecutionAllowed: false;
+  processBoundaryInvoked: boolean;
+  externalProcessStarted: false;
+  networkBoundaryInvoked: boolean;
+  noRealWrite: true;
+  rawPathStored: false;
+  bodyStored: false;
   summary: string;
 }
 
@@ -1564,6 +1588,41 @@ export function createLocalReviewPackageReadOnlySummary(input: {
     tokenStored: false,
     summary:
       'Local review package metadata is read-only in the Dashboard. Export remains Supervisor-gated and approval-bound.',
+  };
+}
+
+export function createCustomWorkflowReadOnlySummary(input: {
+  templateCount?: number;
+  validationCount?: number;
+  dryRunCount?: number;
+  approvalCount?: number;
+  runCount?: number;
+  latestRunStatus?: string;
+  processBoundaryInvoked?: boolean;
+  networkBoundaryInvoked?: boolean;
+} = {}): CustomWorkflowReadOnlySummary {
+  return {
+    manifestName: 'custom-workflow',
+    manifestVersion: '0.1.0-m24',
+    templateCount: input.templateCount ?? 0,
+    validationCount: input.validationCount ?? 0,
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    runCount: input.runCount ?? 0,
+    latestRunStatus: input.latestRunStatus ?? 'none',
+    approvalRequired: true,
+    childApprovalsRequired: true,
+    productDefaultEnabled: false,
+    directAdapterExecutionAllowed: false,
+    directChildExecutionAllowed: false,
+    processBoundaryInvoked: input.processBoundaryInvoked ?? false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: input.networkBoundaryInvoked ?? false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      'Custom workflows are configurable as JSON templates, but Dashboard views remain read-only and child capabilities keep their own approvals.',
   };
 }
 

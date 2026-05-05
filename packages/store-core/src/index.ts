@@ -24,6 +24,9 @@ import type {
   GithubRemoteCleanupApprovalArtifactRecord,
   GithubRemoteCleanupPlan,
   GithubRemoteCleanupRun,
+  CustomWorkflowApprovalArtifactRecord,
+  CustomWorkflowPlan,
+  CustomWorkflowRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -112,6 +115,7 @@ export type GithubPublishDraftPrChainControlPlaneQuery = WorktreeControlPlaneQue
 export type GithubPrLifecycleControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
+export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -507,6 +511,31 @@ export interface ReworkLoopRunRepository {
   listRuns(query?: ReworkLoopControlPlaneQuery): Promise<ReworkLoopRun[]>;
 }
 
+export interface CustomWorkflowDryRunRepository {
+  saveDryRun(record: CustomWorkflowPlan): Promise<CustomWorkflowPlan>;
+  getDryRun(id: string): Promise<CustomWorkflowPlan | undefined>;
+  listDryRuns(query?: CustomWorkflowControlPlaneQuery): Promise<CustomWorkflowPlan[]>;
+}
+
+export interface CustomWorkflowApprovalRepository {
+  saveApproval(
+    record: CustomWorkflowApprovalArtifactRecord,
+  ): Promise<CustomWorkflowApprovalArtifactRecord>;
+  getApproval(id: string): Promise<CustomWorkflowApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<CustomWorkflowApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: CustomWorkflowControlPlaneQuery,
+  ): Promise<CustomWorkflowApprovalArtifactRecord[]>;
+}
+
+export interface CustomWorkflowRunRepository {
+  saveRun(record: CustomWorkflowRun): Promise<CustomWorkflowRun>;
+  getRun(id: string): Promise<CustomWorkflowRun | undefined>;
+  listRuns(query?: CustomWorkflowControlPlaneQuery): Promise<CustomWorkflowRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -719,6 +748,9 @@ export interface CodexHubStore {
   reworkLoopDryRuns: ReworkLoopDryRunRepository;
   reworkLoopApprovals: ReworkLoopApprovalRepository;
   reworkLoopRuns: ReworkLoopRunRepository;
+  customWorkflowDryRuns: CustomWorkflowDryRunRepository;
+  customWorkflowApprovals: CustomWorkflowApprovalRepository;
+  customWorkflowRuns: CustomWorkflowRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

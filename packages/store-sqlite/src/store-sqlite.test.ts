@@ -22,6 +22,9 @@ import {
   type CodexExecReadOnlyAdapterSimulatorReviewDecisionRecord,
   type CodexExecReportReviewRecord,
   type CodexReplayRecord,
+  type CustomWorkflowApprovalArtifactRecord,
+  type CustomWorkflowPlan,
+  type CustomWorkflowRun,
   type ElectronCdpObservationApprovalArtifactRecord,
   type ElectronCdpObservationControlPlaneRun,
   type ElectronCdpObservationDryRunRecord,
@@ -213,6 +216,12 @@ describe('store-sqlite migration initialization', () => {
     await first.worktreeCleanupApprovals.saveApproval(worktreeCleanupApproval);
     const worktreeCleanupRun = createWorktreeCleanupRunFixture();
     await first.worktreeCleanupRuns.saveRun(worktreeCleanupRun);
+    const customWorkflowDryRun = createCustomWorkflowPlanFixture();
+    await first.customWorkflowDryRuns.saveDryRun(customWorkflowDryRun);
+    const customWorkflowApproval = createCustomWorkflowApprovalFixture();
+    await first.customWorkflowApprovals.saveApproval(customWorkflowApproval);
+    const customWorkflowRun = createCustomWorkflowRunFixture();
+    await first.customWorkflowRuns.saveRun(customWorkflowRun);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -392,6 +401,31 @@ describe('store-sqlite migration initialization', () => {
     });
     const worktreeCleanupRunRecord =
       await second.worktreeCleanupRuns.getRun('worktree_cleanup_control_run_1');
+    const customWorkflowDryRuns = await second.customWorkflowDryRuns.listDryRuns({
+      dryRunId: 'custom_workflow_dry_run_1',
+      status: 'planned',
+      limit: 10,
+    });
+    const customWorkflowDryRunRecord =
+      await second.customWorkflowDryRuns.getDryRun('custom_workflow_plan_record_1');
+    const customWorkflowApprovals = await second.customWorkflowApprovals.listApprovals({
+      dryRunId: 'custom_workflow_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const customWorkflowApprovalRecord =
+      await second.customWorkflowApprovals.getApproval('custom_workflow_approval_record_1');
+    const customWorkflowApprovalByArtifact =
+      await second.customWorkflowApprovals.getApprovalByArtifactId(
+        'custom_workflow_approval_artifact_1',
+      );
+    const customWorkflowRuns = await second.customWorkflowRuns.listRuns({
+      dryRunId: 'custom_workflow_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const customWorkflowRunRecord =
+      await second.customWorkflowRuns.getRun('custom_workflow_run_1');
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -635,6 +669,30 @@ describe('store-sqlite migration initialization', () => {
         worktreeCleanupRunRecord,
       }),
     ).not.toContain('git worktree remove');
+    expect(customWorkflowDryRuns).toHaveLength(1);
+    expect(customWorkflowDryRunRecord?.templateHash).toBe('sha256:custom-template');
+    expect(customWorkflowApprovals).toHaveLength(1);
+    expect(customWorkflowApprovalRecord?.approvalArtifactId).toBe(
+      'custom_workflow_approval_artifact_1',
+    );
+    expect(customWorkflowApprovalByArtifact?.id).toBe('custom_workflow_approval_record_1');
+    expect(customWorkflowRuns).toHaveLength(1);
+    expect(customWorkflowRunRecord?.directAdapterExecutionAllowed).toBe(false);
+    expect(customWorkflowRunRecord?.completedStepCount).toBe(1);
+    expect(
+      JSON.stringify({
+        customWorkflowDryRunRecord,
+        customWorkflowApprovalRecord,
+        customWorkflowRunRecord,
+      }),
+    ).not.toContain('raw prompt');
+    expect(
+      JSON.stringify({
+        customWorkflowDryRunRecord,
+        customWorkflowApprovalRecord,
+        customWorkflowRunRecord,
+      }),
+    ).not.toContain('adapter.execute');
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
     expect(JSON.stringify(reportReviewRecord)).not.toContain('full report markdown');
@@ -1006,6 +1064,134 @@ describe('store-sqlite migration initialization', () => {
     expect(serialized).not.toContain('ghp_');
   });
 });
+
+function createCustomWorkflowPlanFixture(): CustomWorkflowPlan {
+  const createdAt = '2026-04-28T00:00:20.000Z';
+  const validationReport = {
+    id: 'custom_workflow_validation_report_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    templateId: 'fixture.custom-workflow.local-pilot',
+    templateHash: 'sha256:custom-template',
+    status: 'valid' as const,
+    issueCount: 0,
+    issues: [],
+    stepCount: 1,
+    unknownStepKindCount: 0,
+    policyWeakeningDetected: false as const,
+    loopOrBranchingDetected: false as const,
+    arbitraryConfigPathAllowed: false as const,
+    bodyStored: false as const,
+    rawPathStored: false as const,
+    summary: 'Custom workflow template validation passed.',
+  };
+  const stepPlan = {
+    stepId: 'readiness',
+    kind: 'readiness' as const,
+    actionMode: 'read' as const,
+    riskLevel: 'low' as const,
+    requiresApproval: false,
+    childApprovalRequired: false,
+    policyRequired: true as const,
+    evidenceRequired: true as const,
+    auditRequired: true as const,
+    directAdapterExecutionAllowed: false as const,
+    summary: 'Readiness step is metadata-only.',
+  };
+
+  return {
+    id: 'custom_workflow_plan_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'custom_workflow_dry_run_1',
+    templateId: 'fixture.custom-workflow.local-pilot',
+    templateHash: 'sha256:custom-template',
+    status: 'planned',
+    validationReport,
+    stepPlans: [stepPlan],
+    stepCount: 1,
+    approvalRequired: true,
+    childApprovalsRequired: 0,
+    blockReasons: [],
+    evidenceRefIds: ['evidence_custom_workflow_plan_1'],
+    auditEventIds: ['audit_custom_workflow_plan_1'],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Custom workflow dry-run plan stores metadata only.',
+  };
+}
+
+function createCustomWorkflowApprovalFixture(): CustomWorkflowApprovalArtifactRecord {
+  return {
+    id: 'custom_workflow_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-04-28T00:00:21.000Z',
+    dryRunId: 'custom_workflow_dry_run_1',
+    templateId: 'fixture.custom-workflow.local-pilot',
+    templateHash: 'sha256:custom-template',
+    approvalArtifactId: 'custom_workflow_approval_artifact_1',
+    status: 'approved',
+    approvedBy: 'local-operator',
+    reasonHash: 'sha256:reason',
+    reasonSummary: 'Reason stored as hash only.',
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Custom workflow approval stores reason hash only.',
+  };
+}
+
+function createCustomWorkflowRunFixture(): CustomWorkflowRun {
+  return {
+    id: 'custom_workflow_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-04-28T00:00:22.000Z',
+    dryRunId: 'custom_workflow_dry_run_1',
+    approvalArtifactId: 'custom_workflow_approval_artifact_1',
+    templateId: 'fixture.custom-workflow.local-pilot',
+    templateHash: 'sha256:custom-template',
+    status: 'completed',
+    steps: [
+      {
+        stepId: 'readiness',
+        kind: 'readiness',
+        status: 'completed',
+        childHashBindingMatched: false,
+        childApprovalRequired: false,
+        childExecutionInvoked: false,
+        directAdapterExecutionAllowed: false,
+        blockReasons: [],
+        evidenceRefIds: ['evidence_custom_workflow_run_1'],
+        auditEventIds: ['audit_custom_workflow_run_1'],
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        bodyStored: false,
+        rawPathStored: false,
+        summary: 'Readiness step completed from metadata.',
+      },
+    ],
+    stepCount: 1,
+    completedStepCount: 1,
+    blockedStepCount: 0,
+    childApprovalsRequired: 0,
+    blockReasons: [],
+    evidenceRefIds: ['evidence_custom_workflow_run_1'],
+    auditEventIds: ['audit_custom_workflow_run_1'],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Custom workflow coordinator completed metadata-only run.',
+  };
+}
 
 function createGithubPublishDraftPrChainDryRunFixture(): GithubPublishDraftPrChainPlan {
   return {

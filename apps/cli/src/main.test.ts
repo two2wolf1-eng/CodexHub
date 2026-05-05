@@ -550,7 +550,10 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(36);
+    expect(fetchCalls).toHaveLength(38);
+    expect(fetchCalls.some((call) => call.url.includes('/api/workflows/custom/runs'))).toBe(
+      true,
+    );
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 

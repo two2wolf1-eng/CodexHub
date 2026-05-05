@@ -31,6 +31,9 @@ import type {
   GithubRemoteCleanupApprovalArtifactRecord,
   GithubRemoteCleanupPlan,
   GithubRemoteCleanupRun,
+  CustomWorkflowApprovalArtifactRecord,
+  CustomWorkflowPlan,
+  CustomWorkflowRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -128,6 +131,10 @@ import type {
   GithubRemoteCleanupControlPlaneQuery,
   GithubRemoteCleanupDryRunRepository,
   GithubRemoteCleanupRunRepository,
+  CustomWorkflowApprovalRepository,
+  CustomWorkflowControlPlaneQuery,
+  CustomWorkflowDryRunRepository,
+  CustomWorkflowRunRepository,
   ReworkLoopApprovalRepository,
   ReworkLoopControlPlaneQuery,
   ReworkLoopDryRunRepository,
@@ -243,6 +250,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly reworkLoopDryRuns: ReworkLoopDryRunRepository;
   readonly reworkLoopApprovals: ReworkLoopApprovalRepository;
   readonly reworkLoopRuns: ReworkLoopRunRepository;
+  readonly customWorkflowDryRuns: CustomWorkflowDryRunRepository;
+  readonly customWorkflowApprovals: CustomWorkflowApprovalRepository;
+  readonly customWorkflowRuns: CustomWorkflowRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -316,6 +326,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.reworkLoopDryRuns = new SqliteReworkLoopDryRunRepository(database);
     this.reworkLoopApprovals = new SqliteReworkLoopApprovalRepository(database);
     this.reworkLoopRuns = new SqliteReworkLoopRunRepository(database);
+    this.customWorkflowDryRuns = new SqliteCustomWorkflowDryRunRepository(database);
+    this.customWorkflowApprovals = new SqliteCustomWorkflowApprovalRepository(database);
+    this.customWorkflowRuns = new SqliteCustomWorkflowRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -1937,6 +1950,114 @@ class SqliteReworkLoopRunRepository implements ReworkLoopRunRepository {
   }
 }
 
+class SqliteCustomWorkflowDryRunRepository implements CustomWorkflowDryRunRepository {
+  private readonly repository: JsonEntityRepository<CustomWorkflowPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CustomWorkflowPlan>(
+      database,
+      'custom_workflow_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: CustomWorkflowPlan): Promise<CustomWorkflowPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<CustomWorkflowPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: CustomWorkflowControlPlaneQuery = {},
+  ): Promise<CustomWorkflowPlan[]> {
+    return listObservationControlPlaneRecords<CustomWorkflowPlan>(
+      this.database,
+      'custom_workflow_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteCustomWorkflowApprovalRepository
+  implements CustomWorkflowApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<CustomWorkflowApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CustomWorkflowApprovalArtifactRecord>(
+      database,
+      'custom_workflow_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: CustomWorkflowApprovalArtifactRecord,
+  ): Promise<CustomWorkflowApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<CustomWorkflowApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<CustomWorkflowApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM custom_workflow_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as CustomWorkflowApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: CustomWorkflowControlPlaneQuery = {},
+  ): Promise<CustomWorkflowApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<CustomWorkflowApprovalArtifactRecord>(
+      this.database,
+      'custom_workflow_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteCustomWorkflowRunRepository implements CustomWorkflowRunRepository {
+  private readonly repository: JsonEntityRepository<CustomWorkflowRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CustomWorkflowRun>(
+      database,
+      'custom_workflow_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: CustomWorkflowRun): Promise<CustomWorkflowRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<CustomWorkflowRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: CustomWorkflowControlPlaneQuery = {},
+  ): Promise<CustomWorkflowRun[]> {
+    return listObservationControlPlaneRecords<CustomWorkflowRun>(
+      this.database,
+      'custom_workflow_runs',
+      query,
+    );
+  }
+}
+
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
 
@@ -3052,6 +3173,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS rework_loop_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_workflow_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_workflow_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_workflow_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

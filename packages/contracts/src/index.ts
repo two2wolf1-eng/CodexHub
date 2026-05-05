@@ -197,6 +197,12 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'github.remote_cleanup_summary',
     'github.remote_cleanup_run',
     'github.remote_cleanup_rehearsal',
+    'workflow.template_summary',
+    'workflow.validation_summary',
+    'workflow.plan_summary',
+    'workflow.rehearsal_summary',
+    'workflow.custom_dry_run',
+    'workflow.custom_run_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -342,6 +348,430 @@ export const CapabilityAuditEventSchema = AuditEventSchema.extend({
   evidenceRefs: z.array(EvidenceRefSchema).min(1),
 });
 export type CapabilityAuditEvent = z.infer<typeof CapabilityAuditEventSchema>;
+
+const customWorkflowForbiddenMetadataKeys = new Set([
+  'prompt',
+  'rawPrompt',
+  'stdin',
+  'stdout',
+  'stderr',
+  'diff',
+  'rawDiff',
+  'diffBody',
+  'pullRequestBody',
+  'pullRequestMarkdown',
+  'prBody',
+  'prMarkdown',
+  'rawPrBody',
+  'rawPullRequestBody',
+  'path',
+  'rawPath',
+  'configPath',
+  'url',
+  'rawUrl',
+  'token',
+  'cookie',
+  'session',
+  'env',
+  'envValue',
+  'responseBody',
+  'requestBody',
+  'body',
+  'rawBody',
+  'localControlKey',
+  'approvalArtifact',
+  'executionAuthority',
+  'command',
+  'rawCommand',
+]);
+
+function rejectCustomWorkflowRawMetadata(value: unknown, ctx: z.RefinementCtx) {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  const queue: unknown[] = [value];
+  const seen = new Set<unknown>();
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    for (const [key, nested] of Object.entries(current)) {
+      if (customWorkflowForbiddenMetadataKeys.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Custom workflow public metadata must not expose raw ${key}`,
+          path: [key],
+        });
+      }
+      queue.push(nested);
+    }
+  }
+}
+
+export const CustomWorkflowStepKindSchema = z.enum([
+  'readiness',
+  'worktree',
+  'codex-patch',
+  'nx-verification',
+  'review-package',
+  'rc-bundle',
+  'github-branch-publish',
+  'github-draft-pr',
+  'github-pr-lifecycle',
+  'remote-supersede',
+  'remote-cleanup',
+  'governance-projection',
+  'telemetry-projection',
+  'browser-observe',
+  'electron-observe',
+  'mcp-readonly',
+]);
+export type CustomWorkflowStepKind = z.infer<
+  typeof CustomWorkflowStepKindSchema
+>;
+
+export const CustomWorkflowValidationStatusSchema = z.enum([
+  'valid',
+  'invalid',
+  'blocked',
+]);
+export type CustomWorkflowValidationStatus = z.infer<
+  typeof CustomWorkflowValidationStatusSchema
+>;
+
+export const CustomWorkflowPlanStatusSchema = z.enum([
+  'planned',
+  'blocked',
+]);
+export type CustomWorkflowPlanStatus = z.infer<
+  typeof CustomWorkflowPlanStatusSchema
+>;
+
+export const CustomWorkflowRunStatusSchema = z.enum([
+  'planned',
+  'running',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type CustomWorkflowRunStatus = z.infer<
+  typeof CustomWorkflowRunStatusSchema
+>;
+
+export const CustomWorkflowRehearsalScenarioSchema = z.enum([
+  'all-pass',
+  'invalid-template',
+  'missing-child-reference',
+  'approval-blocked',
+  'verification-failed',
+  'remote-step-blocked',
+  'cleanup-blocked',
+  'child-approval-blocked',
+  'superseded-source',
+]);
+export type CustomWorkflowRehearsalScenario = z.infer<
+  typeof CustomWorkflowRehearsalScenarioSchema
+>;
+
+export const CustomWorkflowCapabilityBindingSchema = z
+  .object({
+    stepKind: CustomWorkflowStepKindSchema,
+    capabilityKind: CapabilityKindSchema,
+    actionMode: ActionModeSchema,
+    riskLevel: RiskLevelSchema,
+    requiresApproval: z.boolean(),
+    childApprovalRequired: z.boolean(),
+    adapterExecuteAllowed: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowCapabilityBinding = z.infer<
+  typeof CustomWorkflowCapabilityBindingSchema
+>;
+
+export const CustomWorkflowStepTemplateSchema = z
+  .object({
+    stepId: z.string().min(1),
+    name: z.string().min(1),
+    kind: CustomWorkflowStepKindSchema,
+    actionMode: ActionModeSchema,
+    riskLevel: RiskLevelSchema,
+    required: z.boolean().default(true),
+    capabilityBinding: CustomWorkflowCapabilityBindingSchema,
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowStepTemplate = z.infer<
+  typeof CustomWorkflowStepTemplateSchema
+>;
+
+export const CustomWorkflowTemplateSchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateVersion: z.literal(1),
+    name: z.string().min(1),
+    description: z.string().min(1).optional(),
+    riskLevel: RiskLevelSchema,
+    templateHash: z.string().min(1),
+    configPathHash: z.string().min(1).optional(),
+    stepCount: z.number().int().nonnegative(),
+    capabilityCount: z.number().int().nonnegative(),
+    steps: z.array(CustomWorkflowStepTemplateSchema).min(1),
+    orderedStepsOnly: z.literal(true).default(true),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    weakensPolicy: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    configBodyStored: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.stepCount !== value.steps.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Custom workflow stepCount must match steps length',
+        path: ['stepCount'],
+      });
+    }
+    if (value.capabilityCount !== value.steps.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Custom workflow capabilityCount must match steps length',
+        path: ['capabilityCount'],
+      });
+    }
+    const seen = new Set<string>();
+    for (const step of value.steps) {
+      if (seen.has(step.stepId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Custom workflow step ids must be unique: ${step.stepId}`,
+          path: ['steps'],
+        });
+      }
+      seen.add(step.stepId);
+    }
+  });
+export type CustomWorkflowTemplate = z.infer<
+  typeof CustomWorkflowTemplateSchema
+>;
+
+export const CustomWorkflowValidationReportSchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    status: CustomWorkflowValidationStatusSchema,
+    issueCount: z.number().int().nonnegative(),
+    issues: z.array(z.string().min(1)).default([]),
+    stepCount: z.number().int().nonnegative(),
+    unknownStepKindCount: z.number().int().nonnegative().default(0),
+    policyWeakeningDetected: z.literal(false).default(false),
+    loopOrBranchingDetected: z.literal(false).default(false),
+    arbitraryConfigPathAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowValidationReport = z.infer<
+  typeof CustomWorkflowValidationReportSchema
+>;
+
+export const CustomWorkflowStepPlanSchema = z
+  .object({
+    stepId: z.string().min(1),
+    kind: CustomWorkflowStepKindSchema,
+    actionMode: ActionModeSchema,
+    riskLevel: RiskLevelSchema,
+    requiresApproval: z.boolean(),
+    childApprovalRequired: z.boolean(),
+    policyRequired: z.literal(true).default(true),
+    evidenceRequired: z.literal(true).default(true),
+    auditRequired: z.literal(true).default(true),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowStepPlan = z.infer<
+  typeof CustomWorkflowStepPlanSchema
+>;
+
+export const CustomWorkflowPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    status: CustomWorkflowPlanStatusSchema,
+    validationReport: CustomWorkflowValidationReportSchema,
+    stepPlans: z.array(CustomWorkflowStepPlanSchema),
+    stepCount: z.number().int().nonnegative(),
+    approvalRequired: z.boolean(),
+    childApprovalsRequired: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.stepCount !== value.stepPlans.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Custom workflow plan stepCount must match stepPlans length',
+        path: ['stepCount'],
+      });
+    }
+  });
+export type CustomWorkflowPlan = z.infer<typeof CustomWorkflowPlanSchema>;
+
+export const CustomWorkflowApprovalStatusSchema = z.enum([
+  'requested',
+  'approved',
+  'denied',
+  'expired',
+  'used',
+  'revoked',
+]);
+export type CustomWorkflowApprovalStatus = z.infer<
+  typeof CustomWorkflowApprovalStatusSchema
+>;
+
+export const CustomWorkflowApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: CustomWorkflowApprovalStatusSchema,
+    approvedBy: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    reasonSummary: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowApprovalArtifactRecord = z.infer<
+  typeof CustomWorkflowApprovalArtifactRecordSchema
+>;
+
+export const CustomWorkflowStepRunSummarySchema = z
+  .object({
+    stepId: z.string().min(1),
+    kind: CustomWorkflowStepKindSchema,
+    status: CustomWorkflowRunStatusSchema,
+    childRecordIdHash: z.string().min(1).optional(),
+    childHashBindingMatched: z.boolean().default(false),
+    childApprovalRequired: z.boolean(),
+    childExecutionInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowStepRunSummary = z.infer<
+  typeof CustomWorkflowStepRunSummarySchema
+>;
+
+export const CustomWorkflowRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    status: CustomWorkflowRunStatusSchema,
+    steps: z.array(CustomWorkflowStepRunSummarySchema),
+    stepCount: z.number().int().nonnegative(),
+    completedStepCount: z.number().int().nonnegative(),
+    blockedStepCount: z.number().int().nonnegative(),
+    childApprovalsRequired: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.stepCount !== value.steps.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Custom workflow run stepCount must match steps length',
+        path: ['stepCount'],
+      });
+    }
+  });
+export type CustomWorkflowRun = z.infer<typeof CustomWorkflowRunSchema>;
+
+export const CustomWorkflowRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    scenario: CustomWorkflowRehearsalScenarioSchema,
+    status: CustomWorkflowRunStatusSchema,
+    stepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    childApprovalsRequired: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CustomWorkflowRehearsalRun = z.infer<
+  typeof CustomWorkflowRehearsalRunSchema
+>;
 
 export const McpToolNameSchema = z.enum([
   'codexhub.getArchitectureMap',

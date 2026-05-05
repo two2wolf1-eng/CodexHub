@@ -1480,3 +1480,122 @@ integrations:
       remoteProviderBoundary: false
       pushAllowed: false
       openPullRequestAllowed: false
+  custom-workflows:
+    enabled: false
+    adapter: workflow-kernel
+    provider: codexhub-governed-coordinator
+    providerType: builtin
+    mode: json-template-governed-control-plane
+    stage: m24-custom-workflow-control-plane
+    defaultActionMode: dry-run
+    defaultRisk: high
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    config:
+      templateGlob: .codexhub/workflows/*.workflow.json
+      templateVersion: 1
+      format: json-only
+      productionTemplatesEnabled: false
+      rawTemplateBodyStorage: forbidden
+      rawConfigPathStorage: forbidden
+      templateHashRequired: true
+    validation:
+      uniqueStepIdsRequired: true
+      orderedStepsOnly: true
+      loopsAllowed: false
+      branchingAllowed: false
+      unknownStepKindsAllowed: false
+      arbitraryConfigPathsAllowed: false
+      policyWeakeningAllowed: false
+      adapterExecuteAllowedInTemplate: false
+    supportedStepKinds:
+      - readiness
+      - worktree
+      - codex-patch
+      - nx-verification
+      - review-package
+      - rc-bundle
+      - github-branch-publish
+      - github-draft-pr
+      - github-pr-lifecycle
+      - remote-supersede
+      - remote-cleanup
+      - governance-projection
+      - telemetry-projection
+      - browser-observe
+      - electron-observe
+      - mcp-readonly
+    supervisorControlPlane:
+      enabledByDefault: false
+      enablementEnv: CODEXHUB_CUSTOM_WORKFLOWS_ENABLED
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      childRecordHashBindingRequired: true
+      directChildExecutionAllowed: false
+      routes:
+        - POST /api/workflows/custom/dry-runs
+        - GET /api/workflows/custom/dry-runs
+        - POST /api/workflows/custom/approval-requests
+        - POST /api/workflows/custom/manual-approvals
+        - GET /api/workflows/custom/approvals
+        - POST /api/workflows/custom/runs
+        - GET /api/workflows/custom/runs
+        - GET /api/workflows/custom/runs/:id
+        - GET /api/workflows/custom/rehearsals/latest
+    readOnlyUx:
+      dashboardRoute: "#/workflows"
+      cliCommands:
+        - codexhub workflows templates list
+        - codexhub workflows templates show <templateId>
+        - codexhub workflows validate --template-id <templateId>
+        - codexhub workflows rehearse --template-id <templateId> --fixture --scenario <name>
+        - codexhub workflows dry-runs list
+        - codexhub workflows approvals list
+        - codexhub workflows runs list
+        - codexhub workflows runs show <runId>
+        - codexhub workflows acceptance rehearse --fixture --scenario <name>
+      supervisorPostAllowed: false
+      localControlTokenRead: false
+      adapterExecuteAllowed: false
+    childControlPlanes:
+      childApprovalsRemainSeparate: true
+      customWorkflowApprovalDoesNotGrantChildExecution: true
+      missingChildRecordBlocksStep: true
+      failedChildRecordBlocksLaterSteps: true
+    storage:
+      rawPrompt: forbidden
+      rawStdout: forbidden
+      rawStderr: forbidden
+      rawDiff: forbidden
+      rawPullRequestBody: forbidden
+      rawPath: forbidden
+      rawUrl: forbidden
+      rawToken: forbidden
+      rawCookie: forbidden
+      rawSession: forbidden
+      rawEnv: forbidden
+      rawRequestBody: forbidden
+      rawResponseBody: forbidden
+      body: forbidden
+    evidence:
+      templateSummary: hash-only
+      validationSummary: metadata-only
+      planSummary: metadata-only
+      rehearsalSummary: metadata-only
+      dryRunSummary: metadata-only
+      runSummary: metadata-only
+    safety:
+      noNewExecutionProvider: true
+      noDirectAdapterExecution: true
+      noArbitraryShell: true
+      noArbitraryGitHubPassthrough: true
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+      tokenStorageAllowed: false

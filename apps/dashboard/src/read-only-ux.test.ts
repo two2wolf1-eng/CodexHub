@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   createApprovalDecisionHistoryReadOnlySummary,
+  createCustomWorkflowReadOnlySummary,
   createElectronCdpReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
@@ -43,6 +44,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/pilot')).toBe('pilot');
     expect(getDashboardViewFromHash('#/approvals')).toBe('approvals');
     expect(getDashboardViewFromHash('#/release-candidates')).toBe('release-candidates');
+    expect(getDashboardViewFromHash('#/workflows')).toBe('workflows');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -241,6 +243,37 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('git worktree remove');
     expect(serialized).not.toContain('diff --numstat');
     expect(serialized).not.toContain('payload');
+  });
+
+  it('summarizes custom workflow UX as read-only governance metadata', () => {
+    const summary = createCustomWorkflowReadOnlySummary({
+      dryRunCount: 2,
+      approvalCount: 1,
+      runCount: 1,
+      latestRunStatus: 'blocked',
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.manifestName).toBe('custom-workflow');
+    expect(summary.manifestVersion).toContain('m24');
+    expect(summary.dryRunCount).toBe(2);
+    expect(summary.approvalRequired).toBe(true);
+    expect(summary.childApprovalsRequired).toBe(true);
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.directAdapterExecutionAllowed).toBe(false);
+    expect(summary.directChildExecutionAllowed).toBe(false);
+    expect(summary.processBoundaryInvoked).toBe(false);
+    expect(summary.externalProcessStarted).toBe(false);
+    expect(summary.networkBoundaryInvoked).toBe(false);
+    expect(summary.noRealWrite).toBe(true);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('local-control-secret');
+    expect(serialized).not.toContain('C:\\');
   });
 
   it('summarizes GitHub provider metadata without raw remote refs or credentials', () => {

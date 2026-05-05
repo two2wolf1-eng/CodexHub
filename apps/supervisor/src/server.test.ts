@@ -6452,4 +6452,177 @@ describe('supervisor GitHub branch publish control plane', () => {
     expect(completedResponse.body).not.toContain('refs/heads');
     expect(completedResponse.body).not.toContain('/merge');
   });
+
+  it('governs custom workflow dry-runs, approvals, and metadata-only coordination runs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-custom-workflows-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store, customWorkflowEnabled: true });
+
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/dry-runs',
+      payload: { templateId: 'fixture.custom-workflow.local-pilot' },
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/dry-runs',
+      headers: { ...localControlHeaders, origin: 'https://evil.example' },
+      payload: { templateId: 'fixture.custom-workflow.local-pilot' },
+    });
+    const forbiddenRawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        templateId: 'fixture.custom-workflow.local-pilot',
+        prompt: 'raw prompt body',
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        templateId: 'fixture.custom-workflow.local-pilot',
+        templateHash: 'sha256:custom-workflow-template',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const forgedApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifact: { id: 'caller-supplied' },
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        reason: 'custom workflow operator review',
+      },
+    });
+    const manualApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'custom workflow approved',
+      },
+    });
+    const persistedDryRun = await store.customWorkflowDryRuns.getDryRun(dryRun.recordId);
+    const childRecordHashes = Object.fromEntries(
+      (persistedDryRun?.stepPlans ?? [])
+        .filter((step) => step.childApprovalRequired)
+        .map((step) => [step.stepId, `sha256:${hashTestText(step.stepId)}`]),
+    );
+    const forbiddenAuthorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        executionAuthority: { allowed: true },
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+        childRecordHashes,
+      },
+    });
+    const runsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/custom/runs',
+    });
+    const runShowResponse = await server.inject({
+      method: 'GET',
+      url: `/api/workflows/custom/runs/${completedResponse.json().runId}`,
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/custom/approvals',
+    });
+    const rehearsalResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/custom/rehearsals/latest',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(forbiddenRawBodyResponse.statusCode).toBe(400);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun).toMatchObject({
+      status: 'planned',
+      templateId: 'fixture.custom-workflow.local-pilot',
+      templateHash: 'sha256:custom-workflow-template',
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(forgedApprovalRequestResponse.statusCode).toBe(400);
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(manualApprovalResponse.statusCode).toBe(200);
+    expect(manualApprovalResponse.json()).toMatchObject({
+      status: 'approved',
+      reasonHash: expect.any(String),
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(forbiddenAuthorityResponse.json()).toMatchObject({
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json()).toMatchObject({
+      status: 'completed',
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+    });
+    expect(runsResponse.json().records).toHaveLength(1);
+    expect(runShowResponse.statusCode).toBe(200);
+    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
+      true,
+    );
+    expect(rehearsalResponse.json()).toMatchObject({
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    });
+    for (const responseBody of [
+      dryRunResponse.body,
+      manualApprovalResponse.body,
+      completedResponse.body,
+      runShowResponse.body,
+      rehearsalResponse.body,
+    ]) {
+      expect(responseBody).not.toContain('raw prompt body');
+      expect(responseBody).not.toContain('adapter.execute');
+      expect(responseBody).not.toContain(localControlToken);
+      expect(responseBody).not.toContain('custom workflow approved');
+    }
+  });
 });

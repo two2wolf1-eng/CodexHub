@@ -250,6 +250,9 @@ import type {
   GithubRemoteCleanupApprovalArtifactRecord,
   GithubRemoteCleanupPlan,
   GithubRemoteCleanupRun,
+  CustomWorkflowApprovalArtifactRecord,
+  CustomWorkflowPlan,
+  CustomWorkflowRun,
   GithubProviderApprovalStatus,
   RemoteSupersedePlan,
   RemoteSupersedeRun,
@@ -295,6 +298,9 @@ import {
   WorktreeControlPlaneRunSchema,
   WorktreeControlPlaneTimelineEventSchema,
   WorktreeDryRunRecordSchema,
+  CustomWorkflowApprovalArtifactRecordSchema,
+  CustomWorkflowPlanSchema,
+  CustomWorkflowRunSchema,
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
@@ -376,7 +382,15 @@ import {
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
-import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
+import {
+  WorkflowRunner,
+  createCustomWorkflowApprovalRecord,
+  createCustomWorkflowPlan,
+  createCustomWorkflowTemplateFixture,
+  runCustomWorkflowCoordinator,
+  runCustomWorkflowFixtureRehearsal,
+  createMockWorkflowDefinition,
+} from '@codexhub/workflow-kernel';
 import {
   createWorktreeCleanupPlan,
   executeWorktreeCleanup,
@@ -421,6 +435,7 @@ interface SupervisorServerOptions {
   githubPrLifecycleObserverEnabled?: boolean;
   githubRemoteCleanupEnabled?: boolean;
   reworkLoopEnabled?: boolean;
+  customWorkflowEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
 }
@@ -854,6 +869,47 @@ interface ReworkLoopRunRequestBody {
   executionAuthority?: unknown;
 }
 
+interface CustomWorkflowDryRunRequestBody {
+  templateId?: string;
+  templateHash?: string;
+  requestedBy?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface CustomWorkflowApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface CustomWorkflowManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: CustomWorkflowApprovalArtifactRecord['status'];
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface CustomWorkflowRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  templateId?: string;
+  templateHash?: string;
+  childRecordHashes?: Record<string, string>;
+  blockedStepIds?: string[];
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
 interface GithubRemoteCleanupDryRunRequestBody {
   owner?: string;
   repo?: string;
@@ -1161,6 +1217,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const reworkLoopDryRunRecords: ReworkLoopPlan[] = [];
   const reworkLoopApprovalRecords: ReworkLoopApprovalArtifactRecord[] = [];
   const reworkLoopRunRecords: ReworkLoopRun[] = [];
+  const customWorkflowDryRunRecords: CustomWorkflowPlan[] = [];
+  const customWorkflowApprovalRecords: CustomWorkflowApprovalArtifactRecord[] = [];
+  const customWorkflowRunRecords: CustomWorkflowRun[] = [];
   const githubBranchPublishDryRunRecords: GithubBranchPublishPlan[] = [];
   const githubBranchPublishApprovalRecords: GithubBranchPublishApprovalArtifactRecord[] = [];
   const githubBranchPublishRunRecords: GithubBranchPublishRun[] = [];
@@ -3762,6 +3821,258 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createReworkLoopRunResponse(record);
+  });
+
+  server.post('/api/workflows/custom/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createCustomWorkflowStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as CustomWorkflowDryRunRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createCustomWorkflowUntrustedAuthorityResponse(undefined));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply.code(400).send(createCustomWorkflowForbiddenRawBodyResponse(undefined));
+    }
+
+    const template = createCustomWorkflowTemplateFixture({
+      templateId: body?.templateId ?? 'fixture.custom-workflow.local-pilot',
+      ...(body?.templateHash ? { templateHash: body.templateHash } : {}),
+    });
+    const dryRunRecord = createCustomWorkflowPlan({ template });
+    await persistCustomWorkflowDryRunRecord(dryRunRecord, store);
+
+    return createCustomWorkflowDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/workflows/custom/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listCustomWorkflowDryRuns(query, store);
+
+    return {
+      records: records.map(createCustomWorkflowDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/workflows/custom/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createCustomWorkflowStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as CustomWorkflowApprovalRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createCustomWorkflowUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply.code(400).send(createCustomWorkflowForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveCustomWorkflowDryRunRecord(body?.dryRunId, store);
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'custom workflow dry-run record was not found' });
+    }
+
+    const approvalRecord = createCustomWorkflowApprovalRecord({
+      dryRunId: dryRunRecord.dryRunId,
+      templateId: dryRunRecord.templateId,
+      templateHash: dryRunRecord.templateHash,
+      status: 'requested',
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : undefined,
+      reasonSummary: body?.reason ? 'Custom workflow approval reason hash stored.' : undefined,
+    });
+    await persistCustomWorkflowApprovalRecord(approvalRecord, store);
+
+    return createCustomWorkflowApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/workflows/custom/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createCustomWorkflowStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as CustomWorkflowManualApprovalRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createCustomWorkflowUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply.code(400).send(createCustomWorkflowForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveCustomWorkflowDryRunRecord(body?.dryRunId, store);
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'custom workflow dry-run record was not found' });
+    }
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveCustomWorkflowApprovalRecord(body.approvalRequestId, store)
+      : (await listCustomWorkflowApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'custom workflow approval request was not found' });
+    }
+
+    const approvalRecord = createCustomWorkflowApprovalRecord({
+      dryRunId: dryRunRecord.dryRunId,
+      templateId: dryRunRecord.templateId,
+      templateHash: dryRunRecord.templateHash,
+      approvalArtifactId: approvalRequest.approvalArtifactId,
+      status: body?.outcome ?? 'approved',
+      approvedBy: body?.decidedBy,
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : undefined,
+      reasonSummary: body?.reason ? 'Custom workflow decision reason hash stored.' : undefined,
+    });
+    await persistCustomWorkflowApprovalRecord(approvalRecord, store);
+
+    return createCustomWorkflowApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/workflows/custom/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listCustomWorkflowApprovals(query, store);
+
+    return {
+      records: records.map(createCustomWorkflowApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/workflows/custom/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createCustomWorkflowStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as CustomWorkflowRunRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createCustomWorkflowUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply.code(400).send(createCustomWorkflowForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveCustomWorkflowDryRunRecord(body?.dryRunId, store);
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'custom workflow dry-run record was not found' });
+    }
+    if (body?.templateId && body.templateId !== dryRunRecord.templateId) {
+      return reply.code(409).send({ error: 'custom workflow template id mismatch' });
+    }
+    if (body?.templateHash && body.templateHash !== dryRunRecord.templateHash) {
+      return reply.code(409).send({ error: 'custom workflow template hash mismatch' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveCustomWorkflowApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const enabled =
+      options.customWorkflowEnabled ??
+      process.env.CODEXHUB_CUSTOM_WORKFLOWS_ENABLED === 'true';
+    const runRecord = runCustomWorkflowCoordinator({
+      plan: dryRunRecord,
+      approvalArtifact: enabled ? approvalRecord : undefined,
+      childRecordHashes: body?.childRecordHashes,
+      blockedStepIds: enabled
+        ? body?.blockedStepIds
+        : dryRunRecord.stepPlans.map((step) => step.stepId),
+    });
+
+    await persistCustomWorkflowRunRecord(runRecord, store);
+
+    if (enabled && runRecord.status === 'completed' && approvalRecord) {
+      const usedRecord = createCustomWorkflowApprovalRecord({
+        dryRunId: dryRunRecord.dryRunId,
+        templateId: dryRunRecord.templateId,
+        templateHash: dryRunRecord.templateHash,
+        approvalArtifactId: approvalRecord.approvalArtifactId,
+        status: 'used',
+        reasonHash: hashLocalMetadata({ reason: 'custom workflow coordination run used approval' }),
+        reasonSummary: 'Custom workflow approval consumed by coordination run.',
+      });
+      await persistCustomWorkflowApprovalRecord(usedRecord, store);
+    }
+
+    return createCustomWorkflowRunResponse(runRecord);
+  });
+
+  server.get('/api/workflows/custom/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listCustomWorkflowRuns(query, store);
+
+    return {
+      records: records.map(createCustomWorkflowRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/workflows/custom/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveCustomWorkflowRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'custom workflow run was not found' });
+    }
+
+    return createCustomWorkflowRunResponse(record);
+  });
+
+  server.get('/api/workflows/custom/rehearsals/latest', async () => {
+    const rehearsal = runCustomWorkflowFixtureRehearsal({
+      scenario: 'all-pass',
+    });
+
+    return {
+      record: rehearsal,
+      degraded: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
   });
 
   server.post('/api/github/draft-prs/dry-runs', async (request, reply) => {
@@ -14535,6 +14846,123 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : reworkLoopRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function persistCustomWorkflowDryRunRecord(
+    record: CustomWorkflowPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.customWorkflowDryRuns.saveDryRun(record);
+      return;
+    }
+    customWorkflowDryRunRecords.unshift(record);
+  }
+
+  async function persistCustomWorkflowApprovalRecord(
+    record: CustomWorkflowApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.customWorkflowApprovals.saveApproval(record);
+      return;
+    }
+    customWorkflowApprovalRecords.unshift(record);
+  }
+
+  async function persistCustomWorkflowRunRecord(
+    record: CustomWorkflowRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.customWorkflowRuns.saveRun(record);
+      return;
+    }
+    customWorkflowRunRecords.unshift(record);
+  }
+
+  async function resolveCustomWorkflowDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.customWorkflowDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.customWorkflowDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return customWorkflowDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveCustomWorkflowApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.customWorkflowApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.customWorkflowApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.id === approvalRequestId,
+      );
+    }
+    return customWorkflowApprovalRecords.find((record) => record.id === approvalRequestId);
+  }
+
+  async function resolveCustomWorkflowApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.customWorkflowApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : customWorkflowApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveCustomWorkflowRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowRun | undefined> {
+    return store
+      ? await store.customWorkflowRuns.getRun(runId)
+      : customWorkflowRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listCustomWorkflowDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowPlan[]> {
+    return store
+      ? await store.customWorkflowDryRuns.listDryRuns(query)
+      : customWorkflowDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listCustomWorkflowApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowApprovalArtifactRecord[]> {
+    return store
+      ? await store.customWorkflowApprovals.listApprovals(query)
+      : customWorkflowApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listCustomWorkflowRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<CustomWorkflowRun[]> {
+    return store
+      ? await store.customWorkflowRuns.listRuns(query)
+      : customWorkflowRunRecords.slice(0, query.limit ?? 50);
+  }
+
   async function persistGithubDraftPrDryRunRecord(
     record: GithubDraftPrPlan,
     store: CodexHubStore | undefined,
@@ -15385,6 +15813,98 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createCustomWorkflowDryRunResponse(record: CustomWorkflowPlan) {
+    return CustomWorkflowPlanSchema.parse(record) && {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      templateId: record.templateId,
+      templateHash: record.templateHash,
+      status: record.status,
+      validationStatus: record.validationReport.status,
+      stepCount: record.stepCount,
+      approvalRequired: record.approvalRequired,
+      childApprovalsRequired: record.childApprovalsRequired,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      directAdapterExecutionAllowed: record.directAdapterExecutionAllowed,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: record.rawPathStored,
+      bodyStored: record.bodyStored,
+      summary: record.summary,
+    };
+  }
+
+  function createCustomWorkflowApprovalResponse(
+    record: CustomWorkflowApprovalArtifactRecord,
+  ) {
+    return CustomWorkflowApprovalArtifactRecordSchema.parse(record) && {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      approvalRequestId: record.id,
+      approvalArtifactId: record.approvalArtifactId,
+      templateId: record.templateId,
+      templateHash: record.templateHash,
+      status: record.status,
+      approvedByHash: record.approvedBy
+        ? hashSupervisorMetadata({ approvedBy: record.approvedBy })
+        : undefined,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      usedAt: record.usedAt,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      rawPathStored: record.rawPathStored,
+      bodyStored: record.bodyStored,
+      noRealWrite: true,
+      summary: record.summary,
+    };
+  }
+
+  function createCustomWorkflowRunResponse(record: CustomWorkflowRun) {
+    return CustomWorkflowRunSchema.parse(record) && {
+      recordId: record.id,
+      runId: record.id,
+      dryRunId: record.dryRunId,
+      approvalArtifactId: record.approvalArtifactId,
+      templateId: record.templateId,
+      templateHash: record.templateHash,
+      status: record.status,
+      stepCount: record.stepCount,
+      completedStepCount: record.completedStepCount,
+      blockedStepCount: record.blockedStepCount,
+      childApprovalsRequired: record.childApprovalsRequired,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      directAdapterExecutionAllowed: record.directAdapterExecutionAllowed,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: record.rawPathStored,
+      bodyStored: record.bodyStored,
+      steps: record.steps.map((step) => ({
+        stepId: step.stepId,
+        kind: step.kind,
+        status: step.status,
+        childRecordIdHash: step.childRecordIdHash,
+        childHashBindingMatched: step.childHashBindingMatched,
+        childApprovalRequired: step.childApprovalRequired,
+        childExecutionInvoked: step.childExecutionInvoked,
+        blockReasons: step.blockReasons,
+        evidenceRefIds: step.evidenceRefIds,
+        auditEventIds: step.auditEventIds,
+        summary: step.summary,
+      })),
+      summary: record.summary,
+    };
+  }
+
   function createRemoteSupersedeDryRunResponse(record: RemoteSupersedePlan) {
     return {
       recordId: record.id,
@@ -15895,6 +16415,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createCustomWorkflowStoreUnavailableResponse(phase: string) {
+    return {
+      error: `custom_workflow_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      directAdapterExecutionAllowed: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubDraftPrStoreUnavailableResponse(phase: string) {
     return {
       error: `github_draft_pr_store_unavailable_${phase}`,
@@ -16007,6 +16543,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createCustomWorkflowUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_custom_workflow_authority_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      directAdapterExecutionAllowed: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubDraftPrUntrustedAuthorityResponse(dryRunId: string | undefined) {
     return {
       error: 'untrusted_github_draft_pr_authority_body',
@@ -16112,6 +16663,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       rawDiffStored: false,
       rawPrBodyStored: false,
       rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createCustomWorkflowForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_custom_workflow_raw_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      directAdapterExecutionAllowed: false,
       rawPathStored: false,
       bodyStored: false,
     };
@@ -16481,6 +17047,53 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return Object.entries(value as Record<string, unknown>).some(
       ([key, nestedValue]) =>
         forbiddenKeys.has(key) || hasForbiddenReviewPackageRawBody(nestedValue),
+    );
+  }
+
+  function hasForbiddenCustomWorkflowRawBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'prompt',
+      'rawPrompt',
+      'stdin',
+      'stdout',
+      'stderr',
+      'diff',
+      'rawDiff',
+      'diffBody',
+      'path',
+      'rawPath',
+      'configPath',
+      'url',
+      'rawUrl',
+      'responseBody',
+      'requestBody',
+      'body',
+      'rawBody',
+      'localControlKey',
+      'command',
+      'rawCommand',
+      'branches',
+      'loop',
+      'while',
+      'forEach',
+      'dependsOn',
+      'next',
+      'policyOverride',
+      'approvalOverride',
+      ...GITHUB_FORBIDDEN_CREDENTIAL_KEYS,
+    ]);
+
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenCustomWorkflowRawBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        forbiddenKeys.has(key) || hasForbiddenCustomWorkflowRawBody(nestedValue),
     );
   }
 

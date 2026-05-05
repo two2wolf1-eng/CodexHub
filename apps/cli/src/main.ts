@@ -203,7 +203,15 @@ import {
   type OperatorReadinessReport,
 } from '@codexhub/operator-readiness-kernel';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
-import { WorkflowRunner, createMockWorkflowDefinition } from '@codexhub/workflow-kernel';
+import {
+  WorkflowRunner,
+  createCustomWorkflowPlan,
+  createCustomWorkflowTemplateFixture,
+  loadCustomWorkflowTemplatesFromDirectory,
+  runCustomWorkflowFixtureRehearsal,
+  validateCustomWorkflowTemplateInput,
+  createMockWorkflowDefinition,
+} from '@codexhub/workflow-kernel';
 import {
   type JsonCliOptions,
   type VerifyAffectedDryRunCliOptions,
@@ -326,6 +334,7 @@ export interface ReadOnlyRunSummary {
     | 'github_remote_supersede_run'
     | 'github_remote_cleanup_run'
     | 'rework_loop_run'
+    | 'custom_workflow_run'
     | 'worktree_run'
     | 'worktree_cleanup_run'
     | 'review_package_run'
@@ -922,6 +931,36 @@ interface M11PilotRunApiRecord {
   summary?: string;
 }
 
+interface CustomWorkflowApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  approvalRequestId?: string;
+  runId?: string;
+  templateId?: string;
+  templateHash?: string;
+  status?: string;
+  runnerMode?: string;
+  stepCount?: number;
+  completedStepCount?: number;
+  blockedStepCount?: number;
+  failedStepCount?: number;
+  approvalRequired?: boolean;
+  childApprovalsRequired?: boolean;
+  directAdapterExecutionAllowed?: boolean;
+  directChildExecutionAllowed?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryInvoked?: boolean;
+  noRealWrite?: boolean;
+  bodyStored?: boolean;
+  rawPathStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  blockReasons?: string[];
+  summary?: string;
+}
+
 export interface WorktreeApprovalListCliOptions extends JsonCliOptions {
   dryRunId?: string;
   status?: string;
@@ -1333,6 +1372,131 @@ export function buildProgram(): Command {
     .action(async (projectionId: string, options: JsonCliOptions) => {
       const result = await getGovernanceAuditChain(projectionId);
       console.log(formatGovernanceAuditChainOutput(result, options));
+    });
+
+  const workflowsCommand = program
+    .command('workflows')
+    .description('Read custom workflow templates and governed workflow records');
+  const workflowTemplatesCommand = workflowsCommand
+    .command('templates')
+    .description('Read local JSON custom workflow template metadata');
+
+  workflowTemplatesCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List custom workflow templates without local-control keys or execution')
+    .action(async (options: JsonCliOptions) => {
+      const result = listCustomWorkflowTemplatesForCli();
+      console.log(formatCustomWorkflowTemplatesListOutput(result, options));
+    });
+
+  workflowTemplatesCommand
+    .command('show')
+    .argument('<templateId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one custom workflow template metadata summary')
+    .action(async (templateId: string, options: JsonCliOptions) => {
+      const result = showCustomWorkflowTemplateForCli(templateId);
+      console.log(formatCustomWorkflowTemplateDetailOutput(result, options));
+    });
+
+  workflowsCommand
+    .command('validate')
+    .requiredOption('--template-id <templateId>', 'Template id to validate')
+    .option('--json', 'Print full JSON output')
+    .description('Validate a JSON custom workflow template without executing it')
+    .action(async (options: JsonCliOptions & { templateId: string }) => {
+      const result = validateCustomWorkflowTemplateForCli(options.templateId);
+      console.log(formatCustomWorkflowValidationOutput(result, options));
+    });
+
+  workflowsCommand
+    .command('rehearse')
+    .requiredOption('--template-id <templateId>', 'Template id to rehearse')
+    .requiredOption('--fixture', 'Use fixture-only rehearsal data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Run a fixture-only custom workflow rehearsal')
+    .action(
+      async (
+        options: JsonCliOptions & {
+          templateId: string;
+          scenario: string;
+        },
+      ) => {
+        const result = rehearseCustomWorkflowForCli(
+          options.templateId,
+          options.scenario,
+        );
+        console.log(formatCustomWorkflowRehearsalOutput(result, options));
+      },
+    );
+
+  const workflowDryRunsCommand = workflowsCommand
+    .command('dry-runs')
+    .description('Read custom workflow dry-run records from Supervisor GET endpoints');
+
+  workflowDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List custom workflow dry-runs without sending a local-control key')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listCustomWorkflowDryRuns();
+      console.log(formatCustomWorkflowDryRunsListOutput(result, options));
+    });
+
+  const workflowApprovalsCommand = workflowsCommand
+    .command('approvals')
+    .description('Read custom workflow approval records from Supervisor GET endpoints');
+
+  workflowApprovalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List custom workflow approvals without deciding approvals')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listCustomWorkflowApprovals();
+      console.log(formatCustomWorkflowApprovalsListOutput(result, options));
+    });
+
+  const workflowRunsCommand = workflowsCommand
+    .command('runs')
+    .description('Read custom workflow run records from Supervisor GET endpoints');
+
+  workflowRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List custom workflow runs without executing workflow steps')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listCustomWorkflowRuns();
+      console.log(formatCustomWorkflowRunsListOutput(result, options));
+    });
+
+  workflowRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one custom workflow run summary')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showCustomWorkflowRun(runId);
+      console.log(formatCustomWorkflowRunDetailOutput(result, options));
+    });
+
+  const workflowAcceptanceCommand = workflowsCommand
+    .command('acceptance')
+    .description('Fixture-only custom workflow acceptance rehearsal');
+
+  workflowAcceptanceCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Use fixture-only acceptance data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Run custom workflow acceptance rehearsal without execution')
+    .action(async (options: JsonCliOptions & { scenario: string }) => {
+      const result = rehearseCustomWorkflowForCli(
+        'fixture.custom-workflow.local-pilot',
+        options.scenario,
+      );
+      console.log(formatCustomWorkflowRehearsalOutput(result, options));
     });
 
   const evidenceTopLevelCommand = program
@@ -3472,6 +3636,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     githubRemoteSupersedeRunResult,
     githubRemoteCleanupRunResult,
     reworkLoopRunResult,
+    customWorkflowRunResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
     reviewPackageRunResult,
@@ -3508,6 +3673,9 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
         '/api/github/remote-cleanups/runs',
       ),
       getSupervisorJson<{ records: ReworkLoopApiRecord[] }>('/api/rework-loops/runs'),
+      getSupervisorJson<{ records: CustomWorkflowApiRecord[] }>(
+        '/api/workflows/custom/runs',
+      ),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
       getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
@@ -3542,6 +3710,9 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       settledValue(githubRemoteCleanupRunResult)?.records ?? [],
     ),
     ...summarizeReworkLoopRunRecords(settledValue(reworkLoopRunResult)?.records ?? []),
+    ...summarizeCustomWorkflowRunRecords(
+      settledValue(customWorkflowRunResult)?.records ?? [],
+    ),
     ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
     ...summarizeWorktreeRunRecords(
       settledValue(worktreeCleanupRunResult)?.records ?? [],
@@ -3568,6 +3739,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(githubRemoteSupersedeRunResult),
     settledError(githubRemoteCleanupRunResult),
     settledError(reworkLoopRunResult),
+    settledError(customWorkflowRunResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
     settledError(reviewPackageRunResult),
@@ -3576,7 +3748,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
   ].filter((reason): reason is string => reason !== undefined);
 
   return {
-    status: degradedReasons.length === 17 ? 'degraded' : 'ready',
+    status: degradedReasons.length === 19 ? 'degraded' : 'ready',
     count: runs.length,
     runs,
     degradedReasons,
@@ -5157,6 +5329,172 @@ async function getSupervisorJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+function listCustomWorkflowTemplatesForCli(): Record<string, unknown> {
+  const loaded = loadCustomWorkflowTemplatesFromDirectory(process.cwd());
+  const fallbackTemplate = createCustomWorkflowTemplateFixture();
+  const templates = loaded.templates.length > 0 ? loaded.templates : [fallbackTemplate];
+
+  return {
+    records: templates.map(summarizeCustomWorkflowTemplate),
+    validations: loaded.validationReports.map((report) => ({
+      templateId: report.templateId,
+      templateHash: report.templateHash,
+      status: report.status,
+      issueCount: report.issueCount,
+      stepCount: report.stepCount,
+      summary: report.summary,
+    })),
+    count: templates.length,
+    fallbackFixture: loaded.templates.length === 0,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+function showCustomWorkflowTemplateForCli(templateId: string): Record<string, unknown> {
+  const loaded = loadCustomWorkflowTemplatesFromDirectory(process.cwd());
+  const template =
+    loaded.templates.find((record) => record.templateId === templateId) ??
+    createCustomWorkflowTemplateFixture({ templateId });
+  const plan = createCustomWorkflowPlan({ template });
+
+  return {
+    record: summarizeCustomWorkflowTemplate(template),
+    plan: summarizeCustomWorkflowPlan(plan),
+    fallbackFixture: !loaded.templates.some((record) => record.templateId === templateId),
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+function validateCustomWorkflowTemplateForCli(templateId: string): Record<string, unknown> {
+  const loaded = loadCustomWorkflowTemplatesFromDirectory(process.cwd());
+  const template = loaded.templates.find((record) => record.templateId === templateId);
+  const report = template
+    ? validateCustomWorkflowTemplateInput({
+        templateVersion: 1,
+        templateId: template.templateId,
+        name: template.name,
+        steps: template.steps.map((step) => ({
+          stepId: step.stepId,
+          kind: step.kind,
+        })),
+      })
+    : validateCustomWorkflowTemplateInput({
+        templateVersion: 1,
+        templateId,
+        name: templateId,
+        steps: createCustomWorkflowTemplateFixture({ templateId }).steps.map((step) => ({
+          stepId: step.stepId,
+          kind: step.kind,
+        })),
+      });
+
+  return {
+    report: {
+      templateId: report.templateId,
+      templateHash: report.templateHash,
+      status: report.status,
+      issueCount: report.issueCount,
+      stepCount: report.stepCount,
+      summary: report.summary,
+    },
+    fallbackFixture: !template,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+function rehearseCustomWorkflowForCli(
+  templateId: string,
+  scenario: string,
+): Record<string, unknown> {
+  const template = createCustomWorkflowTemplateFixture({ templateId });
+  const rehearsal = runCustomWorkflowFixtureRehearsal({
+    template,
+    scenario: scenario as never,
+  });
+
+  return {
+    record: rehearsal,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+async function listCustomWorkflowDryRuns(): Promise<Record<string, unknown>> {
+  return getSupervisorJson('/api/workflows/custom/dry-runs');
+}
+
+async function listCustomWorkflowApprovals(): Promise<Record<string, unknown>> {
+  return getSupervisorJson('/api/workflows/custom/approvals');
+}
+
+async function listCustomWorkflowRuns(): Promise<Record<string, unknown>> {
+  return getSupervisorJson('/api/workflows/custom/runs');
+}
+
+async function showCustomWorkflowRun(runId: string): Promise<Record<string, unknown>> {
+  return getSupervisorJson(`/api/workflows/custom/runs/${encodeURIComponent(runId)}`);
+}
+
+function summarizeCustomWorkflowTemplate(template: ReturnType<typeof createCustomWorkflowTemplateFixture>) {
+  return {
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    name: template.name,
+    riskLevel: template.riskLevel,
+    stepCount: template.stepCount,
+    capabilityCount: template.capabilityCount,
+    orderedStepsOnly: template.orderedStepsOnly,
+    directAdapterExecutionAllowed: template.directAdapterExecutionAllowed,
+    weakensPolicy: template.weakensPolicy,
+    bodyStored: template.bodyStored,
+    rawPathStored: template.rawPathStored,
+    summary: template.summary,
+    steps: template.steps.map((step) => ({
+      stepId: step.stepId,
+      kind: step.kind,
+      actionMode: step.actionMode,
+      riskLevel: step.riskLevel,
+      requiresApproval: step.capabilityBinding.requiresApproval,
+      childApprovalRequired: step.capabilityBinding.childApprovalRequired,
+      summary: step.summary,
+    })),
+  };
+}
+
+function summarizeCustomWorkflowPlan(plan: ReturnType<typeof createCustomWorkflowPlan>) {
+  return {
+    dryRunId: plan.dryRunId,
+    templateId: plan.templateId,
+    templateHash: plan.templateHash,
+    status: plan.status,
+    stepCount: plan.stepCount,
+    approvalRequired: plan.approvalRequired,
+    childApprovalsRequired: plan.childApprovalsRequired,
+    blockReasons: plan.blockReasons,
+    directAdapterExecutionAllowed: plan.directAdapterExecutionAllowed,
+    processBoundaryInvoked: plan.processBoundaryInvoked,
+    externalProcessStarted: plan.externalProcessStarted,
+    networkBoundaryInvoked: plan.networkBoundaryInvoked,
+    summary: plan.summary,
+  };
+}
+
 function summarizeWorkflowRuns(runs: WorkflowRun[]): ReadOnlyRunSummary[] {
   return runs.map((run) => ({
     id: run.id,
@@ -5404,6 +5742,25 @@ function summarizeReworkLoopRunRecords(runs: ReworkLoopApiRecord[]): ReadOnlyRun
     auditEventCount: run.auditEventIds?.length ?? 0,
     liveExecution: false,
     networkBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: run.noRealWrite ?? true,
+    bodyStored: false,
+  }));
+}
+
+function summarizeCustomWorkflowRunRecords(
+  runs: CustomWorkflowApiRecord[],
+): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'custom_workflow_run',
+    source: 'custom_workflow_run',
+    title: `Custom workflow ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'Custom workflow governed coordinator metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
     externalProcessStarted: false,
     noRealWrite: run.noRealWrite ?? true,
     bodyStored: false,
@@ -10013,6 +10370,171 @@ export function formatWorktreeDryRunsListOutput(
   return formatWorktreeCollectionOutput('Worktree dry-runs', result, options);
 }
 
+export function formatCustomWorkflowTemplatesListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as Array<Record<string, unknown>> | undefined) ?? [];
+
+  return [
+    'Custom workflow templates',
+    `count: ${records.length}`,
+    `fallbackFixture=${String(result.fallbackFixture ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map(
+        (record) =>
+          `- ${String(record.templateId ?? 'unknown')} steps=${String(
+            record.stepCount ?? 0,
+          )} risk=${String(record.riskLevel ?? 'unknown')} hash=${String(
+            record.templateHash ?? 'unavailable',
+          )}`,
+      ),
+  ].join('\n');
+}
+
+export function formatCustomWorkflowTemplateDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+  const plan = result.plan as Record<string, unknown> | undefined;
+
+  return [
+    'Custom workflow template',
+    `templateId: ${String(record?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(record?.templateHash ?? 'unavailable')}`,
+    `stepCount: ${String(record?.stepCount ?? 0)}`,
+    `capabilityCount: ${String(record?.capabilityCount ?? 0)}`,
+    `planStatus: ${String(plan?.status ?? 'unknown')}`,
+    `approvalRequired=${String(plan?.approvalRequired ?? true)}`,
+    `childApprovalsRequired=${String(plan?.childApprovalsRequired ?? true)}`,
+    `directAdapterExecutionAllowed=${String(record?.directAdapterExecutionAllowed ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `summary: ${String(record?.summary ?? 'Custom workflow template metadata summary.')}`,
+  ].join('\n');
+}
+
+export function formatCustomWorkflowValidationOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const report = result.report as Record<string, unknown> | undefined;
+
+  return [
+    'Custom workflow validation',
+    `status: ${String(report?.status ?? 'unknown')}`,
+    `templateId: ${String(report?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(report?.templateHash ?? 'unavailable')}`,
+    `stepCount: ${String(report?.stepCount ?? 0)}`,
+    `issueCount: ${String(report?.issueCount ?? 0)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `summary: ${String(report?.summary ?? 'Custom workflow validation metadata summary.')}`,
+  ].join('\n');
+}
+
+export function formatCustomWorkflowRehearsalOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as CustomWorkflowApiRecord | undefined;
+
+  return [
+    'Custom workflow fixture rehearsal',
+    `runId: ${record?.runId ?? 'unknown'}`,
+    `scenario: ${String((record as Record<string, unknown> | undefined)?.scenario ?? 'unknown')}`,
+    `status: ${record?.status ?? 'unknown'}`,
+    `steps: ${String(record?.completedStepCount ?? 0)} completed, ${String(
+      record?.blockedStepCount ?? 0,
+    )} blocked, ${String(record?.failedStepCount ?? 0)} failed`,
+    `directAdapterExecutionAllowed=${String(record?.directAdapterExecutionAllowed ?? false)}`,
+    `processBoundaryInvoked=${String(record?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(record?.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(record?.networkBoundaryInvoked ?? false)}`,
+    `bodyStored=${String(record?.bodyStored ?? false)}`,
+    `rawPathStored=${String(record?.rawPathStored ?? false)}`,
+    `summary: ${record?.summary ?? 'Custom workflow rehearsal metadata summary.'}`,
+  ].join('\n');
+}
+
+export function formatCustomWorkflowDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowCollectionOutput('Custom workflow dry-runs', result, options);
+}
+
+export function formatCustomWorkflowApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowCollectionOutput('Custom workflow approvals', result, options);
+}
+
+export function formatCustomWorkflowRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowCollectionOutput('Custom workflow runs', result, options);
+}
+
+export function formatCustomWorkflowRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as CustomWorkflowApiRecord | undefined;
+
+  return [
+    'Custom workflow run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `templateId: ${run?.templateId ?? 'unknown'}`,
+    `templateHash: ${run?.templateHash ?? 'unavailable'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `steps: ${String(run?.completedStepCount ?? 0)} completed, ${String(
+      run?.blockedStepCount ?? 0,
+    )} blocked, ${String(run?.failedStepCount ?? 0)} failed`,
+    `childApprovalsRequired=${String(run?.childApprovalsRequired ?? true)}`,
+    `directAdapterExecutionAllowed=${String(run?.directAdapterExecutionAllowed ?? false)}`,
+    `directChildExecutionAllowed=${String(run?.directChildExecutionAllowed ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
 export function formatGithubProviderStatusOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -11608,6 +12130,45 @@ function formatWorktreeCollectionOutput(
           `git=${String(record.gitProcessBoundaryInvoked ?? false)}`,
           `cleanupRequired=${String(record.cleanupRequired ?? false)}`,
           `cleanupCompleted=${String(record.cleanupCompleted ?? false)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatCustomWorkflowCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as CustomWorkflowApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `template=${record.templateId ?? 'unknown'}`,
+          `hash=${record.templateHash ?? 'unavailable'}`,
+          `steps=${String(record.stepCount ?? 0)}`,
+          `childApprovals=${String(record.childApprovalsRequired ?? true)}`,
+          `directAdapterExecution=${String(record.directAdapterExecutionAllowed ?? false)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,
           `audit=${record.auditEventIds?.length ?? 0}`,
         ].join(' '),

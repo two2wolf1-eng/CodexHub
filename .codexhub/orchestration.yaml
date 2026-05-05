@@ -3216,3 +3216,254 @@ workflows:
       updateRefAllowed: false
       forceAllowed: false
       mergeAllowed: false
+  m23a.custom-workflow-contracts:
+    risk: high
+    trigger:
+      type: metadata-contracts
+      entrypoint: packages/contracts packages/workflow-kernel
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        schemas:
+          - CustomWorkflowTemplate
+          - CustomWorkflowStepTemplate
+          - CustomWorkflowCapabilityBinding
+          - CustomWorkflowValidationReport
+          - CustomWorkflowPlan
+          - CustomWorkflowRehearsalRun
+      - phase: evidence-kinds
+        output: template-validation-plan-rehearsal-summaries
+    safety:
+      metadataOnly: true
+      rawPromptStored: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawPathStored: false
+      tokenStored: false
+      directAdapterExecutionAllowed: false
+  m23b.custom-workflow-template-validator:
+    risk: high
+    trigger:
+      type: json-template-validation
+      entrypoint: packages/workflow-kernel
+      localControlRequired: false
+    chain:
+      - phase: load
+        templateGlob: .codexhub/workflows/*.workflow.json
+        jsonOnly: true
+      - phase: validate
+        requires:
+          - templateVersionOne
+          - uniqueStepIds
+          - orderedStepsOnly
+          - noLoopsOrBranching
+          - knownStepKindsOnly
+          - noArbitraryConfigPaths
+          - noPolicyWeakening
+      - phase: summary
+        output: ids-hashes-counts-statuses-summaries
+    safety:
+      productionTemplatesEnabled: false
+      arbitraryConfigPathAllowed: false
+      adapterExecuteAllowed: false
+      noNewExecutionBoundary: true
+  m23c.custom-workflow-planning-rehearsal:
+    risk: high
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: packages/workflow-kernel
+      localControlRequired: false
+    chain:
+      - phase: plan
+        mapsStepsTo:
+          - policy
+          - evidence
+          - audit
+          - childApprovalRequirements
+        invokesChildControlPlanes: false
+      - phase: rehearse
+        scenarios:
+          - all-pass
+          - invalid-template
+          - missing-child-reference
+          - approval-blocked
+          - verification-failed
+          - remote-step-blocked
+          - cleanup-blocked
+    safety:
+      fixtureOnly: true
+      noSupervisorRoute: true
+      processBoundaryInvoked: false
+      networkBoundaryInvoked: false
+      directAdapterExecutionAllowed: false
+  m23d.custom-workflow-read-only-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/workflows"
+        shows:
+          - template inventory
+          - validation summary
+          - plan summary
+          - rehearsal summary
+      - phase: cli
+        commands:
+          - codexhub workflows templates list
+          - codexhub workflows templates show <templateId>
+          - codexhub workflows validate --template-id <templateId>
+          - codexhub workflows rehearse --template-id <templateId> --fixture --scenario <name>
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowedFromUiCli: false
+      rawWorkflowConfigRendered: false
+  m23_5.custom-workflow-template-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m23-custom-workflow-template-results.md
+      - docs/reviews/m23-custom-workflow-template-hardening-review.md
+      - docs/runbooks/m23-custom-workflow-template-operator-runbook.md
+    safety:
+      noNewRoute: true
+      noNewExecutionBoundary: true
+      uiCliReadOnly: true
+      noDirectAdapterExecution: true
+      noWorkflowSecretOrBodyOutput: true
+  m24a.custom-workflow-control-plane-records:
+    risk: high
+    trigger:
+      type: control-plane-records
+      entrypoint: packages/contracts packages/store-core packages/store-sqlite
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        schemas:
+          - CustomWorkflowPlan
+          - CustomWorkflowApprovalArtifactRecord
+          - CustomWorkflowRun
+          - CustomWorkflowStepRunSummary
+      - phase: store
+        repositories:
+          - customWorkflowDryRuns
+          - customWorkflowApprovals
+          - customWorkflowRuns
+    safety:
+      metadataOnly: true
+      approvalStatuses:
+        - requested
+        - approved
+        - denied
+        - expired
+        - used
+        - revoked
+  m24b.custom-workflow-dry-run-approval-control-plane:
+    risk: high
+    trigger:
+      type: supervisor-control-plane
+      entrypoint: /api/workflows/custom
+      localControlRequired: true
+    routes:
+      - POST/GET /api/workflows/custom/dry-runs
+      - POST /api/workflows/custom/approval-requests
+      - POST /api/workflows/custom/manual-approvals
+      - GET /api/workflows/custom/approvals
+    safety:
+      trustedLoopbackOriginRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      dryRunInvokesChildControlPlanes: false
+      rawTemplateBodyStored: false
+  m24c.custom-workflow-run-coordinator:
+    risk: high
+    trigger:
+      type: supervisor-control-plane
+      entrypoint: /api/workflows/custom/runs
+      localControlRequired: true
+    routes:
+      - POST/GET /api/workflows/custom/runs
+      - GET /api/workflows/custom/runs/:id
+    chain:
+      - phase: resolve-dry-run
+        authority: supervisor-store
+      - phase: resolve-workflow-approval
+        authority: persistedApprovalArtifact
+      - phase: coordinate-child-records
+        input: childRecordIdsAndHashesOnly
+        directChildExecutionAllowed: false
+      - phase: summary
+        output: ids-hashes-counts-statuses-evidence-audit
+    safety:
+      customWorkflowEnabledByDefault: false
+      childApprovalsRemainSeparate: true
+      adapterExecuteAllowed: false
+      noNewExecutionBoundary: true
+  m24d.custom-workflow-control-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: dashboard
+        route: "#/workflows"
+        reads:
+          - GET /api/workflows/custom/dry-runs
+          - GET /api/workflows/custom/approvals
+          - GET /api/workflows/custom/runs
+      - phase: cli
+        commands:
+          - codexhub workflows dry-runs list
+          - codexhub workflows approvals list
+          - codexhub workflows runs list
+          - codexhub workflows runs show <runId>
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      adapterExecuteAllowedFromUiCli: false
+  m24e.custom-workflow-acceptance-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: workflow-kernel dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: fixture-rehearsal
+        scenarios:
+          - all-pass
+          - template-invalid
+          - workflow-approval-blocked
+          - child-approval-blocked
+          - verification-failed
+          - remote-step-blocked
+          - cleanup-blocked
+          - superseded-source
+    safety:
+      fixtureOnly: true
+      supervisorPostAllowed: false
+      processBoundaryInvoked: false
+      networkBoundaryInvoked: false
+  m24_5.custom-workflow-control-plane-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m24-custom-workflow-results.md
+      - docs/reviews/m24-custom-workflow-hardening-review.md
+      - docs/runbooks/m24-custom-workflow-operator-runbook.md
+    safety:
+      noNewExecutionProvider: true
+      noDirectAdapterExecution: true
+      childApprovalIsolation: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliReadOnly: true
