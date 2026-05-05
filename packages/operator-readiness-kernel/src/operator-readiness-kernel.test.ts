@@ -14,29 +14,13 @@ import {
   createM11PilotEnablementRunbookSummary,
   createOperatorReadinessReport,
 } from './index';
-
-const forbiddenReadinessOutputTerms = [
-  'raw prompt fixture',
-  'stdout fixture',
-  'stderr fixture',
-  'diff --git',
-  'C:\\Users\\Thomas\\CodexHub',
-  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
-  'raw file content fixture',
-  '# Raw PR markdown',
-  'raw reason text',
-  'ghp_live_secret',
-  'cookie=session',
-  'session=secret',
-  'ENV_VALUE_SECRET',
-  'request body fixture',
-  'response body fixture',
-];
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 function expectNoForbiddenReadinessOutput(serialized: string): void {
-  for (const term of forbiddenReadinessOutputTerms) {
-    expect(serialized).not.toContain(term);
-  }
+  expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
 
 describe('operator-readiness-kernel', () => {
@@ -73,13 +57,18 @@ describe('operator-readiness-kernel', () => {
   });
 
   it('hashes adversarial config and token values out of readiness public output', () => {
-    const rawFixture =
-      'raw prompt fixture stdout fixture stderr fixture diff --git C:\\Users\\Thomas\\CodexHub https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text ghp_live_secret cookie=session session=secret ENV_VALUE_SECRET request body fixture response body fixture';
     const report = createOperatorReadinessReport({
       storeAvailable: true,
       processBoundaryAllowlistPassed: true,
       noLiveAuditPassed: true,
-      configs: [{ name: 'integrations', kind: 'integration', text: rawFixture, itemCount: 1 }],
+      configs: [
+        {
+          name: 'integrations',
+          kind: 'integration',
+          text: adversarialPublicOutputFixture,
+          itemCount: 1,
+        },
+      ],
       integrations: [
         {
           name: 'github-provider',
@@ -90,7 +79,9 @@ describe('operator-readiness-kernel', () => {
           blockers: ['disabled_by_default'],
         },
       ],
-      localControlKeys: [{ name: 'supervisor', configured: true, value: rawFixture }],
+      localControlKeys: [
+        { name: 'supervisor', configured: true, value: adversarialPublicOutputFixture },
+      ],
     });
     const serialized = JSON.stringify(report);
 

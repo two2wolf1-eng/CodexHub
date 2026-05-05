@@ -10,6 +10,10 @@ import {
   executeLocalRcBundleExport,
   runLocalRcAcceptanceRehearsal,
 } from './index';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 describe('release-candidate-kernel', () => {
   it('projects ready local RC metadata from an approved review package', () => {
@@ -90,6 +94,33 @@ describe('release-candidate-kernel', () => {
     expect(reviewBlocked.summary.status).toBe('blocked_review');
     expect(verificationBlocked.summary.status).toBe('blocked_verification');
     expect(operatorBlocked.summary.status).toBe('blocked_operator_readiness');
+  });
+
+  it('keeps adversarial source metadata out of local RC readiness projections', () => {
+    const reviewPackage = createLocalReviewDecisionHandoff({
+      reviewPackage: createLocalReviewPackageProjection({
+        sourceLifecycleRunId: adversarialPublicOutputFixture,
+        sourcePatchRunId: adversarialPublicOutputFixture,
+        changedFilePathHashes: [adversarialPublicOutputFixture],
+        diffHash: adversarialPublicOutputFixture,
+        verificationStatus: 'passed',
+        readinessStatus: 'ready_for_review_draft_only',
+        readyForReviewDraftOnly: true,
+        evidenceRefIds: ['evidence_adversarial_fixture'],
+        auditEventIds: ['audit_adversarial_fixture'],
+      }),
+      status: 'approved_for_local_rc',
+      reason: adversarialPublicOutputFixture,
+    });
+    const projection = createLocalRcReadinessProjection({
+      reviewPackage,
+      operatorReadinessStatus: 'pass',
+      evidenceRefIds: ['evidence_operator'],
+      auditEventIds: ['audit_operator'],
+    });
+
+    expect(projection.summary.status).toBe('ready_for_local_acceptance');
+    expect(findAdversarialPublicOutputLeaks(JSON.stringify(projection))).toEqual([]);
   });
 
   it('exports a governed local RC bundle only after approval and hash-bound target validation', async () => {

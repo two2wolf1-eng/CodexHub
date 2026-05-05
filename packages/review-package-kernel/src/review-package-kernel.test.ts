@@ -10,6 +10,10 @@ import {
   createLocalReviewPackageProjection,
   executeLocalReviewPackageExport,
 } from './index';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 describe('review-package-kernel', () => {
   it('projects M12 patch readiness into a metadata-only local review package', () => {
@@ -67,13 +71,11 @@ describe('review-package-kernel', () => {
   });
 
   it('normalizes adversarial raw diff and path-hash inputs before public projection output', () => {
-    const rawDiff = 'diff --git a/secret.ts b/secret.ts\n+raw file content fixture';
-    const rawPathHashInput = 'C:\\Users\\Thomas\\CodexHub\\packages\\secret.ts';
     const result = createLocalReviewPackageProjection({
       sourceLifecycleRunId: 'm12_lifecycle_adversarial',
       sourcePatchRunId: 'm12_patch_adversarial',
-      changedFilePathHashes: [rawPathHashInput],
-      diffHash: rawDiff,
+      changedFilePathHashes: [adversarialPublicOutputFixture],
+      diffHash: adversarialPublicOutputFixture,
       verificationStatus: 'passed',
       readinessStatus: 'ready_for_review_draft_only',
       readyForReviewDraftOnly: true,
@@ -81,12 +83,10 @@ describe('review-package-kernel', () => {
     const serialized = JSON.stringify(result);
 
     expect(result.plan.changedFilePathHashes[0]).toMatch(/^sha256:/);
-    expect(result.plan.changedFilePathHashes[0]).not.toBe(rawPathHashInput);
+    expect(result.plan.changedFilePathHashes[0]).not.toBe(adversarialPublicOutputFixture);
     expect(result.plan.diffHash).toMatch(/^sha256:/);
-    expect(result.plan.diffHash).not.toBe(rawDiff);
-    expect(serialized).not.toContain(rawPathHashInput);
-    expect(serialized).not.toContain('diff --git');
-    expect(serialized).not.toContain('raw file content fixture');
+    expect(result.plan.diffHash).not.toBe(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
   });
 
   it('projects local review decisions and M12 retry handoff without storing raw reasons', () => {

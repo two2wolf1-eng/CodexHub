@@ -632,14 +632,8 @@ export function createCustomWorkflowTemplateFromJson(
       const kind = CustomWorkflowStepKindSchema.parse(step.kind);
       return createCustomWorkflowStepTemplate(kind, index + 1, {
         stepId: String(step.stepId),
-        name:
-          typeof step.name === 'string'
-            ? step.name
-            : `Custom workflow ${kind} step`,
-        summary:
-          typeof step.summary === 'string'
-            ? step.summary
-            : `Metadata-only ${kind} step.`,
+        name: `Custom workflow ${kind} step`,
+        summary: `Metadata-only ${kind} step.`,
       });
     },
   );
@@ -656,9 +650,8 @@ export function createCustomWorkflowTemplateFromJson(
     createdAt: foundationTimestamp(),
     templateId,
     templateVersion: 1,
-    name: typeof record.name === 'string' ? record.name : templateId,
-    description:
-      typeof record.description === 'string' ? record.description : undefined,
+    name: `Custom workflow ${templateId}`,
+    description: undefined,
     riskLevel,
     templateHash: validationReport.templateHash,
     configPathHash,
@@ -771,7 +764,9 @@ export function createCustomWorkflowApprovalRecord(input: {
     status: input.status ?? 'requested',
     approvedBy: input.approvedBy,
     reasonHash: input.reasonHash,
-    reasonSummary: input.reasonSummary,
+    reasonSummary: input.reasonSummary
+      ? 'Custom workflow approval reason stored as hash-only summary.'
+      : undefined,
     expiresAt: input.expiresAt,
     bodyStored: false,
     rawPathStored: false,

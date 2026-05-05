@@ -130,6 +130,7 @@ const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
   'fetch(',
+  'process.env[',
   'CODEXHUB_GITHUB_TOKEN',
   'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
 ];
@@ -312,11 +313,32 @@ function validateAdversarialAuditSentinels(): void {
       description: 'direct adapter execute call from CLI source',
     },
     {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText:
+        'import { executeGithubBranchPublish as publish } from "@codexhub/github-provider-adapter"; const run = publish;',
+      expectedTerm: 'executeGithubBranchPublish',
+      description: 'indirect adapter execute import from CLI source',
+    },
+    {
       workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
       sourceText:
         'const endpoint = "/api/approvals/decisions"; window.localStorage.setItem("approvalKey", "secret");',
       expectedTerm: 'localStorage',
       description: 'Dashboard approval token persistence',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/approvals/decisions"; globalThis["sessionStorage"].setItem("approvalKey", "secret");',
+      expectedTerm: 'sessionStorage',
+      description: 'Dashboard approval token persistence through storage alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/approvals/decisions"; window.indexedDB.open("codexhub-approval-key");',
+      expectedTerm: 'indexedDB',
+      description: 'Dashboard approval token persistence through IndexedDB alias',
     },
     {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
@@ -343,6 +365,18 @@ function validateAdversarialAuditSentinels(): void {
       description: 'MCP bracket-notation local-control token env read',
     },
     {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: "const envName = ['CODEXHUB', 'GITHUB', 'TOKEN'].join('_'); const token = process.env[envName];",
+      expectedTerm: 'process.env[',
+      description: 'MCP dynamic GitHub token env read',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'await globalThis.fetch("https://api.github.com/repos/example/example");',
+      expectedTerm: 'fetch(',
+      description: 'MCP indirect network boundary',
+    },
+    {
       workspacePath: 'apps/cli/src/adversarial-github.ts',
       sourceText: 'const command = "git push origin codexhub/test";',
       expectedTerm: 'git push',
@@ -365,6 +399,30 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'const endpoint = "/repos/example/example/releases";',
       expectedTerm: '/releases',
       description: 'CLI GitHub release mutation endpoint',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = "/repos/" + owner + "/" + repo + "/merges";',
+      expectedTerm: '/merges',
+      description: 'CLI generic GitHub merge endpoint construction',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = "/repos/example/example/requested_reviewers";',
+      expectedTerm: '/requested_reviewers',
+      description: 'CLI GitHub reviewer request mutation endpoint',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const payload = { force: true };',
+      expectedTerm: 'force: true',
+      description: 'CLI force ref update payload',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const payload = { draft: false };',
+      expectedTerm: 'draft: false',
+      description: 'CLI non-draft pull request payload',
     },
     {
       workspacePath: 'apps/cli/src/adversarial-github.ts',
@@ -666,6 +724,10 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
 
     if (isMcpSource) {
       for (const term of mcpBoundaryBypassTerms) {
+        if (term === 'process.env[' && isAllowedMcpLocalHttpGateEnvLine(workspacePath, line)) {
+          continue;
+        }
+
         if (line.includes(term)) {
           violations.push({
             file,
@@ -696,6 +758,14 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
       }
     }
   }
+}
+
+function isAllowedMcpLocalHttpGateEnvLine(workspacePath: string, line: string): boolean {
+  return (
+    workspacePath === 'apps/codexhub-mcp-server/src/security.ts' &&
+    (line.includes('process.env[MCP_LOCAL_ENV_VAR]') ||
+      line.includes('process.env[SUPERVISOR_LOCAL_ENV_VAR]'))
+  );
 }
 
 function discoverPublicExecuteTerms(): string[] {

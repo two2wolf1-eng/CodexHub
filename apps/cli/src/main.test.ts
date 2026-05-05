@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { findAdversarialPublicOutputLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 const cliSymlinkEscapeFixturePath =
   'packages/codex-kernel/fixtures/codexhub-cli-symlink-escape-test.jsonl';
@@ -9,25 +10,6 @@ const cliSymlinkEscapeAbsolutePath = join(
   findTestWorkspaceRoot(process.cwd()),
   ...cliSymlinkEscapeFixturePath.split('/'),
 );
-const forbiddenCliRawOutputTerms = [
-  'raw prompt fixture',
-  'stdout fixture',
-  'stderr fixture',
-  'diff --git',
-  'C:\\Users\\Thomas',
-  '/Users/thomas',
-  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
-  'ghp_live_secret',
-  'cookie=session',
-  'session=secret',
-  'token=secret',
-  'ENV_VALUE_SECRET',
-  'HTTP response body fixture',
-  'raw file content fixture',
-  '# Raw PR markdown',
-  'raw reason text',
-];
-
 function findTestWorkspaceRoot(startDirectory: string): string {
   let current = resolve(startDirectory);
   const root = parse(current).root;
@@ -48,9 +30,7 @@ function findTestWorkspaceRoot(startDirectory: string): string {
 }
 
 function expectNoForbiddenCliRawOutput(serialized: string): void {
-  for (const term of forbiddenCliRawOutputTerms) {
-    expect(serialized).not.toContain(term);
-  }
+  expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
 
 function extractFunctionSource(source: string, functionName: string): string {

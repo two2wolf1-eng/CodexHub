@@ -9,29 +9,13 @@ import {
   normalizeSource,
   normalizeStatus,
 } from './index';
-
-const forbiddenPublicOutputTerms = [
-  'raw prompt fixture',
-  'stdout fixture',
-  'stderr fixture',
-  'diff --git',
-  'C:\\Users\\Thomas\\CodexHub',
-  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
-  'raw file content fixture',
-  '# Raw PR markdown',
-  'raw reason text',
-  'ghp_live_secret',
-  'cookie=session',
-  'session=secret',
-  'ENV_VALUE_SECRET',
-  'request body fixture',
-  'response body fixture',
-];
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 function expectNoForbiddenPublicOutput(serialized: string): void {
-  for (const term of forbiddenPublicOutputTerms) {
-    expect(serialized).not.toContain(term);
-  }
+  expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
 
 describe('governance-projection-kernel', () => {
@@ -117,13 +101,11 @@ describe('governance-projection-kernel', () => {
   });
 
   it('hashes representative raw source metadata out of public projection output', () => {
-    const rawFixture =
-      'raw prompt fixture stdout fixture stderr fixture diff --git C:\\Users\\Thomas\\CodexHub https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text ghp_live_secret cookie=session session=secret ENV_VALUE_SECRET request body fixture response body fixture';
     const result = createGovernanceProjection([
       {
-        id: rawFixture,
+        id: adversarialPublicOutputFixture,
         source: 'github_branch_publish_run',
-        title: rawFixture,
+        title: adversarialPublicOutputFixture,
         status: 'completed',
         evidenceRefIds: ['evidence_redacted_fixture'],
         evidenceKinds: ['github.branch_publish_summary'],

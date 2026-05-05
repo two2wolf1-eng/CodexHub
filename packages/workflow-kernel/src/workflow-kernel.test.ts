@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { MetadataOnlyEvidenceCollector } from '@codexhub/evidence-kernel';
 import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
   WorkflowRunner,
   createCustomWorkflowApprovalRecord,
   createCustomWorkflowPlan,
@@ -94,6 +98,62 @@ describe('workflow-kernel custom workflows', () => {
     expect(plan.processBoundaryInvoked).toBe(false);
     expect(rehearsal.status).toBe('blocked');
     expect(JSON.stringify(rehearsal)).not.toContain('https://github.com');
+  });
+
+  it('normalizes adversarial template and approval text before public projection', () => {
+    const template = createCustomWorkflowTemplateFromJson({
+      templateVersion: 1,
+      templateId: 'custom.adversarial-text',
+      name: adversarialPublicOutputFixture,
+      description: adversarialPublicOutputFixture,
+      steps: [
+        {
+          stepId: 'ready',
+          kind: 'readiness',
+          name: adversarialPublicOutputFixture,
+          summary: adversarialPublicOutputFixture,
+        },
+        {
+          stepId: 'publish',
+          kind: 'github-branch-publish',
+          name: adversarialPublicOutputFixture,
+          summary: adversarialPublicOutputFixture,
+        },
+      ],
+    });
+    const plan = createCustomWorkflowPlan({ template });
+    const rehearsal = runCustomWorkflowFixtureRehearsal({ template });
+    const approval = createCustomWorkflowApprovalRecord({
+      dryRunId: plan.dryRunId,
+      templateId: plan.templateId,
+      templateHash: plan.templateHash,
+      status: 'approved',
+      approvedBy: 'operator',
+      reasonHash: 'sha256:reason',
+      reasonSummary: adversarialPublicOutputFixture,
+    });
+    const childHashes = Object.fromEntries(
+      plan.stepPlans
+        .filter((step) => step.childApprovalRequired)
+        .map((step) => [step.stepId, `sha256:${step.stepId}`]),
+    );
+    const run = runCustomWorkflowCoordinator({
+      plan,
+      approvalArtifact: approval,
+      childRecordHashes: childHashes,
+    });
+    const serialized = JSON.stringify({ template, plan, rehearsal, approval, run });
+
+    expect(template.name).toBe('Custom workflow custom.adversarial-text');
+    expect(template.description).toBeUndefined();
+    expect(template.steps.map((step) => step.summary)).toEqual([
+      'Metadata-only readiness step.',
+      'Metadata-only github-branch-publish step.',
+    ]);
+    expect(approval.reasonSummary).toBe(
+      'Custom workflow approval reason stored as hash-only summary.',
+    );
+    expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
   });
 
   it('coordinates only child record hashes and blocks missing child approvals', () => {

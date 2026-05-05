@@ -16,6 +16,10 @@ import {
   projectCodexApproval,
   projectGenericApproval,
 } from './index';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 const createdAt = '2026-05-04T00:00:00.000Z';
 
@@ -112,8 +116,7 @@ describe('approval-ux-kernel', () => {
     const projection = createApprovalDecisionHistoryProjection({
       decisions: [decision],
       reasonSummaries: {
-        [decision.id]:
-          'Reject raw prompt fixture stdout fixture stderr fixture diff --git C:/private https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text token=private cookie=private session=private ENV_VALUE_SECRET request body fixture response body fixture local-control-secret',
+        [decision.id]: `Reject ${adversarialPublicOutputFixture} token=private cookie=private session=private C:/private local-control-secret`,
       },
     });
     const item = projection.items[0];
@@ -131,6 +134,7 @@ describe('approval-ux-kernel', () => {
     expect(item?.reasonSummary).not.toContain('raw file content fixture');
     expect(item?.reasonSummary).not.toContain('# Raw PR markdown');
     expect(item?.reasonSummary).not.toContain('raw reason text');
+    expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
     expect(serialized).not.toContain('token=private');
     expect(serialized).not.toContain('cookie=private');
     expect(serialized).not.toContain('session=private');

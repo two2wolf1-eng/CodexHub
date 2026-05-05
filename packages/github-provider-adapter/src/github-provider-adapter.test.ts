@@ -46,6 +46,10 @@ import {
   runGithubPublishDraftPrAcceptanceRehearsal,
   runRemoteSupersedeAcceptanceRehearsal,
 } from './index';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 const fixedNow = () => '2026-05-04T00:00:00.000Z';
 const allowedAuthority = {
@@ -73,28 +77,8 @@ const branchPublishFileInputs = branchPublishFiles.map((file) => ({
   byteCount: Buffer.byteLength(file.content, 'utf8'),
   text: true,
 }));
-const forbiddenGithubPublicOutputTerms = [
-  'raw prompt fixture',
-  'stdout fixture',
-  'stderr fixture',
-  'diff --git',
-  'C:\\Users\\Thomas\\CodexHub',
-  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
-  'raw file content fixture',
-  '# Raw PR markdown',
-  'raw reason text',
-  'ghp_live_secret',
-  'cookie=session',
-  'session=secret',
-  'ENV_VALUE_SECRET',
-  'request body fixture',
-  'response body fixture',
-];
-
 function expectNoForbiddenGithubPublicOutput(serialized: string): void {
-  for (const term of forbiddenGithubPublicOutputTerms) {
-    expect(serialized).not.toContain(term);
-  }
+  expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
 
 async function createCompletedBranchPublishRun() {
@@ -258,14 +242,15 @@ describe('github-provider-adapter M15a foundation', () => {
   });
 
   it('keeps adversarial raw fixtures out of provider public summaries', () => {
-    const rawFixture =
-      'raw prompt fixture stdout fixture stderr fixture diff --git C:\\Users\\Thomas\\CodexHub https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text ghp_live_secret cookie=session session=secret ENV_VALUE_SECRET request body fixture response body fixture';
-    const tokenReadiness = readGithubTokenReadiness({ CODEXHUB_GITHUB_TOKEN: rawFixture }, fixedNow);
+    const tokenReadiness = readGithubTokenReadiness(
+      { CODEXHUB_GITHUB_TOKEN: adversarialPublicOutputFixture },
+      fixedNow,
+    );
     const dryRun = createGithubMetadataDryRunRecord({
       owner: 'two2wolf1-eng',
       repo: 'CodexHub',
-      baseBranch: rawFixture,
-      headBranch: rawFixture,
+      baseBranch: adversarialPublicOutputFixture,
+      headBranch: adversarialPublicOutputFixture,
       requestedMetadata: ['repo', 'base_branch', 'head_branch'],
       now: fixedNow,
     });

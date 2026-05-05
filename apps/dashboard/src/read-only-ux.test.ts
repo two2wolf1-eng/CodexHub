@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { findAdversarialPublicOutputLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
   createApprovalDecisionHistoryReadOnlySummary,
   createCustomWorkflowReadOnlySummary,
@@ -31,29 +32,8 @@ import {
   summarizeMcpTools,
 } from './read-only-ux';
 
-const forbiddenRawOutputTerms = [
-  'raw prompt fixture',
-  'stdout fixture',
-  'stderr fixture',
-  'diff --git',
-  'C:\\Users\\Thomas',
-  '/Users/thomas',
-  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
-  'ghp_live_secret',
-  'cookie=session',
-  'session=secret',
-  'token=secret',
-  'ENV_VALUE_SECRET',
-  'HTTP response body fixture',
-  'raw file content fixture',
-  '# Raw PR markdown',
-  'raw reason text',
-];
-
 function expectNoForbiddenRawOutputTerms(serialized: string): void {
-  for (const term of forbiddenRawOutputTerms) {
-    expect(serialized).not.toContain(term);
-  }
+  expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
 
 describe('dashboard read-only UX helpers', () => {
@@ -81,8 +61,20 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).toContain('/api/approvals/inbox');
     expect(appSource).toContain('/api/approvals/decisions');
     expect(appSource).not.toContain('localStorage');
+    expect(appSource).not.toContain('window["localStorage"]');
+    expect(appSource).not.toContain("window['localStorage']");
+    expect(appSource).not.toContain('globalThis["localStorage"]');
+    expect(appSource).not.toContain("globalThis['localStorage']");
     expect(appSource).not.toContain('sessionStorage');
+    expect(appSource).not.toContain('window["sessionStorage"]');
+    expect(appSource).not.toContain("window['sessionStorage']");
+    expect(appSource).not.toContain('globalThis["sessionStorage"]');
+    expect(appSource).not.toContain("globalThis['sessionStorage']");
     expect(appSource).not.toContain('indexedDB');
+    expect(appSource).not.toContain('window["indexedDB"]');
+    expect(appSource).not.toContain("window['indexedDB']");
+    expect(appSource).not.toContain('globalThis["indexedDB"]');
+    expect(appSource).not.toContain("globalThis['indexedDB']");
     expect(appSource).not.toContain('approvalToken=');
   });
 
