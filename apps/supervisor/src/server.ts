@@ -387,6 +387,7 @@ import {
   createCustomWorkflowApprovalRecord,
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
+  findCustomWorkflowCatalogTemplate,
   runCustomWorkflowCoordinator,
   runCustomWorkflowFixtureRehearsal,
   createMockWorkflowDefinition,
@@ -3842,8 +3843,56 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply.code(400).send(createCustomWorkflowForbiddenRawBodyResponse(undefined));
     }
 
+    const requestedTemplateId = body?.templateId;
+    const useFixtureTemplate =
+      !requestedTemplateId || requestedTemplateId.startsWith('fixture.');
+    if (requestedTemplateId && !useFixtureTemplate) {
+      const catalogTemplate = findCustomWorkflowCatalogTemplate(requestedTemplateId, process.cwd());
+      if (!catalogTemplate) {
+        return reply.code(404).send({
+          error: 'custom workflow catalog template was not found',
+          status: 'blocked',
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          networkBoundaryInvoked: false,
+          directAdapterExecutionAllowed: false,
+        });
+      }
+      if (body?.templateHash && body.templateHash !== catalogTemplate.templateHash) {
+        return reply.code(409).send({
+          error: 'custom workflow catalog template hash mismatch',
+          status: 'blocked',
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          networkBoundaryInvoked: false,
+          directAdapterExecutionAllowed: false,
+        });
+      }
+
+      const runtimeEnabled =
+        options.customWorkflowEnabled ??
+        process.env.CODEXHUB_CUSTOM_WORKFLOWS_ENABLED === 'true';
+      const templateProductionEnabled =
+        catalogTemplate.metadata?.productionExecutionEnabled === true;
+      const blockReasons =
+        runtimeEnabled && templateProductionEnabled
+          ? []
+          : ['custom_workflow_template_production_disabled'];
+      const dryRunRecord = createCustomWorkflowPlan({
+        template: catalogTemplate,
+        blockReasons,
+        summary:
+          blockReasons.length === 0
+            ? 'Production custom workflow dry-run planned from catalog template.'
+            : 'Production custom workflow dry-run blocked because production execution is disabled.',
+      });
+      await persistCustomWorkflowDryRunRecord(dryRunRecord, store);
+
+      return createCustomWorkflowDryRunResponse(dryRunRecord);
+    }
+
     const template = createCustomWorkflowTemplateFixture({
-      templateId: body?.templateId ?? 'fixture.custom-workflow.local-pilot',
+      templateId: requestedTemplateId ?? 'fixture.custom-workflow.local-pilot',
       ...(body?.templateHash ? { templateHash: body.templateHash } : {}),
     });
     const dryRunRecord = createCustomWorkflowPlan({ template });
@@ -3891,6 +3940,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const dryRunRecord = await resolveCustomWorkflowDryRunRecord(body?.dryRunId, store);
     if (!dryRunRecord) {
       return reply.code(404).send({ error: 'custom workflow dry-run record was not found' });
+    }
+    if (dryRunRecord.status === 'blocked') {
+      return reply.code(409).send({
+        error: 'custom workflow dry-run is blocked',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
     }
 
     const approvalRecord = createCustomWorkflowApprovalRecord({
@@ -4001,6 +4061,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const approvalRecord = body?.approvalArtifactId
       ? await resolveCustomWorkflowApprovalRecordByArtifactId(body.approvalArtifactId, store)
       : undefined;
+    if (
+      approvalRecord &&
+      (approvalRecord.dryRunId !== dryRunRecord.dryRunId ||
+        approvalRecord.templateId !== dryRunRecord.templateId ||
+        approvalRecord.templateHash !== dryRunRecord.templateHash)
+    ) {
+      return reply.code(409).send({
+        error: 'custom workflow approval does not match dry-run',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
     const enabled =
       options.customWorkflowEnabled ??
       process.env.CODEXHUB_CUSTOM_WORKFLOWS_ENABLED === 'true';

@@ -6649,6 +6649,32 @@ describe('supervisor GitHub branch publish control plane', () => {
         templateHash: 'sha256:custom-workflow-template',
       },
     });
+    const catalogDisabledDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        templateId: 'local-patch-review',
+      },
+    });
+    const catalogStaleHashResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        templateId: 'local-patch-review',
+        templateHash: 'sha256:stale-template-hash',
+      },
+    });
+    const catalogBlockedApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: catalogDisabledDryRunResponse.json().dryRunId,
+        reason: 'blocked catalog template should not be approvable',
+      },
+    });
     const dryRun = dryRunResponse.json();
     const forgedApprovalRequestResponse = await server.inject({
       method: 'POST',
@@ -6755,6 +6781,30 @@ describe('supervisor GitHub branch publish control plane', () => {
       directAdapterExecutionAllowed: false,
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
+    });
+    expect(catalogDisabledDryRunResponse.statusCode).toBe(200);
+    expect(catalogDisabledDryRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      templateId: 'local-patch-review',
+      validationStatus: 'valid',
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(catalogDisabledDryRunResponse.json().blockReasons).toContain(
+      'custom_workflow_template_production_disabled',
+    );
+    expect(catalogStaleHashResponse.statusCode).toBe(409);
+    expect(catalogStaleHashResponse.json()).toMatchObject({
+      error: 'custom workflow catalog template hash mismatch',
+      status: 'blocked',
+      directAdapterExecutionAllowed: false,
+    });
+    expect(catalogBlockedApprovalResponse.statusCode).toBe(409);
+    expect(catalogBlockedApprovalResponse.json()).toMatchObject({
+      error: 'custom workflow dry-run is blocked',
+      status: 'blocked',
+      directAdapterExecutionAllowed: false,
     });
     expect(forgedApprovalRequestResponse.statusCode).toBe(400);
     expect(approvalRequestResponse.statusCode).toBe(200);

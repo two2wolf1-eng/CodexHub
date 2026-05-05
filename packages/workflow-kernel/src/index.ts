@@ -82,6 +82,8 @@ export interface CustomWorkflowPlannerOptions {
   template?: CustomWorkflowTemplate;
   dryRunId?: string;
   validationReport?: CustomWorkflowValidationReport;
+  blockReasons?: string[];
+  summary?: string;
 }
 
 export interface CustomWorkflowCoordinatorOptions {
@@ -772,10 +774,12 @@ export function createCustomWorkflowPlan(
       step.actionMode === 'write' ||
       step.actionMode === 'admin',
   );
-  const blockReasons =
-    validationReport.status === 'valid'
+  const blockReasons = [
+    ...(options.blockReasons ?? []),
+    ...(validationReport.status === 'valid'
       ? []
-      : ['custom_workflow_template_invalid'];
+      : ['custom_workflow_template_invalid']),
+  ];
 
   return CustomWorkflowPlanSchema.parse({
     id: foundationId('custom_workflow_dry_run'),
@@ -801,9 +805,10 @@ export function createCustomWorkflowPlan(
     bodyStored: false,
     rawPathStored: false,
     summary:
-      blockReasons.length === 0
+      options.summary ??
+      (blockReasons.length === 0
         ? `Custom workflow dry-run planned ${stepPlans.length} steps.`
-        : 'Custom workflow dry-run blocked by validation.',
+        : 'Custom workflow dry-run blocked by governance or validation.'),
     metadata: { templateHash: template.templateHash },
   });
 }
@@ -1315,10 +1320,16 @@ function createCustomWorkflowRehearsalBlockReasons(
   switch (CustomWorkflowRehearsalScenarioSchema.parse(scenario)) {
     case 'all-pass':
       return [];
+    case 'template-disabled':
+      return ['custom_workflow_template_production_disabled'];
+    case 'stale-template-hash':
+      return ['custom_workflow_template_hash_stale'];
     case 'invalid-template':
       return ['custom_workflow_template_invalid'];
     case 'missing-child-reference':
       return ['custom_workflow_child_reference_missing'];
+    case 'workflow-approval-blocked':
+      return ['custom_workflow_approval_missing_or_not_approved'];
     case 'approval-blocked':
       return ['custom_workflow_approval_blocked'];
     case 'verification-failed':
@@ -1329,6 +1340,8 @@ function createCustomWorkflowRehearsalBlockReasons(
       return ['custom_workflow_cleanup_blocked'];
     case 'child-approval-blocked':
       return ['custom_workflow_child_approval_blocked'];
+    case 'child-run-failed':
+      return ['custom_workflow_child_run_failed'];
     case 'superseded-source':
       return ['custom_workflow_source_superseded'];
   }

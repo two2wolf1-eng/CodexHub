@@ -492,13 +492,17 @@ export type CustomWorkflowRunStatus = z.infer<
 
 export const CustomWorkflowRehearsalScenarioSchema = z.enum([
   'all-pass',
+  'template-disabled',
+  'stale-template-hash',
   'invalid-template',
   'missing-child-reference',
+  'workflow-approval-blocked',
   'approval-blocked',
   'verification-failed',
   'remote-step-blocked',
   'cleanup-blocked',
   'child-approval-blocked',
+  'child-run-failed',
   'superseded-source',
 ]);
 export type CustomWorkflowRehearsalScenario = z.infer<
