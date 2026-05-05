@@ -550,7 +550,7 @@ describe('cli development mock-run fallback', () => {
     expect(output).toContain('m11_pilot_run_1');
     expect(output).toContain('policy_backend_projection_local');
     expect(output).toContain('telemetry_projection_local');
-    expect(fetchCalls).toHaveLength(30);
+    expect(fetchCalls).toHaveLength(32);
     expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
   });
 
@@ -1507,6 +1507,176 @@ describe('cli development mock-run fallback', () => {
     expect(rehearsalOutput).toContain('GitHub PR lifecycle acceptance rehearsal');
     expect(rehearsalOutput).toContain('rawResponseBodyStored=false');
     expect(() => runGithubPrLifecycleAcceptanceRehearsalForCli({ fixture: false })).toThrow();
+    expect(fetchCalls).toHaveLength(4);
+  });
+
+  it('shows rework loop metadata using GET endpoints only', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).includes('/api/rework-loops/dry-runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'rework_loop_dry_run_record_1',
+                dryRunId: 'rework_loop_dry_run_1',
+                status: 'planned',
+                triggerKind: 'checks_failed',
+                sourceRunIdHash: 'sha256:source-run',
+                plannedBranchNameHash: 'sha256:branch',
+                attemptCount: 1,
+                childApprovalsRequired: true,
+                directChildExecutionAllowed: false,
+                rawDiffStored: false,
+                rawPrBodyStored: false,
+                rawReasonStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/rework-loops/approvals')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                recordId: 'rework_loop_approval_record_1',
+                dryRunId: 'rework_loop_dry_run_1',
+                approvalArtifactId: 'rework_loop_approval_1',
+                status: 'approved',
+                childApprovalsRequired: true,
+                directChildExecutionAllowed: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).endsWith('/api/rework-loops/runs/rework_loop_run_1')) {
+        return new Response(
+          JSON.stringify({
+            runId: 'rework_loop_run_1',
+            dryRunId: 'rework_loop_dry_run_1',
+            status: 'completed',
+            triggerKind: 'checks_failed',
+            sourceRunIdHash: 'sha256:source-run',
+            sourcePackageIdHash: 'sha256:package',
+            plannedBranchNameHash: 'sha256:branch',
+            attemptCount: 2,
+            childApprovalsRequired: true,
+            directChildExecutionAllowed: false,
+            patchExecuted: false,
+            branchPublished: false,
+            draftPrCreated: false,
+            networkBoundaryInvoked: false,
+            processBoundaryInvoked: false,
+            externalProcessStarted: false,
+            noRealWrite: true,
+            rawDiffStored: false,
+            rawPrBodyStored: false,
+            rawReasonStored: false,
+            rawPathStored: false,
+            bodyStored: false,
+            evidenceRefIds: ['evidence_rework_1'],
+            auditEventIds: ['audit_rework_1'],
+            summary: 'metadata-only rework projection',
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (String(url).includes('/api/rework-loops/runs')) {
+        return new Response(
+          JSON.stringify({
+            records: [
+              {
+                runId: 'rework_loop_run_1',
+                dryRunId: 'rework_loop_dry_run_1',
+                status: 'completed',
+                triggerKind: 'checks_failed',
+                sourceRunIdHash: 'sha256:source-run',
+                plannedBranchNameHash: 'sha256:branch',
+                attemptCount: 2,
+                childApprovalsRequired: true,
+                directChildExecutionAllowed: false,
+                patchExecuted: false,
+                branchPublished: false,
+                draftPrCreated: false,
+                networkBoundaryInvoked: false,
+                processBoundaryInvoked: false,
+                externalProcessStarted: false,
+                noRealWrite: true,
+                rawDiffStored: false,
+                rawPrBodyStored: false,
+                rawReasonStored: false,
+                bodyStored: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    const {
+      formatReworkLoopAcceptanceRehearsalOutput,
+      formatReworkLoopApprovalsListOutput,
+      formatReworkLoopDryRunsListOutput,
+      formatReworkLoopRunDetailOutput,
+      formatReworkLoopRunsListOutput,
+      listReworkLoopApprovals,
+      listReworkLoopDryRuns,
+      listReworkLoopRuns,
+      runReworkLoopAcceptanceRehearsalForCli,
+      showReworkLoopRun,
+    } = await import('./main');
+    const dryRuns = await listReworkLoopDryRuns();
+    const approvals = await listReworkLoopApprovals();
+    const runs = await listReworkLoopRuns();
+    const detail = await showReworkLoopRun('rework_loop_run_1');
+    const serialized = JSON.stringify({ dryRuns, approvals, runs, detail });
+    const output = [
+      formatReworkLoopDryRunsListOutput(dryRuns),
+      formatReworkLoopApprovalsListOutput(approvals),
+      formatReworkLoopRunsListOutput(runs),
+      formatReworkLoopRunDetailOutput(detail),
+    ].join('\n');
+
+    expect(output).toContain('Rework loop runs');
+    expect(output).toContain('rework_loop_run_1');
+    expect(output).toContain('directChildExecutionAllowed=false');
+    expect(output).toContain('patchExecuted=false');
+    expect(output).toContain('branchPublished=false');
+    expect(output).toContain('draftPrCreated=false');
+    expect(fetchCalls).toHaveLength(4);
+    expect(fetchCalls.every((call) => call.init?.method === undefined)).toBe(true);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('raw reason');
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL');
+    expect(serialized).not.toContain('local-control');
+
+    const rehearsal = runReworkLoopAcceptanceRehearsalForCli({
+      fixture: true,
+      scenario: 'branch-publish-failed',
+    });
+    const rehearsalOutput = formatReworkLoopAcceptanceRehearsalOutput(rehearsal);
+
+    expect(rehearsal.status).toBe('failed');
+    expect(rehearsal.childApprovalsRequired).toBe(true);
+    expect(rehearsal.directChildExecutionAllowed).toBe(false);
+    expect(rehearsal.networkBoundaryInvoked).toBe(false);
+    expect(rehearsalOutput).toContain('Rework loop acceptance rehearsal');
+    expect(rehearsalOutput).toContain('rawReasonStored=false');
+    expect(() => runReworkLoopAcceptanceRehearsalForCli({ fixture: false })).toThrow();
     expect(fetchCalls).toHaveLength(4);
   });
 

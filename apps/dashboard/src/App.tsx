@@ -55,6 +55,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
   createWorktreeReadOnlySummary,
   getDashboardHash,
@@ -116,6 +117,9 @@ interface OverviewState {
   githubPrLifecycleDryRuns: GithubPrLifecycleControlSummary[];
   githubPrLifecycleApprovals: GithubPrLifecycleControlSummary[];
   githubPrLifecycleRuns: GithubPrLifecycleControlSummary[];
+  reworkLoopDryRuns: ReworkLoopControlSummary[];
+  reworkLoopApprovals: ReworkLoopControlSummary[];
+  reworkLoopRuns: ReworkLoopControlSummary[];
   worktreeDryRuns: WorktreeControlSummary[];
   worktreeApprovals: WorktreeControlSummary[];
   worktreeRuns: WorktreeControlSummary[];
@@ -428,6 +432,37 @@ interface GithubPrLifecycleControlSummary {
   summary?: string;
 }
 
+interface ReworkLoopControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  triggerKind?: string;
+  sourceRunIdHash?: string;
+  sourcePackageIdHash?: string;
+  previousAttemptIdHash?: string;
+  plannedBranchNameHash?: string;
+  attemptCount?: number;
+  childApprovalsRequired?: boolean;
+  directChildExecutionAllowed?: boolean;
+  patchExecuted?: boolean;
+  branchPublished?: boolean;
+  draftPrCreated?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawDiffStored?: boolean;
+  rawPrBodyStored?: boolean;
+  rawReasonStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
 interface ReviewPackageControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -599,6 +634,9 @@ export function App() {
     githubPrLifecycleDryRuns: [],
     githubPrLifecycleApprovals: [],
     githubPrLifecycleRuns: [],
+    reworkLoopDryRuns: [],
+    reworkLoopApprovals: [],
+    reworkLoopRuns: [],
     worktreeDryRuns: [],
     worktreeApprovals: [],
     worktreeRuns: [],
@@ -932,6 +970,17 @@ export function App() {
       networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
       noRealWrite: run.noRealWrite ?? true,
     })),
+    ...overview.reworkLoopRuns.map((run) => ({
+      id: run.runId ?? run.recordId ?? run.dryRunId ?? 'rework_loop_run',
+      source: 'rework_loop_run',
+      status: run.status,
+      evidenceRefIds: run.evidenceRefIds,
+      auditEventIds: run.auditEventIds,
+      processBoundaryInvoked: run.processBoundaryInvoked,
+      externalProcessStarted: run.externalProcessStarted,
+      networkBoundaryInvoked: run.networkBoundaryInvoked ?? false,
+      noRealWrite: run.noRealWrite ?? true,
+    })),
     ...overview.reviewPackageRuns.map((run) => ({
       id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
       source: 'review_package_run',
@@ -970,6 +1019,8 @@ export function App() {
   const pilotAcceptanceSummary = createM10PilotAcceptanceReadOnlySummary();
   const m11PilotAcceptanceSmokeSummary = createM11PilotAcceptanceSmokeReadOnlySummary();
   const localRcAcceptanceRehearsalSummary = createLocalRcAcceptanceRehearsalReadOnlySummary();
+  const reworkLoopAcceptanceRehearsalSummary =
+    createReworkLoopAcceptanceRehearsalReadOnlySummary();
   const m11PilotSummary = createM11PilotReadOnlySummary({
     runCount: overview.m11PilotRuns.length,
     approvalInboxItemCount: overview.approvalInbox?.items.length ?? 0,
@@ -1283,6 +1334,9 @@ export function App() {
           githubPrLifecycleDryRunsResponse,
           githubPrLifecycleApprovalsResponse,
           githubPrLifecycleRunsResponse,
+          reworkLoopDryRunsResponse,
+          reworkLoopApprovalsResponse,
+          reworkLoopRunsResponse,
           worktreeDryRunsResponse,
           worktreeApprovalsResponse,
           worktreeRunsResponse,
@@ -1378,6 +1432,17 @@ export function App() {
             '/api/github/pr-lifecycle/runs',
             { records: [] },
           ),
+          getOptionalJson<{ records: ReworkLoopControlSummary[] }>(
+            '/api/rework-loops/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReworkLoopControlSummary[] }>(
+            '/api/rework-loops/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReworkLoopControlSummary[] }>('/api/rework-loops/runs', {
+            records: [],
+          }),
           getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
             records: [],
           }),
@@ -1504,6 +1569,9 @@ export function App() {
             githubPrLifecycleDryRuns: githubPrLifecycleDryRunsResponse.records,
             githubPrLifecycleApprovals: githubPrLifecycleApprovalsResponse.records,
             githubPrLifecycleRuns: githubPrLifecycleRunsResponse.records,
+            reworkLoopDryRuns: reworkLoopDryRunsResponse.records,
+            reworkLoopApprovals: reworkLoopApprovalsResponse.records,
+            reworkLoopRuns: reworkLoopRunsResponse.records,
             worktreeDryRuns: worktreeDryRunsResponse.records,
             worktreeApprovals: worktreeApprovalsResponse.records,
             worktreeRuns: worktreeRunsResponse.records,
@@ -1570,6 +1638,9 @@ export function App() {
             githubPrLifecycleDryRuns: [],
             githubPrLifecycleApprovals: [],
             githubPrLifecycleRuns: [],
+            reworkLoopDryRuns: [],
+            reworkLoopApprovals: [],
+            reworkLoopRuns: [],
             worktreeDryRuns: [],
             worktreeApprovals: [],
             worktreeRuns: [],
@@ -1983,6 +2054,49 @@ export function App() {
                 sends local-control credentials.
               </p>
             )}
+          </Panel>
+          <Panel title="Rework Loop">
+            <ul>
+              <li>
+                <strong>records</strong>
+                <span>
+                  dry-runs {overview.reworkLoopDryRuns.length}, approvals{' '}
+                  {overview.reworkLoopApprovals.length}, runs {overview.reworkLoopRuns.length}
+                </span>
+              </li>
+              <li>
+                <strong>latest trigger</strong>
+                <span>{overview.reworkLoopRuns[0]?.triggerKind ?? 'none'}</span>
+              </li>
+              <li>
+                <strong>latest branch</strong>
+                <span>{overview.reworkLoopRuns[0]?.plannedBranchNameHash ?? 'none'}</span>
+              </li>
+              <li>
+                <strong>child execution</strong>
+                <span>
+                  approvals{' '}
+                  {String(overview.reworkLoopRuns[0]?.childApprovalsRequired ?? true)}, direct{' '}
+                  {String(overview.reworkLoopRuns[0]?.directChildExecutionAllowed ?? false)}
+                </span>
+              </li>
+              <li>
+                <strong>child actions</strong>
+                <span>
+                  patch {String(overview.reworkLoopRuns[0]?.patchExecuted ?? false)}, branch{' '}
+                  {String(overview.reworkLoopRuns[0]?.branchPublished ?? false)}, draft PR{' '}
+                  {String(overview.reworkLoopRuns[0]?.draftPrCreated ?? false)}
+                </span>
+              </li>
+              <li>
+                <strong>acceptance rehearsal</strong>
+                <span>
+                  {reworkLoopAcceptanceRehearsalSummary.status} /{' '}
+                  {reworkLoopAcceptanceRehearsalSummary.nextActionStatus}
+                </span>
+              </li>
+            </ul>
+            <p>{reworkLoopAcceptanceRehearsalSummary.summary}</p>
           </Panel>
         </section>
       ) : activeView === 'overview' ? (

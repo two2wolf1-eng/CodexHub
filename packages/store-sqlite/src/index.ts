@@ -28,6 +28,9 @@ import type {
   GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
+  ReworkLoopApprovalArtifactRecord,
+  ReworkLoopPlan,
+  ReworkLoopRun,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -118,6 +121,10 @@ import type {
   GithubPublishDraftPrChainControlPlaneQuery,
   GithubPublishDraftPrChainDryRunRepository,
   GithubPublishDraftPrChainRunRepository,
+  ReworkLoopApprovalRepository,
+  ReworkLoopControlPlaneQuery,
+  ReworkLoopDryRunRepository,
+  ReworkLoopRunRepository,
   WorktreeApprovalRepository,
   WorktreeCleanupApprovalRepository,
   WorktreeCleanupDryRunRepository,
@@ -223,6 +230,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
   readonly githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
   readonly githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
+  readonly reworkLoopDryRuns: ReworkLoopDryRunRepository;
+  readonly reworkLoopApprovals: ReworkLoopApprovalRepository;
+  readonly reworkLoopRuns: ReworkLoopRunRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -290,6 +300,9 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.githubPrLifecycleDryRuns = new SqliteGithubPrLifecycleDryRunRepository(database);
     this.githubPrLifecycleApprovals = new SqliteGithubPrLifecycleApprovalRepository(database);
     this.githubPrLifecycleRuns = new SqliteGithubPrLifecycleRunRepository(database);
+    this.reworkLoopDryRuns = new SqliteReworkLoopDryRunRepository(database);
+    this.reworkLoopApprovals = new SqliteReworkLoopApprovalRepository(database);
+    this.reworkLoopRuns = new SqliteReworkLoopRunRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -1699,6 +1712,106 @@ class SqliteGithubPrLifecycleRunRepository implements GithubPrLifecycleRunReposi
   }
 }
 
+class SqliteReworkLoopDryRunRepository implements ReworkLoopDryRunRepository {
+  private readonly repository: JsonEntityRepository<ReworkLoopPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ReworkLoopPlan>(
+      database,
+      'rework_loop_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: ReworkLoopPlan): Promise<ReworkLoopPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<ReworkLoopPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(query: ReworkLoopControlPlaneQuery = {}): Promise<ReworkLoopPlan[]> {
+    return listObservationControlPlaneRecords<ReworkLoopPlan>(
+      this.database,
+      'rework_loop_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteReworkLoopApprovalRepository implements ReworkLoopApprovalRepository {
+  private readonly repository: JsonEntityRepository<ReworkLoopApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ReworkLoopApprovalArtifactRecord>(
+      database,
+      'rework_loop_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: ReworkLoopApprovalArtifactRecord,
+  ): Promise<ReworkLoopApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<ReworkLoopApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ReworkLoopApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM rework_loop_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as ReworkLoopApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: ReworkLoopControlPlaneQuery = {},
+  ): Promise<ReworkLoopApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<ReworkLoopApprovalArtifactRecord>(
+      this.database,
+      'rework_loop_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteReworkLoopRunRepository implements ReworkLoopRunRepository {
+  private readonly repository: JsonEntityRepository<ReworkLoopRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ReworkLoopRun>(
+      database,
+      'rework_loop_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: ReworkLoopRun): Promise<ReworkLoopRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<ReworkLoopRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(query: ReworkLoopControlPlaneQuery = {}): Promise<ReworkLoopRun[]> {
+    return listObservationControlPlaneRecords<ReworkLoopRun>(
+      this.database,
+      'rework_loop_runs',
+      query,
+    );
+  }
+}
+
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
 
@@ -2778,6 +2891,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_pr_lifecycle_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rework_loop_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rework_loop_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rework_loop_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

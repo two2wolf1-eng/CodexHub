@@ -21,6 +21,9 @@ import type {
   GithubPrLifecycleObservationRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
+  ReworkLoopApprovalArtifactRecord,
+  ReworkLoopPlan,
+  ReworkLoopRun,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -104,6 +107,7 @@ export type GithubDraftPrControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubBranchPublishControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPublishDraftPrChainControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPrLifecycleControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -445,6 +449,31 @@ export interface GithubPrLifecycleRunRepository {
   ): Promise<GithubPrLifecycleObservationRun[]>;
 }
 
+export interface ReworkLoopDryRunRepository {
+  saveDryRun(record: ReworkLoopPlan): Promise<ReworkLoopPlan>;
+  getDryRun(id: string): Promise<ReworkLoopPlan | undefined>;
+  listDryRuns(query?: ReworkLoopControlPlaneQuery): Promise<ReworkLoopPlan[]>;
+}
+
+export interface ReworkLoopApprovalRepository {
+  saveApproval(
+    record: ReworkLoopApprovalArtifactRecord,
+  ): Promise<ReworkLoopApprovalArtifactRecord>;
+  getApproval(id: string): Promise<ReworkLoopApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ReworkLoopApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: ReworkLoopControlPlaneQuery,
+  ): Promise<ReworkLoopApprovalArtifactRecord[]>;
+}
+
+export interface ReworkLoopRunRepository {
+  saveRun(record: ReworkLoopRun): Promise<ReworkLoopRun>;
+  getRun(id: string): Promise<ReworkLoopRun | undefined>;
+  listRuns(query?: ReworkLoopControlPlaneQuery): Promise<ReworkLoopRun[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -651,6 +680,9 @@ export interface CodexHubStore {
   githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
   githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
   githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
+  reworkLoopDryRuns: ReworkLoopDryRunRepository;
+  reworkLoopApprovals: ReworkLoopApprovalRepository;
+  reworkLoopRuns: ReworkLoopRunRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

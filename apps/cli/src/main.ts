@@ -155,6 +155,7 @@ import type {
   GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
+  ReworkLoopAcceptanceScenario,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
   ApprovalInboxProjection,
@@ -169,6 +170,7 @@ import {
   runM10PilotAcceptanceRehearsal,
   runM11PilotAcceptanceSmoke,
   runMockDevelopmentOrchestration,
+  runReworkLoopAcceptanceRehearsal,
 } from '@codexhub/orchestrator-kernel';
 import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kernel';
 import {
@@ -313,6 +315,7 @@ export interface ReadOnlyRunSummary {
     | 'github_branch_publish_run'
     | 'github_publish_draft_pr_chain_run'
     | 'github_pr_lifecycle_run'
+    | 'rework_loop_run'
     | 'worktree_run'
     | 'worktree_cleanup_run'
     | 'review_package_run'
@@ -650,6 +653,49 @@ interface GithubPrLifecycleApiRecord {
   rawPathStored?: boolean;
   rawUrlStored?: boolean;
   rawResponseBodyStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface ReworkLoopApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  approvalRequestId?: string;
+  runId?: string;
+  status?: string;
+  triggerKind?: string;
+  sourceRunIdHash?: string;
+  sourcePackageHash?: string;
+  requestedAttemptNumber?: number;
+  attemptCount?: number;
+  attemptStatus?: string;
+  plannedBranchNameHash?: string;
+  branchPrefix?: string;
+  branchAttemptSuffix?: string;
+  changedFileCount?: number;
+  nextActionSummaryHash?: string;
+  superseded?: boolean;
+  oldBranchPreserved?: boolean;
+  blockReasons?: string[];
+  childApprovalsRequired?: boolean;
+  directChildExecutionAllowed?: boolean;
+  patchExecuted?: boolean;
+  branchPublished?: boolean;
+  draftPrCreated?: boolean;
+  updateExistingBranchAllowed?: boolean;
+  forceAllowed?: boolean;
+  mergeAllowed?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawDiffStored?: boolean;
+  rawPrBodyStored?: boolean;
+  rawReasonStored?: boolean;
+  rawPathStored?: boolean;
   bodyStored?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
@@ -1756,6 +1802,70 @@ export function buildProgram(): Command {
     .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
       const result = runGithubPrLifecycleAcceptanceRehearsalForCli(options);
       console.log(formatGithubPrLifecycleAcceptanceRehearsalOutput(result, options));
+    });
+
+  const reworkLoopsCommand = program
+    .command('rework-loops')
+    .description('Read-only M20 rework loop metadata and fixture rehearsal commands');
+
+  const reworkLoopDryRunsCommand = reworkLoopsCommand
+    .command('dry-runs')
+    .description('Read rework loop dry-run records');
+
+  reworkLoopDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List rework loop dry-runs without executing child control planes')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReworkLoopDryRuns();
+      console.log(formatReworkLoopDryRunsListOutput(result, options));
+    });
+
+  const reworkLoopApprovalsCommand = reworkLoopsCommand
+    .command('approvals')
+    .description('Read rework loop approval records');
+
+  reworkLoopApprovalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List rework loop approvals without making decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReworkLoopApprovals();
+      console.log(formatReworkLoopApprovalsListOutput(result, options));
+    });
+
+  const reworkLoopRunsCommand = reworkLoopsCommand
+    .command('runs')
+    .description('Read rework loop run records');
+
+  reworkLoopRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List rework loop runs without executing patch, branch, or PR actions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listReworkLoopRuns();
+      console.log(formatReworkLoopRunsListOutput(result, options));
+    });
+
+  reworkLoopRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show rework loop run details without executing child control planes')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showReworkLoopRun(runId);
+      console.log(formatReworkLoopRunDetailOutput(result, options));
+    });
+
+  reworkLoopsCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse M20 rework loop governance without live child execution')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runReworkLoopAcceptanceRehearsalForCli(options);
+      console.log(formatReworkLoopAcceptanceRehearsalOutput(result, options));
     });
 
   const worktreesCommand = program
@@ -3148,6 +3258,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     githubBranchPublishRunResult,
     githubPublishDraftPrChainRunResult,
     githubPrLifecycleRunResult,
+    reworkLoopRunResult,
     worktreeRunResult,
     worktreeCleanupRunResult,
     reviewPackageRunResult,
@@ -3177,6 +3288,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
       getSupervisorJson<{ records: GithubPrLifecycleApiRecord[] }>(
         '/api/github/pr-lifecycle/runs',
       ),
+      getSupervisorJson<{ records: ReworkLoopApiRecord[] }>('/api/rework-loops/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/runs'),
       getSupervisorJson<{ records: WorktreeApiRecord[] }>('/api/worktrees/cleanup/runs'),
       getSupervisorJson<{ records: ReviewPackageApiRecord[] }>('/api/review-packages/runs'),
@@ -3204,6 +3316,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     ...summarizeGithubPrLifecycleRunRecords(
       settledValue(githubPrLifecycleRunResult)?.records ?? [],
     ),
+    ...summarizeReworkLoopRunRecords(settledValue(reworkLoopRunResult)?.records ?? []),
     ...summarizeWorktreeRunRecords(settledValue(worktreeRunResult)?.records ?? [], false),
     ...summarizeWorktreeRunRecords(
       settledValue(worktreeCleanupRunResult)?.records ?? [],
@@ -3227,6 +3340,7 @@ export async function listReadOnlyRuns(): Promise<Record<string, unknown>> {
     settledError(githubBranchPublishRunResult),
     settledError(githubPublishDraftPrChainRunResult),
     settledError(githubPrLifecycleRunResult),
+    settledError(reworkLoopRunResult),
     settledError(worktreeRunResult),
     settledError(worktreeCleanupRunResult),
     settledError(reviewPackageRunResult),
@@ -3571,6 +3685,19 @@ export function runGithubPrLifecycleAcceptanceRehearsalForCli(options: {
   const scenario = normalizeGithubPrLifecycleAcceptanceScenario(options.scenario);
 
   return runGithubPrLifecycleAcceptanceRehearsal({ scenario });
+}
+
+export function runReworkLoopAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runReworkLoopAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('M20 rework loop acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeReworkLoopAcceptanceScenario(options.scenario);
+
+  return runReworkLoopAcceptanceRehearsal({ scenario });
 }
 
 export async function getM11PilotReadinessForCli(): Promise<Record<string, unknown>> {
@@ -4244,6 +4371,69 @@ export async function showGithubPrLifecycleRun(
   }
 }
 
+export async function listReworkLoopDryRuns(): Promise<Record<string, unknown>> {
+  return listReworkLoopCollection(
+    '/api/rework-loops/dry-runs',
+    'Rework loop dry-runs are read from Supervisor GET endpoints only.',
+    'Rework loop dry-run source is unavailable; no child control plane was executed.',
+  );
+}
+
+export async function listReworkLoopApprovals(): Promise<Record<string, unknown>> {
+  return listReworkLoopCollection(
+    '/api/rework-loops/approvals',
+    'Rework loop approvals are read from Supervisor GET endpoints only.',
+    'Rework loop approval source is unavailable; no decision was made.',
+  );
+}
+
+export async function listReworkLoopRuns(): Promise<Record<string, unknown>> {
+  return listReworkLoopCollection(
+    '/api/rework-loops/runs',
+    'Rework loop runs are read from Supervisor GET endpoints only.',
+    'Rework loop run source is unavailable; no patch, branch, or PR action was executed.',
+  );
+}
+
+export async function showReworkLoopRun(runId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<ReworkLoopApiRecord>(
+      `/api/rework-loops/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'Rework loop run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'Rework loop run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      note: 'No rework loop execution was attempted.',
+    };
+  }
+}
+
 export async function listWorktreeDryRuns(): Promise<Record<string, unknown>> {
   return listWorktreeCollection(
     '/api/worktrees/dry-runs',
@@ -4794,6 +4984,23 @@ function summarizeGithubPrLifecycleRunRecords(
   }));
 }
 
+function summarizeReworkLoopRunRecords(runs: ReworkLoopApiRecord[]): ReadOnlyRunSummary[] {
+  return runs.map((run) => ({
+    id: run.runId ?? run.recordId ?? run.dryRunId ?? 'rework_loop_run',
+    source: 'rework_loop_run',
+    title: `Rework loop ${run.status ?? 'unknown'}`,
+    status: run.status ?? 'unknown',
+    summary: run.summary ?? 'M20 rework loop metadata summary.',
+    evidenceCount: run.evidenceRefIds?.length ?? 0,
+    auditEventCount: run.auditEventIds?.length ?? 0,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: run.noRealWrite ?? true,
+    bodyStored: false,
+  }));
+}
+
 function summarizeReviewPackageRunRecords(runs: ReviewPackageApiRecord[]): ReadOnlyRunSummary[] {
   return runs.map((run) => ({
     id: run.runId ?? run.recordId ?? run.dryRunId ?? 'review_package_run',
@@ -5222,6 +5429,30 @@ function normalizeGithubPrLifecycleAcceptanceScenario(
   throw new Error(`Unsupported GitHub PR lifecycle acceptance fixture scenario: ${scenario}`);
 }
 
+function normalizeReworkLoopAcceptanceScenario(
+  scenario: string | undefined,
+): ReworkLoopAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'checks-failed-rework' ||
+    scenario === 'review-changes-requested' ||
+    scenario === 'patch-failed' ||
+    scenario === 'verification-failed' ||
+    scenario === 'branch-publish-failed' ||
+    scenario === 'draft-pr-failed' ||
+    scenario === 'stale-branch' ||
+    scenario === 'superseded-source' ||
+    scenario === 'approval-blocked'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported rework loop acceptance fixture scenario: ${scenario}`);
+}
+
 async function listWorktreeCollection(
   path: string,
   note: string,
@@ -5493,6 +5724,56 @@ async function listGithubPrLifecycleCollection(
       rawPathStored: false,
       rawUrlStored: false,
       rawResponseBodyStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listReworkLoopCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: ReworkLoopApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message: error instanceof Error ? error.message : 'Rework loop source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
       bodyStored: false,
       note: degradedNote,
     };
@@ -9732,6 +10013,108 @@ export function formatGithubPrLifecycleAcceptanceRehearsalOutput(
   ].join('\n');
 }
 
+export function formatReworkLoopDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReworkLoopCollectionOutput('Rework loop dry-runs', result, options);
+}
+
+export function formatReworkLoopApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReworkLoopCollectionOutput('Rework loop approvals', result, options);
+}
+
+export function formatReworkLoopRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatReworkLoopCollectionOutput('Rework loop runs', result, options);
+}
+
+export function formatReworkLoopRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as ReworkLoopApiRecord | undefined;
+
+  return [
+    'Rework loop run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `trigger: ${run?.triggerKind ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.sourceRunIdHash ? `sourceRunIdHash: ${run.sourceRunIdHash}` : undefined,
+    run?.sourcePackageHash ? `sourcePackageHash: ${run.sourcePackageHash}` : undefined,
+    run?.plannedBranchNameHash
+      ? `plannedBranchNameHash: ${run.plannedBranchNameHash}`
+      : undefined,
+    `attempts=${String(run?.attemptCount ?? 0)}`,
+    `childApprovalsRequired=${String(run?.childApprovalsRequired ?? true)}`,
+    `directChildExecutionAllowed=${String(run?.directChildExecutionAllowed ?? false)}`,
+    `patchExecuted=${String(run?.patchExecuted ?? false)}`,
+    `branchPublished=${String(run?.branchPublished ?? false)}`,
+    `draftPrCreated=${String(run?.draftPrCreated ?? false)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `rawDiffStored=${String(run?.rawDiffStored ?? false)}`,
+    `rawPrBodyStored=${String(run?.rawPrBodyStored ?? false)}`,
+    `rawReasonStored=${String(run?.rawReasonStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `evidence=${String(run?.evidenceRefIds?.length ?? 0)}`,
+    `audit=${String(run?.auditEventIds?.length ?? 0)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatReworkLoopAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runReworkLoopAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Rework loop acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `steps: ${result.stepCount}`,
+    `trigger: ${result.triggerKind}`,
+    `attemptStatus: ${result.attemptStatus}`,
+    `supersededSource=${String(result.supersededSource)}`,
+    `blockers: ${result.blockerCount}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `childApprovalsRequired=${String(result.childApprovalsRequired)}`,
+    `directChildExecutionAllowed=${String(result.directChildExecutionAllowed)}`,
+    `patchExecuted=${String(result.patchExecuted)}`,
+    `branchPublished=${String(result.branchPublished)}`,
+    `draftPrCreated=${String(result.draftPrCreated)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `rawDiffStored=${String(result.rawDiffStored)}`,
+    `rawPrBodyStored=${String(result.rawPrBodyStored)}`,
+    `rawReasonStored=${String(result.rawReasonStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
+}
+
 export function formatWorktreeApprovalsListOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -10274,6 +10657,55 @@ function formatGithubPrLifecycleCollectionOutput(
           `checks=${String(record.checkRunCount ?? 0)}`,
           `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatReworkLoopCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as ReworkLoopApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawDiffStored=${String(result.rawDiffStored ?? false)}`,
+    `rawPrBodyStored=${String(result.rawPrBodyStored ?? false)}`,
+    `rawReasonStored=${String(result.rawReasonStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `trigger=${record.triggerKind ?? 'unknown'}`,
+          `sourceRun=${record.sourceRunIdHash ?? 'unavailable'}`,
+          `sourcePackage=${record.sourcePackageHash ?? 'unavailable'}`,
+          `branch=${record.plannedBranchNameHash ?? 'unavailable'}`,
+          `attempts=${String(record.attemptCount ?? 0)}`,
+          `childApprovals=${String(record.childApprovalsRequired ?? true)}`,
+          `directChildExecution=${String(record.directChildExecutionAllowed ?? false)}`,
+          `patch=${String(record.patchExecuted ?? false)}`,
+          `branchPublished=${String(record.branchPublished ?? false)}`,
+          `draftPr=${String(record.draftPrCreated ?? false)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,
           `audit=${record.auditEventIds?.length ?? 0}`,
         ].join(' '),

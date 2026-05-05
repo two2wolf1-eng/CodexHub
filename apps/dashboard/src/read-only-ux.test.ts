@@ -18,6 +18,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
   createWorktreeReadOnlySummary,
@@ -343,6 +344,35 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('check logs');
   });
 
+  it('summarizes rework loop acceptance rehearsal without child execution or raw reasons', () => {
+    const passed = createReworkLoopAcceptanceRehearsalReadOnlySummary({
+      scenario: 'all-pass',
+    });
+    const blocked = createReworkLoopAcceptanceRehearsalReadOnlySummary({
+      scenario: 'approval-blocked',
+    });
+    const failed = createReworkLoopAcceptanceRehearsalReadOnlySummary({
+      scenario: 'branch-publish-failed',
+    });
+    const serialized = JSON.stringify({ passed, blocked, failed });
+
+    expect(passed.status).toBe('passed');
+    expect(blocked.status).toBe('blocked');
+    expect(failed.status).toBe('failed');
+    expect(passed.childApprovalsRequired).toBe(true);
+    expect(passed.directChildExecutionAllowed).toBe(false);
+    expect(passed.patchExecuted).toBe(false);
+    expect(passed.branchPublished).toBe(false);
+    expect(passed.draftPrCreated).toBe(false);
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.processBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('raw diff');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('raw reason');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL');
+  });
+
   it('summarizes GitHub branch publish acceptance rehearsal without network or file content use', () => {
     const passed = createGithubBranchPublishAcceptanceRehearsalReadOnlySummary({
       scenario: 'all-pass',
@@ -661,6 +691,22 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('stderr');
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('payload');
+  });
+
+  it('keeps the rework loop governance panel display-only in the Dashboard source', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const governanceRoute = appSource.slice(
+      appSource.indexOf('<Panel title="Rework Loop">'),
+      appSource.indexOf('</Panel>', appSource.indexOf('<Panel title="Rework Loop">')),
+    );
+
+    expect(governanceRoute).toContain('Rework Loop');
+    expect(governanceRoute).toContain('acceptance rehearsal');
+    expect(governanceRoute).not.toContain('<button');
+    expect(governanceRoute).not.toContain('fetch(');
+    expect(governanceRoute).not.toContain("method: 'POST'");
+    expect(governanceRoute).not.toContain('approvalKey');
+    expect(governanceRoute).not.toContain('local-control');
   });
 
   it('summarizes operator readiness without secret values or raw config', () => {

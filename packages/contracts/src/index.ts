@@ -185,6 +185,11 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'github.pr_lifecycle_summary',
     'github.pr_lifecycle_run',
     'github.publish_draft_pr_rehearsal',
+    'rework.loop_plan',
+    'rework.loop_summary',
+    'rework.attempt_summary',
+    'rework.supersede_projection',
+    'rework.rehearsal',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -1851,6 +1856,9 @@ const githubForbiddenMetadataKeys = new Set([
   'pullRequestMarkdown',
   'prBody',
   'prMarkdown',
+  'rawReason',
+  'reasonBody',
+  'reasonText',
   ['to', 'ken'].join(''),
   ['coo', 'kie'].join(''),
   ['sess', 'ion'].join(''),
@@ -4293,6 +4301,327 @@ export const GithubPublishDraftPrAcceptanceRehearsalRunSchema = createdEntityBas
   });
 export type GithubPublishDraftPrAcceptanceRehearsalRun = z.infer<
   typeof GithubPublishDraftPrAcceptanceRehearsalRunSchema
+>;
+
+export const ReworkTriggerKindSchema = z.enum([
+  'checks_failed',
+  'review_changes_requested',
+  'operator_requested',
+  'stale_branch',
+]);
+export type ReworkTriggerKind = z.infer<typeof ReworkTriggerKindSchema>;
+
+export const ReworkLoopStatusSchema = z.enum(['planned', 'completed', 'blocked', 'failed', 'aborted']);
+export type ReworkLoopStatus = z.infer<typeof ReworkLoopStatusSchema>;
+
+export const ReworkAttemptStatusSchema = z.enum([
+  'planned',
+  'patch_ready',
+  'verification_failed',
+  'branch_publish_failed',
+  'draft_pr_failed',
+  'superseded',
+  'blocked',
+]);
+export type ReworkAttemptStatus = z.infer<typeof ReworkAttemptStatusSchema>;
+
+export const ReworkTriggerSummarySchema = createdEntityBaseSchema
+  .extend({
+    kind: ReworkTriggerKindSchema,
+    sourceRunIdHash: z.string().min(1),
+    sourceStatus: z.string().min(1),
+    sourceSummaryHash: z.string().min(1),
+    checkFailureCount: z.number().int().nonnegative().default(0),
+    reviewFindingCount: z.number().int().nonnegative().default(0),
+    staleBranch: z.boolean().default(false),
+    reasonHash: z.string().min(1),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ReworkTriggerSummary = z.infer<typeof ReworkTriggerSummarySchema>;
+
+export const ReworkAttemptSummarySchema = createdEntityBaseSchema
+  .extend({
+    attemptNumber: z.number().int().positive(),
+    status: ReworkAttemptStatusSchema,
+    previousAttemptIdHash: z.string().min(1).optional(),
+    sourcePatchLifecycleIdHash: z.string().min(1).optional(),
+    sourceReviewPackageIdHash: z.string().min(1).optional(),
+    sourceRcReadinessIdHash: z.string().min(1).optional(),
+    sourceBranchPublishRunIdHash: z.string().min(1).optional(),
+    sourceDraftPrRunIdHash: z.string().min(1).optional(),
+    sourcePrLifecycleRunIdHash: z.string().min(1).optional(),
+    plannedBranchNameHash: z.string().min(1),
+    branchPrefix: z.literal('codexhub/'),
+    branchAttemptSuffix: z.string().regex(/^r[1-9]\d*$/),
+    changedFileCount: z.number().int().nonnegative(),
+    changedFilePathHashes: z.array(z.string().min(1)).default([]),
+    diffHash: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    childApprovalsRequired: z.literal(true),
+    patchApprovalRequired: z.literal(true),
+    branchPublishApprovalRequired: z.literal(true),
+    draftPrApprovalRequired: z.literal(true),
+    directChildExecutionAllowed: z.literal(false),
+    updatesExistingBranch: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    commentAllowed: z.literal(false),
+    labelAllowed: z.literal(false),
+    reviewerAllowed: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.changedFilePathHashes.length !== record.changedFileCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'changed file hash count must match changedFileCount',
+        path: ['changedFilePathHashes'],
+      });
+    }
+  });
+export type ReworkAttemptSummary = z.infer<typeof ReworkAttemptSummarySchema>;
+
+export const ReworkSupersedeProjectionSchema = createdEntityBaseSchema
+  .extend({
+    sourceAttemptIdHash: z.string().min(1),
+    supersedingAttemptIdHash: z.string().min(1),
+    sourcePackageHash: z.string().min(1).optional(),
+    sourceBranchHash: z.string().min(1).optional(),
+    sourceDraftPrHash: z.string().min(1).optional(),
+    superseded: z.literal(true),
+    oldBranchPreserved: z.literal(true),
+    oldDraftPrClosed: z.literal(false),
+    deleteRemoteBranchAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawRefStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ReworkSupersedeProjection = z.infer<typeof ReworkSupersedeProjectionSchema>;
+
+export const ReworkLoopPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    trigger: ReworkTriggerSummarySchema,
+    nextAttempt: ReworkAttemptSummarySchema,
+    supersedeProjection: ReworkSupersedeProjectionSchema.optional(),
+    sourceRunIdHash: z.string().min(1),
+    sourcePackageHash: z.string().min(1).optional(),
+    sourcePrLifecycleRunIdHash: z.string().min(1).optional(),
+    requestedAttemptNumber: z.number().int().positive(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    childApprovalsRequired: z.literal(true),
+    directChildExecutionAllowed: z.literal(false),
+    updateExistingBranchAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'planned' && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'planned rework loop cannot contain block reasons',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type ReworkLoopPlan = z.infer<typeof ReworkLoopPlanSchema>;
+
+export const ReworkLoopApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    status: z.enum(['requested', 'approved', 'denied', 'expired', 'used', 'revoked']),
+    approvalArtifactId: z.string().min(1).optional(),
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedBy: z.string().min(1),
+    decidedBy: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    reasonHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'approved' && (!record.approvalArtifactId || !record.expiresAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved rework approval records require an artifact id and expiration',
+        path: ['status'],
+      });
+    }
+  });
+export type ReworkLoopApprovalArtifactRecord = z.infer<
+  typeof ReworkLoopApprovalArtifactRecordSchema
+>;
+
+export const ReworkLoopRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    status: ReworkLoopStatusSchema,
+    plan: ReworkLoopPlanSchema,
+    trigger: ReworkTriggerSummarySchema,
+    attempts: z.array(ReworkAttemptSummarySchema),
+    attemptCount: z.number().int().nonnegative(),
+    supersedeProjection: ReworkSupersedeProjectionSchema.optional(),
+    nextActionSummaryHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    childApprovalsRequired: z.literal(true),
+    directChildExecutionAllowed: z.literal(false),
+    patchExecuted: z.literal(false),
+    branchPublished: z.literal(false),
+    draftPrCreated: z.literal(false),
+    updateExistingBranchAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.attempts.length !== record.attemptCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'attempt count must match attempts length',
+        path: ['attemptCount'],
+      });
+    }
+  });
+export type ReworkLoopRun = z.infer<typeof ReworkLoopRunSchema>;
+
+export const ReworkLoopAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'checks-failed-rework',
+  'review-changes-requested',
+  'patch-failed',
+  'verification-failed',
+  'branch-publish-failed',
+  'draft-pr-failed',
+  'stale-branch',
+  'superseded-source',
+  'approval-blocked',
+]);
+export type ReworkLoopAcceptanceScenario = z.infer<typeof ReworkLoopAcceptanceScenarioSchema>;
+
+export const ReworkLoopAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: ReworkLoopAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    triggerKind: ReworkTriggerKindSchema,
+    attemptStatus: ReworkAttemptStatusSchema,
+    supersededSource: z.boolean(),
+    stepCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    nextBranchNameHash: z.string().min(1),
+    childApprovalsRequired: z.literal(true),
+    directChildExecutionAllowed: z.literal(false),
+    patchExecuted: z.literal(false),
+    branchPublished: z.literal(false),
+    draftPrCreated: z.literal(false),
+    updateExistingBranchAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    mergeAllowed: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'passed' && record.blockerCount !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed rework rehearsal cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type ReworkLoopAcceptanceRehearsalRun = z.infer<
+  typeof ReworkLoopAcceptanceRehearsalRunSchema
 >;
 
 export const GovernedCodexPatchModeSchema = z.enum(['fixture', 'governed-worktree']);

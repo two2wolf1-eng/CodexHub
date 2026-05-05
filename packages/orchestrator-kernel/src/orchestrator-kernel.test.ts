@@ -18,6 +18,10 @@ import {
   runM12PatchRetryCleanupLifecycle,
   runM12PatchVerificationReadinessGate,
   runM11ProductionPilotNarrowPath,
+  createReworkLoopApprovalRecord,
+  createReworkLoopPlan,
+  executeReworkLoop,
+  runReworkLoopAcceptanceRehearsal,
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
   runMockDevelopmentOrchestration,
@@ -1266,6 +1270,129 @@ describe('orchestrator-kernel M12 controlled patch lifecycle foundation', () => 
 
     expect(source).not.toContain('child_process');
     expect(source).not.toContain('spawn(');
+  });
+});
+
+describe('orchestrator-kernel M20 rework loop', () => {
+  it('projects a metadata-only rework loop without executing child control planes', () => {
+    const plan = createReworkLoopPlan({
+      sourceRunId: 'github_pr_lifecycle_run_failed_checks_1',
+      sourceStatus: 'checks_failed',
+      sourceSummaryLabel: 'checks failed without storing logs',
+      sourcePackageLabel: 'local review package summary',
+      sourcePrLifecycleRunId: 'github_pr_lifecycle_run_1',
+      previousAttemptId: 'rework_attempt_1',
+      attemptNumber: 2,
+      branchSlug: 'fix-lint',
+      changedFileLabels: ['packages/orchestrator-kernel/src/m20-rework-loop.ts'],
+      checkFailureCount: 2,
+    });
+    const approval = createReworkLoopApprovalRecord({
+      dryRunRecord: plan,
+      status: 'approved',
+      decidedBy: 'operator',
+      reason: 'Approve rework metadata handoff.',
+    });
+    const run = executeReworkLoop({
+      dryRunRecord: plan,
+      approvalRecord: approval,
+      authority: {
+        id: 'authority_rework_1',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt: '2026-05-05T00:00:00.000Z',
+        policyDecisionId: plan.policyDecision.id,
+        approvalArtifactId: approval.approvalArtifactId,
+        allowed: true,
+        constraints: ['rework-loop-metadata-only'],
+      },
+      enabled: true,
+    });
+    const serialized = JSON.stringify(run);
+
+    expect(plan.status).toBe('planned');
+    expect(run.status).toBe('completed');
+    expect(run.childApprovalsRequired).toBe(true);
+    expect(run.directChildExecutionAllowed).toBe(false);
+    expect(run.patchExecuted).toBe(false);
+    expect(run.branchPublished).toBe(false);
+    expect(run.draftPrCreated).toBe(false);
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(run.attempts[0]?.branchAttemptSuffix).toBe('r2');
+    expect(serialized).not.toContain(process.cwd());
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('https://github.com');
+  });
+
+  it('blocks rework execution without enabled config, authority, or approved persisted approval', () => {
+    const plan = createReworkLoopPlan({
+      sourceRunId: 'github_pr_lifecycle_run_failed_checks_2',
+      sourceStatus: 'checks_failed',
+      attemptNumber: 2,
+      branchSlug: 'fix-tests',
+      checkFailureCount: 1,
+    });
+    const denied = createReworkLoopApprovalRecord({
+      dryRunRecord: plan,
+      status: 'denied',
+      decidedBy: 'operator',
+      reason: 'Do not retry.',
+    });
+    const run = executeReworkLoop({
+      dryRunRecord: plan,
+      approvalRecord: denied,
+      authority: {
+        id: 'authority_rework_blocked',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt: '2026-05-05T00:00:00.000Z',
+        policyDecisionId: plan.policyDecision.id,
+        allowed: false,
+        constraints: ['blocked'],
+      },
+      enabled: false,
+    });
+
+    expect(run.status).toBe('blocked');
+    expect(run.blockReasons).toEqual(
+      expect.arrayContaining([
+        'rework_loop_disabled',
+        'authority_required',
+        'approved_persisted_approval_required',
+      ]),
+    );
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(run.networkBoundaryInvoked).toBe(false);
+  });
+
+  it('runs fixture rework acceptance scenarios without live boundaries', () => {
+    const passed = runReworkLoopAcceptanceRehearsal({ scenario: 'checks-failed-rework' });
+    const approvalBlocked = runReworkLoopAcceptanceRehearsal({ scenario: 'approval-blocked' });
+    const branchFailed = runReworkLoopAcceptanceRehearsal({
+      scenario: 'branch-publish-failed',
+    });
+    const serialized = JSON.stringify({ passed, approvalBlocked, branchFailed });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.triggerKind).toBe('checks_failed');
+    expect(approvalBlocked.status).toBe('blocked');
+    expect(branchFailed.status).toBe('failed');
+    expect(passed.patchExecuted).toBe(false);
+    expect(passed.branchPublished).toBe(false);
+    expect(passed.draftPrCreated).toBe(false);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('https://github.com');
+  });
+
+  it('does not add live launch or network boundaries to the M20 rework helper', () => {
+    const repoRootForSourceScan = resolve(process.cwd(), '../..');
+    const source = readFileSync(
+      resolve(repoRootForSourceScan, 'packages/orchestrator-kernel/src/m20-rework-loop.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toContain('child_process');
+    expect(source).not.toContain('spawn(');
+    expect(source).not.toContain('fetch(');
   });
 });
 

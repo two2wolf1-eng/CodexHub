@@ -1200,6 +1200,50 @@ integrations:
       localOnly: true
       pushAllowed: false
       openPullRequestAllowed: false
+  rework-loop:
+    enabled: false
+    adapter: orchestrator-kernel
+    provider: codexhub-governance-projection
+    providerType: builtin
+    mode: metadata-only-orchestration
+    stage: m20-rework-loop
+    defaultActionMode: dry-run
+    defaultRisk: high
+    enablementEnv: CODEXHUB_REWORK_LOOP_ENABLED
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    childControlPlanes:
+      patchLifecycle:
+        requiresSeparateApproval: true
+      branchPublish:
+        requiresSeparateApproval: true
+      draftPrCreation:
+        requiresSeparateApproval: true
+    safety:
+      productDefaultEnabled: false
+      directChildExecutionAllowed: false
+      patchExecutionAllowedFromRework: false
+      branchPublishAllowedFromRework: false
+      draftPrCreationAllowedFromRework: false
+      pushAllowed: false
+      updateExistingBranchAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+      commentsLabelsReviewersAllowed: false
+      uiCliReadOnly: true
+    storage:
+      rawPrompt: forbidden
+      rawDiff: forbidden
+      rawPullRequestBody: forbidden
+      rawReviewReason: forbidden
+      rawPath: forbidden
+      rawUrl: forbidden
+      rawResponseBody: forbidden
+      token: forbidden
+      session: forbidden
+      body: forbidden
+    output: ids-hashes-counts-statuses-summaries
       githubIntegrationAllowed: false
       supervisorRouteAdded: false
       dashboardWriteUi: false

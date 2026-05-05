@@ -248,6 +248,9 @@ import type {
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
   GithubProviderApprovalStatus,
+  ReworkLoopApprovalArtifactRecord,
+  ReworkLoopPlan,
+  ReworkLoopRun,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -310,6 +313,9 @@ import {
   type M11ProductionPilotNarrowPathInput,
   type M9LocalPilotInput,
   createM11PilotRecoveryProjection,
+  createReworkLoopApprovalRecord,
+  createReworkLoopPlan,
+  executeReworkLoop,
   type MockDevelopmentOrchestrationResult,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
@@ -403,6 +409,7 @@ interface SupervisorServerOptions {
   githubDraftPrEnabled?: boolean;
   githubBranchPublishEnabled?: boolean;
   githubPrLifecycleObserverEnabled?: boolean;
+  reworkLoopEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
 }
@@ -788,6 +795,54 @@ interface GithubPrLifecycleRunRequestBody {
   executionAuthority?: unknown;
 }
 
+interface ReworkLoopDryRunRequestBody {
+  triggerKind?: 'checks_failed' | 'review_changes_requested' | 'operator_requested' | 'stale_branch';
+  sourceRunId?: string;
+  sourceStatus?: string;
+  sourceSummaryLabel?: string;
+  sourcePackageLabel?: string;
+  sourcePrLifecycleRunId?: string;
+  previousAttemptId?: string;
+  attemptNumber?: number;
+  branchSlug?: string;
+  changedFileLabels?: string[];
+  checkFailureCount?: number;
+  reviewFindingCount?: number;
+  staleBranch?: boolean;
+  requestedBy?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface ReworkLoopApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface ReworkLoopManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: ReworkLoopApprovalArtifactRecord['status'];
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface ReworkLoopRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
 interface GithubDraftPrDryRunRequestBody {
   owner?: string;
   repo?: string;
@@ -1036,6 +1091,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const githubPrLifecycleDryRunRecords: GithubPrLifecycleObservationPlan[] = [];
   const githubPrLifecycleApprovalRecords: GithubPrLifecycleApprovalArtifactRecord[] = [];
   const githubPrLifecycleRunRecords: GithubPrLifecycleObservationRun[] = [];
+  const reworkLoopDryRunRecords: ReworkLoopPlan[] = [];
+  const reworkLoopApprovalRecords: ReworkLoopApprovalArtifactRecord[] = [];
+  const reworkLoopRunRecords: ReworkLoopRun[] = [];
   const githubBranchPublishDryRunRecords: GithubBranchPublishPlan[] = [];
   const githubBranchPublishApprovalRecords: GithubBranchPublishApprovalArtifactRecord[] = [];
   const githubBranchPublishRunRecords: GithubBranchPublishRun[] = [];
@@ -3016,6 +3074,284 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return createGithubPrLifecycleRunResponse(record);
+  });
+
+  server.post('/api/rework-loops/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReworkLoopStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as ReworkLoopDryRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReworkLoopUntrustedAuthorityResponse(undefined));
+    }
+    if (hasForbiddenReviewPackageRawBody(body) || hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createReworkLoopForbiddenRawBodyResponse(undefined));
+    }
+
+    const dryRunRecord = createReworkLoopPlan({
+      triggerKind: body?.triggerKind,
+      sourceRunId: body?.sourceRunId ?? '',
+      sourceStatus: body?.sourceStatus,
+      sourceSummaryLabel: body?.sourceSummaryLabel,
+      sourcePackageLabel: body?.sourcePackageLabel,
+      sourcePrLifecycleRunId: body?.sourcePrLifecycleRunId,
+      previousAttemptId: body?.previousAttemptId,
+      attemptNumber: body?.attemptNumber,
+      branchSlug: body?.branchSlug,
+      changedFileLabels: body?.changedFileLabels,
+      checkFailureCount: body?.checkFailureCount,
+      reviewFindingCount: body?.reviewFindingCount,
+      staleBranch: body?.staleBranch,
+      requestedBy: body?.requestedBy,
+    });
+
+    await persistReworkLoopDryRunRecord(dryRunRecord, store);
+    await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+    await persistReworkLoopAuditEvents(
+      dryRunRecord.auditEventIds,
+      dryRunRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+    );
+
+    return createReworkLoopDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/rework-loops/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReworkLoopDryRuns(query, store);
+
+    return {
+      records: records.map(createReworkLoopDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/rework-loops/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReworkLoopStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ReworkLoopApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReworkLoopUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body) || hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createReworkLoopForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReworkLoopDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'rework loop dry-run record was not found' });
+    }
+
+    const approvalRecord = createReworkLoopApprovalRecord({
+      dryRunRecord,
+      status: 'requested',
+      requestedBy: body?.requestedBy,
+      reason: body?.reason,
+    });
+
+    await persistReworkLoopApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistReworkLoopAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createReworkLoopApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/rework-loops/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReworkLoopStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ReworkLoopManualApprovalRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReworkLoopUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body) || hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createReworkLoopForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReworkLoopDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'rework loop dry-run record was not found' });
+    }
+
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveReworkLoopApprovalRecord(body.approvalRequestId, store)
+      : (await listReworkLoopApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+    if (!approvalRequest) {
+      return reply.code(404).send({ error: 'rework loop approval request was not found' });
+    }
+
+    const approvalRecord = createReworkLoopApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: body?.outcome ?? 'approved',
+      decidedBy: body?.decidedBy,
+      reason: body?.reason,
+    });
+
+    await persistReworkLoopApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistReworkLoopAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createReworkLoopApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/rework-loops/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReworkLoopApprovals(query, store);
+
+    return {
+      records: records.map(createReworkLoopApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/rework-loops/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply.code(503).send(createReworkLoopStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as ReworkLoopRunRequestBody | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createReworkLoopUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasForbiddenReviewPackageRawBody(body) || hasForbiddenGithubRawBody(body)) {
+      return reply.code(400).send(createReworkLoopForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveReworkLoopDryRunRecord(body?.dryRunId, store);
+
+    if (!dryRunRecord) {
+      return reply.code(404).send({ error: 'rework loop dry-run record was not found' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveReworkLoopApprovalRecordByArtifactId(body.approvalArtifactId, store)
+      : undefined;
+    const authority = ExecutionAuthoritySchema.parse({
+      id: foundationId('authority'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord?.approvalArtifactId,
+      allowed:
+        dryRunRecord.status === 'planned' &&
+        approvalRecord?.status === 'approved' &&
+        approvalRecord.approved,
+      constraints: [
+        'rework-loop-metadata-only',
+        'child-control-planes-require-own-approval',
+        'no-direct-child-execution',
+      ],
+    });
+    const reworkLoopEnabled =
+      options.reworkLoopEnabled ?? process.env.CODEXHUB_REWORK_LOOP_ENABLED === 'true';
+    const runRecord = executeReworkLoop({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      enabled: reworkLoopEnabled,
+    });
+
+    await persistReworkLoopRunRecord(runRecord, store);
+    await persistEvidenceRefs(runRecord.evidenceRefs, store);
+    await persistReworkLoopAuditEvents(
+      runRecord.auditEventIds,
+      runRecord.evidenceRefs,
+      store,
+      dryRunRecord.policyDecision.id,
+    );
+
+    if (runRecord.status === 'completed' && approvalRecord) {
+      const usedRecord = createReworkLoopApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRecord,
+        status: 'used',
+        reason: 'approval consumed by M20 rework loop metadata run',
+      });
+      await persistReworkLoopApprovalRecord(usedRecord, store);
+      await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+      await persistReworkLoopAuditEvents(
+        usedRecord.auditEventIds,
+        usedRecord.evidenceRefs,
+        store,
+        usedRecord.policyDecisionId,
+      );
+    }
+
+    return createReworkLoopRunResponse(runRecord);
+  });
+
+  server.get('/api/rework-loops/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listReworkLoopRuns(query, store);
+
+    return {
+      records: records.map(createReworkLoopRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/rework-loops/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id ? await resolveReworkLoopRun(params.id, store) : undefined;
+
+    if (!record) {
+      return reply.code(404).send({ error: 'rework loop run was not found' });
+    }
+
+    return createReworkLoopRunResponse(record);
   });
 
   server.post('/api/github/draft-prs/dry-runs', async (request, reply) => {
@@ -13550,6 +13886,125 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : githubPrLifecycleRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function persistReworkLoopDryRunRecord(
+    record: ReworkLoopPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.reworkLoopDryRuns.saveDryRun(record);
+      return;
+    }
+    reworkLoopDryRunRecords.unshift(record);
+  }
+
+  async function persistReworkLoopApprovalRecord(
+    record: ReworkLoopApprovalArtifactRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.reworkLoopApprovals.saveApproval(record);
+      return;
+    }
+    reworkLoopApprovalRecords.unshift(record);
+  }
+
+  async function persistReworkLoopRunRecord(
+    record: ReworkLoopRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.reworkLoopRuns.saveRun(record);
+      return;
+    }
+    reworkLoopRunRecords.unshift(record);
+  }
+
+  async function resolveReworkLoopDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.reworkLoopDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.reworkLoopDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return reworkLoopDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveReworkLoopApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopApprovalArtifactRecord | undefined> {
+    if (store) {
+      const directRecord = await store.reworkLoopApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.reworkLoopApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.id === approvalRequestId,
+      );
+    }
+    return reworkLoopApprovalRecords.find(
+      (record) => record.id === approvalRequestId,
+    );
+  }
+
+  async function resolveReworkLoopApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopApprovalArtifactRecord | undefined> {
+    return store
+      ? await store.reworkLoopApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : reworkLoopApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveReworkLoopRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopRun | undefined> {
+    return store
+      ? await store.reworkLoopRuns.getRun(runId)
+      : reworkLoopRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listReworkLoopDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopPlan[]> {
+    return store
+      ? await store.reworkLoopDryRuns.listDryRuns(query)
+      : reworkLoopDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listReworkLoopApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopApprovalArtifactRecord[]> {
+    return store
+      ? await store.reworkLoopApprovals.listApprovals(query)
+      : reworkLoopApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listReworkLoopRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ReworkLoopRun[]> {
+    return store
+      ? await store.reworkLoopRuns.listRuns(query)
+      : reworkLoopRunRecords.slice(0, query.limit ?? 50);
+  }
+
   async function persistGithubDraftPrDryRunRecord(
     record: GithubDraftPrPlan,
     store: CodexHubStore | undefined,
@@ -13929,6 +14384,47 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
   }
 
+  async function persistReworkLoopAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'rework.loop.control_plane',
+        target: 'rework-loop',
+        reason: 'M20 rework loop metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawDiffStored: false,
+          rawPrBodyStored: false,
+          rawReasonStored: false,
+          rawPathStored: false,
+          networkBoundaryInvoked: false,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          noRealWrite: true,
+          directChildExecutionAllowed: false,
+          childApprovalsRequired: true,
+          updateExistingBranchAllowed: false,
+          forceAllowed: false,
+          mergeAllowed: false,
+          commentAllowed: false,
+          labelAllowed: false,
+          reviewerAllowed: false,
+        },
+      });
+    }
+  }
+
   async function persistGithubDraftPrAuditEvents(
     auditEventIds: string[],
     evidenceRefs: EvidenceRef[],
@@ -14204,6 +14700,112 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       fixedGetOnly: true,
       rawUrlStored: false,
       rawResponseBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReworkLoopDryRunResponse(record: ReworkLoopPlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      triggerKind: record.trigger.kind,
+      sourceRunIdHash: record.sourceRunIdHash,
+      sourcePackageHash: record.sourcePackageHash,
+      requestedAttemptNumber: record.requestedAttemptNumber,
+      plannedBranchNameHash: record.nextAttempt.plannedBranchNameHash,
+      branchPrefix: record.nextAttempt.branchPrefix,
+      branchAttemptSuffix: record.nextAttempt.branchAttemptSuffix,
+      changedFileCount: record.nextAttempt.changedFileCount,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      requiresApproval: record.policyDecision.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      childApprovalsRequired: record.childApprovalsRequired,
+      directChildExecutionAllowed: record.directChildExecutionAllowed,
+      updateExistingBranchAllowed: record.updateExistingBranchAllowed,
+      forceAllowed: record.forceAllowed,
+      mergeAllowed: record.mergeAllowed,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createReworkLoopApprovalResponse(record: ReworkLoopApprovalArtifactRecord) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.id,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      requestedByHash: hashSupervisorMetadata({ requestedBy: record.requestedBy }),
+      decidedByHash: record.decidedBy
+        ? hashSupervisorMetadata({ decidedBy: record.decidedBy })
+        : undefined,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      summary: record.summary,
+    };
+  }
+
+  function createReworkLoopRunResponse(record: ReworkLoopRun) {
+    return {
+      recordId: record.id,
+      runId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      triggerKind: record.trigger.kind,
+      sourceRunIdHash: record.plan.sourceRunIdHash,
+      sourcePackageHash: record.plan.sourcePackageHash,
+      attemptCount: record.attemptCount,
+      attemptStatus: record.attempts[0]?.status,
+      nextActionSummaryHash: record.nextActionSummaryHash,
+      plannedBranchNameHash: record.attempts[0]?.plannedBranchNameHash,
+      superseded: record.supersedeProjection?.superseded ?? false,
+      oldBranchPreserved: record.supersedeProjection?.oldBranchPreserved ?? true,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      childApprovalsRequired: record.childApprovalsRequired,
+      directChildExecutionAllowed: record.directChildExecutionAllowed,
+      patchExecuted: record.patchExecuted,
+      branchPublished: record.branchPublished,
+      draftPrCreated: record.draftPrCreated,
+      updateExistingBranchAllowed: record.updateExistingBranchAllowed,
+      forceAllowed: record.forceAllowed,
+      mergeAllowed: record.mergeAllowed,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
       rawPathStored: false,
       bodyStored: false,
       summary: record.summary,
@@ -14542,6 +15144,24 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createReworkLoopStoreUnavailableResponse(phase: string) {
+    return {
+      error: `rework_loop_store_unavailable_${phase}`,
+      status: 'blocked',
+      degraded: true,
+      notPersisted: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubDraftPrStoreUnavailableResponse(phase: string) {
     return {
       error: `github_draft_pr_store_unavailable_${phase}`,
@@ -14619,6 +15239,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createReworkLoopUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'untrusted_rework_loop_authority_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
   function createGithubDraftPrUntrustedAuthorityResponse(dryRunId: string | undefined) {
     return {
       error: 'untrusted_github_draft_pr_authority_body',
@@ -14690,6 +15327,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       noRealWrite: true,
       rawUrlStored: false,
       rawResponseBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function createReworkLoopForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'forbidden_rework_loop_raw_body',
+      dryRunId,
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawReasonStored: false,
       rawPathStored: false,
       bodyStored: false,
     };

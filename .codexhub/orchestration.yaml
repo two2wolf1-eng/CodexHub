@@ -2861,3 +2861,121 @@ workflows:
       pushAllowed: false
       createRefAllowed: false
       mergeAllowed: false
+  m20a.rework-loop-domain-contracts:
+    risk: high
+    trigger:
+      type: metadata-contracts
+      entrypoint: packages/contracts packages/orchestrator-kernel
+      localControlRequired: false
+    chain:
+      - phase: contracts
+        schemas:
+          - ReworkLoopPlan
+          - ReworkLoopRun
+          - ReworkAttemptSummary
+          - ReworkTriggerSummary
+          - ReworkSupersedeProjection
+      - phase: projection
+        executionBoundaryAdded: false
+    safety:
+      metadataOnly: true
+      childControlPlanesAuthoritative: true
+      directPatchExecutionAllowed: false
+      directBranchPublishAllowed: false
+      directDraftPrCreationAllowed: false
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+  m20b.rework-loop-projection-foundation:
+    risk: high
+    trigger:
+      type: projection
+      entrypoint: orchestrator-kernel
+      localControlRequired: false
+    chain:
+      - phase: aggregate
+        sources:
+          - m12.patch-lifecycle
+          - m13.review-decision
+          - m14.rc-readiness
+          - m17.branch-publish
+          - m16.draft-pr
+          - m19.pr-lifecycle
+      - phase: summarize
+        output: ids-hashes-counts-statuses-summaries
+    safety:
+      networkBoundaryInvoked: false
+      processBoundaryInvoked: false
+      externalProcessStarted: false
+      noRealWrite: true
+  m20c.governed-rework-loop-control-plane:
+    risk: high
+    trigger:
+      type: supervisor-control-plane
+      entrypoint: /api/rework-loops
+      localControlRequired: true
+    routes:
+      - POST/GET /api/rework-loops/dry-runs
+      - POST /api/rework-loops/approval-requests
+      - POST /api/rework-loops/manual-approvals
+      - GET /api/rework-loops/approvals
+      - POST/GET /api/rework-loops/runs
+      - GET /api/rework-loops/runs/:id
+    safety:
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyExecutionAuthorityTrusted: false
+      childApprovalsRequired: true
+      directChildExecutionAllowed: false
+      patchExecutionFromReworkAllowed: false
+      branchPublishFromReworkAllowed: false
+      draftPrCreationFromReworkAllowed: false
+      newLiveBoundary: false
+  m20d.rework-loop-read-only-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    dashboard:
+      route: "#/governance"
+      panel: Rework Loop
+      supervisorPostAllowed: false
+    cli:
+      commands:
+        - codexhub rework-loops dry-runs list
+        - codexhub rework-loops approvals list
+        - codexhub rework-loops runs list
+        - codexhub rework-loops runs show <id>
+        - codexhub rework-loops rehearse --fixture --scenario <name>
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
+    safety:
+      output: ids-hashes-counts-statuses-summaries
+      rawDiffStored: false
+      rawPullRequestBodyStored: false
+      rawReasonStored: false
+      tokenValueDisplayed: false
+  m20e.rework-loop-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m20-rework-loop-results.md
+      - docs/reviews/m20-rework-loop-hardening-review.md
+      - docs/runbooks/m20-rework-loop-operator-runbook.md
+    verification:
+      - pnpm scaffold:health
+      - pnpm audit:boundaries
+      - pnpm audit:sqlite-isolation
+      - pnpm audit:no-live-automation
+      - pnpm audit:skills
+      - pnpm verify:foundation
+      - git diff --check
+    safety:
+      noNewRoute: true
+      noNewExecutionBoundary: true
+      noGenericGitHubOrGitPassthrough: true
+      uiCliReadOnly: true
+      childApprovalsCannotBeBypassed: true

@@ -6,6 +6,7 @@ import type {
   GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
   McpToolDefinition,
+  ReworkLoopAcceptanceScenario,
 } from '@codexhub/contracts';
 import {
   createGovernanceProjection,
@@ -324,6 +325,39 @@ export interface GithubPrLifecycleAcceptanceRehearsalReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
+  summary: string;
+}
+
+export interface ReworkLoopAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: ReworkLoopAcceptanceScenario;
+  stepCount: number;
+  attemptCount: number;
+  triggerKind: string;
+  nextActionStatus: string;
+  supersedeStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+  fixtureOnly: true;
+  childApprovalsRequired: true;
+  directChildExecutionAllowed: false;
+  patchExecuted: false;
+  branchPublished: false;
+  draftPrCreated: false;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  rawDiffStored: false;
+  rawPrBodyStored: false;
+  rawReasonStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
   summary: string;
 }
 
@@ -1200,6 +1234,65 @@ export function createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary(input:
     credentialValueStored: false,
     summary:
       'GitHub PR lifecycle rehearsal is fixture-only and covers fixed GET metadata for PR state, branch refs, combined status, and check-run counts without remote writes.',
+  };
+}
+
+export function createReworkLoopAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: ReworkLoopAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): ReworkLoopAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const status =
+    scenario === 'all-pass'
+      ? 'passed'
+      : scenario === 'approval-blocked' || scenario === 'superseded-source'
+        ? 'blocked'
+        : 'failed';
+  const nextActionStatus =
+    status === 'passed'
+      ? 'ready_for_operator_review'
+      : scenario === 'approval-blocked'
+        ? 'blocked_waiting_for_child_approvals'
+        : 'requires_new_governed_attempt';
+
+  return {
+    status,
+    scenario,
+    stepCount: 5,
+    attemptCount: scenario === 'all-pass' ? 2 : 1,
+    triggerKind:
+      scenario === 'review-changes-requested'
+        ? 'review_changes_requested'
+        : scenario === 'stale-branch' || scenario === 'superseded-source'
+          ? 'stale_branch'
+          : scenario === 'all-pass'
+            ? 'operator_requested'
+            : 'checks_failed',
+    nextActionStatus,
+    supersedeStatus: scenario === 'superseded-source' ? 'superseded_source' : 'metadata_ready',
+    evidenceRefCount: status === 'passed' ? 4 : 2,
+    auditEventCount: status === 'passed' ? 4 : 2,
+    blockerCount: status === 'passed' ? 0 : 1,
+    fixtureOnly: true,
+    childApprovalsRequired: true,
+    directChildExecutionAllowed: false,
+    patchExecuted: false,
+    branchPublished: false,
+    draftPrCreated: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    rawDiffStored: false,
+    rawPrBodyStored: false,
+    rawReasonStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary:
+      'Rework loop rehearsal is fixture-only. It projects a next attempt and supersede chain without executing patch, branch publish, or draft PR child control planes.',
   };
 }
 
