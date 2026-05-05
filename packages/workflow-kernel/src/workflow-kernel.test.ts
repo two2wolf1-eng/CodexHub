@@ -3,6 +3,7 @@ import { MetadataOnlyEvidenceCollector } from '@codexhub/evidence-kernel';
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
   WorkflowRunner,
@@ -154,6 +155,50 @@ describe('workflow-kernel custom workflows', () => {
       'Custom workflow approval reason stored as hash-only summary.',
     );
     expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
+  });
+
+  it('keeps custom workflow public summaries metadata-only after JSON round-trip', () => {
+    const template = createCustomWorkflowTemplateFromJson({
+      templateVersion: 1,
+      templateId: 'custom.roundtrip-adversarial',
+      name: adversarialPublicOutputFixture,
+      description: adversarialPublicOutputFixture,
+      steps: [
+        {
+          stepId: 'ready',
+          kind: 'readiness',
+          name: adversarialPublicOutputFixture,
+          summary: adversarialPublicOutputFixture,
+        },
+        {
+          stepId: 'remote-cleanup',
+          kind: 'remote-cleanup',
+          name: adversarialPublicOutputFixture,
+          summary: adversarialPublicOutputFixture,
+        },
+      ],
+    });
+    const plan = createCustomWorkflowPlan({ template });
+    const approval = createCustomWorkflowApprovalRecord({
+      dryRunId: plan.dryRunId,
+      templateId: plan.templateId,
+      templateHash: plan.templateHash,
+      status: 'approved',
+      approvedBy: 'operator',
+      reasonHash: 'sha256:roundtrip-reason',
+      reasonSummary: adversarialPublicOutputFixture,
+    });
+    const childRecordHashes = Object.fromEntries(
+      plan.stepPlans
+        .filter((step) => step.childApprovalRequired)
+        .map((step) => [step.stepId, `sha256:${step.stepId}`]),
+    );
+    const run = runCustomWorkflowCoordinator({ plan, approvalArtifact: approval, childRecordHashes });
+
+    expect(findAdversarialPublicOutputRoundTripLeaks({ template, plan, approval, run })).toEqual([]);
+    expect(run.directAdapterExecutionAllowed).toBe(false);
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(run.networkBoundaryInvoked).toBe(false);
   });
 
   it('coordinates only child record hashes and blocks missing child approvals', () => {

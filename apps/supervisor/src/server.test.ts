@@ -6695,6 +6695,22 @@ describe('supervisor GitHub branch publish control plane', () => {
         executionAuthority: { allowed: true },
       },
     });
+    const mismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: 'sha256:mismatched-custom-workflow-template',
+        childRecordHashes,
+      },
+    });
+    const approvalsAfterMismatchResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/custom/approvals',
+    });
     const completedResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/custom/runs',
@@ -6755,6 +6771,20 @@ describe('supervisor GitHub branch publish control plane', () => {
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
     });
+    expect(mismatchResponse.statusCode).toBe(409);
+    expect(mismatchResponse.json()).toMatchObject({
+      error: 'custom workflow template hash mismatch',
+    });
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'approved'),
+    ).toBe(true);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'used'),
+    ).toBe(false);
     expect(completedResponse.statusCode).toBe(200);
     expect(completedResponse.json()).toMatchObject({
       status: 'completed',

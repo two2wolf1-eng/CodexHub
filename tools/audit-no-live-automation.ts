@@ -130,7 +130,11 @@ const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
   'fetch(',
+  'globalThis["fetch"]',
+  "globalThis['fetch']",
   'process.env[',
+  'process["env"]',
+  "process['env']",
   'CODEXHUB_GITHUB_TOKEN',
   'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
 ];
@@ -320,6 +324,12 @@ function validateAdversarialAuditSentinels(): void {
       description: 'indirect adapter execute import from CLI source',
     },
     {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText: 'const run = adapters["executeGithubRemoteCleanup"];',
+      expectedTerm: 'executeGithubRemoteCleanup',
+      description: 'adapter execute access through dynamic property lookup from CLI source',
+    },
+    {
       workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
       sourceText:
         'const endpoint = "/api/approvals/decisions"; window.localStorage.setItem("approvalKey", "secret");',
@@ -375,6 +385,18 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'await globalThis.fetch("https://api.github.com/repos/example/example");',
       expectedTerm: 'fetch(',
       description: 'MCP indirect network boundary',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'await globalThis["fetch"]("https://api.github.com/repos/example/example");',
+      expectedTerm: 'globalThis["fetch"]',
+      description: 'MCP bracket-notation network boundary',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'const env = process["env"];',
+      expectedTerm: 'process["env"]',
+      description: 'MCP indirect process env access',
     },
     {
       workspacePath: 'apps/cli/src/adversarial-github.ts',

@@ -13,6 +13,7 @@ import {
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 describe('review-package-kernel', () => {
@@ -87,6 +88,33 @@ describe('review-package-kernel', () => {
     expect(result.plan.diffHash).toMatch(/^sha256:/);
     expect(result.plan.diffHash).not.toBe(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
+  });
+
+  it('keeps review package public summaries metadata-only after JSON round-trip', () => {
+    const reviewPackage = createLocalReviewPackageProjection({
+      sourceLifecycleRunId: adversarialPublicOutputFixture,
+      sourcePatchRunId: adversarialPublicOutputFixture,
+      sourceVerificationGateId: adversarialPublicOutputFixture,
+      changedFilePathHashes: [adversarialPublicOutputFixture],
+      diffHash: adversarialPublicOutputFixture,
+      verificationStatus: 'passed',
+      readinessStatus: 'ready_for_review_draft_only',
+      readyForReviewDraftOnly: true,
+      evidenceRefIds: ['evidence_review_roundtrip'],
+      auditEventIds: ['audit_review_roundtrip'],
+    });
+    const decision = createLocalReviewDecisionHandoff({
+      reviewPackage,
+      status: 'changes_requested',
+      reason: adversarialPublicOutputFixture,
+      findingCount: 3,
+      blockerCount: 1,
+    });
+
+    expect(findAdversarialPublicOutputRoundTripLeaks({ reviewPackage, decision })).toEqual([]);
+    expect(reviewPackage.rawPathStored).toBe(false);
+    expect(reviewPackage.bodyStored).toBe(false);
+    expect(decision.decision.reasonHash).toMatch(/^sha256:/);
   });
 
   it('projects local review decisions and M12 retry handoff without storing raw reasons', () => {

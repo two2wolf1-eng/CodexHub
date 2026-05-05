@@ -3601,3 +3601,29 @@ workflows:
       requestBodyApprovalArtifactTrusted: false
       requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
+  m24_11.projection-roundtrip-control-plane-drift-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits tests supervisor dashboard cli mcp
+      localControlRequired: false
+    scope:
+      baseline:
+        - public projection JSON round-trip serialization
+        - store/list/get metadata-only representative records
+        - late-stage approval state transition semantics
+        - audit drift negative fixtures
+        - UI/CLI/MCP read-only drift checks
+      docs:
+        - docs/releases/m24.11-projection-roundtrip-hardening.md
+        - docs/reviews/m0-m24-projection-roundtrip-hardening-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewExecutionBoundary: true
+      noRemoteWriteSmoke: true
+      noDirectAdapterExecutionFromUiCliMcp: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      metadataOnlyPublicOutput: true

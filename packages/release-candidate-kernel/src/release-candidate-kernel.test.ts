@@ -13,6 +13,7 @@ import {
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 describe('release-candidate-kernel', () => {
@@ -121,6 +122,34 @@ describe('release-candidate-kernel', () => {
 
     expect(projection.summary.status).toBe('ready_for_local_acceptance');
     expect(findAdversarialPublicOutputLeaks(JSON.stringify(projection))).toEqual([]);
+  });
+
+  it('keeps local RC public summaries metadata-only after JSON round-trip', () => {
+    const reviewPackage = createLocalReviewDecisionHandoff({
+      reviewPackage: createLocalReviewPackageProjection({
+        sourceLifecycleRunId: adversarialPublicOutputFixture,
+        sourcePatchRunId: adversarialPublicOutputFixture,
+        changedFilePathHashes: [adversarialPublicOutputFixture],
+        diffHash: adversarialPublicOutputFixture,
+        verificationStatus: 'passed',
+        readinessStatus: 'ready_for_review_draft_only',
+        readyForReviewDraftOnly: true,
+        evidenceRefIds: ['evidence_rc_roundtrip'],
+        auditEventIds: ['audit_rc_roundtrip'],
+      }),
+      status: 'approved_for_local_rc',
+      reason: adversarialPublicOutputFixture,
+    });
+    const projection = createLocalRcReadinessProjection({
+      reviewPackage,
+      operatorReadinessStatus: 'pass',
+      evidenceRefIds: ['evidence_operator_roundtrip'],
+      auditEventIds: ['audit_operator_roundtrip'],
+    });
+
+    expect(findAdversarialPublicOutputRoundTripLeaks(projection)).toEqual([]);
+    expect(projection.plan.rawPathStored).toBe(false);
+    expect(projection.plan.bodyStored).toBe(false);
   });
 
   it('exports a governed local RC bundle only after approval and hash-bound target validation', async () => {

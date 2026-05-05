@@ -17,6 +17,7 @@ import {
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 function expectNoForbiddenReadinessOutput(serialized: string): void {
@@ -90,6 +91,42 @@ describe('operator-readiness-kernel', () => {
     expect(report.checks.find((check) => check.code === 'local_control_key_supervisor')?.hash).toMatch(
       /^readiness:/,
     );
+  });
+
+  it('keeps readiness public reports metadata-only after JSON round-trip', () => {
+    const report = createOperatorReadinessReport({
+      storeAvailable: true,
+      processBoundaryAllowlistPassed: true,
+      noLiveAuditPassed: true,
+      configs: [
+        {
+          name: 'github-provider',
+          kind: 'integration',
+          text: adversarialPublicOutputFixture,
+          itemCount: 1,
+        },
+      ],
+      integrations: [
+        {
+          name: 'github-provider',
+          enabled: false,
+          riskLevel: 'high',
+          approvalRequired: true,
+          networkBoundary: true,
+          blockers: ['disabled_by_default'],
+        },
+      ],
+      localControlKeys: [
+        { name: 'supervisor', configured: true, value: adversarialPublicOutputFixture },
+      ],
+    });
+    const checklist = createM11PilotEnablementChecklist({ readinessReport: report });
+    const runbook = createM11PilotEnablementRunbookSummary({ checklist });
+
+    expect(findAdversarialPublicOutputRoundTripLeaks({ report, checklist, runbook })).toEqual([]);
+    expect(report.rawValueStored).toBe(false);
+    expect(report.rawPathStored).toBe(false);
+    expect(report.bodyStored).toBe(false);
   });
 
   it('reports store and audit failures as blockers', () => {

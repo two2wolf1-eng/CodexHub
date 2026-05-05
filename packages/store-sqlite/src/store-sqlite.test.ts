@@ -52,6 +52,7 @@ import {
   SchemaVersionSchema,
 } from '@codexhub/contracts';
 import { createSqliteStore, resolveCodexHubDbPath } from './index';
+import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 describe('store-sqlite migration initialization', () => {
   it('creates an idempotent temp file database and repositories', async () => {
@@ -693,6 +694,16 @@ describe('store-sqlite migration initialization', () => {
         customWorkflowRunRecord,
       }),
     ).not.toContain('adapter.execute');
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        customWorkflowDryRuns,
+        customWorkflowDryRunRecord,
+        customWorkflowApprovals,
+        customWorkflowApprovalRecord,
+        customWorkflowRuns,
+        customWorkflowRunRecord,
+      }),
+    ).toEqual([]);
     expect(reportReviews).toHaveLength(1);
     expect(reportReviewRecord?.recommendationGrantsExecution).toBe(false);
     expect(JSON.stringify(reportReviewRecord)).not.toContain('full report markdown');
@@ -963,6 +974,16 @@ describe('store-sqlite migration initialization', () => {
     expect(serialized).not.toContain('codexhub');
     expect(serialized).not.toContain('codex/m16');
     expect(serialized).not.toContain('https://github.com');
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        dryRuns,
+        dryRunRecord,
+        approvals,
+        approvalRecord,
+        runs,
+        runRecord,
+      }),
+    ).toEqual([]);
   });
 
   it('persists GitHub branch publish dry-runs, approvals, and runs', async () => {
@@ -1025,6 +1046,16 @@ describe('store-sqlite migration initialization', () => {
     expect(serialized).not.toContain('packages/example/src/index.ts');
     expect(serialized).not.toContain('export const answer');
     expect(serialized).not.toContain('new-commit-sha');
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        dryRuns,
+        dryRunRecord,
+        approvals,
+        approvalRecord,
+        runs,
+        runRecord,
+      }),
+    ).toEqual([]);
   });
 
   it('persists GitHub publish to draft PR chain dry-runs and runs', async () => {

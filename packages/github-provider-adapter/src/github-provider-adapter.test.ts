@@ -49,6 +49,7 @@ import {
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 const fixedNow = () => '2026-05-04T00:00:00.000Z';
@@ -258,6 +259,58 @@ describe('github-provider-adapter M15a foundation', () => {
     expectNoForbiddenGithubPublicOutput(JSON.stringify({ tokenReadiness, dryRun }));
     expect(tokenReadiness.tokenHash).toMatch(/^sha256:/);
     expect(dryRun.targetRef.baseBranchHash).toMatch(/^sha256:/);
+  });
+
+  it('keeps GitHub provider public summaries metadata-only after JSON round-trip', () => {
+    const tokenReadiness = readGithubTokenReadiness(
+      { CODEXHUB_GITHUB_TOKEN: adversarialPublicOutputFixture },
+      fixedNow,
+    );
+    const metadataPlan = createGithubMetadataDryRunRecord({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: adversarialPublicOutputFixture,
+      headBranch: adversarialPublicOutputFixture,
+      now: fixedNow,
+    });
+    const draftPrPlan = createGithubDraftPrPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codexhub/m24-roundtrip',
+      sourceKind: 'local_rc_readiness',
+      sourceId: adversarialPublicOutputFixture,
+      sourceSummary: adversarialPublicOutputFixture,
+      titleSummary: adversarialPublicOutputFixture,
+      bodySectionSummaries: [adversarialPublicOutputFixture],
+      remoteHeadBranchExists: true,
+      existingPullRequestCount: 0,
+      now: fixedNow,
+    });
+    const supersedePlan = createRemoteSupersedePlan({
+      sourceRunId: adversarialPublicOutputFixture,
+      sourceSummary: adversarialPublicOutputFixture,
+      targetKind: 'draft_pr_and_branch',
+      oldBranchName: 'codexhub/m24-roundtrip',
+      oldPrNumber: adversarialPublicOutputFixture,
+      oldPrUrl: adversarialPublicOutputFixture,
+      successorReady: true,
+      metadataReady: true,
+      now: fixedNow,
+    });
+    const supersedeRun = createRemoteSupersedeRun({ plan: supersedePlan, now: fixedNow });
+
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        tokenReadiness,
+        metadataPlan,
+        draftPrPlan,
+        supersedePlan,
+        supersedeRun,
+      }),
+    ).toEqual([]);
+    expect(draftPrPlan.bodyStored).toBe(false);
+    expect(supersedeRun.networkBoundaryInvoked).toBe(false);
   });
 
   it('creates remote ref summaries with hashes only', () => {

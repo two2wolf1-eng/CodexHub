@@ -19,6 +19,7 @@ import {
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 const createdAt = '2026-05-04T00:00:00.000Z';
@@ -142,6 +143,32 @@ describe('approval-ux-kernel', () => {
     expect(serialized).not.toContain('ENV_VALUE_SECRET');
     expect(serialized).not.toContain('request body fixture');
     expect(serialized).not.toContain('response body fixture');
+  });
+
+  it('keeps approval inbox and history projections metadata-only after JSON round-trip', () => {
+    const inbox = createApprovalInboxProjection({
+      codex: [createCodexApprovalRecord('pending')],
+      worktree: [createWorktreeApprovalRecord('approved')],
+    });
+    const decision = createApprovalDecisionResult({
+      approvalType: 'worktree',
+      approvalRequestId: 'worktree_approval_request_1',
+      decision: 'denied',
+      status: 'denied',
+      evidenceRefIds: ['evidence_decision_roundtrip'],
+      auditEventIds: ['audit_decision_roundtrip'],
+    });
+    const history = createApprovalDecisionHistoryProjection({
+      inbox,
+      decisions: [decision],
+      reasonSummaries: {
+        [decision.id]: adversarialPublicOutputFixture,
+      },
+    });
+
+    expect(findAdversarialPublicOutputRoundTripLeaks({ inbox, history })).toEqual([]);
+    expect(history.items.every((item) => item.rawPathStored === false)).toBe(true);
+    expect(history.items.every((item) => item.bodyStored === false)).toBe(true);
   });
 });
 

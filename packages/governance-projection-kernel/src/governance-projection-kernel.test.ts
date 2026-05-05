@@ -12,6 +12,7 @@ import {
 import {
   adversarialPublicOutputFixture,
   findAdversarialPublicOutputLeaks,
+  findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 
 function expectNoForbiddenPublicOutput(serialized: string): void {
@@ -120,5 +121,38 @@ describe('governance-projection-kernel', () => {
     expectNoForbiddenPublicOutput(JSON.stringify(result));
     expect(result.projections[0]?.sourceRunIdHash).toMatch(/^projection:/);
     expect(result.projections[0]?.titleHash).toMatch(/^projection:/);
+  });
+
+  it('keeps public governance projections metadata-only after JSON round-trip', () => {
+    const result = createGovernanceProjection([
+      {
+        id: adversarialPublicOutputFixture,
+        source: 'github_remote_cleanup_run',
+        title: adversarialPublicOutputFixture,
+        status: 'failed',
+        evidenceRefIds: ['evidence_roundtrip_fixture'],
+        evidenceKinds: ['github.remote_cleanup_run'],
+        auditEventIds: ['audit_roundtrip_fixture'],
+        policyDecisionIds: ['policy_roundtrip_fixture'],
+        networkBoundaryInvoked: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      },
+      {
+        id: adversarialPublicOutputFixture,
+        source: 'custom_workflow_run',
+        title: adversarialPublicOutputFixture,
+        status: 'blocked',
+        evidenceRefIds: ['evidence_workflow_roundtrip_fixture'],
+        auditEventIds: ['audit_workflow_roundtrip_fixture'],
+        networkBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      },
+    ]);
+
+    expect(findAdversarialPublicOutputRoundTripLeaks(result)).toEqual([]);
+    expect(result.projections.every((projection) => projection.bodyStored === false)).toBe(true);
+    expect(result.projections.every((projection) => projection.rawPathStored === false)).toBe(true);
   });
 });

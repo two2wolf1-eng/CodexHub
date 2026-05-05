@@ -214,12 +214,16 @@ describe('codexhub MCP server', () => {
       expect(source).not.toContain(childProcessName);
       expect(source).not.toContain(childProcessModule);
       expect(source).not.toContain('fetch(');
+      expect(source).not.toContain('globalThis["fetch"]');
+      expect(source).not.toContain("globalThis['fetch']");
       expect(source).not.toContain(githubTokenEnv);
       expect(source).not.toContain(localControlTokenEnv);
       expect(source).not.toContain(`process.env['${githubTokenEnv}']`);
       expect(source).not.toContain(`process.env["${githubTokenEnv}"]`);
       expect(source).not.toContain(`process.env['${localControlTokenEnv}']`);
       expect(source).not.toContain(`process.env["${localControlTokenEnv}"]`);
+      expect(source).not.toContain('process["env"]');
+      expect(source).not.toContain("process['env']");
       expect(source).not.toContain(`import('${childProcessModule}')`);
       expect(source).not.toContain(`import("${childProcessModule}")`);
       expect(source).not.toContain(`require('${childProcessModule}')`);

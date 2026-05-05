@@ -25,3 +25,11 @@ export const adversarialPublicOutputFixture = adversarialPublicOutputTerms.join(
 export function findAdversarialPublicOutputLeaks(serialized: string): string[] {
   return adversarialPublicOutputTerms.filter((term) => serialized.includes(term));
 }
+
+export function serializePublicOutputRoundTrip(value: unknown): string {
+  return JSON.stringify(JSON.parse(JSON.stringify(value)));
+}
+
+export function findAdversarialPublicOutputRoundTripLeaks(value: unknown): string[] {
+  return findAdversarialPublicOutputLeaks(serializePublicOutputRoundTrip(value));
+}

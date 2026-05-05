@@ -195,6 +195,9 @@ describe('cli development mock-run fallback', () => {
 
       expect(helperSource, helperName).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
       expect(helperSource, helperName).not.toContain('createSupervisorPostHeaders');
+      expect(helperSource, helperName).not.toContain('fetch(');
+      expect(helperSource, helperName).not.toContain('process["env"]');
+      expect(helperSource, helperName).not.toContain("process['env']");
       expect(helperSource, helperName).not.toContain("method: 'POST'");
       expect(helperSource, helperName).not.toContain('method: "POST"');
       expect(helperSource, helperName).not.toMatch(/\bexecute[A-Z][A-Za-z0-9_]*/);
