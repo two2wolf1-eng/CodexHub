@@ -3525,3 +3525,28 @@ workflows:
       requestBodyApprovalArtifactTrusted: false
       requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
+  m24_8.governance-meta-audit-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits tests dashboard cli mcp
+      localControlRequired: false
+    scope:
+      baseline:
+        - M0-M24 UI CLI MCP read-only boundaries
+        - late-stage Supervisor mutating route gates
+        - request-body authority rejection
+        - metadata-only serialization
+        - GitHub and custom workflow long-chain static audit guards
+      docs:
+        - docs/releases/m24.8-governance-meta-audit.md
+        - docs/reviews/m0-m24-governance-meta-audit-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noRemoteWriteSmoke: true
+      noDirectAdapterExecutionFromUiCliMcp: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      metadataOnlyPublicOutput: true

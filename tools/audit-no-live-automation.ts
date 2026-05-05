@@ -99,6 +99,10 @@ const githubForbiddenRemoteMutationTerms = [
   '/labels',
   '/comments',
   '/requested_reviewers',
+  '/deployments',
+  '/releases',
+  'git push',
+  'update-ref',
   'force=true',
   'force: true',
   'draft=false',
@@ -122,6 +126,13 @@ const policyTelemetryRuntimeTerms = [
 ];
 const directAdapterExecuteTerms = discoverPublicExecuteTerms();
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
+const mcpBoundaryBypassTerms = [
+  ['child', '_process'].join(''),
+  ['node:', 'child', '_process'].join(''),
+  'fetch(',
+  'CODEXHUB_GITHUB_TOKEN',
+  'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
+];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
   ['to', 'ken'].join(''),
@@ -176,6 +187,12 @@ const allowlistRules: AllowlistEntry[] = [
     file: 'tools/scaffold-health.ts',
     terms: sensitiveConceptTerms,
     reason: 'scaffold health contract export vocabulary only',
+  },
+  {
+    scope: 'audit',
+    file: 'tools/scaffold-health.ts',
+    terms: githubForbiddenRemoteMutationTerms,
+    reason: 'scaffold health release-document path vocabulary only; no GitHub API operation path',
   },
   {
     scope: 'fixture',
@@ -542,6 +559,20 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
           reason:
             'Dashboard, CLI, and MCP tools must not directly call capability adapter execute functions; mutations must go through Supervisor/workflow governance.',
         });
+      }
+    }
+
+    if (isMcpSource) {
+      for (const term of mcpBoundaryBypassTerms) {
+        if (line.includes(term)) {
+          violations.push({
+            file,
+            line: index + 1,
+            term,
+            reason:
+              'MCP tools must remain read-only and must not start process/network boundaries, read GitHub tokens, read local-control tokens, or bypass Supervisor governance.',
+          });
+        }
       }
     }
   }

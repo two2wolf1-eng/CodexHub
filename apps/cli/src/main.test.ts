@@ -9,6 +9,24 @@ const cliSymlinkEscapeAbsolutePath = join(
   findTestWorkspaceRoot(process.cwd()),
   ...cliSymlinkEscapeFixturePath.split('/'),
 );
+const forbiddenCliRawOutputTerms = [
+  'raw prompt fixture',
+  'stdout fixture',
+  'stderr fixture',
+  'diff --git',
+  'C:\\Users\\Thomas',
+  '/Users/thomas',
+  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
+  'ghp_live_secret',
+  'cookie=session',
+  'session=secret',
+  'token=secret',
+  'ENV_VALUE_SECRET',
+  'HTTP response body fixture',
+  'raw file content fixture',
+  '# Raw PR markdown',
+  'raw reason text',
+];
 
 function findTestWorkspaceRoot(startDirectory: string): string {
   let current = resolve(startDirectory);
@@ -26,6 +44,12 @@ function findTestWorkspaceRoot(startDirectory: string): string {
     }
 
     current = parent;
+  }
+}
+
+function expectNoForbiddenCliRawOutput(serialized: string): void {
+  for (const term of forbiddenCliRawOutputTerms) {
+    expect(serialized).not.toContain(term);
   }
 }
 
@@ -114,6 +138,35 @@ describe('cli development mock-run fallback', () => {
     expect(serialized).not.toContain('local-control-secret');
     expect(serialized).not.toContain('cookie=');
     expect(serialized).not.toContain('session=');
+  });
+
+  it('applies shared forbidden raw-output checks to representative CLI summaries and rehearsals', async () => {
+    const { formatMcpToolsListOutput, listMcpToolsForCli } = await import('./m3b-readonly');
+    const {
+      formatGithubBranchPublishAcceptanceRehearsalOutput,
+      formatGithubProviderStatusOutput,
+      formatM10PilotAcceptanceRehearsalOutput,
+      getGithubProviderStatusForCli,
+      runGithubBranchPublishAcceptanceRehearsalForCli,
+      runM10PilotAcceptanceRehearsalForCli,
+    } = await import('./main');
+    const output = [
+      formatMcpToolsListOutput(listMcpToolsForCli()),
+      formatGithubProviderStatusOutput(getGithubProviderStatusForCli()),
+      formatM10PilotAcceptanceRehearsalOutput(
+        runM10PilotAcceptanceRehearsalForCli({ fixture: true, scenario: 'all-pass' }),
+      ),
+      formatGithubBranchPublishAcceptanceRehearsalOutput(
+        runGithubBranchPublishAcceptanceRehearsalForCli({
+          fixture: true,
+          scenario: 'branch-exists',
+        }),
+      ),
+    ].join('\n');
+
+    expectNoForbiddenCliRawOutput(output);
+    expect(output).not.toContain('local-control-secret');
+    expect(output).not.toContain('Authorization');
   });
 
   it('creates an Nx verification dry-run summary without starting a process', async () => {

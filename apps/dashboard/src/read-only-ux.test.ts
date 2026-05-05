@@ -31,6 +31,31 @@ import {
   summarizeMcpTools,
 } from './read-only-ux';
 
+const forbiddenRawOutputTerms = [
+  'raw prompt fixture',
+  'stdout fixture',
+  'stderr fixture',
+  'diff --git',
+  'C:\\Users\\Thomas',
+  '/Users/thomas',
+  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
+  'ghp_live_secret',
+  'cookie=session',
+  'session=secret',
+  'token=secret',
+  'ENV_VALUE_SECRET',
+  'HTTP response body fixture',
+  'raw file content fixture',
+  '# Raw PR markdown',
+  'raw reason text',
+];
+
+function expectNoForbiddenRawOutputTerms(serialized: string): void {
+  for (const term of forbiddenRawOutputTerms) {
+    expect(serialized).not.toContain(term);
+  }
+}
+
 describe('dashboard read-only UX helpers', () => {
   it('selects stable hash routes with overview fallback', () => {
     expect(getDashboardViewFromHash('#/mcp-tools')).toBe('mcp-tools');
@@ -150,6 +175,39 @@ describe('dashboard read-only UX helpers', () => {
       'Supervisor unavailable',
     );
     expect(summarizeDegradedState('ready')).toBe('Read-only data loaded.');
+  });
+
+  it('applies shared forbidden raw-output checks to representative read-only summaries', () => {
+    const summaries = [
+      createGithubProviderReadOnlySummary({
+        runCount: 1,
+        draftPrRunCount: 1,
+        branchPublishRunCount: 1,
+        prLifecycleRunCount: 1,
+        remoteCleanupRunCount: 1,
+        networkBoundaryInvoked: true,
+      }),
+      createCustomWorkflowReadOnlySummary({
+        templateCount: 1,
+        validationCount: 1,
+        runCount: 1,
+        latestRunStatus: 'blocked',
+      }),
+      createM11PilotReadOnlySummary({
+        runCount: 1,
+        latestRunStatus: 'blocked',
+        latestPrDraftStatus: 'blocked',
+      }),
+      createLocalRcOperatorReadOnlySummary({
+        runCount: 1,
+        readinessStatus: 'blocked_operator_readiness',
+        reviewDecisionStatus: 'approved_for_local_rc',
+        verificationStatus: 'passed',
+        operatorReadinessStatus: 'blocked',
+      }),
+    ];
+
+    expectNoForbiddenRawOutputTerms(JSON.stringify(summaries));
   });
 
   it('summarizes browser profiles without raw paths or browser execution', () => {

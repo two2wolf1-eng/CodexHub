@@ -169,8 +169,13 @@ describe('codexhub MCP server', () => {
     expect(serialized).not.toContain('jsonl');
   });
 
-  it('keeps read-only MCP tools away from adapter execute and live boundary helpers', () => {
-    const toolsSource = readFileSync(new URL('./tools.ts', import.meta.url), 'utf8');
+  it('keeps all production MCP source away from adapter execute and live boundary helpers', () => {
+    const mcpProductionSources = ['server.ts', 'security.ts', 'tool-outputs.ts', 'tools.ts'].map(
+      (fileName) => ({
+        fileName,
+        source: readFileSync(new URL(`./${fileName}`, import.meta.url), 'utf8'),
+      }),
+    );
     const forbiddenExecuteTerms = [
       'executeCodexExecAdapter',
       'executeNxVerificationAdapter',
@@ -178,22 +183,35 @@ describe('codexhub MCP server', () => {
       'executeWorktreeCleanup',
       'executePlaywrightObserverAdapter',
       'executeElectronCdpAdapter',
+      'executeGithubMetadataObservation',
       'executeGithubBranchPublish',
       'executeGithubDraftPrCreation',
+      'executeGithubPrLifecycleObservation',
+      'executeGithubPublishDraftPrChain',
       'executeGithubRemoteCleanup',
       'executeLocalReviewPackageExport',
       'executeLocalRcBundleExport',
       'executeReworkLoop',
+      'executeCustomWorkflowRun',
     ];
 
-    for (const term of forbiddenExecuteTerms) {
-      expect(toolsSource).not.toContain(term);
-    }
+    for (const { source } of mcpProductionSources) {
+      const directExecuteMatches = [...source.matchAll(/\bexecute[A-Z][A-Za-z0-9_]*/g)]
+        .map((match) => match[0])
+        .filter((term) => term !== 'executeTool');
 
-    expect(toolsSource).not.toContain('child_process');
-    expect(toolsSource).not.toContain('fetch(');
-    expect(toolsSource).not.toContain('CODEXHUB_GITHUB_TOKEN');
-    expect(toolsSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+      expect(directExecuteMatches).toEqual([]);
+
+      for (const term of forbiddenExecuteTerms) {
+        expect(source).not.toContain(term);
+      }
+
+      expect(source).not.toContain('child_process');
+      expect(source).not.toContain('node:child_process');
+      expect(source).not.toContain('fetch(');
+      expect(source).not.toContain('CODEXHUB_GITHUB_TOKEN');
+      expect(source).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    }
   });
 });
 

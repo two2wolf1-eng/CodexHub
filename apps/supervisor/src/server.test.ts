@@ -19,6 +19,47 @@ const symlinkEscapeFixturePath =
 const symlinkEscapeAbsolutePath = join(process.cwd(), ...symlinkEscapeFixturePath.split('/'));
 const localControlToken = 'test-local-control-token';
 const localControlHeaders = { 'x-codexhub-local-token': localControlToken };
+const trustedLoopbackOrigin = 'http://127.0.0.1:5173';
+const lateStageSupervisorMutatingRoutes = [
+  '/api/review-packages/dry-runs',
+  '/api/review-packages/approval-requests',
+  '/api/review-packages/manual-approvals',
+  '/api/review-packages/runs',
+  '/api/release-candidates/dry-runs',
+  '/api/release-candidates/approval-requests',
+  '/api/release-candidates/manual-approvals',
+  '/api/release-candidates/runs',
+  '/api/github/metadata/dry-runs',
+  '/api/github/metadata/approval-requests',
+  '/api/github/metadata/manual-approvals',
+  '/api/github/metadata/runs',
+  '/api/github/pr-lifecycle/dry-runs',
+  '/api/github/pr-lifecycle/approval-requests',
+  '/api/github/pr-lifecycle/manual-approvals',
+  '/api/github/pr-lifecycle/runs',
+  '/api/github/draft-prs/dry-runs',
+  '/api/github/draft-prs/approval-requests',
+  '/api/github/draft-prs/manual-approvals',
+  '/api/github/draft-prs/runs',
+  '/api/github/branch-publishes/dry-runs',
+  '/api/github/branch-publishes/approval-requests',
+  '/api/github/branch-publishes/manual-approvals',
+  '/api/github/branch-publishes/runs',
+  '/api/github/publish-draft-pr-chains/dry-runs',
+  '/api/github/publish-draft-pr-chains/runs',
+  '/api/github/remote-cleanups/dry-runs',
+  '/api/github/remote-cleanups/approval-requests',
+  '/api/github/remote-cleanups/manual-approvals',
+  '/api/github/remote-cleanups/runs',
+  '/api/rework-loops/dry-runs',
+  '/api/rework-loops/approval-requests',
+  '/api/rework-loops/manual-approvals',
+  '/api/rework-loops/runs',
+  '/api/workflows/custom/dry-runs',
+  '/api/workflows/custom/approval-requests',
+  '/api/workflows/custom/manual-approvals',
+  '/api/workflows/custom/runs',
+] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
 
@@ -137,6 +178,99 @@ describe('supervisor mock development API', () => {
     expect(preflightResponse.statusCode).toBe(204);
     expect(preflightResponse.headers['access-control-allow-origin']).toBe('http://localhost:4173');
     expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
+  });
+
+  it('protects late-stage mutating control-plane routes with local gate and non-wildcard CORS', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-late-stage-gate-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    for (const url of lateStageSupervisorMutatingRoutes) {
+      const missingTokenResponse = await server.inject({
+        method: 'POST',
+        url,
+        payload: {},
+      });
+      const maliciousOriginResponse = await server.inject({
+        method: 'POST',
+        url,
+        headers: {
+          ...localControlHeaders,
+          origin: 'https://evil.example',
+        },
+        payload: {},
+      });
+      const trustedOriginResponse = await server.inject({
+        method: 'POST',
+        url,
+        headers: {
+          ...localControlHeaders,
+          origin: trustedLoopbackOrigin,
+        },
+        payload: {},
+      });
+      const preflightResponse = await server.inject({
+        method: 'OPTIONS',
+        url,
+        headers: {
+          origin: 'http://localhost:4173',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type, x-codexhub-local-token',
+        },
+      });
+
+      expect(missingTokenResponse.statusCode).toBe(401);
+      expect(missingTokenResponse.json().error).toBe('invalid_local_control_token');
+      expect(maliciousOriginResponse.statusCode).toBe(403);
+      expect(maliciousOriginResponse.json().error).toBe('untrusted_origin');
+      expect(trustedOriginResponse.statusCode).not.toBe(401);
+      expect(trustedOriginResponse.body).not.toContain('invalid_local_control_token');
+      expect(trustedOriginResponse.body).not.toContain('untrusted_origin');
+      expect(trustedOriginResponse.body).not.toContain('Route POST:');
+      expect(trustedOriginResponse.headers['access-control-allow-origin']).toBe(
+        trustedLoopbackOrigin,
+      );
+      expect(trustedOriginResponse.headers['access-control-allow-origin']).not.toBe('*');
+      expect(preflightResponse.statusCode).toBe(204);
+      expect(preflightResponse.headers['access-control-allow-origin']).toBe('http://localhost:4173');
+      expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
+    }
+
+    await server.close();
+    await store.close();
+  });
+
+  it('rejects caller-supplied authority objects on late-stage approval and run routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-late-stage-authority-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+    const routesWithAuthorityInputs = lateStageSupervisorMutatingRoutes.filter(
+      (url) => url.endsWith('/approval-requests') || url.endsWith('/runs'),
+    );
+
+    for (const url of routesWithAuthorityInputs) {
+      const response = await server.inject({
+        method: 'POST',
+        url,
+        headers: localControlHeaders,
+        payload: {
+          dryRunId: 'dry-run-fixture',
+          approvalArtifactId: 'approval-fixture',
+          approvalArtifact: { id: 'caller_supplied_artifact', status: 'approved' },
+          executionAuthority: { allowed: true, policyDecisionId: 'caller_supplied_policy' },
+          authority: { allowed: true, policyDecisionId: 'caller_supplied_authority' },
+        },
+      });
+
+      expect(response.statusCode).toBeGreaterThanOrEqual(400);
+      expect(response.body).not.toContain('caller_supplied_artifact');
+      expect(response.body).not.toContain('caller_supplied_policy');
+      expect(response.body).not.toContain('caller_supplied_authority');
+      expect(response.body).not.toContain('"allowed":true');
+    }
+
+    await server.close();
+    await store.close();
   });
 
   it('governs browser observation dry-run, persisted approval, and injected execution', async () => {
