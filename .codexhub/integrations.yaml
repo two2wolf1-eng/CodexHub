@@ -1500,6 +1500,8 @@ integrations:
       productionExecutionEnabled: false
       productionPilotExecutionEnabled: false
       productionPilotFixtureOnly: true
+      operationsProjectionEnabled: true
+      pauseResumeRollbackMetadataOnly: true
       catalogDryRunHashBindingRequired: true
       productionRehearsalFixtureOnly: true
       builtInProductionTemplates:
@@ -1576,6 +1578,9 @@ integrations:
         - codexhub workflows production pilots list
         - codexhub workflows production pilots show <runId>
         - codexhub workflows production pilots rehearse --template-id <templateId> --fixture --scenario <name>
+        - codexhub workflows production operations status
+        - codexhub workflows production operations history
+        - codexhub workflows production operations smoke --fixture --scenario <name>
       supervisorPostAllowed: false
       localControlTokenRead: false
       adapterExecuteAllowed: false

@@ -3911,3 +3911,84 @@ workflows:
       childApprovalsRemainSeparate: true
       workflowApprovalDoesNotGrantChildAuthority: true
       metadataOnlyPublicOutput: true
+  m28a.production-workflow-operations-projection:
+    risk: medium
+    trigger:
+      type: read-only-operations-projection
+      entrypoint: workflow-kernel dashboard cli
+      localControlRequired: false
+    projection:
+      runHealth: true
+      blockedReasons: true
+      staleChildRecordSummary: true
+      approvalState: true
+      rollbackNotes: true
+      operatorNextActionSummary: true
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      metadataOnlyPublicOutput: true
+  m28b.workflow-pause-resume-rollback-metadata:
+    risk: medium
+    trigger:
+      type: lifecycle-metadata
+      entrypoint: workflow-kernel contracts
+      localControlRequired: false
+    safety:
+      noChildApprovalRevocation: true
+      noAutomaticCleanup: true
+      noRemoteWrite: true
+      reasonHashOnly: true
+      metadataOnlyPublicOutput: true
+  m28c.production-workflow-operations-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: doctor dashboard cli
+      localControlRequired: false
+    commands:
+      - codexhub workflows production operations status
+      - codexhub workflows production operations history
+    safety:
+      supervisorPostAllowed: false
+      localControlTokenRead: false
+      adapterExecuteAllowed: false
+      metadataOnlyPublicOutput: true
+  m28d.production-workflow-operations-smoke:
+    risk: medium
+    trigger:
+      type: fixture-smoke
+      entrypoint: workflow-kernel cli
+      localControlRequired: false
+    scenarios:
+      - healthy
+      - production-disabled
+      - stale-template
+      - stale-child-record
+      - approval-used
+      - rollback-required
+      - remote-child-blocked
+    safety:
+      fixtureOnly: true
+      processBoundaryInvoked: false
+      networkBoundaryInvoked: false
+      adapterExecuteAllowed: false
+  m28_5.production-workflow-operations-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m28-production-workflow-operations-results.md
+      - docs/reviews/m28-production-workflow-operations-hardening-review.md
+      - docs/runbooks/m28-production-workflow-operations-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noUiCliTokenRead: true
+      noUiCliPost: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true
