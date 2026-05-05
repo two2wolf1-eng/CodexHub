@@ -99,6 +99,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m23-custom-workflow-template-results.md',
   'docs/releases/m24-custom-workflow-results.md',
   'docs/releases/m25-custom-workflow-catalog-results.md',
+  'docs/releases/m26-custom-workflow-production-results.md',
   'docs/releases/m24.6-foundation-hardening.md',
   'docs/releases/m24.7-deep-governance-hardening.md',
   'docs/releases/m24.8-governance-meta-audit.md',
@@ -123,6 +124,7 @@ const requiredGovernanceFiles = [
   'docs/reviews/m23-custom-workflow-template-hardening-review.md',
   'docs/reviews/m24-custom-workflow-hardening-review.md',
   'docs/reviews/m25-custom-workflow-catalog-hardening-review.md',
+  'docs/reviews/m26-custom-workflow-production-hardening-review.md',
   'docs/reviews/m0-m24-foundation-hardening-review.md',
   'docs/reviews/m0-m24-deep-governance-debug-review.md',
   'docs/reviews/m0-m24-governance-meta-audit-review.md',
@@ -147,6 +149,7 @@ const requiredGovernanceFiles = [
   'docs/runbooks/m23-custom-workflow-template-operator-runbook.md',
   'docs/runbooks/m24-custom-workflow-operator-runbook.md',
   'docs/runbooks/m25-custom-workflow-catalog-operator-runbook.md',
+  'docs/runbooks/m26-custom-workflow-production-operator-runbook.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
   'docs/checklists/m10-local-pilot-checklist.md',
 ];

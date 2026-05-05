@@ -3722,3 +3722,108 @@ workflows:
       noDirectAdapterExecutionFromUiCliMcp: true
       productionTemplatesDisabledByDefault: true
       metadataOnlyPublicOutput: true
+  m26a.catalog-bound-custom-workflow-dry-runs:
+    risk: high
+    trigger:
+      type: supervisor-control-plane-hardening
+      entrypoint: POST /api/workflows/custom/dry-runs
+      localControlRequired: true
+    chain:
+      - phase: resolve-template
+        source: catalog
+        storesRawTemplateBody: false
+      - phase: hash-bind-template
+        rejectsStaleTemplateHash: true
+      - phase: block-disabled-production-template
+        invokesChildControlPlanes: false
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      fixtureFallbackOnlyWhenNoProductionTemplateId: true
+      metadataOnlyPublicOutput: true
+  m26b.custom-workflow-production-coordinator-hardening:
+    risk: high
+    trigger:
+      type: supervisor-control-plane-hardening
+      entrypoint: POST /api/workflows/custom/runs
+      localControlRequired: true
+    chain:
+      - phase: reject-blocked-dry-run
+        consumesApproval: false
+      - phase: resolve-workflow-approval
+        authority: persistedApprovalArtifact
+        requiresApprovedStatus: true
+      - phase: verify-child-records
+        input: childRecordIdsAndHashesOnly
+        directChildExecutionAllowed: false
+      - phase: coordinate
+        createsChildApprovals: false
+        callsChildAdapters: false
+    safety:
+      noNewRoute: true
+      childApprovalsRemainSeparate: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      noDirectAdapterExecution: true
+  m26c.custom-workflow-production-readiness:
+    risk: medium
+    trigger:
+      type: operator-readiness
+      entrypoint: operator-readiness-kernel dashboard cli
+      localControlRequired: false
+    chain:
+      - phase: readiness
+        integration: custom-workflow-production
+        showsConfiguredMissingHashOnly: true
+      - phase: dashboard
+        route: "#/readiness"
+      - phase: cli
+        command: codexhub doctor
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      rawEnvValueStored: false
+      metadataOnlyPublicOutput: true
+  m26d.custom-workflow-production-rehearsal:
+    risk: medium
+    trigger:
+      type: fixture-rehearsal
+      entrypoint: workflow-kernel dashboard cli
+      localControlRequired: false
+    scenarios:
+      - all-pass
+      - template-disabled
+      - stale-template-hash
+      - workflow-approval-blocked
+      - child-approval-blocked
+      - child-run-failed
+      - verification-failed
+      - remote-step-blocked
+      - cleanup-blocked
+      - superseded-source
+    safety:
+      supervisorPostAllowed: false
+      localControlKeyRead: false
+      processBoundaryInvoked: false
+      networkBoundaryInvoked: false
+      adapterExecuteAllowedFromUiCli: false
+      metadataOnlyPublicOutput: true
+  m26_5.custom-workflow-production-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m26-custom-workflow-production-results.md
+      - docs/reviews/m26-custom-workflow-production-hardening-review.md
+      - docs/runbooks/m26-custom-workflow-production-operator-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noDirectAdapterExecutionFromUiCliMcp: true
+      childApprovalIsolation: true
+      productionTemplatesDisabledByDefault: true
+      metadataOnlyPublicOutput: true

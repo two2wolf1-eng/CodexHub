@@ -1486,7 +1486,7 @@ integrations:
     provider: codexhub-governed-coordinator
     providerType: builtin
     mode: json-template-governed-control-plane
-    stage: m25-custom-workflow-production-catalog
+    stage: m26-custom-workflow-productionization
     defaultActionMode: dry-run
     defaultRisk: high
     processBoundary: false
@@ -1497,6 +1497,9 @@ integrations:
       templateVersion: 1
       format: json-only
       productionTemplatesEnabled: false
+      productionExecutionEnabled: false
+      catalogDryRunHashBindingRequired: true
+      productionRehearsalFixtureOnly: true
       builtInProductionTemplates:
         - local-patch-review
         - local-rc-bundle
@@ -1567,6 +1570,7 @@ integrations:
         - codexhub workflows runs list
         - codexhub workflows runs show <runId>
         - codexhub workflows acceptance rehearse --fixture --scenario <name>
+        - codexhub workflows production rehearse --template-id <templateId> --fixture --scenario <name>
       supervisorPostAllowed: false
       localControlTokenRead: false
       adapterExecuteAllowed: false
