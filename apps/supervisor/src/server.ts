@@ -4051,6 +4051,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     if (!dryRunRecord) {
       return reply.code(404).send({ error: 'custom workflow dry-run record was not found' });
     }
+    if (dryRunRecord.status === 'blocked') {
+      return reply.code(409).send({
+        error: 'custom workflow dry-run is blocked',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
     if (body?.templateId && body.templateId !== dryRunRecord.templateId) {
       return reply.code(409).send({ error: 'custom workflow template id mismatch' });
     }
@@ -4071,6 +4082,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         error: 'custom workflow approval does not match dry-run',
         dryRunId: dryRunRecord.dryRunId,
         status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+    if (approvalRecord && approvalRecord.status !== 'approved') {
+      return reply.code(409).send({
+        error: 'custom workflow approval is not approved',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        approvalStatus: approvalRecord.status,
         processBoundaryInvoked: false,
         externalProcessStarted: false,
         networkBoundaryInvoked: false,

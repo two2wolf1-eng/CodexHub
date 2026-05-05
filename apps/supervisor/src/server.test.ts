@@ -6737,7 +6737,35 @@ describe('supervisor GitHub branch publish control plane', () => {
       method: 'GET',
       url: '/api/workflows/custom/approvals',
     });
+    const missingChildHashesResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+        childRecordHashes: {},
+      },
+    });
+    const approvalsAfterMissingChildResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/custom/approvals',
+    });
     const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/custom/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+        childRecordHashes,
+      },
+    });
+    const reusedApprovalResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/custom/runs',
       headers: localControlHeaders,
@@ -6835,6 +6863,27 @@ describe('supervisor GitHub branch publish control plane', () => {
         .json()
         .records.some((record: { status: string }) => record.status === 'used'),
     ).toBe(false);
+    expect(missingChildHashesResponse.statusCode).toBe(200);
+    expect(missingChildHashesResponse.json()).toMatchObject({
+      status: 'blocked',
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(missingChildHashesResponse.json().blockReasons).toEqual([]);
+    expect(
+      missingChildHashesResponse
+        .json()
+        .steps.some((step: { blockReasons: string[] }) =>
+          step.blockReasons.includes('custom_workflow_child_record_missing'),
+        ),
+    ).toBe(true);
+    expect(
+      approvalsAfterMissingChildResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'used'),
+    ).toBe(false);
     expect(completedResponse.statusCode).toBe(200);
     expect(completedResponse.json()).toMatchObject({
       status: 'completed',
@@ -6844,11 +6893,18 @@ describe('supervisor GitHub branch publish control plane', () => {
       networkBoundaryInvoked: false,
       noRealWrite: true,
     });
-    expect(runsResponse.json().records).toHaveLength(1);
+    expect(reusedApprovalResponse.statusCode).toBe(409);
+    expect(reusedApprovalResponse.json()).toMatchObject({
+      error: 'custom workflow approval is not approved',
+      status: 'blocked',
+      approvalStatus: 'used',
+      directAdapterExecutionAllowed: false,
+    });
+    expect(runsResponse.json().records).toHaveLength(2);
     expect(runShowResponse.statusCode).toBe(200);
-    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
-      true,
-    );
+    expect(
+      approvalsResponse.json().records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
     expect(rehearsalResponse.json()).toMatchObject({
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
@@ -6857,7 +6913,9 @@ describe('supervisor GitHub branch publish control plane', () => {
     for (const responseBody of [
       dryRunResponse.body,
       manualApprovalResponse.body,
+      missingChildHashesResponse.body,
       completedResponse.body,
+      reusedApprovalResponse.body,
       runShowResponse.body,
       rehearsalResponse.body,
     ]) {
