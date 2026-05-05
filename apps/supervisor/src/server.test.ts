@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -59,6 +59,18 @@ const lateStageSupervisorMutatingRoutes = [
   '/api/workflows/custom/approval-requests',
   '/api/workflows/custom/manual-approvals',
   '/api/workflows/custom/runs',
+] as const;
+const lateStageSupervisorRoutePrefixes = [
+  '/api/review-packages',
+  '/api/release-candidates',
+  '/api/github/metadata',
+  '/api/github/pr-lifecycle',
+  '/api/github/draft-prs',
+  '/api/github/branch-publishes',
+  '/api/github/publish-draft-pr-chains',
+  '/api/github/remote-cleanups',
+  '/api/rework-loops',
+  '/api/workflows/custom',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -238,6 +250,22 @@ describe('supervisor mock development API', () => {
 
     await server.close();
     await store.close();
+  });
+
+  it('keeps late-stage mutating route gate coverage synced with server POST registrations', () => {
+    const serverSource = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
+    const registeredLateStageRoutes = [
+      ...serverSource.matchAll(/server\.post\('([^']+)'/g),
+    ]
+      .map((match) => match[1])
+      .filter((route): route is string => Boolean(route))
+      .filter((route) =>
+        lateStageSupervisorRoutePrefixes.some((prefix) => route.startsWith(prefix)),
+      )
+      .sort();
+    const coveredLateStageRoutes = [...lateStageSupervisorMutatingRoutes].sort();
+
+    expect(coveredLateStageRoutes).toEqual(registeredLateStageRoutes);
   });
 
   it('rejects caller-supplied authority objects on late-stage approval and run routes', async () => {

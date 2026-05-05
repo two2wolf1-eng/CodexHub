@@ -15,6 +15,30 @@ import {
   createOperatorReadinessReport,
 } from './index';
 
+const forbiddenReadinessOutputTerms = [
+  'raw prompt fixture',
+  'stdout fixture',
+  'stderr fixture',
+  'diff --git',
+  'C:\\Users\\Thomas\\CodexHub',
+  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
+  'raw file content fixture',
+  '# Raw PR markdown',
+  'raw reason text',
+  'ghp_live_secret',
+  'cookie=session',
+  'session=secret',
+  'ENV_VALUE_SECRET',
+  'request body fixture',
+  'response body fixture',
+];
+
+function expectNoForbiddenReadinessOutput(serialized: string): void {
+  for (const term of forbiddenReadinessOutputTerms) {
+    expect(serialized).not.toContain(term);
+  }
+}
+
 describe('operator-readiness-kernel', () => {
   it('creates a metadata-only readiness report from configs and integrations', () => {
     const report = createOperatorReadinessReport({
@@ -46,6 +70,35 @@ describe('operator-readiness-kernel', () => {
     expect(serialized).not.toContain('risk rules');
     expect(serialized).not.toContain('integration rules');
     expect(serialized).not.toContain('C:/');
+  });
+
+  it('hashes adversarial config and token values out of readiness public output', () => {
+    const rawFixture =
+      'raw prompt fixture stdout fixture stderr fixture diff --git C:\\Users\\Thomas\\CodexHub https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text ghp_live_secret cookie=session session=secret ENV_VALUE_SECRET request body fixture response body fixture';
+    const report = createOperatorReadinessReport({
+      storeAvailable: true,
+      processBoundaryAllowlistPassed: true,
+      noLiveAuditPassed: true,
+      configs: [{ name: 'integrations', kind: 'integration', text: rawFixture, itemCount: 1 }],
+      integrations: [
+        {
+          name: 'github-provider',
+          enabled: false,
+          riskLevel: 'high',
+          approvalRequired: true,
+          networkBoundary: true,
+          blockers: ['disabled_by_default'],
+        },
+      ],
+      localControlKeys: [{ name: 'supervisor', configured: true, value: rawFixture }],
+    });
+    const serialized = JSON.stringify(report);
+
+    expectNoForbiddenReadinessOutput(serialized);
+    expect(report.configHashes[0]?.hash).toMatch(/^readiness:/);
+    expect(report.checks.find((check) => check.code === 'local_control_key_supervisor')?.hash).toMatch(
+      /^readiness:/,
+    );
   });
 
   it('reports store and audit failures as blockers', () => {

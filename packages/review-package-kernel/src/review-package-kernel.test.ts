@@ -66,6 +66,29 @@ describe('review-package-kernel', () => {
     expect(empty.packageSummary.readyForReviewDraftOnly).toBe(false);
   });
 
+  it('normalizes adversarial raw diff and path-hash inputs before public projection output', () => {
+    const rawDiff = 'diff --git a/secret.ts b/secret.ts\n+raw file content fixture';
+    const rawPathHashInput = 'C:\\Users\\Thomas\\CodexHub\\packages\\secret.ts';
+    const result = createLocalReviewPackageProjection({
+      sourceLifecycleRunId: 'm12_lifecycle_adversarial',
+      sourcePatchRunId: 'm12_patch_adversarial',
+      changedFilePathHashes: [rawPathHashInput],
+      diffHash: rawDiff,
+      verificationStatus: 'passed',
+      readinessStatus: 'ready_for_review_draft_only',
+      readyForReviewDraftOnly: true,
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.plan.changedFilePathHashes[0]).toMatch(/^sha256:/);
+    expect(result.plan.changedFilePathHashes[0]).not.toBe(rawPathHashInput);
+    expect(result.plan.diffHash).toMatch(/^sha256:/);
+    expect(result.plan.diffHash).not.toBe(rawDiff);
+    expect(serialized).not.toContain(rawPathHashInput);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('raw file content fixture');
+  });
+
   it('projects local review decisions and M12 retry handoff without storing raw reasons', () => {
     const reviewPackage = createLocalReviewPackageProjection({
       sourceLifecycleRunId: 'm12_lifecycle_decision',

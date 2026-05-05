@@ -10,6 +10,30 @@ import {
   normalizeStatus,
 } from './index';
 
+const forbiddenPublicOutputTerms = [
+  'raw prompt fixture',
+  'stdout fixture',
+  'stderr fixture',
+  'diff --git',
+  'C:\\Users\\Thomas\\CodexHub',
+  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
+  'raw file content fixture',
+  '# Raw PR markdown',
+  'raw reason text',
+  'ghp_live_secret',
+  'cookie=session',
+  'session=secret',
+  'ENV_VALUE_SECRET',
+  'request body fixture',
+  'response body fixture',
+];
+
+function expectNoForbiddenPublicOutput(serialized: string): void {
+  for (const term of forbiddenPublicOutputTerms) {
+    expect(serialized).not.toContain(term);
+  }
+}
+
 describe('governance-projection-kernel', () => {
   it('projects read-only run summaries into unified metadata-only runs', () => {
     const result = createGovernanceProjection([
@@ -90,5 +114,29 @@ describe('governance-projection-kernel', () => {
     expect(projection.evidenceBundle.evidenceKinds).toEqual(['browser.observation_summary']);
     expect(projection.rawPathStored).toBe(false);
     expect(projection.bodyStored).toBe(false);
+  });
+
+  it('hashes representative raw source metadata out of public projection output', () => {
+    const rawFixture =
+      'raw prompt fixture stdout fixture stderr fixture diff --git C:\\Users\\Thomas\\CodexHub https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text ghp_live_secret cookie=session session=secret ENV_VALUE_SECRET request body fixture response body fixture';
+    const result = createGovernanceProjection([
+      {
+        id: rawFixture,
+        source: 'github_branch_publish_run',
+        title: rawFixture,
+        status: 'completed',
+        evidenceRefIds: ['evidence_redacted_fixture'],
+        evidenceKinds: ['github.branch_publish_summary'],
+        auditEventIds: ['audit_redacted_fixture'],
+        policyDecisionIds: ['policy_redacted_fixture'],
+        networkBoundaryInvoked: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+      },
+    ]);
+
+    expectNoForbiddenPublicOutput(JSON.stringify(result));
+    expect(result.projections[0]?.sourceRunIdHash).toMatch(/^projection:/);
+    expect(result.projections[0]?.titleHash).toMatch(/^projection:/);
   });
 });

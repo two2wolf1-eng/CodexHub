@@ -86,6 +86,30 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('approvalToken=');
   });
 
+  it('keeps Dashboard mutating calls restricted to the governed approval decision path', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const postMatches = [...appSource.matchAll(/method:\s*['"]POST['"]/g)];
+    const approvalDecisionIndex = appSource.indexOf('/api/approvals/decisions');
+
+    expect(postMatches).toHaveLength(1);
+    expect(approvalDecisionIndex).toBeGreaterThanOrEqual(0);
+
+    const postIndex = postMatches[0]?.index ?? -1;
+    const approvalDecisionWindow = appSource.slice(
+      Math.max(0, approvalDecisionIndex - 400),
+      approvalDecisionIndex + 900,
+    );
+
+    expect(postIndex).toBeGreaterThan(approvalDecisionIndex);
+    expect(approvalDecisionWindow).toContain("method: 'POST'");
+    expect(approvalDecisionWindow).toContain('x-codexhub-local');
+    expect(approvalDecisionWindow).not.toContain('localStorage');
+    expect(approvalDecisionWindow).not.toContain('sessionStorage');
+    expect(approvalDecisionWindow).not.toContain('indexedDB');
+    expect(approvalDecisionWindow).not.toContain('executeGithub');
+    expect(approvalDecisionWindow).not.toContain('adapter.execute');
+  });
+
   it('summarizes approval decision history without raw reason or token data', () => {
     const summary = createApprovalDecisionHistoryReadOnlySummary({
       inboxItems: [

@@ -73,6 +73,29 @@ const branchPublishFileInputs = branchPublishFiles.map((file) => ({
   byteCount: Buffer.byteLength(file.content, 'utf8'),
   text: true,
 }));
+const forbiddenGithubPublicOutputTerms = [
+  'raw prompt fixture',
+  'stdout fixture',
+  'stderr fixture',
+  'diff --git',
+  'C:\\Users\\Thomas\\CodexHub',
+  'https://api.github.com/repos/two2wolf1-eng/CodexHub',
+  'raw file content fixture',
+  '# Raw PR markdown',
+  'raw reason text',
+  'ghp_live_secret',
+  'cookie=session',
+  'session=secret',
+  'ENV_VALUE_SECRET',
+  'request body fixture',
+  'response body fixture',
+];
+
+function expectNoForbiddenGithubPublicOutput(serialized: string): void {
+  for (const term of forbiddenGithubPublicOutputTerms) {
+    expect(serialized).not.toContain(term);
+  }
+}
 
 async function createCompletedBranchPublishRun() {
   const dryRunRecord = createGithubBranchPublishPlan({
@@ -232,6 +255,24 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(missing.tokenHash).toBeUndefined();
     expect(serialized).not.toContain('ghp_example_secret');
     expect(serialized).not.toContain('CODEXHUB_GITHUB_TOKEN');
+  });
+
+  it('keeps adversarial raw fixtures out of provider public summaries', () => {
+    const rawFixture =
+      'raw prompt fixture stdout fixture stderr fixture diff --git C:\\Users\\Thomas\\CodexHub https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text ghp_live_secret cookie=session session=secret ENV_VALUE_SECRET request body fixture response body fixture';
+    const tokenReadiness = readGithubTokenReadiness({ CODEXHUB_GITHUB_TOKEN: rawFixture }, fixedNow);
+    const dryRun = createGithubMetadataDryRunRecord({
+      owner: 'two2wolf1-eng',
+      repo: 'CodexHub',
+      baseBranch: rawFixture,
+      headBranch: rawFixture,
+      requestedMetadata: ['repo', 'base_branch', 'head_branch'],
+      now: fixedNow,
+    });
+
+    expectNoForbiddenGithubPublicOutput(JSON.stringify({ tokenReadiness, dryRun }));
+    expect(tokenReadiness.tokenHash).toMatch(/^sha256:/);
+    expect(dryRun.targetRef.baseBranchHash).toMatch(/^sha256:/);
   });
 
   it('creates remote ref summaries with hashes only', () => {

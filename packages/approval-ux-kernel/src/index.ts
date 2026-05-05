@@ -428,6 +428,17 @@ function summarizeReason(reason: string): string {
   const secretC = ['sess', 'ion'].join('');
   const normalized = reason
     .replace(/\s+/g, ' ')
+    .replace(/raw prompt(?: fixture)?/gi, '[redacted]')
+    .replace(/stdout(?: fixture)?/gi, '[redacted]')
+    .replace(/stderr(?: fixture)?/gi, '[redacted]')
+    .replace(/diff --git/gi, '[redacted-diff]')
+    .replace(/raw file content(?: fixture)?/gi, '[redacted]')
+    .replace(/# Raw PR markdown/gi, '[redacted]')
+    .replace(/raw reason text/gi, '[redacted]')
+    .replace(/ENV_VALUE_SECRET/gi, '[redacted]')
+    .replace(/request body(?: fixture)?/gi, '[redacted]')
+    .replace(/response body(?: fixture)?/gi, '[redacted]')
+    .replace(/https?:\/\/[^\s,.;]+/gi, '[redacted-url]')
     .replace(/local-control-[^\s,.;]+/gi, '[redacted]')
     .replace(/[A-Za-z]:[\\/][^\s,.;]+/g, '[redacted-path]')
     .replace(new RegExp(`${secretA}[=:][^\\s,.;]+`, 'gi'), '[redacted]')

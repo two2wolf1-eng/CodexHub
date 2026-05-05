@@ -53,6 +53,25 @@ function expectNoForbiddenCliRawOutput(serialized: string): void {
   }
 }
 
+function extractFunctionSource(source: string, functionName: string): string {
+  const startPatterns = [`export function ${functionName}`, `function ${functionName}`];
+  const start = startPatterns
+    .map((pattern) => source.indexOf(pattern))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0];
+
+  if (start === undefined) {
+    throw new Error(`Missing function source for ${functionName}`);
+  }
+
+  const nextFunctionMatch = /\n(?:export\s+)?(?:async\s+)?function\s+[A-Za-z0-9_]+\s*\(/g;
+  nextFunctionMatch.lastIndex = start + 1;
+
+  const next = nextFunctionMatch.exec(source);
+
+  return source.slice(start, next?.index ?? source.length);
+}
+
 describe('cli development mock-run fallback', () => {
   beforeEach(() => {
     process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
@@ -167,6 +186,39 @@ describe('cli development mock-run fallback', () => {
     expectNoForbiddenCliRawOutput(output);
     expect(output).not.toContain('local-control-secret');
     expect(output).not.toContain('Authorization');
+  });
+
+  it('keeps read-only CLI helpers away from local-control tokens, POST, and adapter execute calls', () => {
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const readOnlyHelperNames = [
+      'runGoldenPathRehearsalForCli',
+      'runM10PilotAcceptanceRehearsalForCli',
+      'runM11PilotAcceptanceSmokeForCli',
+      'runLocalRcAcceptanceRehearsalForCli',
+      'runGithubDraftPrAcceptanceRehearsalForCli',
+      'runGithubBranchPublishAcceptanceRehearsalForCli',
+      'runGithubPublishDraftPrAcceptanceRehearsalForCli',
+      'runGithubPrLifecycleAcceptanceRehearsalForCli',
+      'runRemoteSupersedeAcceptanceRehearsalForCli',
+      'runGithubRemoteCleanupAcceptanceRehearsalForCli',
+      'runReworkLoopAcceptanceRehearsalForCli',
+      'getGithubProviderStatusForCli',
+      'createGithubRemoteTargetStatusForCli',
+      'listCustomWorkflowTemplatesForCli',
+      'showCustomWorkflowTemplateForCli',
+      'validateCustomWorkflowTemplateForCli',
+      'rehearseCustomWorkflowForCli',
+    ];
+
+    for (const helperName of readOnlyHelperNames) {
+      const helperSource = extractFunctionSource(source, helperName);
+
+      expect(helperSource, helperName).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+      expect(helperSource, helperName).not.toContain('createSupervisorPostHeaders');
+      expect(helperSource, helperName).not.toContain("method: 'POST'");
+      expect(helperSource, helperName).not.toContain('method: "POST"');
+      expect(helperSource, helperName).not.toMatch(/\bexecute[A-Z][A-Za-z0-9_]*/);
+    }
   });
 
   it('creates an Nx verification dry-run summary without starting a process', async () => {

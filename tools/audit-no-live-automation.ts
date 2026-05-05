@@ -216,6 +216,7 @@ const allowlistRules: AllowlistEntry[] = [
 const violations: Violation[] = [];
 
 validateBoundaryAllowlists();
+validateAdversarialAuditSentinels();
 
 for (const root of scanRoots) {
   const absoluteRoot = resolve(workspaceRoot, root);
@@ -300,6 +301,107 @@ function validateBoundaryAllowlists(): void {
       });
     }
   }
+}
+
+function validateAdversarialAuditSentinels(): void {
+  const sentinelCases = [
+    {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText: 'executeGithubDraftPrCreation();',
+      expectedTerm: 'executeGithubDraftPrCreation',
+      description: 'direct adapter execute call from CLI source',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/approvals/decisions"; window.localStorage.setItem("approvalKey", "secret");',
+      expectedTerm: 'localStorage',
+      description: 'Dashboard approval token persistence',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'const boundary = await import("node:child_process");',
+      expectedTerm: 'node:child_process',
+      description: 'MCP dynamic process boundary import',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'await fetch("https://api.github.com/repos/example/example");',
+      expectedTerm: 'fetch(',
+      description: 'MCP direct network boundary',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: "const githubToken = process.env['CODEXHUB_GITHUB_TOKEN'];",
+      expectedTerm: 'CODEXHUB_GITHUB_TOKEN',
+      description: 'MCP bracket-notation GitHub token env read',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'const localToken = process.env["CODEXHUB_SUPERVISOR_LOCAL_TOKEN"];',
+      expectedTerm: 'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
+      description: 'MCP bracket-notation local-control token env read',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const command = "git push origin codexhub/test";',
+      expectedTerm: 'git push',
+      description: 'CLI GitHub remote push vocabulary',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = "/repos/example/example/git/refs";',
+      expectedTerm: '/git/refs',
+      description: 'CLI arbitrary GitHub ref mutation endpoint',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = "/repos/example/example/labels";',
+      expectedTerm: '/labels',
+      description: 'CLI GitHub label mutation endpoint',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = "/repos/example/example/releases";',
+      expectedTerm: '/releases',
+      description: 'CLI GitHub release mutation endpoint',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const command = "git update-ref refs/heads/main";',
+      expectedTerm: 'update-ref',
+      description: 'CLI existing ref update operation',
+    },
+  ];
+
+  for (const sentinel of sentinelCases) {
+    if (adversarialSentinelWouldViolate(sentinel.workspacePath, sentinel.sourceText, sentinel.expectedTerm)) {
+      continue;
+    }
+
+    violations.push({
+      file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
+      line: 1,
+      term: sentinel.expectedTerm,
+      reason: `Adversarial no-live audit sentinel failed to catch ${sentinel.description}.`,
+    });
+  }
+}
+
+function adversarialSentinelWouldViolate(
+  workspacePath: string,
+  sourceText: string,
+  expectedTerm: string,
+): boolean {
+  const file = resolve(workspaceRoot, workspacePath);
+  const before = violations.length;
+
+  auditTextTerms(file, sourceText);
+  auditM9ApprovalUxGuards(file, sourceText);
+
+  const addedViolations = violations.splice(before);
+
+  return addedViolations.some((violation) => violation.term === expectedTerm);
 }
 
 function auditFile(file: string): void {

@@ -61,6 +61,7 @@ export function createLocalReviewPackageProjection(
 ): LocalReviewPackageRun {
   const now = input.now ?? foundationTimestamp;
   const changedFilePathHashes = getChangedFilePathHashes(input);
+  const diffHash = input.diffHash ? normalizeHashOnly(input.diffHash) : undefined;
   const evidenceRefIds = [...(input.evidenceRefIds ?? [])];
   const auditEventIds = [...(input.auditEventIds ?? [])];
   const packageSeed = [
@@ -98,7 +99,7 @@ export function createLocalReviewPackageProjection(
       : undefined,
     changedFileCount: changedFilePathHashes.length,
     changedFilePathHashes,
-    diffHash: input.diffHash,
+    diffHash,
     verificationStatus: input.verificationStatus,
     readinessStatus: input.readinessStatus,
     readyForReviewDraftOnly: input.readyForReviewDraftOnly,
@@ -122,7 +123,7 @@ export function createLocalReviewPackageProjection(
       sourceLifecycleRunIdHash: plan.sourceLifecycleRunIdHash,
       sourcePatchRunIdHash: plan.sourcePatchRunIdHash,
       changedFilePathHashes,
-      diffHash: input.diffHash,
+      diffHash,
       verificationStatus: input.verificationStatus,
     }),
   );
@@ -133,7 +134,7 @@ export function createLocalReviewPackageProjection(
     planId: plan.id,
     status,
     changedFileCount: changedFilePathHashes.length,
-    diffHash: input.diffHash,
+    diffHash,
     verificationStatus: input.verificationStatus,
     readyForReviewDraftOnly: readyForReview,
     evidenceRefCount: evidenceRefIds.length,
@@ -551,10 +552,18 @@ export async function executeLocalReviewPackageExport(
 
 function getChangedFilePathHashes(input: LocalReviewPackageProjectionInput): string[] {
   if (input.changedFilePathHashes) {
-    return [...input.changedFilePathHashes];
+    return [...input.changedFilePathHashes].map(normalizeHashOnly);
   }
 
   return [...(input.changedFiles ?? [])].map((filePath) => stableHash(filePath));
+}
+
+function normalizeHashOnly(value: string): string {
+  if (value.startsWith('sha256:')) {
+    return value;
+  }
+
+  return stableHash(value);
 }
 
 function stableHash(value: string): string {

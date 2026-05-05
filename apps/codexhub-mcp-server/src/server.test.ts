@@ -206,11 +206,24 @@ describe('codexhub MCP server', () => {
         expect(source).not.toContain(term);
       }
 
-      expect(source).not.toContain('child_process');
-      expect(source).not.toContain('node:child_process');
+      const childProcessName = ['child', 'process'].join('_');
+      const childProcessModule = ['node:', childProcessName].join('');
+      const githubTokenEnv = ['CODEXHUB', 'GITHUB', 'TOKEN'].join('_');
+      const localControlTokenEnv = ['CODEXHUB', 'SUPERVISOR', 'LOCAL', 'TOKEN'].join('_');
+
+      expect(source).not.toContain(childProcessName);
+      expect(source).not.toContain(childProcessModule);
       expect(source).not.toContain('fetch(');
-      expect(source).not.toContain('CODEXHUB_GITHUB_TOKEN');
-      expect(source).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+      expect(source).not.toContain(githubTokenEnv);
+      expect(source).not.toContain(localControlTokenEnv);
+      expect(source).not.toContain(`process.env['${githubTokenEnv}']`);
+      expect(source).not.toContain(`process.env["${githubTokenEnv}"]`);
+      expect(source).not.toContain(`process.env['${localControlTokenEnv}']`);
+      expect(source).not.toContain(`process.env["${localControlTokenEnv}"]`);
+      expect(source).not.toContain(`import('${childProcessModule}')`);
+      expect(source).not.toContain(`import("${childProcessModule}")`);
+      expect(source).not.toContain(`require('${childProcessModule}')`);
+      expect(source).not.toContain(`require("${childProcessModule}")`);
     }
   });
 });

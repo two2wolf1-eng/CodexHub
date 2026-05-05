@@ -3550,3 +3550,28 @@ workflows:
       requestBodyApprovalArtifactTrusted: false
       requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
+  m24_9.adversarial-governance-debug-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits tests dashboard cli mcp
+      localControlRequired: false
+    scope:
+      baseline:
+        - M0-M24 route coverage drift
+        - UI CLI MCP read-only mutation drift
+        - no-live audit negative fixtures
+        - metadata-only public serialization
+        - late-stage approval consumption semantics
+      docs:
+        - docs/releases/m24.9-adversarial-governance-hardening.md
+        - docs/reviews/m0-m24-adversarial-governance-debug-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noRemoteWriteSmoke: true
+      noDirectAdapterExecutionFromUiCliMcp: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      metadataOnlyPublicOutput: true

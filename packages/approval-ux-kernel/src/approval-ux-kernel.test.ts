@@ -113,7 +113,7 @@ describe('approval-ux-kernel', () => {
       decisions: [decision],
       reasonSummaries: {
         [decision.id]:
-          'Reject local-control-secret with token=private cookie=private session=private at C:/private',
+          'Reject raw prompt fixture stdout fixture stderr fixture diff --git C:/private https://api.github.com/repos/two2wolf1-eng/CodexHub raw file content fixture # Raw PR markdown raw reason text token=private cookie=private session=private ENV_VALUE_SECRET request body fixture response body fixture local-control-secret',
       },
     });
     const item = projection.items[0];
@@ -123,10 +123,21 @@ describe('approval-ux-kernel', () => {
     expect(item?.reasonSummary).toContain('[redacted]');
     expect(item?.reasonSummary).not.toContain('private');
     expect(item?.reasonSummary).not.toContain('local-control-secret');
+    expect(item?.reasonSummary).not.toContain('raw prompt fixture');
+    expect(item?.reasonSummary).not.toContain('stdout fixture');
+    expect(item?.reasonSummary).not.toContain('stderr fixture');
+    expect(item?.reasonSummary).not.toContain('diff --git');
+    expect(item?.reasonSummary).not.toContain('https://api.github.com');
+    expect(item?.reasonSummary).not.toContain('raw file content fixture');
+    expect(item?.reasonSummary).not.toContain('# Raw PR markdown');
+    expect(item?.reasonSummary).not.toContain('raw reason text');
     expect(serialized).not.toContain('token=private');
     expect(serialized).not.toContain('cookie=private');
     expect(serialized).not.toContain('session=private');
     expect(serialized).not.toContain('C:/private');
+    expect(serialized).not.toContain('ENV_VALUE_SECRET');
+    expect(serialized).not.toContain('request body fixture');
+    expect(serialized).not.toContain('response body fixture');
   });
 });
 
