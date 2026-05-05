@@ -5071,6 +5071,15 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>operations</strong>
+              <span>
+                {customWorkflowSummary.operationsRunHealth}, blockers{' '}
+                {customWorkflowSummary.operationsBlockedReasonCount}, stale child records{' '}
+                {customWorkflowSummary.operationsStaleChildRecordCount}, rollback{' '}
+                {String(customWorkflowSummary.operationsRollbackAvailable)}
+              </span>
+            </li>
+            <li>
               <strong>write controls</strong>
               <span>
                 supervisor POST {String(customWorkflowSummary.supervisorPostAllowed)},
@@ -5085,6 +5094,7 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
           </ul>
+          <p>{customWorkflowSummary.operationsNextActionSummary}</p>
           <p>{customWorkflowSummary.summary}</p>
         </Panel>
         <Panel title="Production Workflow Catalog">

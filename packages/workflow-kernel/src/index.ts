@@ -30,6 +30,17 @@ import {
   type ProductionWorkflowPilotStatus,
   ProductionWorkflowPilotStepSchema,
   type ProductionWorkflowPilotStep,
+  ProductionWorkflowOperationsProjectionSchema,
+  type ProductionWorkflowOperationsProjection,
+  ProductionWorkflowOperationsSmokeRunSchema,
+  type ProductionWorkflowOperationsSmokeRun,
+  type ProductionWorkflowOperationsSmokeScenario,
+  ProductionWorkflowPauseSummarySchema,
+  type ProductionWorkflowPauseSummary,
+  ProductionWorkflowResumeSummarySchema,
+  type ProductionWorkflowResumeSummary,
+  ProductionWorkflowRollbackSummarySchema,
+  type ProductionWorkflowRollbackSummary,
   CustomWorkflowProductionTemplateValidationSummarySchema,
   type CustomWorkflowProductionTemplateValidationSummary,
   CustomWorkflowRunSchema,
@@ -127,6 +138,22 @@ export interface ProductionWorkflowPilotRehearsalOptions {
   template?: CustomWorkflowTemplate;
   templateId?: string;
   scenario?: CustomWorkflowRehearsalScenario;
+}
+
+export interface ProductionWorkflowOperationsProjectionOptions {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  pilotRun?: ProductionWorkflowPilotRun;
+  approvalState?: CustomWorkflowApprovalArtifactRecord['status'];
+  staleChildRecordCount?: number;
+  rollbackAvailable?: boolean;
+  blockReasons?: string[];
+}
+
+export interface ProductionWorkflowOperationIntentOptions {
+  sourceRunIdHash: string;
+  affectedTemplateHash: string;
+  reasonHash: string;
 }
 
 const customWorkflowForbiddenKeys = new Set([
@@ -1372,6 +1399,207 @@ function createProductionWorkflowPilotEvidenceSummary(input: {
     rawPathStored: false,
     summary: 'Production workflow pilot evidence and audit are represented by hashes and counts.',
   });
+}
+
+export function createProductionWorkflowOperationsProjection(
+  input: ProductionWorkflowOperationsProjectionOptions = {},
+): ProductionWorkflowOperationsProjection {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const pilotRun = input.pilotRun;
+  const blockReasons = [
+    ...(input.blockReasons ?? []),
+    ...(pilotRun?.blockReasons ?? []),
+  ];
+  const staleChildRecordCount = input.staleChildRecordCount ?? 0;
+  if (staleChildRecordCount > 0) {
+    blockReasons.push('custom_workflow_stale_child_records');
+  }
+  const rollbackAvailable =
+    input.rollbackAvailable ?? (pilotRun?.status === 'failed' ? true : false);
+  const runHealth =
+    rollbackAvailable
+      ? 'rollback-required'
+      : blockReasons.length > 0 || pilotRun?.status === 'blocked'
+        ? 'blocked'
+        : pilotRun?.status === 'failed' || pilotRun?.status === 'aborted'
+          ? 'degraded'
+          : 'healthy';
+
+  return ProductionWorkflowOperationsProjectionSchema.parse({
+    id: foundationId('production_workflow_operations'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    latestPilotRunIdHash: pilotRun ? hashText(pilotRun.pilotRunId) : undefined,
+    runHealth,
+    approvalState: input.approvalState ?? 'requested',
+    blockedReasonCount: blockReasons.length,
+    blockedReasons: blockReasons,
+    staleChildRecordCount,
+    rollbackAvailable,
+    operatorNextActionSummary:
+      blockReasons.length === 0
+        ? 'Continue monitoring production workflow child records.'
+        : 'Resolve blockers through existing child control planes before running the workflow again.',
+    evidenceRefCount: pilotRun?.evidenceRefIds.length ?? 0,
+    auditEventCount: pilotRun?.auditEventIds.length ?? 0,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      blockReasons.length === 0
+        ? 'Production workflow operations projection is healthy.'
+        : 'Production workflow operations projection is blocked or degraded.',
+    metadata: {
+      templateHash: template.templateHash,
+      blockedReasonCount: blockReasons.length,
+    },
+  });
+}
+
+export function createProductionWorkflowPauseSummary(
+  input: ProductionWorkflowOperationIntentOptions,
+): ProductionWorkflowPauseSummary {
+  return ProductionWorkflowPauseSummarySchema.parse({
+    id: foundationId('production_workflow_pause'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    actionId: foundationId('production_workflow_pause'),
+    sourceRunIdHash: input.sourceRunIdHash,
+    affectedTemplateHash: input.affectedTemplateHash,
+    reasonHash: input.reasonHash,
+    status: 'paused',
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow pause records operator intent only.',
+  });
+}
+
+export function createProductionWorkflowResumeSummary(
+  input: ProductionWorkflowOperationIntentOptions,
+): ProductionWorkflowResumeSummary {
+  return ProductionWorkflowResumeSummarySchema.parse({
+    id: foundationId('production_workflow_resume'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    actionId: foundationId('production_workflow_resume'),
+    sourceRunIdHash: input.sourceRunIdHash,
+    affectedTemplateHash: input.affectedTemplateHash,
+    reasonHash: input.reasonHash,
+    status: 'healthy',
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow resume records operator intent only.',
+  });
+}
+
+export function createProductionWorkflowRollbackSummary(
+  input: ProductionWorkflowOperationIntentOptions,
+): ProductionWorkflowRollbackSummary {
+  return ProductionWorkflowRollbackSummarySchema.parse({
+    id: foundationId('production_workflow_rollback'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    actionId: foundationId('production_workflow_rollback'),
+    sourceRunIdHash: input.sourceRunIdHash,
+    affectedTemplateHash: input.affectedTemplateHash,
+    reasonHash: input.reasonHash,
+    status: 'rollback-required',
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow rollback records operator intent only.',
+  });
+}
+
+export function runProductionWorkflowOperationsSmoke(input: {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  scenario?: ProductionWorkflowOperationsSmokeScenario;
+} = {}): ProductionWorkflowOperationsSmokeRun {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const scenario = input.scenario ?? 'healthy';
+  const blockReasons = createProductionWorkflowOperationsSmokeBlockReasons(scenario);
+  const pilotRun = runProductionWorkflowPilotRehearsal({
+    template,
+    scenario:
+      scenario === 'remote-child-blocked'
+        ? 'remote-step-blocked'
+        : scenario === 'stale-child-record'
+          ? 'superseded-source'
+          : scenario === 'approval-used'
+            ? 'workflow-approval-blocked'
+            : scenario === 'production-disabled' || scenario === 'stale-template'
+              ? 'template-disabled'
+              : 'all-pass',
+  });
+  const projection = createProductionWorkflowOperationsProjection({
+    template,
+    pilotRun,
+    approvalState: scenario === 'approval-used' ? 'used' : 'approved',
+    staleChildRecordCount: scenario === 'stale-child-record' ? 1 : 0,
+    rollbackAvailable: scenario === 'rollback-required',
+    blockReasons,
+  });
+
+  return ProductionWorkflowOperationsSmokeRunSchema.parse({
+    id: foundationId('production_workflow_operations_smoke'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    scenario,
+    status: projection.runHealth,
+    projection,
+    fixtureOnly: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow operations smoke is fixture-only.',
+    metadata: { scenario },
+  });
+}
+
+function createProductionWorkflowOperationsSmokeBlockReasons(
+  scenario: ProductionWorkflowOperationsSmokeScenario,
+): string[] {
+  switch (scenario) {
+    case 'healthy':
+      return [];
+    case 'production-disabled':
+      return ['custom_workflow_production_execution_disabled'];
+    case 'stale-template':
+      return ['custom_workflow_template_hash_stale'];
+    case 'stale-child-record':
+      return ['custom_workflow_stale_child_records'];
+    case 'approval-used':
+      return ['custom_workflow_approval_already_used'];
+    case 'rollback-required':
+      return ['custom_workflow_rollback_required'];
+    case 'remote-child-blocked':
+      return ['custom_workflow_remote_child_blocked'];
+  }
 }
 
 function createCustomWorkflowStepTemplate(

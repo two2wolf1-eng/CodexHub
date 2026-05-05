@@ -332,6 +332,10 @@ describe('dashboard read-only UX helpers', () => {
       latestProductionPilotReadinessStatus: 'blocked',
       productionPilotEvidenceRefCount: 2,
       productionPilotAuditEventCount: 2,
+      operationsRunHealth: 'rollback-required',
+      operationsBlockedReasonCount: 1,
+      operationsStaleChildRecordCount: 1,
+      operationsRollbackAvailable: true,
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
     });
@@ -354,6 +358,10 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.productionPilotEvidenceRefCount).toBe(2);
     expect(summary.productionPilotAuditEventCount).toBe(2);
     expect(summary.productionPilotFixtureOnly).toBe(true);
+    expect(summary.operationsRunHealth).toBe('rollback-required');
+    expect(summary.operationsBlockedReasonCount).toBe(1);
+    expect(summary.operationsStaleChildRecordCount).toBe(1);
+    expect(summary.operationsRollbackAvailable).toBe(true);
     expect(summary.dryRunCount).toBe(2);
     expect(summary.approvalRequired).toBe(true);
     expect(summary.childApprovalsRequired).toBe(true);

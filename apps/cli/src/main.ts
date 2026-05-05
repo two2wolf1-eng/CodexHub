@@ -208,8 +208,10 @@ import {
   createCustomWorkflowCatalog,
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
+  createProductionWorkflowOperationsProjection,
   loadCustomWorkflowTemplatesFromDirectory,
   runCustomWorkflowFixtureRehearsal,
+  runProductionWorkflowOperationsSmoke,
   runProductionWorkflowPilotRehearsal,
   validateCustomWorkflowTemplateInput,
   createMockWorkflowDefinition,
@@ -1535,6 +1537,50 @@ export function buildProgram(): Command {
           options.scenario,
         );
         console.log(formatProductionWorkflowPilotRehearsalOutput(result, options));
+      },
+    );
+
+  const workflowProductionOperationsCommand = workflowProductionCommand
+    .command('operations')
+    .description('Read production workflow operations metadata');
+
+  workflowProductionOperationsCommand
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show production workflow operations readiness without execution')
+    .action(async (options: JsonCliOptions) => {
+      const result = getProductionWorkflowOperationsStatusForCli();
+      console.log(formatProductionWorkflowOperationsStatusOutput(result, options));
+    });
+
+  workflowProductionOperationsCommand
+    .command('history')
+    .option('--json', 'Print full JSON output')
+    .description('Show production workflow operations history metadata')
+    .action(async (options: JsonCliOptions) => {
+      const result = getProductionWorkflowOperationsHistoryForCli();
+      console.log(formatProductionWorkflowOperationsHistoryOutput(result, options));
+    });
+
+  workflowProductionOperationsCommand
+    .command('smoke')
+    .requiredOption('--fixture', 'Use fixture-only operations smoke data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'healthy')
+    .option('--template-id <templateId>', 'Production template id', 'local-patch-review')
+    .option('--json', 'Print full JSON output')
+    .description('Run a fixture-only production workflow operations smoke')
+    .action(
+      async (
+        options: JsonCliOptions & {
+          scenario: string;
+          templateId: string;
+        },
+      ) => {
+        const result = runProductionWorkflowOperationsSmokeForCli(
+          options.templateId,
+          options.scenario,
+        );
+        console.log(formatProductionWorkflowOperationsSmokeOutput(result, options));
       },
     );
 
@@ -5661,6 +5707,74 @@ export function rehearseProductionWorkflowPilotForCli(
   };
 }
 
+export function getProductionWorkflowOperationsStatusForCli(
+  templateId = 'local-patch-review',
+): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const template = catalog.templates.find((item) => item.templateId === templateId);
+  const projection = createProductionWorkflowOperationsProjection({
+    template: template ?? createCustomWorkflowTemplateFixture({ templateId }),
+    approvalState: 'requested',
+    blockReasons: template ? ['custom_workflow_production_execution_disabled'] : ['template_missing'],
+  });
+
+  return {
+    projection,
+    found: Boolean(template),
+    operationsReadOnly: true,
+    supervisorPostAllowed: false,
+    localControlKeyRead: false,
+    directAdapterExecutionAllowed: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+export function getProductionWorkflowOperationsHistoryForCli(): Record<string, unknown> {
+  const status = getProductionWorkflowOperationsStatusForCli();
+
+  return {
+    records: [status.projection],
+    count: 1,
+    operationsReadOnly: true,
+    supervisorPostAllowed: false,
+    localControlKeyRead: false,
+    directAdapterExecutionAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
+export function runProductionWorkflowOperationsSmokeForCli(
+  templateId: string,
+  scenario: string,
+): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const template = catalog.templates.find((item) => item.templateId === templateId);
+  const smoke = runProductionWorkflowOperationsSmoke({
+    template: template ?? createCustomWorkflowTemplateFixture({ templateId }),
+    scenario: scenario as never,
+  });
+
+  return {
+    record: smoke,
+    found: Boolean(template),
+    fixtureOnly: true,
+    operationsReadOnly: true,
+    supervisorPostAllowed: false,
+    localControlKeyRead: false,
+    directAdapterExecutionAllowed: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
 async function listCustomWorkflowDryRuns(): Promise<Record<string, unknown>> {
   return getSupervisorJson('/api/workflows/custom/dry-runs');
 }
@@ -6230,6 +6344,19 @@ function createOperatorIntegrationInputs(): OperatorIntegrationInput[] {
           ],
       safeEnableNotes: [
         'Production workflow catalog execution stays disabled by default and coordinates only existing child control-plane records.',
+      ],
+    },
+    {
+      name: 'production-workflow-operations',
+      enabled: customWorkflowProductionEnabled,
+      riskLevel: 'medium',
+      approvalRequired: false,
+      envFlagConfigured: customWorkflowProductionEnabled,
+      blockers: customWorkflowProductionEnabled
+        ? ['production_workflow_operations_projection_only']
+        : ['disabled_by_default', 'production_workflow_operations_projection_only'],
+      safeEnableNotes: [
+        'Operations views are read-only projections; pause, resume, and rollback are metadata-only intent summaries.',
       ],
     },
     {
@@ -10923,6 +11050,79 @@ export function formatProductionWorkflowPilotRehearsalOutput(
     `bodyStored=${String(record?.bodyStored ?? false)}`,
     `rawPathStored=${String(record?.rawPathStored ?? false)}`,
     `summary: ${String(record?.summary ?? 'Production workflow pilot metadata summary.')}`,
+  ].join('\n');
+}
+
+export function formatProductionWorkflowOperationsStatusOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const projection = result.projection as Record<string, unknown> | undefined;
+
+  return [
+    'Production workflow operations status',
+    `templateId: ${String(projection?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(projection?.templateHash ?? 'unavailable')}`,
+    `runHealth: ${String(projection?.runHealth ?? 'unknown')}`,
+    `approvalState: ${String(projection?.approvalState ?? 'unknown')}`,
+    `blockers: ${String(projection?.blockedReasonCount ?? 0)}`,
+    `staleChildRecordCount: ${String(projection?.staleChildRecordCount ?? 0)}`,
+    `rollbackAvailable=${String(projection?.rollbackAvailable ?? false)}`,
+    `directAdapterExecutionAllowed=${String(projection?.directAdapterExecutionAllowed ?? false)}`,
+    `supervisorPostAllowed=${String(result.supervisorPostAllowed ?? false)}`,
+    `localControlKeyRead=${String(result.localControlKeyRead ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `summary: ${String(projection?.summary ?? 'Production workflow operations metadata summary.')}`,
+  ].join('\n');
+}
+
+export function formatProductionWorkflowOperationsHistoryOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Production workflow operations history',
+    `count: ${String(result.count ?? 0)}`,
+    `operationsReadOnly=${String(result.operationsReadOnly ?? true)}`,
+    `directAdapterExecutionAllowed=${String(result.directAdapterExecutionAllowed ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+  ].join('\n');
+}
+
+export function formatProductionWorkflowOperationsSmokeOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+  const projection = record?.projection as Record<string, unknown> | undefined;
+
+  return [
+    'Production workflow operations smoke',
+    `scenario: ${String(record?.scenario ?? 'unknown')}`,
+    `status: ${String(record?.status ?? 'unknown')}`,
+    `runHealth: ${String(projection?.runHealth ?? 'unknown')}`,
+    `fixtureOnly=${String(record?.fixtureOnly ?? true)}`,
+    `directAdapterExecutionAllowed=${String(record?.directAdapterExecutionAllowed ?? false)}`,
+    `processBoundaryInvoked=${String(record?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(record?.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(record?.networkBoundaryInvoked ?? false)}`,
+    `bodyStored=${String(record?.bodyStored ?? false)}`,
+    `rawPathStored=${String(record?.rawPathStored ?? false)}`,
+    `summary: ${String(record?.summary ?? 'Production workflow operations smoke metadata summary.')}`,
   ].join('\n');
 }
 

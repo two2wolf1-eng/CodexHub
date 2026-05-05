@@ -284,6 +284,11 @@ export interface CustomWorkflowReadOnlySummary {
   productionPilotEvidenceRefCount: number;
   productionPilotAuditEventCount: number;
   productionPilotFixtureOnly: true;
+  operationsRunHealth: string;
+  operationsBlockedReasonCount: number;
+  operationsStaleChildRecordCount: number;
+  operationsRollbackAvailable: boolean;
+  operationsNextActionSummary: string;
   approvalRequired: true;
   childApprovalsRequired: true;
   productDefaultEnabled: false;
@@ -1627,6 +1632,11 @@ export function createCustomWorkflowReadOnlySummary(input: {
   latestProductionPilotReadinessStatus?: string;
   productionPilotEvidenceRefCount?: number;
   productionPilotAuditEventCount?: number;
+  operationsRunHealth?: string;
+  operationsBlockedReasonCount?: number;
+  operationsStaleChildRecordCount?: number;
+  operationsRollbackAvailable?: boolean;
+  operationsNextActionSummary?: string;
   processBoundaryInvoked?: boolean;
   networkBoundaryInvoked?: boolean;
 } = {}): CustomWorkflowReadOnlySummary {
@@ -1661,6 +1671,13 @@ export function createCustomWorkflowReadOnlySummary(input: {
     productionPilotEvidenceRefCount: input.productionPilotEvidenceRefCount ?? 0,
     productionPilotAuditEventCount: input.productionPilotAuditEventCount ?? 0,
     productionPilotFixtureOnly: true,
+    operationsRunHealth: input.operationsRunHealth ?? 'blocked',
+    operationsBlockedReasonCount: input.operationsBlockedReasonCount ?? 1,
+    operationsStaleChildRecordCount: input.operationsStaleChildRecordCount ?? 0,
+    operationsRollbackAvailable: input.operationsRollbackAvailable ?? false,
+    operationsNextActionSummary:
+      input.operationsNextActionSummary ??
+      'Resolve production workflow blockers through existing child control planes.',
     approvalRequired: true,
     childApprovalsRequired: true,
     productDefaultEnabled: false,

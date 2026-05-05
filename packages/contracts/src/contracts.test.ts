@@ -222,6 +222,11 @@ import {
   ProductionWorkflowPilotReadinessSchema,
   ProductionWorkflowPilotRunSchema,
   ProductionWorkflowPilotStepSchema,
+  ProductionWorkflowOperationsProjectionSchema,
+  ProductionWorkflowOperationsSmokeRunSchema,
+  ProductionWorkflowPauseSummarySchema,
+  ProductionWorkflowResumeSummarySchema,
+  ProductionWorkflowRollbackSummarySchema,
   GithubPublishDraftPrAcceptanceRehearsalRunSchema,
   GithubPublishDraftPrChainPlanSchema,
   GithubPublishDraftPrChainRunSchema,
@@ -10467,6 +10472,80 @@ describe('contracts schemas', () => {
       rawPathStored: false,
       summary: 'Production workflow pilot completed as coordination only.',
     });
+    const operationsProjection = ProductionWorkflowOperationsProjectionSchema.parse({
+      id: 'production_workflow_operations_1',
+      schemaVersion,
+      createdAt,
+      templateId: template.templateId,
+      templateHash: template.templateHash,
+      latestPilotRunIdHash: 'sha256:pilot-run',
+      runHealth: 'healthy',
+      approvalState: 'approved',
+      blockedReasonCount: 0,
+      blockedReasons: [],
+      staleChildRecordCount: 0,
+      rollbackAvailable: false,
+      operatorNextActionSummary: 'Continue monitoring child control-plane records.',
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow operations projection is healthy.',
+    });
+    const pause = ProductionWorkflowPauseSummarySchema.parse({
+      id: 'production_workflow_pause_1',
+      schemaVersion,
+      createdAt,
+      actionId: 'pause_1',
+      sourceRunIdHash: 'sha256:pilot-run',
+      affectedTemplateHash: template.templateHash,
+      reasonHash: 'sha256:reason',
+      status: 'paused',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Pause is metadata-only operator intent.',
+    });
+    const resume = ProductionWorkflowResumeSummarySchema.parse({
+      ...pause,
+      id: 'production_workflow_resume_1',
+      actionId: 'resume_1',
+      status: 'healthy',
+      summary: 'Resume is metadata-only operator intent.',
+    });
+    const rollback = ProductionWorkflowRollbackSummarySchema.parse({
+      ...pause,
+      id: 'production_workflow_rollback_1',
+      actionId: 'rollback_1',
+      status: 'rollback-required',
+      summary: 'Rollback is metadata-only operator intent.',
+    });
+    const operationsSmoke = ProductionWorkflowOperationsSmokeRunSchema.parse({
+      id: 'production_workflow_operations_smoke_1',
+      schemaVersion,
+      createdAt,
+      scenario: 'healthy',
+      status: 'healthy',
+      projection: operationsProjection,
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Operations smoke is fixture-only.',
+    });
 
     const serialized = JSON.stringify([
       template,
@@ -10476,12 +10555,19 @@ describe('contracts schemas', () => {
       rehearsal,
       pilotPlan,
       pilotRun,
+      operationsProjection,
+      pause,
+      resume,
+      rollback,
+      operationsSmoke,
     ]);
     expect(run.directAdapterExecutionAllowed).toBe(false);
     expect(run.processBoundaryInvoked).toBe(false);
     expect(rehearsal.status).toBe('blocked');
     expect(pilotRun.directAdapterExecutionAllowed).toBe(false);
     expect(pilotRun.networkBoundaryInvoked).toBe(false);
+    expect(operationsProjection.directAdapterExecutionAllowed).toBe(false);
+    expect(operationsSmoke.fixtureOnly).toBe(true);
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('raw diff');
     expect(serialized).not.toContain('local-control');
@@ -10518,6 +10604,20 @@ describe('contracts schemas', () => {
         ...pilotPlan,
         id: 'production_workflow_pilot_direct_execute',
         directAdapterExecutionAllowed: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionWorkflowOperationsProjectionSchema.parse({
+        ...operationsProjection,
+        id: 'production_workflow_operations_raw_body',
+        metadata: { body: 'raw operator reason body' },
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionWorkflowRollbackSummarySchema.parse({
+        ...rollback,
+        id: 'production_workflow_rollback_raw_path',
+        metadata: { path: 'C:/Users/Thomas/CodexHub' },
       }),
     ).toThrow();
   });

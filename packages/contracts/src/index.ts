@@ -1060,6 +1060,127 @@ export type ProductionWorkflowPilotRun = z.infer<
   typeof ProductionWorkflowPilotRunSchema
 >;
 
+export const ProductionWorkflowOperationStatusSchema = z.enum([
+  'healthy',
+  'blocked',
+  'paused',
+  'rollback-required',
+  'degraded',
+]);
+export type ProductionWorkflowOperationStatus = z.infer<
+  typeof ProductionWorkflowOperationStatusSchema
+>;
+
+export const ProductionWorkflowOperationsSmokeScenarioSchema = z.enum([
+  'healthy',
+  'production-disabled',
+  'stale-template',
+  'stale-child-record',
+  'approval-used',
+  'rollback-required',
+  'remote-child-blocked',
+]);
+export type ProductionWorkflowOperationsSmokeScenario = z.infer<
+  typeof ProductionWorkflowOperationsSmokeScenarioSchema
+>;
+
+export const ProductionWorkflowOperationsProjectionSchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    latestPilotRunIdHash: z.string().min(1).optional(),
+    runHealth: ProductionWorkflowOperationStatusSchema,
+    approvalState: CustomWorkflowApprovalStatusSchema,
+    blockedReasonCount: z.number().int().nonnegative(),
+    blockedReasons: z.array(z.string().min(1)).default([]),
+    staleChildRecordCount: z.number().int().nonnegative(),
+    rollbackAvailable: z.boolean().default(false),
+    operatorNextActionSummary: z.string().min(1),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.blockedReasonCount !== value.blockedReasons.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Production workflow operations blockedReasonCount must match blockedReasons length',
+        path: ['blockedReasonCount'],
+      });
+    }
+  });
+export type ProductionWorkflowOperationsProjection = z.infer<
+  typeof ProductionWorkflowOperationsProjectionSchema
+>;
+
+const ProductionWorkflowOperationIntentSchema = createdEntityBaseSchema
+  .extend({
+    actionId: z.string().min(1),
+    sourceRunIdHash: z.string().min(1),
+    affectedTemplateHash: z.string().min(1),
+    reasonHash: z.string().min(1),
+    status: ProductionWorkflowOperationStatusSchema,
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+
+export const ProductionWorkflowPauseSummarySchema =
+  ProductionWorkflowOperationIntentSchema;
+export type ProductionWorkflowPauseSummary = z.infer<
+  typeof ProductionWorkflowPauseSummarySchema
+>;
+
+export const ProductionWorkflowResumeSummarySchema =
+  ProductionWorkflowOperationIntentSchema;
+export type ProductionWorkflowResumeSummary = z.infer<
+  typeof ProductionWorkflowResumeSummarySchema
+>;
+
+export const ProductionWorkflowRollbackSummarySchema =
+  ProductionWorkflowOperationIntentSchema;
+export type ProductionWorkflowRollbackSummary = z.infer<
+  typeof ProductionWorkflowRollbackSummarySchema
+>;
+
+export const ProductionWorkflowOperationsSmokeRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: ProductionWorkflowOperationsSmokeScenarioSchema,
+    status: ProductionWorkflowOperationStatusSchema,
+    projection: ProductionWorkflowOperationsProjectionSchema,
+    fixtureOnly: z.literal(true).default(true),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowOperationsSmokeRun = z.infer<
+  typeof ProductionWorkflowOperationsSmokeRunSchema
+>;
+
 export const McpToolNameSchema = z.enum([
   'codexhub.getArchitectureMap',
   'codexhub.getPolicySummary',

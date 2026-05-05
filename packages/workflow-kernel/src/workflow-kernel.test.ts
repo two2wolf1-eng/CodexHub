@@ -12,6 +12,10 @@ import {
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
   createCustomWorkflowTemplateFromJson,
+  createProductionWorkflowOperationsProjection,
+  createProductionWorkflowPauseSummary,
+  createProductionWorkflowResumeSummary,
+  createProductionWorkflowRollbackSummary,
   createDevelopmentRequestWorkflowDefinition,
   createMockWorkflowDefinition,
   findCustomWorkflowCatalogTemplate,
@@ -21,6 +25,7 @@ import {
   runCustomWorkflowFixtureRehearsal,
   runProductionWorkflowPilot,
   runProductionWorkflowPilotRehearsal,
+  runProductionWorkflowOperationsSmoke,
   validateCustomWorkflowTemplateInput,
 } from './index';
 
@@ -345,5 +350,48 @@ describe('workflow-kernel custom workflows', () => {
     expect(blocked.blockReasons.join(' ')).toContain('github-branch-publish');
     expect(JSON.stringify({ completed, blocked })).not.toContain('git push');
     expect(JSON.stringify({ completed, blocked })).not.toContain('reviewer');
+  });
+
+  it('creates production workflow operations projection and lifecycle intent metadata', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+    expect(template).toBeTruthy();
+    const pilotRun = runProductionWorkflowPilotRehearsal({
+      template: template!,
+      scenario: 'child-run-failed',
+    });
+    const projection = createProductionWorkflowOperationsProjection({
+      template: template!,
+      pilotRun,
+      approvalState: 'approved',
+      rollbackAvailable: true,
+    });
+    const pause = createProductionWorkflowPauseSummary({
+      sourceRunIdHash: 'sha256:pilot-run',
+      affectedTemplateHash: template!.templateHash,
+      reasonHash: 'sha256:reason',
+    });
+    const resume = createProductionWorkflowResumeSummary({
+      sourceRunIdHash: 'sha256:pilot-run',
+      affectedTemplateHash: template!.templateHash,
+      reasonHash: 'sha256:reason',
+    });
+    const rollback = createProductionWorkflowRollbackSummary({
+      sourceRunIdHash: 'sha256:pilot-run',
+      affectedTemplateHash: template!.templateHash,
+      reasonHash: 'sha256:reason',
+    });
+    const smoke = runProductionWorkflowOperationsSmoke({
+      template: template!,
+      scenario: 'rollback-required',
+    });
+
+    expect(projection.runHealth).toBe('rollback-required');
+    expect(projection.directAdapterExecutionAllowed).toBe(false);
+    expect(pause.status).toBe('paused');
+    expect(resume.status).toBe('healthy');
+    expect(rollback.status).toBe('rollback-required');
+    expect(smoke.fixtureOnly).toBe(true);
+    expect(smoke.networkBoundaryInvoked).toBe(false);
+    expect(findAdversarialPublicOutputRoundTripLeaks({ projection, pause, resume, rollback, smoke })).toEqual([]);
   });
 });
