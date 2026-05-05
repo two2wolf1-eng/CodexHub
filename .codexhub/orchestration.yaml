@@ -3827,3 +3827,87 @@ workflows:
       childApprovalIsolation: true
       productionTemplatesDisabledByDefault: true
       metadataOnlyPublicOutput: true
+  m27a.production-workflow-pilot-contracts:
+    risk: high
+    trigger:
+      type: contract-foundation
+      entrypoint: packages/contracts
+      localControlRequired: false
+    safety:
+      metadataOnlyPublicOutput: true
+      templateIdHashRequired: true
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+  m27b.local-production-workflow-pilot:
+    risk: high
+    trigger:
+      type: workflow-kernel-coordination
+      entrypoint: local-patch-review
+      localControlRequired: false
+    chain:
+      - readiness
+      - worktree
+      - codex-patch
+      - nx-verification
+      - review-package
+      - governance-projection
+    safety:
+      childRecordIdsAndHashesOnly: true
+      createsChildApprovals: false
+      callsChildAdapters: false
+      metadataOnlyPublicOutput: true
+  m27c.remote-production-workflow-pilot:
+    risk: high
+    trigger:
+      type: workflow-kernel-coordination
+      entrypoint: github-draft-pr-chain
+      localControlRequired: false
+    chain:
+      - readiness
+      - github-branch-publish
+      - github-draft-pr
+      - github-pr-lifecycle
+      - governance-projection
+    safety:
+      pushAllowed: false
+      mergeAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      labelsAllowed: false
+      reviewersAllowed: false
+      commentsAllowed: false
+      childRecordIdsAndHashesOnly: true
+      metadataOnlyPublicOutput: true
+  m27d.production-workflow-pilot-read-only-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    commands:
+      - codexhub workflows production pilots list
+      - codexhub workflows production pilots show <runId>
+      - codexhub workflows production pilots rehearse --template-id <templateId> --fixture --scenario <name>
+    safety:
+      supervisorPostAllowed: false
+      localControlTokenRead: false
+      adapterExecuteAllowed: false
+      metadataOnlyPublicOutput: true
+  m27_5.production-workflow-pilot-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m27-production-workflow-pilot-results.md
+      - docs/reviews/m27-production-workflow-pilot-hardening-review.md
+      - docs/runbooks/m27-production-workflow-pilot-operator-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      childApprovalsRemainSeparate: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      metadataOnlyPublicOutput: true

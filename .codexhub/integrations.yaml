@@ -1498,6 +1498,8 @@ integrations:
       format: json-only
       productionTemplatesEnabled: false
       productionExecutionEnabled: false
+      productionPilotExecutionEnabled: false
+      productionPilotFixtureOnly: true
       catalogDryRunHashBindingRequired: true
       productionRehearsalFixtureOnly: true
       builtInProductionTemplates:
@@ -1571,12 +1573,17 @@ integrations:
         - codexhub workflows runs show <runId>
         - codexhub workflows acceptance rehearse --fixture --scenario <name>
         - codexhub workflows production rehearse --template-id <templateId> --fixture --scenario <name>
+        - codexhub workflows production pilots list
+        - codexhub workflows production pilots show <runId>
+        - codexhub workflows production pilots rehearse --template-id <templateId> --fixture --scenario <name>
       supervisorPostAllowed: false
       localControlTokenRead: false
       adapterExecuteAllowed: false
     childControlPlanes:
       childApprovalsRemainSeparate: true
       customWorkflowApprovalDoesNotGrantChildExecution: true
+      productionPilotCreatesChildApprovals: false
+      productionPilotCallsChildAdapters: false
       missingChildRecordBlocksStep: true
       failedChildRecordBlocksLaterSteps: true
     storage:
