@@ -3499,3 +3499,29 @@ workflows:
       requestBodyAuthorityTrusted: false
       uiCliDirectAdapterExecuteAllowed: false
       metadataOnlyPublicOutput: true
+  m24_7.deep-governance-debug-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits tests dashboard cli mcp
+      localControlRequired: false
+    scope:
+      baseline:
+        - M0-M24 control planes
+        - Supervisor mutating route guards
+        - Dashboard read-only routes
+        - CLI read-only commands
+        - MCP read-only tools
+        - GitHub and custom workflow long-chain governance
+      docs:
+        - docs/releases/m24.7-deep-governance-hardening.md
+        - docs/reviews/m0-m24-deep-governance-debug-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noRemoteWriteSmoke: true
+      noDirectAdapterExecutionFromUiCliMcp: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      metadataOnlyPublicOutput: true

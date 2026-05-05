@@ -120,25 +120,7 @@ const policyTelemetryRuntimeTerms = [
   ['cedar', '-wasm'].join(''),
   ['@cedar', '-policy'].join(''),
 ];
-const directAdapterExecuteTerms = [
-  'executeCodexExecAdapter',
-  'executeNxVerificationAdapter',
-  'executeWorktreeManager',
-  'executeWorktreeCleanup',
-  'executePlaywrightObserverAdapter',
-  'executeElectronCdpAdapter',
-  'executePolicyBackendEvaluation',
-  'executeTelemetryExport',
-  'executeLocalTelemetryProjection',
-  'executeLocalReviewPackageExport',
-  'executeLocalRcBundleExport',
-  'executeGithubMetadataObservation',
-  'executeGithubPrLifecycleObservation',
-  'executeGithubDraftPrCreation',
-  'executeGithubBranchPublish',
-  'executeGithubRemoteCleanup',
-  'executeReworkLoop',
-];
+const directAdapterExecuteTerms = discoverPublicExecuteTerms();
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
@@ -542,8 +524,9 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
   const workspacePath = toWorkspacePath(file);
   const isDashboardSource = workspacePath.startsWith('apps/dashboard/src/');
   const isCliSource = workspacePath.startsWith('apps/cli/src/');
+  const isMcpSource = workspacePath.startsWith('apps/codexhub-mcp-server/src/');
 
-  if ((!isDashboardSource && !isCliSource) || workspacePath.endsWith('.test.ts')) {
+  if ((!isDashboardSource && !isCliSource && !isMcpSource) || workspacePath.endsWith('.test.ts')) {
     return;
   }
 
@@ -557,7 +540,7 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
           line: index + 1,
           term,
           reason:
-            'Dashboard and CLI must not directly call capability adapter execute functions; mutations must go through Supervisor/workflow governance.',
+            'Dashboard, CLI, and MCP tools must not directly call capability adapter execute functions; mutations must go through Supervisor/workflow governance.',
         });
       }
     }
@@ -580,6 +563,38 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
       }
     }
   }
+}
+
+function discoverPublicExecuteTerms(): string[] {
+  const discovered = new Set<string>();
+
+  for (const root of ['apps', 'packages']) {
+    const absoluteRoot = resolve(workspaceRoot, root);
+
+    if (!existsSync(absoluteRoot)) {
+      continue;
+    }
+
+    for (const file of listSourceFiles(absoluteRoot)) {
+      const workspacePath = toWorkspacePath(file);
+
+      if (workspacePath.endsWith('.test.ts') || workspacePath.includes('/fixtures/')) {
+        continue;
+      }
+
+      const sourceText = readFileSync(file, 'utf8');
+      const exportPattern =
+        /\bexport\s+(?:(?:async\s+)?function|const)\s+(execute[A-Za-z0-9_]*)\s*(?:\(|=)/g;
+
+      for (const match of sourceText.matchAll(exportPattern)) {
+        if (match[1]) {
+          discovered.add(match[1]);
+        }
+      }
+    }
+  }
+
+  return [...discovered].sort();
 }
 
 function isAllowedSensitiveMetadataLine(lowerLine: string, term: string): boolean {

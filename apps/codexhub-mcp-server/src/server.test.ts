@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import type { CodexHubStore } from '@codexhub/store-core';
@@ -166,6 +167,33 @@ describe('codexhub MCP server', () => {
     expect(serialized).not.toContain('stdout');
     expect(serialized).not.toContain('stderr');
     expect(serialized).not.toContain('jsonl');
+  });
+
+  it('keeps read-only MCP tools away from adapter execute and live boundary helpers', () => {
+    const toolsSource = readFileSync(new URL('./tools.ts', import.meta.url), 'utf8');
+    const forbiddenExecuteTerms = [
+      'executeCodexExecAdapter',
+      'executeNxVerificationAdapter',
+      'executeWorktreeManager',
+      'executeWorktreeCleanup',
+      'executePlaywrightObserverAdapter',
+      'executeElectronCdpAdapter',
+      'executeGithubBranchPublish',
+      'executeGithubDraftPrCreation',
+      'executeGithubRemoteCleanup',
+      'executeLocalReviewPackageExport',
+      'executeLocalRcBundleExport',
+      'executeReworkLoop',
+    ];
+
+    for (const term of forbiddenExecuteTerms) {
+      expect(toolsSource).not.toContain(term);
+    }
+
+    expect(toolsSource).not.toContain('child_process');
+    expect(toolsSource).not.toContain('fetch(');
+    expect(toolsSource).not.toContain('CODEXHUB_GITHUB_TOKEN');
+    expect(toolsSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
   });
 });
 
