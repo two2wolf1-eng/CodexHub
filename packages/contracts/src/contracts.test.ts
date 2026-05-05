@@ -217,6 +217,11 @@ import {
   CustomWorkflowTemplateSchema,
   CustomWorkflowTemplateFamilySummarySchema,
   CustomWorkflowValidationReportSchema,
+  ProductionWorkflowPilotEvidenceSummarySchema,
+  ProductionWorkflowPilotPlanSchema,
+  ProductionWorkflowPilotReadinessSchema,
+  ProductionWorkflowPilotRunSchema,
+  ProductionWorkflowPilotStepSchema,
   GithubPublishDraftPrAcceptanceRehearsalRunSchema,
   GithubPublishDraftPrChainPlanSchema,
   GithubPublishDraftPrChainRunSchema,
@@ -10363,11 +10368,120 @@ describe('contracts schemas', () => {
       rawPathStored: false,
       summary: 'Custom workflow fixture rehearsal blocked by verification.',
     });
+    const pilotEvidence = ProductionWorkflowPilotEvidenceSummarySchema.parse({
+      evidenceRefCount: 1,
+      auditEventCount: 1,
+      evidenceBundleHash: 'sha256:pilot-evidence',
+      auditChainHash: 'sha256:pilot-audit',
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow pilot evidence remains metadata-only.',
+    });
+    const pilotReadiness = ProductionWorkflowPilotReadinessSchema.parse({
+      id: 'production_workflow_pilot_readiness_1',
+      schemaVersion,
+      createdAt,
+      templateId: template.templateId,
+      templateHash: template.templateHash,
+      source: 'catalog-template',
+      status: 'ready',
+      requiredChildStepCount: 1,
+      missingChildRecordCount: 0,
+      staleChildRecordCount: 0,
+      failedChildRecordCount: 0,
+      blockerCount: 0,
+      blockers: [],
+      approvalRequired: true,
+      childApprovalsRequired: 1,
+      productionExecutionEnabled: true,
+      directAdapterExecutionAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow pilot is ready for metadata-only coordination.',
+    });
+    const pilotPlan = ProductionWorkflowPilotPlanSchema.parse({
+      id: 'production_workflow_pilot_plan_1',
+      schemaVersion,
+      createdAt,
+      pilotPlanId: 'production_workflow_pilot_plan_1',
+      templateId: template.templateId,
+      templateHash: template.templateHash,
+      source: 'catalog-template',
+      status: 'ready',
+      stepCount: 1,
+      childRecordHashCount: 1,
+      blockReasons: [],
+      evidenceSummary: pilotEvidence,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow pilot plan references child records by hash only.',
+    });
+    const pilotStep = ProductionWorkflowPilotStepSchema.parse({
+      stepId: step.stepId,
+      kind: step.kind,
+      status: 'completed',
+      childRecordIdHash: 'sha256:child-record',
+      childHashBindingMatched: true,
+      childApprovalRequired: true,
+      blockReasons: [],
+      evidenceRefIds: ['evidence_child_1'],
+      auditEventIds: ['audit_child_1'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow pilot step completed through child record summary.',
+    });
+    const pilotRun = ProductionWorkflowPilotRunSchema.parse({
+      id: 'production_workflow_pilot_run_1',
+      schemaVersion,
+      createdAt,
+      pilotRunId: 'production_workflow_pilot_run_1',
+      templateId: template.templateId,
+      templateHash: template.templateHash,
+      source: 'catalog-template',
+      status: 'completed',
+      steps: [pilotStep],
+      stepCount: 1,
+      completedStepCount: 1,
+      blockedStepCount: 0,
+      failedStepCount: 0,
+      readiness: pilotReadiness,
+      evidenceSummary: pilotEvidence,
+      blockReasons: [],
+      evidenceRefIds: ['evidence_custom_workflow_pilot_1'],
+      auditEventIds: ['audit_custom_workflow_pilot_1'],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      noRealWrite: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow pilot completed as coordination only.',
+    });
 
-    const serialized = JSON.stringify([template, plan, approval, run, rehearsal]);
+    const serialized = JSON.stringify([
+      template,
+      plan,
+      approval,
+      run,
+      rehearsal,
+      pilotPlan,
+      pilotRun,
+    ]);
     expect(run.directAdapterExecutionAllowed).toBe(false);
     expect(run.processBoundaryInvoked).toBe(false);
     expect(rehearsal.status).toBe('blocked');
+    expect(pilotRun.directAdapterExecutionAllowed).toBe(false);
+    expect(pilotRun.networkBoundaryInvoked).toBe(false);
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('raw diff');
     expect(serialized).not.toContain('local-control');
@@ -10390,6 +10504,20 @@ describe('contracts schemas', () => {
         ...rehearsal,
         id: 'custom_workflow_rehearsal_raw_path',
         metadata: { path: 'C:/Users/Thomas/CodexHub' },
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionWorkflowPilotRunSchema.parse({
+        ...pilotRun,
+        id: 'production_workflow_pilot_raw_body',
+        metadata: { body: 'raw workflow body' },
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionWorkflowPilotPlanSchema.parse({
+        ...pilotPlan,
+        id: 'production_workflow_pilot_direct_execute',
+        directAdapterExecutionAllowed: true,
       }),
     ).toThrow();
   });

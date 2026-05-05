@@ -502,6 +502,7 @@ export const CustomWorkflowRehearsalScenarioSchema = z.enum([
   'remote-step-blocked',
   'cleanup-blocked',
   'child-approval-blocked',
+  'child-run-missing',
   'child-run-failed',
   'superseded-source',
 ]);
@@ -894,6 +895,169 @@ export const CustomWorkflowRehearsalRunSchema = createdEntityBaseSchema
   .superRefine(rejectCustomWorkflowRawMetadata);
 export type CustomWorkflowRehearsalRun = z.infer<
   typeof CustomWorkflowRehearsalRunSchema
+>;
+
+export const ProductionWorkflowPilotSourceSchema = z.enum([
+  'catalog-template',
+  'fixture',
+]);
+export type ProductionWorkflowPilotSource = z.infer<
+  typeof ProductionWorkflowPilotSourceSchema
+>;
+
+export const ProductionWorkflowPilotStatusSchema = z.enum([
+  'planned',
+  'ready',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type ProductionWorkflowPilotStatus = z.infer<
+  typeof ProductionWorkflowPilotStatusSchema
+>;
+
+export const ProductionWorkflowPilotStepSchema = z
+  .object({
+    stepId: z.string().min(1),
+    kind: CustomWorkflowStepKindSchema,
+    status: ProductionWorkflowPilotStatusSchema,
+    childRecordIdHash: z.string().min(1).optional(),
+    childHashBindingMatched: z.boolean().default(false),
+    childApprovalRequired: z.boolean(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowPilotStep = z.infer<
+  typeof ProductionWorkflowPilotStepSchema
+>;
+
+export const ProductionWorkflowPilotEvidenceSummarySchema = z
+  .object({
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    evidenceBundleHash: z.string().min(1),
+    auditChainHash: z.string().min(1),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowPilotEvidenceSummary = z.infer<
+  typeof ProductionWorkflowPilotEvidenceSummarySchema
+>;
+
+export const ProductionWorkflowPilotReadinessSchema = createdEntityBaseSchema
+  .extend({
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    source: ProductionWorkflowPilotSourceSchema,
+    status: ProductionWorkflowPilotStatusSchema,
+    requiredChildStepCount: z.number().int().nonnegative(),
+    missingChildRecordCount: z.number().int().nonnegative(),
+    staleChildRecordCount: z.number().int().nonnegative(),
+    failedChildRecordCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    blockers: z.array(z.string().min(1)).default([]),
+    approvalRequired: z.boolean(),
+    childApprovalsRequired: z.number().int().nonnegative(),
+    productionExecutionEnabled: z.boolean().default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.blockerCount !== value.blockers.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production workflow pilot blockerCount must match blockers length',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type ProductionWorkflowPilotReadiness = z.infer<
+  typeof ProductionWorkflowPilotReadinessSchema
+>;
+
+export const ProductionWorkflowPilotPlanSchema = createdEntityBaseSchema
+  .extend({
+    pilotPlanId: z.string().min(1),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    source: ProductionWorkflowPilotSourceSchema,
+    status: ProductionWorkflowPilotStatusSchema,
+    stepCount: z.number().int().nonnegative(),
+    childRecordHashCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceSummary: ProductionWorkflowPilotEvidenceSummarySchema,
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowPilotPlan = z.infer<
+  typeof ProductionWorkflowPilotPlanSchema
+>;
+
+export const ProductionWorkflowPilotRunSchema = createdEntityBaseSchema
+  .extend({
+    pilotRunId: z.string().min(1),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    source: ProductionWorkflowPilotSourceSchema,
+    status: ProductionWorkflowPilotStatusSchema,
+    steps: z.array(ProductionWorkflowPilotStepSchema),
+    stepCount: z.number().int().nonnegative(),
+    completedStepCount: z.number().int().nonnegative(),
+    blockedStepCount: z.number().int().nonnegative(),
+    failedStepCount: z.number().int().nonnegative(),
+    readiness: ProductionWorkflowPilotReadinessSchema,
+    evidenceSummary: ProductionWorkflowPilotEvidenceSummarySchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.stepCount !== value.steps.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production workflow pilot stepCount must match steps length',
+        path: ['stepCount'],
+      });
+    }
+  });
+export type ProductionWorkflowPilotRun = z.infer<
+  typeof ProductionWorkflowPilotRunSchema
 >;
 
 export const McpToolNameSchema = z.enum([
