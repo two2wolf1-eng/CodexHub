@@ -18,7 +18,10 @@ import {
   createStoreMigrationRun,
   rehearseDisasterRecovery,
 } from '@codexhub/platform-operations-kernel';
-import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputRoundTripLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 import { createSqliteStore } from './index';
 
 describe('platform operations SQLite stores', () => {
@@ -29,8 +32,8 @@ describe('platform operations SQLite stores', () => {
 
     const backupPlan = createPlatformBackupPlan({
       scope: 'store-sqlite',
-      storeSnapshotSeed: 'store snapshot',
-      backupRootSeed: 'backup root',
+      storeSnapshotSeed: adversarialPublicOutputFixture,
+      backupRootSeed: adversarialPublicOutputFixture,
       backupDirConfigured: true,
       fileCount: 2,
       estimatedByteCount: 256,
@@ -42,8 +45,8 @@ describe('platform operations SQLite stores', () => {
       dryRunId: backupPlan.dryRunId,
       expectedPlanHash: 'sha256:backup-plan',
       status: 'approved',
-      approver: 'operator',
-      reason: 'backup',
+      approver: adversarialPublicOutputFixture,
+      reason: adversarialPublicOutputFixture,
       now,
     });
     const backupRun = createPlatformBackupRun({
@@ -54,37 +57,37 @@ describe('platform operations SQLite stores', () => {
     });
     const restorePlan = createPlatformRestorePlan({
       mode: 'isolated-rehearsal',
-      sourceBackupManifest: 'manifest',
-      targetStoreSeed: 'target-store',
+      sourceBackupManifest: adversarialPublicOutputFixture,
+      targetStoreSeed: adversarialPublicOutputFixture,
       now,
     });
     const restoreRun = createPlatformRestoreRun({ plan: restorePlan, now });
     const migrationPlan = createStoreMigrationPlan({
       builtInMigrationId: 'foundation_0002',
-      currentSchemaSeed: 'current',
-      targetSchemaSeed: 'target',
+      currentSchemaSeed: adversarialPublicOutputFixture,
+      targetSchemaSeed: adversarialPublicOutputFixture,
       migrationEnabled: true,
       now,
     });
     const migrationRun = createStoreMigrationRun({ plan: migrationPlan, now });
     const retentionPlan = createRetentionPolicyPlan({
       target: 'audit',
-      policySeed: 'retain 90 days',
+      policySeed: adversarialPublicOutputFixture,
       retentionEnabled: true,
       now,
     });
     const retentionRun = createRetentionPolicyRun({ plan: retentionPlan, now });
     const auditPlan = createAuditExportPlan({
-      destinationSeed: 'audit-export-dir',
+      destinationSeed: adversarialPublicOutputFixture,
       auditExportEnabled: true,
       recordCount: 3,
       now,
     });
     const auditRun = createAuditExportRun({ plan: auditPlan, now });
     const rolePlan = createOperatorRoleAssignmentPlan({
-      operatorIdentity: 'operator',
+      operatorIdentity: adversarialPublicOutputFixture,
       role: 'auditor',
-      scopes: ['audit'],
+      scopes: [adversarialPublicOutputFixture],
       roleEnforcementEnabled: true,
       now,
     });
@@ -129,6 +132,7 @@ describe('platform operations SQLite stores', () => {
     expect(backupRun.networkBoundaryInvoked).toBe(false);
     expect(auditPlan.metadataOnly).toBe(true);
     expect(rolePlan.rawOperatorIdentityStored).toBe(false);
+    expect(JSON.stringify(records)).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
 
     await store.close();

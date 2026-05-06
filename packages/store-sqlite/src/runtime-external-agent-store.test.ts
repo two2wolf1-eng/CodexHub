@@ -16,7 +16,10 @@ import {
   planExternalAgentPatch,
   runExternalAgentPatchWithRunner,
 } from '@codexhub/external-agent-adapter';
-import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputRoundTripLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 import { createSqliteStore } from './index';
 
 describe('runtime and external agent SQLite stores', () => {
@@ -27,12 +30,12 @@ describe('runtime and external agent SQLite stores', () => {
     const plan = createRuntimeJobPlan({
       jobKind: 'external-agent',
       targetKind: 'external-agent-patch',
-      targetRecordId: 'external_agent_plan_1',
-      sourceRecord: 'source_workflow_1',
-      lockKeys: ['agent:codex'],
+      targetRecordId: adversarialPublicOutputFixture,
+      sourceRecord: adversarialPublicOutputFixture,
+      lockKeys: [adversarialPublicOutputFixture],
       schedulerEnabled: true,
       childWorkflowCoordinationEnabled: true,
-      concurrencyPolicy: { scopeSeed: 'agent:codex' },
+      concurrencyPolicy: { scopeSeed: adversarialPublicOutputFixture },
       now: () => '2026-05-07T00:00:00.000Z',
     });
     const queue = enqueueRuntimeJob({
@@ -42,18 +45,18 @@ describe('runtime and external agent SQLite stores', () => {
     });
     const lease = createRuntimeLease({
       queueEntry: queue,
-      workerId: 'worker',
-      leaseSecret: 'transient-lease-secret',
+      workerId: adversarialPublicOutputFixture,
+      leaseSecret: adversarialPublicOutputFixture,
       now: () => '2026-05-07T00:00:00.000Z',
     });
-    const lock = createRuntimeLock('agent:codex', {
+    const lock = createRuntimeLock(adversarialPublicOutputFixture, {
       jobId: plan.id,
       leaseId: lease.id,
       now: () => '2026-05-07T00:00:00.000Z',
     });
     const checkpoint = createRuntimeCheckpoint({
       jobRunId: 'runtime_job_run_1',
-      stepId: 'agent-plan',
+      stepId: adversarialPublicOutputFixture,
       now: () => '2026-05-07T00:00:00.000Z',
     });
     const runtimeRun = createRuntimeJobRun({
@@ -74,10 +77,10 @@ describe('runtime and external agent SQLite stores', () => {
 
     const agentPlan = planExternalAgentPatch({
       provider: 'codex-cli',
-      worktreeRecordId: 'worktree_run_1',
-      worktreePath: 'C:/controlled-worktrees/agent',
-      prompt: 'transient prompt',
-      instructions: 'transient instructions',
+      worktreeRecordId: adversarialPublicOutputFixture,
+      worktreePath: adversarialPublicOutputFixture,
+      prompt: adversarialPublicOutputFixture,
+      instructions: adversarialPublicOutputFixture,
       enabled: true,
       now: () => '2026-05-07T00:00:00.000Z',
     });
@@ -87,6 +90,8 @@ describe('runtime and external agent SQLite stores', () => {
       providerEnabled: true,
       cliConfigured: true,
       worktreeResolved: true,
+      cliExecutable: adversarialPublicOutputFixture,
+      worktreeRecordId: adversarialPublicOutputFixture,
       now: () => '2026-05-07T00:00:00.000Z',
     });
     const approval = createExternalAgentApprovalArtifact({
@@ -133,6 +138,7 @@ describe('runtime and external agent SQLite stores', () => {
     expect(await store.runtimeJobPlans.getJobPlan(plan.id)).toEqual(plan);
     expect(await store.externalAgentApprovals.getApprovalByArtifactId(approval.approvalArtifactId))
       .toEqual(approval);
+    expect(JSON.stringify(records)).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
 
     await store.close();

@@ -5488,3 +5488,31 @@ workflows:
       noOpenPullRequest: true
       mcpDevelopmentRequestRawSummaryStored: false
       metadataOnlyPublicOutput: true
+  m47_d5.store-roundtrip-metadata-debug:
+    risk: critical
+    trigger:
+      type: store-roundtrip-metadata-debug
+      entrypoint: store-sqlite store-core docs tools
+      localControlRequired: false
+    scope:
+      - github-control-plane-store-roundtrip
+      - release-lifecycle-store-roundtrip
+      - deployment-store-roundtrip
+      - secrets-store-roundtrip
+      - policy-telemetry-store-roundtrip
+      - controlled-write-store-roundtrip
+      - runtime-external-agent-store-roundtrip
+      - platform-operations-store-roundtrip
+    docs:
+      - docs/releases/m47-d5-store-roundtrip-metadata-debug.md
+      - docs/reviews/m47-d5-store-roundtrip-metadata-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      adversarialStoreInputsPersistHashOnly: true
+      metadataOnlyPublicOutput: true
