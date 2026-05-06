@@ -227,6 +227,7 @@ describe('codexhub MCP server', () => {
       expect(source).not.toContain(`process.env["${localControlTokenEnv}"]`);
       expect(source).not.toContain('process["env"]');
       expect(source).not.toContain("process['env']");
+      expect(source).not.toContain('workspace.applyPatchToControlledWorktree');
       expect(source).not.toContain(`import('${childProcessModule}')`);
       expect(source).not.toContain(`import("${childProcessModule}")`);
       expect(source).not.toContain(`require('${childProcessModule}')`);

@@ -57,9 +57,77 @@ function extractFunctionSource(source: string, functionName: string): string {
   return source.slice(start, next?.index ?? source.length);
 }
 
+function sourceWindow(source: string, startMarker: string, endMarker: string): string {
+  const start = source.indexOf(startMarker);
+  expect(start).toBeGreaterThanOrEqual(0);
+
+  if (endMarker.length === 0) {
+    return source.slice(start);
+  }
+
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  expect(end).toBeGreaterThan(start);
+
+  return source.slice(start, end);
+}
+
 describe('cli development mock-run fallback', () => {
   beforeEach(() => {
     process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
+  });
+
+  it('keeps M45 controlled write CLI mutations exact, metadata-only, and env-token gated', () => {
+    const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const routeSetSource = sourceWindow(
+      cliSource,
+      'const controlledWriteCliMutationRoutes = new Set',
+      'function registerControlledWriteCliFamily',
+    );
+    const helperSource = extractFunctionSource(cliSource, 'postControlledWriteCliMutation');
+    const dryRunBodySource = extractFunctionSource(cliSource, 'createControlledWriteDryRunBody');
+    const expectedRoutes = [
+      '/api/browser/actions/dry-runs',
+      '/api/browser/actions/approval-requests',
+      '/api/browser/actions/runs',
+      '/api/electron-cdp/main-inspector/dry-runs',
+      '/api/electron-cdp/main-inspector/approval-requests',
+      '/api/electron-cdp/main-inspector/runs',
+      '/api/mcp/write-tools/dry-runs',
+      '/api/mcp/write-tools/approval-requests',
+      '/api/mcp/write-tools/runs',
+    ];
+
+    for (const route of expectedRoutes) {
+      expect(routeSetSource).toContain(route);
+    }
+
+    expect(routeSetSource.match(/\/api\//g)).toHaveLength(expectedRoutes.length);
+    expect(helperSource).toContain('controlledWriteCliMutationRoutes.has(route)');
+    expect(helperSource).toContain("method: 'POST'");
+    expect(helperSource).toContain('createSupervisorPostHeaders()');
+    expect(cliSource).not.toContain(".option('--token");
+    expect(cliSource).not.toContain('.option("--token');
+    expect(cliSource).not.toContain('--local-token');
+    expect(cliSource).not.toContain('--local-control-token');
+
+    for (const forbidden of [
+      'approvalArtifact:',
+      'executionAuthority',
+      'authority:',
+      'childArtifacts',
+      'rawSelector',
+      'rawTypedText',
+      'rawPatch',
+      'rawPath',
+    ]) {
+      expect(helperSource).not.toContain(forbidden);
+      expect(dryRunBodySource).not.toContain(forbidden);
+    }
+
+    for (const forbiddenRouteGuard of ['startsWith(', 'includes(', 'indexOf(']) {
+      expect(helperSource).not.toContain(forbiddenRouteGuard);
+      expect(routeSetSource).not.toContain(forbiddenRouteGuard);
+    }
   });
 
   it('lists MCP tools from the local read-only registry without invoking MCP', async () => {

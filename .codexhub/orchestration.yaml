@@ -5130,3 +5130,30 @@ workflows:
       genericCdpPassthroughForbidden: true
       genericMcpWritePassthroughForbidden: true
       metadataOnlyPublicOutput: true
+  m45_7.operator-surface-boundaries-debug:
+    risk: critical
+    trigger:
+      type: operator-surface-boundary-debug
+      entrypoint: dashboard cli mcp audit docs tools
+      localControlRequired: false
+    scope:
+      - dashboard-mutation-allowlist-review
+      - cli-controlled-write-exact-route-review
+      - cli-token-option-forbidden
+      - mcp-read-only-source-review
+      - direct-adapter-execute-forbidden
+    docs:
+      - docs/releases/m45.7-operator-surface-boundaries-debug.md
+      - docs/reviews/m0-m45-operator-surface-boundaries-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      dashboardM45ControlledWriteExecutionUi: false
+      cliTokenArgumentsForbidden: true
+      mcpWriteToolExposureForbidden: true
+      metadataOnlyPublicOutput: true

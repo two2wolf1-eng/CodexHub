@@ -346,6 +346,35 @@ const dashboardMutationSurfaceTerms = [
   'x-codexhub-local-token',
   'createSupervisorPostHeaders',
 ];
+const cliTokenOptionTerms = [
+  ".option('--token",
+  '.option("--token',
+  '--local-token',
+  '--local-control-token',
+];
+const cliControlledWriteForbiddenPayloadTerms = [
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'rawSelector',
+  'rawTypedText',
+  'rawPatch',
+  'rawPath',
+];
+const cliControlledWriteRouteBypassTerms = [
+  "startsWith('/api/browser/actions",
+  'startsWith("/api/browser/actions',
+  "startsWith('/api/electron-cdp/main-inspector",
+  'startsWith("/api/electron-cdp/main-inspector',
+  "startsWith('/api/mcp/write-tools",
+  'startsWith("/api/mcp/write-tools',
+  "includes('/api/browser/actions",
+  'includes("/api/browser/actions',
+  "includes('/api/electron-cdp/main-inspector",
+  'includes("/api/electron-cdp/main-inspector',
+  "includes('/api/mcp/write-tools",
+  'includes("/api/mcp/write-tools',
+];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
   ['to', 'ken'].join(''),
@@ -627,6 +656,30 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'const tool = "workspace.applyPatchToControlledWorktree";',
       expectedTerm: 'workspace.applyPatchToControlledWorktree',
       description: 'direct MCP workspace write tool exposure from MCP source',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-controlled-write-cli.ts',
+      sourceText: "command.option('--token <token>', 'local control token');",
+      expectedTerm: ".option('--token",
+      description: 'CLI local-control token command-line option',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-controlled-write-cli.ts',
+      sourceText: "const ok = path.startsWith('/api/browser/actions/');",
+      expectedTerm: "startsWith('/api/browser/actions",
+      description: 'CLI controlled write prefix route guard',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-controlled-write-cli.ts',
+      sourceText: 'const body = { dryRunId, approvalArtifact: forgedArtifact };',
+      expectedTerm: 'approvalArtifact:',
+      description: 'CLI controlled write forged approval artifact payload',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-controlled-write-cli.ts',
+      sourceText: 'const body = { rawPatch: patchText };',
+      expectedTerm: 'rawPatch',
+      description: 'CLI controlled write raw patch payload',
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
@@ -1038,6 +1091,7 @@ function adversarialSentinelWouldViolate(
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
   auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
   auditFixedAdapterBoundaryGuards(file, sourceText);
+  auditCliControlledWriteSurfaceGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
@@ -1060,6 +1114,7 @@ function auditFile(file: string): void {
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
   auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
   auditFixedAdapterBoundaryGuards(file, sourceText);
+  auditCliControlledWriteSurfaceGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -1298,7 +1353,7 @@ function auditTextTerms(file: string, sourceText: string): void {
 
 function auditFixedAdapterBoundaryGuards(file: string, sourceText: string): void {
   const workspacePath = toWorkspacePath(file);
-  if (workspacePath === 'tools/audit-no-live-automation.ts') {
+  if (workspacePath === 'tools/audit-no-live-automation.ts' || workspacePath.endsWith('.test.ts')) {
     return;
   }
 
@@ -1366,6 +1421,84 @@ function auditFixedAdapterBoundaryGuards(file: string, sourceText: string): void
       }
     }
   }
+}
+
+function auditCliControlledWriteSurfaceGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (!workspacePath.startsWith('apps/cli/src/') || workspacePath.endsWith('.test.ts')) {
+    return;
+  }
+
+  const lines = sourceText.split(/\r?\n/);
+  const controlledWriteWindow = getCliControlledWriteWindow(workspacePath, sourceText);
+
+  for (const [index, line] of lines.entries()) {
+    for (const term of cliTokenOptionTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'CLI mutation commands must read local-control tokens from environment only; token command-line options are forbidden.',
+        });
+      }
+    }
+  }
+
+  if (controlledWriteWindow === undefined) {
+    return;
+  }
+
+  const controlledWriteLines = controlledWriteWindow.source.split(/\r?\n/);
+
+  for (const [index, line] of controlledWriteLines.entries()) {
+    for (const term of cliControlledWriteRouteBypassTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: controlledWriteWindow.startLine + index,
+          term,
+          reason:
+            'M45 controlled write CLI routes must stay exact; prefix, substring, and dynamic route guards are forbidden.',
+        });
+      }
+    }
+
+    for (const term of cliControlledWriteForbiddenPayloadTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: controlledWriteWindow.startLine + index,
+          term,
+          reason:
+            'M45 controlled write CLI payloads may send only ids, hashes, and metadata; authority artifacts and raw input are forbidden.',
+        });
+      }
+    }
+  }
+}
+
+function getCliControlledWriteWindow(
+  workspacePath: string,
+  sourceText: string,
+): { source: string; startLine: number } | undefined {
+  if (workspacePath.includes('adversarial-controlled-write-cli')) {
+    return { source: sourceText, startLine: 1 };
+  }
+
+  const start = sourceText.indexOf('const controlledWriteCliMutationRoutes');
+  if (start < 0) {
+    return undefined;
+  }
+
+  const endMarker = 'function registerSecretReadOnlyCommands';
+  const end = sourceText.indexOf(endMarker, start);
+  const source = sourceText.slice(start, end >= 0 ? end : sourceText.length);
+  const startLine = sourceText.slice(0, start).split(/\r?\n/).length;
+
+  return { source, startLine };
 }
 
 function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
