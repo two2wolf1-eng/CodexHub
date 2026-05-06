@@ -5976,6 +5976,11 @@ describe('supervisor GitHub draft PR control plane', () => {
         bodySectionSummaries: ['Local RC summary', 'Verification passed summary'],
       },
     });
+    const approvalsAfterMismatchResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/draft-prs/approvals',
+    });
+    const requestCountBeforeCompleted = requested.length;
     const completedResponse = await server.inject({
       method: 'POST',
       url: '/api/github/draft-prs/runs',
@@ -6024,6 +6029,17 @@ describe('supervisor GitHub draft PR control plane', () => {
       status: 'blocked',
       networkBoundaryInvoked: false,
     });
+    expect(requestCountBeforeCompleted).toBe(0);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'approved'),
+    ).toBe(true);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'used'),
+    ).toBe(false);
     expect(completedResponse.statusCode).toBe(200);
     expect(completed.status).toBe('completed');
     expect(completed.created).toBe(true);
@@ -6280,6 +6296,11 @@ describe('supervisor GitHub branch publish control plane', () => {
         files: branchPublishFiles,
       },
     });
+    const approvalsAfterMismatchResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/branch-publishes/approvals',
+    });
+    const requestCountBeforeCompleted = requested.length;
     const completedResponse = await server.inject({
       method: 'POST',
       url: '/api/github/branch-publishes/runs',
@@ -6333,6 +6354,17 @@ describe('supervisor GitHub branch publish control plane', () => {
       status: 'blocked',
       networkBoundaryInvoked: false,
     });
+    expect(requestCountBeforeCompleted).toBe(0);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'approved'),
+    ).toBe(true);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'used'),
+    ).toBe(false);
     expect(completedResponse.statusCode).toBe(200);
     expect(completed.status).toBe('completed');
     expect(completed.created).toBe(true);
@@ -6584,6 +6616,11 @@ describe('supervisor GitHub branch publish control plane', () => {
         oldPrNumber: '42',
       },
     });
+    const approvalsAfterMismatchResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/remote-cleanups/approvals',
+    });
+    const requestCountBeforeCompleted = requested.length;
     const completedResponse = await server.inject({
       method: 'POST',
       url: '/api/github/remote-cleanups/runs',
@@ -6642,6 +6679,17 @@ describe('supervisor GitHub branch publish control plane', () => {
       status: 'blocked',
       networkBoundaryInvoked: false,
     });
+    expect(requestCountBeforeCompleted).toBe(0);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'approved'),
+    ).toBe(true);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'used'),
+    ).toBe(false);
     expect(completedResponse.statusCode).toBe(200);
     expect(completedResponse.json()).toMatchObject({
       status: 'completed',
@@ -6936,6 +6984,11 @@ describe('supervisor GitHub branch publish control plane', () => {
     expect(
       approvalsAfterMissingChildResponse
         .json()
+        .records.some((record: { status: string }) => record.status === 'approved'),
+    ).toBe(true);
+    expect(
+      approvalsAfterMissingChildResponse
+        .json()
         .records.some((record: { status: string }) => record.status === 'used'),
     ).toBe(false);
     expect(completedResponse.statusCode).toBe(200);
@@ -7098,6 +7151,10 @@ describe('supervisor GitHub branch publish control plane', () => {
         templateHash: dryRun.templateHash,
       },
     });
+    const approvalsAfterWaitingChildResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/production/recoveries/approvals',
+    });
     const reusedWaitingApprovalResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/production/recoveries/runs',
@@ -7192,6 +7249,11 @@ describe('supervisor GitHub branch publish control plane', () => {
     expect(
       approvalsAfterMismatchResponse
         .json()
+        .records.some((record: { status: string }) => record.status === 'approved'),
+    ).toBe(true);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
         .records.some((record: { status: string }) => record.status === 'used'),
     ).toBe(false);
     expect(waitingChildApprovalResponse.statusCode).toBe(200);
@@ -7209,6 +7271,11 @@ describe('supervisor GitHub branch publish control plane', () => {
       childAdapterExecuteAllowed: false,
       childApprovalResolvedFromStore: false,
     });
+    expect(
+      approvalsAfterWaitingChildResponse
+        .json()
+        .records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
     expect(reusedWaitingApprovalResponse.statusCode).toBe(409);
     expect(completedResponse.statusCode).toBe(200);
     expect(completedResponse.json()).toMatchObject({
@@ -7290,6 +7357,10 @@ describe('supervisor GitHub branch publish control plane', () => {
         templateHash: dryRun.templateHash,
       },
     });
+    const approvalsAfterWaitingChildResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/production/recoveries/approvals',
+    });
 
     await server.close();
     await store.close();
@@ -7320,6 +7391,11 @@ describe('supervisor GitHub branch publish control plane', () => {
             state.childAutoApprovalAllowed === false && state.childAdapterExecuteAllowed === false,
         ),
     ).toBe(true);
+    expect(
+      approvalsAfterWaitingChildResponse
+        .json()
+        .records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
     expect(waitingChildApprovalResponse.body).not.toContain('approve remote workflow recovery');
     expect(waitingChildApprovalResponse.body).not.toContain(localControlToken);
   });

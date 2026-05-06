@@ -4352,6 +4352,29 @@ workflows:
       noNewLiveBoundary: true
       noSchemaChangeExpected: true
       metadataOnlyPublicOutput: true
+  m32_5.approval-boundary-failure-semantics:
+    risk: critical
+    trigger:
+      type: approval-boundary-failure-injection
+      entrypoint: supervisor tests docs
+      localControlRequired: false
+    fixes:
+      - githubDraftPrPreBoundaryApprovalStateGuard
+      - githubBranchPublishPreBoundaryApprovalStateGuard
+      - githubRemoteCleanupPreBoundaryApprovalStateGuard
+      - customWorkflowBlockedChildApprovalStateGuard
+      - productionRecoveryWaitingApprovalConsumptionGuard
+    docs:
+      - docs/releases/m32.5-approval-boundary-failure-hardening.md
+      - docs/reviews/m0-m32-approval-boundary-failure-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true
   m32_3.control-plane-coverage-drift-hardening:
     risk: critical
     trigger:
