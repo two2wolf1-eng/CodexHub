@@ -1170,6 +1170,14 @@ describe('store-sqlite migration initialization', () => {
     expect(serialized).not.toContain('codexhub/m18');
     expect(serialized).not.toContain('https://github.com');
     expect(serialized).not.toContain('ghp_');
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        dryRuns,
+        dryRunRecord,
+        runs,
+        runRecord,
+      }),
+    ).toEqual([]);
   });
 });
 
