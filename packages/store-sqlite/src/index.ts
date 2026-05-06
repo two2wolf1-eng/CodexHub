@@ -15,6 +15,15 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  GithubActionsDispatchApprovalArtifact,
+  GithubActionsDispatchPlan,
+  GithubActionsDispatchRun,
+  GithubActionsObservationApprovalArtifactRecord,
+  GithubActionsObservationPlan,
+  GithubActionsObservationRun,
+  GithubActionsRunControlApprovalArtifact,
+  GithubActionsRunControlPlan,
+  GithubActionsRunControlRun,
   GithubBranchPublishApprovalArtifactRecord,
   GithubBranchPublishPlan,
   GithubBranchPublishRun,
@@ -137,6 +146,18 @@ import type {
   GithubMergeControlPlaneQuery,
   GithubMergeDryRunRepository,
   GithubMergeRunRepository,
+  GithubActionsDispatchApprovalRepository,
+  GithubActionsDispatchControlPlaneQuery,
+  GithubActionsDispatchDryRunRepository,
+  GithubActionsDispatchRunRepository,
+  GithubActionsObservationApprovalRepository,
+  GithubActionsObservationControlPlaneQuery,
+  GithubActionsObservationDryRunRepository,
+  GithubActionsObservationRunRepository,
+  GithubActionsRunControlApprovalRepository,
+  GithubActionsRunControlControlPlaneQuery,
+  GithubActionsRunControlDryRunRepository,
+  GithubActionsRunControlRunRepository,
   GithubPrLifecycleApprovalRepository,
   GithubPrLifecycleControlPlaneQuery,
   GithubPrLifecycleDryRunRepository,
@@ -290,6 +311,18 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubMergeDryRuns: GithubMergeDryRunRepository;
   readonly githubMergeApprovals: GithubMergeApprovalRepository;
   readonly githubMergeRuns: GithubMergeRunRepository;
+  readonly githubActionsObservationDryRuns: GithubActionsObservationDryRunRepository;
+  readonly githubActionsObservationApprovals: GithubActionsObservationApprovalRepository;
+  readonly githubActionsObservationRuns: GithubActionsObservationRunRepository;
+  readonly githubActionsRerunDryRuns: GithubActionsRunControlDryRunRepository;
+  readonly githubActionsRerunApprovals: GithubActionsRunControlApprovalRepository;
+  readonly githubActionsRerunRuns: GithubActionsRunControlRunRepository;
+  readonly githubActionsCancelDryRuns: GithubActionsRunControlDryRunRepository;
+  readonly githubActionsCancelApprovals: GithubActionsRunControlApprovalRepository;
+  readonly githubActionsCancelRuns: GithubActionsRunControlRunRepository;
+  readonly githubActionsDispatchDryRuns: GithubActionsDispatchDryRunRepository;
+  readonly githubActionsDispatchApprovals: GithubActionsDispatchApprovalRepository;
+  readonly githubActionsDispatchRuns: GithubActionsDispatchRunRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -435,6 +468,41 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.githubMergeDryRuns = new SqliteGithubMergeDryRunRepository(database);
     this.githubMergeApprovals = new SqliteGithubMergeApprovalRepository(database);
     this.githubMergeRuns = new SqliteGithubMergeRunRepository(database);
+    this.githubActionsObservationDryRuns =
+      new SqliteGithubActionsObservationDryRunRepository(database);
+    this.githubActionsObservationApprovals =
+      new SqliteGithubActionsObservationApprovalRepository(database);
+    this.githubActionsObservationRuns =
+      new SqliteGithubActionsObservationRunRepository(database);
+    this.githubActionsRerunDryRuns = new SqliteGithubActionsRunControlDryRunRepository(
+      database,
+      'github_actions_rerun_dry_runs',
+    );
+    this.githubActionsRerunApprovals = new SqliteGithubActionsRunControlApprovalRepository(
+      database,
+      'github_actions_rerun_approvals',
+    );
+    this.githubActionsRerunRuns = new SqliteGithubActionsRunControlRunRepository(
+      database,
+      'github_actions_rerun_runs',
+    );
+    this.githubActionsCancelDryRuns = new SqliteGithubActionsRunControlDryRunRepository(
+      database,
+      'github_actions_cancel_dry_runs',
+    );
+    this.githubActionsCancelApprovals = new SqliteGithubActionsRunControlApprovalRepository(
+      database,
+      'github_actions_cancel_approvals',
+    );
+    this.githubActionsCancelRuns = new SqliteGithubActionsRunControlRunRepository(
+      database,
+      'github_actions_cancel_runs',
+    );
+    this.githubActionsDispatchDryRuns =
+      new SqliteGithubActionsDispatchDryRunRepository(database);
+    this.githubActionsDispatchApprovals =
+      new SqliteGithubActionsDispatchApprovalRepository(database);
+    this.githubActionsDispatchRuns = new SqliteGithubActionsDispatchRunRepository(database);
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -2075,6 +2143,345 @@ class SqliteGithubMergeRunRepository implements GithubMergeRunRepository {
     return listObservationControlPlaneRecords<GithubMergeRun>(
       this.database,
       'github_merge_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsObservationDryRunRepository
+  implements GithubActionsObservationDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<GithubActionsObservationPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubActionsObservationPlan>(
+      database,
+      'github_actions_observation_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubActionsObservationPlan): Promise<GithubActionsObservationPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubActionsObservationPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubActionsObservationControlPlaneQuery = {},
+  ): Promise<GithubActionsObservationPlan[]> {
+    return listObservationControlPlaneRecords<GithubActionsObservationPlan>(
+      this.database,
+      'github_actions_observation_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsObservationApprovalRepository
+  implements GithubActionsObservationApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubActionsObservationApprovalArtifactRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubActionsObservationApprovalArtifactRecord>(
+      database,
+      'github_actions_observation_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubActionsObservationApprovalArtifactRecord,
+  ): Promise<GithubActionsObservationApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<GithubActionsObservationApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubActionsObservationApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM github_actions_observation_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubActionsObservationApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubActionsObservationControlPlaneQuery = {},
+  ): Promise<GithubActionsObservationApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<GithubActionsObservationApprovalArtifactRecord>(
+      this.database,
+      'github_actions_observation_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsObservationRunRepository implements GithubActionsObservationRunRepository {
+  private readonly repository: JsonEntityRepository<GithubActionsObservationRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubActionsObservationRun>(
+      database,
+      'github_actions_observation_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubActionsObservationRun): Promise<GithubActionsObservationRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubActionsObservationRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubActionsObservationControlPlaneQuery = {},
+  ): Promise<GithubActionsObservationRun[]> {
+    return listObservationControlPlaneRecords<GithubActionsObservationRun>(
+      this.database,
+      'github_actions_observation_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsRunControlDryRunRepository
+  implements GithubActionsRunControlDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<GithubActionsRunControlPlan>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<GithubActionsRunControlPlan>(
+      database,
+      tableName,
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubActionsRunControlPlan): Promise<GithubActionsRunControlPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubActionsRunControlPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubActionsRunControlControlPlaneQuery = {},
+  ): Promise<GithubActionsRunControlPlan[]> {
+    return listObservationControlPlaneRecords<GithubActionsRunControlPlan>(
+      this.database,
+      this.tableName,
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsRunControlApprovalRepository
+  implements GithubActionsRunControlApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubActionsRunControlApprovalArtifact>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<GithubActionsRunControlApprovalArtifact>(
+      database,
+      tableName,
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubActionsRunControlApprovalArtifact,
+  ): Promise<GithubActionsRunControlApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<GithubActionsRunControlApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubActionsRunControlApprovalArtifact | undefined> {
+    const rows = this.database
+      .prepare(`SELECT payload FROM ${this.tableName} ORDER BY recorded_at DESC, id DESC`)
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubActionsRunControlApprovalArtifact)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubActionsRunControlControlPlaneQuery = {},
+  ): Promise<GithubActionsRunControlApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<GithubActionsRunControlApprovalArtifact>(
+      this.database,
+      this.tableName,
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsRunControlRunRepository implements GithubActionsRunControlRunRepository {
+  private readonly repository: JsonEntityRepository<GithubActionsRunControlRun>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<GithubActionsRunControlRun>(
+      database,
+      tableName,
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubActionsRunControlRun): Promise<GithubActionsRunControlRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubActionsRunControlRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubActionsRunControlControlPlaneQuery = {},
+  ): Promise<GithubActionsRunControlRun[]> {
+    return listObservationControlPlaneRecords<GithubActionsRunControlRun>(
+      this.database,
+      this.tableName,
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsDispatchDryRunRepository
+  implements GithubActionsDispatchDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<GithubActionsDispatchPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubActionsDispatchPlan>(
+      database,
+      'github_actions_dispatch_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubActionsDispatchPlan): Promise<GithubActionsDispatchPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubActionsDispatchPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubActionsDispatchControlPlaneQuery = {},
+  ): Promise<GithubActionsDispatchPlan[]> {
+    return listObservationControlPlaneRecords<GithubActionsDispatchPlan>(
+      this.database,
+      'github_actions_dispatch_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsDispatchApprovalRepository
+  implements GithubActionsDispatchApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubActionsDispatchApprovalArtifact>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubActionsDispatchApprovalArtifact>(
+      database,
+      'github_actions_dispatch_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubActionsDispatchApprovalArtifact,
+  ): Promise<GithubActionsDispatchApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<GithubActionsDispatchApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubActionsDispatchApprovalArtifact | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM github_actions_dispatch_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubActionsDispatchApprovalArtifact)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubActionsDispatchControlPlaneQuery = {},
+  ): Promise<GithubActionsDispatchApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<GithubActionsDispatchApprovalArtifact>(
+      this.database,
+      'github_actions_dispatch_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubActionsDispatchRunRepository implements GithubActionsDispatchRunRepository {
+  private readonly repository: JsonEntityRepository<GithubActionsDispatchRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubActionsDispatchRun>(
+      database,
+      'github_actions_dispatch_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubActionsDispatchRun): Promise<GithubActionsDispatchRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubActionsDispatchRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubActionsDispatchControlPlaneQuery = {},
+  ): Promise<GithubActionsDispatchRun[]> {
+    return listObservationControlPlaneRecords<GithubActionsDispatchRun>(
+      this.database,
+      'github_actions_dispatch_runs',
       query,
     );
   }
@@ -3815,6 +4222,78 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_merge_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_observation_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_observation_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_observation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_rerun_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_rerun_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_rerun_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_cancel_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_cancel_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_cancel_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_dispatch_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_dispatch_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_actions_dispatch_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

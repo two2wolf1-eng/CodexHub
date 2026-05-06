@@ -5,6 +5,7 @@ import {
   createApprovalDecisionHistoryReadOnlySummary,
   createCustomWorkflowReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGithubActionsAcceptanceRehearsalReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubMergeAcceptanceRehearsalReadOnlySummary,
@@ -264,8 +265,13 @@ describe('dashboard read-only UX helpers', () => {
         draftPrRunCount: 1,
         branchPublishRunCount: 1,
         prLifecycleRunCount: 1,
+        actionsObservationRunCount: 1,
+        actionsDispatchRunCount: 1,
         remoteCleanupRunCount: 1,
         networkBoundaryInvoked: true,
+      }),
+      createGithubActionsAcceptanceRehearsalReadOnlySummary({
+        scenario: 'dispatch-inputs-rejected',
       }),
       createCustomWorkflowReadOnlySummary({
         templateCount: 1,
@@ -477,6 +483,21 @@ describe('dashboard read-only UX helpers', () => {
       prLifecycleDryRunCount: 1,
       prLifecycleApprovalCount: 1,
       prLifecycleRunCount: 1,
+      mergeDryRunCount: 1,
+      mergeApprovalCount: 2,
+      mergeRunCount: 1,
+      actionsObservationDryRunCount: 1,
+      actionsObservationApprovalCount: 1,
+      actionsObservationRunCount: 1,
+      actionsRerunDryRunCount: 1,
+      actionsRerunApprovalCount: 1,
+      actionsRerunRunCount: 1,
+      actionsCancelDryRunCount: 1,
+      actionsCancelApprovalCount: 1,
+      actionsCancelRunCount: 1,
+      actionsDispatchDryRunCount: 1,
+      actionsDispatchApprovalCount: 1,
+      actionsDispatchRunCount: 1,
       remoteSupersedeDryRunCount: 1,
       remoteSupersedeRunCount: 1,
       remoteCleanupDryRunCount: 1,
@@ -491,6 +512,14 @@ describe('dashboard read-only UX helpers', () => {
       latestPublishDraftPrChainLifecycleStatus: 'checks_passed',
       latestPrLifecycleRunStatus: 'completed',
       latestPrLifecycleStatusSummary: 'checks_passed',
+      latestMergeRunStatus: 'completed',
+      latestMergeReadinessStatus: 'ready_for_merge',
+      latestActionsObservationRunStatus: 'completed',
+      latestActionsObservationConclusion: 'success',
+      latestActionsLogStatus: 'hashed',
+      latestActionsRerunRunStatus: 'completed',
+      latestActionsCancelRunStatus: 'completed',
+      latestActionsDispatchRunStatus: 'completed',
       latestRemoteSupersedeRunStatus: 'projected',
       latestRemoteCleanupRunStatus: 'completed',
       latestRemoteCleanupReadinessStatus: 'ready_for_cleanup',
@@ -502,11 +531,16 @@ describe('dashboard read-only UX helpers', () => {
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('github-provider');
-    expect(summary.manifestVersion).toContain('m22');
+    expect(summary.manifestVersion).toContain('m39');
     expect(summary.draftPrRunCount).toBe(1);
     expect(summary.branchPublishRunCount).toBe(1);
     expect(summary.publishDraftPrChainRunCount).toBe(1);
     expect(summary.prLifecycleRunCount).toBe(1);
+    expect(summary.mergeRunCount).toBe(1);
+    expect(summary.actionsObservationRunCount).toBe(1);
+    expect(summary.actionsRerunRunCount).toBe(1);
+    expect(summary.actionsCancelRunCount).toBe(1);
+    expect(summary.actionsDispatchRunCount).toBe(1);
     expect(summary.remoteSupersedeRunCount).toBe(1);
     expect(summary.remoteCleanupRunCount).toBe(1);
     expect(summary.latestRemoteCleanupReadinessStatus).toBe('ready_for_cleanup');
@@ -520,11 +554,24 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.branchPublishApprovalRequired).toBe(true);
     expect(summary.publishDraftPrChainSeparateApprovalsRequired).toBe(true);
     expect(summary.prLifecycleApprovalRequired).toBe(true);
+    expect(summary.mergeApprovalRequired).toBe(true);
+    expect(summary.mergeRequiresTwoApprovals).toBe(true);
+    expect(summary.actionsObservationApprovalRequired).toBe(true);
+    expect(summary.actionsRunControlApprovalRequired).toBe(true);
+    expect(summary.actionsDispatchApprovalRequired).toBe(true);
     expect(summary.remoteSupersedeProjectionOnly).toBe(true);
     expect(summary.remoteCleanupApprovalRequired).toBe(true);
     expect(summary.allowedRemoteCleanupActions).toContain('codexhub_ref_delete');
+    expect(summary.allowedGithubActionsObservationActions).toContain('workflow_run_logs_hash');
+    expect(summary.allowedGithubActionsDispatchActions).toContain('fixed_ref_dispatch_post');
     expect(summary.blockedOperations).toEqual(
-      expect.arrayContaining(['non_codexhub_branch_delete', 'release', 'deployment']),
+      expect.arrayContaining([
+        'non_codexhub_branch_delete',
+        'arbitrary_workflow_dispatch_payload',
+        'raw_actions_logs',
+        'release',
+        'deployment',
+      ]),
     );
     expect(summary.credentialHashOnly).toBe(true);
     expect(summary.credentialValueStored).toBe(false);
@@ -543,6 +590,40 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('Authorization');
     expect(serialized).not.toContain('responseBody');
     expect(serialized).not.toContain('file contents');
+    expect(serialized).not.toContain('raw action log');
+    expect(serialized).not.toContain('workflow inputs');
+  });
+
+  it('summarizes GitHub Actions acceptance rehearsal without raw logs or dispatch payloads', () => {
+    const passed = createGithubActionsAcceptanceRehearsalReadOnlySummary({
+      scenario: 'observation-all-pass',
+    });
+    const blocked = createGithubActionsAcceptanceRehearsalReadOnlySummary({
+      scenario: 'dispatch-inputs-rejected',
+    });
+    const failed = createGithubActionsAcceptanceRehearsalReadOnlySummary({
+      scenario: 'rerun-failed',
+    });
+    const serialized = JSON.stringify({ passed, blocked, failed });
+
+    expect(passed.status).toBe('passed');
+    expect(blocked.status).toBe('blocked');
+    expect(failed.status).toBe('failed');
+    expect(passed.fixedEndpointOnly).toBe(true);
+    expect(passed.supervisorPostAllowed).toBe(false);
+    expect(passed.adapterExecuteAllowed).toBe(false);
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.rawLogStored).toBe(false);
+    expect(passed.rawArtifactStored).toBe(false);
+    expect(passed.arbitraryPayloadAllowed).toBe(false);
+    expect(passed.jenkinsLiveRouteEnabled).toBe(false);
+    expect(passed.buildkiteLiveRouteEnabled).toBe(false);
+    expect(passed.droneLiveRouteEnabled).toBe(false);
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('raw log');
+    expect(serialized).not.toContain('artifact body');
+    expect(serialized).not.toContain('workflow inputs');
   });
 
   it('summarizes remote supersede and cleanup rehearsals without network or write controls', () => {
@@ -928,6 +1009,8 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).toContain('GitHub Merge Guided Operation');
     expect(githubRoute).toContain('GitHub Merge Runs');
     expect(githubRoute).toContain('GitHub Merge Acceptance Rehearsal');
+    expect(githubRoute).toContain('GitHub Actions CI/CD');
+    expect(githubRoute).toContain('GitHub Actions Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Remote Supersede Runs');
     expect(githubRoute).toContain('GitHub Remote Cleanup Runs');
     expect(githubRoute).toContain('GitHub Branch Publish Acceptance Rehearsal');

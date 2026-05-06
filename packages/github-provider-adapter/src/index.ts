@@ -1,6 +1,25 @@
 import {
   CapabilityManifestSchema,
+  CicdProviderManifestSchema,
   ExecutionAuthoritySchema,
+  GithubActionsAcceptanceRehearsalRunSchema,
+  GithubActionsCancelPlanSchema,
+  GithubActionsDispatchApprovalArtifactSchema,
+  GithubActionsDispatchPlanSchema,
+  GithubActionsDispatchRunSchema,
+  GithubActionsDispatchSummarySchema,
+  GithubActionsJobSummarySchema,
+  GithubActionsLogHashSummarySchema,
+  GithubActionsObservationApprovalArtifactRecordSchema,
+  GithubActionsObservationPlanSchema,
+  GithubActionsObservationRunSchema,
+  GithubActionsReadinessSchema,
+  GithubActionsRerunPlanSchema,
+  GithubActionsRunControlApprovalArtifactSchema,
+  GithubActionsRunControlPlanSchema,
+  GithubActionsRunControlRunSchema,
+  GithubActionsRunControlSummarySchema,
+  GithubActionsRunSummarySchema,
   GithubBranchPublishAcceptanceRehearsalRunSchema,
   GithubBranchPublishApprovalArtifactRecordSchema,
   GithubBranchPublishPlanSchema,
@@ -56,7 +75,22 @@ import {
   foundationId,
   foundationTimestamp,
   type CapabilityManifest,
+  type CicdProviderManifest,
   type ExecutionAuthority,
+  type GithubActionsAcceptanceRehearsalRun,
+  type GithubActionsAcceptanceScenario,
+  type GithubActionsDispatchApprovalArtifact,
+  type GithubActionsDispatchPlan,
+  type GithubActionsDispatchRun,
+  type GithubActionsObservationApprovalArtifactRecord,
+  type GithubActionsObservationPlan,
+  type GithubActionsObservationRun,
+  type GithubActionsObservationRunnerMode,
+  type GithubActionsReadiness,
+  type GithubActionsRunControlApprovalArtifact,
+  type GithubActionsRunControlKind,
+  type GithubActionsRunControlPlan,
+  type GithubActionsRunControlRun,
   type GithubBranchPublishAcceptanceRehearsalRun,
   type GithubBranchPublishAcceptanceScenario,
   type GithubBranchPublishApprovalArtifactRecord,
@@ -135,6 +169,9 @@ import {
 import { createEvidenceRef, hashText } from '@codexhub/evidence-kernel';
 import {
   runGithubBranchPublishHttpBoundary,
+  runGithubActionsDispatchHttpBoundary,
+  runGithubActionsObservationHttpBoundary,
+  runGithubActionsRunControlHttpBoundary,
   runGithubDraftPrHttpBoundary,
   runGithubMetadataHttpBoundary,
   runGithubMergeHttpBoundary,
@@ -142,6 +179,9 @@ import {
   runGithubPrManagementHttpBoundary,
   runGithubRemoteCleanupHttpBoundary,
   type GithubBranchPublishHttpBoundaryRequest,
+  type GithubActionsDispatchHttpBoundaryRequest,
+  type GithubActionsObservationHttpBoundaryRequest,
+  type GithubActionsRunControlHttpBoundaryRequest,
   type GithubHttpBoundaryRequest,
   type GithubMergeHttpBoundaryRequest,
   type GithubPrLifecycleHttpBoundaryRequest,
@@ -248,6 +288,42 @@ export interface GithubMergePlanInput extends GithubRemoteRefInput {
   now?: () => string;
 }
 
+export interface GithubActionsReadinessInput {
+  env?: Pick<NodeJS.ProcessEnv, string>;
+  observationEnabled?: boolean;
+  rerunEnabled?: boolean;
+  cancelEnabled?: boolean;
+  dispatchEnabled?: boolean;
+  now?: () => string;
+}
+
+export interface GithubActionsObservationPlanInput extends GithubRemoteRefInput {
+  workflowRunId?: string;
+  workflowRunIdHash?: string;
+  requestedMetadata?: Array<'repo' | 'workflow_runs' | 'workflow_run' | 'jobs' | 'logs'>;
+  logByteCap?: number;
+  runnerMode?: GithubActionsObservationRunnerMode;
+  now?: () => string;
+}
+
+export interface GithubActionsRunControlPlanInput extends GithubRemoteRefInput {
+  controlKind: GithubActionsRunControlKind;
+  workflowRunId?: string;
+  workflowRunIdHash?: string;
+  runnerMode?: 'planning-only' | 'controlled-github-actions-run-control';
+  now?: () => string;
+}
+
+export interface GithubActionsDispatchPlanInput extends GithubRemoteRefInput {
+  workflowId?: string;
+  workflowIdHash?: string;
+  ref?: string;
+  refHash?: string;
+  hasInputs?: boolean;
+  runnerMode?: 'planning-only' | 'controlled-github-actions-dispatch';
+  now?: () => string;
+}
+
 export interface RemoteSupersedeProjectionInput {
   sourceRunId: string;
   sourceSummary: string;
@@ -334,6 +410,36 @@ export interface GithubMergeApprovalInput {
   dryRunRecord: GithubMergeReadinessPlan;
   approvalPhase: GithubMergeApprovalPhase;
   baseRecord?: GithubMergeApprovalArtifact;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface GithubActionsObservationApprovalInput {
+  dryRunRecord: GithubActionsObservationPlan;
+  baseRecord?: GithubActionsObservationApprovalArtifactRecord;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface GithubActionsRunControlApprovalInput {
+  dryRunRecord: GithubActionsRunControlPlan;
+  baseRecord?: GithubActionsRunControlApprovalArtifact;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface GithubActionsDispatchApprovalInput {
+  dryRunRecord: GithubActionsDispatchPlan;
+  baseRecord?: GithubActionsDispatchApprovalArtifact;
   status: GithubProviderApprovalStatus;
   requestedBy?: string;
   decidedBy?: string;
@@ -435,6 +541,42 @@ export interface GithubMergeExecutionInput {
   now?: () => string;
 }
 
+export interface GithubActionsObservationExecutionInput {
+  dryRunRecord: GithubActionsObservationPlan;
+  approvalRecord?: GithubActionsObservationApprovalArtifactRecord;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubActionsObservationHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
+export interface GithubActionsRunControlExecutionInput {
+  dryRunRecord: GithubActionsRunControlPlan;
+  approvalRecord?: GithubActionsRunControlApprovalArtifact;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubActionsRunControlHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
+export interface GithubActionsDispatchExecutionInput {
+  dryRunRecord: GithubActionsDispatchPlan;
+  approvalRecord?: GithubActionsDispatchApprovalArtifact;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubActionsDispatchHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
 export interface GithubRemoteCleanupExecutionInput {
   dryRunRecord: GithubRemoteCleanupPlan;
   approvalRecord?: GithubRemoteCleanupApprovalArtifactRecord;
@@ -470,6 +612,11 @@ export interface GithubPrManagementAcceptanceRehearsalInput {
 
 export interface GithubMergeAcceptanceRehearsalInput {
   scenario?: GithubMergeAcceptanceScenario;
+  now?: () => string;
+}
+
+export interface GithubActionsAcceptanceRehearsalInput {
+  scenario?: GithubActionsAcceptanceScenario;
   now?: () => string;
 }
 
@@ -552,6 +699,13 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       'merge-readiness-plan',
       'merge-fixed-endpoint-execution',
       'merge-acceptance-rehearsal',
+      'github-actions-provider-readiness',
+      'github-actions-observation-fixed-get',
+      'github-actions-log-hash-summary',
+      'github-actions-rerun-fixed-endpoint',
+      'github-actions-cancel-fixed-endpoint',
+      'github-actions-dispatch-fixed-ref',
+      'github-actions-acceptance-rehearsal',
     ],
     defaultRisk: 'high',
     defaultActionMode: 'read',
@@ -582,6 +736,10 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       remoteSupersedeProjectionOnly: true,
       remoteCleanupEnabled: false,
       mergeEnabled: false,
+      githubActionsObservationEnabled: false,
+      githubActionsRerunEnabled: false,
+      githubActionsCancelEnabled: false,
+      githubActionsDispatchEnabled: false,
       localGitPushAllowed: false,
       updateRefAllowed: false,
       forceAllowed: false,
@@ -1107,6 +1265,368 @@ export function createGithubMergeReadinessPlan(
   });
 }
 
+export function createCicdProviderManifest(
+  provider: 'github-actions' | 'jenkins' | 'buildkite' | 'drone',
+  now: () => string = foundationTimestamp,
+): CicdProviderManifest {
+  return CicdProviderManifestSchema.parse({
+    id: stableId('cicd_provider_manifest', provider),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    provider,
+    implemented: provider === 'github-actions',
+    hostHash: provider === 'github-actions' ? stableHash(GITHUB_PROVIDER_ALLOWED_HOST) : undefined,
+    actionMode: provider === 'github-actions' ? 'read' : 'dry-run',
+    defaultEnabled: false,
+    requiresApprovalForWrites: true,
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      provider,
+      implemented: provider === 'github-actions',
+      futureProviderPlaceholder: provider !== 'github-actions',
+    },
+    summary:
+      provider === 'github-actions'
+        ? 'GitHub Actions is implemented as the M39 CI/CD provider with fixed endpoint governance.'
+        : `${provider} is a future CI/CD provider placeholder; no live route is implemented.`,
+  });
+}
+
+export function createGithubActionsReadiness(
+  input: GithubActionsReadinessInput = {},
+): GithubActionsReadiness {
+  const now = input.now ?? foundationTimestamp;
+  const tokenReadiness = readGithubTokenReadiness(input.env, now);
+  const blockReasons = [
+    ...(tokenReadiness.tokenConfigured ? [] : ['github_token_missing']),
+    ...(input.observationEnabled ? [] : ['github_actions_observation_disabled']),
+    ...(input.rerunEnabled ? [] : ['github_actions_rerun_disabled']),
+    ...(input.cancelEnabled ? [] : ['github_actions_cancel_disabled']),
+    ...(input.dispatchEnabled ? [] : ['github_actions_dispatch_disabled']),
+  ];
+
+  return GithubActionsReadinessSchema.parse({
+    id: stableId('github_actions_readiness', blockReasons.join(':') || 'ready'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    provider: 'github-actions',
+    tokenReadiness,
+    observationEnabled: input.observationEnabled === true,
+    rerunEnabled: input.rerunEnabled === true,
+    cancelEnabled: input.cancelEnabled === true,
+    dispatchEnabled: input.dispatchEnabled === true,
+    implementedProviderCount: 1,
+    futureProviderCount: 3,
+    blockerCount: blockReasons.length,
+    blockReasons,
+    tokenValueStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      tokenConfigured: tokenReadiness.tokenConfigured,
+      observationEnabled: input.observationEnabled === true,
+      rerunEnabled: input.rerunEnabled === true,
+      cancelEnabled: input.cancelEnabled === true,
+      dispatchEnabled: input.dispatchEnabled === true,
+      blockerCount: blockReasons.length,
+    },
+    summary:
+      blockReasons.length === 0
+        ? 'GitHub Actions readiness is configured for governed observation and run control.'
+        : `GitHub Actions readiness is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubActionsObservationPlan(
+  input: GithubActionsObservationPlanInput,
+): GithubActionsObservationPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectGithubActionsObservationBlockReasons(input);
+  const targetRef =
+    blockReasons.includes('invalid_owner') || blockReasons.includes('invalid_repo')
+      ? createBlockedGithubRemoteRefSummary(input, now)
+      : createGithubRemoteRefSummary(input);
+  const workflowRunIdHash =
+    input.workflowRunIdHash ?? (input.workflowRunId ? stableHash(input.workflowRunId) : undefined);
+  const requestedMetadata = input.requestedMetadata ?? [
+    'repo',
+    'workflow_runs',
+    ...(workflowRunIdHash ? (['workflow_run', 'jobs', 'logs'] as const) : []),
+  ];
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const dryRunId = stableId(
+    'github_actions_observation_dry_run',
+    JSON.stringify({
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      workflowRunIdHash,
+      requestedMetadata,
+      logByteCap: input.logByteCap ?? 65536,
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.actions.observe',
+    actionMode: 'read',
+    now,
+    allow: false,
+    reasons: ['GitHub Actions live observation requires persisted approval'],
+  });
+
+  return GithubActionsObservationPlanSchema.parse({
+    id: stableId('github_actions_observation_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status,
+    runnerMode: input.runnerMode ?? 'planning-only',
+    targetRef,
+    requestedMetadata,
+    workflowRunIdHash,
+    logByteCap: input.logByteCap ?? 65536,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.actions_observation_plan',
+        label: 'github-actions-observation-plan',
+        summary: 'GitHub Actions observation plan stores run ids and log summaries as hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          ownerHash: targetRef.ownerHash,
+          repoHash: targetRef.repoHash,
+          requestedMetadataCount: requestedMetadata.length,
+          workflowRunIdHash,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryPlanned:
+      status === 'planned' && input.runnerMode === 'controlled-github-actions-observation',
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    fixedEndpointOnly: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      workflowRunIdHash,
+      productDefaultEnabled: false,
+      logByteCap: input.logByteCap ?? 65536,
+    },
+    summary:
+      status === 'planned'
+        ? 'GitHub Actions observation dry-run is planned; live GETs require approval and env enablement.'
+        : `GitHub Actions observation dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubActionsRunControlPlan(
+  input: GithubActionsRunControlPlanInput,
+): GithubActionsRunControlPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectGithubActionsRunControlBlockReasons(input);
+  const targetRef =
+    blockReasons.includes('invalid_owner') || blockReasons.includes('invalid_repo')
+      ? createBlockedGithubRemoteRefSummary(input, now)
+      : createGithubRemoteRefSummary(input);
+  const workflowRunIdHash =
+    input.workflowRunIdHash ?? stableHash(input.workflowRunId ?? 'missing');
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const dryRunId = stableId(
+    `github_actions_${input.controlKind}_dry_run`,
+    JSON.stringify({
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      workflowRunIdHash,
+      controlKind: input.controlKind,
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: `github.actions.${input.controlKind}`,
+    actionMode: 'write',
+    now,
+    allow: false,
+    reasons: [`GitHub Actions ${input.controlKind} requires persisted approval`],
+  });
+  const record = GithubActionsRunControlPlanSchema.parse({
+    id: stableId(`github_actions_${input.controlKind}_plan`, dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    controlKind: input.controlKind,
+    status,
+    runnerMode: input.runnerMode ?? 'planning-only',
+    targetRef,
+    workflowRunIdHash,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.actions_run_control_plan',
+        label: `github-actions-${input.controlKind}-plan`,
+        summary: `GitHub Actions ${input.controlKind} plan stores target and workflow run id hashes only.`,
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          controlKind: input.controlKind,
+          ownerHash: targetRef.ownerHash,
+          repoHash: targetRef.repoHash,
+          workflowRunIdHash,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryPlanned:
+      status === 'planned' && input.runnerMode === 'controlled-github-actions-run-control',
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      workflowRunIdHash,
+      controlKind: input.controlKind,
+      productDefaultEnabled: false,
+    },
+    summary:
+      status === 'planned'
+        ? `GitHub Actions ${input.controlKind} dry-run is planned; live write requires approval and env enablement.`
+        : `GitHub Actions ${input.controlKind} dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+
+  return input.controlKind === 'rerun'
+    ? GithubActionsRerunPlanSchema.parse(record)
+    : GithubActionsCancelPlanSchema.parse(record);
+}
+
+export function createGithubActionsDispatchPlan(
+  input: GithubActionsDispatchPlanInput,
+): GithubActionsDispatchPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectGithubActionsDispatchBlockReasons(input);
+  const targetRef =
+    blockReasons.includes('invalid_owner') || blockReasons.includes('invalid_repo')
+      ? createBlockedGithubRemoteRefSummary(input, now)
+      : createGithubRemoteRefSummary(input);
+  const workflowIdHash = input.workflowIdHash ?? stableHash(input.workflowId ?? 'missing');
+  const refHash = input.refHash ?? stableHash(input.ref ?? 'missing');
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const dryRunId = stableId(
+    'github_actions_dispatch_dry_run',
+    JSON.stringify({
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      workflowIdHash,
+      refHash,
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.actions.dispatch',
+    actionMode: 'write',
+    now,
+    allow: false,
+    reasons: ['GitHub Actions workflow dispatch requires persisted approval and fixed ref payload'],
+  });
+
+  return GithubActionsDispatchPlanSchema.parse({
+    id: stableId('github_actions_dispatch_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status,
+    runnerMode: input.runnerMode ?? 'planning-only',
+    targetRef,
+    workflowIdHash,
+    refHash,
+    inputsSupported: false,
+    arbitraryInputsRejected: true,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.actions_dispatch_plan',
+        label: 'github-actions-dispatch-plan',
+        summary: 'GitHub Actions dispatch plan stores workflow id and ref as hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          ownerHash: targetRef.ownerHash,
+          repoHash: targetRef.repoHash,
+          workflowIdHash,
+          refHash,
+          arbitraryInputsRejected: true,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryPlanned:
+      status === 'planned' && input.runnerMode === 'controlled-github-actions-dispatch',
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      workflowIdHash,
+      refHash,
+      arbitraryInputsRejected: true,
+      productDefaultEnabled: false,
+    },
+    summary:
+      status === 'planned'
+        ? 'GitHub Actions dispatch dry-run is planned with fixed ref payload only.'
+        : `GitHub Actions dispatch dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
 export function createGithubDraftPrPlan(input: GithubDraftPrPlanInput): GithubDraftPrPlan {
   const now = input.now ?? foundationTimestamp;
   const blockReasons = collectDraftPrPlanBlockReasons(input);
@@ -1593,6 +2113,209 @@ export function createGithubMergeApprovalRecord(
       status: input.status,
     },
     summary: `GitHub merge ${input.approvalPhase} approval status is ${input.status}.`,
+  });
+}
+
+export function createGithubActionsObservationApprovalRecord(
+  input: GithubActionsObservationApprovalInput,
+): GithubActionsObservationApprovalArtifactRecord {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_actions_observation_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_actions_observation_approval_artifact', input.dryRunRecord.dryRunId);
+
+  return GithubActionsObservationApprovalArtifactRecordSchema.parse({
+    id: stableId(
+      'github_actions_observation_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt: baseRecord?.expiresAt,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.actions_observation_plan',
+        label: 'github-actions-observation-approval',
+        summary: 'GitHub Actions observation approval stores ids and hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          approvalArtifactIdHash: stableHash(approvalArtifactId),
+          status: input.status,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub Actions observation approval status is ${input.status}.`,
+  });
+}
+
+export function createGithubActionsRunControlApprovalRecord(
+  input: GithubActionsRunControlApprovalInput,
+): GithubActionsRunControlApprovalArtifact {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId(
+      `github_actions_${input.dryRunRecord.controlKind}_approval_request`,
+      input.dryRunRecord.dryRunId,
+    );
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId(
+      `github_actions_${input.dryRunRecord.controlKind}_approval_artifact`,
+      input.dryRunRecord.dryRunId,
+    );
+
+  return GithubActionsRunControlApprovalArtifactSchema.parse({
+    id: stableId(
+      `github_actions_${input.dryRunRecord.controlKind}_approval_record`,
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    controlKind: input.dryRunRecord.controlKind,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt: baseRecord?.expiresAt,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.actions_run_control_plan',
+        label: `github-actions-${input.dryRunRecord.controlKind}-approval`,
+        summary: `GitHub Actions ${input.dryRunRecord.controlKind} approval stores ids and hashes only.`,
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          controlKind: input.dryRunRecord.controlKind,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          approvalArtifactIdHash: stableHash(approvalArtifactId),
+          status: input.status,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      controlKind: input.dryRunRecord.controlKind,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub Actions ${input.dryRunRecord.controlKind} approval status is ${input.status}.`,
+  });
+}
+
+export function createGithubActionsDispatchApprovalRecord(
+  input: GithubActionsDispatchApprovalInput,
+): GithubActionsDispatchApprovalArtifact {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_actions_dispatch_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_actions_dispatch_approval_artifact', input.dryRunRecord.dryRunId);
+
+  return GithubActionsDispatchApprovalArtifactSchema.parse({
+    id: stableId(
+      'github_actions_dispatch_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    controlKind: 'dispatch',
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt: baseRecord?.expiresAt,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.actions_dispatch_plan',
+        label: 'github-actions-dispatch-approval',
+        summary: 'GitHub Actions dispatch approval stores ids and hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          approvalArtifactIdHash: stableHash(approvalArtifactId),
+          status: input.status,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+      arbitraryInputsRejected: true,
+    },
+    summary: `GitHub Actions dispatch approval status is ${input.status}.`,
   });
 }
 
@@ -2098,6 +2821,372 @@ export async function executeGithubMerge(input: GithubMergeExecutionInput): Prom
   });
 }
 
+export async function executeGithubActionsObservation(
+  input: GithubActionsObservationExecutionInput,
+): Promise<GithubActionsObservationRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectGithubActionsObservationExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubActionsObservationHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        headBranch: boundaryInput.headBranch,
+        workflowRunId: boundaryInput.workflowRunId,
+        logByteCap: boundaryInput.logByteCap,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const runSummary = GithubActionsRunSummarySchema.parse({
+    id: stableId('github_actions_run_summary', `${input.dryRunRecord.dryRunId}:${status}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    targetRef: input.dryRunRecord.targetRef,
+    workflowRunIdHash: boundaryResult?.workflowRunIdHash ?? input.dryRunRecord.workflowRunIdHash,
+    workflowNameHash: boundaryResult?.workflowNameHash,
+    runStatus: boundaryResult?.runStatus ?? 'unknown',
+    conclusionHash: boundaryResult?.conclusionHash,
+    jobCount: boundaryResult?.jobCount ?? 0,
+    logHashCount: boundaryResult?.logHash ? 1 : 0,
+    responseBodyHashCount: responseBodyHashes.length,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: 'GitHub Actions run summary stores workflow status and hashes only.',
+  });
+  const jobSummaries =
+    boundaryResult?.jobSummaryHashes.map((jobHash, index) =>
+      GithubActionsJobSummarySchema.parse({
+        id: stableId('github_actions_job_summary', `${input.dryRunRecord.dryRunId}:${jobHash}`),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: observedAt,
+        workflowRunIdHash: boundaryResult.workflowRunIdHash ?? input.dryRunRecord.workflowRunIdHash,
+        jobIdHash: jobHash,
+        jobStatus: 'unknown',
+        stepCount: 0,
+        rawUrlStored: false,
+        rawResponseBodyStored: false,
+        rawLogStored: false,
+        rawArtifactStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: `GitHub Actions job ${index + 1} stores hash-only metadata.`,
+      }),
+    ) ?? [];
+  const logHashSummary = boundaryResult
+    ? GithubActionsLogHashSummarySchema.parse({
+        id: stableId('github_actions_log_summary', input.dryRunRecord.dryRunId),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: observedAt,
+        workflowRunIdHash: boundaryResult.workflowRunIdHash ?? input.dryRunRecord.workflowRunIdHash,
+        logHash: boundaryResult.logHash,
+        byteCount: boundaryResult.logByteCount,
+        byteCap: boundaryResult.logByteCap,
+        truncated: boundaryResult.logTruncated,
+        rawLogStored: false,
+        rawArtifactStored: false,
+        rawUrlStored: false,
+        rawResponseBodyStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: 'GitHub Actions log summary stores only a transient log hash and byte counts.',
+      })
+    : undefined;
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.actions_observation_summary',
+      label: 'github-actions-observation-summary',
+      summary: 'GitHub Actions observation stores run, job, and log hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        status,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+        responseBodyHashCount: responseBodyHashes.length,
+        jobCount: boundaryResult?.jobCount ?? 0,
+        logHashPresent: Boolean(boundaryResult?.logHash),
+      },
+    }),
+  ];
+
+  return GithubActionsObservationRunSchema.parse({
+    id: stableId(
+      'github_actions_observation_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+    status,
+    plan: input.dryRunRecord,
+    runSummary,
+    jobSummaries,
+    logHashSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    fixedEndpointOnly: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      responseBodyHashCount: responseBodyHashes.length,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub Actions observation completed through fixed GET endpoints with hash-only summaries.'
+        : `GitHub Actions observation ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
+export async function executeGithubActionsRunControl(
+  input: GithubActionsRunControlExecutionInput,
+): Promise<GithubActionsRunControlRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectGithubActionsRunControlExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubActionsRunControlHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        headBranch: boundaryInput.headBranch,
+        workflowRunId: boundaryInput.workflowRunId,
+        controlKind: boundaryInput.controlKind,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const controlSummary = GithubActionsRunControlSummarySchema.parse({
+    id: stableId(
+      'github_actions_run_control_summary',
+      `${input.dryRunRecord.controlKind}:${input.dryRunRecord.dryRunId}:${status}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    controlKind: input.dryRunRecord.controlKind,
+    targetRef: input.dryRunRecord.targetRef,
+    workflowRunIdHash: boundaryResult?.workflowRunIdHash ?? input.dryRunRecord.workflowRunIdHash,
+    responseBodyHashCount: responseBodyHashes.length,
+    changed: boundaryResult?.changed ?? false,
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: `GitHub Actions ${input.dryRunRecord.controlKind} summary stores response hash counts only.`,
+  });
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.actions_run_control_summary',
+      label: `github-actions-${input.dryRunRecord.controlKind}-summary`,
+      summary: `GitHub Actions ${input.dryRunRecord.controlKind} run stores hashes only.`,
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        controlKind: input.dryRunRecord.controlKind,
+        status,
+        responseBodyHashCount: responseBodyHashes.length,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      },
+    }),
+  ];
+
+  return GithubActionsRunControlRunSchema.parse({
+    id: stableId(
+      `github_actions_${input.dryRunRecord.controlKind}_run`,
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+    controlKind: input.dryRunRecord.controlKind,
+    status,
+    plan: input.dryRunRecord,
+    controlSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: !(boundaryResult?.changed ?? false),
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      controlKind: input.dryRunRecord.controlKind,
+      status,
+      responseBodyHashCount: responseBodyHashes.length,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    },
+    summary:
+      status === 'completed'
+        ? `GitHub Actions ${input.dryRunRecord.controlKind} completed through fixed endpoint.`
+        : `GitHub Actions ${input.dryRunRecord.controlKind} ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
+export async function executeGithubActionsDispatch(
+  input: GithubActionsDispatchExecutionInput,
+): Promise<GithubActionsDispatchRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectGithubActionsDispatchExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubActionsDispatchHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        headBranch: boundaryInput.headBranch,
+        workflowId: boundaryInput.workflowId,
+        ref: boundaryInput.ref,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const dispatchSummary = GithubActionsDispatchSummarySchema.parse({
+    id: stableId('github_actions_dispatch_summary', `${input.dryRunRecord.dryRunId}:${status}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    targetRef: input.dryRunRecord.targetRef,
+    workflowIdHash: boundaryResult?.workflowIdHash ?? input.dryRunRecord.workflowIdHash,
+    refHash: boundaryResult?.refHash ?? input.dryRunRecord.refHash,
+    responseBodyHashCount: responseBodyHashes.length,
+    dispatched: boundaryResult?.dispatched ?? false,
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    inputsSupported: false,
+    arbitraryInputsRejected: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: 'GitHub Actions dispatch summary stores fixed ref hashes only.',
+  });
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.actions_dispatch_summary',
+      label: 'github-actions-dispatch-summary',
+      summary: 'GitHub Actions dispatch run stores fixed ref payload hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        status,
+        responseBodyHashCount: responseBodyHashes.length,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+        arbitraryInputsRejected: true,
+      },
+    }),
+  ];
+
+  return GithubActionsDispatchRunSchema.parse({
+    id: stableId(
+      'github_actions_dispatch_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalArtifactId: input.approvalRecord?.approvalArtifactId,
+    status,
+    plan: input.dryRunRecord,
+    dispatchSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: !(boundaryResult?.dispatched ?? false),
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    inputsSupported: false,
+    arbitraryInputsRejected: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      responseBodyHashCount: responseBodyHashes.length,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      arbitraryInputsRejected: true,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub Actions dispatch completed through fixed endpoint and fixed ref payload.'
+        : `GitHub Actions dispatch ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
 export async function executeGithubDraftPrCreation(
   input: GithubDraftPrExecutionInput,
 ): Promise<GithubDraftPrRun> {
@@ -2526,6 +3615,55 @@ export function runGithubMergeAcceptanceRehearsal(
       networkBoundaryInvoked: false,
     },
     summary: `GitHub merge acceptance rehearsal ${state.status}; fixture metadata only.`,
+  });
+}
+
+export function runGithubActionsAcceptanceRehearsal(
+  input: GithubActionsAcceptanceRehearsalInput = {},
+): GithubActionsAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'observation-all-pass';
+  const state = getGithubActionsAcceptanceScenarioState(scenario);
+
+  return GithubActionsAcceptanceRehearsalRunSchema.parse({
+    id: stableId('github_actions_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: state.status,
+    observationStatus: state.observationStatus,
+    rerunStatus: state.rerunStatus,
+    cancelStatus: state.cancelStatus,
+    dispatchStatus: state.dispatchStatus,
+    stepCount: 6,
+    blockerCount: state.blockerCount,
+    evidenceRefCount: state.evidenceRefCount,
+    auditEventCount: state.auditEventCount,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    fixedEndpointOnly: true,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      scenario,
+      fixtureOnly: true,
+      blockerCount: state.blockerCount,
+      observationStatus: state.observationStatus,
+      rerunStatus: state.rerunStatus,
+      cancelStatus: state.cancelStatus,
+      dispatchStatus: state.dispatchStatus,
+      arbitraryPayloadAllowed: false,
+      networkBoundaryInvoked: false,
+    },
+    summary: `GitHub Actions CI/CD acceptance rehearsal ${state.status}; fixture metadata only.`,
   });
 }
 
@@ -4061,6 +5199,127 @@ function collectMergeExecutionBlockReasons(
   return [...new Set(reasons)];
 }
 
+function collectGithubActionsObservationExecutionBlockReasons(
+  input: GithubActionsObservationExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const workflowRunMatches =
+    !input.dryRunRecord.workflowRunIdHash ||
+    (input.runtime.workflowRunId &&
+      stableHash(input.runtime.workflowRunId) === input.dryRunRecord.workflowRunIdHash);
+  const reasons = [
+    input.enabled ? undefined : 'github_actions_observation_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-actions-observation'
+      ? undefined
+      : 'actions_observation_runner_mode_not_controlled',
+    input.approvalRecord?.status === 'approved' && input.approvalRecord.approved
+      ? undefined
+      : 'missing_persisted_approval',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    workflowRunMatches ? undefined : 'github_actions_workflow_run_hash_mismatch',
+    input.runtime.logByteCap > 0 ? undefined : 'invalid_log_byte_cap',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectGithubActionsRunControlExecutionBlockReasons(
+  input: GithubActionsRunControlExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const workflowRunMatches =
+    stableHash(input.runtime.workflowRunId) === input.dryRunRecord.workflowRunIdHash;
+  const reasons = [
+    input.enabled ? undefined : `github_actions_${input.dryRunRecord.controlKind}_disabled`,
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-actions-run-control'
+      ? undefined
+      : 'actions_run_control_runner_mode_not_controlled',
+    input.runtime.controlKind === input.dryRunRecord.controlKind
+      ? undefined
+      : 'actions_run_control_kind_mismatch',
+    input.approvalRecord?.status === 'approved' && input.approvalRecord.approved
+      ? undefined
+      : 'missing_persisted_approval',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    workflowRunMatches ? undefined : 'github_actions_workflow_run_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectGithubActionsDispatchExecutionBlockReasons(
+  input: GithubActionsDispatchExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const workflowIdMatches = stableHash(input.runtime.workflowId) === input.dryRunRecord.workflowIdHash;
+  const refMatches = stableHash(input.runtime.ref) === input.dryRunRecord.refHash;
+  const reasons = [
+    input.enabled ? undefined : 'github_actions_dispatch_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-actions-dispatch'
+      ? undefined
+      : 'actions_dispatch_runner_mode_not_controlled',
+    input.approvalRecord?.status === 'approved' && input.approvalRecord.approved
+      ? undefined
+      : 'missing_persisted_approval',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    workflowIdMatches ? undefined : 'github_actions_workflow_id_hash_mismatch',
+    refMatches ? undefined : 'github_actions_dispatch_ref_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
 function collectDraftPrExecutionBlockReasons(
   input: GithubDraftPrExecutionInput,
   nowIso: string,
@@ -4603,6 +5862,14 @@ function createGithubEvidenceRef(input: {
     | 'github.merge_readiness_summary'
     | 'github.merge_run_summary'
     | 'github.merge_rehearsal'
+    | 'github.actions_observation_plan'
+    | 'github.actions_observation_summary'
+    | 'github.actions_observation_run'
+    | 'github.actions_run_control_plan'
+    | 'github.actions_run_control_summary'
+    | 'github.actions_dispatch_plan'
+    | 'github.actions_dispatch_summary'
+    | 'github.actions_rehearsal'
     | 'github.publish_draft_pr_rehearsal'
     | 'github.remote_supersede_plan'
     | 'github.remote_supersede_summary'
@@ -4730,6 +5997,40 @@ function collectMergePlanBlockReasons(input: GithubMergePlanInput): string[] {
     input.checksPassed === false ? 'checks_failed' : undefined,
     input.reviewsSatisfied === false ? 'reviews_missing' : undefined,
     input.staleHeadSha === true ? 'stale_head_sha' : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectGithubActionsObservationBlockReasons(
+  input: GithubActionsObservationPlanInput,
+): string[] {
+  const reasons = [
+    validateRemoteRefInput(input),
+    (input.logByteCap ?? 65536) > 0 ? undefined : 'invalid_log_byte_cap',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectGithubActionsRunControlBlockReasons(
+  input: GithubActionsRunControlPlanInput,
+): string[] {
+  const reasons = [
+    validateRemoteRefInput(input),
+    input.workflowRunId || input.workflowRunIdHash ? undefined : 'missing_workflow_run_id',
+    ['rerun', 'cancel'].includes(input.controlKind) ? undefined : 'unsupported_run_control_kind',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectGithubActionsDispatchBlockReasons(input: GithubActionsDispatchPlanInput): string[] {
+  const reasons = [
+    validateRemoteRefInput(input),
+    input.workflowId || input.workflowIdHash ? undefined : 'missing_workflow_id',
+    input.ref || input.refHash ? undefined : 'missing_ref',
+    input.hasInputs === true ? 'inputs_not_supported_v1' : undefined,
   ].filter((reason): reason is string => Boolean(reason));
 
   return [...new Set(reasons)];
@@ -5216,6 +6517,123 @@ function getGithubMergeAcceptanceScenarioState(scenario: GithubMergeAcceptanceSc
         status: 'blocked',
         readinessStatus: 'ready_for_merge',
         mergeStatus: 'blocked',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+  }
+}
+
+function getGithubActionsAcceptanceScenarioState(scenario: GithubActionsAcceptanceScenario): {
+  status: GithubActionsAcceptanceRehearsalRun['status'];
+  observationStatus: GithubActionsAcceptanceRehearsalRun['observationStatus'];
+  rerunStatus: GithubActionsAcceptanceRehearsalRun['rerunStatus'];
+  cancelStatus: GithubActionsAcceptanceRehearsalRun['cancelStatus'];
+  dispatchStatus: GithubActionsAcceptanceRehearsalRun['dispatchStatus'];
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+} {
+  switch (scenario) {
+    case 'observation-all-pass':
+      return {
+        status: 'passed',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'skipped',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'skipped',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 0,
+      };
+    case 'rerun-failed':
+      return {
+        status: 'failed',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'failed',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'skipped',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 1,
+      };
+    case 'cancel-failed':
+      return {
+        status: 'failed',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'skipped',
+        cancelStatus: 'failed',
+        dispatchStatus: 'skipped',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 1,
+      };
+    case 'dispatch-failed':
+      return {
+        status: 'failed',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'skipped',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'failed',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 1,
+      };
+    case 'network-timeout':
+      return {
+        status: 'aborted',
+        observationStatus: 'failed',
+        rerunStatus: 'skipped',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'skipped',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'rerun-approval-blocked':
+      return {
+        status: 'blocked',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'blocked',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'skipped',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'cancel-approval-blocked':
+      return {
+        status: 'blocked',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'skipped',
+        cancelStatus: 'blocked',
+        dispatchStatus: 'skipped',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'dispatch-approval-blocked':
+    case 'dispatch-inputs-rejected':
+      return {
+        status: 'blocked',
+        observationStatus: 'fixture_completed',
+        rerunStatus: 'skipped',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'blocked',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'token-missing':
+    case 'provider-disabled':
+    case 'run-not-found':
+    case 'logs-too-large':
+      return {
+        status: 'blocked',
+        observationStatus: 'blocked',
+        rerunStatus: 'skipped',
+        cancelStatus: 'skipped',
+        dispatchStatus: 'skipped',
         evidenceRefCount: 1,
         auditEventCount: 1,
         blockerCount: 1,

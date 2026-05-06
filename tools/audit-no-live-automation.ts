@@ -119,6 +119,8 @@ const githubHttpBoundaryTerms = [
   '/git/ref/heads/',
   '/commits/',
   '/check-runs',
+  '/actions/runs',
+  '/actions/workflows',
   '/git/blobs',
   '/git/trees',
   '/git/commits',

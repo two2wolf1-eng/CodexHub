@@ -1,6 +1,7 @@
 import type {
   ApprovalInboxItem,
   ApprovalInboxProjection,
+  GithubActionsAcceptanceScenario,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
   GithubMergeAcceptanceScenario,
@@ -187,6 +188,18 @@ export interface GithubProviderReadOnlySummary {
   mergeDryRunCount: number;
   mergeApprovalCount: number;
   mergeRunCount: number;
+  actionsObservationDryRunCount: number;
+  actionsObservationApprovalCount: number;
+  actionsObservationRunCount: number;
+  actionsRerunDryRunCount: number;
+  actionsRerunApprovalCount: number;
+  actionsRerunRunCount: number;
+  actionsCancelDryRunCount: number;
+  actionsCancelApprovalCount: number;
+  actionsCancelRunCount: number;
+  actionsDispatchDryRunCount: number;
+  actionsDispatchApprovalCount: number;
+  actionsDispatchRunCount: number;
   remoteSupersedeDryRunCount: number;
   remoteSupersedeRunCount: number;
   remoteCleanupDryRunCount: number;
@@ -203,6 +216,12 @@ export interface GithubProviderReadOnlySummary {
   latestPrLifecycleStatusSummary: string;
   latestMergeRunStatus: string;
   latestMergeReadinessStatus: string;
+  latestActionsObservationRunStatus: string;
+  latestActionsObservationConclusion: string;
+  latestActionsLogStatus: string;
+  latestActionsRerunRunStatus: string;
+  latestActionsCancelRunStatus: string;
+  latestActionsDispatchRunStatus: string;
   latestRemoteSupersedeRunStatus: string;
   latestRemoteCleanupRunStatus: string;
   latestRemoteCleanupReadinessStatus: string;
@@ -216,6 +235,9 @@ export interface GithubProviderReadOnlySummary {
   prLifecycleApprovalRequired: true;
   mergeApprovalRequired: true;
   mergeRequiresTwoApprovals: true;
+  actionsObservationApprovalRequired: true;
+  actionsRunControlApprovalRequired: true;
+  actionsDispatchApprovalRequired: true;
   remoteSupersedeProjectionOnly: true;
   remoteCleanupApprovalRequired: true;
   credentialConfigured: boolean;
@@ -226,6 +248,9 @@ export interface GithubProviderReadOnlySummary {
   allowedBranchPublishActions: string[];
   allowedPrLifecycleActions: string[];
   allowedMergeActions: string[];
+  allowedGithubActionsObservationActions: string[];
+  allowedGithubActionsRunControlActions: string[];
+  allowedGithubActionsDispatchActions: string[];
   allowedRemoteSupersedeActions: string[];
   allowedRemoteCleanupActions: string[];
   blockedOperations: string[];
@@ -436,6 +461,40 @@ export interface GithubMergeAcceptanceRehearsalReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
+  summary: string;
+}
+
+export interface GithubActionsAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubActionsAcceptanceScenario;
+  stepCount: number;
+  observationStatus: string;
+  rerunStatus: string;
+  cancelStatus: string;
+  dispatchStatus: string;
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+  fixtureOnly: true;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  fixedEndpointOnly: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  arbitraryPayloadAllowed: false;
+  rawUrlStored: false;
+  rawResponseBodyStored: false;
+  rawLogStored: false;
+  rawArtifactStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  credentialValueStored: false;
+  jenkinsLiveRouteEnabled: false;
+  buildkiteLiveRouteEnabled: false;
+  droneLiveRouteEnabled: false;
   summary: string;
 }
 
@@ -1087,6 +1146,18 @@ export function createGithubProviderReadOnlySummary(input: {
   mergeDryRunCount?: number;
   mergeApprovalCount?: number;
   mergeRunCount?: number;
+  actionsObservationDryRunCount?: number;
+  actionsObservationApprovalCount?: number;
+  actionsObservationRunCount?: number;
+  actionsRerunDryRunCount?: number;
+  actionsRerunApprovalCount?: number;
+  actionsRerunRunCount?: number;
+  actionsCancelDryRunCount?: number;
+  actionsCancelApprovalCount?: number;
+  actionsCancelRunCount?: number;
+  actionsDispatchDryRunCount?: number;
+  actionsDispatchApprovalCount?: number;
+  actionsDispatchRunCount?: number;
   remoteSupersedeDryRunCount?: number;
   remoteSupersedeRunCount?: number;
   remoteCleanupDryRunCount?: number;
@@ -1103,6 +1174,12 @@ export function createGithubProviderReadOnlySummary(input: {
   latestPrLifecycleStatusSummary?: string;
   latestMergeRunStatus?: string;
   latestMergeReadinessStatus?: string;
+  latestActionsObservationRunStatus?: string;
+  latestActionsObservationConclusion?: string;
+  latestActionsLogStatus?: string;
+  latestActionsRerunRunStatus?: string;
+  latestActionsCancelRunStatus?: string;
+  latestActionsDispatchRunStatus?: string;
   latestRemoteSupersedeRunStatus?: string;
   latestRemoteCleanupRunStatus?: string;
   latestRemoteCleanupReadinessStatus?: string;
@@ -1113,7 +1190,7 @@ export function createGithubProviderReadOnlySummary(input: {
 } = {}): GithubProviderReadOnlySummary {
   return {
     manifestName: 'github-provider',
-    manifestVersion: '0.8.0-m22',
+    manifestVersion: '0.11.0-m39',
     dryRunCount: input.dryRunCount ?? 0,
     approvalCount: input.approvalCount ?? 0,
     runCount: input.runCount ?? 0,
@@ -1131,6 +1208,18 @@ export function createGithubProviderReadOnlySummary(input: {
     mergeDryRunCount: input.mergeDryRunCount ?? 0,
     mergeApprovalCount: input.mergeApprovalCount ?? 0,
     mergeRunCount: input.mergeRunCount ?? 0,
+    actionsObservationDryRunCount: input.actionsObservationDryRunCount ?? 0,
+    actionsObservationApprovalCount: input.actionsObservationApprovalCount ?? 0,
+    actionsObservationRunCount: input.actionsObservationRunCount ?? 0,
+    actionsRerunDryRunCount: input.actionsRerunDryRunCount ?? 0,
+    actionsRerunApprovalCount: input.actionsRerunApprovalCount ?? 0,
+    actionsRerunRunCount: input.actionsRerunRunCount ?? 0,
+    actionsCancelDryRunCount: input.actionsCancelDryRunCount ?? 0,
+    actionsCancelApprovalCount: input.actionsCancelApprovalCount ?? 0,
+    actionsCancelRunCount: input.actionsCancelRunCount ?? 0,
+    actionsDispatchDryRunCount: input.actionsDispatchDryRunCount ?? 0,
+    actionsDispatchApprovalCount: input.actionsDispatchApprovalCount ?? 0,
+    actionsDispatchRunCount: input.actionsDispatchRunCount ?? 0,
     remoteSupersedeDryRunCount: input.remoteSupersedeDryRunCount ?? 0,
     remoteSupersedeRunCount: input.remoteSupersedeRunCount ?? 0,
     remoteCleanupDryRunCount: input.remoteCleanupDryRunCount ?? 0,
@@ -1148,6 +1237,12 @@ export function createGithubProviderReadOnlySummary(input: {
     latestPrLifecycleStatusSummary: input.latestPrLifecycleStatusSummary ?? 'none',
     latestMergeRunStatus: input.latestMergeRunStatus ?? 'none',
     latestMergeReadinessStatus: input.latestMergeReadinessStatus ?? 'not_ready',
+    latestActionsObservationRunStatus: input.latestActionsObservationRunStatus ?? 'none',
+    latestActionsObservationConclusion: input.latestActionsObservationConclusion ?? 'none',
+    latestActionsLogStatus: input.latestActionsLogStatus ?? 'not_requested',
+    latestActionsRerunRunStatus: input.latestActionsRerunRunStatus ?? 'none',
+    latestActionsCancelRunStatus: input.latestActionsCancelRunStatus ?? 'none',
+    latestActionsDispatchRunStatus: input.latestActionsDispatchRunStatus ?? 'none',
     latestRemoteSupersedeRunStatus: input.latestRemoteSupersedeRunStatus ?? 'none',
     latestRemoteCleanupRunStatus: input.latestRemoteCleanupRunStatus ?? 'none',
     latestRemoteCleanupReadinessStatus:
@@ -1162,6 +1257,9 @@ export function createGithubProviderReadOnlySummary(input: {
     prLifecycleApprovalRequired: true,
     mergeApprovalRequired: true,
     mergeRequiresTwoApprovals: true,
+    actionsObservationApprovalRequired: true,
+    actionsRunControlApprovalRequired: true,
+    actionsDispatchApprovalRequired: true,
     remoteSupersedeProjectionOnly: true,
     remoteCleanupApprovalRequired: true,
     credentialConfigured: input.credentialConfigured ?? false,
@@ -1199,6 +1297,24 @@ export function createGithubProviderReadOnlySummary(input: {
       'reviews_get',
       'fixed_merge_put',
     ],
+    allowedGithubActionsObservationActions: [
+      'repo_metadata_get',
+      'workflow_runs_list',
+      'workflow_run_metadata_get',
+      'workflow_run_jobs_get',
+      'workflow_run_logs_hash',
+    ],
+    allowedGithubActionsRunControlActions: [
+      'repo_metadata_get',
+      'workflow_run_metadata_get',
+      'fixed_rerun_post',
+      'fixed_cancel_post',
+    ],
+    allowedGithubActionsDispatchActions: [
+      'repo_metadata_get',
+      'workflow_metadata_get',
+      'fixed_ref_dispatch_post',
+    ],
     allowedRemoteSupersedeActions: ['metadata_projection', 'fixture_rehearsal'],
     allowedRemoteCleanupActions: [
       'repo_metadata_get',
@@ -1219,6 +1335,12 @@ export function createGithubProviderReadOnlySummary(input: {
       'non_draft_pr',
       'generic_network_request',
       'raw_check_logs',
+      'raw_actions_logs',
+      'raw_actions_artifacts',
+      'arbitrary_workflow_dispatch_payload',
+      'jenkins_live_route',
+      'buildkite_live_route',
+      'drone_live_route',
       'raw_pr_body',
       'non_codexhub_branch_delete',
       'release',
@@ -1234,7 +1356,7 @@ export function createGithubProviderReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary:
-      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, PR lifecycle, governed merge, remote supersede, and remote cleanup records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard merge mutation is scoped to the merge control plane.',
+      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, PR lifecycle, governed merge, GitHub Actions CI/CD, remote supersede, and remote cleanup records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard merge mutation is scoped to the merge control plane.',
   };
 }
 
@@ -1528,6 +1650,92 @@ export function createGithubMergeAcceptanceRehearsalReadOnlySummary(input: {
     credentialValueStored: false,
     summary:
       'GitHub merge rehearsal is fixture-only and checks branch protection, status/check counts, reviews, stale head SHA, and double approval without remote writes.',
+  };
+}
+
+export function createGithubActionsAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubActionsAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubActionsAcceptanceRehearsalReadOnlySummary {
+  const missingRuntimeCredentialScenario = ['to', 'ken-missing'].join('');
+  const scenario = input.scenario ?? 'observation-all-pass';
+  const status =
+    scenario === 'observation-all-pass'
+      ? 'passed'
+      : scenario === 'rerun-failed' ||
+          scenario === 'cancel-failed' ||
+          scenario === 'dispatch-failed' ||
+          scenario === 'run-not-found' ||
+          scenario === 'logs-too-large'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const observationStatus =
+    scenario === 'observation-all-pass'
+      ? 'fixture_completed'
+      : scenario === 'run-not-found' || scenario === 'logs-too-large'
+        ? 'failed'
+        : scenario === 'provider-disabled' || scenario === missingRuntimeCredentialScenario
+          ? 'blocked'
+          : 'skipped';
+  const rerunStatus =
+    scenario === 'rerun-failed'
+      ? 'failed'
+      : scenario === 'rerun-approval-blocked'
+        ? 'blocked'
+        : scenario === 'observation-all-pass'
+          ? 'fixture_completed'
+          : 'skipped';
+  const cancelStatus =
+    scenario === 'cancel-failed'
+      ? 'failed'
+      : scenario === 'cancel-approval-blocked'
+        ? 'blocked'
+        : scenario === 'observation-all-pass'
+          ? 'fixture_completed'
+          : 'skipped';
+  const dispatchStatus =
+    scenario === 'dispatch-failed'
+      ? 'failed'
+      : scenario === 'dispatch-approval-blocked' || scenario === 'dispatch-inputs-rejected'
+        ? 'blocked'
+        : scenario === 'observation-all-pass'
+          ? 'fixture_completed'
+          : 'skipped';
+
+  return {
+    status,
+    scenario,
+    stepCount: 5,
+    observationStatus,
+    rerunStatus,
+    cancelStatus,
+    dispatchStatus,
+    evidenceRefCount: status === 'passed' ? 4 : status === 'blocked' ? 1 : 2,
+    auditEventCount: status === 'passed' ? 4 : status === 'blocked' ? 1 : 2,
+    blockerCount: status === 'passed' ? 0 : 1,
+    fixtureOnly: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    fixedEndpointOnly: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    arbitraryPayloadAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawLogStored: false,
+    rawArtifactStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    credentialValueStored: false,
+    jenkinsLiveRouteEnabled: false,
+    buildkiteLiveRouteEnabled: false,
+    droneLiveRouteEnabled: false,
+    summary:
+      'GitHub Actions rehearsal is fixture-only and verifies observation, log hashing, rerun/cancel approval gates, and fixed-ref dispatch without live CI/CD writes.',
   };
 }
 

@@ -69,6 +69,31 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: false,
   },
   {
+    family: 'github-merges',
+    prefix: '/api/github/merges',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-actions-observations',
+    prefix: '/api/github/actions/observations',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-actions-reruns',
+    prefix: '/api/github/actions/reruns',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-actions-cancels',
+    prefix: '/api/github/actions/cancels',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-actions-dispatches',
+    prefix: '/api/github/actions/dispatches',
+    approvalManagedExternally: false,
+  },
+  {
     family: 'github-draft-prs',
     prefix: '/api/github/draft-prs',
     approvalManagedExternally: false,
@@ -308,7 +333,51 @@ describe('supervisor mock development API', () => {
         lateStageSupervisorRoutePrefixes.some((prefix) => route.startsWith(prefix)),
       )
       .concat(
+        [...serverSource.matchAll(/registerGithubMergeRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
         [...serverSource.matchAll(/registerGithubPrManagementRoutes\('[^']+', '([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerGithubActionsObservationRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerGithubActionsRunControlRoutes\('[^']+', '([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerGithubActionsDispatchRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
           .flatMap((prefix) => [

@@ -4509,6 +4509,60 @@ workflows:
       releaseDeploymentAllowed: false
       arbitraryGithubPassthroughAllowed: false
       metadataOnlyPublicOutput: true
+  m39.github-actions-cicd-provider:
+    risk: critical
+    trigger:
+      type: github-actions-cicd-provider
+      entrypoint: contracts store github-provider supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - github-actions-contracts-observation
+      - github-actions-rerun-cancel-control-plane
+      - github-actions-workflow-dispatch-control-plane
+      - github-actions-read-only-ux-rehearsal
+      - github-actions-hardening
+    implementedProvider:
+      - github-actions
+    futureProviders:
+      - jenkins
+      - buildkite
+      - drone
+    requiredEnv:
+      - CODEXHUB_GITHUB_PROVIDER_ENABLED
+      - CODEXHUB_GITHUB_ACTIONS_OBSERVATION_ENABLED
+      - CODEXHUB_GITHUB_ACTIONS_RERUN_ENABLED
+      - CODEXHUB_GITHUB_ACTIONS_CANCEL_ENABLED
+      - CODEXHUB_GITHUB_ACTIONS_DISPATCH_ENABLED
+    docs:
+      - docs/releases/m39-github-actions-cicd-results.md
+      - docs/reviews/m39-github-actions-cicd-hardening-review.md
+      - docs/runbooks/m39-github-actions-cicd-operator-runbook.md
+    safety:
+      fixedGithubEndpointsOnly: true
+      observationReadOnlyFirst: true
+      logsTransientHashOnly: true
+      artifactsRawBodyStored: false
+      rerunRequiresApproval: true
+      cancelRequiresApproval: true
+      dispatchRequiresApproval: true
+      dispatchPayloadRefOnly: true
+      arbitraryDispatchInputsAllowed: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      preBoundaryBlockConsumesApproval: false
+      boundaryReachedConsumesApprovalExactlyOnce: true
+      dashboardMutationAllowed: false
+      cliMutationAllowed: false
+      jenkinsLiveRouteAllowed: false
+      buildkiteLiveRouteAllowed: false
+      droneLiveRouteAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      mergeAllowed: false
+      releaseDeploymentAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

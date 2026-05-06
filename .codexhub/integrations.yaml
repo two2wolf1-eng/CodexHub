@@ -285,7 +285,7 @@ integrations:
     provider: github
     providerType: external-network
     mode: governed-remote-lifecycle
-    stage: m38-governed-merge-control-plane
+    stage: m39-github-actions-cicd-provider
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -322,6 +322,10 @@ integrations:
     prMilestonesEnabled: false
     prCommentsEnabled: false
     mergeEnabled: false
+    githubActionsObservationEnabled: false
+    githubActionsRerunEnabled: false
+    githubActionsCancelEnabled: false
+    githubActionsDispatchEnabled: false
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     branchPublishEnablementEnv: CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
@@ -333,6 +337,10 @@ integrations:
     prMilestonesEnablementEnv: CODEXHUB_GITHUB_PR_MILESTONES_ENABLED
     prCommentsEnablementEnv: CODEXHUB_GITHUB_PR_COMMENTS_ENABLED
     mergeEnablementEnv: CODEXHUB_GITHUB_MERGE_ENABLED
+    githubActionsObservationEnablementEnv: CODEXHUB_GITHUB_ACTIONS_OBSERVATION_ENABLED
+    githubActionsRerunEnablementEnv: CODEXHUB_GITHUB_ACTIONS_RERUN_ENABLED
+    githubActionsCancelEnablementEnv: CODEXHUB_GITHUB_ACTIONS_CANCEL_ENABLED
+    githubActionsDispatchEnablementEnv: CODEXHUB_GITHUB_ACTIONS_DISPATCH_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -432,8 +440,44 @@ integrations:
         - POST /api/github/merges/runs
         - GET /api/github/merges/runs
         - GET /api/github/merges/runs/:id
+      githubActionsObservationRoutes:
+        - POST /api/github/actions/observations/dry-runs
+        - GET /api/github/actions/observations/dry-runs
+        - POST /api/github/actions/observations/approval-requests
+        - POST /api/github/actions/observations/manual-approvals
+        - GET /api/github/actions/observations/approvals
+        - POST /api/github/actions/observations/runs
+        - GET /api/github/actions/observations/runs
+        - GET /api/github/actions/observations/runs/:id
+      githubActionsRerunRoutes:
+        - POST /api/github/actions/reruns/dry-runs
+        - GET /api/github/actions/reruns/dry-runs
+        - POST /api/github/actions/reruns/approval-requests
+        - POST /api/github/actions/reruns/manual-approvals
+        - GET /api/github/actions/reruns/approvals
+        - POST /api/github/actions/reruns/runs
+        - GET /api/github/actions/reruns/runs
+        - GET /api/github/actions/reruns/runs/:id
+      githubActionsCancelRoutes:
+        - POST /api/github/actions/cancels/dry-runs
+        - GET /api/github/actions/cancels/dry-runs
+        - POST /api/github/actions/cancels/approval-requests
+        - POST /api/github/actions/cancels/manual-approvals
+        - GET /api/github/actions/cancels/approvals
+        - POST /api/github/actions/cancels/runs
+        - GET /api/github/actions/cancels/runs
+        - GET /api/github/actions/cancels/runs/:id
+      githubActionsDispatchRoutes:
+        - POST /api/github/actions/dispatches/dry-runs
+        - GET /api/github/actions/dispatches/dry-runs
+        - POST /api/github/actions/dispatches/approval-requests
+        - POST /api/github/actions/dispatches/manual-approvals
+        - GET /api/github/actions/dispatches/approvals
+        - POST /api/github/actions/dispatches/runs
+        - GET /api/github/actions/dispatches/runs
+        - GET /api/github/actions/dispatches/runs/:id
     readOnlyUx:
-      stage: m19d
+      stage: m39d
       dashboardRoute: "#/github"
       cliCommands:
         - codexhub github status
@@ -498,6 +542,21 @@ integrations:
         - codexhub github merges runs list
         - codexhub github merges runs show <runId>
         - codexhub github merges rehearse --fixture --scenario <name>
+        - codexhub github actions observations dry-runs list
+        - codexhub github actions observations approvals list
+        - codexhub github actions observations runs list
+        - codexhub github actions observations runs show <runId>
+        - codexhub github actions reruns dry-runs list
+        - codexhub github actions reruns approvals list
+        - codexhub github actions reruns runs list
+        - codexhub github actions cancels dry-runs list
+        - codexhub github actions cancels approvals list
+        - codexhub github actions cancels runs list
+        - codexhub github actions dispatches dry-runs list
+        - codexhub github actions dispatches approvals list
+        - codexhub github actions dispatches runs list
+        - codexhub github actions dispatches runs show <runId>
+        - codexhub github actions rehearse --fixture --scenario <name>
       localControlRequired: false
       supervisorPostAllowed: false
       dashboardMergeWizardPostAllowed: true
@@ -547,6 +606,46 @@ integrations:
         - comments
         - release
         - deployment
+    githubActionsCicd:
+      stage: m39
+      providers:
+        implemented:
+          - github-actions
+        futurePlaceholders:
+          - jenkins
+          - buildkite
+          - drone
+      supervisorControlPlaneAdded: true
+      routePrefixes:
+        observation: /api/github/actions/observations
+        rerun: /api/github/actions/reruns
+        cancel: /api/github/actions/cancels
+        dispatch: /api/github/actions/dispatches
+      enabledByDefault: false
+      requiredEnvFlags:
+        provider: CODEXHUB_GITHUB_PROVIDER_ENABLED
+        observation: CODEXHUB_GITHUB_ACTIONS_OBSERVATION_ENABLED
+        rerun: CODEXHUB_GITHUB_ACTIONS_RERUN_ENABLED
+        cancel: CODEXHUB_GITHUB_ACTIONS_CANCEL_ENABLED
+        dispatch: CODEXHUB_GITHUB_ACTIONS_DISPATCH_ENABLED
+      tokenEnv: CODEXHUB_GITHUB_TOKEN
+      fixedGithubEndpointsOnly: true
+      logStorage: hash-only
+      rawLogStorage: forbidden
+      rawArtifactStorage: forbidden
+      arbitraryDispatchInputsAllowed: false
+      dispatchPayload: ref-only
+      dashboardMutationAllowed: false
+      cliMutationAllowed: false
+      persistedApprovalRequiredForRerunCancelDispatch: true
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+      forbidden:
+        - raw-logs
+        - raw-artifacts
+        - arbitrary-dispatch-payload
+        - jenkins-live-route
+        - buildkite-live-route
+        - drone-live-route
     draftPrPlanning:
       stage: m16a
       helper: createGithubDraftPrPlan

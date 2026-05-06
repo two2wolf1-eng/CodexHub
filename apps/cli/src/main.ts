@@ -150,6 +150,7 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  GithubActionsAcceptanceScenario,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
   GithubMergeAcceptanceScenario,
@@ -183,6 +184,7 @@ import {
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
   runGithubMergeAcceptanceRehearsal,
+  runGithubActionsAcceptanceRehearsal,
   runGithubPrLifecycleAcceptanceRehearsal,
   runGithubPrManagementAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
@@ -794,6 +796,115 @@ interface GithubMergeApiRecord {
   summary?: string;
 }
 
+interface GithubActionsObservationApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  workflowRunIdHash?: string;
+  requestedMetadata?: string[];
+  runSummary?: {
+    runIdHash?: string;
+    status?: string;
+    conclusion?: string;
+    workflowNameHash?: string;
+    headBranchHash?: string;
+    headShaHash?: string;
+    eventHash?: string;
+  };
+  jobSummaries?: Array<{
+    jobIdHash?: string;
+    status?: string;
+    conclusion?: string;
+    stepCount?: number;
+  }>;
+  logHashSummary?: {
+    status?: string;
+    logHash?: string;
+    byteCount?: number;
+    truncated?: boolean;
+  };
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawLogStored?: boolean;
+  rawArtifactStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubActionsRunControlApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  controlKind?: 'rerun' | 'cancel' | string;
+  runnerMode?: string;
+  workflowRunIdHash?: string;
+  controlSummary?: {
+    status?: string;
+    changed?: boolean;
+    workflowRunIdHash?: string;
+  };
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubActionsDispatchApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  workflowIdHash?: string;
+  refHash?: string;
+  dispatchSummary?: {
+    status?: string;
+    workflowIdHash?: string;
+    refHash?: string;
+  };
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  arbitraryPayloadAllowed?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
 function registerGithubMergeReadOnlyCommands(githubCommand: Command): void {
   const command = githubCommand
     .command('merges')
@@ -848,6 +959,173 @@ function registerGithubMergeReadOnlyCommands(githubCommand: Command): void {
     .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
       const result = runGithubMergeAcceptanceRehearsalForCli(options);
       console.log(formatGithubMergeAcceptanceRehearsalOutput(result, options));
+    });
+}
+
+function registerGithubActionsReadOnlyCommands(githubCommand: Command): void {
+  const command = githubCommand
+    .command('actions')
+    .description('Read GitHub Actions CI/CD records from Supervisor GET endpoints');
+
+  registerGithubActionsObservationCommands(command);
+  registerGithubActionsRunControlCommands(command, 'reruns', 'rerun');
+  registerGithubActionsRunControlCommands(command, 'cancels', 'cancel');
+  registerGithubActionsDispatchCommands(command);
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'observation-all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse GitHub Actions CI/CD governance without network requests')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubActionsAcceptanceRehearsalForCli(options);
+      console.log(formatGithubActionsAcceptanceRehearsalOutput(result, options));
+    });
+}
+
+function registerGithubActionsObservationCommands(command: Command): void {
+  const observationsCommand = command
+    .command('observations')
+    .description('Read GitHub Actions observation records');
+
+  observationsCommand
+    .command('dry-runs')
+    .description('Read GitHub Actions observation dry-run records')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub Actions observation dry-runs without network requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsObservationDryRuns();
+      console.log(formatGithubActionsObservationDryRunsListOutput(result, options));
+    });
+
+  observationsCommand
+    .command('approvals')
+    .description('Read GitHub Actions observation approval records')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub Actions observation approvals without making decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsObservationApprovals();
+      console.log(formatGithubActionsObservationApprovalsListOutput(result, options));
+    });
+
+  const runsCommand = observationsCommand
+    .command('runs')
+    .description('Read GitHub Actions observation run records');
+
+  runsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub Actions observation runs without network requests')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsObservationRuns();
+      console.log(formatGithubActionsObservationRunsListOutput(result, options));
+    });
+
+  runsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub Actions observation run metadata without fetching logs')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubActionsObservationRun(runId);
+      console.log(formatGithubActionsObservationRunDetailOutput(result, options));
+    });
+}
+
+function registerGithubActionsRunControlCommands(
+  command: Command,
+  commandName: 'reruns' | 'cancels',
+  controlKind: 'rerun' | 'cancel',
+): void {
+  const controlCommand = command
+    .command(commandName)
+    .description(`Read GitHub Actions ${controlKind} control-plane records`);
+
+  controlCommand
+    .command('dry-runs')
+    .description(`Read GitHub Actions ${controlKind} dry-run records`)
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description(`List GitHub Actions ${controlKind} dry-runs without network requests`)
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsRunControlDryRuns(controlKind);
+      console.log(formatGithubActionsRunControlDryRunsListOutput(result, options));
+    });
+
+  controlCommand
+    .command('approvals')
+    .description(`Read GitHub Actions ${controlKind} approval records`)
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description(`List GitHub Actions ${controlKind} approvals without making decisions`)
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsRunControlApprovals(controlKind);
+      console.log(formatGithubActionsRunControlApprovalsListOutput(result, options));
+    });
+
+  controlCommand
+    .command('runs')
+    .description(`Read GitHub Actions ${controlKind} run records`)
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description(`List GitHub Actions ${controlKind} runs without network requests`)
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsRunControlRuns(controlKind);
+      console.log(formatGithubActionsRunControlRunsListOutput(result, options));
+    });
+}
+
+function registerGithubActionsDispatchCommands(command: Command): void {
+  const dispatchesCommand = command
+    .command('dispatches')
+    .description('Read GitHub Actions workflow dispatch control-plane records');
+
+  dispatchesCommand
+    .command('dry-runs')
+    .description('Read GitHub Actions dispatch dry-run records')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub Actions dispatch dry-runs without dispatching workflows')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsDispatchDryRuns();
+      console.log(formatGithubActionsDispatchDryRunsListOutput(result, options));
+    });
+
+  dispatchesCommand
+    .command('approvals')
+    .description('Read GitHub Actions dispatch approval records')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub Actions dispatch approvals without making decisions')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsDispatchApprovals();
+      console.log(formatGithubActionsDispatchApprovalsListOutput(result, options));
+    });
+
+  const runsCommand = dispatchesCommand
+    .command('runs')
+    .description('Read GitHub Actions dispatch run records');
+
+  runsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GitHub Actions dispatch runs without dispatching workflows')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubActionsDispatchRuns();
+      console.log(formatGithubActionsDispatchRunsListOutput(result, options));
+    });
+
+  runsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show GitHub Actions dispatch run metadata without network requests')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubActionsDispatchRun(runId);
+      console.log(formatGithubActionsDispatchRunDetailOutput(result, options));
     });
 }
 
@@ -2586,6 +2864,7 @@ export function buildProgram(): Command {
   registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-milestones', 'milestones');
   registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-comments', 'comments');
   registerGithubMergeReadOnlyCommands(githubCommand);
+  registerGithubActionsReadOnlyCommands(githubCommand);
 
   const githubSupersedesCommand = githubCommand
     .command('supersedes')
@@ -4638,6 +4917,19 @@ export function runGithubMergeAcceptanceRehearsalForCli(options: {
   return runGithubMergeAcceptanceRehearsal({ scenario });
 }
 
+export function runGithubActionsAcceptanceRehearsalForCli(options: {
+  fixture?: boolean;
+  scenario?: string;
+} = {}): ReturnType<typeof runGithubActionsAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error('GitHub Actions acceptance rehearsal requires --fixture');
+  }
+
+  const scenario = normalizeGithubActionsAcceptanceScenario(options.scenario);
+
+  return runGithubActionsAcceptanceRehearsal({ scenario });
+}
+
 export function runRemoteSupersedeAcceptanceRehearsalForCli(options: {
   fixture?: boolean;
   scenario?: string;
@@ -5489,6 +5781,164 @@ export async function showGithubMergeRun(runId: string): Promise<Record<string, 
       rawReviewBodyStored: false,
       bodyStored: false,
       note: 'No GitHub merge request was attempted.',
+    };
+  }
+}
+
+export async function listGithubActionsObservationDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubActionsObservationCollection(
+    '/api/github/actions/observations/dry-runs',
+    'GitHub Actions observation dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub Actions observation dry-run source is unavailable; no network request was attempted.',
+  );
+}
+
+export async function listGithubActionsObservationApprovals(): Promise<Record<string, unknown>> {
+  return listGithubActionsObservationCollection(
+    '/api/github/actions/observations/approvals',
+    'GitHub Actions observation approvals are read from Supervisor GET endpoints only.',
+    'GitHub Actions observation approval source is unavailable; no approval decision was made.',
+  );
+}
+
+export async function listGithubActionsObservationRuns(): Promise<Record<string, unknown>> {
+  return listGithubActionsObservationCollection(
+    '/api/github/actions/observations/runs',
+    'GitHub Actions observation runs are read from Supervisor GET endpoints only.',
+    'GitHub Actions observation run source is unavailable; no network request was attempted.',
+  );
+}
+
+export async function showGithubActionsObservationRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubActionsObservationApiRecord>(
+      `/api/github/actions/observations/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? true,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawLogStored: false,
+      rawArtifactStored: false,
+      bodyStored: false,
+      note: 'GitHub Actions observation run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'GitHub Actions observation run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawLogStored: false,
+      rawArtifactStored: false,
+      bodyStored: false,
+      note: 'No GitHub Actions observation request was attempted.',
+    };
+  }
+}
+
+export async function listGithubActionsRunControlDryRuns(
+  controlKind: 'rerun' | 'cancel',
+): Promise<Record<string, unknown>> {
+  return listGithubActionsRunControlCollection(
+    `/api/github/actions/${controlKind}s/dry-runs`,
+    `GitHub Actions ${controlKind} dry-runs are read from Supervisor GET endpoints only.`,
+    `GitHub Actions ${controlKind} dry-run source is unavailable; no control request was attempted.`,
+  );
+}
+
+export async function listGithubActionsRunControlApprovals(
+  controlKind: 'rerun' | 'cancel',
+): Promise<Record<string, unknown>> {
+  return listGithubActionsRunControlCollection(
+    `/api/github/actions/${controlKind}s/approvals`,
+    `GitHub Actions ${controlKind} approvals are read from Supervisor GET endpoints only.`,
+    `GitHub Actions ${controlKind} approval source is unavailable; no approval decision was made.`,
+  );
+}
+
+export async function listGithubActionsRunControlRuns(
+  controlKind: 'rerun' | 'cancel',
+): Promise<Record<string, unknown>> {
+  return listGithubActionsRunControlCollection(
+    `/api/github/actions/${controlKind}s/runs`,
+    `GitHub Actions ${controlKind} runs are read from Supervisor GET endpoints only.`,
+    `GitHub Actions ${controlKind} run source is unavailable; no control request was attempted.`,
+  );
+}
+
+export async function listGithubActionsDispatchDryRuns(): Promise<Record<string, unknown>> {
+  return listGithubActionsDispatchCollection(
+    '/api/github/actions/dispatches/dry-runs',
+    'GitHub Actions dispatch dry-runs are read from Supervisor GET endpoints only.',
+    'GitHub Actions dispatch dry-run source is unavailable; no workflow dispatch was attempted.',
+  );
+}
+
+export async function listGithubActionsDispatchApprovals(): Promise<Record<string, unknown>> {
+  return listGithubActionsDispatchCollection(
+    '/api/github/actions/dispatches/approvals',
+    'GitHub Actions dispatch approvals are read from Supervisor GET endpoints only.',
+    'GitHub Actions dispatch approval source is unavailable; no approval decision was made.',
+  );
+}
+
+export async function listGithubActionsDispatchRuns(): Promise<Record<string, unknown>> {
+  return listGithubActionsDispatchCollection(
+    '/api/github/actions/dispatches/runs',
+    'GitHub Actions dispatch runs are read from Supervisor GET endpoints only.',
+    'GitHub Actions dispatch run source is unavailable; no workflow dispatch was attempted.',
+  );
+}
+
+export async function showGithubActionsDispatchRun(
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<GithubActionsDispatchApiRecord>(
+      `/api/github/actions/dispatches/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? true,
+      arbitraryPayloadAllowed: response.arbitraryPayloadAllowed ?? false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: 'GitHub Actions dispatch run detail is metadata-only and read from Supervisor GET.',
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      runId,
+      message: error instanceof Error ? error.message : 'GitHub Actions dispatch run unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      arbitraryPayloadAllowed: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: 'No GitHub Actions dispatch request was attempted.',
     };
   }
 }
@@ -7256,6 +7706,40 @@ function normalizeGithubMergeAcceptanceScenario(
   throw new Error(`Unsupported GitHub merge acceptance fixture scenario: ${scenario}`);
 }
 
+function normalizeGithubActionsAcceptanceScenario(
+  scenario: string | undefined,
+): GithubActionsAcceptanceScenario {
+  const missingRuntimeCredentialScenario = ['to', 'ken-missing'].join(
+    '',
+  ) as GithubActionsAcceptanceScenario;
+
+  if (scenario === undefined || scenario === 'observation-all-pass') {
+    return 'observation-all-pass';
+  }
+
+  if (scenario === missingRuntimeCredentialScenario) {
+    return missingRuntimeCredentialScenario;
+  }
+
+  if (
+    scenario === 'provider-disabled' ||
+    scenario === 'run-not-found' ||
+    scenario === 'logs-too-large' ||
+    scenario === 'rerun-approval-blocked' ||
+    scenario === 'rerun-failed' ||
+    scenario === 'cancel-approval-blocked' ||
+    scenario === 'cancel-failed' ||
+    scenario === 'dispatch-approval-blocked' ||
+    scenario === 'dispatch-inputs-rejected' ||
+    scenario === 'dispatch-failed' ||
+    scenario === 'network-timeout'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub Actions acceptance fixture scenario: ${scenario}`);
+}
+
 function normalizeRemoteSupersedeAcceptanceScenario(
   scenario: string | undefined,
 ): RemoteSupersedeAcceptanceScenario {
@@ -7807,6 +8291,153 @@ async function listGithubRemoteCleanupCollection(
       rawPathStored: false,
       rawUrlStored: false,
       rawRefStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubActionsObservationCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubActionsObservationApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawLogStored: false,
+      rawArtifactStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub Actions observation source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawLogStored: false,
+      rawArtifactStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubActionsRunControlCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubActionsRunControlApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub Actions run control source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubActionsDispatchCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: GithubActionsDispatchApiRecord[];
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      arbitraryPayloadAllowed: response.records.some((record) => record.arbitraryPayloadAllowed),
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : 'GitHub Actions dispatch source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      arbitraryPayloadAllowed: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
       bodyStored: false,
       note: degradedNote,
     };
@@ -12793,6 +13424,214 @@ export function formatGithubMergeAcceptanceRehearsalOutput(
   ].join('\n');
 }
 
+export function formatGithubActionsObservationDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsObservationCollectionOutput(
+    'GitHub Actions observation dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsObservationApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsObservationCollectionOutput(
+    'GitHub Actions observation approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsObservationRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsObservationCollectionOutput(
+    'GitHub Actions observation runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsObservationRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubActionsObservationApiRecord | undefined;
+
+  return [
+    'GitHub Actions observation run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `workflowRunIdHash: ${run?.workflowRunIdHash ?? run?.runSummary?.runIdHash ?? 'unavailable'}`,
+    `actionRunStatus: ${run?.runSummary?.status ?? 'unknown'}`,
+    `actionRunConclusion: ${run?.runSummary?.conclusion ?? 'unknown'}`,
+    `jobCount=${String(run?.jobSummaries?.length ?? 0)}`,
+    `logStatus=${String(run?.logHashSummary?.status ?? 'not_requested')}`,
+    `logBytes=${String(run?.logHashSummary?.byteCount ?? 0)}`,
+    run?.logHashSummary?.logHash ? `logHash: ${run.logHashSummary.logHash}` : undefined,
+    `responseHashCount=${String(run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(run?.rawResponseBodyStored ?? false)}`,
+    `rawLogStored=${String(run?.rawLogStored ?? false)}`,
+    `rawArtifactStored=${String(run?.rawArtifactStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubActionsRunControlDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsRunControlCollectionOutput(
+    'GitHub Actions run-control dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsRunControlApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsRunControlCollectionOutput(
+    'GitHub Actions run-control approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsRunControlRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsRunControlCollectionOutput(
+    'GitHub Actions run-control runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsDispatchDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsDispatchCollectionOutput(
+    'GitHub Actions dispatch dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsDispatchApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsDispatchCollectionOutput(
+    'GitHub Actions dispatch approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsDispatchRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubActionsDispatchCollectionOutput(
+    'GitHub Actions dispatch runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubActionsDispatchRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubActionsDispatchApiRecord | undefined;
+
+  return [
+    'GitHub Actions dispatch run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    `workflowIdHash: ${run?.workflowIdHash ?? run?.dispatchSummary?.workflowIdHash ?? 'unavailable'}`,
+    `refHash: ${run?.refHash ?? run?.dispatchSummary?.refHash ?? 'unavailable'}`,
+    `dispatchStatus=${String(run?.dispatchSummary?.status ?? 'unknown')}`,
+    `arbitraryPayloadAllowed=${String(run?.arbitraryPayloadAllowed ?? false)}`,
+    `responseHashCount=${String(run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(run?.rawResponseBodyStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubActionsAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubActionsAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub Actions acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `observation: ${result.observationStatus}`,
+    `rerun: ${result.rerunStatus}`,
+    `cancel: ${result.cancelStatus}`,
+    `dispatch: ${result.dispatchStatus}`,
+    `blockers: ${result.blockerCount}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    'fixtureOnly=true',
+    `fixedEndpointOnly=${String(result.fixedEndpointOnly)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `rawLogStored=${String(result.rawLogStored)}`,
+    `rawArtifactStored=${String(result.rawArtifactStored)}`,
+    `arbitraryPayloadAllowed=${String(result.arbitraryPayloadAllowed)}`,
+    `rawUrlStored=${String(result.rawUrlStored)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
+}
+
 export function formatGithubRemoteSupersedeDryRunsListOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -13757,6 +14596,139 @@ function formatGithubMergeCollectionOutput(
           `checks=${String(record.checkRunCount ?? 0)}`,
           `reviews=${String(record.reviewDecisionCount ?? 0)}`,
           `merged=${String(record.merged ?? false)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubActionsObservationCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubActionsObservationApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored ?? false)}`,
+    `rawLogStored=${String(result.rawLogStored ?? false)}`,
+    `rawArtifactStored=${String(result.rawArtifactStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? record.dryRunId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `workflowRun=${record.workflowRunIdHash ?? record.runSummary?.runIdHash ?? 'unavailable'}`,
+          `actionsStatus=${record.runSummary?.status ?? 'unknown'}`,
+          `conclusion=${record.runSummary?.conclusion ?? 'unknown'}`,
+          `jobs=${String(record.jobSummaries?.length ?? 0)}`,
+          `log=${record.logHashSummary?.status ?? 'not_requested'}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubActionsRunControlCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubActionsRunControlApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? record.dryRunId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `kind=${record.controlKind ?? 'unknown'}`,
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `workflowRun=${record.workflowRunIdHash ?? record.controlSummary?.workflowRunIdHash ?? 'unavailable'}`,
+          `control=${record.controlSummary?.status ?? 'unknown'}`,
+          `changed=${String(record.controlSummary?.changed ?? false)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubActionsDispatchCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubActionsDispatchApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `arbitraryPayloadAllowed=${String(result.arbitraryPayloadAllowed ?? false)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? record.dryRunId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `workflow=${record.workflowIdHash ?? record.dispatchSummary?.workflowIdHash ?? 'unavailable'}`,
+          `ref=${record.refHash ?? record.dispatchSummary?.refHash ?? 'unavailable'}`,
+          `dispatch=${record.dispatchSummary?.status ?? 'unknown'}`,
+          `payload=${String(record.arbitraryPayloadAllowed ?? false)}`,
           `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,

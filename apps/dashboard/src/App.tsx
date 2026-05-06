@@ -41,6 +41,7 @@ import {
   createBrowserProfilesReadOnlySummary,
   createCustomWorkflowReadOnlySummary,
   createElectronCdpReadOnlySummary,
+  createGithubActionsAcceptanceRehearsalReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubMergeAcceptanceRehearsalReadOnlySummary,
@@ -124,6 +125,18 @@ interface OverviewState {
   githubMergeDryRuns: GithubMergeControlSummary[];
   githubMergeApprovals: GithubMergeControlSummary[];
   githubMergeRuns: GithubMergeControlSummary[];
+  githubActionsObservationDryRuns: GithubActionsObservationControlSummary[];
+  githubActionsObservationApprovals: GithubActionsObservationControlSummary[];
+  githubActionsObservationRuns: GithubActionsObservationControlSummary[];
+  githubActionsRerunDryRuns: GithubActionsRunControlSummary[];
+  githubActionsRerunApprovals: GithubActionsRunControlSummary[];
+  githubActionsRerunRuns: GithubActionsRunControlSummary[];
+  githubActionsCancelDryRuns: GithubActionsRunControlSummary[];
+  githubActionsCancelApprovals: GithubActionsRunControlSummary[];
+  githubActionsCancelRuns: GithubActionsRunControlSummary[];
+  githubActionsDispatchDryRuns: GithubActionsDispatchControlSummary[];
+  githubActionsDispatchApprovals: GithubActionsDispatchControlSummary[];
+  githubActionsDispatchRuns: GithubActionsDispatchControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -517,6 +530,108 @@ interface GithubMergeControlSummary {
   rawResponseBodyStored?: boolean;
   rawPrBodyStored?: boolean;
   rawReviewBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubActionsObservationControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  workflowRunIdHash?: string;
+  runSummary?: {
+    runIdHash?: string;
+    status?: string;
+    conclusion?: string;
+    workflowNameHash?: string;
+  };
+  jobSummaries?: Array<{
+    jobIdHash?: string;
+    status?: string;
+    conclusion?: string;
+    stepCount?: number;
+  }>;
+  logHashSummary?: {
+    status?: string;
+    logHash?: string;
+    byteCount?: number;
+    truncated?: boolean;
+  };
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawLogStored?: boolean;
+  rawArtifactStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubActionsRunControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  controlKind?: 'rerun' | 'cancel' | string;
+  runnerMode?: string;
+  workflowRunIdHash?: string;
+  controlSummary?: {
+    status?: string;
+    changed?: boolean;
+    workflowRunIdHash?: string;
+  };
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubActionsDispatchControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  workflowIdHash?: string;
+  refHash?: string;
+  dispatchSummary?: {
+    status?: string;
+    workflowIdHash?: string;
+    refHash?: string;
+  };
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  arbitraryPayloadAllowed?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
   rawPathStored?: boolean;
   bodyStored?: boolean;
   evidenceRefIds?: string[];
@@ -1013,6 +1128,18 @@ export function App() {
     githubMergeDryRuns: [],
     githubMergeApprovals: [],
     githubMergeRuns: [],
+    githubActionsObservationDryRuns: [],
+    githubActionsObservationApprovals: [],
+    githubActionsObservationRuns: [],
+    githubActionsRerunDryRuns: [],
+    githubActionsRerunApprovals: [],
+    githubActionsRerunRuns: [],
+    githubActionsCancelDryRuns: [],
+    githubActionsCancelApprovals: [],
+    githubActionsCancelRuns: [],
+    githubActionsDispatchDryRuns: [],
+    githubActionsDispatchApprovals: [],
+    githubActionsDispatchRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -1154,6 +1281,18 @@ export function App() {
     mergeDryRunCount: overview.githubMergeDryRuns.length,
     mergeApprovalCount: overview.githubMergeApprovals.length,
     mergeRunCount: overview.githubMergeRuns.length,
+    actionsObservationDryRunCount: overview.githubActionsObservationDryRuns.length,
+    actionsObservationApprovalCount: overview.githubActionsObservationApprovals.length,
+    actionsObservationRunCount: overview.githubActionsObservationRuns.length,
+    actionsRerunDryRunCount: overview.githubActionsRerunDryRuns.length,
+    actionsRerunApprovalCount: overview.githubActionsRerunApprovals.length,
+    actionsRerunRunCount: overview.githubActionsRerunRuns.length,
+    actionsCancelDryRunCount: overview.githubActionsCancelDryRuns.length,
+    actionsCancelApprovalCount: overview.githubActionsCancelApprovals.length,
+    actionsCancelRunCount: overview.githubActionsCancelRuns.length,
+    actionsDispatchDryRunCount: overview.githubActionsDispatchDryRuns.length,
+    actionsDispatchApprovalCount: overview.githubActionsDispatchApprovals.length,
+    actionsDispatchRunCount: overview.githubActionsDispatchRuns.length,
     remoteSupersedeDryRunCount: overview.githubRemoteSupersedeDryRuns.length,
     remoteSupersedeRunCount: overview.githubRemoteSupersedeRuns.length,
     remoteCleanupDryRunCount: overview.githubRemoteCleanupDryRuns.length,
@@ -1180,6 +1319,14 @@ export function App() {
     latestMergeReadinessStatus:
       overview.githubMergeRuns[0]?.readinessStatus ??
       overview.githubMergeDryRuns[0]?.readinessStatus,
+    latestActionsObservationRunStatus: overview.githubActionsObservationRuns[0]?.status,
+    latestActionsObservationConclusion:
+      overview.githubActionsObservationRuns[0]?.runSummary?.conclusion ??
+      overview.githubActionsObservationRuns[0]?.runSummary?.status,
+    latestActionsLogStatus: overview.githubActionsObservationRuns[0]?.logHashSummary?.status,
+    latestActionsRerunRunStatus: overview.githubActionsRerunRuns[0]?.status,
+    latestActionsCancelRunStatus: overview.githubActionsCancelRuns[0]?.status,
+    latestActionsDispatchRunStatus: overview.githubActionsDispatchRuns[0]?.status,
     latestRemoteSupersedeRunStatus: overview.githubRemoteSupersedeRuns[0]?.status,
     latestRemoteCleanupRunStatus: overview.githubRemoteCleanupRuns[0]?.status,
     latestRemoteCleanupReadinessStatus:
@@ -1205,6 +1352,12 @@ export function App() {
       overview.githubPrReviewersRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubPrMilestonesRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubPrCommentsRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubActionsObservationRuns.some(
+        (record) => record.networkBoundaryInvoked === true,
+      ) ||
+      overview.githubActionsRerunRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubActionsCancelRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubActionsDispatchRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubRemoteCleanupRuns.some((record) => record.networkBoundaryInvoked === true),
   });
   const githubBranchPublishAcceptanceRehearsalSummary =
@@ -1217,6 +1370,8 @@ export function App() {
     createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary();
   const githubMergeAcceptanceRehearsalSummary =
     createGithubMergeAcceptanceRehearsalReadOnlySummary();
+  const githubActionsAcceptanceRehearsalSummary =
+    createGithubActionsAcceptanceRehearsalReadOnlySummary();
   const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
     dryRunCount: overview.reviewPackageDryRuns.length,
     approvalCount: overview.reviewPackageApprovals.length,
@@ -1870,6 +2025,18 @@ export function App() {
           githubMergeDryRunsResponse,
           githubMergeApprovalsResponse,
           githubMergeRunsResponse,
+          githubActionsObservationDryRunsResponse,
+          githubActionsObservationApprovalsResponse,
+          githubActionsObservationRunsResponse,
+          githubActionsRerunDryRunsResponse,
+          githubActionsRerunApprovalsResponse,
+          githubActionsRerunRunsResponse,
+          githubActionsCancelDryRunsResponse,
+          githubActionsCancelApprovalsResponse,
+          githubActionsCancelRunsResponse,
+          githubActionsDispatchDryRunsResponse,
+          githubActionsDispatchApprovalsResponse,
+          githubActionsDispatchRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -2005,6 +2172,54 @@ export function App() {
           getOptionalJson<{ records: GithubMergeControlSummary[] }>('/api/github/merges/runs', {
             records: [],
           }),
+          getOptionalJson<{ records: GithubActionsObservationControlSummary[] }>(
+            '/api/github/actions/observations/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsObservationControlSummary[] }>(
+            '/api/github/actions/observations/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsObservationControlSummary[] }>(
+            '/api/github/actions/observations/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsRunControlSummary[] }>(
+            '/api/github/actions/reruns/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsRunControlSummary[] }>(
+            '/api/github/actions/reruns/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsRunControlSummary[] }>(
+            '/api/github/actions/reruns/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsRunControlSummary[] }>(
+            '/api/github/actions/cancels/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsRunControlSummary[] }>(
+            '/api/github/actions/cancels/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsRunControlSummary[] }>(
+            '/api/github/actions/cancels/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsDispatchControlSummary[] }>(
+            '/api/github/actions/dispatches/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsDispatchControlSummary[] }>(
+            '/api/github/actions/dispatches/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubActionsDispatchControlSummary[] }>(
+            '/api/github/actions/dispatches/runs',
+            { records: [] },
+          ),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
             '/api/github/pr-labels/dry-runs',
             { records: [] },
@@ -2249,6 +2464,18 @@ export function App() {
             githubMergeDryRuns: githubMergeDryRunsResponse.records,
             githubMergeApprovals: githubMergeApprovalsResponse.records,
             githubMergeRuns: githubMergeRunsResponse.records,
+            githubActionsObservationDryRuns: githubActionsObservationDryRunsResponse.records,
+            githubActionsObservationApprovals: githubActionsObservationApprovalsResponse.records,
+            githubActionsObservationRuns: githubActionsObservationRunsResponse.records,
+            githubActionsRerunDryRuns: githubActionsRerunDryRunsResponse.records,
+            githubActionsRerunApprovals: githubActionsRerunApprovalsResponse.records,
+            githubActionsRerunRuns: githubActionsRerunRunsResponse.records,
+            githubActionsCancelDryRuns: githubActionsCancelDryRunsResponse.records,
+            githubActionsCancelApprovals: githubActionsCancelApprovalsResponse.records,
+            githubActionsCancelRuns: githubActionsCancelRunsResponse.records,
+            githubActionsDispatchDryRuns: githubActionsDispatchDryRunsResponse.records,
+            githubActionsDispatchApprovals: githubActionsDispatchApprovalsResponse.records,
+            githubActionsDispatchRuns: githubActionsDispatchRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -2348,6 +2575,18 @@ export function App() {
             githubMergeDryRuns: [],
             githubMergeApprovals: [],
             githubMergeRuns: [],
+            githubActionsObservationDryRuns: [],
+            githubActionsObservationApprovals: [],
+            githubActionsObservationRuns: [],
+            githubActionsRerunDryRuns: [],
+            githubActionsRerunApprovals: [],
+            githubActionsRerunRuns: [],
+            githubActionsCancelDryRuns: [],
+            githubActionsCancelApprovals: [],
+            githubActionsCancelRuns: [],
+            githubActionsDispatchDryRuns: [],
+            githubActionsDispatchApprovals: [],
+            githubActionsDispatchRuns: [],
             githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
@@ -4289,6 +4528,7 @@ export function App() {
           githubPublishDraftPrAcceptanceRehearsalSummary,
           githubPrLifecycleAcceptanceRehearsalSummary,
           githubMergeAcceptanceRehearsalSummary,
+          githubActionsAcceptanceRehearsalSummary,
           worktreeSummary,
           reviewPackageSummary,
           releaseCandidateSummary,
@@ -4387,6 +4627,9 @@ function renderReadOnlyDashboardView(
   >,
   githubMergeAcceptanceRehearsalSummary: ReturnType<
     typeof createGithubMergeAcceptanceRehearsalReadOnlySummary
+  >,
+  githubActionsAcceptanceRehearsalSummary: ReturnType<
+    typeof createGithubActionsAcceptanceRehearsalReadOnlySummary
   >,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
@@ -4964,6 +5207,15 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>GitHub Actions records</strong>
+              <span>
+                observation {githubProviderSummary.actionsObservationRunCount}, rerun{' '}
+                {githubProviderSummary.actionsRerunRunCount}, cancel{' '}
+                {githubProviderSummary.actionsCancelRunCount}, dispatch{' '}
+                {githubProviderSummary.actionsDispatchRunCount}
+              </span>
+            </li>
+            <li>
               <strong>latest run</strong>
               <span>{githubProviderSummary.latestRunStatus}</span>
             </li>
@@ -4996,6 +5248,15 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>latest GitHub Actions</strong>
+              <span>
+                observation {githubProviderSummary.latestActionsObservationRunStatus}, rerun{' '}
+                {githubProviderSummary.latestActionsRerunRunStatus}, cancel{' '}
+                {githubProviderSummary.latestActionsCancelRunStatus}, dispatch{' '}
+                {githubProviderSummary.latestActionsDispatchRunStatus}
+              </span>
+            </li>
+            <li>
               <strong>enablement</strong>
               <span>default {String(githubProviderSummary.productDefaultEnabled)}</span>
             </li>
@@ -5006,7 +5267,10 @@ function renderReadOnlyDashboardView(
                 {String(githubProviderSummary.draftPrApprovalRequired)}, branch publish{' '}
                 {String(githubProviderSummary.branchPublishApprovalRequired)}, publish chain
                 separate {String(githubProviderSummary.publishDraftPrChainSeparateApprovalsRequired)},
-                PR lifecycle {String(githubProviderSummary.prLifecycleApprovalRequired)}
+                PR lifecycle {String(githubProviderSummary.prLifecycleApprovalRequired)}, Actions
+                observation {String(githubProviderSummary.actionsObservationApprovalRequired)}, run
+                controls {String(githubProviderSummary.actionsRunControlApprovalRequired)}, dispatch{' '}
+                {String(githubProviderSummary.actionsDispatchApprovalRequired)}
               </span>
             </li>
             <li>
@@ -5040,6 +5304,20 @@ function renderReadOnlyDashboardView(
             <li>
               <strong>PR lifecycle actions</strong>
               <span>{githubProviderSummary.allowedPrLifecycleActions.join(', ')}</span>
+            </li>
+            <li>
+              <strong>GitHub Actions observation</strong>
+              <span>{githubProviderSummary.allowedGithubActionsObservationActions.join(', ')}</span>
+            </li>
+            <li>
+              <strong>GitHub Actions controls</strong>
+              <span>
+                {githubProviderSummary.allowedGithubActionsRunControlActions.join(', ')}
+              </span>
+            </li>
+            <li>
+              <strong>GitHub Actions dispatch</strong>
+              <span>{githubProviderSummary.allowedGithubActionsDispatchActions.join(', ')}</span>
             </li>
             <li>
               <strong>blocked operations</strong>
@@ -5305,6 +5583,159 @@ function renderReadOnlyDashboardView(
               shows persisted ids, hashes, counts, statuses, evidence ids, and audit ids.
             </p>
           )}
+        </Panel>
+        <Panel title="GitHub Actions CI/CD">
+          <ul>
+            <li>
+              <strong>observation records</strong>
+              <span>
+                dry-runs {githubProviderSummary.actionsObservationDryRunCount}, approvals{' '}
+                {githubProviderSummary.actionsObservationApprovalCount}, runs{' '}
+                {githubProviderSummary.actionsObservationRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>rerun records</strong>
+              <span>
+                dry-runs {githubProviderSummary.actionsRerunDryRunCount}, approvals{' '}
+                {githubProviderSummary.actionsRerunApprovalCount}, runs{' '}
+                {githubProviderSummary.actionsRerunRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>cancel records</strong>
+              <span>
+                dry-runs {githubProviderSummary.actionsCancelDryRunCount}, approvals{' '}
+                {githubProviderSummary.actionsCancelApprovalCount}, runs{' '}
+                {githubProviderSummary.actionsCancelRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>dispatch records</strong>
+              <span>
+                dry-runs {githubProviderSummary.actionsDispatchDryRunCount}, approvals{' '}
+                {githubProviderSummary.actionsDispatchApprovalCount}, runs{' '}
+                {githubProviderSummary.actionsDispatchRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest observation</strong>
+              <span>
+                {githubProviderSummary.latestActionsObservationRunStatus} /{' '}
+                {githubProviderSummary.latestActionsObservationConclusion}, log{' '}
+                {githubProviderSummary.latestActionsLogStatus}
+              </span>
+            </li>
+            <li>
+              <strong>latest controls</strong>
+              <span>
+                rerun {githubProviderSummary.latestActionsRerunRunStatus}, cancel{' '}
+                {githubProviderSummary.latestActionsCancelRunStatus}, dispatch{' '}
+                {githubProviderSummary.latestActionsDispatchRunStatus}
+              </span>
+            </li>
+          </ul>
+          {overview.githubActionsObservationRuns.length > 0 ? (
+            <ul>
+              {overview.githubActionsObservationRuns.slice(0, 6).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_actions_observation_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, action status{' '}
+                    {run.runSummary?.status ?? 'unknown'}, conclusion{' '}
+                    {run.runSummary?.conclusion ?? 'unknown'}
+                  </span>
+                  <span>
+                    workflow run {run.workflowRunIdHash ?? run.runSummary?.runIdHash ?? 'none'},
+                    jobs {run.jobSummaries?.length ?? 0}, log status{' '}
+                    {run.logHashSummary?.status ?? 'not_requested'}, log hash{' '}
+                    {run.logHashSummary?.logHash ?? 'none'}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, response hashes{' '}
+                    {run.responseBodyHashes?.length ?? 0}, evidence{' '}
+                    {run.evidenceRefIds?.length ?? 0}, audit {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    rawLogStored {String(run.rawLogStored ?? false)}, rawArtifactStored{' '}
+                    {String(run.rawArtifactStored ?? false)}, rawResponseBodyStored{' '}
+                    {String(run.rawResponseBodyStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub Actions observation runs are available. Logs are hashed transiently by the
+              provider boundary and this page stays read-only for CI/CD execution.
+            </p>
+          )}
+          {[
+            { label: 'rerun', runs: overview.githubActionsRerunRuns },
+            { label: 'cancel', runs: overview.githubActionsCancelRuns },
+            { label: 'dispatch', runs: overview.githubActionsDispatchRuns },
+          ].some((family) => family.runs.length > 0) ? (
+            <ul>
+              {[
+                { label: 'rerun', runs: overview.githubActionsRerunRuns },
+                { label: 'cancel', runs: overview.githubActionsCancelRuns },
+                { label: 'dispatch', runs: overview.githubActionsDispatchRuns },
+              ].flatMap((family) =>
+                family.runs.slice(0, 3).map((run) => (
+                  <li key={`${family.label}-${run.runId ?? run.recordId ?? run.dryRunId}`}>
+                    <strong>{family.label}</strong>
+                    <span>
+                      {run.runId ?? run.recordId ?? run.dryRunId ?? 'github_actions_run'} status{' '}
+                      {run.status ?? 'unknown'}, network{' '}
+                      {String(run.networkBoundaryInvoked ?? false)}
+                    </span>
+                  </li>
+                )),
+              )}
+            </ul>
+          ) : null}
+        </Panel>
+        <Panel title="GitHub Actions Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{githubActionsAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{githubActionsAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>steps</strong>
+              <span>
+                {githubActionsAcceptanceRehearsalSummary.stepCount}, observation{' '}
+                {githubActionsAcceptanceRehearsalSummary.observationStatus}, rerun{' '}
+                {githubActionsAcceptanceRehearsalSummary.rerunStatus}, cancel{' '}
+                {githubActionsAcceptanceRehearsalSummary.cancelStatus}, dispatch{' '}
+                {githubActionsAcceptanceRehearsalSummary.dispatchStatus}
+              </span>
+            </li>
+            <li>
+              <strong>safety</strong>
+              <span>
+                fixture {String(githubActionsAcceptanceRehearsalSummary.fixtureOnly)}, fixed
+                endpoint {String(githubActionsAcceptanceRehearsalSummary.fixedEndpointOnly)}, raw
+                logs {String(githubActionsAcceptanceRehearsalSummary.rawLogStored)}, arbitrary
+                payload {String(githubActionsAcceptanceRehearsalSummary.arbitraryPayloadAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>future providers</strong>
+              <span>
+                Jenkins {String(githubActionsAcceptanceRehearsalSummary.jenkinsLiveRouteEnabled)},
+                Buildkite{' '}
+                {String(githubActionsAcceptanceRehearsalSummary.buildkiteLiveRouteEnabled)}, Drone{' '}
+                {String(githubActionsAcceptanceRehearsalSummary.droneLiveRouteEnabled)}
+              </span>
+            </li>
+          </ul>
+          <p>{githubActionsAcceptanceRehearsalSummary.summary}</p>
         </Panel>
         <Panel title="GitHub Merge Guided Operation">
           <ul>

@@ -129,6 +129,60 @@ export interface GithubMergeHttpBoundaryResult {
   summary: string;
 }
 
+export interface GithubActionsObservationHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  workflowRunId?: string;
+  logByteCap: number;
+}
+
+export interface GithubActionsObservationHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  workflowRunIdHash?: string;
+  workflowNameHash?: string;
+  runStatus: 'queued' | 'in_progress' | 'completed' | 'unknown';
+  conclusionHash?: string;
+  jobCount: number;
+  jobSummaryHashes: string[];
+  logHash?: string;
+  logByteCount: number;
+  logByteCap: number;
+  logTruncated: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
+export interface GithubActionsRunControlHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  controlKind: 'rerun' | 'cancel';
+  workflowRunId: string;
+}
+
+export interface GithubActionsRunControlHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  workflowRunIdHash?: string;
+  changed: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
+export interface GithubActionsDispatchHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  workflowId: string;
+  ref: string;
+}
+
+export interface GithubActionsDispatchHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  workflowIdHash?: string;
+  refHash?: string;
+  dispatched: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
 export interface GithubPrLifecycleHttpBoundaryResult {
   status: 'completed' | 'failed' | 'aborted';
   networkBoundaryInvoked: boolean;
@@ -686,6 +740,275 @@ export async function runGithubMergeHttpBoundary(
   } catch {
     return {
       ...createFailedMergeBoundaryResult(true, request, ['github_merge_network_failure']),
+      responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubActionsObservationHttpBoundary(
+  request: GithubActionsObservationHttpBoundaryRequest,
+): Promise<GithubActionsObservationHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedGithubActionsObservationBoundaryResult(false, request, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const runIdHash = request.workflowRunId ? `sha256:${hashText(request.workflowRunId)}` : undefined;
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}`);
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const runs = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}/actions/runs`);
+    responseBodyHashes.push(runs.bodyHash);
+    if (!runs.ok) {
+      blockReasons.push(`actions_runs_http_${runs.status}`);
+    }
+
+    let runStatus: GithubActionsObservationHttpBoundaryResult['runStatus'] = 'unknown';
+    let conclusionHash: string | undefined;
+    let workflowNameHash: string | undefined;
+    let jobCount = 0;
+    const jobSummaryHashes: string[] = [];
+    let logHash: string | undefined;
+    let logByteCount = 0;
+    let logTruncated = false;
+
+    if (request.workflowRunId) {
+      const run = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/actions/runs/${encodePathSegment(request.workflowRunId)}`,
+      );
+      responseBodyHashes.push(run.bodyHash);
+      if (!run.ok) {
+        blockReasons.push(`actions_run_http_${run.status}`);
+      } else {
+        const runMetadata = extractGithubActionsRunMetadata(run.bodyText);
+        runStatus = runMetadata.runStatus;
+        conclusionHash = runMetadata.conclusionHash;
+        workflowNameHash = runMetadata.workflowNameHash;
+      }
+
+      const jobs = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/actions/runs/${encodePathSegment(request.workflowRunId)}/jobs`,
+      );
+      responseBodyHashes.push(jobs.bodyHash);
+      if (!jobs.ok) {
+        blockReasons.push(`actions_jobs_http_${jobs.status}`);
+      } else {
+        const jobsMetadata = extractGithubActionsJobsMetadata(jobs.bodyText);
+        jobCount = jobsMetadata.jobCount;
+        jobSummaryHashes.push(...jobsMetadata.jobSummaryHashes);
+      }
+
+      const logs = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/actions/runs/${encodePathSegment(request.workflowRunId)}/logs`,
+      );
+      responseBodyHashes.push(logs.bodyHash);
+      if (!logs.ok) {
+        blockReasons.push(`actions_logs_http_${logs.status}`);
+      } else {
+        logByteCount = logs.bodyText.length;
+        logTruncated = logByteCount > request.logByteCap;
+        logHash = `sha256:${hashText(logs.bodyText.slice(0, request.logByteCap))}`;
+        if (logTruncated) {
+          blockReasons.push('logs_too_large');
+        }
+      }
+    }
+
+    return {
+      status: blockReasons.length === 0 ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      workflowRunIdHash: runIdHash,
+      workflowNameHash,
+      runStatus,
+      conclusionHash,
+      jobCount,
+      jobSummaryHashes,
+      logHash,
+      logByteCount,
+      logByteCap: request.logByteCap,
+      logTruncated,
+      blockReasons,
+      summary:
+        blockReasons.length === 0
+          ? 'GitHub Actions fixed GET boundary completed with hash-only run, job, and log summaries.'
+          : `GitHub Actions observation boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedGithubActionsObservationBoundaryResult(true, request, [
+        'github_actions_observation_network_failure',
+      ]),
+      responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubActionsRunControlHttpBoundary(
+  request: GithubActionsRunControlHttpBoundaryRequest,
+): Promise<GithubActionsRunControlHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedGithubActionsRunControlBoundaryResult(false, request, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const runId = encodePathSegment(request.workflowRunId);
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}`);
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const run = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/actions/runs/${runId}`,
+    );
+    responseBodyHashes.push(run.bodyHash);
+    if (!run.ok) {
+      blockReasons.push(`actions_run_http_${run.status}`);
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        workflowRunIdHash: `sha256:${hashText(request.workflowRunId)}`,
+        changed: false,
+        blockReasons,
+        summary: `GitHub Actions ${request.controlKind} preflight failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const write = await fetchFixedGithubPostJson(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/actions/runs/${runId}/${request.controlKind === 'rerun' ? 'rerun' : 'cancel'}`,
+      {},
+    );
+    responseBodyHashes.push(write.bodyHash);
+    if (!write.ok) {
+      blockReasons.push(`actions_${request.controlKind}_http_${write.status}`);
+    }
+
+    return {
+      status: write.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      workflowRunIdHash: `sha256:${hashText(request.workflowRunId)}`,
+      changed: write.ok,
+      blockReasons,
+      summary: write.ok
+        ? `GitHub Actions ${request.controlKind} fixed endpoint boundary completed.`
+        : `GitHub Actions ${request.controlKind} fixed endpoint boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedGithubActionsRunControlBoundaryResult(true, request, [
+        `github_actions_${request.controlKind}_network_failure`,
+      ]),
+      responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubActionsDispatchHttpBoundary(
+  request: GithubActionsDispatchHttpBoundaryRequest,
+): Promise<GithubActionsDispatchHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedGithubActionsDispatchBoundaryResult(false, request, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const workflowId = encodePathSegment(request.workflowId);
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}`);
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const workflow = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/actions/workflows/${workflowId}`,
+    );
+    responseBodyHashes.push(workflow.bodyHash);
+    if (!workflow.ok) {
+      blockReasons.push(`actions_workflow_http_${workflow.status}`);
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        workflowIdHash: `sha256:${hashText(request.workflowId)}`,
+        refHash: `sha256:${hashText(request.ref)}`,
+        dispatched: false,
+        blockReasons,
+        summary: `GitHub Actions dispatch preflight failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const dispatch = await fetchFixedGithubPostJson(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
+      { ref: request.ref },
+    );
+    responseBodyHashes.push(dispatch.bodyHash);
+    if (!dispatch.ok) {
+      blockReasons.push(`actions_dispatch_http_${dispatch.status}`);
+    }
+
+    return {
+      status: dispatch.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      workflowIdHash: `sha256:${hashText(request.workflowId)}`,
+      refHash: `sha256:${hashText(request.ref)}`,
+      dispatched: dispatch.ok,
+      blockReasons,
+      summary: dispatch.ok
+        ? 'GitHub Actions workflow dispatch fixed endpoint boundary completed with fixed ref payload.'
+        : `GitHub Actions workflow dispatch boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedGithubActionsDispatchBoundaryResult(true, request, [
+        'github_actions_dispatch_network_failure',
+      ]),
       responseBodyHashes,
     };
   }
@@ -1484,6 +1807,62 @@ function createFailedMergeBoundaryResult(
   };
 }
 
+function createFailedGithubActionsObservationBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  request: GithubActionsObservationHttpBoundaryRequest,
+  blockReasons: string[],
+): GithubActionsObservationHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    workflowRunIdHash: request.workflowRunId
+      ? `sha256:${hashText(request.workflowRunId)}`
+      : undefined,
+    runStatus: 'unknown',
+    jobCount: 0,
+    jobSummaryHashes: [],
+    logByteCount: 0,
+    logByteCap: request.logByteCap,
+    logTruncated: false,
+    blockReasons,
+    summary: `GitHub Actions observation HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
+function createFailedGithubActionsRunControlBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  request: GithubActionsRunControlHttpBoundaryRequest,
+  blockReasons: string[],
+): GithubActionsRunControlHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    workflowRunIdHash: `sha256:${hashText(request.workflowRunId)}`,
+    changed: false,
+    blockReasons,
+    summary: `GitHub Actions ${request.controlKind} HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
+function createFailedGithubActionsDispatchBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  request: GithubActionsDispatchHttpBoundaryRequest,
+  blockReasons: string[],
+): GithubActionsDispatchHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    workflowIdHash: `sha256:${hashText(request.workflowId)}`,
+    refHash: `sha256:${hashText(request.ref)}`,
+    dispatched: false,
+    blockReasons,
+    summary: `GitHub Actions dispatch HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
 function createFailedPrLifecycleBoundaryResult(
   networkBoundaryInvoked: boolean,
   blockReasons: string[],
@@ -1755,6 +2134,59 @@ function countCheckRuns(bodyText: string): {
     );
   } catch {
     return { total: 0, failed: 0, pending: 0, passed: 0 };
+  }
+}
+
+function extractGithubActionsRunMetadata(bodyText: string): {
+  workflowNameHash?: string;
+  runStatus: GithubActionsObservationHttpBoundaryResult['runStatus'];
+  conclusionHash?: string;
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const status = parsed.status;
+    const conclusion = parsed.conclusion;
+    const workflowName = parsed.name ?? parsed.display_title;
+
+    return {
+      workflowNameHash:
+        typeof workflowName === 'string' ? `sha256:${hashText(workflowName)}` : undefined,
+      runStatus:
+        status === 'queued' || status === 'in_progress' || status === 'completed'
+          ? status
+          : 'unknown',
+      conclusionHash:
+        typeof conclusion === 'string' ? `sha256:${hashText(conclusion)}` : undefined,
+    };
+  } catch {
+    return { runStatus: 'unknown' };
+  }
+}
+
+function extractGithubActionsJobsMetadata(bodyText: string): {
+  jobCount: number;
+  jobSummaryHashes: string[];
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+
+    return {
+      jobCount: jobs.length,
+      jobSummaryHashes: jobs.map((job, index) => {
+        const jobRecord = job && typeof job === 'object' ? (job as Record<string, unknown>) : {};
+        return `sha256:${hashText(
+          JSON.stringify({
+            id: typeof jobRecord.id === 'number' ? String(jobRecord.id) : String(index),
+            status: typeof jobRecord.status === 'string' ? jobRecord.status : 'unknown',
+            conclusion:
+              typeof jobRecord.conclusion === 'string' ? jobRecord.conclusion : 'unknown',
+          }),
+        )}`;
+      }),
+    };
+  } catch {
+    return { jobCount: 0, jobSummaryHashes: [] };
   }
 }
 
