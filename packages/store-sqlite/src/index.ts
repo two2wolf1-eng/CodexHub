@@ -21,6 +21,10 @@ import type {
   ElectronMainInspectorApprovalArtifact,
   ElectronMainInspectorPlan,
   ElectronMainInspectorRun,
+  ExternalAgentApprovalArtifact,
+  ExternalAgentPatchPlan,
+  ExternalAgentPatchSummary,
+  ExternalAgentRun,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -97,6 +101,14 @@ import type {
   McpWriteToolApprovalArtifact,
   McpWriteToolPlan,
   McpWriteToolRun,
+  MultiAgentCoordinationPlan,
+  MultiAgentSlotSummary,
+  RuntimeCheckpoint,
+  RuntimeJobPlan,
+  RuntimeJobRun,
+  RuntimeLease,
+  RuntimeLock,
+  RuntimeQueueEntry,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -169,6 +181,11 @@ import type {
   ElectronMainInspectorApprovalRepository,
   ElectronMainInspectorDryRunRepository,
   ElectronMainInspectorRunRepository,
+  ExternalAgentApprovalRepository,
+  ExternalAgentControlPlaneQuery,
+  ExternalAgentDryRunRepository,
+  ExternalAgentPatchSummaryRepository,
+  ExternalAgentRunRepository,
   GithubBranchPublishApprovalRepository,
   GithubBranchPublishControlPlaneQuery,
   GithubBranchPublishDryRunRepository,
@@ -273,6 +290,15 @@ import type {
   McpWriteToolApprovalRepository,
   McpWriteToolDryRunRepository,
   McpWriteToolRunRepository,
+  MultiAgentCoordinationPlanRepository,
+  MultiAgentSlotSummaryRepository,
+  RuntimeCheckpointRepository,
+  RuntimeJobPlanRepository,
+  RuntimeJobRunRepository,
+  RuntimeLeaseRepository,
+  RuntimeLockRepository,
+  RuntimeOperationsControlPlaneQuery,
+  RuntimeQueueEntryRepository,
   RealPolicyBackendApprovalRepository,
   RealPolicyBackendDryRunRepository,
   RealPolicyBackendRunRepository,
@@ -428,6 +454,18 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly mcpWriteToolDryRuns: McpWriteToolDryRunRepository;
   readonly mcpWriteToolApprovals: McpWriteToolApprovalRepository;
   readonly mcpWriteToolRuns: McpWriteToolRunRepository;
+  readonly runtimeJobPlans: RuntimeJobPlanRepository;
+  readonly runtimeQueueEntries: RuntimeQueueEntryRepository;
+  readonly runtimeLeases: RuntimeLeaseRepository;
+  readonly runtimeLocks: RuntimeLockRepository;
+  readonly runtimeCheckpoints: RuntimeCheckpointRepository;
+  readonly runtimeJobRuns: RuntimeJobRunRepository;
+  readonly multiAgentCoordinationPlans: MultiAgentCoordinationPlanRepository;
+  readonly multiAgentSlotSummaries: MultiAgentSlotSummaryRepository;
+  readonly externalAgentDryRuns: ExternalAgentDryRunRepository;
+  readonly externalAgentApprovals: ExternalAgentApprovalRepository;
+  readonly externalAgentRuns: ExternalAgentRunRepository;
+  readonly externalAgentPatchSummaries: ExternalAgentPatchSummaryRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -692,6 +730,28 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'mcp_write_tool_runs',
     );
+    this.runtimeJobPlans = new SqliteRuntimeJobPlanRepository(database);
+    this.runtimeQueueEntries = new SqliteRuntimeQueueEntryRepository(database);
+    this.runtimeLeases = new SqliteRuntimeLeaseRepository(database);
+    this.runtimeLocks = new SqliteRuntimeLockRepository(database);
+    this.runtimeCheckpoints = new SqliteRuntimeCheckpointRepository(database);
+    this.runtimeJobRuns = new SqliteRuntimeJobRunRepository(database);
+    this.multiAgentCoordinationPlans = new SqliteMultiAgentCoordinationPlanRepository(database);
+    this.multiAgentSlotSummaries = new SqliteMultiAgentSlotSummaryRepository(database);
+    this.externalAgentDryRuns = new SqliteGenericDryRunRepository<ExternalAgentPatchPlan>(
+      database,
+      'external_agent_dry_runs',
+    );
+    this.externalAgentApprovals =
+      new SqliteGenericApprovalRepository<ExternalAgentApprovalArtifact>(
+        database,
+        'external_agent_approvals',
+      );
+    this.externalAgentRuns = new SqliteGenericRunRepository<ExternalAgentRun>(
+      database,
+      'external_agent_runs',
+    );
+    this.externalAgentPatchSummaries = new SqliteExternalAgentPatchSummaryRepository(database);
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -3371,6 +3431,259 @@ class SqliteGenericRunRepository<T extends PersistedEntity & { dryRunId?: string
   }
 }
 
+class SqliteRuntimeJobPlanRepository implements RuntimeJobPlanRepository {
+  private readonly repository: JsonEntityRepository<RuntimeJobPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RuntimeJobPlan>(
+      database,
+      'runtime_job_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveJobPlan(record: RuntimeJobPlan): Promise<RuntimeJobPlan> {
+    return this.repository.create(record);
+  }
+
+  async getJobPlan(id: string): Promise<RuntimeJobPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listJobPlans(query: RuntimeOperationsControlPlaneQuery = {}): Promise<RuntimeJobPlan[]> {
+    return listObservationControlPlaneRecords<RuntimeJobPlan>(
+      this.database,
+      'runtime_job_plans',
+      query,
+    );
+  }
+}
+
+class SqliteRuntimeQueueEntryRepository implements RuntimeQueueEntryRepository {
+  private readonly repository: JsonEntityRepository<RuntimeQueueEntry>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RuntimeQueueEntry>(
+      database,
+      'runtime_queue_entries',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveQueueEntry(record: RuntimeQueueEntry): Promise<RuntimeQueueEntry> {
+    return this.repository.create(record);
+  }
+
+  async getQueueEntry(id: string): Promise<RuntimeQueueEntry | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listQueueEntries(
+    query: RuntimeOperationsControlPlaneQuery = {},
+  ): Promise<RuntimeQueueEntry[]> {
+    return listObservationControlPlaneRecords<RuntimeQueueEntry>(
+      this.database,
+      'runtime_queue_entries',
+      query,
+    );
+  }
+}
+
+class SqliteRuntimeLeaseRepository implements RuntimeLeaseRepository {
+  private readonly repository: JsonEntityRepository<RuntimeLease>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RuntimeLease>(
+      database,
+      'runtime_leases',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveLease(record: RuntimeLease): Promise<RuntimeLease> {
+    return this.repository.create(record);
+  }
+
+  async getLease(id: string): Promise<RuntimeLease | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listLeases(query: RuntimeOperationsControlPlaneQuery = {}): Promise<RuntimeLease[]> {
+    return listObservationControlPlaneRecords<RuntimeLease>(
+      this.database,
+      'runtime_leases',
+      query,
+    );
+  }
+}
+
+class SqliteRuntimeLockRepository implements RuntimeLockRepository {
+  private readonly repository: JsonEntityRepository<RuntimeLock>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RuntimeLock>(
+      database,
+      'runtime_locks',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveLock(record: RuntimeLock): Promise<RuntimeLock> {
+    return this.repository.create(record);
+  }
+
+  async getLock(id: string): Promise<RuntimeLock | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listLocks(query: RuntimeOperationsControlPlaneQuery = {}): Promise<RuntimeLock[]> {
+    return listObservationControlPlaneRecords<RuntimeLock>(this.database, 'runtime_locks', query);
+  }
+}
+
+class SqliteRuntimeCheckpointRepository implements RuntimeCheckpointRepository {
+  private readonly repository: JsonEntityRepository<RuntimeCheckpoint>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RuntimeCheckpoint>(
+      database,
+      'runtime_checkpoints',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveCheckpoint(record: RuntimeCheckpoint): Promise<RuntimeCheckpoint> {
+    return this.repository.create(record);
+  }
+
+  async getCheckpoint(id: string): Promise<RuntimeCheckpoint | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listCheckpoints(
+    query: RuntimeOperationsControlPlaneQuery = {},
+  ): Promise<RuntimeCheckpoint[]> {
+    const records = await this.repository.list();
+    return records.slice(0, normalizeLimit(query.limit));
+  }
+}
+
+class SqliteRuntimeJobRunRepository implements RuntimeJobRunRepository {
+  private readonly repository: JsonEntityRepository<RuntimeJobRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RuntimeJobRun>(
+      database,
+      'runtime_job_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: RuntimeJobRun): Promise<RuntimeJobRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<RuntimeJobRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(query: RuntimeOperationsControlPlaneQuery = {}): Promise<RuntimeJobRun[]> {
+    return listObservationControlPlaneRecords<RuntimeJobRun>(
+      this.database,
+      'runtime_job_runs',
+      query,
+    );
+  }
+}
+
+class SqliteMultiAgentCoordinationPlanRepository
+  implements MultiAgentCoordinationPlanRepository
+{
+  private readonly repository: JsonEntityRepository<MultiAgentCoordinationPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<MultiAgentCoordinationPlan>(
+      database,
+      'multi_agent_coordination_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveCoordinationPlan(
+    record: MultiAgentCoordinationPlan,
+  ): Promise<MultiAgentCoordinationPlan> {
+    return this.repository.create(record);
+  }
+
+  async getCoordinationPlan(id: string): Promise<MultiAgentCoordinationPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listCoordinationPlans(
+    query: RuntimeOperationsControlPlaneQuery = {},
+  ): Promise<MultiAgentCoordinationPlan[]> {
+    const records = await this.repository.list();
+    return records.slice(0, normalizeLimit(query.limit));
+  }
+}
+
+class SqliteMultiAgentSlotSummaryRepository implements MultiAgentSlotSummaryRepository {
+  private readonly repository: JsonEntityRepository<MultiAgentSlotSummary>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<MultiAgentSlotSummary>(
+      database,
+      'multi_agent_slot_summaries',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveSlotSummary(record: MultiAgentSlotSummary): Promise<MultiAgentSlotSummary> {
+    return this.repository.create(record);
+  }
+
+  async getSlotSummary(id: string): Promise<MultiAgentSlotSummary | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listSlotSummaries(
+    query: RuntimeOperationsControlPlaneQuery = {},
+  ): Promise<MultiAgentSlotSummary[]> {
+    return listObservationControlPlaneRecords<MultiAgentSlotSummary>(
+      this.database,
+      'multi_agent_slot_summaries',
+      query,
+    );
+  }
+}
+
+class SqliteExternalAgentPatchSummaryRepository implements ExternalAgentPatchSummaryRepository {
+  private readonly repository: JsonEntityRepository<ExternalAgentPatchSummary>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ExternalAgentPatchSummary>(
+      database,
+      'external_agent_patch_summaries',
+      (record) => record.createdAt,
+    );
+  }
+
+  async savePatchSummary(record: ExternalAgentPatchSummary): Promise<ExternalAgentPatchSummary> {
+    return this.repository.create(record);
+  }
+
+  async getPatchSummary(id: string): Promise<ExternalAgentPatchSummary | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listPatchSummaries(
+    query: ExternalAgentControlPlaneQuery = {},
+  ): Promise<ExternalAgentPatchSummary[]> {
+    const records = await this.repository.list();
+    return records.slice(0, normalizeLimit(query.limit));
+  }
+}
+
 class SqliteGithubRemoteCleanupDryRunRepository
   implements GithubRemoteCleanupDryRunRepository
 {
@@ -5376,6 +5689,78 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS mcp_write_tool_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS runtime_job_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS runtime_queue_entries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS runtime_leases (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS runtime_locks (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS runtime_checkpoints (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS runtime_job_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS multi_agent_coordination_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS multi_agent_slot_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS external_agent_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS external_agent_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS external_agent_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS external_agent_patch_summaries (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

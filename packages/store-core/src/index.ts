@@ -14,6 +14,10 @@ import type {
   ElectronMainInspectorApprovalArtifact,
   ElectronMainInspectorPlan,
   ElectronMainInspectorRun,
+  ExternalAgentApprovalArtifact,
+  ExternalAgentPatchPlan,
+  ExternalAgentPatchSummary,
+  ExternalAgentRun,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -90,6 +94,14 @@ import type {
   McpWriteToolApprovalArtifact,
   McpWriteToolPlan,
   McpWriteToolRun,
+  MultiAgentCoordinationPlan,
+  MultiAgentSlotSummary,
+  RuntimeCheckpoint,
+  RuntimeJobPlan,
+  RuntimeJobRun,
+  RuntimeLease,
+  RuntimeLock,
+  RuntimeQueueEntry,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -182,6 +194,8 @@ export type RealTelemetryExportControlPlaneQuery = WorktreeControlPlaneQuery;
 export type BrowserActionControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ElectronMainInspectorControlPlaneQuery = WorktreeControlPlaneQuery;
 export type McpWriteToolControlPlaneQuery = WorktreeControlPlaneQuery;
+export type RuntimeOperationsControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ExternalAgentControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -927,6 +941,85 @@ export interface McpWriteToolRunRepository {
   listRuns(query?: McpWriteToolControlPlaneQuery): Promise<McpWriteToolRun[]>;
 }
 
+export interface RuntimeJobPlanRepository {
+  saveJobPlan(record: RuntimeJobPlan): Promise<RuntimeJobPlan>;
+  getJobPlan(id: string): Promise<RuntimeJobPlan | undefined>;
+  listJobPlans(query?: RuntimeOperationsControlPlaneQuery): Promise<RuntimeJobPlan[]>;
+}
+
+export interface RuntimeQueueEntryRepository {
+  saveQueueEntry(record: RuntimeQueueEntry): Promise<RuntimeQueueEntry>;
+  getQueueEntry(id: string): Promise<RuntimeQueueEntry | undefined>;
+  listQueueEntries(query?: RuntimeOperationsControlPlaneQuery): Promise<RuntimeQueueEntry[]>;
+}
+
+export interface RuntimeLeaseRepository {
+  saveLease(record: RuntimeLease): Promise<RuntimeLease>;
+  getLease(id: string): Promise<RuntimeLease | undefined>;
+  listLeases(query?: RuntimeOperationsControlPlaneQuery): Promise<RuntimeLease[]>;
+}
+
+export interface RuntimeLockRepository {
+  saveLock(record: RuntimeLock): Promise<RuntimeLock>;
+  getLock(id: string): Promise<RuntimeLock | undefined>;
+  listLocks(query?: RuntimeOperationsControlPlaneQuery): Promise<RuntimeLock[]>;
+}
+
+export interface RuntimeCheckpointRepository {
+  saveCheckpoint(record: RuntimeCheckpoint): Promise<RuntimeCheckpoint>;
+  getCheckpoint(id: string): Promise<RuntimeCheckpoint | undefined>;
+  listCheckpoints(query?: RuntimeOperationsControlPlaneQuery): Promise<RuntimeCheckpoint[]>;
+}
+
+export interface RuntimeJobRunRepository {
+  saveRun(record: RuntimeJobRun): Promise<RuntimeJobRun>;
+  getRun(id: string): Promise<RuntimeJobRun | undefined>;
+  listRuns(query?: RuntimeOperationsControlPlaneQuery): Promise<RuntimeJobRun[]>;
+}
+
+export interface MultiAgentCoordinationPlanRepository {
+  saveCoordinationPlan(record: MultiAgentCoordinationPlan): Promise<MultiAgentCoordinationPlan>;
+  getCoordinationPlan(id: string): Promise<MultiAgentCoordinationPlan | undefined>;
+  listCoordinationPlans(
+    query?: RuntimeOperationsControlPlaneQuery,
+  ): Promise<MultiAgentCoordinationPlan[]>;
+}
+
+export interface MultiAgentSlotSummaryRepository {
+  saveSlotSummary(record: MultiAgentSlotSummary): Promise<MultiAgentSlotSummary>;
+  getSlotSummary(id: string): Promise<MultiAgentSlotSummary | undefined>;
+  listSlotSummaries(query?: RuntimeOperationsControlPlaneQuery): Promise<MultiAgentSlotSummary[]>;
+}
+
+export interface ExternalAgentDryRunRepository {
+  saveDryRun(record: ExternalAgentPatchPlan): Promise<ExternalAgentPatchPlan>;
+  getDryRun(id: string): Promise<ExternalAgentPatchPlan | undefined>;
+  listDryRuns(query?: ExternalAgentControlPlaneQuery): Promise<ExternalAgentPatchPlan[]>;
+}
+
+export interface ExternalAgentApprovalRepository {
+  saveApproval(record: ExternalAgentApprovalArtifact): Promise<ExternalAgentApprovalArtifact>;
+  getApproval(id: string): Promise<ExternalAgentApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ExternalAgentApprovalArtifact | undefined>;
+  listApprovals(query?: ExternalAgentControlPlaneQuery): Promise<ExternalAgentApprovalArtifact[]>;
+}
+
+export interface ExternalAgentRunRepository {
+  saveRun(record: ExternalAgentRun): Promise<ExternalAgentRun>;
+  getRun(id: string): Promise<ExternalAgentRun | undefined>;
+  listRuns(query?: ExternalAgentControlPlaneQuery): Promise<ExternalAgentRun[]>;
+}
+
+export interface ExternalAgentPatchSummaryRepository {
+  savePatchSummary(record: ExternalAgentPatchSummary): Promise<ExternalAgentPatchSummary>;
+  getPatchSummary(id: string): Promise<ExternalAgentPatchSummary | undefined>;
+  listPatchSummaries(
+    query?: ExternalAgentControlPlaneQuery,
+  ): Promise<ExternalAgentPatchSummary[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -1330,6 +1423,18 @@ export interface CodexHubStore {
   mcpWriteToolDryRuns: McpWriteToolDryRunRepository;
   mcpWriteToolApprovals: McpWriteToolApprovalRepository;
   mcpWriteToolRuns: McpWriteToolRunRepository;
+  runtimeJobPlans: RuntimeJobPlanRepository;
+  runtimeQueueEntries: RuntimeQueueEntryRepository;
+  runtimeLeases: RuntimeLeaseRepository;
+  runtimeLocks: RuntimeLockRepository;
+  runtimeCheckpoints: RuntimeCheckpointRepository;
+  runtimeJobRuns: RuntimeJobRunRepository;
+  multiAgentCoordinationPlans: MultiAgentCoordinationPlanRepository;
+  multiAgentSlotSummaries: MultiAgentSlotSummaryRepository;
+  externalAgentDryRuns: ExternalAgentDryRunRepository;
+  externalAgentApprovals: ExternalAgentApprovalRepository;
+  externalAgentRuns: ExternalAgentRunRepository;
+  externalAgentPatchSummaries: ExternalAgentPatchSummaryRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

@@ -24,6 +24,7 @@
       "@codexhub/electron-cdp-adapter": ["packages/electron-cdp-adapter/src/index.ts"],
       "@codexhub/electron-cdp-kernel": ["packages/electron-cdp-kernel/src/index.ts"],
       "@codexhub/evidence-kernel": ["packages/evidence-kernel/src/index.ts"],
+      "@codexhub/external-agent-adapter": ["packages/external-agent-adapter/src/index.ts"],
       "@codexhub/governance-projection-kernel": [
         "packages/governance-projection-kernel/src/index.ts"
       ],
@@ -44,6 +45,7 @@
       ],
       "@codexhub/review-package-kernel": ["packages/review-package-kernel/src/index.ts"],
       "@codexhub/deployment-provider-adapter": ["packages/deployment-provider-adapter/src/index.ts"],
+      "@codexhub/runtime-operations-kernel": ["packages/runtime-operations-kernel/src/index.ts"],
       "@codexhub/secret-governance-kernel": ["packages/secret-governance-kernel/src/index.ts"],
       "@codexhub/security-kernel": ["packages/security-kernel/src/index.ts"],
       "@codexhub/skill-registry": ["packages/skill-registry/src/index.ts"],
