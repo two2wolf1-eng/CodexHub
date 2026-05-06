@@ -5702,3 +5702,32 @@ workflows:
       genericMcpWritePassthroughAllowed: false
       repoRootMutationAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d13.policy-telemetry-advisory-boundary-debug:
+    risk: critical
+    trigger:
+      type: policy-telemetry-advisory-boundary-debug
+      entrypoint: policy-backend-adapter otel-adapter docs tools
+      localControlRequired: false
+    scope:
+      - policy-backend-boundary-isolation
+      - opa-cedar-local-cli-fixed-shape
+      - opa-cedar-loopback-http-fixed-path
+      - policy-backend-advisory-only-security-kernel-authority
+      - telemetry-exporter-boundary-isolation
+      - telemetry-in-memory-and-loopback-network-non-authoritative
+    docs:
+      - docs/releases/m47-d13-policy-telemetry-advisory-boundary-debug.md
+      - docs/reviews/m47-d13-policy-telemetry-advisory-boundary-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      policyBackendAuthorityProvider: false
+      securityKernelFinalAuthority: true
+      telemetryEvidenceAuditReplacementAllowed: false
+      networkExporterDefaultEnabled: false
+      metadataOnlyPublicOutput: true

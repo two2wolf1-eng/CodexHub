@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CapabilityAuditEventSchema,
@@ -28,8 +29,55 @@ const authority: ExecutionAuthority = {
   allowed: true,
   constraints: ['fixture-only'],
 };
+const sourceDir = new URL('.', import.meta.url);
 
 describe('policy-backend-adapter', () => {
+  it('keeps real policy process and HTTP boundaries isolated to the reviewed boundary file', () => {
+    const productionSources = [
+      'audit.ts',
+      'evidence.ts',
+      'execute.ts',
+      'fixture-config.ts',
+      'index.ts',
+      'manifest.ts',
+      'plan.ts',
+    ].map((fileName) => readFileSync(new URL(`./${fileName}`, sourceDir), 'utf8'));
+    const boundarySource = readFileSync(new URL('./real-policy-boundary.ts', sourceDir), 'utf8');
+    const nonBoundaryForbiddenTerms = [
+      'node:child_process',
+      'child_process',
+      'spawn(',
+      'execFile(',
+      'fetch(',
+      'globalThis.fetch',
+      'http://',
+      'https://',
+      'process.env',
+    ];
+    const boundaryForbiddenTerms = [
+      'execFile(',
+      'exec(',
+      'shell: true',
+      'curl',
+      'wget',
+      'rawPolicySourceStored: true',
+      'rawInputStored: true',
+      'rawOutputStored: true',
+      'authorityProvider: rawEvaluation',
+      'backendAdvisoryOnly: false',
+    ];
+
+    for (const source of productionSources) {
+      expect(nonBoundaryForbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+    }
+
+    expect(boundaryForbiddenTerms.filter((term) => boundarySource.includes(term))).toEqual([]);
+    expect(boundarySource).toContain("['eval', '--stdin-input', '--format', 'json'");
+    expect(boundarySource).toContain("['authorize']");
+    expect(boundarySource).toContain('isLoopbackHost(endpoint.hostname)');
+    expect(boundarySource).toContain('isAllowedPolicyPath(input.backendKind, endpoint.pathname)');
+  });
+
   it('declares a policy capability manifest without process or network boundary', () => {
     const manifest = CapabilityManifestSchema.parse(createPolicyBackendAdapterManifest());
 
@@ -309,5 +357,88 @@ describe('policy-backend-adapter', () => {
     expect(result.rawOutputStored).toBe(false);
     expect(serialized).not.toContain('package codexhub.authz');
     expect(serialized).not.toContain('hidden');
+  });
+
+  it('blocks policy HTTP backends outside loopback or fixed endpoint paths before fetch', async () => {
+    const transientInput = JSON.stringify({ action: 'workspace.read', token: 'hidden' });
+    const inputHash = `sha256:${hashText(transientInput)}`;
+    const externalEndpoint = 'http://policy.example.test/v1/data/codexhub/allow';
+    const wrongPathEndpoint = 'http://127.0.0.1:8181/v1/query';
+    let fetchCallCount = 0;
+    const external = await runRealPolicyBackendBoundary({
+      backendKind: 'opa',
+      runtimeMode: 'loopback-http',
+      inputHash,
+      policySourceHash: 'sha256:policy',
+      endpointUrl: externalEndpoint,
+      endpointHash: `sha256:${hashText(externalEndpoint)}`,
+      transientInput,
+      fetch: async () => {
+        fetchCallCount += 1;
+        throw new Error('fetch must not run for external endpoint');
+      },
+    });
+    const wrongPath = await runRealPolicyBackendBoundary({
+      backendKind: 'cedar',
+      runtimeMode: 'loopback-http',
+      inputHash,
+      policySourceHash: 'sha256:policy',
+      endpointUrl: wrongPathEndpoint,
+      endpointHash: `sha256:${hashText(wrongPathEndpoint)}`,
+      transientInput,
+      fetch: async () => {
+        fetchCallCount += 1;
+        throw new Error('fetch must not run for wrong path');
+      },
+    });
+    const serialized = JSON.stringify({ external, wrongPath });
+
+    expect(external.status).toBe('blocked');
+    expect(wrongPath.status).toBe('blocked');
+    expect(fetchCallCount).toBe(0);
+    expect(external.networkBoundaryInvoked).toBe(false);
+    expect(wrongPath.networkBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('policy.example.test');
+    expect(serialized).not.toContain('hidden');
+  });
+
+  it('runs policy HTTP backends only on loopback fixed paths with hash-only output', async () => {
+    const transientInput = JSON.stringify({ action: 'workspace.read', secret: 'hidden' });
+    const endpointUrl = 'http://127.0.0.1:8181/v1/data/codexhub/allow';
+    const requestedUrls: string[] = [];
+    const result = await runRealPolicyBackendBoundary({
+      backendKind: 'opa',
+      runtimeMode: 'loopback-http',
+      inputHash: `sha256:${hashText(transientInput)}`,
+      policySourceHash: 'sha256:policy',
+      endpointUrl,
+      endpointHash: `sha256:${hashText(endpointUrl)}`,
+      transientInput,
+      fetch: async (url, init) => {
+        requestedUrls.push(url);
+        expect(init.method).toBe('POST');
+        expect(init.headers['content-type']).toBe('application/json');
+        expect(init.body).toContain('inputHash');
+        expect(init.body).toContain('policySourceHash');
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ result: true, secret: 'hidden' });
+          },
+        };
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.processBoundaryInvoked).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(result.networkBoundaryInvoked).toBe(true);
+    expect(result.rawInputStored).toBe(false);
+    expect(result.rawOutputStored).toBe(false);
+    expect(requestedUrls).toEqual([endpointUrl]);
+    expect(serialized).not.toContain('hidden');
+    expect(serialized).not.toContain(endpointUrl);
   });
 });

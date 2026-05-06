@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CapabilityManifestSchema,
+  type RealTelemetryExportPlan,
   SchemaVersionSchema,
   type ExecutionAuthority,
   foundationId,
@@ -24,8 +26,54 @@ const authority: ExecutionAuthority = {
   allowed: true,
   constraints: ['noop-exporter-only'],
 };
+const sourceDir = new URL('.', import.meta.url);
 
 describe('otel-adapter', () => {
+  it('keeps real telemetry network export isolated to the reviewed boundary file', () => {
+    const productionSources = [
+      'audit.ts',
+      'evidence.ts',
+      'execute.ts',
+      'index.ts',
+      'manifest.ts',
+      'plan.ts',
+      'projection.ts',
+    ].map((fileName) => readFileSync(new URL(`./${fileName}`, sourceDir), 'utf8'));
+    const boundarySource = readFileSync(new URL('./real-exporter-boundary.ts', sourceDir), 'utf8');
+    const nonBoundaryForbiddenTerms = [
+      'fetch(',
+      'globalThis.fetch',
+      'http://',
+      'https://',
+      '@opentelemetry/exporter',
+      'OTLP',
+      'process.env',
+      'child_process',
+      'rawTracePayloadStored: true',
+      'evidenceAuditAuthoritative: true',
+    ];
+    const boundaryForbiddenTerms = [
+      'rawTracePayloadStored: true',
+      'rawLogStored: true',
+      'rawPathStored: true',
+      'evidenceAuditAuthoritative: true',
+      'node:child_process',
+      'spawn(',
+      'execFile(',
+      'shell: true',
+    ];
+
+    for (const source of productionSources) {
+      expect(nonBoundaryForbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+    }
+
+    expect(boundaryForbiddenTerms.filter((term) => boundarySource.includes(term))).toEqual([]);
+    expect(boundarySource).toContain("if (input.exporterKind === 'in-memory')");
+    expect(boundarySource).toContain('isLoopbackHost(endpoint.hostname)');
+    expect(boundarySource).toContain('networkBoundaryInvoked: true');
+    expect(boundarySource).toContain('evidenceAuditAuthoritative: false');
+  });
+
   it('declares a telemetry capability manifest without SDK, process, or network export', () => {
     const manifest = CapabilityManifestSchema.parse(createOtelAdapterManifest());
 
@@ -221,5 +269,118 @@ describe('otel-adapter', () => {
     expect(result.rawTracePayloadStored).toBe(false);
     expect(serialized).not.toContain('workflow.completed');
     expect(serialized).not.toContain('hidden');
+  });
+
+  it('blocks telemetry network exporter before fetch on endpoint hash or loopback mismatch', async () => {
+    const spanBatch = [{ name: 'workflow.completed', token: 'hidden' }];
+    const plan = {
+      id: foundationId('real_telemetry_plan'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId: 'dry_real_telemetry_network',
+      status: 'planned' as const,
+      exporterKind: 'otlp-http' as const,
+      signalKinds: ['trace'] as const,
+      spanCount: 1,
+      tracePlanHash: `sha256:${hashText(JSON.stringify(spanBatch))}`,
+      networkExportPlanned: true,
+      processBoundaryPlanned: false,
+      blockReasons: [],
+      evidenceAuditAuthoritative: false,
+      rawTracePayloadStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Synthetic network telemetry plan.',
+    } satisfies RealTelemetryExportPlan;
+    let fetchCallCount = 0;
+    const hashMismatch = await runRealTelemetryExportBoundary({
+      exporterKind: 'otlp-http',
+      transientSpanBatch: spanBatch,
+      endpointUrl: 'http://127.0.0.1:4318/v1/traces',
+      endpointHash: `sha256:${hashText('http://127.0.0.1:4318/wrong')}`,
+      plan,
+      fetch: async () => {
+        fetchCallCount += 1;
+        throw new Error('fetch must not run on hash mismatch');
+      },
+    });
+    const nonLoopback = await runRealTelemetryExportBoundary({
+      exporterKind: 'otlp-http',
+      transientSpanBatch: spanBatch,
+      endpointUrl: 'https://otel.example.test/v1/traces',
+      endpointHash: `sha256:${hashText('https://otel.example.test/v1/traces')}`,
+      plan,
+      fetch: async () => {
+        fetchCallCount += 1;
+        throw new Error('fetch must not run for non-loopback endpoint');
+      },
+    });
+    const serialized = JSON.stringify({ hashMismatch, nonLoopback });
+
+    expect(hashMismatch.status).toBe('blocked');
+    expect(nonLoopback.status).toBe('blocked');
+    expect(fetchCallCount).toBe(0);
+    expect(hashMismatch.networkBoundaryInvoked).toBe(false);
+    expect(nonLoopback.networkBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('workflow.completed');
+    expect(serialized).not.toContain('hidden');
+    expect(serialized).not.toContain('otel.example.test');
+  });
+
+  it('runs telemetry network exporter only on hash-bound loopback with non-authoritative output', async () => {
+    const spanBatch = [{ name: 'workflow.completed', token: 'hidden' }];
+    const endpointUrl = 'http://127.0.0.1:4318/v1/traces';
+    const plan = {
+      id: foundationId('real_telemetry_plan'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId: 'dry_real_telemetry_network_completed',
+      status: 'planned' as const,
+      exporterKind: 'otlp-http' as const,
+      signalKinds: ['trace'] as const,
+      spanCount: 1,
+      tracePlanHash: `sha256:${hashText(JSON.stringify(spanBatch))}`,
+      networkExportPlanned: true,
+      processBoundaryPlanned: false,
+      blockReasons: [],
+      evidenceAuditAuthoritative: false,
+      rawTracePayloadStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Synthetic network telemetry plan.',
+    } satisfies RealTelemetryExportPlan;
+    const requestedUrls: string[] = [];
+    const result = await runRealTelemetryExportBoundary({
+      exporterKind: 'otlp-http',
+      transientSpanBatch: spanBatch,
+      endpointUrl,
+      endpointHash: `sha256:${hashText(endpointUrl)}`,
+      plan,
+      fetch: async (url, init) => {
+        requestedUrls.push(url);
+        expect(init.method).toBe('POST');
+        expect(init.headers['content-type']).toBe('application/json');
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ accepted: true, token: 'hidden' });
+          },
+        };
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.networkBoundaryInvoked).toBe(true);
+    expect(result.evidenceAuditAuthoritative).toBe(false);
+    expect(result.rawTracePayloadStored).toBe(false);
+    expect(result.rawLogStored).toBe(false);
+    expect(requestedUrls).toEqual([endpointUrl]);
+    expect(serialized).not.toContain('workflow.completed');
+    expect(serialized).not.toContain('hidden');
+    expect(serialized).not.toContain(endpointUrl);
   });
 });
