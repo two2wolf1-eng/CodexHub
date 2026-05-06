@@ -7028,6 +7028,26 @@ describe('supervisor GitHub branch publish control plane', () => {
         executionAuthority: { allowed: true },
       },
     });
+    const forgedRunChildArtifactResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        childArtifacts: [{ id: 'caller-child' }],
+      },
+    });
+    const forgedRunApprovalArtifactResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        approvalArtifact: { status: 'approved' },
+      },
+    });
     const mismatchResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/production/recoveries/runs',
@@ -7044,6 +7064,17 @@ describe('supervisor GitHub branch publish control plane', () => {
       url: '/api/workflows/production/recoveries/approvals',
     });
     const waitingChildApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+      },
+    });
+    const reusedWaitingApprovalResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/production/recoveries/runs',
       headers: localControlHeaders,
@@ -7131,6 +7162,8 @@ describe('supervisor GitHub branch publish control plane', () => {
       networkBoundaryInvoked: false,
     });
     expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(forgedRunChildArtifactResponse.statusCode).toBe(400);
+    expect(forgedRunApprovalArtifactResponse.statusCode).toBe(400);
     expect(mismatchResponse.statusCode).toBe(409);
     expect(
       approvalsAfterMismatchResponse
@@ -7152,6 +7185,7 @@ describe('supervisor GitHub branch publish control plane', () => {
       childAdapterExecuteAllowed: false,
       childApprovalResolvedFromStore: false,
     });
+    expect(reusedWaitingApprovalResponse.statusCode).toBe(409);
     expect(completedResponse.statusCode).toBe(200);
     expect(completedResponse.json()).toMatchObject({
       status: 'completed',
@@ -7186,5 +7220,83 @@ describe('supervisor GitHub branch publish control plane', () => {
       expect(responseBody).not.toContain('approve workflow recovery');
       expect(responseBody).not.toContain('childArtifacts');
     }
+  });
+
+  it('keeps remote production recovery waiting on separate child approvals', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-remote-workflow-recoveries-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      productionWorkflowRecoveryEnabled: true,
+      productionWorkflowChildOrchestrationEnabled: true,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      headers: localControlHeaders,
+      payload: { templateId: 'github-draft-pr-chain' },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, reason: 'recover remote workflow' },
+    });
+    const manualApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'approve remote workflow recovery',
+      },
+    });
+    const waitingChildApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun).toMatchObject({
+      status: 'planned',
+      templateId: 'github-draft-pr-chain',
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+    });
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(manualApprovalResponse.statusCode).toBe(200);
+    expect(waitingChildApprovalResponse.statusCode).toBe(200);
+    expect(waitingChildApprovalResponse.json()).toMatchObject({
+      status: 'waiting_for_child_approval',
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(
+      waitingChildApprovalResponse
+        .json()
+        .childActionStates.every(
+          (state: { childAutoApprovalAllowed: boolean; childAdapterExecuteAllowed: boolean }) =>
+            state.childAutoApprovalAllowed === false && state.childAdapterExecuteAllowed === false,
+        ),
+    ).toBe(true);
+    expect(waitingChildApprovalResponse.body).not.toContain('approve remote workflow recovery');
+    expect(waitingChildApprovalResponse.body).not.toContain(localControlToken);
   });
 });

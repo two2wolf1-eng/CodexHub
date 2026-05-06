@@ -78,28 +78,43 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('approvalToken=');
   });
 
-  it('keeps Dashboard mutating calls restricted to the governed approval decision path', () => {
+  it('keeps Dashboard mutating calls restricted to governed approval and recovery paths', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const postMatches = [...appSource.matchAll(/method:\s*['"]POST['"]/g)];
     const approvalDecisionIndex = appSource.indexOf('/api/approvals/decisions');
+    const recoveryControlIndex = appSource.indexOf('async function postRecoveryJson');
 
-    expect(postMatches).toHaveLength(1);
+    expect(postMatches).toHaveLength(2);
     expect(approvalDecisionIndex).toBeGreaterThanOrEqual(0);
+    expect(recoveryControlIndex).toBeGreaterThanOrEqual(0);
 
-    const postIndex = postMatches[0]?.index ?? -1;
+    const approvalPostIndex = postMatches[0]?.index ?? -1;
+    const recoveryPostIndex = postMatches[1]?.index ?? -1;
     const approvalDecisionWindow = appSource.slice(
       Math.max(0, approvalDecisionIndex - 400),
       approvalDecisionIndex + 900,
     );
+    const recoveryControlWindow = appSource.slice(
+      Math.max(0, recoveryControlIndex - 500),
+      recoveryControlIndex + 1300,
+    );
 
-    expect(postIndex).toBeGreaterThan(approvalDecisionIndex);
+    expect(approvalPostIndex).toBeGreaterThan(approvalDecisionIndex);
     expect(approvalDecisionWindow).toContain("method: 'POST'");
-    expect(approvalDecisionWindow).toContain('x-codexhub-local');
+    expect(approvalDecisionWindow).toContain('dashboardLocalControlHeaderName');
+    expect(recoveryPostIndex).toBeGreaterThan(recoveryControlIndex);
+    expect(recoveryControlWindow).toContain("method: 'POST'");
+    expect(recoveryControlWindow).toContain('dashboardLocalControlHeaderName');
     expect(approvalDecisionWindow).not.toContain('localStorage');
     expect(approvalDecisionWindow).not.toContain('sessionStorage');
     expect(approvalDecisionWindow).not.toContain('indexedDB');
     expect(approvalDecisionWindow).not.toContain('executeGithub');
     expect(approvalDecisionWindow).not.toContain('adapter.execute');
+    expect(recoveryControlWindow).not.toContain('localStorage');
+    expect(recoveryControlWindow).not.toContain('sessionStorage');
+    expect(recoveryControlWindow).not.toContain('indexedDB');
+    expect(recoveryControlWindow).not.toContain('executeGithub');
+    expect(recoveryControlWindow).not.toContain('adapter.execute');
   });
 
   it('summarizes approval decision history without raw reason or token data', () => {
@@ -836,21 +851,43 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).not.toContain('CODEXHUB_GITHUB_TOKEN');
   });
 
-  it('keeps the production workflow recovery route display-only in the Dashboard source', () => {
+  it('keeps the production workflow recovery wizard scoped to existing recovery routes', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const workflowRoute = appSource.slice(
       appSource.indexOf("if (activeView === 'workflows')"),
       appSource.indexOf("if (activeView === 'release-candidates')"),
     );
+    const recoveryWizard = workflowRoute.slice(
+      workflowRoute.indexOf('<Panel title="Recovery Guided Operation">'),
+      workflowRoute.indexOf('<Panel title="Production Workflow Catalog">'),
+    );
 
     expect(workflowRoute).toContain('Production Workflow Runtime Recovery');
     expect(workflowRoute).toContain('workflow approval does not grant child authority');
-    expect(workflowRoute).not.toContain('<button');
-    expect(workflowRoute).not.toContain('fetch(');
-    expect(workflowRoute).not.toContain("method: 'POST'");
-    expect(workflowRoute).not.toContain('approvalKey');
-    expect(workflowRoute).not.toContain('local-control');
+    expect(recoveryWizard).toContain('Recovery Guided Operation');
+    expect(recoveryWizard).toContain('<button');
+    expect(appSource).toContain('/api/workflows/production/recoveries/dry-runs');
+    expect(appSource).toContain('/api/workflows/production/recoveries/approval-requests');
+    expect(appSource).toContain('/api/workflows/production/recoveries/manual-approvals');
+    expect(appSource).toContain('/api/workflows/production/recoveries/runs');
+    expect(recoveryWizard).not.toContain('approvalKey');
+    expect(recoveryWizard).not.toContain('local-control');
     expect(workflowRoute).not.toContain('CODEXHUB_SUPERVISOR_LOCAL');
+    for (const forbidden of [
+      'approvalArtifact:',
+      'executionAuthority',
+      'authority:',
+      'childArtifacts',
+      'childApprovalApproved',
+      'childRunStatuses',
+      'rawPath',
+      'rawBody',
+      'CODEXHUB_GITHUB_TOKEN',
+      'executeGithub',
+      'adapter.execute',
+    ]) {
+      expect(recoveryWizard).not.toContain(forbidden);
+    }
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {

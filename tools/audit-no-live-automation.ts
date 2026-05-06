@@ -157,6 +157,14 @@ const policyTelemetryRuntimeTerms = [
 ];
 const directAdapterExecuteTerms = discoverPublicExecuteTerms();
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
+const dashboardRecoveryForbiddenPayloadTerms = [
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'childArtifacts',
+  'childApprovalApproved',
+  'childRunStatuses',
+];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
@@ -381,6 +389,34 @@ function validateAdversarialAuditSentinels(): void {
         'const endpoint = "/api/approvals/decisions"; window.indexedDB.open("codexhub-approval-key");',
       expectedTerm: 'indexedDB',
       description: 'Dashboard approval token persistence through IndexedDB alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/runs"; window.localStorage.setItem("recoveryKey", "secret");',
+      expectedTerm: 'localStorage',
+      description: 'Dashboard recovery key persistence',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/runs"; const body = { dryRunId, childApprovalApproved };',
+      expectedTerm: 'childApprovalApproved',
+      description: 'Dashboard recovery child auto-approval payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/runs"; const body = { dryRunId, executionAuthority: { allowed: true } };',
+      expectedTerm: 'executionAuthority',
+      description: 'Dashboard recovery request-body authority payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/approval-requests"; const body = { dryRunId, childArtifacts: [] };',
+      expectedTerm: 'childArtifacts',
+      description: 'Dashboard recovery child artifact payload',
     },
     {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
@@ -861,7 +897,11 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
     }
   }
 
-  if (!isDashboardSource || !sourceText.includes('/api/approvals/decisions')) {
+  const hasGovernedDashboardMutation =
+    sourceText.includes('/api/approvals/decisions') ||
+    sourceText.includes('/api/workflows/production/recoveries/');
+
+  if (!isDashboardSource || !hasGovernedDashboardMutation) {
     return;
   }
 
@@ -875,6 +915,20 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
           reason:
             'Dashboard approval UX must keep the local control token in session memory only; browser storage is forbidden.',
         });
+      }
+    }
+
+    if (sourceText.includes('/api/workflows/production/recoveries/')) {
+      for (const term of dashboardRecoveryForbiddenPayloadTerms) {
+        if (line.includes(term)) {
+          violations.push({
+            file,
+            line: index + 1,
+            term,
+            reason:
+              'Dashboard recovery wizard may only send ids and hashes to the recovery control plane; request-body authority, child artifacts, and child auto-approval payloads are forbidden.',
+          });
+        }
       }
     }
   }

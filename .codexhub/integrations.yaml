@@ -1588,6 +1588,24 @@ integrations:
         - GET /api/workflows/production/recoveries/runs
         - GET /api/workflows/production/recoveries/runs/:id
         - GET /api/workflows/production/recoveries/rehearsals/latest
+    recoveryGuidedOperation:
+      stage: m31-m32
+      dashboardRoute: "#/workflows"
+      supportedTemplates:
+        - local-patch-review
+        - github-draft-pr-chain
+        - rework-cleanup
+      usesExistingRecoveryRoutesOnly: true
+      noNewSupervisorRoute: true
+      pageMemoryKeyOnly: true
+      browserStorageAllowed: false
+      childAutoApprovalAllowed: false
+      childAdapterExecutionAllowed: false
+      childArtifactsAcceptedFromDashboard: false
+      requestBodyAuthorityTrusted: false
+      cliMutationAllowed: false
+      rawPathStored: false
+      bodyStored: false
     readOnlyUx:
       dashboardRoute: "#/workflows"
       cliCommands:

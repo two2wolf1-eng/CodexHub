@@ -4156,3 +4156,131 @@ workflows:
       arbitraryGithubPassthroughAllowed: false
       childApprovalIsolationRequired: true
       metadataOnlyPublicOutput: true
+  m31a.production-recovery-guided-operation-shell:
+    risk: critical
+    trigger:
+      type: dashboard-guided-operation
+      entrypoint: "#/workflows"
+      localControlRequired: true
+    templates:
+      - local-patch-review
+      - github-draft-pr-chain
+      - rework-cleanup
+    safety:
+      usesExistingRecoveryRoutesOnly: true
+      pageMemoryKeyOnly: true
+      browserStorageAllowed: false
+      childAutoApprovalAllowed: false
+      directAdapterExecutionAllowed: false
+      cliMutationAllowed: false
+  m31b.production-recovery-dashboard-route-client:
+    risk: critical
+    trigger:
+      type: dashboard-route-client
+      entrypoint: /api/workflows/production/recoveries
+      localControlRequired: true
+    routes:
+      - POST/GET /api/workflows/production/recoveries/dry-runs
+      - POST /api/workflows/production/recoveries/approval-requests
+      - POST /api/workflows/production/recoveries/manual-approvals
+      - GET /api/workflows/production/recoveries/approvals
+      - POST/GET /api/workflows/production/recoveries/runs
+      - GET /api/workflows/production/recoveries/runs/:id
+    safety:
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      childArtifactsAcceptedFromDashboard: false
+      rawPathBodyTokenOutput: false
+  m31c.production-recovery-guided-flow:
+    risk: critical
+    trigger:
+      type: operator-guided-flow
+      entrypoint: dashboard
+      localControlRequired: true
+    chain:
+      - disabled-state-check
+      - recovery-dry-run
+      - recovery-approval-request
+      - workflow-recovery-manual-approval
+      - recovery-run
+      - child-approval-wait
+      - resume-from-last-safe-step
+    safety:
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      noPushMergeUpdateRefForce: true
+      noCommentsLabelsReviewersReleasesDeployments: true
+  m31d.production-recovery-guided-tests-docs:
+    risk: high
+    trigger:
+      type: tests-docs
+      entrypoint: dashboard supervisor docs tools
+      localControlRequired: false
+    docs:
+      - docs/releases/m31-production-recovery-guided-operation.md
+      - docs/reviews/m31-production-recovery-guided-operation-review.md
+      - docs/runbooks/m31-production-recovery-dashboard-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewLiveBoundary: true
+  m32a.production-recovery-acceptance-smoke:
+    risk: high
+    trigger:
+      type: dashboard-acceptance-smoke
+      entrypoint: "#/workflows"
+      localControlRequired: false
+    scenarios:
+      - all-pass-local
+      - all-pass-remote
+      - token-missing
+      - token-bad
+      - recovery-disabled
+      - child-orchestration-disabled
+      - workflow-approval-blocked
+      - child-approval-wait
+      - child-run-failed
+      - branch-publish-failed
+      - draft-pr-failed
+      - remote-cleanup-blocked
+      - resume-after-child-approval
+    safety:
+      degradedSafe: true
+      rawSecretOutput: false
+  m32b.production-recovery-static-audit-hardening:
+    risk: critical
+    trigger:
+      type: static-audit-hardening
+      entrypoint: tools/audit-no-live-automation.ts
+      localControlRequired: false
+    safety:
+      dashboardMutationAllowlist:
+        - /api/approvals/decisions
+        - /api/workflows/production/recoveries
+      liveBoundaryAllowlistChanged: false
+      adapterExecuteFromDashboardCliMcp: false
+  m32c.production-recovery-approval-boundary-semantics:
+    risk: critical
+    trigger:
+      type: supervisor-regression
+      entrypoint: apps/supervisor
+      localControlRequired: true
+    safety:
+      preBoundaryBlockConsumesWorkflowApproval: false
+      coordinatorStartedRunConsumesWorkflowApprovalOnce: true
+      childApprovalConsumedOnlyByChildPlane: true
+      boundaryTruthPreserved: true
+  m32d.production-recovery-guided-closeout:
+    risk: high
+    trigger:
+      type: release-closeout
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m32-production-recovery-guided-acceptance.md
+      - docs/reviews/m32-production-recovery-guided-hardening-review.md
+      - docs/runbooks/m32-production-recovery-operator-acceptance.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      metadataOnlyPublicOutput: true

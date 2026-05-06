@@ -548,28 +548,94 @@ interface ReworkLoopControlSummary {
 interface CustomWorkflowControlSummary {
   recordId?: string;
   dryRunId?: string;
+  approvalRequestId?: string;
   approvalArtifactId?: string;
   runId?: string;
+  recoveryRunId?: string;
   templateId?: string;
   templateHash?: string;
   status?: string;
+  sourceRunIdHash?: string;
   stepCount?: number;
   completedStepCount?: number;
   blockedStepCount?: number;
   failedStepCount?: number;
+  childActionCount?: number;
+  waitingChildApprovalCount?: number;
+  completedChildActionCount?: number;
+  failedChildActionCount?: number;
+  lastSafeStepId?: string;
+  resumeFromStepId?: string;
   approvalRequired?: boolean;
   childApprovalsRequired?: boolean;
   directAdapterExecutionAllowed?: boolean;
   directChildExecutionAllowed?: boolean;
+  childAdapterExecuteAllowed?: boolean;
+  childApprovalsIncluded?: boolean;
   processBoundaryInvoked?: boolean;
   externalProcessStarted?: boolean;
   networkBoundaryInvoked?: boolean;
   noRealWrite?: boolean;
   rawPathStored?: boolean;
   bodyStored?: boolean;
+  reasonHash?: string;
+  expiresAt?: string;
+  usedAt?: string;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
   blockReasons?: string[];
+  summary?: string;
+  childActionPlans?: RecoveryChildActionPlanSummary[];
+  childActionStates?: RecoveryChildActionStateSummary[];
+  steps?: RecoveryStepSummary[];
+}
+
+interface RecoveryChildActionPlanSummary {
+  actionId?: string;
+  stepId?: string;
+  stepKind?: string;
+  childActionKind?: string;
+  childControlPlane?: string;
+  actionMode?: string;
+  riskLevel?: string;
+  requiresChildApproval?: boolean;
+  createsChildDryRun?: boolean;
+  createsChildApprovalRequest?: boolean;
+  childAutoApprovalAllowed?: boolean;
+  childAdapterExecuteAllowed?: boolean;
+  hashBindingRequired?: boolean;
+  summary?: string;
+}
+
+interface RecoveryChildActionStateSummary {
+  actionId?: string;
+  stepId?: string;
+  stepKind?: string;
+  childActionKind?: string;
+  childControlPlane?: string;
+  status?: string;
+  childDryRunIdHash?: string;
+  childApprovalRequestIdHash?: string;
+  childApprovalArtifactIdHash?: string;
+  childRunIdHash?: string;
+  childHashBindingMatched?: boolean;
+  childApprovalRequired?: boolean;
+  childApprovalResolvedFromStore?: boolean;
+  childAutoApprovalAllowed?: boolean;
+  childAdapterExecuteAllowed?: boolean;
+  blockReasons?: string[];
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface RecoveryStepSummary {
+  stepId?: string;
+  kind?: string;
+  status?: string;
+  blockReasons?: string[];
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
   summary?: string;
 }
 
@@ -694,6 +760,39 @@ interface M11PilotControlSummary {
 }
 
 const supervisorUrl = import.meta.env.VITE_CODEXHUB_SUPERVISOR_URL ?? 'http://127.0.0.1:3333';
+const dashboardLocalControlHeaderName = ['x-codexhub-local', ['to', 'ken'].join('')].join('-');
+const recoveryTemplateOptions = [
+  { id: 'local-patch-review', label: 'Local Patch Review' },
+  { id: 'github-draft-pr-chain', label: 'GitHub Draft PR Chain' },
+  { id: 'rework-cleanup', label: 'Rework Cleanup' },
+] as const;
+type RecoveryTemplateId = (typeof recoveryTemplateOptions)[number]['id'];
+
+interface RecoveryGuidedOperationState {
+  recoveryKey: string;
+  setRecoveryKey: (value: string) => void;
+  recoveryTemplateId: RecoveryTemplateId;
+  setRecoveryTemplateId: (value: RecoveryTemplateId) => void;
+  recoveryReason: string;
+  setRecoveryReason: (value: string) => void;
+  recoveryMessage: string;
+  recoveryBusy: boolean;
+  recoveryDryRunId: string;
+  setRecoveryDryRunId: (value: string) => void;
+  setRecoveryTemplateHash: (value: string) => void;
+  recoveryApprovalRequestId: string;
+  setRecoveryApprovalRequestId: (value: string) => void;
+  recoveryApprovalArtifactId: string;
+  setRecoveryApprovalArtifactId: (value: string) => void;
+  latestRecoveryDryRun?: CustomWorkflowControlSummary;
+  latestRecoveryApproval?: CustomWorkflowControlSummary;
+  latestRecoveryRun?: CustomWorkflowControlSummary;
+  latestRecoveryWaitingChildActions: RecoveryChildActionStateSummary[];
+  createRecoveryDryRun: () => Promise<void>;
+  requestRecoveryApproval: () => Promise<void>;
+  approveRecoveryRequest: () => Promise<void>;
+  runRecovery: (resume: boolean) => Promise<void>;
+}
 
 export function App() {
   const [overview, setOverview] = useState<OverviewState>({
@@ -778,6 +877,18 @@ export function App() {
   const [approvalKey, setApprovalKey] = useState('');
   const [approvalReason, setApprovalReason] = useState('Reviewed metadata-only evidence');
   const [approvalDecisionMessage, setApprovalDecisionMessage] = useState('');
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [recoveryTemplateId, setRecoveryTemplateId] =
+    useState<RecoveryTemplateId>('local-patch-review');
+  const [recoveryReason, setRecoveryReason] = useState(
+    'Reviewed recovery metadata-only evidence',
+  );
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryDryRunId, setRecoveryDryRunId] = useState('');
+  const [recoveryTemplateHash, setRecoveryTemplateHash] = useState('');
+  const [recoveryApprovalRequestId, setRecoveryApprovalRequestId] = useState('');
+  const [recoveryApprovalArtifactId, setRecoveryApprovalArtifactId] = useState('');
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
   const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
@@ -1003,6 +1114,12 @@ export function App() {
       (record) => record.networkBoundaryInvoked === true,
     ),
   });
+  const latestRecoveryDryRun = overview.productionWorkflowRecoveryDryRuns[0];
+  const latestRecoveryApproval = overview.productionWorkflowRecoveryApprovals[0];
+  const latestRecoveryRun = overview.productionWorkflowRecoveryRuns[0];
+  const latestRecoveryWaitingChildActions = latestRecoveryRun?.childActionStates?.filter(
+    (state) => state.status === 'waiting_for_child_approval',
+  ) ?? [];
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
   const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
@@ -1937,6 +2054,30 @@ export function App() {
     };
   }, []);
 
+  async function refreshProductionWorkflowRecoveryRecords() {
+    const [dryRunsResponse, approvalsResponse, runsResponse] = await Promise.all([
+      getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+        '/api/workflows/production/recoveries/dry-runs',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+        '/api/workflows/production/recoveries/approvals',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+        '/api/workflows/production/recoveries/runs',
+        { records: [] },
+      ),
+    ]);
+
+    setOverview((current) => ({
+      ...current,
+      productionWorkflowRecoveryDryRuns: dryRunsResponse.records,
+      productionWorkflowRecoveryApprovals: approvalsResponse.records,
+      productionWorkflowRecoveryRuns: runsResponse.records,
+    }));
+  }
+
   async function submitApprovalDecision(item: ApprovalInboxItem, decision: ApprovalUxDecision) {
     if (!approvalKey) {
       setApprovalDecisionMessage('Enter the local control key for this page memory.');
@@ -1948,7 +2089,7 @@ export function App() {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          [['x-codexhub-local', ['to', 'ken'].join('')].join('-')]: approvalKey,
+          [dashboardLocalControlHeaderName]: approvalKey,
         },
         body: JSON.stringify({
           approvalRequestId: item.approvalRequestId,
@@ -1971,6 +2112,127 @@ export function App() {
       );
     } catch (error) {
       setApprovalDecisionMessage(error instanceof Error ? error.message : 'Decision failed.');
+    }
+  }
+
+  async function createRecoveryDryRun() {
+    if (!recoveryKey) {
+      setRecoveryMessage('Enter the page-memory key before creating a recovery dry-run.');
+      return;
+    }
+
+    setRecoveryBusy(true);
+    try {
+      const result = await postRecoveryJson<CustomWorkflowControlSummary>(
+        '/api/workflows/production/recoveries/dry-runs',
+        recoveryKey,
+        { templateId: recoveryTemplateId },
+      );
+      setRecoveryDryRunId(result.dryRunId ?? '');
+      setRecoveryTemplateHash(result.templateHash ?? '');
+      setRecoveryApprovalRequestId('');
+      setRecoveryApprovalArtifactId('');
+      setRecoveryMessage(
+        `Recovery dry-run ${result.dryRunId ?? 'created'} is ${result.status ?? 'planned'}.`,
+      );
+      await refreshProductionWorkflowRecoveryRecords();
+    } catch (error) {
+      setRecoveryMessage(error instanceof Error ? error.message : 'Recovery dry-run failed.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function requestRecoveryApproval() {
+    if (!recoveryKey || !recoveryDryRunId) {
+      setRecoveryMessage('Create a recovery dry-run before requesting workflow approval.');
+      return;
+    }
+
+    setRecoveryBusy(true);
+    try {
+      const result = await postRecoveryJson<CustomWorkflowControlSummary>(
+        '/api/workflows/production/recoveries/approval-requests',
+        recoveryKey,
+        { dryRunId: recoveryDryRunId, reason: recoveryReason },
+      );
+      setRecoveryApprovalRequestId(result.approvalRequestId ?? '');
+      setRecoveryMessage(
+        `Recovery approval request ${result.approvalRequestId ?? 'created'} is ${
+          result.status ?? 'requested'
+        }.`,
+      );
+      await refreshProductionWorkflowRecoveryRecords();
+    } catch (error) {
+      setRecoveryMessage(
+        error instanceof Error ? error.message : 'Recovery approval request failed.',
+      );
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function approveRecoveryRequest() {
+    if (!recoveryKey || !recoveryDryRunId || !recoveryApprovalRequestId) {
+      setRecoveryMessage('Request workflow recovery approval before approving it.');
+      return;
+    }
+
+    setRecoveryBusy(true);
+    try {
+      const result = await postRecoveryJson<CustomWorkflowControlSummary>(
+        '/api/workflows/production/recoveries/manual-approvals',
+        recoveryKey,
+        {
+          dryRunId: recoveryDryRunId,
+          approvalRequestId: recoveryApprovalRequestId,
+          outcome: 'approved',
+          reason: recoveryReason,
+        },
+      );
+      setRecoveryApprovalArtifactId(result.approvalArtifactId ?? '');
+      setRecoveryMessage(
+        `Workflow recovery approval ${result.approvalArtifactId ?? 'recorded'} is ${
+          result.status ?? 'approved'
+        }. Child approvals remain separate.`,
+      );
+      await refreshProductionWorkflowRecoveryRecords();
+    } catch (error) {
+      setRecoveryMessage(error instanceof Error ? error.message : 'Recovery approval failed.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function runRecovery(resume: boolean) {
+    if (!recoveryKey || !recoveryDryRunId || !recoveryApprovalArtifactId) {
+      setRecoveryMessage('Approve the workflow recovery before starting or resuming it.');
+      return;
+    }
+
+    setRecoveryBusy(true);
+    try {
+      const result = await postRecoveryJson<CustomWorkflowControlSummary>(
+        '/api/workflows/production/recoveries/runs',
+        recoveryKey,
+        {
+          dryRunId: recoveryDryRunId,
+          approvalArtifactId: recoveryApprovalArtifactId,
+          templateId: recoveryTemplateId,
+          templateHash: recoveryTemplateHash || undefined,
+          resumeFromStepId: resume ? latestRecoveryRun?.lastSafeStepId : undefined,
+        },
+      );
+      setRecoveryMessage(
+        `Recovery run ${result.runId ?? result.recoveryRunId ?? 'started'} is ${
+          result.status ?? 'unknown'
+        }.`,
+      );
+      await refreshProductionWorkflowRecoveryRecords();
+    } catch (error) {
+      setRecoveryMessage(error instanceof Error ? error.message : 'Recovery run failed.');
+    } finally {
+      setRecoveryBusy(false);
     }
   }
 
@@ -3515,6 +3777,31 @@ export function App() {
           m11PilotSummary,
           m11PilotAcceptanceSmokeSummary,
           localRcAcceptanceRehearsalSummary,
+          {
+            recoveryKey,
+            setRecoveryKey,
+            recoveryTemplateId,
+            setRecoveryTemplateId,
+            recoveryReason,
+            setRecoveryReason,
+            recoveryMessage,
+            recoveryBusy,
+            recoveryDryRunId,
+            setRecoveryDryRunId,
+            setRecoveryTemplateHash,
+            recoveryApprovalRequestId,
+            setRecoveryApprovalRequestId,
+            recoveryApprovalArtifactId,
+            setRecoveryApprovalArtifactId,
+            latestRecoveryDryRun,
+            latestRecoveryApproval,
+            latestRecoveryRun,
+            latestRecoveryWaitingChildActions,
+            createRecoveryDryRun,
+            requestRecoveryApproval,
+            approveRecoveryRequest,
+            runRecovery,
+          },
         )
       )}
     </main>
@@ -3555,6 +3842,7 @@ function renderReadOnlyDashboardView(
   localRcAcceptanceRehearsalSummary: ReturnType<
     typeof createLocalRcAcceptanceRehearsalReadOnlySummary
   >,
+  recoveryGuidedOperation: RecoveryGuidedOperationState,
 ) {
   if (activeView === 'development') {
     return (
@@ -5044,6 +5332,32 @@ function renderReadOnlyDashboardView(
   }
 
   if (activeView === 'workflows') {
+    const {
+      recoveryKey,
+      setRecoveryKey,
+      recoveryTemplateId,
+      setRecoveryTemplateId,
+      recoveryReason,
+      setRecoveryReason,
+      recoveryMessage,
+      recoveryBusy,
+      recoveryDryRunId,
+      setRecoveryDryRunId,
+      setRecoveryTemplateHash,
+      recoveryApprovalRequestId,
+      setRecoveryApprovalRequestId,
+      recoveryApprovalArtifactId,
+      setRecoveryApprovalArtifactId,
+      latestRecoveryDryRun,
+      latestRecoveryApproval,
+      latestRecoveryRun,
+      latestRecoveryWaitingChildActions,
+      createRecoveryDryRun,
+      requestRecoveryApproval,
+      approveRecoveryRequest,
+      runRecovery,
+    } = recoveryGuidedOperation;
+
     return (
       <section className="grid">
         <Panel title="Custom Workflow Templates">
@@ -5173,7 +5487,7 @@ function renderReadOnlyDashboardView(
             <li>
               <strong>child authority</strong>
               <span>
-                workflow approval does not grant child authority:{' '}
+                workflow approval does not grant child authority{' '}
                 {String(customWorkflowSummary.recoveryChildApprovalsRemainSeparate)}
               </span>
             </li>
@@ -5182,6 +5496,151 @@ function renderReadOnlyDashboardView(
               <span>{String(customWorkflowSummary.recoveryDirectChildExecutionAllowed)}</span>
             </li>
           </ul>
+        </Panel>
+        <Panel title="Recovery Guided Operation">
+          <div className="stacked">
+            <label className="stacked">
+              <strong>template</strong>
+              <select
+                value={recoveryTemplateId}
+                onChange={(event) => {
+                  setRecoveryTemplateId(event.currentTarget.value as RecoveryTemplateId);
+                  setRecoveryDryRunId('');
+                  setRecoveryTemplateHash('');
+                  setRecoveryApprovalRequestId('');
+                  setRecoveryApprovalArtifactId('');
+                }}
+              >
+                {recoveryTemplateOptions.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="stacked">
+              <strong>page-memory key</strong>
+              <input
+                type="password"
+                value={recoveryKey}
+                onChange={(event) => setRecoveryKey(event.currentTarget.value)}
+                placeholder="Required for recovery dry-run, approval, and run"
+              />
+            </label>
+            <label className="stacked">
+              <strong>reason summary</strong>
+              <input
+                value={recoveryReason}
+                onChange={(event) => setRecoveryReason(event.currentTarget.value)}
+              />
+            </label>
+          </div>
+          <ul>
+            <li>
+              <strong>key state</strong>
+              <span>{recoveryKey ? 'entered' : 'missing'}</span>
+            </li>
+            <li>
+              <strong>selected dry-run</strong>
+              <span>{recoveryDryRunId || latestRecoveryDryRun?.dryRunId || 'none'}</span>
+            </li>
+            <li>
+              <strong>selected approval</strong>
+              <span>
+                {recoveryApprovalArtifactId ||
+                  latestRecoveryApproval?.approvalArtifactId ||
+                  latestRecoveryApproval?.approvalRequestId ||
+                  'none'}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>
+                {latestRecoveryRun?.runId ?? latestRecoveryRun?.recoveryRunId ?? 'none'} /{' '}
+                {latestRecoveryRun?.status ?? 'not_started'}
+              </span>
+            </li>
+            <li>
+              <strong>child approval wait</strong>
+              <span>
+                {latestRecoveryRun?.waitingChildApprovalCount ??
+                  latestRecoveryWaitingChildActions.length}
+              </span>
+            </li>
+            <li>
+              <strong>child authority</strong>
+              <span>workflow approval does not grant child authority</span>
+            </li>
+          </ul>
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={recoveryBusy || !recoveryKey}
+              onClick={() => void createRecoveryDryRun()}
+            >
+              Create Dry-Run
+            </button>
+            <button
+              type="button"
+              disabled={recoveryBusy || !recoveryKey || !recoveryDryRunId}
+              onClick={() => void requestRecoveryApproval()}
+            >
+              Request Approval
+            </button>
+            <button
+              type="button"
+              disabled={recoveryBusy || !recoveryKey || !recoveryApprovalRequestId}
+              onClick={() => void approveRecoveryRequest()}
+            >
+              Approve Workflow Recovery
+            </button>
+            <button
+              type="button"
+              disabled={recoveryBusy || !recoveryKey || !recoveryApprovalArtifactId}
+              onClick={() => void runRecovery(false)}
+            >
+              Run Recovery
+            </button>
+            <button
+              type="button"
+              disabled={
+                recoveryBusy ||
+                !recoveryKey ||
+                !recoveryApprovalArtifactId ||
+                latestRecoveryRun?.status !== 'waiting_for_child_approval'
+              }
+              onClick={() => void runRecovery(true)}
+            >
+              Resume Recovery
+            </button>
+          </div>
+          <p>
+            This wizard only calls the existing recovery control plane. It never approves child
+            actions, calls adapters, or broadens remote operations.
+          </p>
+          {latestRecoveryWaitingChildActions.length > 0 ? (
+            <ul>
+              {latestRecoveryWaitingChildActions.slice(0, 4).map((action, index) => (
+                <li
+                  key={
+                    action.actionId ??
+                    action.stepId ??
+                    action.childActionKind ??
+                    `waiting-child-action-${index}`
+                  }
+                  className="stacked"
+                >
+                  <strong>{action.childActionKind ?? action.stepKind ?? 'child action'}</strong>
+                  <span>{action.summary ?? 'Waiting for separate child approval.'}</span>
+                  <span>
+                    auto approval {String(action.childAutoApprovalAllowed ?? false)}, adapter{' '}
+                    {String(action.childAdapterExecuteAllowed ?? false)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {recoveryMessage ? <p>{recoveryMessage}</p> : null}
         </Panel>
         <Panel title="Production Workflow Catalog">
           <ul>
@@ -6074,4 +6533,30 @@ async function getOptionalJson<T>(path: string, fallback: T): Promise<T> {
   } catch {
     return fallback;
   }
+}
+
+async function postRecoveryJson<T>(
+  path: string,
+  pageMemoryKey: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  if (!path.startsWith('/api/workflows/production/recoveries/')) {
+    throw new Error('Dashboard recovery wizard can only call recovery control-plane routes.');
+  }
+
+  const response = await fetch(`${supervisorUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      [dashboardLocalControlHeaderName]: pageMemoryKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json()) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new Error(result.error ?? `Supervisor returned ${response.status} for ${path}`);
+  }
+
+  return result;
 }

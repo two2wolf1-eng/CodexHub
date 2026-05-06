@@ -127,9 +127,11 @@ h1 {
   white-space: pre-wrap;
 }
 
-.panel input {
+.panel input,
+.panel select {
   border: 1px solid #cfd9df;
   border-radius: 6px;
+  background: #ffffff;
   color: #172026;
   font: inherit;
   padding: 8px 10px;
