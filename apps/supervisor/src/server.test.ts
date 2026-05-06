@@ -94,6 +94,27 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: false,
   },
   {
+    family: 'release-version-plans',
+    prefix: '/api/releases/version-plans',
+    approvalManagedExternally: true,
+    routeSuffixes: ['/dry-runs'],
+  },
+  {
+    family: 'github-release-tags',
+    prefix: '/api/github/release-tags',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-release-drafts',
+    prefix: '/api/github/release-drafts',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'deployment-observations',
+    prefix: '/api/deployments/observations',
+    approvalManagedExternally: false,
+  },
+  {
     family: 'github-draft-prs',
     prefix: '/api/github/draft-prs',
     approvalManagedExternally: false,
@@ -161,20 +182,40 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: false,
   },
 ] as const;
-const lateStageSupervisorMutatingRoutes = lateStageSupervisorControlPlaneMatrix.flatMap((entry) =>
-  (entry.approvalManagedExternally
-    ? [`${entry.prefix}/dry-runs`, `${entry.prefix}/runs`]
-    : [
-        `${entry.prefix}/dry-runs`,
-        `${entry.prefix}/approval-requests`,
-        `${entry.prefix}/manual-approvals`,
-        `${entry.prefix}/runs`,
-      ]
-  ).concat('extraMutatingRoutes' in entry ? entry.extraMutatingRoutes : []),
-);
+function getLateStageMutatingRoutes(
+  entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
+): string[] {
+  const baseRoutes =
+    'routeSuffixes' in entry
+      ? entry.routeSuffixes.map((suffix) => `${entry.prefix}${suffix}`)
+      : entry.approvalManagedExternally
+      ? [`${entry.prefix}/dry-runs`, `${entry.prefix}/runs`]
+      : [
+          `${entry.prefix}/dry-runs`,
+          `${entry.prefix}/approval-requests`,
+          `${entry.prefix}/manual-approvals`,
+          `${entry.prefix}/runs`,
+        ];
+
+  return baseRoutes.concat('extraMutatingRoutes' in entry ? entry.extraMutatingRoutes : []);
+}
+
+const lateStageSupervisorMutatingRoutes =
+  lateStageSupervisorControlPlaneMatrix.flatMap(getLateStageMutatingRoutes);
 const lateStageSupervisorRoutePrefixes = lateStageSupervisorControlPlaneMatrix.map(
   (entry) => entry.prefix,
 );
+const lateStageSupervisorHelperRouteNamespaces = [
+  '/api/github/',
+  '/api/releases/',
+  '/api/deployments/',
+  '/api/secrets/',
+  '/api/policy-backends/',
+  '/api/telemetry/',
+  '/api/browser/actions',
+  '/api/electron-cdp/main-inspector',
+  '/api/mcp/write-tools',
+] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
 
@@ -310,6 +351,12 @@ describe('supervisor mock development API', () => {
         url,
         payload: {},
       });
+      const badTokenResponse = await server.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-codexhub-local-token': 'bad-token-fixture' },
+        payload: {},
+      });
       const maliciousOriginResponse = await server.inject({
         method: 'POST',
         url,
@@ -340,6 +387,8 @@ describe('supervisor mock development API', () => {
 
       expect(missingTokenResponse.statusCode).toBe(401);
       expect(missingTokenResponse.json().error).toBe('invalid_local_control_token');
+      expect(badTokenResponse.statusCode).toBe(401);
+      expect(badTokenResponse.json().error).toBe('invalid_local_control_token');
       expect(maliciousOriginResponse.statusCode).toBe(403);
       expect(maliciousOriginResponse.json().error).toBe('untrusted_origin');
       expect(trustedOriginResponse.statusCode).not.toBe(401);
@@ -425,6 +474,34 @@ describe('supervisor mock development API', () => {
           ]),
       )
       .concat(
+        [...serverSource.matchAll(/registerReleaseVersionPlanRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .map((prefix) => `${prefix}/dry-runs`),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerGithubRelease(?:Tag|Draft)Routes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerDeploymentObservationRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
         [...serverSource.matchAll(/registerDeploymentOperationRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
@@ -485,8 +562,20 @@ describe('supervisor mock development API', () => {
           ]),
       )
       .sort();
+    const registeredLateStageHelperPrefixes = [
+      ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
+    ]
+      .flatMap((match) => [...match[1].matchAll(/'([^']+)'/g)].map((argMatch) => argMatch[1]))
+      .filter((prefix): prefix is string => Boolean(prefix))
+      .filter((prefix) =>
+        lateStageSupervisorHelperRouteNamespaces.some((namespace) => prefix.startsWith(namespace)),
+      )
+      .sort();
     const coveredLateStageRoutes = [...lateStageSupervisorMutatingRoutes].sort();
 
+    for (const prefix of registeredLateStageHelperPrefixes) {
+      expect(lateStageSupervisorRoutePrefixes).toContain(prefix);
+    }
     expect(coveredLateStageRoutes).toEqual(registeredLateStageRoutes);
   });
 
@@ -497,10 +586,17 @@ describe('supervisor mock development API', () => {
 
     for (const entry of lateStageSupervisorControlPlaneMatrix) {
       const routes = coveredLateStageRoutes.filter((route) => route.startsWith(entry.prefix));
+      const expectedRoutes = getLateStageMutatingRoutes(entry);
 
-      expect(routes).toContain(`${entry.prefix}/dry-runs`);
-      expect(routes).toContain(`${entry.prefix}/runs`);
+      for (const expectedRoute of expectedRoutes) {
+        expect(routes).toContain(expectedRoute);
+      }
       expect(routes.every((route) => route.startsWith(entry.prefix))).toBe(true);
+
+      if ('routeSuffixes' in entry) {
+        expect(routes.sort()).toEqual([...expectedRoutes].sort());
+        continue;
+      }
 
       if (entry.approvalManagedExternally) {
         expect(routes).not.toContain(`${entry.prefix}/approval-requests`);
@@ -532,6 +628,14 @@ describe('supervisor mock development API', () => {
           approvalArtifact: { id: 'caller_supplied_artifact', status: 'approved' },
           executionAuthority: { allowed: true, policyDecisionId: 'caller_supplied_policy' },
           authority: { allowed: true, policyDecisionId: 'caller_supplied_authority' },
+          rawUrl: 'https://evil.example/caller-supplied-url',
+          rawBody: 'caller supplied raw body fixture',
+          requestBody: 'caller supplied request body fixture',
+          responseBody: 'caller supplied response body fixture',
+          token: 'ghp_caller_supplied_token',
+          envValue: 'CALLER_SUPPLIED_ENV_VALUE',
+          childArtifacts: [{ id: 'caller_supplied_child_artifact' }],
+          fullArtifact: { id: 'caller_supplied_full_artifact' },
         },
       });
 
@@ -539,6 +643,14 @@ describe('supervisor mock development API', () => {
       expect(response.body).not.toContain('caller_supplied_artifact');
       expect(response.body).not.toContain('caller_supplied_policy');
       expect(response.body).not.toContain('caller_supplied_authority');
+      expect(response.body).not.toContain('caller-supplied-url');
+      expect(response.body).not.toContain('caller supplied raw body fixture');
+      expect(response.body).not.toContain('caller supplied request body fixture');
+      expect(response.body).not.toContain('caller supplied response body fixture');
+      expect(response.body).not.toContain('ghp_caller_supplied_token');
+      expect(response.body).not.toContain('CALLER_SUPPLIED_ENV_VALUE');
+      expect(response.body).not.toContain('caller_supplied_child_artifact');
+      expect(response.body).not.toContain('caller_supplied_full_artifact');
       expect(response.body).not.toContain('"allowed":true');
     }
 

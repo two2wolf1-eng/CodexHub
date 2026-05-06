@@ -5052,3 +5052,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m45_4.supervisor-authority-gates-debug:
+    risk: critical
+    trigger:
+      type: supervisor-authority-gates-debug
+      entrypoint: supervisor docs tools
+      localControlRequired: false
+    scope:
+      - late-stage-mutating-route-gate-matrix
+      - helper-route-drift-detection
+      - request-body-authority-rejection
+      - local-control-token-origin-cors-coverage
+    docs:
+      - docs/releases/m45.4-supervisor-authority-gates-debug.md
+      - docs/reviews/m0-m45-supervisor-authority-gates-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      requestBodyAuthorityUntrusted: true
+      metadataOnlyPublicOutput: true
