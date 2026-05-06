@@ -53,6 +53,19 @@ function sourceWindow(source: string, startMarker: string, endMarker: string): s
   return source.slice(start, end);
 }
 
+function extractDashboardPostRouteSets(source: string): Record<string, string[]> {
+  return Object.fromEntries(
+    [
+      ...source.matchAll(
+        /const\s+(\w+DashboardPostRoutes)\s*=\s*new Set\(\[([\s\S]*?)\]\);/g,
+      ),
+    ].map((match) => [
+      match[1],
+      [...match[2].matchAll(/'([^']+)'/g)].map((routeMatch) => routeMatch[1]),
+    ]),
+  );
+}
+
 describe('dashboard read-only UX helpers', () => {
   it('selects stable hash routes with overview fallback', () => {
     expect(getDashboardViewFromHash('#/mcp-tools')).toBe('mcp-tools');
@@ -209,6 +222,91 @@ describe('dashboard read-only UX helpers', () => {
     expect(policyTelemetryControlWindow).not.toContain('indexedDB');
     expect(policyTelemetryControlWindow).not.toContain('executeGithub');
     expect(policyTelemetryControlWindow).not.toContain('adapter.execute');
+  });
+
+  it('keeps Dashboard POST route sets exact and free of generic expansion', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const routeSets = extractDashboardPostRouteSets(appSource);
+    const expectedRouteSets = {
+      recoveryDashboardPostRoutes: [
+        '/api/workflows/production/recoveries/dry-runs',
+        '/api/workflows/production/recoveries/approval-requests',
+        '/api/workflows/production/recoveries/manual-approvals',
+        '/api/workflows/production/recoveries/runs',
+      ],
+      mergeDashboardPostRoutes: [
+        '/api/github/merges/dry-runs',
+        '/api/github/merges/approval-requests',
+        '/api/github/merges/manual-approvals',
+        '/api/github/merges/runs',
+      ],
+      deploymentOperationDashboardPostRoutes: [
+        '/api/deployments/operations/dry-runs',
+        '/api/deployments/operations/approval-requests',
+        '/api/deployments/operations/manual-approvals',
+        '/api/deployments/operations/rollback-plans',
+        '/api/deployments/operations/runs',
+      ],
+      policyTelemetryDashboardPostRoutes: [
+        '/api/policy-backends/evaluations/dry-runs',
+        '/api/policy-backends/evaluations/approval-requests',
+        '/api/policy-backends/evaluations/manual-approvals',
+        '/api/policy-backends/evaluations/runs',
+        '/api/telemetry/exports/dry-runs',
+        '/api/telemetry/exports/approval-requests',
+        '/api/telemetry/exports/manual-approvals',
+        '/api/telemetry/exports/runs',
+      ],
+    } satisfies Record<string, string[]>;
+    const allowedRoutePrefixes = [
+      '/api/workflows/production/recoveries/',
+      '/api/github/merges/',
+      '/api/deployments/operations/',
+      '/api/policy-backends/evaluations/',
+      '/api/telemetry/exports/',
+    ];
+    const unsafeRouteTerms = [
+      'actions',
+      'agents',
+      'browser',
+      'comments',
+      'electron',
+      'labels',
+      'mcp',
+      'platform',
+      'release',
+      'reviewers',
+      'runtime',
+      'secrets',
+    ];
+
+    expect(routeSets).toEqual(expectedRouteSets);
+    expect(Object.keys(routeSets).sort()).toEqual(Object.keys(expectedRouteSets).sort());
+
+    for (const routes of Object.values(routeSets)) {
+      for (const route of routes) {
+        expect(allowedRoutePrefixes.some((prefix) => route.startsWith(prefix))).toBe(true);
+        for (const unsafeTerm of unsafeRouteTerms) {
+          expect(route).not.toContain(unsafeTerm);
+        }
+      }
+    }
+
+    expect(appSource).not.toContain("startsWith('/api/");
+    expect(appSource).not.toContain('startsWith("/api/');
+    expect(appSource).not.toContain("includes('/api/");
+    expect(appSource).not.toContain('includes("/api/');
+    expect(appSource).not.toContain("indexOf('/api/");
+    expect(appSource).not.toContain('indexOf("/api/');
+    expect(appSource).not.toContain('.setItem(');
+    expect(appSource).not.toContain('.getItem(');
+    expect(appSource).not.toContain('localStorage');
+    expect(appSource).not.toContain('sessionStorage');
+    expect(appSource).not.toContain('indexedDB');
+    expect(appSource).not.toContain('document.cookie');
+    expect(appSource).not.toContain('URLSearchParams');
+    expect(appSource).not.toContain('history.pushState');
+    expect(appSource).not.toContain('history.replaceState');
   });
 
   it('summarizes approval decision history without raw reason or token data', () => {
