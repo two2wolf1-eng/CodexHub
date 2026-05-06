@@ -5877,3 +5877,30 @@ workflows:
       dashboardTokenMemoryOnly: true
       dashboardNoDirectAdapterExecute: true
       metadataOnlyPublicOutput: true
+  m47_d19.adversarial-static-audit-debug:
+    risk: critical
+    trigger:
+      type: adversarial-static-audit-debug
+      entrypoint: tools docs
+      localControlRequired: false
+    scope:
+      - audit-negative-fixtures-alias-import
+      - audit-negative-fixtures-dynamic-execute-property
+      - audit-negative-fixtures-generic-post-helper
+      - audit-negative-fixtures-generic-github-url-builder
+      - audit-negative-fixtures-token-storage-wrapper
+      - audit-negative-fixtures-dynamic-env-read
+      - audit-negative-fixtures-shell-argv-passthrough
+    docs:
+      - docs/releases/m47-d19-adversarial-static-audit-debug.md
+      - docs/reviews/m47-d19-adversarial-static-audit-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      auditOnlyNegativeFixtures: true
+      metadataOnlyPublicOutput: true

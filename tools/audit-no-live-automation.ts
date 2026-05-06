@@ -651,6 +651,25 @@ function validateAdversarialAuditSentinels(): void {
       description: 'adapter execute access through split dynamic property lookup from CLI source',
     },
     {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText: "const run = adapters[['execute', 'GithubMerge'].join('')];",
+      expectedTerm: "['execute',",
+      description: 'adapter execute access through array-joined dynamic property lookup',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-process-boundary.ts',
+      sourceText:
+        'import { spawn as run } from "node:child_process"; const argv = process.argv.slice(2); run("git", argv);',
+      expectedTerm: 'node:child_process',
+      description: 'external process import alias with argv passthrough',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-process-boundary.ts',
+      sourceText: 'spawn("kubectl", process.argv.slice(2));',
+      expectedTerm: 'spawn(',
+      description: 'bare process spawn call with argv passthrough',
+    },
+    {
       workspacePath: 'apps/cli/src/adversarial-agent-run.ts',
       sourceText:
         'import { runExternalAgentPatchWithRunner } from "@codexhub/external-agent-adapter"; await runExternalAgentPatchWithRunner(request);',
@@ -773,6 +792,13 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText:
+        'const sendMutation = globalThis["fetch"]; sendMutation("/api/runtime/jobs/runs", { method: \'POST\' });',
+      expectedTerm: "method: 'POST'",
+      description: 'Dashboard generic POST helper through bracket fetch alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
       sourceText: 'window["localStorage"].setItem("codexhub-local-control", token);',
       expectedTerm: 'localStorage',
       description: 'Dashboard token persistence through bracket notation wrapper',
@@ -782,6 +808,13 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'window["local" + "Storage"].setItem("codexhub-local-control", token);',
       expectedTerm: '["local" + "Storage"]',
       description: 'Dashboard token persistence through split storage wrapper',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText:
+        'const storage = globalThis["session" + "Storage"]; storage.setItem("codexhub-local-control", token);',
+      expectedTerm: '["session" + "Storage"]',
+      description: 'Dashboard token persistence through aliased split session storage wrapper',
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
@@ -1063,9 +1096,21 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = ["/repos", owner, repo, "git", "refs"].join("/");',
+      expectedTerm: '"git", "refs"].join("/")',
+      description: 'CLI segmented generic GitHub ref endpoint construction with double quotes',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
       sourceText: 'const endpoint = new URL("/repos/example/example/git/refs", "https://api.github.com");',
       expectedTerm: '/git/refs',
       description: 'CLI generic GitHub URL builder for ref mutation endpoint',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-token-env.ts',
+      sourceText: 'const localToken = process.env["CODEXHUB_SUPERVISOR_LOCAL_TOKEN"];',
+      expectedTerm: 'token',
+      description: 'CLI local-control token env read outside exact mutation helpers',
     },
   ];
 
@@ -1155,8 +1200,11 @@ function adversarialSentinelWouldViolate(
   expectedTerm: string,
 ): boolean {
   const file = resolve(workspaceRoot, workspacePath);
+  const sourceFile = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
   const before = violations.length;
 
+  auditImports(file, sourceFile, sourceText);
+  auditCallExpressions(file, sourceFile);
   auditTextTerms(file, sourceText);
   auditM9ApprovalUxGuards(file, sourceText);
   auditDashboardMutationSurfaceGuards(file, sourceText);
