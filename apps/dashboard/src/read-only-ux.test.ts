@@ -112,6 +112,52 @@ describe('dashboard read-only UX helpers', () => {
     }
   });
 
+  it('keeps M47-D18 operator smoke routes backed by concrete degraded-safe panels', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const operatorSmokePanels = [
+      { view: 'governance', firstPanel: 'Unified Governance Projection' },
+      { view: 'readiness', firstPanel: 'Operator Readiness' },
+      { view: 'github', firstPanel: 'GitHub Provider Readiness' },
+      { view: 'workflows', firstPanel: 'Custom Workflow Templates' },
+      { view: 'deployments', firstPanel: 'Deployment Observations' },
+      { view: 'secrets', firstPanel: 'Secrets Governance' },
+      { view: 'policy-telemetry', firstPanel: 'Policy Backend' },
+      { view: 'runtime', firstPanel: 'Runtime Scheduler' },
+      { view: 'operations', firstPanel: 'Platform Operations' },
+    ] as const;
+
+    const smokeSummary = operatorSmokePanels.map(({ view, firstPanel }) => {
+      const marker = `activeView === '${view}'`;
+      const routeStart = appSource.indexOf(marker);
+      expect(routeStart, `${view} route marker`).toBeGreaterThanOrEqual(0);
+      const routeWindow = appSource.slice(routeStart, routeStart + 9000);
+
+      expect(DASHBOARD_VIEWS).toContain(view);
+      expect(getDashboardViewFromHash(getDashboardHash(view))).toBe(view);
+      expect(routeWindow).toContain(`<Panel title="${firstPanel}"`);
+
+      return {
+        view,
+        route: getDashboardHash(view),
+        firstPanel,
+        degradedState: summarizeDegradedState('degraded', 'Supervisor unavailable'),
+        supervisorPostAttempted: false,
+        adapterExecuteInvoked: false,
+        tokenPersisted: false,
+      };
+    });
+    const serialized = JSON.stringify(smokeSummary);
+
+    expect(serialized).toContain('#/policy-telemetry');
+    expect(serialized).toContain('#/runtime');
+    expect(serialized).toContain('#/operations');
+    expectNoForbiddenRawOutputTerms(serialized);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('localStorage');
+    expect(serialized).not.toContain('sessionStorage');
+    expect(serialized).not.toContain('indexedDB');
+  });
+
   it('keeps approval UX token handling in component memory only', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 

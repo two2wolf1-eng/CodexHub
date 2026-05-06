@@ -5846,3 +5846,34 @@ workflows:
       noOpenPullRequest: true
       fixtureOnlyRehearsal: true
       metadataOnlyPublicOutput: true
+  m47_d18.operator-degraded-state-debug:
+    risk: critical
+    trigger:
+      type: operator-degraded-state-debug
+      entrypoint: dashboard docs tools
+      localControlRequired: false
+    scope:
+      - governance-route-degraded-safe
+      - readiness-route-degraded-safe
+      - github-route-degraded-safe
+      - workflows-route-degraded-safe
+      - deployments-route-degraded-safe
+      - secrets-route-degraded-safe
+      - policy-telemetry-route-degraded-safe
+      - runtime-route-degraded-safe
+      - operations-route-degraded-safe
+    docs:
+      - docs/releases/m47-d18-operator-degraded-state-debug.md
+      - docs/reviews/m47-d18-operator-degraded-state-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      dashboardNoUnsupportedPost: true
+      dashboardTokenMemoryOnly: true
+      dashboardNoDirectAdapterExecute: true
+      metadataOnlyPublicOutput: true
