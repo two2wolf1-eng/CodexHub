@@ -18,6 +18,9 @@ import type {
   ExternalAgentPatchPlan,
   ExternalAgentPatchSummary,
   ExternalAgentRun,
+  AuditExportPlan,
+  AuditExportRun,
+  DisasterRecoveryRehearsalRun,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -96,12 +99,23 @@ import type {
   McpWriteToolRun,
   MultiAgentCoordinationPlan,
   MultiAgentSlotSummary,
+  OperatorRoleAssignmentPlan,
+  OperatorRoleAssignmentRun,
+  PlatformBackupPlan,
+  PlatformBackupRun,
+  PlatformOperationApprovalArtifact,
+  PlatformRestorePlan,
+  PlatformRestoreRun,
+  RetentionPolicyPlan,
+  RetentionPolicyRun,
   RuntimeCheckpoint,
   RuntimeJobPlan,
   RuntimeJobRun,
   RuntimeLease,
   RuntimeLock,
   RuntimeQueueEntry,
+  StoreMigrationPlan,
+  StoreMigrationRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -196,6 +210,7 @@ export type ElectronMainInspectorControlPlaneQuery = WorktreeControlPlaneQuery;
 export type McpWriteToolControlPlaneQuery = WorktreeControlPlaneQuery;
 export type RuntimeOperationsControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ExternalAgentControlPlaneQuery = WorktreeControlPlaneQuery;
+export type PlatformOperationsControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -1020,6 +1035,107 @@ export interface ExternalAgentPatchSummaryRepository {
   ): Promise<ExternalAgentPatchSummary[]>;
 }
 
+export interface PlatformOperationApprovalRepository {
+  saveApproval(
+    record: PlatformOperationApprovalArtifact,
+  ): Promise<PlatformOperationApprovalArtifact>;
+  getApproval(id: string): Promise<PlatformOperationApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<PlatformOperationApprovalArtifact | undefined>;
+  listApprovals(
+    query?: PlatformOperationsControlPlaneQuery,
+  ): Promise<PlatformOperationApprovalArtifact[]>;
+}
+
+export interface PlatformBackupPlanRepository {
+  saveBackupPlan(record: PlatformBackupPlan): Promise<PlatformBackupPlan>;
+  getBackupPlan(id: string): Promise<PlatformBackupPlan | undefined>;
+  listBackupPlans(query?: PlatformOperationsControlPlaneQuery): Promise<PlatformBackupPlan[]>;
+}
+
+export interface PlatformBackupRunRepository {
+  saveRun(record: PlatformBackupRun): Promise<PlatformBackupRun>;
+  getRun(id: string): Promise<PlatformBackupRun | undefined>;
+  listRuns(query?: PlatformOperationsControlPlaneQuery): Promise<PlatformBackupRun[]>;
+}
+
+export interface PlatformRestorePlanRepository {
+  saveRestorePlan(record: PlatformRestorePlan): Promise<PlatformRestorePlan>;
+  getRestorePlan(id: string): Promise<PlatformRestorePlan | undefined>;
+  listRestorePlans(query?: PlatformOperationsControlPlaneQuery): Promise<PlatformRestorePlan[]>;
+}
+
+export interface PlatformRestoreRunRepository {
+  saveRun(record: PlatformRestoreRun): Promise<PlatformRestoreRun>;
+  getRun(id: string): Promise<PlatformRestoreRun | undefined>;
+  listRuns(query?: PlatformOperationsControlPlaneQuery): Promise<PlatformRestoreRun[]>;
+}
+
+export interface StoreMigrationPlanRepository {
+  saveMigrationPlan(record: StoreMigrationPlan): Promise<StoreMigrationPlan>;
+  getMigrationPlan(id: string): Promise<StoreMigrationPlan | undefined>;
+  listMigrationPlans(
+    query?: PlatformOperationsControlPlaneQuery,
+  ): Promise<StoreMigrationPlan[]>;
+}
+
+export interface StoreMigrationRunRepository {
+  saveRun(record: StoreMigrationRun): Promise<StoreMigrationRun>;
+  getRun(id: string): Promise<StoreMigrationRun | undefined>;
+  listRuns(query?: PlatformOperationsControlPlaneQuery): Promise<StoreMigrationRun[]>;
+}
+
+export interface RetentionPolicyPlanRepository {
+  saveRetentionPlan(record: RetentionPolicyPlan): Promise<RetentionPolicyPlan>;
+  getRetentionPlan(id: string): Promise<RetentionPolicyPlan | undefined>;
+  listRetentionPlans(
+    query?: PlatformOperationsControlPlaneQuery,
+  ): Promise<RetentionPolicyPlan[]>;
+}
+
+export interface RetentionPolicyRunRepository {
+  saveRun(record: RetentionPolicyRun): Promise<RetentionPolicyRun>;
+  getRun(id: string): Promise<RetentionPolicyRun | undefined>;
+  listRuns(query?: PlatformOperationsControlPlaneQuery): Promise<RetentionPolicyRun[]>;
+}
+
+export interface AuditExportPlanRepository {
+  saveAuditExportPlan(record: AuditExportPlan): Promise<AuditExportPlan>;
+  getAuditExportPlan(id: string): Promise<AuditExportPlan | undefined>;
+  listAuditExportPlans(query?: PlatformOperationsControlPlaneQuery): Promise<AuditExportPlan[]>;
+}
+
+export interface AuditExportRunRepository {
+  saveRun(record: AuditExportRun): Promise<AuditExportRun>;
+  getRun(id: string): Promise<AuditExportRun | undefined>;
+  listRuns(query?: PlatformOperationsControlPlaneQuery): Promise<AuditExportRun[]>;
+}
+
+export interface OperatorRoleAssignmentPlanRepository {
+  saveRoleAssignmentPlan(
+    record: OperatorRoleAssignmentPlan,
+  ): Promise<OperatorRoleAssignmentPlan>;
+  getRoleAssignmentPlan(id: string): Promise<OperatorRoleAssignmentPlan | undefined>;
+  listRoleAssignmentPlans(
+    query?: PlatformOperationsControlPlaneQuery,
+  ): Promise<OperatorRoleAssignmentPlan[]>;
+}
+
+export interface OperatorRoleAssignmentRunRepository {
+  saveRun(record: OperatorRoleAssignmentRun): Promise<OperatorRoleAssignmentRun>;
+  getRun(id: string): Promise<OperatorRoleAssignmentRun | undefined>;
+  listRuns(query?: PlatformOperationsControlPlaneQuery): Promise<OperatorRoleAssignmentRun[]>;
+}
+
+export interface DisasterRecoveryRehearsalRunRepository {
+  saveRehearsalRun(record: DisasterRecoveryRehearsalRun): Promise<DisasterRecoveryRehearsalRun>;
+  getRehearsalRun(id: string): Promise<DisasterRecoveryRehearsalRun | undefined>;
+  listRehearsalRuns(
+    query?: PlatformOperationsControlPlaneQuery,
+  ): Promise<DisasterRecoveryRehearsalRun[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -1435,6 +1551,20 @@ export interface CodexHubStore {
   externalAgentApprovals: ExternalAgentApprovalRepository;
   externalAgentRuns: ExternalAgentRunRepository;
   externalAgentPatchSummaries: ExternalAgentPatchSummaryRepository;
+  platformOperationApprovals: PlatformOperationApprovalRepository;
+  platformBackupPlans: PlatformBackupPlanRepository;
+  platformBackupRuns: PlatformBackupRunRepository;
+  platformRestorePlans: PlatformRestorePlanRepository;
+  platformRestoreRuns: PlatformRestoreRunRepository;
+  storeMigrationPlans: StoreMigrationPlanRepository;
+  storeMigrationRuns: StoreMigrationRunRepository;
+  retentionPolicyPlans: RetentionPolicyPlanRepository;
+  retentionPolicyRuns: RetentionPolicyRunRepository;
+  auditExportPlans: AuditExportPlanRepository;
+  auditExportRuns: AuditExportRunRepository;
+  operatorRoleAssignmentPlans: OperatorRoleAssignmentPlanRepository;
+  operatorRoleAssignmentRuns: OperatorRoleAssignmentRunRepository;
+  disasterRecoveryRehearsalRuns: DisasterRecoveryRehearsalRunRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

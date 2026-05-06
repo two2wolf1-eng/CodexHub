@@ -20,6 +20,10 @@ export default defineConfig({
         workspaceRoot,
         'packages/external-agent-adapter/src/index.ts',
       ),
+      '@codexhub/platform-operations-kernel': resolve(
+        workspaceRoot,
+        'packages/platform-operations-kernel/src/index.ts',
+      ),
     },
   },
   test: {

@@ -25,6 +25,9 @@ import type {
   ExternalAgentPatchPlan,
   ExternalAgentPatchSummary,
   ExternalAgentRun,
+  AuditExportPlan,
+  AuditExportRun,
+  DisasterRecoveryRehearsalRun,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -103,12 +106,23 @@ import type {
   McpWriteToolRun,
   MultiAgentCoordinationPlan,
   MultiAgentSlotSummary,
+  OperatorRoleAssignmentPlan,
+  OperatorRoleAssignmentRun,
+  PlatformBackupPlan,
+  PlatformBackupRun,
+  PlatformOperationApprovalArtifact,
+  PlatformRestorePlan,
+  PlatformRestoreRun,
+  RetentionPolicyPlan,
+  RetentionPolicyRun,
   RuntimeCheckpoint,
   RuntimeJobPlan,
   RuntimeJobRun,
   RuntimeLease,
   RuntimeLock,
   RuntimeQueueEntry,
+  StoreMigrationPlan,
+  StoreMigrationRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -186,6 +200,9 @@ import type {
   ExternalAgentDryRunRepository,
   ExternalAgentPatchSummaryRepository,
   ExternalAgentRunRepository,
+  AuditExportPlanRepository,
+  AuditExportRunRepository,
+  DisasterRecoveryRehearsalRunRepository,
   GithubBranchPublishApprovalRepository,
   GithubBranchPublishControlPlaneQuery,
   GithubBranchPublishDryRunRepository,
@@ -259,6 +276,16 @@ import type {
   ProductionWorkflowRecoveryRunRepository,
   LocalProductionWorkflowChildRecordQuery,
   NxVerificationChildRecordRepository,
+  OperatorRoleAssignmentPlanRepository,
+  OperatorRoleAssignmentRunRepository,
+  PlatformBackupPlanRepository,
+  PlatformBackupRunRepository,
+  PlatformOperationApprovalRepository,
+  PlatformOperationsControlPlaneQuery,
+  PlatformRestorePlanRepository,
+  PlatformRestoreRunRepository,
+  RetentionPolicyPlanRepository,
+  RetentionPolicyRunRepository,
   ReworkLoopApprovalRepository,
   ReworkLoopControlPlaneQuery,
   ReworkLoopDryRunRepository,
@@ -299,6 +326,8 @@ import type {
   RuntimeLockRepository,
   RuntimeOperationsControlPlaneQuery,
   RuntimeQueueEntryRepository,
+  StoreMigrationPlanRepository,
+  StoreMigrationRunRepository,
   RealPolicyBackendApprovalRepository,
   RealPolicyBackendDryRunRepository,
   RealPolicyBackendRunRepository,
@@ -466,6 +495,20 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly externalAgentApprovals: ExternalAgentApprovalRepository;
   readonly externalAgentRuns: ExternalAgentRunRepository;
   readonly externalAgentPatchSummaries: ExternalAgentPatchSummaryRepository;
+  readonly platformOperationApprovals: PlatformOperationApprovalRepository;
+  readonly platformBackupPlans: PlatformBackupPlanRepository;
+  readonly platformBackupRuns: PlatformBackupRunRepository;
+  readonly platformRestorePlans: PlatformRestorePlanRepository;
+  readonly platformRestoreRuns: PlatformRestoreRunRepository;
+  readonly storeMigrationPlans: StoreMigrationPlanRepository;
+  readonly storeMigrationRuns: StoreMigrationRunRepository;
+  readonly retentionPolicyPlans: RetentionPolicyPlanRepository;
+  readonly retentionPolicyRuns: RetentionPolicyRunRepository;
+  readonly auditExportPlans: AuditExportPlanRepository;
+  readonly auditExportRuns: AuditExportRunRepository;
+  readonly operatorRoleAssignmentPlans: OperatorRoleAssignmentPlanRepository;
+  readonly operatorRoleAssignmentRuns: OperatorRoleAssignmentRunRepository;
+  readonly disasterRecoveryRehearsalRuns: DisasterRecoveryRehearsalRunRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -752,6 +795,25 @@ class SqliteCodexHubStore implements CodexHubStore {
       'external_agent_runs',
     );
     this.externalAgentPatchSummaries = new SqliteExternalAgentPatchSummaryRepository(database);
+    this.platformOperationApprovals =
+      new SqliteGenericApprovalRepository<PlatformOperationApprovalArtifact>(
+        database,
+        'platform_operation_approvals',
+      );
+    this.platformBackupPlans = new SqlitePlatformBackupPlanRepository(database);
+    this.platformBackupRuns = new SqlitePlatformBackupRunRepository(database);
+    this.platformRestorePlans = new SqlitePlatformRestorePlanRepository(database);
+    this.platformRestoreRuns = new SqlitePlatformRestoreRunRepository(database);
+    this.storeMigrationPlans = new SqliteStoreMigrationPlanRepository(database);
+    this.storeMigrationRuns = new SqliteStoreMigrationRunRepository(database);
+    this.retentionPolicyPlans = new SqliteRetentionPolicyPlanRepository(database);
+    this.retentionPolicyRuns = new SqliteRetentionPolicyRunRepository(database);
+    this.auditExportPlans = new SqliteAuditExportPlanRepository(database);
+    this.auditExportRuns = new SqliteAuditExportRunRepository(database);
+    this.operatorRoleAssignmentPlans = new SqliteOperatorRoleAssignmentPlanRepository(database);
+    this.operatorRoleAssignmentRuns = new SqliteOperatorRoleAssignmentRunRepository(database);
+    this.disasterRecoveryRehearsalRuns =
+      new SqliteDisasterRecoveryRehearsalRunRepository(database);
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -3684,6 +3746,406 @@ class SqliteExternalAgentPatchSummaryRepository implements ExternalAgentPatchSum
   }
 }
 
+class SqlitePlatformBackupPlanRepository implements PlatformBackupPlanRepository {
+  private readonly repository: JsonEntityRepository<PlatformBackupPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<PlatformBackupPlan>(
+      database,
+      'platform_backup_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveBackupPlan(record: PlatformBackupPlan): Promise<PlatformBackupPlan> {
+    return this.repository.create(record);
+  }
+
+  async getBackupPlan(id: string): Promise<PlatformBackupPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listBackupPlans(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<PlatformBackupPlan[]> {
+    return listObservationControlPlaneRecords<PlatformBackupPlan>(
+      this.database,
+      'platform_backup_plans',
+      query,
+    );
+  }
+}
+
+class SqlitePlatformBackupRunRepository implements PlatformBackupRunRepository {
+  private readonly repository: JsonEntityRepository<PlatformBackupRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<PlatformBackupRun>(
+      database,
+      'platform_backup_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: PlatformBackupRun): Promise<PlatformBackupRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<PlatformBackupRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<PlatformBackupRun[]> {
+    return listObservationControlPlaneRecords<PlatformBackupRun>(
+      this.database,
+      'platform_backup_runs',
+      query,
+    );
+  }
+}
+
+class SqlitePlatformRestorePlanRepository implements PlatformRestorePlanRepository {
+  private readonly repository: JsonEntityRepository<PlatformRestorePlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<PlatformRestorePlan>(
+      database,
+      'platform_restore_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRestorePlan(record: PlatformRestorePlan): Promise<PlatformRestorePlan> {
+    return this.repository.create(record);
+  }
+
+  async getRestorePlan(id: string): Promise<PlatformRestorePlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRestorePlans(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<PlatformRestorePlan[]> {
+    return listObservationControlPlaneRecords<PlatformRestorePlan>(
+      this.database,
+      'platform_restore_plans',
+      query,
+    );
+  }
+}
+
+class SqlitePlatformRestoreRunRepository implements PlatformRestoreRunRepository {
+  private readonly repository: JsonEntityRepository<PlatformRestoreRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<PlatformRestoreRun>(
+      database,
+      'platform_restore_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: PlatformRestoreRun): Promise<PlatformRestoreRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<PlatformRestoreRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<PlatformRestoreRun[]> {
+    return listObservationControlPlaneRecords<PlatformRestoreRun>(
+      this.database,
+      'platform_restore_runs',
+      query,
+    );
+  }
+}
+
+class SqliteStoreMigrationPlanRepository implements StoreMigrationPlanRepository {
+  private readonly repository: JsonEntityRepository<StoreMigrationPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<StoreMigrationPlan>(
+      database,
+      'store_migration_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveMigrationPlan(record: StoreMigrationPlan): Promise<StoreMigrationPlan> {
+    return this.repository.create(record);
+  }
+
+  async getMigrationPlan(id: string): Promise<StoreMigrationPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listMigrationPlans(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<StoreMigrationPlan[]> {
+    return listObservationControlPlaneRecords<StoreMigrationPlan>(
+      this.database,
+      'store_migration_plans',
+      query,
+    );
+  }
+}
+
+class SqliteStoreMigrationRunRepository implements StoreMigrationRunRepository {
+  private readonly repository: JsonEntityRepository<StoreMigrationRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<StoreMigrationRun>(
+      database,
+      'store_migration_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: StoreMigrationRun): Promise<StoreMigrationRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<StoreMigrationRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<StoreMigrationRun[]> {
+    return listObservationControlPlaneRecords<StoreMigrationRun>(
+      this.database,
+      'store_migration_runs',
+      query,
+    );
+  }
+}
+
+class SqliteRetentionPolicyPlanRepository implements RetentionPolicyPlanRepository {
+  private readonly repository: JsonEntityRepository<RetentionPolicyPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RetentionPolicyPlan>(
+      database,
+      'retention_policy_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRetentionPlan(record: RetentionPolicyPlan): Promise<RetentionPolicyPlan> {
+    return this.repository.create(record);
+  }
+
+  async getRetentionPlan(id: string): Promise<RetentionPolicyPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRetentionPlans(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<RetentionPolicyPlan[]> {
+    return listObservationControlPlaneRecords<RetentionPolicyPlan>(
+      this.database,
+      'retention_policy_plans',
+      query,
+    );
+  }
+}
+
+class SqliteRetentionPolicyRunRepository implements RetentionPolicyRunRepository {
+  private readonly repository: JsonEntityRepository<RetentionPolicyRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<RetentionPolicyRun>(
+      database,
+      'retention_policy_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: RetentionPolicyRun): Promise<RetentionPolicyRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<RetentionPolicyRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<RetentionPolicyRun[]> {
+    return listObservationControlPlaneRecords<RetentionPolicyRun>(
+      this.database,
+      'retention_policy_runs',
+      query,
+    );
+  }
+}
+
+class SqliteAuditExportPlanRepository implements AuditExportPlanRepository {
+  private readonly repository: JsonEntityRepository<AuditExportPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<AuditExportPlan>(
+      database,
+      'audit_export_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveAuditExportPlan(record: AuditExportPlan): Promise<AuditExportPlan> {
+    return this.repository.create(record);
+  }
+
+  async getAuditExportPlan(id: string): Promise<AuditExportPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listAuditExportPlans(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<AuditExportPlan[]> {
+    return listObservationControlPlaneRecords<AuditExportPlan>(
+      this.database,
+      'audit_export_plans',
+      query,
+    );
+  }
+}
+
+class SqliteAuditExportRunRepository implements AuditExportRunRepository {
+  private readonly repository: JsonEntityRepository<AuditExportRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<AuditExportRun>(
+      database,
+      'audit_export_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: AuditExportRun): Promise<AuditExportRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<AuditExportRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(query: PlatformOperationsControlPlaneQuery = {}): Promise<AuditExportRun[]> {
+    return listObservationControlPlaneRecords<AuditExportRun>(
+      this.database,
+      'audit_export_runs',
+      query,
+    );
+  }
+}
+
+class SqliteOperatorRoleAssignmentPlanRepository
+  implements OperatorRoleAssignmentPlanRepository
+{
+  private readonly repository: JsonEntityRepository<OperatorRoleAssignmentPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<OperatorRoleAssignmentPlan>(
+      database,
+      'operator_role_assignment_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRoleAssignmentPlan(
+    record: OperatorRoleAssignmentPlan,
+  ): Promise<OperatorRoleAssignmentPlan> {
+    return this.repository.create(record);
+  }
+
+  async getRoleAssignmentPlan(
+    id: string,
+  ): Promise<OperatorRoleAssignmentPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRoleAssignmentPlans(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<OperatorRoleAssignmentPlan[]> {
+    return listObservationControlPlaneRecords<OperatorRoleAssignmentPlan>(
+      this.database,
+      'operator_role_assignment_plans',
+      query,
+    );
+  }
+}
+
+class SqliteOperatorRoleAssignmentRunRepository
+  implements OperatorRoleAssignmentRunRepository
+{
+  private readonly repository: JsonEntityRepository<OperatorRoleAssignmentRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<OperatorRoleAssignmentRun>(
+      database,
+      'operator_role_assignment_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: OperatorRoleAssignmentRun): Promise<OperatorRoleAssignmentRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<OperatorRoleAssignmentRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<OperatorRoleAssignmentRun[]> {
+    return listObservationControlPlaneRecords<OperatorRoleAssignmentRun>(
+      this.database,
+      'operator_role_assignment_runs',
+      query,
+    );
+  }
+}
+
+class SqliteDisasterRecoveryRehearsalRunRepository
+  implements DisasterRecoveryRehearsalRunRepository
+{
+  private readonly repository: JsonEntityRepository<DisasterRecoveryRehearsalRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<DisasterRecoveryRehearsalRun>(
+      database,
+      'disaster_recovery_rehearsal_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRehearsalRun(
+    record: DisasterRecoveryRehearsalRun,
+  ): Promise<DisasterRecoveryRehearsalRun> {
+    return this.repository.create(record);
+  }
+
+  async getRehearsalRun(id: string): Promise<DisasterRecoveryRehearsalRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRehearsalRuns(
+    query: PlatformOperationsControlPlaneQuery = {},
+  ): Promise<DisasterRecoveryRehearsalRun[]> {
+    return listObservationControlPlaneRecords<DisasterRecoveryRehearsalRun>(
+      this.database,
+      'disaster_recovery_rehearsal_runs',
+      query,
+    );
+  }
+}
+
 class SqliteGithubRemoteCleanupDryRunRepository
   implements GithubRemoteCleanupDryRunRepository
 {
@@ -5761,6 +6223,90 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS external_agent_patch_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_operation_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_backup_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_backup_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_restore_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_restore_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS store_migration_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS store_migration_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS retention_policy_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS retention_policy_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_export_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_export_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS operator_role_assignment_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS operator_role_assignment_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS disaster_recovery_rehearsal_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

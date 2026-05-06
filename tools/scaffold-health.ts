@@ -19,6 +19,7 @@ const expectedProjects = [
   'observer-kernel',
   'otel-adapter',
   'policy-backend-adapter',
+  'platform-operations-kernel',
   'release-candidate-kernel',
   'review-package-kernel',
   'security-kernel',
