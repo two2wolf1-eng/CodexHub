@@ -5818,3 +5818,31 @@ workflows:
       mcpGithubTokenReadAllowed: false
       mcpSupervisorLocalTokenReadAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d17.rehearsal-matrix-completeness-debug:
+    risk: critical
+    trigger:
+      type: rehearsal-matrix-completeness-debug
+      entrypoint: contracts docs tools
+      localControlRequired: false
+    scope:
+      - m40-release-lifecycle-rehearsal-matrix
+      - m41-deployment-observation-rehearsal-matrix
+      - m42-deployment-operation-rehearsal-matrix
+      - m43-secrets-governance-rehearsal-matrix
+      - m44-policy-telemetry-rehearsal-matrix
+      - m45-controlled-write-rehearsal-matrix
+      - m46-runtime-external-agent-rehearsal-matrix
+      - m47-platform-operations-rehearsal-matrix
+    docs:
+      - docs/releases/m47-d17-rehearsal-matrix-debug.md
+      - docs/reviews/m47-d17-rehearsal-matrix-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      fixtureOnlyRehearsal: true
+      metadataOnlyPublicOutput: true
