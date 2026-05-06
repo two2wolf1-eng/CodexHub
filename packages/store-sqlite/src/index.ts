@@ -24,6 +24,9 @@ import type {
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
+  GithubMergeApprovalArtifact,
+  GithubMergeReadinessPlan,
+  GithubMergeRun,
   GithubPrLifecycleApprovalArtifactRecord,
   GithubPrLifecycleObservationPlan,
   GithubPrLifecycleObservationRun,
@@ -130,6 +133,10 @@ import type {
   GithubMetadataControlPlaneQuery,
   GithubMetadataDryRunRepository,
   GithubMetadataRunRepository,
+  GithubMergeApprovalRepository,
+  GithubMergeControlPlaneQuery,
+  GithubMergeDryRunRepository,
+  GithubMergeRunRepository,
   GithubPrLifecycleApprovalRepository,
   GithubPrLifecycleControlPlaneQuery,
   GithubPrLifecycleDryRunRepository,
@@ -280,6 +287,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubPrCommentsDryRuns: GithubPrManagementDryRunRepository;
   readonly githubPrCommentsApprovals: GithubPrManagementApprovalRepository;
   readonly githubPrCommentsRuns: GithubPrManagementRunRepository;
+  readonly githubMergeDryRuns: GithubMergeDryRunRepository;
+  readonly githubMergeApprovals: GithubMergeApprovalRepository;
+  readonly githubMergeRuns: GithubMergeRunRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -422,6 +432,9 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'github_pr_comments_runs',
     );
+    this.githubMergeDryRuns = new SqliteGithubMergeDryRunRepository(database);
+    this.githubMergeApprovals = new SqliteGithubMergeApprovalRepository(database);
+    this.githubMergeRuns = new SqliteGithubMergeRunRepository(database);
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -1962,6 +1975,106 @@ class SqliteGithubPrManagementRunRepository implements GithubPrManagementRunRepo
     return listObservationControlPlaneRecords<GithubPrManagementRun>(
       this.database,
       this.tableName,
+      query,
+    );
+  }
+}
+
+class SqliteGithubMergeDryRunRepository implements GithubMergeDryRunRepository {
+  private readonly repository: JsonEntityRepository<GithubMergeReadinessPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubMergeReadinessPlan>(
+      database,
+      'github_merge_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubMergeReadinessPlan): Promise<GithubMergeReadinessPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubMergeReadinessPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubMergeControlPlaneQuery = {},
+  ): Promise<GithubMergeReadinessPlan[]> {
+    return listObservationControlPlaneRecords<GithubMergeReadinessPlan>(
+      this.database,
+      'github_merge_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubMergeApprovalRepository implements GithubMergeApprovalRepository {
+  private readonly repository: JsonEntityRepository<GithubMergeApprovalArtifact>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubMergeApprovalArtifact>(
+      database,
+      'github_merge_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(record: GithubMergeApprovalArtifact): Promise<GithubMergeApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<GithubMergeApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubMergeApprovalArtifact | undefined> {
+    const rows = this.database
+      .prepare('SELECT payload FROM github_merge_approvals ORDER BY recorded_at DESC, id DESC')
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubMergeApprovalArtifact)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubMergeControlPlaneQuery = {},
+  ): Promise<GithubMergeApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<GithubMergeApprovalArtifact>(
+      this.database,
+      'github_merge_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteGithubMergeRunRepository implements GithubMergeRunRepository {
+  private readonly repository: JsonEntityRepository<GithubMergeRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<GithubMergeRun>(
+      database,
+      'github_merge_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubMergeRun): Promise<GithubMergeRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubMergeRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(query: GithubMergeControlPlaneQuery = {}): Promise<GithubMergeRun[]> {
+    return listObservationControlPlaneRecords<GithubMergeRun>(
+      this.database,
+      'github_merge_runs',
       query,
     );
   }
@@ -3684,6 +3797,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_pr_comments_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_merge_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_merge_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_merge_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

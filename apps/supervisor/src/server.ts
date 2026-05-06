@@ -240,6 +240,11 @@ import type {
   GithubDraftPrApprovalArtifactRecord,
   GithubDraftPrPlan,
   GithubDraftPrRun,
+  GithubMergeApprovalArtifact,
+  GithubMergeApprovalPhase,
+  GithubMergeReadinessPlan,
+  GithubMergeRun,
+  GithubMergeStrategy,
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
@@ -379,6 +384,8 @@ import {
   createGithubDraftPrPlan,
   createGithubMetadataApprovalRecord,
   createGithubMetadataDryRunRecord,
+  createGithubMergeApprovalRecord,
+  createGithubMergeReadinessPlan,
   createGithubPrLifecycleApprovalRecord,
   createGithubPrLifecycleObservationPlan,
   createGithubPrManagementApprovalRecord,
@@ -390,6 +397,7 @@ import {
   executeGithubBranchPublish,
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
+  executeGithubMerge,
   executeGithubPrLifecycleObservation,
   executeGithubPrManagement,
   executeGithubRemoteCleanup,
@@ -397,6 +405,8 @@ import {
   type GithubBranchPublishPlanInput,
   type GithubDraftPrExecutionInput,
   type GithubMetadataExecutionInput,
+  type GithubMergeExecutionInput,
+  type GithubMergePlanInput,
   type GithubPrLifecycleExecutionInput,
   type GithubPrLifecyclePlanInput,
   type GithubPrManagementExecutionInput,
@@ -468,6 +478,7 @@ interface SupervisorServerOptions {
   githubPrReviewersEnabled?: boolean;
   githubPrMilestonesEnabled?: boolean;
   githubPrCommentsEnabled?: boolean;
+  githubMergeEnabled?: boolean;
   githubRemoteCleanupEnabled?: boolean;
   reworkLoopEnabled?: boolean;
   customWorkflowEnabled?: boolean;
@@ -904,6 +915,73 @@ interface GithubPrManagementRunRequestBody {
   prNumber?: string;
   itemSummaries?: string[];
   payloadSummary?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMergeDryRunRequestBody {
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  prNumber?: string;
+  prNumberHash?: string;
+  expectedHeadSha?: string;
+  expectedHeadShaHash?: string;
+  mergeStrategy?: GithubMergeStrategy;
+  prOpen?: boolean;
+  branchProtectionSatisfied?: boolean;
+  checksPassed?: boolean;
+  reviewsSatisfied?: boolean;
+  staleHeadSha?: boolean;
+  checkRunCount?: number;
+  statusContextCount?: number;
+  failedCheckCount?: number;
+  pendingCheckCount?: number;
+  passedCheckCount?: number;
+  reviewDecisionCount?: number;
+  approvingReviewCount?: number;
+  changesRequestedReviewCount?: number;
+  runnerMode?: 'planning-only' | 'controlled-github-merge';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMergeApprovalRequestBody {
+  dryRunId?: string;
+  approvalPhase?: GithubMergeApprovalPhase;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMergeManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  approvalPhase?: GithubMergeApprovalPhase;
+  outcome?: GithubProviderApprovalStatus;
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface GithubMergeRunRequestBody {
+  dryRunId?: string;
+  readinessApprovalArtifactId?: string;
+  mergeApprovalArtifactId?: string;
+  owner?: string;
+  repo?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  prNumber?: string;
+  expectedHeadSha?: string;
+  mergeStrategy?: GithubMergeStrategy;
   approvalArtifact?: unknown;
   authority?: unknown;
   executionAuthority?: unknown;
@@ -1365,6 +1443,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const githubPrLifecycleDryRunRecords: GithubPrLifecycleObservationPlan[] = [];
   const githubPrLifecycleApprovalRecords: GithubPrLifecycleApprovalArtifactRecord[] = [];
   const githubPrLifecycleRunRecords: GithubPrLifecycleObservationRun[] = [];
+  const githubMergeDryRunRecords: GithubMergeReadinessPlan[] = [];
+  const githubMergeApprovalRecords: GithubMergeApprovalArtifact[] = [];
+  const githubMergeRunRecords: GithubMergeRun[] = [];
   const githubPrManagementRecords = createInMemoryGithubPrManagementRecords();
   const remoteSupersedeDryRunRecords: RemoteSupersedePlan[] = [];
   const remoteSupersedeRunRecords: RemoteSupersedeRun[] = [];
@@ -3364,6 +3445,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     return createGithubPrLifecycleRunResponse(record);
   });
+
+  registerGithubMergeRoutes('/api/github/merges');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
   registerGithubPrManagementRoutes('assignees', '/api/github/pr-assignees');
@@ -15498,6 +15581,455 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : githubPrManagementRecords[kind].runs.slice(0, query.limit ?? 50);
   }
 
+  async function persistGithubMergeDryRunRecord(
+    record: GithubMergeReadinessPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubMergeDryRuns.saveDryRun(record);
+      return;
+    }
+    githubMergeDryRunRecords.unshift(record);
+  }
+
+  async function persistGithubMergeApprovalRecord(
+    record: GithubMergeApprovalArtifact,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubMergeApprovals.saveApproval(record);
+      return;
+    }
+    githubMergeApprovalRecords.unshift(record);
+  }
+
+  async function persistGithubMergeRunRecord(
+    record: GithubMergeRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.githubMergeRuns.saveRun(record);
+      return;
+    }
+    githubMergeRunRecords.unshift(record);
+  }
+
+  async function resolveGithubMergeDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeReadinessPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.githubMergeDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubMergeDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return githubMergeDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveGithubMergeApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeApprovalArtifact | undefined> {
+    if (store) {
+      const directRecord = await store.githubMergeApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.githubMergeApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return githubMergeApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveGithubMergeApprovalRecordByArtifactId(
+    approvalArtifactId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeApprovalArtifact | undefined> {
+    if (!approvalArtifactId) {
+      return undefined;
+    }
+    return store
+      ? await store.githubMergeApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : githubMergeApprovalRecords.find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async function resolveGithubMergeRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeRun | undefined> {
+    return store
+      ? await store.githubMergeRuns.getRun(runId)
+      : githubMergeRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listGithubMergeDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeReadinessPlan[]> {
+    return store
+      ? await store.githubMergeDryRuns.listDryRuns(query)
+      : githubMergeDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubMergeApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeApprovalArtifact[]> {
+    return store
+      ? await store.githubMergeApprovals.listApprovals(query)
+      : githubMergeApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listGithubMergeRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<GithubMergeRun[]> {
+    return store
+      ? await store.githubMergeRuns.listRuns(query)
+      : githubMergeRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  function registerGithubMergeRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createGithubMergeStoreUnavailableResponse('dry-run'));
+      }
+
+      const body = request.body as GithubMergeDryRunRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createGithubMergeUntrustedAuthorityResponse(undefined));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createGithubMergeForbiddenRawBodyResponse(undefined));
+      }
+
+      const dryRunRecord = createGithubMergeReadinessPlan({
+        owner: body?.owner ?? '',
+        repo: body?.repo ?? '',
+        baseBranch: body?.baseBranch,
+        headBranch: body?.headBranch,
+        prNumber: body?.prNumber,
+        prNumberHash: body?.prNumberHash,
+        expectedHeadSha: body?.expectedHeadSha,
+        expectedHeadShaHash: body?.expectedHeadShaHash,
+        mergeStrategy: body?.mergeStrategy ?? 'squash',
+        prOpen: body?.prOpen,
+        branchProtectionSatisfied: body?.branchProtectionSatisfied,
+        checksPassed: body?.checksPassed,
+        reviewsSatisfied: body?.reviewsSatisfied,
+        staleHeadSha: body?.staleHeadSha,
+        checkRunCount: body?.checkRunCount,
+        statusContextCount: body?.statusContextCount,
+        failedCheckCount: body?.failedCheckCount,
+        pendingCheckCount: body?.pendingCheckCount,
+        passedCheckCount: body?.passedCheckCount,
+        reviewDecisionCount: body?.reviewDecisionCount,
+        approvingReviewCount: body?.approvingReviewCount,
+        changesRequestedReviewCount: body?.changesRequestedReviewCount,
+        runnerMode: body?.runnerMode ?? 'controlled-github-merge',
+      } satisfies GithubMergePlanInput);
+
+      await persistGithubMergeDryRunRecord(dryRunRecord, store);
+      await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        dryRunRecord.auditEventIds,
+        dryRunRecord.evidenceRefs,
+        store,
+        dryRunRecord.policyDecision.id,
+        false,
+      );
+
+      return createGithubMergeDryRunResponse(dryRunRecord);
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listGithubMergeDryRuns(query, store);
+
+      return {
+        records: records.map(createGithubMergeDryRunResponse),
+        count: records.length,
+        degraded: persistenceState.status !== 'ok',
+        notPersisted: !store,
+        networkBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      };
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createGithubMergeStoreUnavailableResponse('approval'));
+      }
+
+      const body = request.body as GithubMergeApprovalRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createGithubMergeUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createGithubMergeForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveGithubMergeDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'github merge dry-run record was not found' });
+      }
+
+      const approvalRecord = createGithubMergeApprovalRecord({
+        dryRunRecord,
+        approvalPhase: body?.approvalPhase ?? 'merge_execution',
+        status: 'requested',
+        requestedBy: body?.requestedBy,
+        reason: body?.reason,
+      });
+
+      await persistGithubMergeApprovalRecord(approvalRecord, store);
+      await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        approvalRecord.auditEventIds,
+        approvalRecord.evidenceRefs,
+        store,
+        approvalRecord.policyDecisionId,
+        false,
+      );
+
+      return createGithubMergeApprovalResponse(approvalRecord);
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createGithubMergeStoreUnavailableResponse('approval'));
+      }
+
+      const body = request.body as GithubMergeManualApprovalRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createGithubMergeUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createGithubMergeForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveGithubMergeDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'github merge dry-run record was not found' });
+      }
+
+      const approvalPhase = body?.approvalPhase ?? 'merge_execution';
+      const approvalRequest = body?.approvalRequestId
+        ? await resolveGithubMergeApprovalRecord(body.approvalRequestId, store)
+        : (await listGithubMergeApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 10 }, store)).find(
+            (record) => record.approvalPhase === approvalPhase,
+          );
+
+      if (!approvalRequest) {
+        return reply.code(404).send({ error: 'github merge approval request was not found' });
+      }
+
+      const approvalRecord = createGithubMergeApprovalRecord({
+        dryRunRecord,
+        approvalPhase,
+        baseRecord: approvalRequest,
+        status: body?.outcome ?? 'approved',
+        decidedBy: body?.decidedBy,
+        reason: body?.reason,
+      });
+
+      await persistGithubMergeApprovalRecord(approvalRecord, store);
+      await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        approvalRecord.auditEventIds,
+        approvalRecord.evidenceRefs,
+        store,
+        approvalRecord.policyDecisionId,
+        false,
+      );
+
+      return createGithubMergeApprovalResponse(approvalRecord);
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listGithubMergeApprovals(query, store);
+
+      return {
+        records: records.map(createGithubMergeApprovalResponse),
+        count: records.length,
+        degraded: persistenceState.status !== 'ok',
+        notPersisted: !store,
+        networkBoundaryInvoked: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      };
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createGithubMergeStoreUnavailableResponse('execution'));
+      }
+
+      const body = request.body as GithubMergeRunRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createGithubMergeUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createGithubMergeForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveGithubMergeDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'github merge dry-run record was not found' });
+      }
+
+      const readinessApprovalRecord = await resolveGithubMergeApprovalRecordByArtifactId(
+        body?.readinessApprovalArtifactId,
+        store,
+      );
+      const mergeApprovalRecord = await resolveGithubMergeApprovalRecordByArtifactId(
+        body?.mergeApprovalArtifactId,
+        store,
+      );
+      const authorityAllowed =
+        dryRunRecord.status === 'planned' &&
+        readinessApprovalRecord?.status === 'approved' &&
+        readinessApprovalRecord.approved &&
+        mergeApprovalRecord?.status === 'approved' &&
+        mergeApprovalRecord.approved &&
+        readinessApprovalRecord.approvalPhase === 'readiness' &&
+        mergeApprovalRecord.approvalPhase === 'merge_execution' &&
+        readinessApprovalRecord.decidedByHash !== undefined &&
+        mergeApprovalRecord.decidedByHash !== undefined &&
+        readinessApprovalRecord.decidedByHash !== mergeApprovalRecord.decidedByHash;
+      const authority = ExecutionAuthoritySchema.parse({
+        id: foundationId('authority'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        policyDecisionId: dryRunRecord.policyDecision.id,
+        approvalArtifactId: mergeApprovalRecord?.approvalArtifactId,
+        allowed: authorityAllowed,
+        constraints: [
+          'github-merge-fixed-endpoint-only',
+          'github-merge-two-approvals-required',
+          'github-merge-hash-bound-pr-and-head-sha',
+        ],
+      });
+      const githubCredential =
+        options.githubProviderCredential ?? process.env[GITHUB_PROVIDER_CREDENTIAL_ENV_VAR];
+      const providerEnabled =
+        options.githubProviderEnabled ?? process.env.CODEXHUB_GITHUB_PROVIDER_ENABLED === 'true';
+      const mergeEnabled =
+        options.githubMergeEnabled ?? process.env.CODEXHUB_GITHUB_MERGE_ENABLED === 'true';
+      const runRecord = await executeGithubMerge({
+        dryRunRecord,
+        readinessApprovalRecord,
+        mergeApprovalRecord,
+        authority,
+        enabled: providerEnabled && mergeEnabled,
+        runtime: {
+          owner: body?.owner ?? '',
+          repo: body?.repo ?? '',
+          baseBranch: body?.baseBranch ?? '',
+          headBranch: body?.headBranch ?? '',
+          prNumber: body?.prNumber ?? '',
+          expectedHeadSha: body?.expectedHeadSha ?? '',
+          mergeStrategy: body?.mergeStrategy ?? dryRunRecord.mergeStrategy,
+          [GITHUB_PROVIDER_RUNTIME_CREDENTIAL_KEY]: githubCredential,
+        } as GithubMergeExecutionInput['runtime'],
+        fetchImpl: options.githubProviderFetch,
+      });
+
+      await persistGithubMergeRunRecord(runRecord, store);
+      await persistEvidenceRefs(runRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        runRecord.auditEventIds,
+        runRecord.evidenceRefs,
+        store,
+        dryRunRecord.policyDecision.id,
+        runRecord.networkBoundaryInvoked,
+      );
+
+      if (runRecord.networkBoundaryInvoked && mergeApprovalRecord) {
+        const usedRecord = createGithubMergeApprovalRecord({
+          dryRunRecord,
+          approvalPhase: 'merge_execution',
+          baseRecord: mergeApprovalRecord,
+          status: 'used',
+          reason: 'merge approval consumed after GitHub merge network boundary attempt',
+        });
+        await persistGithubMergeApprovalRecord(usedRecord, store);
+        await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+        await persistGithubMergeAuditEvents(
+          usedRecord.auditEventIds,
+          usedRecord.evidenceRefs,
+          store,
+          usedRecord.policyDecisionId,
+          runRecord.networkBoundaryInvoked,
+        );
+      }
+
+      return createGithubMergeRunResponse(runRecord);
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listGithubMergeRuns(query, store);
+
+      return {
+        records: records.map(createGithubMergeRunResponse),
+        count: records.length,
+        degraded: persistenceState.status !== 'ok',
+        notPersisted: !store,
+        networkBoundaryInvoked: records.some((record) => record.networkBoundaryInvoked),
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      };
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id ? await resolveGithubMergeRun(params.id, store) : undefined;
+
+      if (!record) {
+        return reply.code(404).send({ error: 'github merge run was not found' });
+      }
+
+      return createGithubMergeRunResponse(record);
+    });
+  }
+
   function registerGithubPrManagementRoutes(kind: GithubPrManagementKind, prefix: string): void {
     server.post(`${prefix}/dry-runs`, async (request, reply) => {
       const store = await getStore();
@@ -16667,6 +17199,51 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
   }
 
+  async function persistGithubMergeAuditEvents(
+    auditEventIds: string[],
+    evidenceRefs: EvidenceRef[],
+    store: CodexHubStore,
+    policyDecisionId: string,
+    networkBoundaryInvoked: boolean,
+  ): Promise<void> {
+    for (const auditEventId of auditEventIds) {
+      await store.auditEvents.append({
+        id: auditEventId,
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actor: 'codexhub-supervisor',
+        action: 'github.merge.control_plane',
+        target: 'github-provider',
+        reason: 'github merge fixed-endpoint control-plane metadata transition',
+        outcome: 'recorded',
+        evidenceRefs,
+        policyDecisionId,
+        metadata: {
+          bodyStored: false,
+          rawUrlStored: false,
+          rawResponseBodyStored: false,
+          rawPrBodyStored: false,
+          rawReviewBodyStored: false,
+          rawPathStored: false,
+          networkBoundaryInvoked,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          fixedEndpointOnly: true,
+          requiresTwoApprovals: true,
+          mergeAllowed: true,
+          pushAllowed: false,
+          updateRefAllowed: false,
+          forceAllowed: false,
+          labelsAllowed: false,
+          reviewersAllowed: false,
+          commentsAllowed: false,
+          releaseAllowed: false,
+          deploymentAllowed: false,
+        },
+      });
+    }
+  }
+
   async function persistGithubPrManagementAuditEvents(
     managementKind: GithubPrManagementKind,
     auditEventIds: string[],
@@ -17075,6 +17652,159 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       rawPathStored: false,
       bodyStored: false,
       summary: record.summary,
+    };
+  }
+
+  function createGithubMergeDryRunResponse(record: GithubMergeReadinessPlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      runnerMode: record.runnerMode,
+      targetRef: record.targetRef,
+      prNumberHash: record.prNumberHash,
+      expectedHeadShaHash: record.expectedHeadShaHash,
+      mergeStrategy: record.mergeStrategy,
+      readinessStatus: record.readiness.status,
+      branchProtectionStatus: record.readiness.branchProtectionStatus,
+      checkRunCount: record.readiness.checkRunCount,
+      statusContextCount: record.readiness.statusContextCount,
+      failedCheckCount: record.readiness.failedCheckCount,
+      pendingCheckCount: record.readiness.pendingCheckCount,
+      passedCheckCount: record.readiness.passedCheckCount,
+      reviewDecisionCount: record.readiness.reviewDecisionCount,
+      approvingReviewCount: record.readiness.approvingReviewCount,
+      changesRequestedReviewCount: record.readiness.changesRequestedReviewCount,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      requiresApproval: record.requiresApproval,
+      requiresTwoApprovals: record.requiresTwoApprovals,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryPlanned: record.networkBoundaryPlanned,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      fixedEndpointOnly: true,
+      pushAllowed: false,
+      updateRefAllowed: false,
+      forceAllowed: false,
+      arbitraryEndpointAllowed: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawReviewBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubMergeApprovalResponse(record: GithubMergeApprovalArtifact) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalPhase: record.approvalPhase,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.approved,
+      policyDecisionId: record.policyDecisionId,
+      requestedByHash: record.requestedByHash,
+      decidedByHash: record.decidedByHash,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawReviewBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubMergeRunResponse(record: GithubMergeRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      readinessApprovalArtifactId: record.readinessApprovalArtifactId,
+      mergeApprovalArtifactId: record.mergeApprovalArtifactId,
+      status: record.status,
+      targetRef: record.plan.targetRef,
+      prNumberHash: record.resultSummary.prNumberHash,
+      expectedHeadShaHash: record.resultSummary.expectedHeadShaHash,
+      mergeCommitShaHash: record.resultSummary.mergeCommitShaHash,
+      mergeStrategy: record.resultSummary.mergeStrategy,
+      merged: record.resultSummary.merged,
+      responseBodyHashCount: record.responseBodyHashes.length,
+      responseBodyHashes: record.responseBodyHashes,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: record.noRealWrite,
+      fixedEndpointOnly: true,
+      pushAllowed: false,
+      updateRefAllowed: false,
+      forceAllowed: false,
+      arbitraryEndpointAllowed: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawReviewBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createGithubMergeStoreUnavailableResponse(phase: 'dry-run' | 'approval' | 'execution') {
+    return {
+      error: `github merge ${phase} store is unavailable`,
+      phase,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function createGithubMergeUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'request body cannot carry GitHub merge authority or approval artifacts',
+      dryRunId,
+      requestBodyAuthorityRejected: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function createGithubMergeForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'request body contains forbidden raw GitHub merge fields',
+      dryRunId,
+      requestBodyRawFieldsRejected: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      rawPathStored: false,
     };
   }
 

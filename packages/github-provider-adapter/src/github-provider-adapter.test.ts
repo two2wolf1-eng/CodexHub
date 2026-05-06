@@ -4,6 +4,8 @@ import {
   GithubBranchPublishPlanSchema,
   GithubDraftPrPlanSchema,
   GithubMetadataDryRunRecordSchema,
+  GithubMergeReadinessPlanSchema,
+  GithubMergeRunSchema,
   GithubPrLifecycleObservationPlanSchema,
   GithubPrManagementPlanSchema,
   GithubPrManagementRunSchema,
@@ -23,6 +25,8 @@ import {
   createGithubDraftPrPlan,
   createGithubMetadataApprovalRecord,
   createGithubMetadataDryRunRecord,
+  createGithubMergeApprovalRecord,
+  createGithubMergeReadinessPlan,
   createGithubPrLifecycleApprovalRecord,
   createGithubPrLifecycleObservationPlan,
   createGithubPrManagementApprovalRecord,
@@ -40,12 +44,14 @@ import {
   executeGithubBranchPublish,
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
+  executeGithubMerge,
   executeGithubPrLifecycleObservation,
   executeGithubPrManagement,
   executeGithubRemoteCleanup,
   readGithubTokenReadiness,
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
+  runGithubMergeAcceptanceRehearsal,
   runGithubPrLifecycleAcceptanceRehearsal,
   runGithubPrManagementAcceptanceRehearsal,
   runGithubRemoteCleanupAcceptanceRehearsal,
@@ -1754,6 +1760,199 @@ describe('github-provider-adapter M37 PR management', () => {
     expect(passed.addOrSetOnly).toBe(true);
     expect(passed.mergeAllowed).toBe(false);
     expect(passed.pushAllowed).toBe(false);
+    expect(JSON.stringify({ passed, blocked, failed })).not.toContain('ghp_');
+  });
+});
+
+describe('github-provider-adapter M38 governed merge', () => {
+  it('executes merge only after readiness and merge approvals through fixed endpoints', async () => {
+    const dryRunRecord = createGithubMergeReadinessPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codexhub/m38',
+      prNumber: '42',
+      expectedHeadSha: 'abc123',
+      mergeStrategy: 'squash',
+      prOpen: true,
+      branchProtectionSatisfied: true,
+      checksPassed: true,
+      reviewsSatisfied: true,
+      checkRunCount: 1,
+      statusContextCount: 1,
+      passedCheckCount: 2,
+      reviewDecisionCount: 1,
+      approvingReviewCount: 1,
+      runnerMode: 'controlled-github-merge',
+      now: fixedNow,
+    });
+    const readinessApprovalRecord = createGithubMergeApprovalRecord({
+      dryRunRecord,
+      approvalPhase: 'readiness',
+      status: 'approved',
+      decidedBy: 'alice',
+      now: fixedNow,
+    });
+    const mergeApprovalRecord = createGithubMergeApprovalRecord({
+      dryRunRecord,
+      approvalPhase: 'merge_execution',
+      status: 'approved',
+      decidedBy: 'bob',
+      now: fixedNow,
+    });
+    const authority = {
+      ...allowedAuthority,
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: mergeApprovalRecord.approvalArtifactId,
+    };
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+      const method = init?.method ?? 'GET';
+      const body = url.endsWith('/pulls/42')
+        ? '{"number":42,"state":"open","head":{"sha":"abc123"}}'
+        : url.endsWith('/branches/main/protection')
+          ? '{"required_status_checks":{}}'
+          : url.endsWith('/commits/abc123/status')
+            ? '{"statuses":[{"state":"success"}]}'
+            : url.endsWith('/commits/abc123/check-runs')
+              ? '{"check_runs":[{"status":"completed","conclusion":"success"}]}'
+              : url.endsWith('/pulls/42/reviews')
+                ? '[{"state":"APPROVED"}]'
+                : method === 'PUT'
+                  ? '{"sha":"merge123","merged":true}'
+                  : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: method === 'PUT' ? 200 : 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const run = await executeGithubMerge({
+      dryRunRecord,
+      readinessApprovalRecord,
+      mergeApprovalRecord,
+      authority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/m38',
+        prNumber: '42',
+        expectedHeadSha: 'abc123',
+        mergeStrategy: 'squash',
+        token: 'ghp_secret',
+      },
+      fetchImpl,
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify({ dryRunRecord, run });
+
+    expect(GithubMergeReadinessPlanSchema.parse(dryRunRecord).status).toBe('planned');
+    expect(GithubMergeRunSchema.parse(run).status).toBe('completed');
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(run.noRealWrite).toBe(false);
+    expect(run.resultSummary.merged).toBe(true);
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'GET https://api.github.com/repos/octo-org/codexhub/branches/main/protection',
+      'GET https://api.github.com/repos/octo-org/codexhub/commits/abc123/status',
+      'GET https://api.github.com/repos/octo-org/codexhub/commits/abc123/check-runs',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42/reviews',
+      'PUT https://api.github.com/repos/octo-org/codexhub/pulls/42/merge',
+    ]);
+    expect(requested.at(6)?.body).toBe('{"merge_method":"squash"}');
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m38');
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('https://api.github.com');
+    expect(serialized).not.toContain('APPROVED');
+  });
+
+  it('blocks merge when both approvals come from the same approver before network', async () => {
+    const dryRunRecord = createGithubMergeReadinessPlan({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codexhub/m38',
+      prNumber: '42',
+      expectedHeadSha: 'abc123',
+      mergeStrategy: 'merge',
+      runnerMode: 'controlled-github-merge',
+      now: fixedNow,
+    });
+    const readinessApprovalRecord = createGithubMergeApprovalRecord({
+      dryRunRecord,
+      approvalPhase: 'readiness',
+      status: 'approved',
+      decidedBy: 'alice',
+      now: fixedNow,
+    });
+    const mergeApprovalRecord = createGithubMergeApprovalRecord({
+      dryRunRecord,
+      approvalPhase: 'merge_execution',
+      status: 'approved',
+      decidedBy: 'alice',
+      now: fixedNow,
+    });
+    let fetchCalled = false;
+
+    const run = await executeGithubMerge({
+      dryRunRecord,
+      readinessApprovalRecord,
+      mergeApprovalRecord,
+      authority: allowedAuthority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/m38',
+        prNumber: '42',
+        expectedHeadSha: 'abc123',
+        mergeStrategy: 'merge',
+        token: 'ghp_secret',
+      },
+      fetchImpl: (async () => {
+        fetchCalled = true;
+        throw new Error('should not fetch');
+      }) as unknown as typeof fetch,
+      now: fixedNow,
+    });
+
+    expect(run.status).toBe('blocked');
+    expect(run.blockReasons).toContain('second_approver_required');
+    expect(run.networkBoundaryInvoked).toBe(false);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('runs merge acceptance rehearsal without invoking network boundaries', () => {
+    const passed = runGithubMergeAcceptanceRehearsal({ scenario: 'all-pass', now: fixedNow });
+    const blocked = runGithubMergeAcceptanceRehearsal({
+      scenario: 'reviews-missing',
+      now: fixedNow,
+    });
+    const failed = runGithubMergeAcceptanceRehearsal({
+      scenario: 'github-merge-failed',
+      now: fixedNow,
+    });
+
+    expect(passed.status).toBe('passed');
+    expect(blocked.status).toBe('blocked');
+    expect(failed.status).toBe('failed');
+    expect(passed.requiresTwoApprovals).toBe(true);
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.noRealWrite).toBe(true);
+    expect(passed.pushAllowed).toBe(false);
+    expect(passed.updateRefAllowed).toBe(false);
+    expect(passed.forceAllowed).toBe(false);
     expect(JSON.stringify({ passed, blocked, failed })).not.toContain('ghp_');
   });
 });

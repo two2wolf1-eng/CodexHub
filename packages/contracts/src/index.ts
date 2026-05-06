@@ -194,6 +194,10 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'github.pr_milestones_run_summary',
     'github.pr_comments_plan',
     'github.pr_comments_run_summary',
+    'github.merge_readiness_plan',
+    'github.merge_readiness_summary',
+    'github.merge_run_summary',
+    'github.merge_rehearsal',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -3267,10 +3271,13 @@ const githubForbiddenMetadataKeys = new Set([
   'requestBody',
   'rawPullRequestBody',
   'rawPrBody',
+  'rawReviewBody',
   'pullRequestBody',
   'pullRequestMarkdown',
   'prBody',
   'prMarkdown',
+  'reviewBody',
+  'reviewMarkdown',
   'comment',
   'comments',
   'label',
@@ -5872,6 +5879,319 @@ export const GithubPrManagementAcceptanceRehearsalRunSchema = createdEntityBaseS
   });
 export type GithubPrManagementAcceptanceRehearsalRun = z.infer<
   typeof GithubPrManagementAcceptanceRehearsalRunSchema
+>;
+
+export const GithubMergeStrategySchema = z.enum(['squash', 'merge', 'rebase']);
+export type GithubMergeStrategy = z.infer<typeof GithubMergeStrategySchema>;
+
+export const GithubMergeRunnerModeSchema = z.enum([
+  'planning-only',
+  'controlled-github-merge',
+]);
+export type GithubMergeRunnerMode = z.infer<typeof GithubMergeRunnerModeSchema>;
+
+export const GithubMergeReadinessStatusSchema = z.enum([
+  'ready_for_merge',
+  'blocked_pr_state',
+  'blocked_branch_protection',
+  'blocked_checks',
+  'blocked_reviews',
+  'blocked_stale_head',
+  'blocked_policy',
+  'not_ready',
+]);
+export type GithubMergeReadinessStatus = z.infer<
+  typeof GithubMergeReadinessStatusSchema
+>;
+
+export const GithubMergeReadinessSummarySchema = createdEntityBaseSchema
+  .extend({
+    targetRef: GithubRemoteRefSummarySchema,
+    prNumberHash: z.string().min(1),
+    headShaHash: z.string().min(1),
+    mergeStrategy: GithubMergeStrategySchema,
+    status: GithubMergeReadinessStatusSchema,
+    prStateHash: z.string().min(1).optional(),
+    branchProtectionStatus: z.enum(['satisfied', 'blocked', 'missing', 'unknown']),
+    checkRunCount: z.number().int().nonnegative(),
+    statusContextCount: z.number().int().nonnegative(),
+    failedCheckCount: z.number().int().nonnegative(),
+    pendingCheckCount: z.number().int().nonnegative(),
+    passedCheckCount: z.number().int().nonnegative(),
+    reviewDecisionCount: z.number().int().nonnegative(),
+    approvingReviewCount: z.number().int().nonnegative(),
+    changesRequestedReviewCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    checksPassed: z.boolean(),
+    reviewsSatisfied: z.boolean(),
+    branchProtectionSatisfied: z.boolean(),
+    headShaMatchesDryRun: z.boolean(),
+    requiresTwoApprovals: z.literal(true),
+    fixedEndpointOnly: z.literal(true),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    arbitraryEndpointAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReviewBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'ready_for_merge' && record.blockerCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready GitHub merge readiness cannot include blockers',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type GithubMergeReadinessSummary = z.infer<
+  typeof GithubMergeReadinessSummarySchema
+>;
+
+export const GithubMergeReadinessPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    runnerMode: GithubMergeRunnerModeSchema,
+    targetRef: GithubRemoteRefSummarySchema,
+    prNumberHash: z.string().min(1),
+    expectedHeadShaHash: z.string().min(1),
+    mergeStrategy: GithubMergeStrategySchema,
+    readiness: GithubMergeReadinessSummarySchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    requiresTwoApprovals: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryPlanned: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    fixedEndpointOnly: z.literal(true),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    arbitraryEndpointAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReviewBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'blocked' && record.networkBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked GitHub merge plans cannot plan a network boundary',
+        path: ['networkBoundaryPlanned'],
+      });
+    }
+  });
+export type GithubMergeReadinessPlan = z.infer<typeof GithubMergeReadinessPlanSchema>;
+
+export const GithubMergeApprovalPhaseSchema = z.enum([
+  'readiness',
+  'merge_execution',
+]);
+export type GithubMergeApprovalPhase = z.infer<typeof GithubMergeApprovalPhaseSchema>;
+
+export const GithubMergeApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalPhase: GithubMergeApprovalPhaseSchema,
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedByHash: z.string().min(1).optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReviewBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match approved GitHub merge approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type GithubMergeApprovalArtifact = z.infer<
+  typeof GithubMergeApprovalArtifactSchema
+>;
+
+export const GithubMergeResultSummarySchema = createdEntityBaseSchema
+  .extend({
+    targetRef: GithubRemoteRefSummarySchema,
+    prNumberHash: z.string().min(1),
+    expectedHeadShaHash: z.string().min(1),
+    mergeCommitShaHash: z.string().min(1).optional(),
+    mergeStrategy: GithubMergeStrategySchema,
+    merged: z.boolean(),
+    responseBodyHashCount: z.number().int().nonnegative(),
+    fixedEndpointOnly: z.literal(true),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReviewBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubMergeResultSummary = z.infer<typeof GithubMergeResultSummarySchema>;
+
+export const GithubMergeRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    readinessApprovalArtifactId: z.string().min(1).optional(),
+    mergeApprovalArtifactId: z.string().min(1).optional(),
+    status: GithubControlPlaneRunStatusSchema,
+    plan: GithubMergeReadinessPlanSchema,
+    resultSummary: GithubMergeResultSummarySchema,
+    responseBodyHashes: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    fixedEndpointOnly: z.literal(true),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    arbitraryEndpointAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReviewBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.boolean(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'completed' && !record.networkBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed GitHub merge runs must invoke network boundary',
+        path: ['networkBoundaryInvoked'],
+      });
+    }
+
+    if (record.status === 'completed' && record.noRealWrite) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed GitHub merge runs must record a real write',
+        path: ['noRealWrite'],
+      });
+    }
+  });
+export type GithubMergeRun = z.infer<typeof GithubMergeRunSchema>;
+
+export const GithubMergeAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'provider-disabled',
+  'token-missing',
+  'approval-blocked',
+  'second-approval-missing',
+  'pr-not-open',
+  'branch-protection-blocked',
+  'checks-failed',
+  'reviews-missing',
+  'stale-head-sha',
+  'merge-conflict',
+  'github-merge-failed',
+  'network-timeout',
+]);
+export type GithubMergeAcceptanceScenario = z.infer<
+  typeof GithubMergeAcceptanceScenarioSchema
+>;
+
+export const GithubMergeAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: GithubMergeAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: GithubMergeReadinessStatusSchema,
+    mergeStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    stepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    requiresTwoApprovals: z.literal(true),
+    fixedEndpointOnly: z.literal(true),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    arbitraryEndpointAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawReviewBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'passed' && record.scenario !== 'all-pass') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass GitHub merge rehearsals can pass',
+        path: ['status'],
+      });
+    }
+  });
+export type GithubMergeAcceptanceRehearsalRun = z.infer<
+  typeof GithubMergeAcceptanceRehearsalRunSchema
 >;
 
 export const GithubPublishDraftPrChainRunSchema = createdEntityBaseSchema

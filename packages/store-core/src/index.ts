@@ -17,6 +17,9 @@ import type {
   GithubMetadataApprovalArtifactRecord,
   GithubMetadataControlPlaneRun,
   GithubMetadataDryRunRecord,
+  GithubMergeApprovalArtifact,
+  GithubMergeReadinessPlan,
+  GithubMergeRun,
   GithubPrLifecycleApprovalArtifactRecord,
   GithubPrLifecycleObservationPlan,
   GithubPrLifecycleObservationRun,
@@ -122,6 +125,7 @@ export type GithubDraftPrControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubBranchPublishControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPublishDraftPrChainControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubPrLifecycleControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubMergeControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -499,6 +503,27 @@ export interface GithubPrManagementRunRepository {
   listRuns(query?: GithubPrManagementControlPlaneQuery): Promise<GithubPrManagementRun[]>;
 }
 
+export interface GithubMergeDryRunRepository {
+  saveDryRun(record: GithubMergeReadinessPlan): Promise<GithubMergeReadinessPlan>;
+  getDryRun(id: string): Promise<GithubMergeReadinessPlan | undefined>;
+  listDryRuns(query?: GithubMergeControlPlaneQuery): Promise<GithubMergeReadinessPlan[]>;
+}
+
+export interface GithubMergeApprovalRepository {
+  saveApproval(record: GithubMergeApprovalArtifact): Promise<GithubMergeApprovalArtifact>;
+  getApproval(id: string): Promise<GithubMergeApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubMergeApprovalArtifact | undefined>;
+  listApprovals(query?: GithubMergeControlPlaneQuery): Promise<GithubMergeApprovalArtifact[]>;
+}
+
+export interface GithubMergeRunRepository {
+  saveRun(record: GithubMergeRun): Promise<GithubMergeRun>;
+  getRun(id: string): Promise<GithubMergeRun | undefined>;
+  listRuns(query?: GithubMergeControlPlaneQuery): Promise<GithubMergeRun[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -854,6 +879,9 @@ export interface CodexHubStore {
   githubPrCommentsDryRuns: GithubPrManagementDryRunRepository;
   githubPrCommentsApprovals: GithubPrManagementApprovalRepository;
   githubPrCommentsRuns: GithubPrManagementRunRepository;
+  githubMergeDryRuns: GithubMergeDryRunRepository;
+  githubMergeApprovals: GithubMergeApprovalRepository;
+  githubMergeRuns: GithubMergeRunRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

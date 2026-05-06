@@ -43,6 +43,7 @@ import {
   createElectronCdpReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
+  createGithubMergeAcceptanceRehearsalReadOnlySummary,
   createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary,
   createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubProviderReadOnlySummary,
@@ -120,6 +121,9 @@ interface OverviewState {
   githubPrLifecycleDryRuns: GithubPrLifecycleControlSummary[];
   githubPrLifecycleApprovals: GithubPrLifecycleControlSummary[];
   githubPrLifecycleRuns: GithubPrLifecycleControlSummary[];
+  githubMergeDryRuns: GithubMergeControlSummary[];
+  githubMergeApprovals: GithubMergeControlSummary[];
+  githubMergeRuns: GithubMergeControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -455,6 +459,65 @@ interface GithubPrLifecycleControlSummary {
   rawPathStored?: boolean;
   rawUrlStored?: boolean;
   rawResponseBodyStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubMergeControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalRequestId?: string;
+  approvalArtifactId?: string;
+  readinessApprovalArtifactId?: string;
+  mergeApprovalArtifactId?: string;
+  approvalPhase?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  mergeStrategy?: 'squash' | 'merge' | 'rebase';
+  readinessStatus?: string;
+  branchProtectionStatus?: string;
+  targetRef?: {
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+  };
+  prNumberHash?: string;
+  expectedHeadShaHash?: string;
+  mergeCommitShaHash?: string;
+  merged?: boolean;
+  checkRunCount?: number;
+  statusContextCount?: number;
+  failedCheckCount?: number;
+  pendingCheckCount?: number;
+  passedCheckCount?: number;
+  reviewDecisionCount?: number;
+  approvingReviewCount?: number;
+  changesRequestedReviewCount?: number;
+  responseBodyHashes?: string[];
+  responseBodyHashCount?: number;
+  blockReasons?: string[];
+  requiresTwoApprovals?: boolean;
+  approved?: boolean;
+  decidedByHash?: string;
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  fixedEndpointOnly?: boolean;
+  pushAllowed?: boolean;
+  updateRefAllowed?: boolean;
+  forceAllowed?: boolean;
+  arbitraryEndpointAllowed?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawPrBodyStored?: boolean;
+  rawReviewBodyStored?: boolean;
+  rawPathStored?: boolean;
   bodyStored?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
@@ -827,7 +890,14 @@ const recoveryDashboardPostRoutes = new Set([
   '/api/workflows/production/recoveries/manual-approvals',
   '/api/workflows/production/recoveries/runs',
 ]);
+const mergeDashboardPostRoutes = new Set([
+  '/api/github/merges/dry-runs',
+  '/api/github/merges/approval-requests',
+  '/api/github/merges/manual-approvals',
+  '/api/github/merges/runs',
+]);
 type RecoveryTemplateId = (typeof recoveryTemplateOptions)[number]['id'];
+type GithubMergeStrategyOption = 'squash' | 'merge' | 'rebase';
 
 interface RecoveryGuidedOperationState {
   recoveryKey: string;
@@ -851,6 +921,44 @@ interface RecoveryGuidedOperationState {
   requestRecoveryApproval: () => Promise<void>;
   approveRecoveryRequest: () => Promise<void>;
   runRecovery: (resume: boolean) => Promise<void>;
+}
+
+interface MergeGuidedOperationState {
+  mergeKey: string;
+  setMergeKey: (value: string) => void;
+  mergeStrategy: GithubMergeStrategyOption;
+  setMergeStrategy: (value: GithubMergeStrategyOption) => void;
+  mergeMessage: string;
+  mergeBusy: boolean;
+  mergeOwner: string;
+  setMergeOwner: (value: string) => void;
+  mergeRepo: string;
+  setMergeRepo: (value: string) => void;
+  mergeBaseBranch: string;
+  setMergeBaseBranch: (value: string) => void;
+  mergeHeadBranch: string;
+  setMergeHeadBranch: (value: string) => void;
+  mergePrNumber: string;
+  setMergePrNumber: (value: string) => void;
+  mergeExpectedHeadSha: string;
+  setMergeExpectedHeadSha: (value: string) => void;
+  mergeDryRunId: string;
+  mergeReadinessApprovalRequestId: string;
+  mergeExecutionApprovalRequestId: string;
+  mergeReadinessApprovalArtifactId: string;
+  mergeExecutionApprovalArtifactId: string;
+  mergeReadinessApprover: string;
+  setMergeReadinessApprover: (value: string) => void;
+  mergeExecutionApprover: string;
+  setMergeExecutionApprover: (value: string) => void;
+  latestMergeDryRun?: GithubMergeControlSummary;
+  latestMergeReadinessApproval?: GithubMergeControlSummary;
+  latestMergeExecutionApproval?: GithubMergeControlSummary;
+  latestMergeRun?: GithubMergeControlSummary;
+  createMergeDryRun: () => Promise<void>;
+  requestMergeApproval: (approvalPhase: 'readiness' | 'merge_execution') => Promise<void>;
+  approveMergeRequest: (approvalPhase: 'readiness' | 'merge_execution') => Promise<void>;
+  runMerge: () => Promise<void>;
 }
 
 export function App() {
@@ -902,6 +1010,9 @@ export function App() {
     githubPrLifecycleDryRuns: [],
     githubPrLifecycleApprovals: [],
     githubPrLifecycleRuns: [],
+    githubMergeDryRuns: [],
+    githubMergeApprovals: [],
+    githubMergeRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -960,6 +1071,23 @@ export function App() {
   const [recoveryTemplateHash, setRecoveryTemplateHash] = useState('');
   const [recoveryApprovalRequestId, setRecoveryApprovalRequestId] = useState('');
   const [recoveryApprovalArtifactId, setRecoveryApprovalArtifactId] = useState('');
+  const [mergeKey, setMergeKey] = useState('');
+  const [mergeStrategy, setMergeStrategy] = useState<GithubMergeStrategyOption>('squash');
+  const [mergeMessage, setMergeMessage] = useState('');
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeOwner, setMergeOwner] = useState('');
+  const [mergeRepo, setMergeRepo] = useState('');
+  const [mergeBaseBranch, setMergeBaseBranch] = useState('');
+  const [mergeHeadBranch, setMergeHeadBranch] = useState('');
+  const [mergePrNumber, setMergePrNumber] = useState('');
+  const [mergeExpectedHeadSha, setMergeExpectedHeadSha] = useState('');
+  const [mergeDryRunId, setMergeDryRunId] = useState('');
+  const [mergeReadinessApprovalRequestId, setMergeReadinessApprovalRequestId] = useState('');
+  const [mergeExecutionApprovalRequestId, setMergeExecutionApprovalRequestId] = useState('');
+  const [mergeReadinessApprovalArtifactId, setMergeReadinessApprovalArtifactId] = useState('');
+  const [mergeExecutionApprovalArtifactId, setMergeExecutionApprovalArtifactId] = useState('');
+  const [mergeReadinessApprover, setMergeReadinessApprover] = useState('');
+  const [mergeExecutionApprover, setMergeExecutionApprover] = useState('');
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
   const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
@@ -1023,6 +1151,9 @@ export function App() {
     prLifecycleDryRunCount: overview.githubPrLifecycleDryRuns.length,
     prLifecycleApprovalCount: overview.githubPrLifecycleApprovals.length,
     prLifecycleRunCount: overview.githubPrLifecycleRuns.length,
+    mergeDryRunCount: overview.githubMergeDryRuns.length,
+    mergeApprovalCount: overview.githubMergeApprovals.length,
+    mergeRunCount: overview.githubMergeRuns.length,
     remoteSupersedeDryRunCount: overview.githubRemoteSupersedeDryRuns.length,
     remoteSupersedeRunCount: overview.githubRemoteSupersedeRuns.length,
     remoteCleanupDryRunCount: overview.githubRemoteCleanupDryRuns.length,
@@ -1045,6 +1176,10 @@ export function App() {
     latestPrLifecycleStatusSummary:
       overview.githubPrLifecycleRuns[0]?.combinedStatusState ??
       overview.githubPrLifecycleRuns[0]?.prStateSummary,
+    latestMergeRunStatus: overview.githubMergeRuns[0]?.status,
+    latestMergeReadinessStatus:
+      overview.githubMergeRuns[0]?.readinessStatus ??
+      overview.githubMergeDryRuns[0]?.readinessStatus,
     latestRemoteSupersedeRunStatus: overview.githubRemoteSupersedeRuns[0]?.status,
     latestRemoteCleanupRunStatus: overview.githubRemoteCleanupRuns[0]?.status,
     latestRemoteCleanupReadinessStatus:
@@ -1064,6 +1199,7 @@ export function App() {
         (record) => record.networkBoundaryInvoked === true,
       ) ||
       overview.githubPrLifecycleRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubMergeRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubPrLabelsRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubPrAssigneesRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubPrReviewersRuns.some((record) => record.networkBoundaryInvoked === true) ||
@@ -1079,6 +1215,8 @@ export function App() {
     createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary();
   const githubPrLifecycleAcceptanceRehearsalSummary =
     createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary();
+  const githubMergeAcceptanceRehearsalSummary =
+    createGithubMergeAcceptanceRehearsalReadOnlySummary();
   const reviewPackageSummary = createLocalReviewPackageReadOnlySummary({
     dryRunCount: overview.reviewPackageDryRuns.length,
     approvalCount: overview.reviewPackageApprovals.length,
@@ -1196,6 +1334,16 @@ export function App() {
   const latestRecoveryWaitingChildActions = latestRecoveryRun?.childActionStates?.filter(
     (state) => state.status === 'waiting_for_child_approval',
   ) ?? [];
+  const latestMergeDryRun = overview.githubMergeDryRuns[0];
+  const latestMergeReadinessApproval =
+    overview.githubMergeApprovals.find(
+      (record) => record.approvalPhase === 'readiness' && record.status === 'approved',
+    ) ?? overview.githubMergeApprovals.find((record) => record.approvalPhase === 'readiness');
+  const latestMergeExecutionApproval =
+    overview.githubMergeApprovals.find(
+      (record) => record.approvalPhase === 'merge_execution' && record.status === 'approved',
+    ) ?? overview.githubMergeApprovals.find((record) => record.approvalPhase === 'merge_execution');
+  const latestMergeRun = overview.githubMergeRuns[0];
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
   const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
@@ -1719,6 +1867,9 @@ export function App() {
           githubPrLifecycleDryRunsResponse,
           githubPrLifecycleApprovalsResponse,
           githubPrLifecycleRunsResponse,
+          githubMergeDryRunsResponse,
+          githubMergeApprovalsResponse,
+          githubMergeRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -1843,6 +1994,17 @@ export function App() {
             '/api/github/pr-lifecycle/runs',
             { records: [] },
           ),
+          getOptionalJson<{ records: GithubMergeControlSummary[] }>(
+            '/api/github/merges/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubMergeControlSummary[] }>(
+            '/api/github/merges/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubMergeControlSummary[] }>('/api/github/merges/runs', {
+            records: [],
+          }),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
             '/api/github/pr-labels/dry-runs',
             { records: [] },
@@ -2084,6 +2246,9 @@ export function App() {
             githubPrLifecycleDryRuns: githubPrLifecycleDryRunsResponse.records,
             githubPrLifecycleApprovals: githubPrLifecycleApprovalsResponse.records,
             githubPrLifecycleRuns: githubPrLifecycleRunsResponse.records,
+            githubMergeDryRuns: githubMergeDryRunsResponse.records,
+            githubMergeApprovals: githubMergeApprovalsResponse.records,
+            githubMergeRuns: githubMergeRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -2180,6 +2345,9 @@ export function App() {
             githubPrLifecycleDryRuns: [],
             githubPrLifecycleApprovals: [],
             githubPrLifecycleRuns: [],
+            githubMergeDryRuns: [],
+            githubMergeApprovals: [],
+            githubMergeRuns: [],
             githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
@@ -2256,6 +2424,27 @@ export function App() {
       productionWorkflowRecoveryDryRuns: dryRunsResponse.records,
       productionWorkflowRecoveryApprovals: approvalsResponse.records,
       productionWorkflowRecoveryRuns: runsResponse.records,
+    }));
+  }
+
+  async function refreshGithubMergeRecords() {
+    const [dryRunsResponse, approvalsResponse, runsResponse] = await Promise.all([
+      getOptionalJson<{ records: GithubMergeControlSummary[] }>('/api/github/merges/dry-runs', {
+        records: [],
+      }),
+      getOptionalJson<{ records: GithubMergeControlSummary[] }>('/api/github/merges/approvals', {
+        records: [],
+      }),
+      getOptionalJson<{ records: GithubMergeControlSummary[] }>('/api/github/merges/runs', {
+        records: [],
+      }),
+    ]);
+
+    setOverview((current) => ({
+      ...current,
+      githubMergeDryRuns: dryRunsResponse.records,
+      githubMergeApprovals: approvalsResponse.records,
+      githubMergeRuns: runsResponse.records,
     }));
   }
 
@@ -2413,6 +2602,158 @@ export function App() {
       setRecoveryMessage(error instanceof Error ? error.message : 'Recovery run failed.');
     } finally {
       setRecoveryBusy(false);
+    }
+  }
+
+  async function createMergeDryRun() {
+    if (!mergeKey) {
+      setMergeMessage('Enter the page-memory key before creating a merge dry-run.');
+      return;
+    }
+
+    setMergeBusy(true);
+    try {
+      const result = await postMergeJson<GithubMergeControlSummary>(
+        '/api/github/merges/dry-runs',
+        mergeKey,
+        {
+          owner: mergeOwner || undefined,
+          repo: mergeRepo || undefined,
+          baseBranch: mergeBaseBranch || undefined,
+          headBranch: mergeHeadBranch || undefined,
+          prNumber: mergePrNumber || undefined,
+          expectedHeadSha: mergeExpectedHeadSha || undefined,
+          mergeStrategy,
+        },
+      );
+      setMergeDryRunId(result.dryRunId ?? '');
+      setMergeReadinessApprovalRequestId('');
+      setMergeExecutionApprovalRequestId('');
+      setMergeReadinessApprovalArtifactId('');
+      setMergeExecutionApprovalArtifactId('');
+      setMergeMessage(
+        `Merge dry-run ${result.dryRunId ?? 'created'} is ${result.readinessStatus ?? result.status ?? 'planned'}.`,
+      );
+      await refreshGithubMergeRecords();
+    } catch (error) {
+      setMergeMessage(error instanceof Error ? error.message : 'Merge dry-run failed.');
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
+  async function requestMergeApproval(approvalPhase: 'readiness' | 'merge_execution') {
+    if (!mergeKey || !mergeDryRunId) {
+      setMergeMessage('Create a merge dry-run before requesting approvals.');
+      return;
+    }
+
+    setMergeBusy(true);
+    try {
+      const result = await postMergeJson<GithubMergeControlSummary>(
+        '/api/github/merges/approval-requests',
+        mergeKey,
+        {
+          dryRunId: mergeDryRunId,
+          approvalPhase,
+        },
+      );
+      if (approvalPhase === 'readiness') {
+        setMergeReadinessApprovalRequestId(result.approvalRequestId ?? '');
+      } else {
+        setMergeExecutionApprovalRequestId(result.approvalRequestId ?? '');
+      }
+      setMergeMessage(
+        `Merge ${approvalPhase} approval request ${result.approvalRequestId ?? 'created'} is ${
+          result.status ?? 'requested'
+        }.`,
+      );
+      await refreshGithubMergeRecords();
+    } catch (error) {
+      setMergeMessage(error instanceof Error ? error.message : 'Merge approval request failed.');
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
+  async function approveMergeRequest(approvalPhase: 'readiness' | 'merge_execution') {
+    const approvalRequestId =
+      approvalPhase === 'readiness'
+        ? mergeReadinessApprovalRequestId
+        : mergeExecutionApprovalRequestId;
+    const decidedBy =
+      approvalPhase === 'readiness' ? mergeReadinessApprover : mergeExecutionApprover;
+
+    if (!mergeKey || !mergeDryRunId || !approvalRequestId || !decidedBy) {
+      setMergeMessage('Request merge approval and enter a distinct approver tag first.');
+      return;
+    }
+
+    setMergeBusy(true);
+    try {
+      const result = await postMergeJson<GithubMergeControlSummary>(
+        '/api/github/merges/manual-approvals',
+        mergeKey,
+        {
+          dryRunId: mergeDryRunId,
+          approvalRequestId,
+          approvalPhase,
+          outcome: 'approved',
+          decidedBy,
+        },
+      );
+      if (approvalPhase === 'readiness') {
+        setMergeReadinessApprovalArtifactId(result.approvalArtifactId ?? '');
+      } else {
+        setMergeExecutionApprovalArtifactId(result.approvalArtifactId ?? '');
+      }
+      setMergeMessage(
+        `Merge ${approvalPhase} approval ${result.approvalArtifactId ?? 'recorded'} is ${
+          result.status ?? 'approved'
+        }.`,
+      );
+      await refreshGithubMergeRecords();
+    } catch (error) {
+      setMergeMessage(error instanceof Error ? error.message : 'Merge approval failed.');
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
+  async function runMerge() {
+    if (!mergeKey || !mergeDryRunId || !mergeReadinessApprovalArtifactId || !mergeExecutionApprovalArtifactId) {
+      setMergeMessage('Both merge approvals are required before running merge.');
+      return;
+    }
+
+    setMergeBusy(true);
+    try {
+      const result = await postMergeJson<GithubMergeControlSummary>(
+        '/api/github/merges/runs',
+        mergeKey,
+        {
+          dryRunId: mergeDryRunId,
+          readinessApprovalArtifactId: mergeReadinessApprovalArtifactId,
+          mergeApprovalArtifactId: mergeExecutionApprovalArtifactId,
+          owner: mergeOwner || undefined,
+          repo: mergeRepo || undefined,
+          baseBranch: mergeBaseBranch || undefined,
+          headBranch: mergeHeadBranch || undefined,
+          prNumber: mergePrNumber || undefined,
+          expectedHeadSha: mergeExpectedHeadSha || undefined,
+          mergeStrategy,
+        },
+      );
+      setMergeMessage(
+        `Merge run ${result.runId ?? 'started'} is ${result.status ?? 'unknown'}; merged ${String(
+          result.merged ?? false,
+        )}.`,
+      );
+      await refreshGithubMergeRecords();
+    } catch (error) {
+      setMergeMessage(error instanceof Error ? error.message : 'Merge run failed.');
+    } finally {
+      setMergeBusy(false);
     }
   }
 
@@ -3947,6 +4288,7 @@ export function App() {
           githubDraftPrAcceptanceRehearsalSummary,
           githubPublishDraftPrAcceptanceRehearsalSummary,
           githubPrLifecycleAcceptanceRehearsalSummary,
+          githubMergeAcceptanceRehearsalSummary,
           worktreeSummary,
           reviewPackageSummary,
           releaseCandidateSummary,
@@ -3980,6 +4322,43 @@ export function App() {
             approveRecoveryRequest,
             runRecovery,
           },
+          {
+            mergeKey,
+            setMergeKey,
+            mergeStrategy,
+            setMergeStrategy,
+            mergeMessage,
+            mergeBusy,
+            mergeOwner,
+            setMergeOwner,
+            mergeRepo,
+            setMergeRepo,
+            mergeBaseBranch,
+            setMergeBaseBranch,
+            mergeHeadBranch,
+            setMergeHeadBranch,
+            mergePrNumber,
+            setMergePrNumber,
+            mergeExpectedHeadSha,
+            setMergeExpectedHeadSha,
+            mergeDryRunId,
+            mergeReadinessApprovalRequestId,
+            mergeExecutionApprovalRequestId,
+            mergeReadinessApprovalArtifactId,
+            mergeExecutionApprovalArtifactId,
+            mergeReadinessApprover,
+            setMergeReadinessApprover,
+            mergeExecutionApprover,
+            setMergeExecutionApprover,
+            latestMergeDryRun,
+            latestMergeReadinessApproval,
+            latestMergeExecutionApproval,
+            latestMergeRun,
+            createMergeDryRun,
+            requestMergeApproval,
+            approveMergeRequest,
+            runMerge,
+          },
         )
       )}
     </main>
@@ -4006,6 +4385,9 @@ function renderReadOnlyDashboardView(
   githubPrLifecycleAcceptanceRehearsalSummary: ReturnType<
     typeof createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary
   >,
+  githubMergeAcceptanceRehearsalSummary: ReturnType<
+    typeof createGithubMergeAcceptanceRehearsalReadOnlySummary
+  >,
   worktreeSummary: ReturnType<typeof createWorktreeReadOnlySummary>,
   reviewPackageSummary: ReturnType<typeof createLocalReviewPackageReadOnlySummary>,
   releaseCandidateSummary: ReturnType<typeof createLocalRcOperatorReadOnlySummary>,
@@ -4021,6 +4403,7 @@ function renderReadOnlyDashboardView(
     typeof createLocalRcAcceptanceRehearsalReadOnlySummary
   >,
   recoveryGuidedOperation: RecoveryGuidedOperationState,
+  mergeGuidedOperation: MergeGuidedOperationState,
 ) {
   if (activeView === 'development') {
     return (
@@ -4455,6 +4838,43 @@ function renderReadOnlyDashboardView(
   }
 
   if (activeView === 'github') {
+    const {
+      mergeKey,
+      setMergeKey,
+      mergeStrategy,
+      setMergeStrategy,
+      mergeMessage,
+      mergeBusy,
+      mergeOwner,
+      setMergeOwner,
+      mergeRepo,
+      setMergeRepo,
+      mergeBaseBranch,
+      setMergeBaseBranch,
+      mergeHeadBranch,
+      setMergeHeadBranch,
+      mergePrNumber,
+      setMergePrNumber,
+      mergeExpectedHeadSha,
+      setMergeExpectedHeadSha,
+      mergeDryRunId,
+      mergeReadinessApprovalRequestId,
+      mergeExecutionApprovalRequestId,
+      mergeReadinessApprovalArtifactId,
+      mergeExecutionApprovalArtifactId,
+      mergeReadinessApprover,
+      setMergeReadinessApprover,
+      mergeExecutionApprover,
+      setMergeExecutionApprover,
+      latestMergeDryRun,
+      latestMergeReadinessApproval,
+      latestMergeExecutionApproval,
+      latestMergeRun,
+      createMergeDryRun,
+      requestMergeApproval,
+      approveMergeRequest,
+      runMerge,
+    } = mergeGuidedOperation;
     const remoteSupersedeAcceptanceRehearsalSummary =
       createRemoteSupersedeAcceptanceRehearsalReadOnlySummary();
     const githubRemoteCleanupAcceptanceRehearsalSummary =
@@ -4885,6 +5305,279 @@ function renderReadOnlyDashboardView(
               shows persisted ids, hashes, counts, statuses, evidence ids, and audit ids.
             </p>
           )}
+        </Panel>
+        <Panel title="GitHub Merge Guided Operation">
+          <ul>
+            <li>
+              <strong>page-memory key</strong>
+              <span>{mergeKey ? 'entered' : 'missing'}</span>
+            </li>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {overview.githubMergeDryRuns.length}, approvals{' '}
+                {overview.githubMergeApprovals.length}, runs {overview.githubMergeRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>latest readiness</strong>
+              <span>
+                {latestMergeDryRun?.readinessStatus ?? latestMergeRun?.readinessStatus ?? 'none'},
+                strategy {mergeStrategy}
+              </span>
+            </li>
+            <li>
+              <strong>selected dry-run</strong>
+              <span>{mergeDryRunId || latestMergeDryRun?.dryRunId || 'none'}</span>
+            </li>
+            <li>
+              <strong>selected approvals</strong>
+              <span>
+                readiness{' '}
+                {mergeReadinessApprovalArtifactId ||
+                  latestMergeReadinessApproval?.approvalArtifactId ||
+                  latestMergeReadinessApproval?.approvalRequestId ||
+                  'none'}
+                , execution{' '}
+                {mergeExecutionApprovalArtifactId ||
+                  latestMergeExecutionApproval?.approvalArtifactId ||
+                  latestMergeExecutionApproval?.approvalRequestId ||
+                  'none'}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>
+                {latestMergeRun?.runId ?? 'none'} / {latestMergeRun?.status ?? 'not_started'},
+                merged {String(latestMergeRun?.merged ?? false)}
+              </span>
+            </li>
+            <li>
+              <strong>remote guard</strong>
+              <span>
+                push false, updateRef false, force false, genericEndpoint false, double approval
+                true
+              </span>
+            </li>
+          </ul>
+          <label>
+            <span>Page-memory key</span>
+            <input
+              type="password"
+              value={mergeKey}
+              onChange={(event) => setMergeKey(event.target.value)}
+              placeholder="entered / missing"
+            />
+          </label>
+          <label>
+            <span>Owner</span>
+            <input value={mergeOwner} onChange={(event) => setMergeOwner(event.target.value)} />
+          </label>
+          <label>
+            <span>Repo</span>
+            <input value={mergeRepo} onChange={(event) => setMergeRepo(event.target.value)} />
+          </label>
+          <label>
+            <span>Base branch</span>
+            <input
+              value={mergeBaseBranch}
+              onChange={(event) => setMergeBaseBranch(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Head branch</span>
+            <input
+              value={mergeHeadBranch}
+              onChange={(event) => setMergeHeadBranch(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>PR number</span>
+            <input value={mergePrNumber} onChange={(event) => setMergePrNumber(event.target.value)} />
+          </label>
+          <label>
+            <span>Expected head SHA</span>
+            <input
+              value={mergeExpectedHeadSha}
+              onChange={(event) => setMergeExpectedHeadSha(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Strategy</span>
+            <select
+              value={mergeStrategy}
+              onChange={(event) =>
+                setMergeStrategy(event.target.value as GithubMergeStrategyOption)
+              }
+            >
+              <option value="squash">squash</option>
+              <option value="merge">merge</option>
+              <option value="rebase">rebase</option>
+            </select>
+          </label>
+          <label>
+            <span>Readiness approver tag</span>
+            <input
+              value={mergeReadinessApprover}
+              onChange={(event) => setMergeReadinessApprover(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Merge approver tag</span>
+            <input
+              value={mergeExecutionApprover}
+              onChange={(event) => setMergeExecutionApprover(event.target.value)}
+            />
+          </label>
+          <div className="button-row">
+            <button type="button" disabled={mergeBusy || !mergeKey} onClick={() => void createMergeDryRun()}>
+              Create Merge Dry-Run
+            </button>
+            <button
+              type="button"
+              disabled={mergeBusy || !mergeKey || !mergeDryRunId}
+              onClick={() => void requestMergeApproval('readiness')}
+            >
+              Request Readiness Approval
+            </button>
+            <button
+              type="button"
+              disabled={mergeBusy || !mergeKey || !mergeDryRunId}
+              onClick={() => void requestMergeApproval('merge_execution')}
+            >
+              Request Merge Approval
+            </button>
+            <button
+              type="button"
+              disabled={
+                mergeBusy ||
+                !mergeKey ||
+                !mergeDryRunId ||
+                !mergeReadinessApprovalRequestId ||
+                !mergeReadinessApprover
+              }
+              onClick={() => void approveMergeRequest('readiness')}
+            >
+              Approve Readiness
+            </button>
+            <button
+              type="button"
+              disabled={
+                mergeBusy ||
+                !mergeKey ||
+                !mergeDryRunId ||
+                !mergeExecutionApprovalRequestId ||
+                !mergeExecutionApprover
+              }
+              onClick={() => void approveMergeRequest('merge_execution')}
+            >
+              Approve Merge
+            </button>
+            <button
+              type="button"
+              disabled={
+                mergeBusy ||
+                !mergeKey ||
+                !mergeDryRunId ||
+                !mergeReadinessApprovalArtifactId ||
+                !mergeExecutionApprovalArtifactId
+              }
+              onClick={() => void runMerge()}
+            >
+              Run Merge
+            </button>
+          </div>
+          <p>{mergeMessage || 'Merge wizard is scoped to /api/github/merges/* and requires two approvals.'}</p>
+        </Panel>
+        <Panel title="GitHub Merge Runs">
+          {overview.githubMergeRuns.length > 0 ? (
+            <ul>
+              {overview.githubMergeRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_merge_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, readiness {run.readinessStatus ?? 'unknown'},
+                    strategy {run.mergeStrategy ?? 'unknown'}
+                  </span>
+                  <span>
+                    PR {run.prNumberHash ?? 'unavailable'}, head{' '}
+                    {run.expectedHeadShaHash ?? 'unavailable'}, merge SHA{' '}
+                    {run.mergeCommitShaHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    checks {run.checkRunCount ?? 0}, reviews {run.reviewDecisionCount ?? 0},
+                    blockers {run.blockReasons?.length ?? 0}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}, external{' '}
+                    {String(run.externalProcessStarted ?? false)}
+                  </span>
+                  <span>
+                    push {String(run.pushAllowed ?? false)}, updateRef{' '}
+                    {String(run.updateRefAllowed ?? false)}, force {String(run.forceAllowed ?? false)},
+                    arbitraryEndpoint {String(run.arbitraryEndpointAllowed ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}, response hashes{' '}
+                    {run.responseBodyHashCount ?? run.responseBodyHashes?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub merge run summaries are available. Merge is disabled by default and
+              requires branch protection, passing checks, reviews, and two approvals.
+            </p>
+          )}
+        </Panel>
+        <Panel title="GitHub Merge Acceptance Rehearsal">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{githubMergeAcceptanceRehearsalSummary.status}</span>
+            </li>
+            <li>
+              <strong>scenario</strong>
+              <span>{githubMergeAcceptanceRehearsalSummary.scenario}</span>
+            </li>
+            <li>
+              <strong>readiness / strategy</strong>
+              <span>
+                {githubMergeAcceptanceRehearsalSummary.readinessStatus} /{' '}
+                {githubMergeAcceptanceRehearsalSummary.mergeStrategy}
+              </span>
+            </li>
+            <li>
+              <strong>evidence / audit</strong>
+              <span>
+                {githubMergeAcceptanceRehearsalSummary.evidenceRefCount} /{' '}
+                {githubMergeAcceptanceRehearsalSummary.auditEventCount}, blockers{' '}
+                {githubMergeAcceptanceRehearsalSummary.blockerCount}
+              </span>
+            </li>
+            <li>
+              <strong>read-only rehearsal bounds</strong>
+              <span>
+                keyRead {String(githubMergeAcceptanceRehearsalSummary.localControlKeyRead)},
+                postAllowed {String(githubMergeAcceptanceRehearsalSummary.supervisorPostAllowed)},
+                adapterExecute {String(githubMergeAcceptanceRehearsalSummary.adapterExecuteAllowed)}
+              </span>
+            </li>
+            <li>
+              <strong>blocked operations</strong>
+              <span>
+                push {String(githubMergeAcceptanceRehearsalSummary.pushAllowed)}, updateRef{' '}
+                {String(githubMergeAcceptanceRehearsalSummary.updateRefAllowed)}, force{' '}
+                {String(githubMergeAcceptanceRehearsalSummary.forceAllowed)}, arbitraryEndpoint{' '}
+                {String(githubMergeAcceptanceRehearsalSummary.arbitraryEndpointAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{githubMergeAcceptanceRehearsalSummary.summary}</p>
         </Panel>
         <Panel title="GitHub PR Management">
           <ul>
@@ -6815,6 +7508,32 @@ async function postRecoveryJson<T>(
 ): Promise<T> {
   if (!recoveryDashboardPostRoutes.has(path)) {
     throw new Error('Dashboard recovery wizard can only call recovery control-plane routes.');
+  }
+
+  const response = await fetch(`${supervisorUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      [dashboardLocalControlHeaderName]: pageMemoryKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json()) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new Error(result.error ?? `Supervisor returned ${response.status} for ${path}`);
+  }
+
+  return result;
+}
+
+async function postMergeJson<T>(
+  path: string,
+  pageMemoryKey: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  if (!mergeDashboardPostRoutes.has(path)) {
+    throw new Error('Dashboard merge wizard can only call merge control-plane routes.');
   }
 
   const response = await fetch(`${supervisorUrl}${path}`, {

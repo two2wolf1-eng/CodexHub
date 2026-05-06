@@ -126,7 +126,6 @@ const githubHttpBoundaryTerms = [
 ];
 const githubForbiddenRemoteMutationTerms = [
   '/git/refs',
-  '/merges',
   '/labels',
   '/comments',
   '/requested_reviewers',
@@ -197,6 +196,41 @@ const dashboardRecoveryRouteBypassTerms = [
   ".includes('/api/workflows/production/recoveries/')",
   'includes(recovery',
 ];
+const dashboardMergeForbiddenPayloadTerms = [
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'rawPrBody',
+  'rawUrl',
+  'rawResponseBody',
+  'CODEXHUB_GITHUB_TOKEN',
+];
+const dashboardMergeExactPostRoutes = [
+  '/api/github/merges/dry-runs',
+  '/api/github/merges/approval-requests',
+  '/api/github/merges/manual-approvals',
+  '/api/github/merges/runs',
+];
+const dashboardMergeScopedPayloadTerms = [
+  'reason:',
+  'rawReason',
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'rawPrBody',
+  'rawUrl',
+  'rawResponseBody',
+  'CODEXHUB_GITHUB_TOKEN',
+];
+const dashboardMergeRouteBypassTerms = [
+  'startsWith',
+  'indexOf(',
+  "indexOf('/api/github/merges/')",
+  'indexOf(merge',
+  'includes(',
+  ".includes('/api/github/merges/')",
+  'includes(merge',
+];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
@@ -213,6 +247,7 @@ const mcpBoundaryBypassTerms = [
 const dashboardAllowedMutationRoutes = new Set([
   '/api/approvals/decisions',
   ...dashboardRecoveryExactPostRoutes,
+  ...dashboardMergeExactPostRoutes,
 ]);
 const dashboardMutationSurfaceTerms = [
   "method: 'POST'",
@@ -523,6 +558,40 @@ function validateAdversarialAuditSentinels(): void {
       description: 'Dashboard recovery indexOf route guard',
     },
     {
+      workspacePath: 'apps/dashboard/src/adversarial-merge-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/github/merges/runs"; window.localStorage.setItem("mergeKey", "secret");',
+      expectedTerm: 'localStorage',
+      description: 'Dashboard merge key persistence',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-merge-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/github/merges/runs"; const body = { dryRunId, executionAuthority: { allowed: true } };',
+      expectedTerm: 'executionAuthority',
+      description: 'Dashboard merge request-body authority payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-merge-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/github/merges/manual-approvals"; const body = { dryRunId, approvalArtifact: { id: "forged" } };',
+      expectedTerm: 'approvalArtifact:',
+      description: 'Dashboard merge forged approval artifact payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-merge-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/github/merges/manual-approvals"; const body = { dryRunId, reason: rawReason };',
+      expectedTerm: 'reason:',
+      description: 'Dashboard merge raw reason payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-merge-ui.tsx',
+      sourceText: "const ok = path.startsWith('/api/github/merges/');",
+      expectedTerm: "startsWith",
+      description: 'Dashboard merge prefix route guard',
+    },
+    {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
       sourceText: 'const boundary = await import("node:child_process");',
       expectedTerm: 'node:child_process',
@@ -609,8 +678,8 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/cli/src/adversarial-github.ts',
-      sourceText: 'const endpoint = "/repos/" + owner + "/" + repo + "/merges";',
-      expectedTerm: '/merges',
+      sourceText: 'const endpoint = "/repos/example/example/pulls/1/merge";',
+      expectedTerm: '/pulls/',
       description: 'CLI generic GitHub merge endpoint construction',
     },
     {
@@ -737,6 +806,7 @@ function adversarialSentinelWouldViolate(
   auditM9ApprovalUxGuards(file, sourceText);
   auditDashboardMutationSurfaceGuards(file, sourceText);
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
+  auditDashboardMergeWizardScopedGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
@@ -755,6 +825,7 @@ function auditFile(file: string): void {
   auditM9ApprovalUxGuards(file, sourceText);
   auditDashboardMutationSurfaceGuards(file, sourceText);
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
+  auditDashboardMergeWizardScopedGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -1028,7 +1099,8 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
 
   const hasGovernedDashboardMutation =
     sourceText.includes('/api/approvals/decisions') ||
-    sourceText.includes('/api/workflows/production/recoveries/');
+    sourceText.includes('/api/workflows/production/recoveries/') ||
+    sourceText.includes('/api/github/merges/');
 
   if (!isDashboardSource || !hasGovernedDashboardMutation) {
     return;
@@ -1060,6 +1132,7 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
         }
       }
     }
+
   }
 }
 
@@ -1100,7 +1173,7 @@ function auditDashboardMutationSurfaceGuards(file: string, sourceText: string): 
         line: index + 1,
         term,
         reason:
-          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI and recovery wizard, with exact route allowlists.',
+          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI, recovery wizard, and merge wizard, with exact route allowlists.',
       });
     }
   }
@@ -1114,7 +1187,9 @@ function isAllowedDashboardMutationLine(lines: string[], index: number): boolean
   return (
     window.includes('/api/approvals/decisions') ||
     (window.includes('recoveryDashboardPostRoutes.has(path)') &&
-      [...dashboardAllowedMutationRoutes].every((route) => route.startsWith('/api/approvals/') || lines.join('\n').includes(route)))
+      dashboardRecoveryExactPostRoutes.every((route) => lines.join('\n').includes(route))) ||
+    (window.includes('mergeDashboardPostRoutes.has(path)') &&
+      dashboardMergeExactPostRoutes.every((route) => lines.join('\n').includes(route)))
   );
 }
 
@@ -1240,6 +1315,134 @@ function auditDashboardRecoveryPayloadWindow(file: string, name: string, window:
         term,
         reason:
           'Dashboard recovery wizard may only send ids and hashes to the recovery control plane; raw reasons, request-body authority, child artifacts, and child auto-approval payloads are forbidden.',
+      });
+    }
+  }
+}
+
+function auditDashboardMergeWizardScopedGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (
+    workspacePath !== 'apps/dashboard/src/App.tsx' &&
+    !workspacePath.includes('adversarial-merge-ui')
+  ) {
+    return;
+  }
+
+  if (!sourceText.includes('/api/github/merges/')) {
+    return;
+  }
+
+  if (workspacePath.includes('adversarial-merge-ui')) {
+    auditDashboardMergeSnippetGuards(file, sourceText);
+    return;
+  }
+
+  for (const route of dashboardMergeExactPostRoutes) {
+    if (!sourceText.includes(route)) {
+      violations.push({
+        file,
+        line: 1,
+        term: route,
+        reason: 'Dashboard merge wizard must keep every allowed POST route explicit.',
+      });
+    }
+  }
+
+  const dryRunWindow = getWindowBetween(
+    sourceText,
+    'async function createMergeDryRun',
+    'async function requestMergeApproval',
+  );
+  const approvalRequestWindow = getWindowBetween(
+    sourceText,
+    'async function requestMergeApproval',
+    'async function approveMergeRequest',
+  );
+  const manualApprovalWindow = getWindowBetween(
+    sourceText,
+    'async function approveMergeRequest',
+    'async function runMerge',
+  );
+  const runWindow = getWindowBetween(sourceText, 'async function runMerge', 'if (activeView ===');
+  const postWindow = getWindowBetween(sourceText, 'async function postMergeJson', '');
+
+  for (const [name, window] of [
+    ['createMergeDryRun', dryRunWindow],
+    ['requestMergeApproval', approvalRequestWindow],
+    ['approveMergeRequest', manualApprovalWindow],
+    ['runMerge', runWindow],
+  ] as const) {
+    auditDashboardMergePayloadWindow(file, name, window);
+  }
+
+  if (!postWindow.includes('mergeDashboardPostRoutes.has(path)')) {
+    violations.push({
+      file,
+      line: findLineNumber(sourceText, 'async function postMergeJson'),
+      term: 'mergeDashboardPostRoutes.has(path)',
+      reason: 'Dashboard merge POST helper must enforce the exact route allowlist.',
+    });
+  }
+
+  for (const term of dashboardMergeRouteBypassTerms) {
+    if (postWindow.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(sourceText, term),
+        term,
+        reason:
+          'Dashboard merge POST helper must not use prefix, substring, or dynamic route guards.',
+      });
+    }
+  }
+}
+
+function auditDashboardMergeSnippetGuards(file: string, sourceText: string): void {
+  for (const term of dashboardMergeScopedPayloadTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason:
+          'Dashboard merge wizard may only send ids, hashes, fixed strategy, and approver tags; raw reasons, authority objects, forged artifacts, raw GitHub data, and token payloads are forbidden.',
+      });
+    }
+  }
+
+  for (const term of dashboardMergeRouteBypassTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason: 'Dashboard merge wizard route checks must use the exact merge route allowlist.',
+      });
+    }
+  }
+}
+
+function auditDashboardMergePayloadWindow(file: string, name: string, window: string): void {
+  if (window.length === 0) {
+    violations.push({
+      file,
+      line: 1,
+      term: name,
+      reason: `Dashboard merge wizard function ${name} must remain present for scoped audit coverage.`,
+    });
+    return;
+  }
+
+  for (const term of dashboardMergeScopedPayloadTerms) {
+    if (window.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(window, term),
+        term,
+        reason:
+          'Dashboard merge wizard may only send ids, hashes, fixed strategy, and approver tags to the merge control plane; raw reasons, request-body authority, forged artifacts, raw GitHub data, and token payloads are forbidden.',
       });
     }
   }

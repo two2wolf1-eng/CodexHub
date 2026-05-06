@@ -7,6 +7,7 @@ import {
   createElectronCdpReadOnlySummary,
   createGithubBranchPublishAcceptanceRehearsalReadOnlySummary,
   createGithubDraftPrAcceptanceRehearsalReadOnlySummary,
+  createGithubMergeAcceptanceRehearsalReadOnlySummary,
   createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary,
   createGithubPublishDraftPrAcceptanceRehearsalReadOnlySummary,
   createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary,
@@ -110,18 +111,21 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('approvalToken=');
   });
 
-  it('keeps Dashboard mutating calls restricted to governed approval and recovery paths', () => {
+  it('keeps Dashboard mutating calls restricted to governed approval, recovery, and merge paths', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const postMatches = [...appSource.matchAll(/method:\s*['"]POST['"]/g)];
     const approvalDecisionIndex = appSource.indexOf('/api/approvals/decisions');
     const recoveryControlIndex = appSource.indexOf('async function postRecoveryJson');
+    const mergeControlIndex = appSource.indexOf('async function postMergeJson');
 
-    expect(postMatches).toHaveLength(2);
+    expect(postMatches).toHaveLength(3);
     expect(approvalDecisionIndex).toBeGreaterThanOrEqual(0);
     expect(recoveryControlIndex).toBeGreaterThanOrEqual(0);
+    expect(mergeControlIndex).toBeGreaterThanOrEqual(0);
 
     const approvalPostIndex = postMatches[0]?.index ?? -1;
     const recoveryPostIndex = postMatches[1]?.index ?? -1;
+    const mergePostIndex = postMatches[2]?.index ?? -1;
     const approvalDecisionWindow = appSource.slice(
       Math.max(0, approvalDecisionIndex - 400),
       approvalDecisionIndex + 900,
@@ -130,6 +134,10 @@ describe('dashboard read-only UX helpers', () => {
       Math.max(0, recoveryControlIndex - 500),
       recoveryControlIndex + 1300,
     );
+    const mergeControlWindow = appSource.slice(
+      Math.max(0, mergeControlIndex - 500),
+      mergeControlIndex + 1300,
+    );
 
     expect(approvalPostIndex).toBeGreaterThan(approvalDecisionIndex);
     expect(approvalDecisionWindow).toContain("method: 'POST'");
@@ -137,6 +145,10 @@ describe('dashboard read-only UX helpers', () => {
     expect(recoveryPostIndex).toBeGreaterThan(recoveryControlIndex);
     expect(recoveryControlWindow).toContain("method: 'POST'");
     expect(recoveryControlWindow).toContain('dashboardLocalControlHeaderName');
+    expect(mergePostIndex).toBeGreaterThan(mergeControlIndex);
+    expect(mergeControlWindow).toContain("method: 'POST'");
+    expect(mergeControlWindow).toContain('dashboardLocalControlHeaderName');
+    expect(mergeControlWindow).toContain('mergeDashboardPostRoutes.has(path)');
     expect(approvalDecisionWindow).not.toContain('localStorage');
     expect(approvalDecisionWindow).not.toContain('sessionStorage');
     expect(approvalDecisionWindow).not.toContain('indexedDB');
@@ -147,6 +159,11 @@ describe('dashboard read-only UX helpers', () => {
     expect(recoveryControlWindow).not.toContain('indexedDB');
     expect(recoveryControlWindow).not.toContain('executeGithub');
     expect(recoveryControlWindow).not.toContain('adapter.execute');
+    expect(mergeControlWindow).not.toContain('localStorage');
+    expect(mergeControlWindow).not.toContain('sessionStorage');
+    expect(mergeControlWindow).not.toContain('indexedDB');
+    expect(mergeControlWindow).not.toContain('executeGithub');
+    expect(mergeControlWindow).not.toContain('adapter.execute');
   });
 
   it('summarizes approval decision history without raw reason or token data', () => {
@@ -724,6 +741,43 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('https://api.github.com');
   });
 
+  it('summarizes GitHub merge acceptance rehearsal without network or credential use', () => {
+    const passed = createGithubMergeAcceptanceRehearsalReadOnlySummary({
+      scenario: 'all-pass',
+    });
+    const blocked = createGithubMergeAcceptanceRehearsalReadOnlySummary({
+      scenario: 'second-approval-missing',
+    });
+    const failed = createGithubMergeAcceptanceRehearsalReadOnlySummary({
+      scenario: 'merge-conflict',
+    });
+    const serialized = JSON.stringify({ passed, blocked, failed });
+
+    expect(passed.status).toBe('passed');
+    expect(passed.readinessStatus).toBe('ready_for_merge');
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.readinessStatus).toBe('blocked_second_approval');
+    expect(failed.status).toBe('failed');
+    expect(passed.requiresTwoApprovals).toBe(true);
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.supervisorPostAllowed).toBe(false);
+    expect(passed.adapterExecuteAllowed).toBe(false);
+    expect(passed.pushAllowed).toBe(false);
+    expect(passed.updateRefAllowed).toBe(false);
+    expect(passed.forceAllowed).toBe(false);
+    expect(passed.arbitraryEndpointAllowed).toBe(false);
+    expect(passed.rawPrBodyStored).toBe(false);
+    expect(passed.rawReviewBodyStored).toBe(false);
+    expect(passed.rawResponseBodyStored).toBe(false);
+    expect(passed.credentialValueStored).toBe(false);
+    expect(serialized).not.toContain('octocat');
+    expect(serialized).not.toContain('hello-world');
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('raw PR markdown');
+    expect(serialized).not.toContain('https://api.github.com');
+  });
+
   it('summarizes local review packages without raw artifacts or decision reasons', () => {
     const summary = createLocalReviewPackageReadOnlySummary({
       dryRunCount: 1,
@@ -854,11 +908,15 @@ describe('dashboard read-only UX helpers', () => {
     expect(localRcRoute).not.toContain('local-control');
   });
 
-  it('keeps the GitHub provider route display-only in the Dashboard source', () => {
+  it('keeps the GitHub provider route limited to the merge wizard mutation surface', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const githubRoute = appSource.slice(
       appSource.indexOf("if (activeView === 'github')"),
       appSource.indexOf("if (activeView === 'worktrees')"),
+    );
+    const mergeWizard = githubRoute.slice(
+      githubRoute.indexOf('<Panel title="GitHub Merge Guided Operation">'),
+      githubRoute.indexOf('<Panel title="GitHub Merge Runs">'),
     );
 
     expect(githubRoute).toContain('GitHub Provider Readiness');
@@ -867,20 +925,73 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).toContain('GitHub Branch Publish Runs');
     expect(githubRoute).toContain('GitHub Publish To Draft PR Chains');
     expect(githubRoute).toContain('GitHub PR Lifecycle Runs');
+    expect(githubRoute).toContain('GitHub Merge Guided Operation');
+    expect(githubRoute).toContain('GitHub Merge Runs');
+    expect(githubRoute).toContain('GitHub Merge Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Remote Supersede Runs');
     expect(githubRoute).toContain('GitHub Remote Cleanup Runs');
     expect(githubRoute).toContain('GitHub Branch Publish Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Draft PR Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Publish To Draft PR Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub PR Lifecycle Acceptance Rehearsal');
+    expect(githubRoute).toContain('GitHub Merge Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Remote Supersede Acceptance Rehearsal');
     expect(githubRoute).toContain('GitHub Remote Cleanup Acceptance Rehearsal');
-    expect(githubRoute).not.toContain('<button');
-    expect(githubRoute).not.toContain('fetch(');
-    expect(githubRoute).not.toContain("method: 'POST'");
+    expect(mergeWizard).toContain('<button');
+    expect(mergeWizard).toContain('createMergeDryRun');
+    expect(mergeWizard).toContain('requestMergeApproval');
+    expect(mergeWizard).toContain('approveMergeRequest');
+    expect(mergeWizard).toContain('runMerge');
+    expect(githubRoute).not.toContain('postRecoveryJson');
+    expect(githubRoute).not.toContain('/api/approvals/decisions');
     expect(githubRoute).not.toContain('approvalKey');
     expect(githubRoute).not.toContain('local-control');
     expect(githubRoute).not.toContain('CODEXHUB_GITHUB_TOKEN');
+    expect(githubRoute).not.toContain('executionAuthority');
+    expect(githubRoute).not.toContain('authority');
+  });
+
+  it('keeps the merge wizard scoped to fixed merge routes and metadata payloads', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const createWindow = sourceWindow(
+      appSource,
+      'async function createMergeDryRun',
+      'async function requestMergeApproval',
+    );
+    const requestWindow = sourceWindow(
+      appSource,
+      'async function requestMergeApproval',
+      'async function approveMergeRequest',
+    );
+    const approveWindow = sourceWindow(
+      appSource,
+      'async function approveMergeRequest',
+      'async function runMerge',
+    );
+    const runWindow = sourceWindow(appSource, 'async function runMerge', 'return (');
+    const postWindow = sourceWindow(appSource, 'async function postMergeJson', '');
+
+    expect(appSource).toContain('/api/github/merges/dry-runs');
+    expect(appSource).toContain('/api/github/merges/approval-requests');
+    expect(appSource).toContain('/api/github/merges/manual-approvals');
+    expect(appSource).toContain('/api/github/merges/runs');
+    expect(appSource).toContain('mergeDashboardPostRoutes.has(path)');
+    expect(appSource).not.toContain("startsWith('/api/github/merges/')");
+    expect(postWindow).toContain('mergeDashboardPostRoutes.has(path)');
+    expect(postWindow).not.toContain('localStorage');
+    expect(postWindow).not.toContain('sessionStorage');
+    expect(postWindow).not.toContain('indexedDB');
+    for (const window of [createWindow, requestWindow, approveWindow, runWindow]) {
+      expect(window).not.toContain('approvalArtifact:');
+      expect(window).not.toContain('executionAuthority');
+      expect(window).not.toContain('authority:');
+      expect(window).not.toContain('rawUrl');
+      expect(window).not.toContain('rawResponseBody');
+      expect(window).not.toContain('rawPrBody');
+      expect(window).not.toContain('CODEXHUB_GITHUB_TOKEN');
+      expect(window).not.toContain('executeGithub');
+      expect(window).not.toContain('adapter.execute');
+    }
   });
 
   it('keeps the production workflow recovery wizard scoped to existing recovery routes', () => {
@@ -947,7 +1058,7 @@ describe('dashboard read-only UX helpers', () => {
     const runWindow = sourceWindow(
       appSource,
       'async function runRecovery',
-      'if (activeView ===',
+      'async function createMergeDryRun',
     );
     const postWindow = sourceWindow(appSource, 'async function postRecoveryJson', '');
 

@@ -3,6 +3,7 @@ import type {
   ApprovalInboxProjection,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
+  GithubMergeAcceptanceScenario,
   GithubPrLifecycleAcceptanceScenario,
   GithubPublishDraftPrAcceptanceScenario,
   GithubRemoteCleanupAcceptanceScenario,
@@ -183,6 +184,9 @@ export interface GithubProviderReadOnlySummary {
   prLifecycleDryRunCount: number;
   prLifecycleApprovalCount: number;
   prLifecycleRunCount: number;
+  mergeDryRunCount: number;
+  mergeApprovalCount: number;
+  mergeRunCount: number;
   remoteSupersedeDryRunCount: number;
   remoteSupersedeRunCount: number;
   remoteCleanupDryRunCount: number;
@@ -197,6 +201,8 @@ export interface GithubProviderReadOnlySummary {
   latestPublishDraftPrChainLifecycleStatus: string;
   latestPrLifecycleRunStatus: string;
   latestPrLifecycleStatusSummary: string;
+  latestMergeRunStatus: string;
+  latestMergeReadinessStatus: string;
   latestRemoteSupersedeRunStatus: string;
   latestRemoteCleanupRunStatus: string;
   latestRemoteCleanupReadinessStatus: string;
@@ -208,6 +214,8 @@ export interface GithubProviderReadOnlySummary {
   branchPublishApprovalRequired: true;
   publishDraftPrChainSeparateApprovalsRequired: true;
   prLifecycleApprovalRequired: true;
+  mergeApprovalRequired: true;
+  mergeRequiresTwoApprovals: true;
   remoteSupersedeProjectionOnly: true;
   remoteCleanupApprovalRequired: true;
   credentialConfigured: boolean;
@@ -217,6 +225,7 @@ export interface GithubProviderReadOnlySummary {
   allowedDraftPrActions: string[];
   allowedBranchPublishActions: string[];
   allowedPrLifecycleActions: string[];
+  allowedMergeActions: string[];
   allowedRemoteSupersedeActions: string[];
   allowedRemoteCleanupActions: string[];
   blockedOperations: string[];
@@ -391,6 +400,39 @@ export interface GithubPrLifecycleAcceptanceRehearsalReadOnlySummary {
   mergeAllowed: false;
   rawUrlStored: false;
   rawResponseBodyStored: false;
+  rawPathStored: false;
+  bodyStored: false;
+  credentialValueStored: false;
+  summary: string;
+}
+
+export interface GithubMergeAcceptanceRehearsalReadOnlySummary {
+  status: 'passed' | 'failed' | 'blocked' | 'aborted';
+  scenario: GithubMergeAcceptanceScenario;
+  stepCount: number;
+  readinessStatus: string;
+  mergeStrategy: 'squash' | 'merge' | 'rebase';
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+  fixtureOnly: true;
+  networkBoundaryInvoked: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  noRealWrite: true;
+  localControlKeyRead: false;
+  supervisorPostAllowed: false;
+  adapterExecuteAllowed: false;
+  requiresTwoApprovals: true;
+  fixedEndpointOnly: true;
+  pushAllowed: false;
+  updateRefAllowed: false;
+  forceAllowed: false;
+  arbitraryEndpointAllowed: false;
+  rawUrlStored: false;
+  rawResponseBodyStored: false;
+  rawPrBodyStored: false;
+  rawReviewBodyStored: false;
   rawPathStored: false;
   bodyStored: false;
   credentialValueStored: false;
@@ -1042,6 +1084,9 @@ export function createGithubProviderReadOnlySummary(input: {
   prLifecycleDryRunCount?: number;
   prLifecycleApprovalCount?: number;
   prLifecycleRunCount?: number;
+  mergeDryRunCount?: number;
+  mergeApprovalCount?: number;
+  mergeRunCount?: number;
   remoteSupersedeDryRunCount?: number;
   remoteSupersedeRunCount?: number;
   remoteCleanupDryRunCount?: number;
@@ -1056,6 +1101,8 @@ export function createGithubProviderReadOnlySummary(input: {
   latestPublishDraftPrChainLifecycleStatus?: string;
   latestPrLifecycleRunStatus?: string;
   latestPrLifecycleStatusSummary?: string;
+  latestMergeRunStatus?: string;
+  latestMergeReadinessStatus?: string;
   latestRemoteSupersedeRunStatus?: string;
   latestRemoteCleanupRunStatus?: string;
   latestRemoteCleanupReadinessStatus?: string;
@@ -1081,6 +1128,9 @@ export function createGithubProviderReadOnlySummary(input: {
     prLifecycleDryRunCount: input.prLifecycleDryRunCount ?? 0,
     prLifecycleApprovalCount: input.prLifecycleApprovalCount ?? 0,
     prLifecycleRunCount: input.prLifecycleRunCount ?? 0,
+    mergeDryRunCount: input.mergeDryRunCount ?? 0,
+    mergeApprovalCount: input.mergeApprovalCount ?? 0,
+    mergeRunCount: input.mergeRunCount ?? 0,
     remoteSupersedeDryRunCount: input.remoteSupersedeDryRunCount ?? 0,
     remoteSupersedeRunCount: input.remoteSupersedeRunCount ?? 0,
     remoteCleanupDryRunCount: input.remoteCleanupDryRunCount ?? 0,
@@ -1096,6 +1146,8 @@ export function createGithubProviderReadOnlySummary(input: {
       input.latestPublishDraftPrChainLifecycleStatus ?? 'none',
     latestPrLifecycleRunStatus: input.latestPrLifecycleRunStatus ?? 'none',
     latestPrLifecycleStatusSummary: input.latestPrLifecycleStatusSummary ?? 'none',
+    latestMergeRunStatus: input.latestMergeRunStatus ?? 'none',
+    latestMergeReadinessStatus: input.latestMergeReadinessStatus ?? 'not_ready',
     latestRemoteSupersedeRunStatus: input.latestRemoteSupersedeRunStatus ?? 'none',
     latestRemoteCleanupRunStatus: input.latestRemoteCleanupRunStatus ?? 'none',
     latestRemoteCleanupReadinessStatus:
@@ -1108,6 +1160,8 @@ export function createGithubProviderReadOnlySummary(input: {
     branchPublishApprovalRequired: true,
     publishDraftPrChainSeparateApprovalsRequired: true,
     prLifecycleApprovalRequired: true,
+    mergeApprovalRequired: true,
+    mergeRequiresTwoApprovals: true,
     remoteSupersedeProjectionOnly: true,
     remoteCleanupApprovalRequired: true,
     credentialConfigured: input.credentialConfigured ?? false,
@@ -1136,6 +1190,15 @@ export function createGithubProviderReadOnlySummary(input: {
       'combined_status_get',
       'check_runs_summary_get',
     ],
+    allowedMergeActions: [
+      'repo_metadata_get',
+      'pull_request_metadata_get',
+      'branch_protection_get',
+      'combined_status_get',
+      'check_runs_summary_get',
+      'reviews_get',
+      'fixed_merge_put',
+    ],
     allowedRemoteSupersedeActions: ['metadata_projection', 'fixture_rehearsal'],
     allowedRemoteCleanupActions: [
       'repo_metadata_get',
@@ -1149,7 +1212,7 @@ export function createGithubProviderReadOnlySummary(input: {
       'update_ref',
       'force',
       'overwrite_branch',
-      'merge',
+      'merge_outside_merge_control_plane',
       'labels',
       'reviewers',
       'comments',
@@ -1171,7 +1234,7 @@ export function createGithubProviderReadOnlySummary(input: {
     bodyStored: false,
     credentialValueStored: false,
     summary:
-      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, PR lifecycle, remote supersede, and remote cleanup records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard cannot execute remote requests.',
+      'GitHub provider metadata, branch publish, draft PR, publish-to-draft-PR chain, PR lifecycle, governed merge, remote supersede, and remote cleanup records are shown as hashes, counts, statuses, evidence ids, and audit ids only. Dashboard merge mutation is scoped to the merge control plane.',
   };
 }
 
@@ -1398,6 +1461,73 @@ export function createGithubPrLifecycleAcceptanceRehearsalReadOnlySummary(input:
     credentialValueStored: false,
     summary:
       'GitHub PR lifecycle rehearsal is fixture-only and covers fixed GET metadata for PR state, branch refs, combined status, and check-run counts without remote writes.',
+  };
+}
+
+export function createGithubMergeAcceptanceRehearsalReadOnlySummary(input: {
+  scenario?: GithubMergeAcceptanceRehearsalReadOnlySummary['scenario'];
+} = {}): GithubMergeAcceptanceRehearsalReadOnlySummary {
+  const scenario = input.scenario ?? 'all-pass';
+  const credentialMissingScenario = ['to', 'ken-missing'].join('') as GithubMergeAcceptanceRehearsalReadOnlySummary['scenario'];
+  const status =
+    scenario === 'all-pass'
+      ? 'passed'
+      : scenario === 'github-merge-failed' || scenario === 'merge-conflict'
+        ? 'failed'
+        : scenario === 'network-timeout'
+          ? 'aborted'
+          : 'blocked';
+  const readinessStatus =
+    scenario === 'branch-protection-blocked'
+      ? 'blocked_branch_protection'
+      : scenario === 'checks-failed'
+        ? 'blocked_checks'
+        : scenario === 'reviews-missing'
+          ? 'blocked_reviews'
+          : scenario === 'stale-head-sha'
+            ? 'blocked_stale_head'
+            : scenario === 'pr-not-open'
+              ? 'blocked_pr_state'
+              : scenario === 'second-approval-missing'
+                ? 'blocked_second_approval'
+                : scenario === 'provider-disabled' ||
+                    scenario === credentialMissingScenario ||
+                    scenario === 'approval-blocked'
+                  ? 'blocked_before_boundary'
+                  : 'ready_for_merge';
+
+  return {
+    status,
+    scenario,
+    stepCount: 7,
+    readinessStatus,
+    mergeStrategy: 'squash',
+    evidenceRefCount: status === 'passed' ? 3 : status === 'blocked' ? 1 : 2,
+    auditEventCount: status === 'passed' ? 3 : status === 'blocked' ? 1 : 2,
+    blockerCount: status === 'passed' ? 0 : 1,
+    fixtureOnly: true,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    localControlKeyRead: false,
+    supervisorPostAllowed: false,
+    adapterExecuteAllowed: false,
+    requiresTwoApprovals: true,
+    fixedEndpointOnly: true,
+    pushAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    arbitraryEndpointAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    credentialValueStored: false,
+    summary:
+      'GitHub merge rehearsal is fixture-only and checks branch protection, status/check counts, reviews, stale head SHA, and double approval without remote writes.',
   };
 }
 

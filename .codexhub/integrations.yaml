@@ -285,7 +285,7 @@ integrations:
     provider: github
     providerType: external-network
     mode: governed-remote-lifecycle
-    stage: m22-remote-cleanup-control-plane
+    stage: m38-governed-merge-control-plane
     defaultActionMode: read
     defaultRisk: high
     processBoundary: false
@@ -321,6 +321,7 @@ integrations:
     prReviewersEnabled: false
     prMilestonesEnabled: false
     prCommentsEnabled: false
+    mergeEnabled: false
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     branchPublishEnablementEnv: CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
@@ -331,6 +332,7 @@ integrations:
     prReviewersEnablementEnv: CODEXHUB_GITHUB_PR_REVIEWERS_ENABLED
     prMilestonesEnablementEnv: CODEXHUB_GITHUB_PR_MILESTONES_ENABLED
     prCommentsEnablementEnv: CODEXHUB_GITHUB_PR_COMMENTS_ENABLED
+    mergeEnablementEnv: CODEXHUB_GITHUB_MERGE_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -421,6 +423,15 @@ integrations:
         - POST /api/github/pr-comments/runs
         - GET /api/github/pr-comments/runs
         - GET /api/github/pr-comments/runs/:id
+      mergeRoutes:
+        - POST /api/github/merges/dry-runs
+        - GET /api/github/merges/dry-runs
+        - POST /api/github/merges/approval-requests
+        - POST /api/github/merges/manual-approvals
+        - GET /api/github/merges/approvals
+        - POST /api/github/merges/runs
+        - GET /api/github/merges/runs
+        - GET /api/github/merges/runs/:id
     readOnlyUx:
       stage: m19d
       dashboardRoute: "#/github"
@@ -482,8 +493,14 @@ integrations:
         - codexhub github pr-comments runs list
         - codexhub github pr-comments runs show <runId>
         - codexhub github pr-comments rehearse --fixture --scenario <name>
+        - codexhub github merges dry-runs list
+        - codexhub github merges approvals list
+        - codexhub github merges runs list
+        - codexhub github merges runs show <runId>
+        - codexhub github merges rehearse --fixture --scenario <name>
       localControlRequired: false
       supervisorPostAllowed: false
+      dashboardMergeWizardPostAllowed: true
       adapterExecuteAllowed: false
       credentialOutput: configured-hash-only
       publicOutput: ids-hashes-counts-statuses-evidence-audit-boundaries
@@ -495,6 +512,41 @@ integrations:
       remoteMutationAuditEnabled: true
       allowedGithubHttpBoundaryCount: 1
       uiCliReadOnlyRegressionTests: true
+    mergeControlPlane:
+      stage: m38
+      helper: executeGithubMerge
+      supervisorControlPlaneAdded: true
+      routePrefix: /api/github/merges
+      enabledByDefault: false
+      requiredEnvFlags:
+        - CODEXHUB_GITHUB_PROVIDER_ENABLED
+        - CODEXHUB_GITHUB_MERGE_ENABLED
+      tokenEnv: CODEXHUB_GITHUB_TOKEN
+      requiresTwoApprovals: true
+      approverHashesMustDiffer: true
+      allowedStrategies:
+        - squash
+        - merge
+        - rebase
+      fixedGithubEndpointsOnly: true
+      branchProtectionRequired: true
+      checksStatusRequired: true
+      reviewApprovalRequired: true
+      staleHeadShaBlocks: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      dashboardGuidedMutationAllowed: true
+      cliMutationAllowed: false
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+      forbidden:
+        - push
+        - update-ref
+        - force
+        - labels
+        - reviewers
+        - comments
+        - release
+        - deployment
     draftPrPlanning:
       stage: m16a
       helper: createGithubDraftPrPlan

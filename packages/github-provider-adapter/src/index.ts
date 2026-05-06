@@ -16,6 +16,12 @@ import {
   GithubMetadataApprovalArtifactRecordSchema,
   GithubMetadataControlPlaneRunSchema,
   GithubMetadataDryRunRecordSchema,
+  GithubMergeAcceptanceRehearsalRunSchema,
+  GithubMergeApprovalArtifactSchema,
+  GithubMergeReadinessPlanSchema,
+  GithubMergeReadinessSummarySchema,
+  GithubMergeResultSummarySchema,
+  GithubMergeRunSchema,
   GithubPrLifecycleAcceptanceRehearsalRunSchema,
   GithubPrLifecycleApprovalArtifactRecordSchema,
   GithubPrManagementAcceptanceRehearsalRunSchema,
@@ -74,6 +80,16 @@ import {
   type GithubMetadataApprovalArtifactRecord,
   type GithubMetadataControlPlaneRun,
   type GithubMetadataDryRunRecord,
+  type GithubMergeAcceptanceRehearsalRun,
+  type GithubMergeAcceptanceScenario,
+  type GithubMergeApprovalArtifact,
+  type GithubMergeApprovalPhase,
+  type GithubMergeReadinessPlan,
+  type GithubMergeReadinessStatus,
+  type GithubMergeResultSummary,
+  type GithubMergeRun,
+  type GithubMergeRunnerMode,
+  type GithubMergeStrategy,
   type GithubPrLifecycleAcceptanceRehearsalRun,
   type GithubPrLifecycleAcceptanceScenario,
   type GithubPrLifecycleApprovalArtifactRecord,
@@ -121,11 +137,13 @@ import {
   runGithubBranchPublishHttpBoundary,
   runGithubDraftPrHttpBoundary,
   runGithubMetadataHttpBoundary,
+  runGithubMergeHttpBoundary,
   runGithubPrLifecycleHttpBoundary,
   runGithubPrManagementHttpBoundary,
   runGithubRemoteCleanupHttpBoundary,
   type GithubBranchPublishHttpBoundaryRequest,
   type GithubHttpBoundaryRequest,
+  type GithubMergeHttpBoundaryRequest,
   type GithubPrLifecycleHttpBoundaryRequest,
   type GithubPrManagementHttpBoundaryRequest,
   type GithubRemoteCleanupHttpBoundaryRequest,
@@ -207,6 +225,29 @@ export interface GithubPrManagementPlanInput extends GithubRemoteRefInput {
   now?: () => string;
 }
 
+export interface GithubMergePlanInput extends GithubRemoteRefInput {
+  prNumber?: string;
+  prNumberHash?: string;
+  expectedHeadSha?: string;
+  expectedHeadShaHash?: string;
+  mergeStrategy: GithubMergeStrategy;
+  prOpen?: boolean;
+  branchProtectionSatisfied?: boolean;
+  checksPassed?: boolean;
+  reviewsSatisfied?: boolean;
+  staleHeadSha?: boolean;
+  checkRunCount?: number;
+  statusContextCount?: number;
+  failedCheckCount?: number;
+  pendingCheckCount?: number;
+  passedCheckCount?: number;
+  reviewDecisionCount?: number;
+  approvingReviewCount?: number;
+  changesRequestedReviewCount?: number;
+  runnerMode?: GithubMergeRunnerMode;
+  now?: () => string;
+}
+
 export interface RemoteSupersedeProjectionInput {
   sourceRunId: string;
   sourceSummary: string;
@@ -282,6 +323,17 @@ export interface GithubPrLifecycleApprovalInput {
 export interface GithubPrManagementApprovalInput {
   dryRunRecord: GithubPrManagementPlan;
   baseRecord?: GithubPrManagementApprovalArtifactRecord;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface GithubMergeApprovalInput {
+  dryRunRecord: GithubMergeReadinessPlan;
+  approvalPhase: GithubMergeApprovalPhase;
+  baseRecord?: GithubMergeApprovalArtifact;
   status: GithubProviderApprovalStatus;
   requestedBy?: string;
   decidedBy?: string;
@@ -370,6 +422,19 @@ export interface GithubPrManagementExecutionInput {
   now?: () => string;
 }
 
+export interface GithubMergeExecutionInput {
+  dryRunRecord: GithubMergeReadinessPlan;
+  readinessApprovalRecord?: GithubMergeApprovalArtifact;
+  mergeApprovalRecord?: GithubMergeApprovalArtifact;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubMergeHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
 export interface GithubRemoteCleanupExecutionInput {
   dryRunRecord: GithubRemoteCleanupPlan;
   approvalRecord?: GithubRemoteCleanupApprovalArtifactRecord;
@@ -400,6 +465,11 @@ export interface GithubPrLifecycleAcceptanceRehearsalInput {
 export interface GithubPrManagementAcceptanceRehearsalInput {
   managementKind: GithubPrManagementKind;
   scenario?: GithubPrManagementAcceptanceScenario;
+  now?: () => string;
+}
+
+export interface GithubMergeAcceptanceRehearsalInput {
+  scenario?: GithubMergeAcceptanceScenario;
   now?: () => string;
 }
 
@@ -479,6 +549,9 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       'remote-cleanup-close-draft-pr',
       'remote-cleanup-delete-codexhub-ref',
       'remote-cleanup-acceptance-rehearsal',
+      'merge-readiness-plan',
+      'merge-fixed-endpoint-execution',
+      'merge-acceptance-rehearsal',
     ],
     defaultRisk: 'high',
     defaultActionMode: 'read',
@@ -508,6 +581,7 @@ export function createGithubProviderManifest(now: () => string = foundationTimes
       prLifecycleObservationPlanningOnly: true,
       remoteSupersedeProjectionOnly: true,
       remoteCleanupEnabled: false,
+      mergeEnabled: false,
       localGitPushAllowed: false,
       updateRefAllowed: false,
       forceAllowed: false,
@@ -876,6 +950,160 @@ export function createGithubPrManagementPlan(
       status === 'planned'
         ? `GitHub PR ${input.managementKind} management dry-run is planned; live write requires approval and env enablement.`
         : `GitHub PR ${input.managementKind} management dry-run is blocked: ${blockReasons.join(', ')}.`,
+  });
+}
+
+export function createGithubMergeReadinessPlan(
+  input: GithubMergePlanInput,
+): GithubMergeReadinessPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = collectMergePlanBlockReasons(input);
+  const targetRef =
+    blockReasons.includes('invalid_owner') ||
+    blockReasons.includes('invalid_repo') ||
+    blockReasons.includes('invalid_base_branch') ||
+    blockReasons.includes('invalid_head_branch')
+      ? createBlockedGithubRemoteRefSummary(input, now)
+      : createGithubRemoteRefSummary(input);
+  const expectedHeadShaHash =
+    input.expectedHeadShaHash ?? stableHash(input.expectedHeadSha ?? 'missing');
+  const prNumberHash = input.prNumberHash ?? stableHash(input.prNumber ?? 'missing');
+  const readinessStatus = resolveMergeReadinessStatus(blockReasons);
+  const status = blockReasons.length === 0 ? 'planned' : 'blocked';
+  const dryRunId = stableId(
+    'github_merge_dry_run',
+    JSON.stringify({
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      baseBranchHash: targetRef.baseBranchHash,
+      headBranchHash: targetRef.headBranchHash,
+      prNumberHash,
+      expectedHeadShaHash,
+      mergeStrategy: input.mergeStrategy,
+    }),
+  );
+  const policyDecision = createGithubPolicyDecision({
+    actionId: dryRunId,
+    actionType: 'github.merge',
+    actionMode: 'admin',
+    risk: 'critical',
+    now,
+    allow: false,
+    reasons: ['GitHub merge requires readiness validation and two persisted approvals'],
+  });
+  const readiness = GithubMergeReadinessSummarySchema.parse({
+    id: stableId('github_merge_readiness', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    targetRef,
+    prNumberHash,
+    headShaHash: expectedHeadShaHash,
+    mergeStrategy: input.mergeStrategy,
+    status: readinessStatus,
+    prStateHash: input.prOpen === false ? stableHash('closed') : stableHash('open'),
+    branchProtectionStatus:
+      input.branchProtectionSatisfied === false ? 'blocked' : 'satisfied',
+    checkRunCount: input.checkRunCount ?? 0,
+    statusContextCount: input.statusContextCount ?? 0,
+    failedCheckCount: input.failedCheckCount ?? (input.checksPassed === false ? 1 : 0),
+    pendingCheckCount: input.pendingCheckCount ?? 0,
+    passedCheckCount: input.passedCheckCount ?? (input.checksPassed === false ? 0 : 1),
+    reviewDecisionCount: input.reviewDecisionCount ?? 1,
+    approvingReviewCount: input.approvingReviewCount ?? (input.reviewsSatisfied === false ? 0 : 1),
+    changesRequestedReviewCount:
+      input.changesRequestedReviewCount ?? (input.reviewsSatisfied === false ? 1 : 0),
+    blockerCount: blockReasons.length,
+    checksPassed: input.checksPassed !== false,
+    reviewsSatisfied: input.reviewsSatisfied !== false,
+    branchProtectionSatisfied: input.branchProtectionSatisfied !== false,
+    headShaMatchesDryRun: input.staleHeadSha !== true,
+    requiresTwoApprovals: true,
+    fixedEndpointOnly: true,
+    pushAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    arbitraryEndpointAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(dryRunId),
+      blockerCount: blockReasons.length,
+      mergeStrategy: input.mergeStrategy,
+    },
+    summary:
+      readinessStatus === 'ready_for_merge'
+        ? 'GitHub merge readiness is planned from hash-only status, checks, and review summaries.'
+        : `GitHub merge readiness is blocked: ${blockReasons.join(', ')}.`,
+  });
+
+  return GithubMergeReadinessPlanSchema.parse({
+    id: stableId('github_merge_plan', dryRunId),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId,
+    status,
+    runnerMode: input.runnerMode ?? 'planning-only',
+    targetRef,
+    prNumberHash,
+    expectedHeadShaHash,
+    mergeStrategy: input.mergeStrategy,
+    readiness,
+    blockReasons,
+    policyDecision,
+    requiresApproval: true,
+    requiresTwoApprovals: true,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.merge_readiness_plan',
+        label: 'github-merge-readiness-plan',
+        summary: 'GitHub merge plan stores target, PR, status, check, and review hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(dryRunId),
+          ownerHash: targetRef.ownerHash,
+          repoHash: targetRef.repoHash,
+          mergeStrategy: input.mergeStrategy,
+          requiresTwoApprovals: true,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryPlanned: status === 'planned' && input.runnerMode === 'controlled-github-merge',
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    fixedEndpointOnly: true,
+    pushAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    arbitraryEndpointAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      ownerHash: targetRef.ownerHash,
+      repoHash: targetRef.repoHash,
+      prNumberHash,
+      expectedHeadShaHash,
+      mergeStrategy: input.mergeStrategy,
+      productDefaultEnabled: false,
+      requiresTwoApprovals: true,
+    },
+    summary:
+      status === 'planned'
+        ? 'GitHub merge dry-run is planned; live merge requires two approvals and env enablement.'
+        : `GitHub merge dry-run is blocked: ${blockReasons.join(', ')}.`,
   });
 }
 
@@ -1300,6 +1528,74 @@ export function createGithubPrManagementApprovalRecord(
   });
 }
 
+export function createGithubMergeApprovalRecord(
+  input: GithubMergeApprovalInput,
+): GithubMergeApprovalArtifact {
+  const now = input.now ?? foundationTimestamp;
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId(`github_merge_${input.approvalPhase}_approval_request`, input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId(`github_merge_${input.approvalPhase}_approval_artifact`, input.dryRunRecord.dryRunId);
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.merge_readiness_summary',
+      label: `github-merge-${input.approvalPhase}-approval`,
+      summary: 'GitHub merge approval stores phase, ids, and hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        approvalPhase: input.approvalPhase,
+        approvalArtifactIdHash: stableHash(approvalArtifactId),
+        status: input.status,
+      },
+    }),
+  ];
+
+  return GithubMergeApprovalArtifactSchema.parse({
+    id: stableId(
+      `github_merge_${input.approvalPhase}_approval_record`,
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${now()}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalPhase: input.approvalPhase,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    requestedByHash: input.requestedBy ? stableHash(input.requestedBy) : baseRecord?.requestedByHash,
+    decidedByHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.decidedByHash,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    expiresAt: baseRecord?.expiresAt,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalPhase: input.approvalPhase,
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub merge ${input.approvalPhase} approval status is ${input.status}.`,
+  });
+}
+
 export function createGithubDraftPrApprovalRecord(
   input: GithubDraftPrApprovalInput,
 ): GithubDraftPrApprovalArtifactRecord {
@@ -1700,6 +1996,108 @@ export async function executeGithubPrManagement(
   });
 }
 
+export async function executeGithubMerge(input: GithubMergeExecutionInput): Promise<GithubMergeRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectMergeExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubMergeHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        headBranch: boundaryInput.headBranch,
+        prNumber: boundaryInput.prNumber,
+        expectedHeadSha: boundaryInput.expectedHeadSha,
+        mergeStrategy: boundaryInput.mergeStrategy,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const evidenceRefs = [
+    createGithubEvidenceRef({
+      kind: 'github.merge_run_summary',
+      label: 'github-merge-run',
+      summary: 'GitHub merge run stores response hashes, strategy, and merge-result hashes only.',
+      metadata: {
+        integration: GITHUB_PROVIDER_NAME,
+        dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+        status,
+        mergeStrategy: input.dryRunRecord.mergeStrategy,
+        networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+        responseBodyHashCount: responseBodyHashes.length,
+        requiresTwoApprovals: true,
+      },
+    }),
+  ];
+  const resultSummary = createGithubMergeResultSummary({
+    targetRef: input.dryRunRecord.targetRef,
+    prNumberHash: boundaryResult?.prNumberHash ?? input.dryRunRecord.prNumberHash,
+    expectedHeadShaHash: input.dryRunRecord.expectedHeadShaHash,
+    mergeCommitShaHash: boundaryResult?.mergeCommitShaHash,
+    mergeStrategy: input.dryRunRecord.mergeStrategy,
+    merged: boundaryResult?.merged ?? false,
+    responseBodyHashCount: responseBodyHashes.length,
+    now,
+  });
+
+  return GithubMergeRunSchema.parse({
+    id: stableId(
+      'github_merge_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    readinessApprovalArtifactId: input.readinessApprovalRecord?.approvalArtifactId,
+    mergeApprovalArtifactId: input.mergeApprovalRecord?.approvalArtifactId,
+    status,
+    plan: input.dryRunRecord,
+    resultSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    fixedEndpointOnly: true,
+    pushAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    arbitraryEndpointAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: !(boundaryResult?.merged ?? false),
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      mergeStrategy: input.dryRunRecord.mergeStrategy,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      responseBodyHashCount: responseBodyHashes.length,
+      requiresTwoApprovals: true,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub merge completed through the fixed merge endpoint with hash-only result summaries.'
+        : `GitHub merge ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
 export async function executeGithubDraftPrCreation(
   input: GithubDraftPrExecutionInput,
 ): Promise<GithubDraftPrRun> {
@@ -2082,6 +2480,55 @@ export function runGithubPrManagementAcceptanceRehearsal(
   });
 }
 
+export function runGithubMergeAcceptanceRehearsal(
+  input: GithubMergeAcceptanceRehearsalInput = {},
+): GithubMergeAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const scenario = input.scenario ?? 'all-pass';
+  const state = getGithubMergeAcceptanceScenarioState(scenario);
+
+  return GithubMergeAcceptanceRehearsalRunSchema.parse({
+    id: stableId('github_merge_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario,
+    status: state.status,
+    readinessStatus: state.readinessStatus,
+    mergeStatus: state.mergeStatus,
+    stepCount: 6,
+    blockerCount: state.blockerCount,
+    evidenceRefCount: state.evidenceRefCount,
+    auditEventCount: state.auditEventCount,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    requiresTwoApprovals: true,
+    fixedEndpointOnly: true,
+    pushAllowed: false,
+    updateRefAllowed: false,
+    forceAllowed: false,
+    arbitraryEndpointAllowed: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      scenario,
+      fixtureOnly: true,
+      blockerCount: state.blockerCount,
+      readinessStatus: state.readinessStatus,
+      mergeStatus: state.mergeStatus,
+      requiresTwoApprovals: true,
+      networkBoundaryInvoked: false,
+    },
+    summary: `GitHub merge acceptance rehearsal ${state.status}; fixture metadata only.`,
+  });
+}
+
 export function createGithubPublishDraftPrChainPlan(
   input: GithubPublishDraftPrChainPlanInput,
 ): GithubPublishDraftPrChainPlan {
@@ -2252,6 +2699,62 @@ export function createGithubPrManagementSummary(input: {
       addOrSetOnly: true,
     },
     summary: `GitHub PR ${input.managementKind} summary stores action metadata as hashes and counts only.`,
+  });
+}
+
+export function createGithubMergeResultSummary(input: {
+  targetRef: GithubRemoteRefSummary;
+  prNumberHash: string;
+  expectedHeadShaHash: string;
+  mergeCommitShaHash?: string;
+  mergeStrategy: GithubMergeStrategy;
+  merged: boolean;
+  responseBodyHashCount: number;
+  now?: () => string;
+}): GithubMergeResultSummary {
+  const now = input.now ?? foundationTimestamp;
+
+  return GithubMergeResultSummarySchema.parse({
+    id: stableId(
+      'github_merge_result_summary',
+      JSON.stringify({
+        targetRefId: input.targetRef.id,
+        prNumberHash: input.prNumberHash,
+        expectedHeadShaHash: input.expectedHeadShaHash,
+        mergeCommitShaHash: input.mergeCommitShaHash,
+        mergeStrategy: input.mergeStrategy,
+        merged: input.merged,
+      }),
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    targetRef: input.targetRef,
+    prNumberHash: input.prNumberHash,
+    expectedHeadShaHash: input.expectedHeadShaHash,
+    mergeCommitShaHash: input.mergeCommitShaHash,
+    mergeStrategy: input.mergeStrategy,
+    merged: input.merged,
+    responseBodyHashCount: input.responseBodyHashCount,
+    fixedEndpointOnly: true,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPrBodyStored: false,
+    rawReviewBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      targetRefIdHash: stableHash(input.targetRef.id),
+      prNumberHash: input.prNumberHash,
+      expectedHeadShaHash: input.expectedHeadShaHash,
+      mergeCommitShaHash: input.mergeCommitShaHash,
+      mergeStrategy: input.mergeStrategy,
+      merged: input.merged,
+      responseBodyHashCount: input.responseBodyHashCount,
+    },
+    summary: input.merged
+      ? 'GitHub merge result stores merge commit and response metadata as hashes only.'
+      : 'GitHub merge result is not merged; no raw response body is stored.',
   });
 }
 
@@ -3132,7 +3635,8 @@ export function runGithubPublishDraftPrAcceptanceRehearsal(
 function createGithubPolicyDecision(input: {
   actionId: string;
   actionType: string;
-  actionMode: 'read' | 'write';
+  actionMode: 'read' | 'write' | 'admin';
+  risk?: 'high' | 'critical';
   allow: boolean;
   reasons: string[];
   now: () => string;
@@ -3144,7 +3648,7 @@ function createGithubPolicyDecision(input: {
     actionId: input.actionId,
     actionType: input.actionType,
     actionMode: input.actionMode,
-    riskLevel: 'high',
+    riskLevel: input.risk ?? 'high',
     outcome: input.allow ? 'allow' : 'approval_required',
     reasons: input.reasons,
     requiresDryRun: true,
@@ -3481,6 +3985,77 @@ function collectPrManagementExecutionBlockReasons(
     input.runtime.prNumber ? undefined : 'missing_pr_number',
     prNumberMatches ? undefined : 'github_pr_number_hash_mismatch',
     input.dryRunRecord.payloadHash === payloadHash ? undefined : 'github_pr_management_payload_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectMergeExecutionBlockReasons(
+  input: GithubMergeExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const readinessApprovalExpired =
+    input.readinessApprovalRecord?.expiresAt !== undefined &&
+    Date.parse(input.readinessApprovalRecord.expiresAt) <= Date.parse(nowIso);
+  const mergeApprovalExpired =
+    input.mergeApprovalRecord?.expiresAt !== undefined &&
+    Date.parse(input.mergeApprovalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const prNumberMatches =
+    stableHash(input.runtime.prNumber) === input.dryRunRecord.prNumberHash;
+  const expectedHeadShaMatches =
+    stableHash(input.runtime.expectedHeadSha) === input.dryRunRecord.expectedHeadShaHash;
+  const readinessApprovalMatches =
+    input.readinessApprovalRecord?.dryRunId === input.dryRunRecord.dryRunId &&
+    input.readinessApprovalRecord.approvalPhase === 'readiness';
+  const mergeApprovalMatches =
+    input.mergeApprovalRecord?.dryRunId === input.dryRunRecord.dryRunId &&
+    input.mergeApprovalRecord.approvalPhase === 'merge_execution';
+  const approverHashesDifferent =
+    input.readinessApprovalRecord?.decidedByHash &&
+    input.mergeApprovalRecord?.decidedByHash
+      ? input.readinessApprovalRecord.decidedByHash !== input.mergeApprovalRecord.decidedByHash
+      : false;
+  const reasons = [
+    input.enabled ? undefined : 'github_merge_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-merge'
+      ? undefined
+      : 'merge_runner_mode_not_controlled',
+    input.dryRunRecord.readiness.status === 'ready_for_merge'
+      ? undefined
+      : 'merge_readiness_not_ready',
+    input.runtime.mergeStrategy === input.dryRunRecord.mergeStrategy
+      ? undefined
+      : 'github_merge_strategy_mismatch',
+    input.readinessApprovalRecord?.status === 'approved' &&
+    input.readinessApprovalRecord.approved
+      ? undefined
+      : 'missing_readiness_approval',
+    readinessApprovalMatches ? undefined : 'readiness_approval_hash_mismatch',
+    readinessApprovalExpired ? 'readiness_approval_expired' : undefined,
+    input.mergeApprovalRecord?.status === 'approved' && input.mergeApprovalRecord.approved
+      ? undefined
+      : 'missing_merge_approval',
+    mergeApprovalMatches ? undefined : 'merge_approval_hash_mismatch',
+    mergeApprovalExpired ? 'merge_approval_expired' : undefined,
+    approverHashesDifferent ? undefined : 'second_approver_required',
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    input.runtime.prNumber ? undefined : 'missing_pr_number',
+    prNumberMatches ? undefined : 'github_pr_number_hash_mismatch',
+    input.runtime.expectedHeadSha ? undefined : 'missing_expected_head_sha',
+    expectedHeadShaMatches ? undefined : 'github_expected_head_sha_hash_mismatch',
   ].filter((reason): reason is string => Boolean(reason));
 
   return [...new Set(reasons)];
@@ -4024,6 +4599,10 @@ function createGithubEvidenceRef(input: {
     | 'github.pr_milestones_run_summary'
     | 'github.pr_comments_plan'
     | 'github.pr_comments_run_summary'
+    | 'github.merge_readiness_plan'
+    | 'github.merge_readiness_summary'
+    | 'github.merge_run_summary'
+    | 'github.merge_rehearsal'
     | 'github.publish_draft_pr_rehearsal'
     | 'github.remote_supersede_plan'
     | 'github.remote_supersede_summary'
@@ -4135,6 +4714,59 @@ function collectPrManagementPlanBlockReasons(input: GithubPrManagementPlanInput)
   ].filter((reason): reason is string => Boolean(reason));
 
   return [...new Set(reasons)];
+}
+
+function collectMergePlanBlockReasons(input: GithubMergePlanInput): string[] {
+  const mergeStrategyAllowed = ['squash', 'merge', 'rebase'].includes(input.mergeStrategy);
+  const reasons = [
+    validateRemoteRefInput(input),
+    input.baseBranch ? undefined : 'missing_base_branch',
+    input.headBranch ? undefined : 'missing_head_branch',
+    input.prNumber || input.prNumberHash ? undefined : 'missing_pr_number',
+    input.expectedHeadSha || input.expectedHeadShaHash ? undefined : 'missing_expected_head_sha',
+    mergeStrategyAllowed ? undefined : 'unsupported_merge_strategy',
+    input.prOpen === false ? 'pr_not_open' : undefined,
+    input.branchProtectionSatisfied === false ? 'branch_protection_blocked' : undefined,
+    input.checksPassed === false ? 'checks_failed' : undefined,
+    input.reviewsSatisfied === false ? 'reviews_missing' : undefined,
+    input.staleHeadSha === true ? 'stale_head_sha' : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function resolveMergeReadinessStatus(
+  blockReasons: readonly string[],
+): GithubMergeReadinessStatus {
+  if (blockReasons.length === 0) {
+    return 'ready_for_merge';
+  }
+
+  if (blockReasons.includes('pr_not_open')) {
+    return 'blocked_pr_state';
+  }
+
+  if (blockReasons.includes('branch_protection_blocked')) {
+    return 'blocked_branch_protection';
+  }
+
+  if (blockReasons.includes('checks_failed')) {
+    return 'blocked_checks';
+  }
+
+  if (blockReasons.includes('reviews_missing')) {
+    return 'blocked_reviews';
+  }
+
+  if (blockReasons.includes('stale_head_sha')) {
+    return 'blocked_stale_head';
+  }
+
+  if (blockReasons.includes('unsupported_merge_strategy')) {
+    return 'blocked_policy';
+  }
+
+  return 'not_ready';
 }
 
 function collectDraftPrPlanBlockReasons(input: GithubDraftPrPlanInput): string[] {
@@ -4487,6 +5119,103 @@ function getGithubPrLifecycleAcceptanceScenarioState(
       return {
         status: 'blocked',
         lifecycleStatus: 'blocked',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+  }
+}
+
+function getGithubMergeAcceptanceScenarioState(scenario: GithubMergeAcceptanceScenario): {
+  status: GithubMergeAcceptanceRehearsalRun['status'];
+  readinessStatus: GithubMergeReadinessStatus;
+  mergeStatus: GithubMergeAcceptanceRehearsalRun['mergeStatus'];
+  evidenceRefCount: number;
+  auditEventCount: number;
+  blockerCount: number;
+} {
+  switch (scenario) {
+    case 'all-pass':
+      return {
+        status: 'passed',
+        readinessStatus: 'ready_for_merge',
+        mergeStatus: 'fixture_completed',
+        evidenceRefCount: 4,
+        auditEventCount: 4,
+        blockerCount: 0,
+      };
+    case 'github-merge-failed':
+    case 'merge-conflict':
+      return {
+        status: 'failed',
+        readinessStatus: 'ready_for_merge',
+        mergeStatus: 'failed',
+        evidenceRefCount: 3,
+        auditEventCount: 3,
+        blockerCount: 1,
+      };
+    case 'network-timeout':
+      return {
+        status: 'aborted',
+        readinessStatus: 'ready_for_merge',
+        mergeStatus: 'failed',
+        evidenceRefCount: 2,
+        auditEventCount: 2,
+        blockerCount: 1,
+      };
+    case 'pr-not-open':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_pr_state',
+        mergeStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'branch-protection-blocked':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_branch_protection',
+        mergeStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'checks-failed':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_checks',
+        mergeStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'reviews-missing':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_reviews',
+        mergeStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'stale-head-sha':
+      return {
+        status: 'blocked',
+        readinessStatus: 'blocked_stale_head',
+        mergeStatus: 'skipped',
+        evidenceRefCount: 1,
+        auditEventCount: 1,
+        blockerCount: 1,
+      };
+    case 'provider-disabled':
+    case 'token-missing':
+    case 'approval-blocked':
+    case 'second-approval-missing':
+      return {
+        status: 'blocked',
+        readinessStatus: 'ready_for_merge',
+        mergeStatus: 'blocked',
         evidenceRefCount: 1,
         auditEventCount: 1,
         blockerCount: 1,

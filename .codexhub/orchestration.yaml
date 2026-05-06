@@ -4464,6 +4464,51 @@ workflows:
       commentEditDeleteAllowed: false
       arbitraryGithubPassthroughAllowed: false
       metadataOnlyPublicOutput: true
+  m38.governed-github-merge-control-plane:
+    risk: critical
+    trigger:
+      type: governed-github-merge-control-plane
+      entrypoint: contracts store github-provider supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - merge-contracts
+      - merge-readiness-store
+      - merge-supervisor-control-plane
+      - merge-guided-dashboard-and-cli-readonly
+      - merge-hardening
+    requiredEnv:
+      - CODEXHUB_GITHUB_PROVIDER_ENABLED
+      - CODEXHUB_GITHUB_MERGE_ENABLED
+    docs:
+      - docs/releases/m38-github-merge-results.md
+      - docs/reviews/m38-github-merge-hardening-review.md
+      - docs/runbooks/m38-github-merge-operator-runbook.md
+    safety:
+      fixedGithubEndpointsOnly: true
+      requiresTwoApprovals: true
+      approverHashesMustDiffer: true
+      branchProtectionRequired: true
+      checksStatusRequired: true
+      reviewApprovalRequired: true
+      allowedStrategies:
+        - squash
+        - merge
+        - rebase
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      tokenStorageAllowed: false
+      rawBodyStorageAllowed: false
+      preBoundaryBlockConsumesApproval: false
+      boundaryReachedConsumesMergeApprovalExactlyOnce: true
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      labelsAllowed: false
+      reviewersAllowed: false
+      commentsAllowed: false
+      releaseDeploymentAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

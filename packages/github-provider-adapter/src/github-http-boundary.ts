@@ -99,6 +99,36 @@ export interface GithubPrManagementHttpBoundaryResult {
   summary: string;
 }
 
+export interface GithubMergeHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  baseBranch: string;
+  headBranch?: string;
+  prNumber: string;
+  expectedHeadSha: string;
+  mergeStrategy: 'squash' | 'merge' | 'rebase';
+}
+
+export interface GithubMergeHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  prNumberHash?: string;
+  prStateHash?: string;
+  headShaHash?: string;
+  mergeCommitShaHash?: string;
+  branchProtectionStatus: 'satisfied' | 'blocked' | 'missing' | 'unknown';
+  checkRunCount: number;
+  statusContextCount: number;
+  failedCheckCount: number;
+  pendingCheckCount: number;
+  passedCheckCount: number;
+  reviewDecisionCount: number;
+  approvingReviewCount: number;
+  changesRequestedReviewCount: number;
+  merged: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
 export interface GithubPrLifecycleHttpBoundaryResult {
   status: 'completed' | 'failed' | 'aborted';
   networkBoundaryInvoked: boolean;
@@ -456,6 +486,206 @@ export async function runGithubPrManagementHttpBoundary(
       ...createFailedPrManagementBoundaryResult(true, request, [
         `github_pr_${request.managementKind}_network_failure`,
       ]),
+      responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubMergeHttpBoundary(
+  request: GithubMergeHttpBoundaryRequest,
+): Promise<GithubMergeHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedMergeBoundaryResult(false, request, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const prNumber = encodePathSegment(request.prNumber);
+  const expectedHeadShaHash = `sha256:${hashText(request.expectedHeadSha)}`;
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}`);
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const pullRequest = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/pulls/${prNumber}`,
+    );
+    responseBodyHashes.push(pullRequest.bodyHash);
+    if (!pullRequest.ok) {
+      blockReasons.push(`pull_request_metadata_http_${pullRequest.status}`);
+    }
+
+    const prMetadata = pullRequest.ok ? extractMergePullRequestMetadata(pullRequest.bodyText) : {};
+    if (prMetadata.state !== 'open') {
+      blockReasons.push('pr_not_open');
+    }
+    if (!prMetadata.headSha) {
+      blockReasons.push('missing_head_sha');
+    } else if (prMetadata.headSha !== request.expectedHeadSha) {
+      blockReasons.push('stale_head_sha');
+    }
+
+    let branchProtectionStatus: GithubMergeHttpBoundaryResult['branchProtectionStatus'] = 'unknown';
+    const branchProtection = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/branches/${encodePathSegment(request.baseBranch)}/protection`,
+    );
+    responseBodyHashes.push(branchProtection.bodyHash);
+    if (branchProtection.ok) {
+      branchProtectionStatus = 'satisfied';
+    } else if (branchProtection.status === 404) {
+      branchProtectionStatus = 'missing';
+      blockReasons.push('branch_protection_missing');
+    } else {
+      branchProtectionStatus = 'blocked';
+      blockReasons.push(`branch_protection_http_${branchProtection.status}`);
+    }
+
+    let statusContextCount = 0;
+    let checkRunCount = 0;
+    let failedCheckCount = 0;
+    let pendingCheckCount = 0;
+    let passedCheckCount = 0;
+    const headSha = prMetadata.headSha ?? request.expectedHeadSha;
+    const combinedStatus = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/commits/${encodePathSegment(headSha)}/status`,
+    );
+    responseBodyHashes.push(combinedStatus.bodyHash);
+    if (!combinedStatus.ok) {
+      blockReasons.push(`combined_status_http_${combinedStatus.status}`);
+    } else {
+      const counts = countCombinedStatusContexts(combinedStatus.bodyText);
+      statusContextCount = counts.total;
+      failedCheckCount += counts.failed;
+      pendingCheckCount += counts.pending;
+      passedCheckCount += counts.passed;
+    }
+
+    const checkRuns = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/commits/${encodePathSegment(headSha)}/check-runs`,
+    );
+    responseBodyHashes.push(checkRuns.bodyHash);
+    if (!checkRuns.ok) {
+      blockReasons.push(`check_runs_http_${checkRuns.status}`);
+    } else {
+      const counts = countCheckRuns(checkRuns.bodyText);
+      checkRunCount = counts.total;
+      failedCheckCount += counts.failed;
+      pendingCheckCount += counts.pending;
+      passedCheckCount += counts.passed;
+    }
+
+    if (statusContextCount + checkRunCount === 0) {
+      blockReasons.push('checks_missing');
+    }
+    if (failedCheckCount > 0) {
+      blockReasons.push('checks_failed');
+    }
+    if (pendingCheckCount > 0) {
+      blockReasons.push('checks_pending');
+    }
+
+    const reviews = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+    );
+    responseBodyHashes.push(reviews.bodyHash);
+    let reviewDecisionCount = 0;
+    let approvingReviewCount = 0;
+    let changesRequestedReviewCount = 0;
+    if (!reviews.ok) {
+      blockReasons.push(`reviews_http_${reviews.status}`);
+    } else {
+      const reviewCounts = countPullRequestReviews(reviews.bodyText);
+      reviewDecisionCount = reviewCounts.total;
+      approvingReviewCount = reviewCounts.approved;
+      changesRequestedReviewCount = reviewCounts.changesRequested;
+      if (approvingReviewCount === 0) {
+        blockReasons.push('reviews_missing');
+      }
+      if (changesRequestedReviewCount > 0) {
+        blockReasons.push('reviews_changes_requested');
+      }
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        prNumberHash: `sha256:${hashText(request.prNumber)}`,
+        prStateHash: prMetadata.state ? `sha256:${hashText(prMetadata.state)}` : undefined,
+        headShaHash: prMetadata.headSha ? `sha256:${hashText(prMetadata.headSha)}` : expectedHeadShaHash,
+        branchProtectionStatus,
+        checkRunCount,
+        statusContextCount,
+        failedCheckCount,
+        pendingCheckCount,
+        passedCheckCount,
+        reviewDecisionCount,
+        approvingReviewCount,
+        changesRequestedReviewCount,
+        merged: false,
+        blockReasons: [...new Set(blockReasons)],
+        summary: `GitHub merge preflight failed: ${[...new Set(blockReasons)].join(', ')}.`,
+      };
+    }
+
+    const merge = await fetchFixedGithubPutJson(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/pulls/${prNumber}/merge`,
+      {
+        merge_method: request.mergeStrategy,
+      },
+    );
+    responseBodyHashes.push(merge.bodyHash);
+    if (!merge.ok) {
+      blockReasons.push(`merge_http_${merge.status}`);
+    }
+    const mergeCommitSha = extractSha(merge.bodyText);
+
+    return {
+      status: merge.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      prNumberHash: `sha256:${hashText(request.prNumber)}`,
+      prStateHash: prMetadata.state ? `sha256:${hashText(prMetadata.state)}` : undefined,
+      headShaHash: prMetadata.headSha ? `sha256:${hashText(prMetadata.headSha)}` : expectedHeadShaHash,
+      mergeCommitShaHash: mergeCommitSha ? `sha256:${hashText(mergeCommitSha)}` : undefined,
+      branchProtectionStatus,
+      checkRunCount,
+      statusContextCount,
+      failedCheckCount,
+      pendingCheckCount,
+      passedCheckCount,
+      reviewDecisionCount,
+      approvingReviewCount,
+      changesRequestedReviewCount,
+      merged: merge.ok,
+      blockReasons,
+      summary: merge.ok
+        ? 'GitHub merge fixed endpoint boundary completed with hash-only summaries.'
+        : `GitHub merge fixed endpoint boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedMergeBoundaryResult(true, request, ['github_merge_network_failure']),
       responseBodyHashes,
     };
   }
@@ -996,6 +1226,37 @@ async function fetchFixedGithubPatchJson(
   };
 }
 
+async function fetchFixedGithubPutJson(
+  fetchImpl: typeof fetch,
+  request: GithubHttpBoundaryRequest,
+  pathAndQuery: string,
+  body: Record<string, unknown>,
+): Promise<{
+  ok: boolean;
+  status: number;
+  bodyHash: string;
+  bodyText: string;
+}> {
+  const response = (await fetchImpl(`https://${GITHUB_API_HOST}${pathAndQuery}`, {
+    method: 'PUT',
+    headers: {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${request.token}`,
+      'content-type': 'application/json',
+      'x-github-api-version': '2022-11-28',
+    },
+    body: JSON.stringify(body),
+  })) as GithubBoundaryResponse;
+  const bodyText = await response.text();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    bodyHash: `sha256:${hashText(bodyText)}`,
+    bodyText,
+  };
+}
+
 async function fetchFixedGithubDelete(
   fetchImpl: typeof fetch,
   request: GithubHttpBoundaryRequest,
@@ -1197,6 +1458,32 @@ function createFailedPrManagementBoundaryResult(
   };
 }
 
+function createFailedMergeBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  request: GithubMergeHttpBoundaryRequest,
+  blockReasons: string[],
+): GithubMergeHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    prNumberHash: request.prNumber ? `sha256:${hashText(request.prNumber)}` : undefined,
+    headShaHash: request.expectedHeadSha ? `sha256:${hashText(request.expectedHeadSha)}` : undefined,
+    branchProtectionStatus: 'unknown',
+    checkRunCount: 0,
+    statusContextCount: 0,
+    failedCheckCount: 0,
+    pendingCheckCount: 0,
+    passedCheckCount: 0,
+    reviewDecisionCount: 0,
+    approvingReviewCount: 0,
+    changesRequestedReviewCount: 0,
+    merged: false,
+    blockReasons,
+    summary: `GitHub merge HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
 function createFailedPrLifecycleBoundaryResult(
   networkBoundaryInvoked: boolean,
   blockReasons: string[],
@@ -1347,6 +1634,58 @@ function extractPullRequestLifecycleMetadata(
     };
   } catch {
     return {};
+  }
+}
+
+function extractMergePullRequestMetadata(bodyText: string): {
+  state?: string;
+  headSha?: string;
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const head = parsed.head;
+    const headSha =
+      head && typeof head === 'object'
+        ? (head as Record<string, unknown>).sha
+        : undefined;
+
+    return {
+      state: typeof parsed.state === 'string' ? parsed.state : undefined,
+      headSha: typeof headSha === 'string' ? headSha : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function countPullRequestReviews(bodyText: string): {
+  total: number;
+  approved: number;
+  changesRequested: number;
+} {
+  try {
+    const parsed = JSON.parse(bodyText) as unknown;
+    const reviews = Array.isArray(parsed) ? parsed : [];
+
+    return reviews.reduce(
+      (counts, review) => {
+        const state =
+          review && typeof review === 'object'
+            ? (review as Record<string, unknown>).state
+            : undefined;
+        counts.total += 1;
+        if (state === 'APPROVED') {
+          counts.approved += 1;
+        }
+        if (state === 'CHANGES_REQUESTED') {
+          counts.changesRequested += 1;
+        }
+        return counts;
+      },
+      { total: 0, approved: 0, changesRequested: 0 },
+    );
+  } catch {
+    return { total: 0, approved: 0, changesRequested: 0 };
   }
 }
 
