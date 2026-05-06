@@ -36,6 +36,20 @@ function expectNoForbiddenRawOutputTerms(serialized: string): void {
   expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
 
+function sourceWindow(source: string, startMarker: string, endMarker: string): string {
+  const start = source.indexOf(startMarker);
+  expect(start).toBeGreaterThanOrEqual(0);
+
+  if (endMarker.length === 0) {
+    return source.slice(start);
+  }
+
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  expect(end).toBeGreaterThan(start);
+
+  return source.slice(start, end);
+}
+
 describe('dashboard read-only UX helpers', () => {
   it('selects stable hash routes with overview fallback', () => {
     expect(getDashboardViewFromHash('#/mcp-tools')).toBe('mcp-tools');
@@ -891,6 +905,43 @@ describe('dashboard read-only UX helpers', () => {
     ]) {
       expect(recoveryWizard).not.toContain(forbidden);
     }
+  });
+
+  it('keeps recovery wizard POST payloads limited to ids and hashes', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const requestApprovalWindow = sourceWindow(
+      appSource,
+      'async function requestRecoveryApproval',
+      'async function approveRecoveryRequest',
+    );
+    const approveWindow = sourceWindow(
+      appSource,
+      'async function approveRecoveryRequest',
+      'async function runRecovery',
+    );
+    const runWindow = sourceWindow(
+      appSource,
+      'async function runRecovery',
+      'if (activeView ===',
+    );
+    const postWindow = sourceWindow(appSource, 'async function postRecoveryJson', '');
+
+    for (const window of [requestApprovalWindow, approveWindow, runWindow]) {
+      expect(window).not.toContain('reason:');
+      expect(window).not.toContain('reasonSummary');
+      expect(window).not.toContain('rawReason');
+      expect(window).not.toContain('approvalArtifact:');
+      expect(window).not.toContain('executionAuthority');
+      expect(window).not.toContain('authority:');
+      expect(window).not.toContain('childArtifacts');
+      expect(window).not.toContain('childApprovalApproved');
+      expect(window).not.toContain('childRunStatuses');
+    }
+
+    expect(postWindow).toContain('recoveryDashboardPostRoutes.has(path)');
+    expect(postWindow).not.toContain('startsWith');
+    expect(postWindow).not.toContain('indexOf(');
+    expect(postWindow).not.toContain('includes(');
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {

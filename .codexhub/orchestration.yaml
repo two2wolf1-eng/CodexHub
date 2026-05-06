@@ -4308,3 +4308,27 @@ workflows:
       workflowApprovalDoesNotGrantChildAuthority: true
       childApprovalsRemainSeparate: true
       metadataOnlyPublicOutput: true
+  m32_2.deep-governance-debug-hardening:
+    risk: critical
+    trigger:
+      type: deep-debug-hardening
+      entrypoint: dashboard audits docs
+      localControlRequired: false
+    findings:
+      - recoveryRawReasonAuditOnlyMatchedOneVariableName
+      - recoveryRouteGuardAuditDidNotCatchPrefixAliases
+    fixes:
+      - scopedDashboardRecoveryPayloadWindowAudit
+      - scopedDashboardRecoveryRouteGuardAudit
+      - dashboardRecoveryPayloadRegressionTest
+    docs:
+      - docs/releases/m32.2-deep-debug-hardening.md
+      - docs/reviews/m0-m32-deep-debug-hardening-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true

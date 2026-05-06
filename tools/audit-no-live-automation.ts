@@ -167,6 +167,32 @@ const dashboardRecoveryForbiddenPayloadTerms = [
   'reason: recoveryReason',
   "startsWith('/api/workflows/production/recoveries/')",
 ];
+const dashboardRecoveryExactPostRoutes = [
+  '/api/workflows/production/recoveries/dry-runs',
+  '/api/workflows/production/recoveries/approval-requests',
+  '/api/workflows/production/recoveries/manual-approvals',
+  '/api/workflows/production/recoveries/runs',
+];
+const dashboardRecoveryScopedPayloadTerms = [
+  'reason:',
+  'reasonSummary',
+  'rawReason',
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'childArtifacts',
+  'childApprovalApproved',
+  'childRunStatuses',
+];
+const dashboardRecoveryRouteBypassTerms = [
+  'startsWith',
+  'indexOf(',
+  "indexOf('/api/workflows/production/recoveries/')",
+  'indexOf(recovery',
+  'includes(',
+  ".includes('/api/workflows/production/recoveries/')",
+  'includes(recovery',
+];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
@@ -429,9 +455,37 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/approval-requests"; const body = { dryRunId, reason: rawReason };',
+      expectedTerm: 'reason:',
+      description: 'Dashboard recovery raw reason payload alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/approval-requests"; const body = { dryRunId, reasonSummary: rawReason };',
+      expectedTerm: 'reasonSummary',
+      description: 'Dashboard recovery reason summary payload alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
       sourceText: "const ok = path.startsWith('/api/workflows/production/recoveries/');",
       expectedTerm: "startsWith('/api/workflows/production/recoveries/')",
       description: 'Dashboard recovery prefix route guard',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const recoveryPrefix = "/api/workflows/production/recoveries/"; const ok = path.startsWith(recoveryPrefix);',
+      expectedTerm: 'startsWith',
+      description: 'Dashboard recovery prefix route guard alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/runs"; const ok = path.indexOf("/api/workflows/production/recoveries/") === 0;',
+      expectedTerm: 'indexOf',
+      description: 'Dashboard recovery indexOf route guard',
     },
     {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
@@ -627,10 +681,13 @@ function adversarialSentinelWouldViolate(
 
   auditTextTerms(file, sourceText);
   auditM9ApprovalUxGuards(file, sourceText);
+  auditDashboardRecoveryWizardScopedGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
-  return addedViolations.some((violation) => violation.term === expectedTerm);
+  return addedViolations.some(
+    (violation) => violation.term === expectedTerm || violation.term.includes(expectedTerm),
+  );
 }
 
 function auditFile(file: string): void {
@@ -641,6 +698,7 @@ function auditFile(file: string): void {
   auditCallExpressions(file, sourceFile);
   auditTextTerms(file, sourceText);
   auditM9ApprovalUxGuards(file, sourceText);
+  auditDashboardRecoveryWizardScopedGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -947,6 +1005,159 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
       }
     }
   }
+}
+
+function auditDashboardRecoveryWizardScopedGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (
+    workspacePath !== 'apps/dashboard/src/App.tsx' &&
+    !workspacePath.includes('adversarial-recovery-ui')
+  ) {
+    return;
+  }
+
+  if (!sourceText.includes('/api/workflows/production/recoveries/')) {
+    return;
+  }
+
+  if (workspacePath.includes('adversarial-recovery-ui')) {
+    auditDashboardRecoverySnippetGuards(file, sourceText);
+    return;
+  }
+
+  for (const route of dashboardRecoveryExactPostRoutes) {
+    if (!sourceText.includes(route)) {
+      violations.push({
+        file,
+        line: 1,
+        term: route,
+        reason: 'Dashboard recovery wizard must keep every allowed POST route explicit.',
+      });
+    }
+  }
+
+  const approvalRequestWindow = getWindowBetween(
+    sourceText,
+    'async function requestRecoveryApproval',
+    'async function approveRecoveryRequest',
+  );
+  const manualApprovalWindow = getWindowBetween(
+    sourceText,
+    'async function approveRecoveryRequest',
+    'async function runRecovery',
+  );
+  const runWindow = getWindowBetween(
+    sourceText,
+    'async function runRecovery',
+    'if (activeView ===',
+  );
+  const postWindow = getWindowBetween(sourceText, 'async function postRecoveryJson', '');
+
+  for (const [name, window] of [
+    ['requestRecoveryApproval', approvalRequestWindow],
+    ['approveRecoveryRequest', manualApprovalWindow],
+    ['runRecovery', runWindow],
+  ] as const) {
+    auditDashboardRecoveryPayloadWindow(file, name, window);
+  }
+
+  if (!postWindow.includes('recoveryDashboardPostRoutes.has(path)')) {
+    violations.push({
+      file,
+      line: findLineNumber(sourceText, 'async function postRecoveryJson'),
+      term: 'recoveryDashboardPostRoutes.has(path)',
+      reason: 'Dashboard recovery POST helper must enforce the exact route allowlist.',
+    });
+  }
+
+  for (const term of dashboardRecoveryRouteBypassTerms) {
+    if (postWindow.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(sourceText, term),
+        term,
+        reason:
+          'Dashboard recovery POST helper must not use prefix, substring, or dynamic route guards.',
+      });
+    }
+  }
+}
+
+function auditDashboardRecoverySnippetGuards(file: string, sourceText: string): void {
+  for (const term of dashboardRecoveryScopedPayloadTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason:
+          'Dashboard recovery wizard may only send ids and hashes; raw reasons, authority objects, child artifacts, and child auto-approval payloads are forbidden.',
+      });
+    }
+  }
+
+  for (const term of dashboardRecoveryRouteBypassTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason:
+          'Dashboard recovery wizard route checks must use the exact recovery route allowlist.',
+      });
+    }
+  }
+}
+
+function auditDashboardRecoveryPayloadWindow(file: string, name: string, window: string): void {
+  if (window.length === 0) {
+    violations.push({
+      file,
+      line: 1,
+      term: name,
+      reason: `Dashboard recovery wizard function ${name} must remain present for scoped audit coverage.`,
+    });
+    return;
+  }
+
+  for (const term of dashboardRecoveryScopedPayloadTerms) {
+    if (window.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(window, term),
+        term,
+        reason:
+          'Dashboard recovery wizard may only send ids and hashes to the recovery control plane; raw reasons, request-body authority, child artifacts, and child auto-approval payloads are forbidden.',
+      });
+    }
+  }
+}
+
+function getWindowBetween(sourceText: string, startMarker: string, endMarker: string): string {
+  const start = sourceText.indexOf(startMarker);
+
+  if (start < 0) {
+    return '';
+  }
+
+  if (endMarker.length === 0) {
+    return sourceText.slice(start);
+  }
+
+  const end = sourceText.indexOf(endMarker, start + startMarker.length);
+
+  return end < 0 ? sourceText.slice(start) : sourceText.slice(start, end);
+}
+
+function findLineNumber(sourceText: string, term: string): number {
+  const index = sourceText.indexOf(term);
+
+  if (index < 0) {
+    return 1;
+  }
+
+  return sourceText.slice(0, index).split(/\r?\n/).length;
 }
 
 function isAllowedMcpLocalHttpGateEnvLine(workspacePath: string, line: string): boolean {
