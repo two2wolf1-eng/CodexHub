@@ -181,7 +181,23 @@ const browserDirectActionTerms = ['page.click', 'page.type', 'keyboard.type', 'm
 const electronRuntimeEvaluateTerms = ['Runtime.evaluate'];
 const mcpWriteToolDirectTerms = ['workspace.applyPatchToControlledWorktree'];
 const directAdapterExecuteTerms = discoverPublicExecuteTerms();
+const dynamicAdapterExecutePropertyTerms = [
+  '["execute" +',
+  "['execute' +",
+  '["execute",',
+  "['execute',",
+  '.execute(',
+];
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
+const browserPersistenceWrapperTerms = [
+  '["local" + "Storage"]',
+  "['local' + 'Storage']",
+  '["session" + "Storage"]',
+  "['session' + 'Storage']",
+  '["indexed" + "DB"]',
+  "['indexed' + 'DB']",
+];
+const dashboardPersistenceTerms = [...browserPersistenceTerms, ...browserPersistenceWrapperTerms];
 const dashboardRecoveryForbiddenPayloadTerms = [
   'approvalArtifact:',
   'executionAuthority',
@@ -604,6 +620,13 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText:
+        'import * as githubProvider from "@codexhub/github-provider-adapter"; const run = githubProvider.executeGithubBranchPublish;',
+      expectedTerm: 'executeGithubBranchPublish',
+      description: 'namespace alias adapter execute access from CLI source',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
       sourceText: 'const run = adapters["executeGithubRemoteCleanup"];',
       expectedTerm: 'executeGithubRemoteCleanup',
       description: 'adapter execute access through dynamic property lookup from CLI source',
@@ -614,6 +637,12 @@ function validateAdversarialAuditSentinels(): void {
         'const executeName = "executeGithubBranchPublish"; const run = adapters[executeName];',
       expectedTerm: 'executeGithubBranchPublish',
       description: 'adapter execute access through named dynamic property lookup from CLI source',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText: 'const run = adapters["execute" + "GithubMerge"];',
+      expectedTerm: '["execute" +',
+      description: 'adapter execute access through split dynamic property lookup from CLI source',
     },
     {
       workspacePath: 'apps/cli/src/adversarial-policy.ts',
@@ -711,9 +740,22 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText:
+        'const sendMutation = (route: string) => globalThis.fetch(route, { method: "POST" }); sendMutation("/api/github/metadata/runs");',
+      expectedTerm: 'method: "POST"',
+      description: 'Dashboard generic POST helper alias outside the governed mutation surfaces',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
       sourceText: 'window["localStorage"].setItem("codexhub-local-control", token);',
       expectedTerm: 'localStorage',
       description: 'Dashboard token persistence through bracket notation wrapper',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText: 'window["local" + "Storage"].setItem("codexhub-local-control", token);',
+      expectedTerm: '["local" + "Storage"]',
+      description: 'Dashboard token persistence through split storage wrapper',
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
@@ -992,6 +1034,12 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: "const endpoint = ['/repos', owner, repo, 'git', 'refs'].join('/');",
       expectedTerm: "'git', 'refs'].join('/')",
       description: 'CLI segmented generic GitHub ref endpoint construction',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: 'const endpoint = new URL("/repos/example/example/git/refs", "https://api.github.com");',
+      expectedTerm: '/git/refs',
+      description: 'CLI generic GitHub URL builder for ref mutation endpoint',
     },
   ];
 
@@ -1526,6 +1574,18 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
       }
     }
 
+    for (const term of dynamicAdapterExecutePropertyTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Dashboard, CLI, and MCP tools must not reconstruct adapter execute helpers through dynamic property access.',
+        });
+      }
+    }
+
     if (isMcpSource) {
       for (const term of mcpBoundaryBypassTerms) {
         if (term === 'process.env[' && isAllowedMcpLocalHttpGateEnvLine(workspacePath, line)) {
@@ -1558,7 +1618,7 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
   }
 
   for (const [index, line] of lines.entries()) {
-    for (const term of browserPersistenceTerms) {
+    for (const term of dashboardPersistenceTerms) {
       if (line.includes(term)) {
         violations.push({
           file,
@@ -1598,7 +1658,7 @@ function auditDashboardMutationSurfaceGuards(file: string, sourceText: string): 
   const isAllowedDashboardMutationFile = workspacePath === 'apps/dashboard/src/App.tsx';
 
   for (const [index, line] of lines.entries()) {
-    for (const term of browserPersistenceTerms) {
+    for (const term of dashboardPersistenceTerms) {
       if (line.includes(term)) {
         violations.push({
           file,

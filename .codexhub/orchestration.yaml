@@ -5183,3 +5183,28 @@ workflows:
       unsupportedPostForbidden: true
       directAdapterExecuteForbidden: true
       metadataOnlyPublicOutput: true
+  m45_9.adversarial-audit-negative-fixtures-debug:
+    risk: critical
+    trigger:
+      type: adversarial-audit-negative-fixture-debug
+      entrypoint: audit docs tools
+      localControlRequired: false
+    scope:
+      - alias-execute-import-sentinel
+      - dynamic-execute-property-sentinel
+      - generic-post-helper-sentinel
+      - generic-github-url-builder-sentinel
+      - token-storage-wrapper-sentinel
+    docs:
+      - docs/releases/m45.9-adversarial-audit-negative-fixtures-debug.md
+      - docs/reviews/m0-m45-adversarial-audit-negative-fixtures-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      liveBoundaryAllowlistUnchanged: true
+      metadataOnlyPublicOutput: true
