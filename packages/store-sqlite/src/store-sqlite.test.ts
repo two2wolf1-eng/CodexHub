@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   type AuditEvent,
+  type BrowserActionApprovalArtifact,
+  type BrowserActionPlan,
+  type BrowserActionRun,
   type BrowserObservationApprovalArtifactRecord,
   type BrowserObservationControlPlaneRun,
   type BrowserObservationDryRunRecord,
@@ -26,6 +29,16 @@ import {
   type CustomWorkflowApprovalArtifactRecord,
   type CustomWorkflowPlan,
   type CustomWorkflowRun,
+  type DeploymentObservationApprovalArtifact,
+  type DeploymentObservationPlan,
+  type DeploymentObservationRun,
+  type DeploymentOperationApprovalArtifact,
+  type DeploymentOperationPlan,
+  type DeploymentOperationRun,
+  type DeploymentRollbackPlan,
+  type ElectronMainInspectorApprovalArtifact,
+  type ElectronMainInspectorPlan,
+  type ElectronMainInspectorRun,
   type ProductionWorkflowChildActionStateRecord,
   type ProductionWorkflowRecoveryApprovalArtifact,
   type ProductionWorkflowRecoveryPlan,
@@ -45,10 +58,30 @@ import {
   type GithubPublishDraftPrChainPlan,
   type GithubPublishDraftPrChainRun,
   type GithubPublishDraftPrChainStep,
+  type GithubReleaseDraftApprovalArtifact,
+  type GithubReleaseDraftPlan,
+  type GithubReleaseDraftRun,
+  type GithubReleaseTagApprovalArtifact,
+  type GithubReleaseTagPlan,
+  type GithubReleaseTagRun,
   type GithubRemoteCommitSummary,
   type GithubRemotePrLifecycleSummary,
   type GithubRemoteRefSummary,
+  type McpWriteToolApprovalArtifact,
+  type McpWriteToolPlan,
+  type McpWriteToolRun,
   type MockDevelopmentRun,
+  type RealPolicyBackendApprovalArtifact,
+  type RealPolicyBackendEvaluationPlan,
+  type RealPolicyBackendEvaluationRun,
+  type RealTelemetryExportApprovalArtifact,
+  type RealTelemetryExportPlan,
+  type RealTelemetryExportRun,
+  type ReleaseVersionPlan,
+  type SecretLeakAuditSummary,
+  type SecretReadinessApprovalArtifact,
+  type SecretReadinessPlan,
+  type SecretReadinessRun,
   type WorktreeApprovalArtifactRecord,
   type WorktreeCleanupApprovalArtifactRecord,
   type WorktreeCleanupControlPlaneRun,
@@ -1213,7 +1246,459 @@ describe('store-sqlite migration initialization', () => {
       }),
     ).toEqual([]);
   });
+
+  it('persists M40-M45 metadata-only control-plane records across list/get round trips', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-store-m45-3-roundtrip-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+
+    const releaseVersionPlan = createMetadataStoreRecord<ReleaseVersionPlan>(
+      'release_version_plan_m45_3',
+      'release_version_plan_dry_run_m45_3',
+      'planned',
+      { versionHash: 'sha256:version-plan', changelogSummaryHash: 'sha256:changelog' },
+    );
+    const releaseTagPlan = createMetadataStoreRecord<GithubReleaseTagPlan>(
+      'github_release_tag_plan_m45_3',
+      'github_release_tag_dry_run_m45_3',
+      'planned',
+      { tagNameHash: 'sha256:tag', networkBoundaryPlanned: true },
+    );
+    const releaseTagApproval = createMetadataApprovalRecord<GithubReleaseTagApprovalArtifact>(
+      'github_release_tag_approval_m45_3',
+      'github_release_tag_dry_run_m45_3',
+      'github_release_tag_approval_artifact_m45_3',
+    );
+    const releaseTagRun = createMetadataStoreRecord<GithubReleaseTagRun>(
+      'github_release_tag_run_m45_3',
+      'github_release_tag_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'github_release_tag_approval_artifact_m45_3',
+        tagShaHash: 'sha256:tag-sha',
+        networkBoundaryInvoked: true,
+      },
+    );
+    const releaseDraftPlan = createMetadataStoreRecord<GithubReleaseDraftPlan>(
+      'github_release_draft_plan_m45_3',
+      'github_release_draft_dry_run_m45_3',
+      'planned',
+      { releaseNameHash: 'sha256:release-name', networkBoundaryPlanned: true },
+    );
+    const releaseDraftApproval =
+      createMetadataApprovalRecord<GithubReleaseDraftApprovalArtifact>(
+        'github_release_draft_approval_m45_3',
+        'github_release_draft_dry_run_m45_3',
+        'github_release_draft_approval_artifact_m45_3',
+      );
+    const releaseDraftRun = createMetadataStoreRecord<GithubReleaseDraftRun>(
+      'github_release_draft_run_m45_3',
+      'github_release_draft_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'github_release_draft_approval_artifact_m45_3',
+        releaseIdHash: 'sha256:release-id',
+        networkBoundaryInvoked: true,
+        releaseBodyStored: false,
+        changelogBodyStored: false,
+      },
+    );
+    const deploymentObservationPlan =
+      createMetadataStoreRecord<DeploymentObservationPlan>(
+        'deployment_observation_plan_m45_3',
+        'deployment_observation_dry_run_m45_3',
+        'planned',
+        { provider: 'kubernetes', planHash: 'sha256:deployment-observation' },
+      );
+    const deploymentObservationApproval =
+      createMetadataApprovalRecord<DeploymentObservationApprovalArtifact>(
+        'deployment_observation_approval_m45_3',
+        'deployment_observation_dry_run_m45_3',
+        'deployment_observation_approval_artifact_m45_3',
+      );
+    const deploymentObservationRun = createMetadataStoreRecord<DeploymentObservationRun>(
+      'deployment_observation_run_m45_3',
+      'deployment_observation_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'deployment_observation_approval_artifact_m45_3',
+        provider: 'kubernetes',
+        driftHash: 'sha256:drift',
+        rawPlanStored: false,
+        rawDiffStored: false,
+      },
+    );
+    const deploymentOperationPlan = createMetadataStoreRecord<DeploymentOperationPlan>(
+      'deployment_operation_plan_m45_3',
+      'deployment_operation_dry_run_m45_3',
+      'planned',
+      { provider: 'helm', action: 'sync', environment: 'staging', targetHash: 'sha256:target' },
+    );
+    const deploymentOperationApproval =
+      createMetadataApprovalRecord<DeploymentOperationApprovalArtifact>(
+        'deployment_operation_approval_m45_3',
+        'deployment_operation_dry_run_m45_3',
+        'deployment_operation_approval_artifact_m45_3',
+      );
+    const deploymentRollbackPlan = createMetadataStoreRecord<DeploymentRollbackPlan>(
+      'deployment_rollback_plan_m45_3',
+      'deployment_operation_dry_run_m45_3',
+      'ready',
+      {
+        rollbackPlanId: 'deployment_rollback_plan_public_m45_3',
+        provider: 'helm',
+        environment: 'staging',
+        targetHash: 'sha256:rollback-target',
+      },
+    );
+    const deploymentOperationRun = createMetadataStoreRecord<DeploymentOperationRun>(
+      'deployment_operation_run_m45_3',
+      'deployment_operation_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'deployment_operation_approval_artifact_m45_3',
+        rollbackPlanId: 'deployment_rollback_plan_public_m45_3',
+        processBoundaryInvoked: true,
+        rawManifestStored: false,
+      },
+    );
+    const secretReadinessPlan = createMetadataStoreRecord<SecretReadinessPlan>(
+      'secret_readiness_plan_m45_3',
+      'secret_readiness_dry_run_m45_3',
+      'planned',
+      { provider: 'vault', secretReferenceHash: 'sha256:secret-ref' },
+    );
+    const secretReadinessApproval =
+      createMetadataApprovalRecord<SecretReadinessApprovalArtifact>(
+        'secret_readiness_approval_m45_3',
+        'secret_readiness_dry_run_m45_3',
+        'secret_readiness_approval_artifact_m45_3',
+      );
+    const secretReadinessRun = createMetadataStoreRecord<SecretReadinessRun>(
+      'secret_readiness_run_m45_3',
+      'secret_readiness_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'secret_readiness_approval_artifact_m45_3',
+        provider: 'vault',
+        configuredSecretCount: 2,
+        secretValueStored: false,
+      },
+    );
+    const secretLeakAuditSummary = createMetadataStoreRecord<SecretLeakAuditSummary>(
+      'secret_leak_audit_summary_m45_3',
+      'secret_readiness_dry_run_m45_3',
+      'passed',
+      { scannedSurfaceCount: 8, leakCount: 0, secretValueStored: false },
+    );
+    const realPolicyPlan = createMetadataStoreRecord<RealPolicyBackendEvaluationPlan>(
+      'real_policy_backend_plan_m45_3',
+      'real_policy_backend_dry_run_m45_3',
+      'planned',
+      { backendKind: 'opa', runtimeMode: 'local-cli', inputHash: 'sha256:policy-input' },
+    );
+    const realPolicyApproval =
+      createMetadataApprovalRecord<RealPolicyBackendApprovalArtifact>(
+        'real_policy_backend_approval_m45_3',
+        'real_policy_backend_dry_run_m45_3',
+        'real_policy_backend_approval_artifact_m45_3',
+      );
+    const realPolicyRun = createMetadataStoreRecord<RealPolicyBackendEvaluationRun>(
+      'real_policy_backend_run_m45_3',
+      'real_policy_backend_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'real_policy_backend_approval_artifact_m45_3',
+        advisoryDecisionHash: 'sha256:policy-decision',
+        processBoundaryInvoked: true,
+        rawPolicyStored: false,
+        rawInputStored: false,
+      },
+    );
+    const telemetryPlan = createMetadataStoreRecord<RealTelemetryExportPlan>(
+      'real_telemetry_export_plan_m45_3',
+      'real_telemetry_export_dry_run_m45_3',
+      'planned',
+      { exporterKind: 'in-memory', spanCount: 3, signalHash: 'sha256:spans' },
+    );
+    const telemetryApproval = createMetadataApprovalRecord<RealTelemetryExportApprovalArtifact>(
+      'real_telemetry_export_approval_m45_3',
+      'real_telemetry_export_dry_run_m45_3',
+      'real_telemetry_export_approval_artifact_m45_3',
+    );
+    const telemetryRun = createMetadataStoreRecord<RealTelemetryExportRun>(
+      'real_telemetry_export_run_m45_3',
+      'real_telemetry_export_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'real_telemetry_export_approval_artifact_m45_3',
+        exportedSpanCount: 3,
+        rawSpanStored: false,
+        rawLogStored: false,
+      },
+    );
+    const browserActionPlan = createMetadataStoreRecord<BrowserActionPlan>(
+      'browser_action_plan_m45_3',
+      'browser_action_dry_run_m45_3',
+      'planned',
+      { actionKind: 'click', targetHash: 'sha256:selector' },
+    );
+    const browserActionApproval = createMetadataApprovalRecord<BrowserActionApprovalArtifact>(
+      'browser_action_approval_m45_3',
+      'browser_action_dry_run_m45_3',
+      'browser_action_approval_artifact_m45_3',
+    );
+    const browserActionRun = createMetadataStoreRecord<BrowserActionRun>(
+      'browser_action_run_m45_3',
+      'browser_action_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'browser_action_approval_artifact_m45_3',
+        browserBoundaryInvoked: true,
+        rawSelectorStored: false,
+        rawTypedTextStored: false,
+      },
+    );
+    const electronPlan = createMetadataStoreRecord<ElectronMainInspectorPlan>(
+      'electron_main_inspector_plan_m45_3',
+      'electron_main_inspector_dry_run_m45_3',
+      'planned',
+      { snippetId: 'snippet.safe-observe', snippetHash: 'sha256:snippet' },
+    );
+    const electronApproval =
+      createMetadataApprovalRecord<ElectronMainInspectorApprovalArtifact>(
+        'electron_main_inspector_approval_m45_3',
+        'electron_main_inspector_dry_run_m45_3',
+        'electron_main_inspector_approval_artifact_m45_3',
+      );
+    const electronRun = createMetadataStoreRecord<ElectronMainInspectorRun>(
+      'electron_main_inspector_run_m45_3',
+      'electron_main_inspector_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'electron_main_inspector_approval_artifact_m45_3',
+        inspectorBoundaryInvoked: true,
+        rawSourceStored: false,
+      },
+    );
+    const mcpWritePlan = createMetadataStoreRecord<McpWriteToolPlan>(
+      'mcp_write_tool_plan_m45_3',
+      'mcp_write_tool_dry_run_m45_3',
+      'planned',
+      { toolNameHash: 'sha256:mcp-tool', patchHash: 'sha256:patch' },
+    );
+    const mcpWriteApproval = createMetadataApprovalRecord<McpWriteToolApprovalArtifact>(
+      'mcp_write_tool_approval_m45_3',
+      'mcp_write_tool_dry_run_m45_3',
+      'mcp_write_tool_approval_artifact_m45_3',
+    );
+    const mcpWriteRun = createMetadataStoreRecord<McpWriteToolRun>(
+      'mcp_write_tool_run_m45_3',
+      'mcp_write_tool_dry_run_m45_3',
+      'completed',
+      {
+        approvalArtifactId: 'mcp_write_tool_approval_artifact_m45_3',
+        appliedFileCount: 1,
+        rawPatchStored: false,
+        repoRootMutationAllowed: false,
+      },
+    );
+
+    await first.releaseVersionPlanDryRuns.saveDryRun(releaseVersionPlan);
+    await first.githubReleaseTagDryRuns.saveDryRun(releaseTagPlan);
+    await first.githubReleaseTagApprovals.saveApproval(releaseTagApproval);
+    await first.githubReleaseTagRuns.saveRun(releaseTagRun);
+    await first.githubReleaseDraftDryRuns.saveDryRun(releaseDraftPlan);
+    await first.githubReleaseDraftApprovals.saveApproval(releaseDraftApproval);
+    await first.githubReleaseDraftRuns.saveRun(releaseDraftRun);
+    await first.deploymentObservationDryRuns.saveDryRun(deploymentObservationPlan);
+    await first.deploymentObservationApprovals.saveApproval(deploymentObservationApproval);
+    await first.deploymentObservationRuns.saveRun(deploymentObservationRun);
+    await first.deploymentOperationDryRuns.saveDryRun(deploymentOperationPlan);
+    await first.deploymentOperationApprovals.saveApproval(deploymentOperationApproval);
+    await first.deploymentRollbackPlans.saveRollbackPlan(deploymentRollbackPlan);
+    await first.deploymentOperationRuns.saveRun(deploymentOperationRun);
+    await first.secretReadinessDryRuns.saveDryRun(secretReadinessPlan);
+    await first.secretReadinessApprovals.saveApproval(secretReadinessApproval);
+    await first.secretReadinessRuns.saveRun(secretReadinessRun);
+    await first.secretLeakAuditSummaries.saveLeakAuditSummary(secretLeakAuditSummary);
+    await first.realPolicyBackendDryRuns.saveDryRun(realPolicyPlan);
+    await first.realPolicyBackendApprovals.saveApproval(realPolicyApproval);
+    await first.realPolicyBackendRuns.saveRun(realPolicyRun);
+    await first.realTelemetryExportDryRuns.saveDryRun(telemetryPlan);
+    await first.realTelemetryExportApprovals.saveApproval(telemetryApproval);
+    await first.realTelemetryExportRuns.saveRun(telemetryRun);
+    await first.browserActionDryRuns.saveDryRun(browserActionPlan);
+    await first.browserActionApprovals.saveApproval(browserActionApproval);
+    await first.browserActionRuns.saveRun(browserActionRun);
+    await first.electronMainInspectorDryRuns.saveDryRun(electronPlan);
+    await first.electronMainInspectorApprovals.saveApproval(electronApproval);
+    await first.electronMainInspectorRuns.saveRun(electronRun);
+    await first.mcpWriteToolDryRuns.saveDryRun(mcpWritePlan);
+    await first.mcpWriteToolApprovals.saveApproval(mcpWriteApproval);
+    await first.mcpWriteToolRuns.saveRun(mcpWriteRun);
+    await first.close();
+
+    const second = await createSqliteStore({ dbPath });
+    const roundTrips = {
+      releaseVersionPlan: await second.releaseVersionPlanDryRuns.getDryRun(
+        'release_version_plan_m45_3',
+      ),
+      releaseTagPlans: await second.githubReleaseTagDryRuns.listDryRuns({ limit: 10 }),
+      releaseTagApproval:
+        await second.githubReleaseTagApprovals.getApprovalByArtifactId(
+          'github_release_tag_approval_artifact_m45_3',
+        ),
+      releaseTagRun: await second.githubReleaseTagRuns.getRun('github_release_tag_run_m45_3'),
+      releaseDraftPlans: await second.githubReleaseDraftDryRuns.listDryRuns({ limit: 10 }),
+      releaseDraftApproval:
+        await second.githubReleaseDraftApprovals.getApprovalByArtifactId(
+          'github_release_draft_approval_artifact_m45_3',
+        ),
+      releaseDraftRun: await second.githubReleaseDraftRuns.getRun(
+        'github_release_draft_run_m45_3',
+      ),
+      deploymentObservationPlans: await second.deploymentObservationDryRuns.listDryRuns({
+        dryRunId: 'deployment_observation_dry_run_m45_3',
+        status: 'planned',
+      }),
+      deploymentObservationRun: await second.deploymentObservationRuns.getRun(
+        'deployment_observation_run_m45_3',
+      ),
+      deploymentOperationPlans: await second.deploymentOperationDryRuns.listDryRuns({
+        dryRunId: 'deployment_operation_dry_run_m45_3',
+        status: 'planned',
+      }),
+      deploymentRollbackPlans: await second.deploymentRollbackPlans.listRollbackPlans({
+        dryRunId: 'deployment_operation_dry_run_m45_3',
+        status: 'ready',
+      }),
+      deploymentOperationRun: await second.deploymentOperationRuns.getRun(
+        'deployment_operation_run_m45_3',
+      ),
+      secretReadinessPlans: await second.secretReadinessDryRuns.listDryRuns({
+        dryRunId: 'secret_readiness_dry_run_m45_3',
+      }),
+      secretReadinessRun: await second.secretReadinessRuns.getRun('secret_readiness_run_m45_3'),
+      secretLeakAuditSummaries:
+        await second.secretLeakAuditSummaries.listLeakAuditSummaries({ limit: 10 }),
+      realPolicyPlans: await second.realPolicyBackendDryRuns.listDryRuns({
+        dryRunId: 'real_policy_backend_dry_run_m45_3',
+      }),
+      realPolicyRun: await second.realPolicyBackendRuns.getRun(
+        'real_policy_backend_run_m45_3',
+      ),
+      telemetryPlans: await second.realTelemetryExportDryRuns.listDryRuns({
+        dryRunId: 'real_telemetry_export_dry_run_m45_3',
+      }),
+      telemetryRun: await second.realTelemetryExportRuns.getRun(
+        'real_telemetry_export_run_m45_3',
+      ),
+      browserActionPlans: await second.browserActionDryRuns.listDryRuns({
+        dryRunId: 'browser_action_dry_run_m45_3',
+      }),
+      browserActionRun: await second.browserActionRuns.getRun('browser_action_run_m45_3'),
+      electronPlans: await second.electronMainInspectorDryRuns.listDryRuns({
+        dryRunId: 'electron_main_inspector_dry_run_m45_3',
+      }),
+      electronRun: await second.electronMainInspectorRuns.getRun(
+        'electron_main_inspector_run_m45_3',
+      ),
+      mcpWritePlans: await second.mcpWriteToolDryRuns.listDryRuns({
+        dryRunId: 'mcp_write_tool_dry_run_m45_3',
+      }),
+      mcpWriteRun: await second.mcpWriteToolRuns.getRun('mcp_write_tool_run_m45_3'),
+    };
+    const serialized = JSON.stringify(roundTrips);
+    await second.close();
+
+    expect(getMetadataValue(roundTrips.releaseVersionPlan, 'versionHash')).toBe(
+      'sha256:version-plan',
+    );
+    expect(roundTrips.releaseTagPlans).toHaveLength(1);
+    expect(roundTrips.releaseTagApproval?.approvalArtifactId).toBe(
+      'github_release_tag_approval_artifact_m45_3',
+    );
+    expect(getMetadataValue(roundTrips.releaseTagRun, 'tagShaHash')).toBe('sha256:tag-sha');
+    expect(roundTrips.releaseDraftPlans).toHaveLength(1);
+    expect(getMetadataValue(roundTrips.releaseDraftRun, 'releaseBodyStored')).toBe(false);
+    expect(roundTrips.deploymentObservationPlans).toHaveLength(1);
+    expect(roundTrips.deploymentObservationRun?.rawPlanStored).toBe(false);
+    expect(roundTrips.deploymentOperationPlans).toHaveLength(1);
+    expect(roundTrips.deploymentRollbackPlans).toHaveLength(1);
+    expect(roundTrips.deploymentOperationRun?.rawManifestStored).toBe(false);
+    expect(roundTrips.secretReadinessPlans).toHaveLength(1);
+    expect(roundTrips.secretReadinessRun?.secretValueStored).toBe(false);
+    expect(roundTrips.secretLeakAuditSummaries).toHaveLength(1);
+    expect(roundTrips.realPolicyPlans).toHaveLength(1);
+    expect(getMetadataValue(roundTrips.realPolicyRun, 'rawPolicyStored')).toBe(false);
+    expect(roundTrips.telemetryPlans).toHaveLength(1);
+    expect(getMetadataValue(roundTrips.telemetryRun, 'rawSpanStored')).toBe(false);
+    expect(roundTrips.browserActionPlans).toHaveLength(1);
+    expect(roundTrips.browserActionRun?.rawSelectorStored).toBe(false);
+    expect(roundTrips.electronPlans).toHaveLength(1);
+    expect(getMetadataValue(roundTrips.electronRun, 'rawSourceStored')).toBe(false);
+    expect(roundTrips.mcpWritePlans).toHaveLength(1);
+    expect(roundTrips.mcpWriteRun?.rawPatchStored).toBe(false);
+    expect(serialized).not.toContain('full changelog body');
+    expect(serialized).not.toContain('raw manifest');
+    expect(serialized).not.toContain('raw policy source');
+    expect(serialized).not.toContain('Runtime.evaluate source');
+    expect(serialized).not.toContain('raw controlled patch');
+    expect(findAdversarialPublicOutputRoundTripLeaks(roundTrips)).toEqual([]);
+  });
 });
+
+function createMetadataStoreRecord<T>(
+  id: string,
+  dryRunId: string,
+  status: string,
+  extra: Record<string, unknown> = {},
+): T {
+  return {
+    id,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-06T00:45:03.000Z',
+    dryRunId,
+    status,
+    summary: 'Metadata-only store round trip fixture.',
+    blockReasons: [],
+    evidenceRefs: [],
+    evidenceRefIds: [],
+    auditEventIds: [],
+    boundaryBooleansPreserved: true,
+    bodyStored: false,
+    rawPathStored: false,
+    rawUrlStored: false,
+    rawRequestBodyStored: false,
+    rawResponseBodyStored: false,
+    tokenStored: false,
+    envValueStored: false,
+    ...extra,
+  } as T;
+}
+
+function getMetadataValue(record: unknown, key: string): unknown {
+  return (record as Record<string, unknown> | undefined)?.[key];
+}
+
+function createMetadataApprovalRecord<T>(
+  id: string,
+  dryRunId: string,
+  approvalArtifactId: string,
+  extra: Record<string, unknown> = {},
+): T {
+  return createMetadataStoreRecord<T>(id, dryRunId, 'approved', {
+    approvalArtifactId,
+    approvedByHash: 'sha256:approver',
+    reasonHash: 'sha256:reason',
+    reasonSummary: 'Reason hash only.',
+    used: false,
+    expired: false,
+    revoked: false,
+    ...extra,
+  });
+}
 
 function createCustomWorkflowPlanFixture(): CustomWorkflowPlan {
   const createdAt = '2026-04-28T00:00:20.000Z';

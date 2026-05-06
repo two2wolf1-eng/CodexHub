@@ -5029,3 +5029,26 @@ workflows:
       rawElectronJavascriptStored: false
       rawMcpPatchStored: false
       metadataOnlyPublicOutput: true
+  m45_3.store-roundtrip-metadata-debug:
+    risk: critical
+    trigger:
+      type: store-roundtrip-metadata-debug
+      entrypoint: store-sqlite store-core docs tools
+      localControlRequired: false
+    scope:
+      - m40-release-store-records
+      - m41-m42-deployment-store-records
+      - m43-secrets-store-records
+      - m44-policy-telemetry-store-records
+      - m45-controlled-write-store-records
+    docs:
+      - docs/releases/m45.3-store-roundtrip-metadata-debug.md
+      - docs/reviews/m0-m45-store-roundtrip-metadata-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
