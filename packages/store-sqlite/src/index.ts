@@ -7,6 +7,7 @@ import type {
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
+  CodexPatchChildRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
@@ -38,6 +39,7 @@ import type {
   ProductionWorkflowRecoveryApprovalArtifact,
   ProductionWorkflowRecoveryPlan,
   ProductionWorkflowRecoveryRun,
+  NxVerificationChildRecord,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -90,6 +92,7 @@ import type {
   BrowserObservationDryRunRepository,
   BrowserObservationQuery,
   BrowserObservationRunRepository,
+  CodexPatchChildRecordRepository,
   CodexExecLiveAdapterAdrDecisionRepository,
   CodexExecApprovalRepository,
   CodexExecLiveRunRepository,
@@ -144,6 +147,8 @@ import type {
   ProductionWorkflowRecoveryControlPlaneQuery,
   ProductionWorkflowRecoveryDryRunRepository,
   ProductionWorkflowRecoveryRunRepository,
+  LocalProductionWorkflowChildRecordQuery,
+  NxVerificationChildRecordRepository,
   ReworkLoopApprovalRepository,
   ReworkLoopControlPlaneQuery,
   ReworkLoopDryRunRepository,
@@ -266,6 +271,8 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly productionWorkflowRecoveryApprovals: ProductionWorkflowRecoveryApprovalRepository;
   readonly productionWorkflowRecoveryRuns: ProductionWorkflowRecoveryRunRepository;
   readonly productionWorkflowRecoveryChildActionStates: ProductionWorkflowRecoveryChildActionStateRepository;
+  readonly codexPatchChildRecords: CodexPatchChildRecordRepository;
+  readonly nxVerificationChildRecords: NxVerificationChildRecordRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -350,6 +357,8 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteProductionWorkflowRecoveryRunRepository(database);
     this.productionWorkflowRecoveryChildActionStates =
       new SqliteProductionWorkflowRecoveryChildActionStateRepository(database);
+    this.codexPatchChildRecords = new SqliteCodexPatchChildRecordRepository(database);
+    this.nxVerificationChildRecords = new SqliteNxVerificationChildRecordRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -2231,6 +2240,82 @@ class SqliteProductionWorkflowRecoveryChildActionStateRepository
   }
 }
 
+class SqliteCodexPatchChildRecordRepository implements CodexPatchChildRecordRepository {
+  private readonly repository: JsonEntityRepository<CodexPatchChildRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<CodexPatchChildRecord>(
+      database,
+      'codex_patch_child_records',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRecord(record: CodexPatchChildRecord): Promise<CodexPatchChildRecord> {
+    return this.repository.create(record);
+  }
+
+  async getRecord(id: string): Promise<CodexPatchChildRecord | undefined> {
+    const directRecord = await this.repository.getById(id);
+    if (directRecord) {
+      return directRecord;
+    }
+    return (await this.listRecords({ limit: 100 })).find(
+      (record) => record.childRecordId === id || record.runId === id || record.dryRunId === id,
+    );
+  }
+
+  async listRecords(
+    query: LocalProductionWorkflowChildRecordQuery = {},
+  ): Promise<CodexPatchChildRecord[]> {
+    return listObservationControlPlaneRecords<CodexPatchChildRecord>(
+      this.database,
+      'codex_patch_child_records',
+      query,
+    );
+  }
+}
+
+class SqliteNxVerificationChildRecordRepository
+  implements NxVerificationChildRecordRepository
+{
+  private readonly repository: JsonEntityRepository<NxVerificationChildRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<NxVerificationChildRecord>(
+      database,
+      'nx_verification_child_records',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRecord(
+    record: NxVerificationChildRecord,
+  ): Promise<NxVerificationChildRecord> {
+    return this.repository.create(record);
+  }
+
+  async getRecord(id: string): Promise<NxVerificationChildRecord | undefined> {
+    const directRecord = await this.repository.getById(id);
+    if (directRecord) {
+      return directRecord;
+    }
+    return (await this.listRecords({ limit: 100 })).find(
+      (record) => record.childRecordId === id || record.runId === id || record.dryRunId === id,
+    );
+  }
+
+  async listRecords(
+    query: LocalProductionWorkflowChildRecordQuery = {},
+  ): Promise<NxVerificationChildRecord[]> {
+    return listObservationControlPlaneRecords<NxVerificationChildRecord>(
+      this.database,
+      'nx_verification_child_records',
+      query,
+    );
+  }
+}
+
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
 
@@ -3388,6 +3473,18 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS production_workflow_recovery_child_action_states (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_patch_child_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS nx_verification_child_records (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

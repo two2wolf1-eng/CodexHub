@@ -4369,6 +4369,30 @@ workflows:
       nxFailureBlocksReviewPackageExport: true
       childApprovalConsumedByChildControlPlaneOnly: true
       metadataOnlyPublicOutput: true
+  m35.local-production-child-record-binding:
+    risk: critical
+    trigger:
+      type: local-production-workflow-pilot-child-record-binding
+      entrypoint: contracts store supervisor workflow-kernel dashboard cli docs
+      localControlRequired: true
+    docs:
+      - docs/releases/m35-local-production-child-record-binding.md
+      - docs/reviews/m35-local-production-child-record-binding-review.md
+      - docs/runbooks/m35-local-production-child-record-binding-runbook.md
+    storeRecords:
+      - codexPatchChildRecords
+      - nxVerificationChildRecords
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      childRecordRefsRequiredForLocalPilot: true
+      requestBodyChildStateTrusted: false
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      nxFailureBlocksReviewPackageExport: true
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

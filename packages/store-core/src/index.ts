@@ -3,6 +3,7 @@ import type {
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
+  CodexPatchChildRecord,
   CodexExecLiveRunRecord,
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
@@ -31,6 +32,7 @@ import type {
   ProductionWorkflowRecoveryApprovalArtifact,
   ProductionWorkflowRecoveryPlan,
   ProductionWorkflowRecoveryRun,
+  NxVerificationChildRecord,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -121,6 +123,7 @@ export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ProductionWorkflowRecoveryControlPlaneQuery = WorktreeControlPlaneQuery;
+export type LocalProductionWorkflowChildRecordQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -580,6 +583,22 @@ export interface ProductionWorkflowRecoveryChildActionStateRepository {
   ): Promise<ProductionWorkflowChildActionStateRecord[]>;
 }
 
+export interface CodexPatchChildRecordRepository {
+  saveRecord(record: CodexPatchChildRecord): Promise<CodexPatchChildRecord>;
+  getRecord(id: string): Promise<CodexPatchChildRecord | undefined>;
+  listRecords(
+    query?: LocalProductionWorkflowChildRecordQuery,
+  ): Promise<CodexPatchChildRecord[]>;
+}
+
+export interface NxVerificationChildRecordRepository {
+  saveRecord(record: NxVerificationChildRecord): Promise<NxVerificationChildRecord>;
+  getRecord(id: string): Promise<NxVerificationChildRecord | undefined>;
+  listRecords(
+    query?: LocalProductionWorkflowChildRecordQuery,
+  ): Promise<NxVerificationChildRecord[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -799,6 +818,8 @@ export interface CodexHubStore {
   productionWorkflowRecoveryApprovals: ProductionWorkflowRecoveryApprovalRepository;
   productionWorkflowRecoveryRuns: ProductionWorkflowRecoveryRunRepository;
   productionWorkflowRecoveryChildActionStates: ProductionWorkflowRecoveryChildActionStateRepository;
+  codexPatchChildRecords: CodexPatchChildRecordRepository;
+  nxVerificationChildRecords: NxVerificationChildRecordRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;

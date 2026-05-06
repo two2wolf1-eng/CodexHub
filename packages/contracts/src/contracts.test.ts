@@ -230,7 +230,12 @@ import {
   ProductionWorkflowOperationsProjectionSchema,
   ProductionWorkflowOperationsSmokeRunSchema,
   ProductionWorkflowPauseSummarySchema,
+  CodexPatchChildRecordSchema,
+  LocalProductionWorkflowChildRecordSetSchema,
+  NxVerificationChildRecordSchema,
   ProductionWorkflowChildActionPlanSchema,
+  ProductionWorkflowChildRecordRefSchema,
+  ProductionWorkflowChildRecordResolutionSchema,
   ProductionWorkflowChildActionStateRecordSchema,
   ProductionWorkflowChildActionStateSchema,
   ProductionWorkflowRecoveryApprovalArtifactSchema,
@@ -10758,6 +10763,123 @@ describe('contracts schemas', () => {
       rawPathStored: false,
       summary: 'Recovery public summary is metadata-only.',
     });
+    const childRecordRef = ProductionWorkflowChildRecordRefSchema.parse({
+      actionId: childActionPlan.actionId,
+      stepId: childActionPlan.stepId,
+      childActionKind: 'codex-patch',
+      childControlPlane: 'codex.patch-runs',
+      childRecordId: 'codex_patch_child_record_1',
+      expectedRecordHash: 'sha256:codex-patch-child-record',
+      hashBindingRequired: true,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Child record ref contains ids and expected hash only.',
+    });
+    const childRecordResolution = ProductionWorkflowChildRecordResolutionSchema.parse({
+      actionId: childRecordRef.actionId,
+      stepId: childRecordRef.stepId,
+      childActionKind: childRecordRef.childActionKind,
+      childControlPlane: childRecordRef.childControlPlane,
+      status: 'completed',
+      childDryRunIdHash: 'sha256:codex-patch-dry-run',
+      childApprovalArtifactIdHash: 'sha256:codex-patch-approval',
+      childRunIdHash: 'sha256:codex-patch-run',
+      expectedRecordHash: childRecordRef.expectedRecordHash,
+      actualRecordHash: childRecordRef.expectedRecordHash,
+      hashMatched: true,
+      childApprovalRequired: true,
+      childApprovalResolvedFromStore: true,
+      childRunResolvedFromStore: true,
+      blockReasons: [],
+      evidenceRefIds: ['evidence_codex_patch_child_1'],
+      auditEventIds: ['audit_codex_patch_child_1'],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Child record resolution was store-resolved and hash matched.',
+    });
+    const childRecordSet = LocalProductionWorkflowChildRecordSetSchema.parse({
+      id: 'local_production_workflow_child_record_set_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: recoveryPlan.dryRunId,
+      templateId: template.templateId,
+      templateHash: template.templateHash,
+      childRecordRefs: [childRecordRef],
+      resolutions: [childRecordResolution],
+      childRecordCount: 1,
+      resolvedChildRecordCount: 1,
+      missingChildRecordCount: 0,
+      hashMismatchCount: 0,
+      failedChildRecordCount: 0,
+      blockedChildRecordCount: 0,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Local production workflow child record set is metadata-only.',
+    });
+    const codexPatchChildRecord = CodexPatchChildRecordSchema.parse({
+      id: 'codex_patch_child_record_1',
+      schemaVersion,
+      createdAt,
+      childRecordId: 'codex_patch_child_record_1',
+      dryRunId: 'codex_patch_dry_run_1',
+      approvalArtifactId: 'codex_patch_approval_artifact_1',
+      runId: 'codex_patch_run_1',
+      status: 'completed',
+      governedInputHash: 'sha256:governed-input',
+      expectedInputHash: 'sha256:governed-input',
+      worktreePathHash: 'sha256:worktree-path',
+      changedFileCount: 1,
+      diffHash: 'sha256:diff',
+      evidenceRefIds: ['evidence_codex_patch_child_1'],
+      auditEventIds: ['audit_codex_patch_child_1'],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      realWriteExecuted: true,
+      repoRootWriteAllowed: false,
+      rawPromptStored: false,
+      rawStdoutStored: false,
+      rawStderrStored: false,
+      rawDiffStored: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Codex patch child record stores only ids, hashes, counts, and booleans.',
+    });
+    const nxVerificationChildRecord = NxVerificationChildRecordSchema.parse({
+      id: 'nx_verification_child_record_1',
+      schemaVersion,
+      createdAt,
+      childRecordId: 'nx_verification_child_record_1',
+      dryRunId: 'nx_verification_dry_run_1',
+      runId: 'nx_verification_run_1',
+      status: 'completed',
+      verificationRunIdHash: 'sha256:nx-run',
+      targetCount: 2,
+      passedCount: 2,
+      failedCount: 0,
+      skippedCount: 0,
+      commandSummaryHash: 'sha256:nx-command',
+      evidenceRefIds: ['evidence_nx_child_1'],
+      auditEventIds: ['audit_nx_child_1'],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      rawStdoutStored: false,
+      rawStderrStored: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Nx verification child record stores only hashes and result counts.',
+    });
     expect(
       [
         'pilot-disabled',
@@ -10796,6 +10918,11 @@ describe('contracts schemas', () => {
       recoveryRun,
       recoveryTimeline,
       recoveryPublic,
+      childRecordRef,
+      childRecordResolution,
+      childRecordSet,
+      codexPatchChildRecord,
+      nxVerificationChildRecord,
     ]);
     expect(run.directAdapterExecutionAllowed).toBe(false);
     expect(run.processBoundaryInvoked).toBe(false);
@@ -10808,6 +10935,8 @@ describe('contracts schemas', () => {
     expect(childActionStateRecord.state.childAdapterExecuteAllowed).toBe(false);
     expect(recoveryRun.childAdapterExecuteAllowed).toBe(false);
     expect(recoveryRun.waitingChildApprovalCount).toBe(1);
+    expect(childRecordResolution.childApprovalResolvedFromStore).toBe(true);
+    expect(childRecordSet.hashMismatchCount).toBe(0);
     expect(serialized).not.toContain('ghp_');
     expect(serialized).not.toContain('raw diff');
     expect(serialized).not.toContain('local-control');
@@ -10872,6 +11001,20 @@ describe('contracts schemas', () => {
         ...childActionPlan,
         id: 'production_workflow_child_auto_approval',
         childAutoApprovalAllowed: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexPatchChildRecordSchema.parse({
+        ...codexPatchChildRecord,
+        id: 'codex_patch_child_raw_prompt',
+        metadata: { prompt: 'raw prompt' },
+      }),
+    ).toThrow();
+    expect(() =>
+      NxVerificationChildRecordSchema.parse({
+        ...nxVerificationChildRecord,
+        id: 'nx_child_raw_stdout',
+        metadata: { stdout: 'raw stdout' },
       }),
     ).toThrow();
   });

@@ -1510,6 +1510,9 @@ integrations:
       childOrchestrationEnabled: false
       childApprovalsRemainSeparate: true
       workflowApprovalDoesNotGrantChildAuthority: true
+      localProductionChildRecordBindingRequired: true
+      localProductionChildRecordBindingSource: store-resolved-ids-and-hashes
+      requestBodyChildStateTrusted: false
       builtInProductionTemplates:
         - local-patch-review
         - local-rc-bundle
@@ -1580,6 +1583,15 @@ integrations:
       directChildAdapterExecutionAllowed: false
       requestBodyApprovalArtifactTrusted: false
       executionAuthorityBodyTrusted: false
+      requestBodyChildStateTrusted: false
+      storeResolvedChildRecordsRequiredForLocalPilot: true
+      rejectedRequestBodyFields:
+        - childApprovalApproved
+        - childRunStatuses
+        - approvalArtifact
+        - executionAuthority
+        - authority
+        - childArtifacts
       routes:
         - POST /api/workflows/production/recoveries/dry-runs
         - GET /api/workflows/production/recoveries/dry-runs
@@ -1647,6 +1659,9 @@ integrations:
       productionPilotCallsChildAdapters: false
       localProductionPilotRuntimeGated: true
       localProductionPilotTemplateId: local-patch-review
+      localProductionPilotChildRecordsStoreResolved: true
+      childRecordRefsHashBound: true
+      requestBodyChildApprovalStateTrusted: false
       localProductionPilotChildBoundary:
         - worktree-create
         - codex-patch

@@ -5456,6 +5456,10 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>child record binding</strong>
+              <span>store-resolved ids and hashes only; request body child state is not trusted</span>
+            </li>
+            <li>
               <strong>write controls</strong>
               <span>
                 supervisor POST {String(customWorkflowSummary.supervisorPostAllowed)},
@@ -5493,6 +5497,10 @@ function renderReadOnlyDashboardView(
                 workflow approval does not grant child authority{' '}
                 {String(customWorkflowSummary.recoveryChildApprovalsRemainSeparate)}
               </span>
+            </li>
+            <li>
+              <strong>child record binding</strong>
+              <span>store-resolved refs required for local production child actions</span>
             </li>
             <li>
               <strong>direct child execution</strong>

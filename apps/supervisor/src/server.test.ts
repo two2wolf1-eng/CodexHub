@@ -11,6 +11,16 @@ import {
   REAL_READ_ONLY_ADAPTER_CODEX_CLI_PROCESS_ARGV_HASH,
 } from '@codexhub/codex-kernel';
 import type { CodexExecRealReadOnlyAdapterExecutableResolution } from '@codexhub/codex-kernel';
+import type {
+  CodexPatchChildRecord,
+  LocalReviewPackageApprovalArtifactRecord,
+  LocalReviewPackageControlPlaneRun,
+  LocalReviewPackageDryRunRecord,
+  NxVerificationChildRecord,
+  WorktreeApprovalArtifactRecord,
+  WorktreeControlPlaneRun,
+  WorktreeDryRunRecord,
+} from '@codexhub/contracts';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
 
@@ -87,6 +97,10 @@ function hashTestWorktreePath(worktreePath: string): string {
 
 function hashTestText(text: string): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function hashTestMetadata(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 afterEach(() => {
@@ -7184,9 +7198,226 @@ describe('supervisor GitHub branch publish control plane', () => {
         reason: 'second recovery approval',
       },
     });
-    const childApprovalApproved = Object.fromEntries(
-      dryRun.childActionPlans.map((action: { actionId: string }) => [action.actionId, true]),
-    );
+    const forgedChildStateResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: secondManualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+        childApprovalApproved: Object.fromEntries(
+          dryRun.childActionPlans.map((action: { actionId: string }) => [action.actionId, true]),
+        ),
+      },
+    });
+    const childCreatedAt = '2026-05-06T00:00:00.000Z';
+    const worktreeDryRun = {
+      id: 'm35_worktree_dry_run',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      dryRunId: 'm35_worktree_dry_run',
+      status: 'ready',
+      evidenceRefs: [],
+      auditEventIds: ['audit_m35_worktree_dry_run'],
+      summary: 'Worktree child dry-run metadata only.',
+    } as unknown as WorktreeDryRunRecord;
+    const worktreeApproval = {
+      id: 'm35_worktree_approval_record',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      dryRunId: worktreeDryRun.dryRunId,
+      approvalRequestId: 'm35_worktree_approval_request',
+      approvalArtifactId: 'm35_worktree_approval_artifact',
+      status: 'approved',
+      approved: true,
+      auditEventIds: ['audit_m35_worktree_approval'],
+      evidenceRefs: [],
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Worktree child approval metadata only.',
+    } as unknown as WorktreeApprovalArtifactRecord;
+    const worktreeRun = {
+      id: 'm35_worktree_run',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      dryRunId: worktreeDryRun.dryRunId,
+      status: 'completed',
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      evidenceRefIds: ['evidence_m35_worktree_run'],
+      auditEventIds: ['audit_m35_worktree_run'],
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Worktree child run completed through its own control plane.',
+    } as unknown as WorktreeControlPlaneRun;
+    const codexPatchRecord: CodexPatchChildRecord = {
+      id: 'm35_codex_patch_child_record',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      childRecordId: 'm35_codex_patch_child_record',
+      dryRunId: 'm35_codex_patch_dry_run',
+      approvalArtifactId: 'm35_codex_patch_approval_artifact',
+      runId: 'm35_codex_patch_run',
+      status: 'completed',
+      governedInputHash: 'sha256:codex-input',
+      expectedInputHash: 'sha256:codex-input',
+      worktreePathHash: 'sha256:worktree-path',
+      changedFileCount: 1,
+      diffHash: 'sha256:codex-diff',
+      evidenceRefIds: ['evidence_m35_codex_patch_run'],
+      auditEventIds: ['audit_m35_codex_patch_run'],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      realWriteExecuted: true,
+      repoRootWriteAllowed: false,
+      rawPromptStored: false,
+      rawStdoutStored: false,
+      rawStderrStored: false,
+      rawDiffStored: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Codex patch child record stores only isolated worktree patch metadata.',
+    };
+    const nxRecord: NxVerificationChildRecord = {
+      id: 'm35_nx_verification_child_record',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      childRecordId: 'm35_nx_verification_child_record',
+      dryRunId: 'm35_nx_verification_dry_run',
+      runId: 'm35_nx_verification_run',
+      status: 'completed',
+      verificationRunIdHash: 'sha256:nx-run',
+      targetCount: 3,
+      passedCount: 3,
+      failedCount: 0,
+      skippedCount: 0,
+      commandSummaryHash: 'sha256:nx-command',
+      evidenceRefIds: ['evidence_m35_nx_verification_run'],
+      auditEventIds: ['audit_m35_nx_verification_run'],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      networkBoundaryInvoked: false,
+      rawStdoutStored: false,
+      rawStderrStored: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Nx verification child record stores only target counts and hashes.',
+    };
+    const reviewDryRun = {
+      id: 'm35_review_package_dry_run',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      dryRunId: 'm35_review_package_dry_run',
+      status: 'planned',
+      evidenceRefs: [],
+      auditEventIds: ['audit_m35_review_package_dry_run'],
+      summary: 'Review package dry-run metadata only.',
+    } as unknown as LocalReviewPackageDryRunRecord;
+    const reviewApproval = {
+      id: 'm35_review_package_approval_record',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      dryRunId: reviewDryRun.dryRunId,
+      approvalRequestId: 'm35_review_package_approval_request',
+      approvalArtifactId: 'm35_review_package_approval_artifact',
+      status: 'approved',
+      approved: true,
+      evidenceRefs: [],
+      auditEventIds: ['audit_m35_review_package_approval'],
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Review package approval metadata only.',
+    } as unknown as LocalReviewPackageApprovalArtifactRecord;
+    const reviewRun = {
+      id: 'm35_review_package_run',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt: childCreatedAt,
+      dryRunId: reviewDryRun.dryRunId,
+      status: 'completed',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      artifactWriteBoundaryInvoked: true,
+      evidenceRefs: [],
+      auditEventIds: ['audit_m35_review_package_run'],
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Review package export child run completed through its own control plane.',
+    } as unknown as LocalReviewPackageControlPlaneRun;
+    await store.worktreeDryRuns.saveDryRun(worktreeDryRun);
+    await store.worktreeApprovals.saveApproval(worktreeApproval);
+    await store.worktreeRuns.saveRun(worktreeRun);
+    await store.codexPatchChildRecords.saveRecord(codexPatchRecord);
+    await store.nxVerificationChildRecords.saveRecord(nxRecord);
+    await store.reviewPackageDryRuns.saveDryRun(reviewDryRun);
+    await store.reviewPackageApprovals.saveApproval(reviewApproval);
+    await store.reviewPackageRuns.saveRun(reviewRun);
+    const childRecordRefs = dryRun.childActionPlans
+      .filter((action: { childActionKind: string }) =>
+        [
+          'worktree-create',
+          'codex-patch',
+          'nx-verification',
+          'review-package-export',
+        ].includes(action.childActionKind),
+      )
+      .map((action: { actionId: string; stepId: string; childActionKind: string; childControlPlane: string }) => {
+        if (action.childActionKind === 'worktree-create') {
+          return {
+            actionId: action.actionId,
+            stepId: action.stepId,
+            childActionKind: action.childActionKind,
+            childControlPlane: action.childControlPlane,
+            childDryRunId: worktreeDryRun.dryRunId,
+            childApprovalArtifactId: worktreeApproval.approvalArtifactId,
+            childRunId: worktreeRun.id,
+            expectedRecordHash: hashTestMetadata({
+              childControlPlane: action.childControlPlane,
+              dryRun: worktreeDryRun,
+              approval: worktreeApproval,
+              run: worktreeRun,
+            }),
+          };
+        }
+        if (action.childActionKind === 'codex-patch') {
+          return {
+            actionId: action.actionId,
+            stepId: action.stepId,
+            childActionKind: action.childActionKind,
+            childControlPlane: action.childControlPlane,
+            childRecordId: codexPatchRecord.childRecordId,
+            expectedRecordHash: hashTestMetadata(codexPatchRecord),
+          };
+        }
+        if (action.childActionKind === 'nx-verification') {
+          return {
+            actionId: action.actionId,
+            stepId: action.stepId,
+            childActionKind: action.childActionKind,
+            childControlPlane: action.childControlPlane,
+            childRecordId: nxRecord.childRecordId,
+            expectedRecordHash: hashTestMetadata(nxRecord),
+          };
+        }
+        return {
+          actionId: action.actionId,
+          stepId: action.stepId,
+          childActionKind: action.childActionKind,
+          childControlPlane: action.childControlPlane,
+          childDryRunId: reviewDryRun.dryRunId,
+          childApprovalArtifactId: reviewApproval.approvalArtifactId,
+          childRunId: reviewRun.id,
+          expectedRecordHash: hashTestMetadata({
+            childControlPlane: action.childControlPlane,
+            dryRun: reviewDryRun,
+            approval: reviewApproval,
+            run: reviewRun,
+          }),
+        };
+      });
     const completedResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/production/recoveries/runs',
@@ -7196,7 +7427,7 @@ describe('supervisor GitHub branch publish control plane', () => {
         approvalArtifactId: secondManualApprovalResponse.json().approvalArtifactId,
         templateId: dryRun.templateId,
         templateHash: dryRun.templateHash,
-        childApprovalApproved,
+        childRecordRefs,
       },
     });
     const runsResponse = await server.inject({
@@ -7257,27 +7488,21 @@ describe('supervisor GitHub branch publish control plane', () => {
         .json()
         .records.some((record: { status: string }) => record.status === 'used'),
     ).toBe(false);
-    expect(waitingChildApprovalResponse.statusCode).toBe(200);
+    expect(waitingChildApprovalResponse.statusCode).toBe(409);
     expect(waitingChildApprovalResponse.json()).toMatchObject({
-      status: 'waiting_for_child_approval',
-      waitingChildApprovalCount: 1,
+      status: 'blocked',
       directAdapterExecutionAllowed: false,
       childAdapterExecuteAllowed: false,
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
     });
-    expect(waitingChildApprovalResponse.json().childActionStates[0]).toMatchObject({
-      status: 'waiting_for_child_approval',
-      childAutoApprovalAllowed: false,
-      childAdapterExecuteAllowed: false,
-      childApprovalResolvedFromStore: false,
-    });
     expect(
       approvalsAfterWaitingChildResponse
         .json()
         .records.filter((record: { status: string }) => record.status === 'used'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(reusedWaitingApprovalResponse.statusCode).toBe(409);
+    expect(forgedChildStateResponse.statusCode).toBe(400);
     expect(completedResponse.statusCode).toBe(200);
     expect(completedResponse.json()).toMatchObject({
       status: 'completed',
@@ -7288,11 +7513,11 @@ describe('supervisor GitHub branch publish control plane', () => {
       networkBoundaryInvoked: false,
       noRealWrite: true,
     });
-    expect(runsResponse.json().records).toHaveLength(2);
+    expect(runsResponse.json().records).toHaveLength(1);
     expect(showResponse.statusCode).toBe(200);
     expect(
       approvalsResponse.json().records.filter((record: { status: string }) => record.status === 'used'),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(rehearsalResponse.json()).toMatchObject({
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,

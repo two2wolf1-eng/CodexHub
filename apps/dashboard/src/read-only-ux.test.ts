@@ -898,6 +898,8 @@ describe('dashboard read-only UX helpers', () => {
     expect(workflowRoute).toContain('workflow approval does not grant child authority');
     expect(workflowRoute).toContain('local pilot gate');
     expect(workflowRoute).toContain('localProductionPilotRuntimeGate');
+    expect(workflowRoute).toContain('store-resolved ids and hashes only');
+    expect(workflowRoute).toContain('request body child state is not trusted');
     expect(readFileSync(new URL('./read-only-ux.ts', import.meta.url), 'utf8')).toContain(
       'CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED',
     );

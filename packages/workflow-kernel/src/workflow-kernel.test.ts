@@ -517,15 +517,53 @@ describe('workflow-kernel custom workflows', () => {
         plan.childActionPlans.map((action) => [action.actionId, true]),
       ),
     });
+    const storeResolved = runProductionWorkflowRecoveryCoordinator({
+      template: template!,
+      localProductionPilotEnabled: true,
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+      workflowApprovalApproved: true,
+      approvalArtifact: approval,
+      childRecordResolutions: plan.childActionPlans.map((action) => ({
+        actionId: action.actionId,
+        stepId: action.stepId,
+        childActionKind: action.childActionKind,
+        childControlPlane: action.childControlPlane,
+        status: 'completed',
+        expectedRecordHash: `sha256:expected-${action.actionId}`,
+        actualRecordHash: `sha256:expected-${action.actionId}`,
+        hashMatched: true,
+        childApprovalRequired: action.requiresChildApproval,
+        childApprovalResolvedFromStore: true,
+        childRunResolvedFromStore: true,
+        blockReasons: [],
+        evidenceRefIds: [`ev-${action.actionId}`],
+        auditEventIds: [`audit-${action.actionId}`],
+        processBoundaryInvoked: false,
+        networkBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawPathStored: false,
+        bodyStored: false,
+        directAdapterExecutionAllowed: false,
+        childAdapterExecuteAllowed: false,
+        summary: `Store resolved ${action.childActionKind}`,
+      })),
+    });
 
     expect(waiting.status).toBe('waiting_for_child_approval');
     expect(waiting.waitingChildApprovalCount).toBe(1);
     expect(waiting.childActionStates[0]?.childApprovalResolvedFromStore).toBe(false);
     expect(completed.status).toBe('completed');
+    expect(storeResolved.status).toBe('completed');
+    expect(
+      storeResolved.childActionStates.every((state) => state.childApprovalResolvedFromStore),
+    ).toBe(true);
     expect(completed.directAdapterExecutionAllowed).toBe(false);
     expect(completed.childAdapterExecuteAllowed).toBe(false);
     expect(completed.processBoundaryInvoked).toBe(false);
-    expect(findAdversarialPublicOutputRoundTripLeaks({ waiting, completed })).toEqual([]);
+    expect(findAdversarialPublicOutputRoundTripLeaks({ waiting, completed, storeResolved })).toEqual(
+      [],
+    );
   });
 
   it('blocks local recovery before later steps when Nx verification fails', () => {

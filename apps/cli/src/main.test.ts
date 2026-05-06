@@ -389,6 +389,8 @@ describe('cli development mock-run fallback', () => {
     expect(pilotOutput).toContain('status: blocked');
     expect(localPilotOutput).toContain('Local production workflow pilot readiness');
     expect(localPilotOutput).toContain('localProductionPilotEnabled=false');
+    expect(localPilotOutput).toContain('childRecordBindingRequired=true');
+    expect(localPilotOutput).toContain('requestBodyChildStateTrusted=false');
     expect(operationsOutput).toContain('Production workflow operations status');
     expect(operationsSmokeOutput).toContain('Production workflow operations smoke');
     expect(recoveryOutput).toContain('Production workflow recovery rehearsal');

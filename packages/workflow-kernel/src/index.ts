@@ -39,6 +39,9 @@ import {
   type ProductionWorkflowPauseSummary,
   ProductionWorkflowChildActionPlanSchema,
   type ProductionWorkflowChildActionPlan,
+  type ProductionWorkflowChildRecordStatus,
+  ProductionWorkflowChildRecordResolutionSchema,
+  type ProductionWorkflowChildRecordResolution,
   ProductionWorkflowChildActionStateSchema,
   type ProductionWorkflowChildActionState,
   ProductionWorkflowRecoveryApprovalArtifactSchema,
@@ -131,13 +134,6 @@ export interface CustomWorkflowCoordinatorOptions {
   blockedStepIds?: string[];
 }
 
-export type ProductionWorkflowChildRecordStatus =
-  | 'completed'
-  | 'failed'
-  | 'blocked'
-  | 'aborted'
-  | 'stale';
-
 export interface ProductionWorkflowPilotOptions {
   template?: CustomWorkflowTemplate;
   templateId?: string;
@@ -191,6 +187,7 @@ export interface ProductionWorkflowRecoveryOptions {
   approvalArtifact?: ProductionWorkflowRecoveryApprovalArtifact;
   childApprovalApproved?: Record<string, boolean>;
   childRunStatuses?: Record<string, ProductionWorkflowChildActionRuntimeStatus>;
+  childRecordResolutions?: ProductionWorkflowChildRecordResolution[];
   resumeFromStepId?: string;
 }
 
@@ -1787,6 +1784,7 @@ export function runProductionWorkflowRecoveryCoordinator(
 
   const childApprovalApproved = input.childApprovalApproved ?? {};
   const childRunStatuses = input.childRunStatuses ?? {};
+  const childRecordResolutions = input.childRecordResolutions ?? [];
   const childActionStates: ProductionWorkflowChildActionState[] = [];
   const recoverySteps: ProductionWorkflowRecoveryStep[] = [];
   let blockedByPriorStep = globalBlockReasons.length > 0;
@@ -1798,13 +1796,19 @@ export function runProductionWorkflowRecoveryCoordinator(
         : 'completed';
 
   for (const action of plan.childActionPlans) {
+    const childRecordResolution = getProductionWorkflowRecoveryChildRecordResolution(
+      childRecordResolutions,
+      action,
+    );
     const runtimeStatus = getProductionWorkflowRecoveryChildRuntimeStatus(
       childRunStatuses,
       action,
+      childRecordResolution,
     );
     const actionApproved = getProductionWorkflowRecoveryChildApproval(
       childApprovalApproved,
       action,
+      childRecordResolution,
     );
     const actionBlockReasons: string[] = [];
     let childStatus: ProductionWorkflowChildActionState['status'] = 'planned';
@@ -1860,35 +1864,43 @@ export function runProductionWorkflowRecoveryCoordinator(
       childControlPlane: action.childControlPlane,
       status: childStatus,
       childDryRunIdHash:
-        childStatus === 'skipped'
+        childRecordResolution?.childDryRunIdHash ??
+        (childStatus === 'skipped'
           ? undefined
-          : `sha256:${hashText(`${action.actionId}:dry-run`)}`,
+          : `sha256:${hashText(`${action.actionId}:dry-run`)}`),
       childApprovalRequestIdHash:
         action.requiresChildApproval && childStatus !== 'skipped'
           ? `sha256:${hashText(`${action.actionId}:approval-request`)}`
           : undefined,
       childApprovalArtifactIdHash:
-        action.requiresChildApproval && actionApproved
+        childRecordResolution?.childApprovalArtifactIdHash ??
+        (action.requiresChildApproval && actionApproved
           ? `sha256:${hashText(`${action.actionId}:approval-artifact`)}`
-          : undefined,
+          : undefined),
       childRunIdHash:
-        childStatus === 'completed' || childStatus === 'failed' || childStatus === 'blocked'
+        childRecordResolution?.childRunIdHash ??
+        (childStatus === 'completed' || childStatus === 'failed' || childStatus === 'blocked'
           ? `sha256:${hashText(`${action.actionId}:run`)}`
-          : undefined,
+          : undefined),
       childHashBindingMatched:
-        childStatus !== 'skipped' && childStatus !== 'waiting_for_child_approval',
+        childRecordResolution?.hashMatched ??
+        (childStatus !== 'skipped' && childStatus !== 'waiting_for_child_approval'),
       childApprovalRequired: action.requiresChildApproval,
-      childApprovalResolvedFromStore: action.requiresChildApproval ? actionApproved === true : true,
+      childApprovalResolvedFromStore:
+        childRecordResolution?.childApprovalResolvedFromStore ??
+        (action.requiresChildApproval ? actionApproved === true : true),
       childAutoApprovalAllowed: false,
       childAdapterExecuteAllowed: false,
       blockReasons: actionBlockReasons,
       evidenceRefIds:
-        childStatus === 'completed' ? [`evidence:${hashText(action.actionId)}`] : [],
+        childRecordResolution?.evidenceRefIds ??
+        (childStatus === 'completed' ? [`evidence:${hashText(action.actionId)}`] : []),
       auditEventIds:
-        childStatus === 'completed' ? [`audit:${hashText(action.actionId)}`] : [],
-      processBoundaryInvoked: false,
-      externalProcessStarted: false,
-      networkBoundaryInvoked: false,
+        childRecordResolution?.auditEventIds ??
+        (childStatus === 'completed' ? [`audit:${hashText(action.actionId)}`] : []),
+      processBoundaryInvoked: childRecordResolution?.processBoundaryInvoked ?? false,
+      externalProcessStarted: childRecordResolution?.externalProcessStarted ?? false,
+      networkBoundaryInvoked: childRecordResolution?.networkBoundaryInvoked ?? false,
       bodyStored: false,
       rawPathStored: false,
       summary:
@@ -2227,7 +2239,27 @@ function createProductionWorkflowRecoveryPlanBlockReasons(
 function getProductionWorkflowRecoveryChildRuntimeStatus(
   statuses: Record<string, ProductionWorkflowChildActionRuntimeStatus>,
   action: ProductionWorkflowChildActionPlan,
+  resolution?: ProductionWorkflowChildRecordResolution,
 ): ProductionWorkflowChildActionRuntimeStatus | undefined {
+  if (resolution) {
+    const parsed = ProductionWorkflowChildRecordResolutionSchema.parse(resolution);
+    switch (parsed.status) {
+      case 'completed':
+      case 'failed':
+      case 'blocked':
+      case 'aborted':
+      case 'stale':
+        return parsed.status;
+      case 'requested':
+      case 'approved':
+      case 'planned':
+      case 'missing':
+      case 'hash_mismatch':
+      case 'waiting_for_child_approval':
+        return 'waiting_for_child_approval';
+    }
+  }
+
   return (
     statuses[action.actionId] ??
     statuses[action.stepId] ??
@@ -2239,12 +2271,31 @@ function getProductionWorkflowRecoveryChildRuntimeStatus(
 function getProductionWorkflowRecoveryChildApproval(
   approvals: Record<string, boolean>,
   action: ProductionWorkflowChildActionPlan,
+  resolution?: ProductionWorkflowChildRecordResolution,
 ): boolean | undefined {
+  if (resolution) {
+    const parsed = ProductionWorkflowChildRecordResolutionSchema.parse(resolution);
+    return action.requiresChildApproval ? parsed.childApprovalResolvedFromStore : true;
+  }
+
   return (
     approvals[action.actionId] ??
     approvals[action.stepId] ??
     approvals[action.childActionKind] ??
     approvals[action.childControlPlane]
+  );
+}
+
+function getProductionWorkflowRecoveryChildRecordResolution(
+  resolutions: ProductionWorkflowChildRecordResolution[],
+  action: ProductionWorkflowChildActionPlan,
+): ProductionWorkflowChildRecordResolution | undefined {
+  return resolutions.find(
+    (resolution) =>
+      resolution.actionId === action.actionId ||
+      resolution.stepId === action.stepId ||
+      resolution.childActionKind === action.childActionKind ||
+      resolution.childControlPlane === action.childControlPlane,
   );
 }
 

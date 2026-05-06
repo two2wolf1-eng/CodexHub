@@ -1263,6 +1263,192 @@ export type ProductionWorkflowChildActionStatus = z.infer<
   typeof ProductionWorkflowChildActionStatusSchema
 >;
 
+export const ProductionWorkflowChildRecordStatusSchema = z.enum([
+  'planned',
+  'requested',
+  'approved',
+  'completed',
+  'failed',
+  'blocked',
+  'aborted',
+  'stale',
+  'missing',
+  'hash_mismatch',
+  'waiting_for_child_approval',
+]);
+export type ProductionWorkflowChildRecordStatus = z.infer<
+  typeof ProductionWorkflowChildRecordStatusSchema
+>;
+
+export const ProductionWorkflowChildRecordRefSchema = z
+  .object({
+    actionId: z.string().min(1),
+    stepId: z.string().min(1),
+    childActionKind: ProductionWorkflowChildActionKindSchema,
+    childControlPlane: z.string().min(1),
+    childRecordId: z.string().min(1).optional(),
+    childDryRunId: z.string().min(1).optional(),
+    childApprovalArtifactId: z.string().min(1).optional(),
+    childRunId: z.string().min(1).optional(),
+    expectedRecordHash: z.string().min(1),
+    hashBindingRequired: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowChildRecordRef = z.infer<
+  typeof ProductionWorkflowChildRecordRefSchema
+>;
+
+export const ProductionWorkflowChildRecordResolutionSchema = z
+  .object({
+    actionId: z.string().min(1),
+    stepId: z.string().min(1),
+    childActionKind: ProductionWorkflowChildActionKindSchema,
+    childControlPlane: z.string().min(1),
+    status: ProductionWorkflowChildRecordStatusSchema,
+    childDryRunIdHash: z.string().min(1).optional(),
+    childApprovalArtifactIdHash: z.string().min(1).optional(),
+    childRunIdHash: z.string().min(1).optional(),
+    expectedRecordHash: z.string().min(1).optional(),
+    actualRecordHash: z.string().min(1).optional(),
+    hashMatched: z.boolean().default(false),
+    childApprovalRequired: z.boolean(),
+    childApprovalResolvedFromStore: z.boolean().default(false),
+    childRunResolvedFromStore: z.boolean().default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    childAdapterExecuteAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowChildRecordResolution = z.infer<
+  typeof ProductionWorkflowChildRecordResolutionSchema
+>;
+
+export const LocalProductionWorkflowChildRecordSetSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    childRecordRefs: z.array(ProductionWorkflowChildRecordRefSchema),
+    resolutions: z.array(ProductionWorkflowChildRecordResolutionSchema),
+    childRecordCount: z.number().int().nonnegative(),
+    resolvedChildRecordCount: z.number().int().nonnegative(),
+    missingChildRecordCount: z.number().int().nonnegative(),
+    hashMismatchCount: z.number().int().nonnegative(),
+    failedChildRecordCount: z.number().int().nonnegative(),
+    blockedChildRecordCount: z.number().int().nonnegative(),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    childAdapterExecuteAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.childRecordCount !== value.childRecordRefs.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Local production workflow childRecordCount must match childRecordRefs length',
+        path: ['childRecordCount'],
+      });
+    }
+    if (value.resolvedChildRecordCount !== value.resolutions.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Local production workflow resolvedChildRecordCount must match resolutions length',
+        path: ['resolvedChildRecordCount'],
+      });
+    }
+  });
+export type LocalProductionWorkflowChildRecordSet = z.infer<
+  typeof LocalProductionWorkflowChildRecordSetSchema
+>;
+
+export const CodexPatchChildRecordSchema = createdEntityBaseSchema
+  .extend({
+    childRecordId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    runId: z.string().min(1).optional(),
+    status: ProductionWorkflowChildRecordStatusSchema,
+    governedInputHash: z.string().min(1).optional(),
+    expectedInputHash: z.string().min(1).optional(),
+    worktreePathHash: z.string().min(1).optional(),
+    changedFileCount: z.number().int().nonnegative().default(0),
+    diffHash: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    realWriteExecuted: z.boolean().default(false),
+    repoRootWriteAllowed: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawStdoutStored: z.literal(false).default(false),
+    rawStderrStored: z.literal(false).default(false),
+    rawDiffStored: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexPatchChildRecord = z.infer<typeof CodexPatchChildRecordSchema>;
+
+export const NxVerificationChildRecordSchema = createdEntityBaseSchema
+  .extend({
+    childRecordId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    runId: z.string().min(1).optional(),
+    status: ProductionWorkflowChildRecordStatusSchema,
+    verificationRunIdHash: z.string().min(1).optional(),
+    targetCount: z.number().int().nonnegative().default(0),
+    passedCount: z.number().int().nonnegative().default(0),
+    failedCount: z.number().int().nonnegative().default(0),
+    skippedCount: z.number().int().nonnegative().default(0),
+    commandSummaryHash: z.string().min(1).optional(),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    rawStdoutStored: z.literal(false).default(false),
+    rawStderrStored: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.passedCount + value.failedCount + value.skippedCount > value.targetCount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Nx verification child counts cannot exceed targetCount',
+        path: ['targetCount'],
+      });
+    }
+  });
+export type NxVerificationChildRecord = z.infer<typeof NxVerificationChildRecordSchema>;
+
 export const ProductionWorkflowRecoveryScenarioSchema = z.enum([
   'all-pass',
   'pilot-disabled',

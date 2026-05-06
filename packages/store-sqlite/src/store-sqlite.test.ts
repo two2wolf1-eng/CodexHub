@@ -7,6 +7,7 @@ import {
   type BrowserObservationApprovalArtifactRecord,
   type BrowserObservationControlPlaneRun,
   type BrowserObservationDryRunRecord,
+  type CodexPatchChildRecord,
   type CodexExecLiveAdapterAdrDecisionRecord,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
@@ -29,6 +30,7 @@ import {
   type ProductionWorkflowRecoveryApprovalArtifact,
   type ProductionWorkflowRecoveryPlan,
   type ProductionWorkflowRecoveryRun,
+  type NxVerificationChildRecord,
   type ElectronCdpObservationApprovalArtifactRecord,
   type ElectronCdpObservationControlPlaneRun,
   type ElectronCdpObservationDryRunRecord,
@@ -235,6 +237,10 @@ describe('store-sqlite migration initialization', () => {
     await first.productionWorkflowRecoveryRuns.saveRun(recoveryRun);
     const recoveryChildState = createProductionWorkflowRecoveryChildActionStateFixture();
     await first.productionWorkflowRecoveryChildActionStates.saveChildActionState(recoveryChildState);
+    const codexPatchChildRecord = createCodexPatchChildRecordFixture();
+    await first.codexPatchChildRecords.saveRecord(codexPatchChildRecord);
+    const nxVerificationChildRecord = createNxVerificationChildRecordFixture();
+    await first.nxVerificationChildRecords.saveRecord(nxVerificationChildRecord);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -480,6 +486,20 @@ describe('store-sqlite migration initialization', () => {
       await second.productionWorkflowRecoveryChildActionStates.getChildActionState(
         'production_workflow_recovery_child_action_state_1',
       );
+    const codexPatchChildRecords = await second.codexPatchChildRecords.listRecords({
+      dryRunId: 'codex_patch_child_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const codexPatchChildRecordRoundTrip =
+      await second.codexPatchChildRecords.getRecord('codex_patch_child_record_1');
+    const nxVerificationChildRecords = await second.nxVerificationChildRecords.listRecords({
+      dryRunId: 'nx_verification_child_dry_run_1',
+      status: 'completed',
+      limit: 10,
+    });
+    const nxVerificationChildRecordRoundTrip =
+      await second.nxVerificationChildRecords.getRecord('nx_verification_child_record_1');
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -779,6 +799,20 @@ describe('store-sqlite migration initialization', () => {
         recoveryRunRecord,
         recoveryChildStates,
         recoveryChildStateRecord,
+      }),
+    ).toEqual([]);
+    expect(codexPatchChildRecords).toHaveLength(1);
+    expect(codexPatchChildRecordRoundTrip?.status).toBe('completed');
+    expect(codexPatchChildRecordRoundTrip?.rawDiffStored).toBe(false);
+    expect(nxVerificationChildRecords).toHaveLength(1);
+    expect(nxVerificationChildRecordRoundTrip?.failedCount).toBe(0);
+    expect(nxVerificationChildRecordRoundTrip?.rawStdoutStored).toBe(false);
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        codexPatchChildRecords,
+        codexPatchChildRecordRoundTrip,
+        nxVerificationChildRecords,
+        nxVerificationChildRecordRoundTrip,
       }),
     ).toEqual([]);
     expect(reportReviews).toHaveLength(1);
@@ -1955,6 +1989,66 @@ function createProductionWorkflowRecoveryChildActionStateFixture(): ProductionWo
     bodyStored: false,
     rawPathStored: false,
     summary: 'Production workflow recovery child action state stores metadata only.',
+  };
+}
+
+function createCodexPatchChildRecordFixture(): CodexPatchChildRecord {
+  return {
+    id: 'codex_patch_child_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-06T00:00:00.000Z',
+    childRecordId: 'codex_patch_child_record_1',
+    dryRunId: 'codex_patch_child_dry_run_1',
+    approvalArtifactId: 'codex_patch_child_approval_artifact_1',
+    runId: 'codex_patch_child_run_1',
+    status: 'completed',
+    governedInputHash: 'sha256:governed-input',
+    expectedInputHash: 'sha256:governed-input',
+    worktreePathHash: 'sha256:worktree',
+    changedFileCount: 1,
+    diffHash: 'sha256:diff',
+    evidenceRefIds: ['evidence_codex_patch_child_1'],
+    auditEventIds: ['audit_codex_patch_child_1'],
+    processBoundaryInvoked: true,
+    externalProcessStarted: true,
+    networkBoundaryInvoked: false,
+    realWriteExecuted: true,
+    repoRootWriteAllowed: false,
+    rawPromptStored: false,
+    rawStdoutStored: false,
+    rawStderrStored: false,
+    rawDiffStored: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Codex patch child record stores metadata-only local pilot state.',
+  };
+}
+
+function createNxVerificationChildRecordFixture(): NxVerificationChildRecord {
+  return {
+    id: 'nx_verification_child_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-05-06T00:00:01.000Z',
+    childRecordId: 'nx_verification_child_record_1',
+    dryRunId: 'nx_verification_child_dry_run_1',
+    runId: 'nx_verification_child_run_1',
+    status: 'completed',
+    verificationRunIdHash: 'sha256:nx-run',
+    targetCount: 3,
+    passedCount: 3,
+    failedCount: 0,
+    skippedCount: 0,
+    commandSummaryHash: 'sha256:nx-command',
+    evidenceRefIds: ['evidence_nx_verification_child_1'],
+    auditEventIds: ['audit_nx_verification_child_1'],
+    processBoundaryInvoked: true,
+    externalProcessStarted: true,
+    networkBoundaryInvoked: false,
+    rawStdoutStored: false,
+    rawStderrStored: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Nx verification child record stores metadata-only target counts.',
   };
 }
 

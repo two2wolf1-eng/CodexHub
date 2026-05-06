@@ -160,6 +160,7 @@ import type {
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
+  CodexPatchChildRecord,
   BrowserObservationRunStatus,
   CodexExecApprovalArtifact,
   CodexExecApprovalDecisionOutcome,
@@ -253,6 +254,10 @@ import type {
   CustomWorkflowApprovalArtifactRecord,
   CustomWorkflowPlan,
   CustomWorkflowRun,
+  CustomWorkflowTemplate,
+  ProductionWorkflowChildActionPlan,
+  ProductionWorkflowChildRecordRef,
+  ProductionWorkflowChildRecordResolution,
   ProductionWorkflowChildActionStateRecord,
   ProductionWorkflowRecoveryApprovalArtifact,
   ProductionWorkflowRecoveryPlan,
@@ -281,6 +286,7 @@ import type {
   M9PilotRun,
   M11PilotRun,
   WorktreeRunStatus,
+  NxVerificationChildRecord,
 } from '@codexhub/contracts';
 import {
   ApprovalDecisionRequestSchema,
@@ -306,6 +312,8 @@ import {
   CustomWorkflowPlanSchema,
   CustomWorkflowRunSchema,
   ProductionWorkflowChildActionStateRecordSchema,
+  ProductionWorkflowChildRecordRefSchema,
+  ProductionWorkflowChildRecordResolutionSchema,
   ProductionWorkflowRecoveryApprovalArtifactSchema,
   ProductionWorkflowRecoveryPlanSchema,
   ProductionWorkflowRecoveryRunSchema,
@@ -402,7 +410,6 @@ import {
   runCustomWorkflowFixtureRehearsal,
   runProductionWorkflowRecoveryCoordinator,
   runProductionWorkflowRecoveryRehearsal,
-  type ProductionWorkflowRecoveryOptions,
   createMockWorkflowDefinition,
 } from '@codexhub/workflow-kernel';
 import {
@@ -965,13 +972,14 @@ interface ProductionWorkflowRecoveryRunRequestBody {
   approvalArtifactId?: string;
   templateId?: string;
   templateHash?: string;
-  childApprovalApproved?: Record<string, boolean>;
-  childRunStatuses?: Record<string, string>;
+  childRecordRefs?: ProductionWorkflowChildRecordRef[];
   resumeFromStepId?: string;
   approvalArtifact?: unknown;
   authority?: unknown;
   executionAuthority?: unknown;
   childArtifacts?: unknown;
+  childApprovalApproved?: unknown;
+  childRunStatuses?: unknown;
 }
 
 interface GithubRemoteCleanupDryRunRequestBody {
@@ -4336,6 +4344,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         .code(400)
         .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(body?.dryRunId));
     }
+    if (hasUntrustedProductionWorkflowChildStateBody(body)) {
+      return reply.code(400).send({
+        error: 'production workflow recovery request body child state is not trusted',
+        dryRunId: body?.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        childAdapterExecuteAllowed: false,
+      });
+    }
     if (
       hasForbiddenReviewPackageRawBody(body) ||
       hasForbiddenGithubRawBody(body) ||
@@ -4391,6 +4411,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply
         .code(400)
         .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasUntrustedProductionWorkflowChildStateBody(body)) {
+      return reply.code(400).send({
+        error: 'production workflow recovery request body child state is not trusted',
+        dryRunId: body?.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        childAdapterExecuteAllowed: false,
+      });
     }
     if (
       hasForbiddenReviewPackageRawBody(body) ||
@@ -4466,6 +4498,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return reply
         .code(400)
         .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (hasUntrustedProductionWorkflowChildStateBody(body)) {
+      return reply.code(400).send({
+        error: 'production workflow recovery request body child state is not trusted',
+        dryRunId: body?.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        childAdapterExecuteAllowed: false,
+      });
     }
     if (
       hasForbiddenReviewPackageRawBody(body) ||
@@ -4559,6 +4603,28 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         .code(404)
         .send({ error: 'production workflow recovery catalog template was not found' });
     }
+    const childRecordResolution = await resolveProductionWorkflowChildRecordRefs({
+      dryRunRecord,
+      template: catalogTemplate,
+      refs: body?.childRecordRefs,
+      store,
+    });
+    if (childRecordResolution.preRunBlockReasons.length > 0) {
+      return reply.code(409).send({
+        error: 'production workflow recovery child records are not ready',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        blockReasons: childRecordResolution.preRunBlockReasons,
+        childRecordResolutionCount: childRecordResolution.resolutions.length,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        childAdapterExecuteAllowed: false,
+        bodyStored: false,
+        rawPathStored: false,
+      });
+    }
     const runRecord = runProductionWorkflowRecoveryCoordinator({
       template: catalogTemplate,
       dryRunId: dryRunRecord.dryRunId,
@@ -4567,10 +4633,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       childOrchestrationEnabled: true,
       workflowApprovalApproved: true,
       approvalArtifact: approvalRecord,
-      childApprovalApproved: body?.childApprovalApproved,
-      childRunStatuses: body?.childRunStatuses as
-        | ProductionWorkflowRecoveryOptions['childRunStatuses']
-        | undefined,
+      childRecordResolutions: childRecordResolution.resolutions,
       resumeFromStepId: body?.resumeFromStepId,
     });
     await persistProductionWorkflowRecoveryRunRecord(runRecord, store);
@@ -16807,6 +16870,456 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       bodyStored: false,
       rawPathStored: false,
     };
+  }
+
+  function hasUntrustedProductionWorkflowChildStateBody(
+    body: ProductionWorkflowRecoveryRunRequestBody | undefined,
+  ): boolean {
+    return hasRequestBodyProperty(body, 'childApprovalApproved') ||
+      hasRequestBodyProperty(body, 'childRunStatuses');
+  }
+
+  async function resolveProductionWorkflowChildRecordRefs(input: {
+    dryRunRecord: ProductionWorkflowRecoveryPlan;
+    template: CustomWorkflowTemplate;
+    refs: ProductionWorkflowChildRecordRef[] | undefined;
+    store: CodexHubStore;
+  }): Promise<{
+    resolutions: ProductionWorkflowChildRecordResolution[];
+    preRunBlockReasons: string[];
+  }> {
+    const plan = createProductionWorkflowRecoveryPlan({
+      template: input.template,
+      dryRunId: input.dryRunRecord.dryRunId,
+      templateHash: input.dryRunRecord.templateHash,
+      localProductionPilotEnabled: isLocalProductionWorkflowPilotEnabled(),
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+    });
+    const refs = (input.refs ?? []).map((ref) =>
+      ProductionWorkflowChildRecordRefSchema.parse(ref),
+    );
+    const resolutions: ProductionWorkflowChildRecordResolution[] = [];
+    const preRunBlockReasons: string[] = [];
+
+    for (const action of plan.childActionPlans) {
+      if (!requiresStoreResolvedLocalProductionChildRecord(action)) {
+        continue;
+      }
+
+      const ref = refs.find(
+        (candidate) =>
+          candidate.actionId === action.actionId &&
+          candidate.stepId === action.stepId &&
+          candidate.childActionKind === action.childActionKind &&
+          candidate.childControlPlane === action.childControlPlane,
+      );
+      if (!ref) {
+        preRunBlockReasons.push(
+          `production_workflow_child_record_ref_missing:${action.stepId}`,
+        );
+        continue;
+      }
+
+      const resolution = await resolveProductionWorkflowChildRecordRef({
+        action,
+        ref,
+        store: input.store,
+      });
+      resolutions.push(resolution);
+      if (
+        resolution.status === 'missing' ||
+        resolution.status === 'hash_mismatch' ||
+        resolution.status === 'stale'
+      ) {
+        preRunBlockReasons.push(...resolution.blockReasons);
+      }
+    }
+
+    return {
+      resolutions,
+      preRunBlockReasons: [...new Set(preRunBlockReasons)],
+    };
+  }
+
+  function requiresStoreResolvedLocalProductionChildRecord(
+    action: ProductionWorkflowChildActionPlan,
+  ): boolean {
+    return (
+      action.childActionKind === 'worktree-create' ||
+      action.childActionKind === 'codex-patch' ||
+      action.childActionKind === 'nx-verification' ||
+      action.childActionKind === 'review-package-export'
+    );
+  }
+
+  async function resolveProductionWorkflowChildRecordRef(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    store: CodexHubStore;
+  }): Promise<ProductionWorkflowChildRecordResolution> {
+    switch (input.action.childActionKind) {
+      case 'worktree-create':
+        return resolveWorktreeProductionWorkflowChildRecord(input);
+      case 'codex-patch':
+        return resolveCodexPatchProductionWorkflowChildRecord(input);
+      case 'nx-verification':
+        return resolveNxVerificationProductionWorkflowChildRecord(input);
+      case 'review-package-export':
+        return resolveReviewPackageProductionWorkflowChildRecord(input);
+      case 'governance-projection':
+      case 'github-branch-publish':
+      case 'github-draft-pr':
+      case 'github-pr-lifecycle':
+      case 'remote-supersede':
+      case 'remote-cleanup':
+        return createProductionWorkflowChildRecordResolution({
+          action: input.action,
+          ref: input.ref,
+          status: 'completed',
+          childApprovalResolvedFromStore: true,
+          childRunResolvedFromStore: true,
+          actualRecordHash: input.ref.expectedRecordHash,
+          evidenceRefIds: [],
+          auditEventIds: [],
+          summary: 'Child record does not require local production store resolution in M35.',
+        });
+    }
+  }
+
+  async function resolveWorktreeProductionWorkflowChildRecord(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    store: CodexHubStore;
+  }): Promise<ProductionWorkflowChildRecordResolution> {
+    const dryRun = await resolveWorktreeDryRunRecord(input.ref.childDryRunId, input.store);
+    const approval = input.ref.childApprovalArtifactId
+      ? await resolveWorktreeApprovalRecordByArtifactId(
+          input.ref.childApprovalArtifactId,
+          input.store,
+        )
+      : undefined;
+    const run = input.ref.childRunId
+      ? await resolveWorktreeRun(input.ref.childRunId, input.store)
+      : undefined;
+    return createProductionWorkflowChildRecordResolutionFromControlRecords({
+      ...input,
+      dryRun,
+      approval,
+      run,
+      status: mapWorktreeChildRecordStatus({
+        action: input.action,
+        dryRun,
+        approval,
+        run,
+        approvalArtifactIdProvided: Boolean(input.ref.childApprovalArtifactId),
+        runIdProvided: Boolean(input.ref.childRunId),
+      }),
+      processBoundaryInvoked: run?.processBoundaryInvoked ?? false,
+      externalProcessStarted: run?.externalProcessStarted ?? false,
+      networkBoundaryInvoked: false,
+      evidenceRefIds: run?.evidenceRefIds ?? dryRun?.evidenceRefs.map((ref) => ref.id) ?? [],
+      auditEventIds: run?.auditEventIds ?? approval?.auditEventIds ?? dryRun?.auditEventIds ?? [],
+    });
+  }
+
+  async function resolveReviewPackageProductionWorkflowChildRecord(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    store: CodexHubStore;
+  }): Promise<ProductionWorkflowChildRecordResolution> {
+    const dryRun = await resolveReviewPackageDryRunRecord(input.ref.childDryRunId, input.store);
+    const approval = input.ref.childApprovalArtifactId
+      ? await resolveReviewPackageApprovalRecordByArtifactId(
+          input.ref.childApprovalArtifactId,
+          input.store,
+        )
+      : undefined;
+    const run = input.ref.childRunId
+      ? await resolveReviewPackageRun(input.ref.childRunId, input.store)
+      : undefined;
+    return createProductionWorkflowChildRecordResolutionFromControlRecords({
+      ...input,
+      dryRun,
+      approval,
+      run,
+      status: mapGenericLocalChildRecordStatus({
+        action: input.action,
+        dryRun,
+        approval,
+        run,
+        approvalStatus: approval?.status,
+        runStatus: run?.status,
+        approvalArtifactIdProvided: Boolean(input.ref.childApprovalArtifactId),
+        runIdProvided: Boolean(input.ref.childRunId),
+      }),
+      processBoundaryInvoked: run?.processBoundaryInvoked ?? false,
+      externalProcessStarted: run?.externalProcessStarted ?? false,
+      networkBoundaryInvoked: false,
+      evidenceRefIds:
+        run?.evidenceRefs.map((ref) => ref.id) ??
+        approval?.evidenceRefs.map((ref) => ref.id) ??
+        dryRun?.evidenceRefs.map((ref) => ref.id) ??
+        [],
+      auditEventIds: run?.auditEventIds ?? approval?.auditEventIds ?? dryRun?.auditEventIds ?? [],
+    });
+  }
+
+  async function resolveCodexPatchProductionWorkflowChildRecord(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    store: CodexHubStore;
+  }): Promise<ProductionWorkflowChildRecordResolution> {
+    const lookupId = input.ref.childRecordId ?? input.ref.childRunId ?? input.ref.childDryRunId;
+    const record = lookupId
+      ? await input.store.codexPatchChildRecords.getRecord(lookupId)
+      : undefined;
+    return createProductionWorkflowChildRecordResolutionFromSingleRecord({
+      ...input,
+      record,
+      status: record ? normalizeChildRecordRuntimeStatus(record.status) : 'missing',
+      processBoundaryInvoked: record?.processBoundaryInvoked ?? false,
+      externalProcessStarted: record?.externalProcessStarted ?? false,
+      networkBoundaryInvoked: false,
+      evidenceRefIds: record?.evidenceRefIds ?? [],
+      auditEventIds: record?.auditEventIds ?? [],
+      dryRunId: record?.dryRunId,
+      approvalArtifactId: record?.approvalArtifactId,
+      runId: record?.runId,
+    });
+  }
+
+  async function resolveNxVerificationProductionWorkflowChildRecord(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    store: CodexHubStore;
+  }): Promise<ProductionWorkflowChildRecordResolution> {
+    const lookupId = input.ref.childRecordId ?? input.ref.childRunId ?? input.ref.childDryRunId;
+    const record = lookupId
+      ? await input.store.nxVerificationChildRecords.getRecord(lookupId)
+      : undefined;
+    return createProductionWorkflowChildRecordResolutionFromSingleRecord({
+      ...input,
+      record,
+      status: record ? normalizeChildRecordRuntimeStatus(record.status) : 'missing',
+      processBoundaryInvoked: record?.processBoundaryInvoked ?? false,
+      externalProcessStarted: record?.externalProcessStarted ?? false,
+      networkBoundaryInvoked: false,
+      evidenceRefIds: record?.evidenceRefIds ?? [],
+      auditEventIds: record?.auditEventIds ?? [],
+      dryRunId: record?.dryRunId,
+      approvalArtifactId: record?.approvalArtifactId,
+      runId: record?.runId,
+    });
+  }
+
+  function createProductionWorkflowChildRecordResolutionFromControlRecords(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    dryRun: unknown;
+    approval: { status?: string; approvalArtifactId?: string } | undefined;
+    run: { status?: string; id?: string } | undefined;
+    status: ProductionWorkflowChildRecordResolution['status'];
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+    networkBoundaryInvoked: boolean;
+    evidenceRefIds: string[];
+    auditEventIds: string[];
+  }): ProductionWorkflowChildRecordResolution {
+    const actualRecordHash = input.dryRun
+      ? hashLocalMetadata({
+          childControlPlane: input.action.childControlPlane,
+          dryRun: input.dryRun,
+          approval: input.approval,
+          run: input.run,
+        })
+      : undefined;
+    return createProductionWorkflowChildRecordResolution({
+      action: input.action,
+      ref: input.ref,
+      status: input.status,
+      childApprovalResolvedFromStore:
+        !input.action.requiresChildApproval || input.approval?.status === 'approved',
+      childRunResolvedFromStore: Boolean(input.run),
+      actualRecordHash,
+      dryRunId: input.ref.childDryRunId,
+      approvalArtifactId: input.approval?.approvalArtifactId ?? input.ref.childApprovalArtifactId,
+      runId: input.run?.id ?? input.ref.childRunId,
+      processBoundaryInvoked: input.processBoundaryInvoked,
+      externalProcessStarted: input.externalProcessStarted,
+      networkBoundaryInvoked: input.networkBoundaryInvoked,
+      evidenceRefIds: input.evidenceRefIds,
+      auditEventIds: input.auditEventIds,
+      summary: 'Child control-plane records resolved from store before workflow recovery.',
+    });
+  }
+
+  function createProductionWorkflowChildRecordResolutionFromSingleRecord(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    record: CodexPatchChildRecord | NxVerificationChildRecord | undefined;
+    status: ProductionWorkflowChildRecordResolution['status'];
+    processBoundaryInvoked: boolean;
+    externalProcessStarted: boolean;
+    networkBoundaryInvoked: boolean;
+    evidenceRefIds: string[];
+    auditEventIds: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    runId?: string;
+  }): ProductionWorkflowChildRecordResolution {
+    const actualRecordHash = input.record ? hashLocalMetadata(input.record) : undefined;
+    return createProductionWorkflowChildRecordResolution({
+      action: input.action,
+      ref: input.ref,
+      status: input.status,
+      childApprovalResolvedFromStore:
+        !input.action.requiresChildApproval ||
+        Boolean(input.record?.approvalArtifactId) ||
+        input.status === 'completed',
+      childRunResolvedFromStore: Boolean(input.record?.runId) || input.status === 'completed',
+      actualRecordHash,
+      dryRunId: input.dryRunId,
+      approvalArtifactId: input.approvalArtifactId,
+      runId: input.runId,
+      processBoundaryInvoked: input.processBoundaryInvoked,
+      externalProcessStarted: input.externalProcessStarted,
+      networkBoundaryInvoked: input.networkBoundaryInvoked,
+      evidenceRefIds: input.evidenceRefIds,
+      auditEventIds: input.auditEventIds,
+      summary: 'Child record resolved from metadata-only local production child repository.',
+    });
+  }
+
+  function createProductionWorkflowChildRecordResolution(input: {
+    action: ProductionWorkflowChildActionPlan;
+    ref: ProductionWorkflowChildRecordRef;
+    status: ProductionWorkflowChildRecordResolution['status'];
+    childApprovalResolvedFromStore: boolean;
+    childRunResolvedFromStore: boolean;
+    actualRecordHash?: string;
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    runId?: string;
+    processBoundaryInvoked?: boolean;
+    externalProcessStarted?: boolean;
+    networkBoundaryInvoked?: boolean;
+    evidenceRefIds?: string[];
+    auditEventIds?: string[];
+    summary: string;
+  }): ProductionWorkflowChildRecordResolution {
+    const hashMatched =
+      Boolean(input.actualRecordHash) && input.actualRecordHash === input.ref.expectedRecordHash;
+    const status = input.actualRecordHash && !hashMatched ? 'hash_mismatch' : input.status;
+    const blockReasons: string[] = [];
+    if (status === 'missing') {
+      blockReasons.push(`production_workflow_child_record_missing:${input.action.stepId}`);
+    }
+    if (status === 'hash_mismatch') {
+      blockReasons.push(`production_workflow_child_record_hash_mismatch:${input.action.stepId}`);
+    }
+    if (status === 'stale') {
+      blockReasons.push(`production_workflow_child_record_stale:${input.action.stepId}`);
+    }
+
+    return ProductionWorkflowChildRecordResolutionSchema.parse({
+      actionId: input.action.actionId,
+      stepId: input.action.stepId,
+      childActionKind: input.action.childActionKind,
+      childControlPlane: input.action.childControlPlane,
+      status,
+      childDryRunIdHash: input.dryRunId ? hashLocalMetadata({ childDryRunId: input.dryRunId }) : undefined,
+      childApprovalArtifactIdHash: input.approvalArtifactId
+        ? hashLocalMetadata({ childApprovalArtifactId: input.approvalArtifactId })
+        : undefined,
+      childRunIdHash: input.runId ? hashLocalMetadata({ childRunId: input.runId }) : undefined,
+      expectedRecordHash: input.ref.expectedRecordHash,
+      actualRecordHash: input.actualRecordHash,
+      hashMatched,
+      childApprovalRequired: input.action.requiresChildApproval,
+      childApprovalResolvedFromStore: input.childApprovalResolvedFromStore,
+      childRunResolvedFromStore: input.childRunResolvedFromStore,
+      blockReasons,
+      evidenceRefIds: input.evidenceRefIds ?? [],
+      auditEventIds: input.auditEventIds ?? [],
+      processBoundaryInvoked: input.processBoundaryInvoked ?? false,
+      externalProcessStarted: input.externalProcessStarted ?? false,
+      networkBoundaryInvoked: input.networkBoundaryInvoked ?? false,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: input.summary,
+    });
+  }
+
+  function mapWorktreeChildRecordStatus(input: {
+    action: ProductionWorkflowChildActionPlan;
+    dryRun: WorktreeDryRunRecord | undefined;
+    approval: WorktreeApprovalArtifactRecord | undefined;
+    run: WorktreeControlPlaneRun | undefined;
+    approvalArtifactIdProvided: boolean;
+    runIdProvided: boolean;
+  }): ProductionWorkflowChildRecordResolution['status'] {
+    return mapGenericLocalChildRecordStatus({
+      action: input.action,
+      dryRun: input.dryRun,
+      approval: input.approval,
+      run: input.run,
+      approvalStatus: input.approval?.status,
+      runStatus: input.run?.status,
+      approvalArtifactIdProvided: input.approvalArtifactIdProvided,
+      runIdProvided: input.runIdProvided,
+    });
+  }
+
+  function mapGenericLocalChildRecordStatus(input: {
+    action: ProductionWorkflowChildActionPlan;
+    dryRun: unknown;
+    approval: unknown;
+    run: unknown;
+    approvalStatus?: string;
+    runStatus?: string;
+    approvalArtifactIdProvided: boolean;
+    runIdProvided: boolean;
+  }): ProductionWorkflowChildRecordResolution['status'] {
+    if (!input.dryRun) {
+      return 'missing';
+    }
+    if (input.action.requiresChildApproval) {
+      if (!input.approvalArtifactIdProvided || !input.approval) {
+        return 'waiting_for_child_approval';
+      }
+      if (input.approvalStatus === 'requested') {
+        return 'waiting_for_child_approval';
+      }
+      if (input.approvalStatus !== 'approved') {
+        return 'blocked';
+      }
+    }
+    if (!input.runIdProvided || !input.run) {
+      return input.action.requiresChildApproval ? 'approved' : 'requested';
+    }
+    return normalizeChildRecordRuntimeStatus(input.runStatus);
+  }
+
+  function normalizeChildRecordRuntimeStatus(
+    status: string | undefined,
+  ): ProductionWorkflowChildRecordResolution['status'] {
+    switch (status) {
+      case 'completed':
+      case 'failed':
+      case 'blocked':
+      case 'aborted':
+      case 'stale':
+      case 'approved':
+      case 'requested':
+      case 'planned':
+      case 'waiting_for_child_approval':
+        return status;
+      default:
+        return 'missing';
+    }
   }
 
   function isProductionWorkflowRecoveryEnabled(): boolean {
