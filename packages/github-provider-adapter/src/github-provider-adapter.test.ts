@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   runGithubReleaseDraftHttpBoundary,
@@ -94,9 +97,116 @@ const branchPublishFileInputs = branchPublishFiles.map((file) => ({
   byteCount: Buffer.byteLength(file.content, 'utf8'),
   text: true,
 }));
+const githubProviderSourceDir = dirname(fileURLToPath(import.meta.url));
+const githubHttpBoundaryFileName = 'github-http-boundary.ts';
 function expectNoForbiddenGithubPublicOutput(serialized: string): void {
   expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
+
+function listGithubProviderSourceFiles(dir = githubProviderSourceDir): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const fullPath = join(dir, entry);
+    const stat = statSync(fullPath);
+
+    if (stat.isDirectory()) {
+      return listGithubProviderSourceFiles(fullPath);
+    }
+
+    return fullPath.endsWith('.ts') && !fullPath.endsWith('.d.ts') && !fullPath.endsWith('.test.ts')
+      ? [fullPath]
+      : [];
+  });
+}
+
+function sourceFileLabel(filePath: string): string {
+  return relative(githubProviderSourceDir, filePath).split(sep).join('/');
+}
+
+describe('GitHub HTTP boundary source guard', () => {
+  it('keeps direct GitHub endpoint construction inside the reviewed boundary file', () => {
+    const endpointConstructionTerms = [
+      'api.github.com',
+      'application/vnd.github+json',
+      'x-github-api-version',
+      '/actions/runs',
+      '/actions/workflows/',
+      '/git/ref/heads/',
+      '/git/refs',
+      '/issues/',
+      '/milestones/',
+      '/pulls/',
+      '/requested_reviewers',
+      '/releases',
+    ];
+    const violations = listGithubProviderSourceFiles()
+      .filter((file) => sourceFileLabel(file) !== githubHttpBoundaryFileName)
+      .flatMap((file) => {
+        const source = readFileSync(file, 'utf8');
+        const label = sourceFileLabel(file);
+        return endpointConstructionTerms
+          .filter((term) => source.includes(term))
+          .filter((term) => !(label === 'index.ts' && term === 'api.github.com'))
+          .map((term) => `${label} contains ${term}`);
+      });
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps GitHub writes on the reviewed fixed helper callset', () => {
+    const boundarySource = readFileSync(join(githubProviderSourceDir, githubHttpBoundaryFileName), 'utf8');
+    const mutatingHelperCalls = [
+      ...boundarySource.matchAll(
+        /(?:=\s+await|return)\s+(fetchFixedGithub(?:Post|Patch|Put|Delete)[A-Za-z]*)\(/g,
+      ),
+    ].map((match) => match[1]);
+
+    expect(mutatingHelperCalls).toEqual([
+      'fetchFixedGithubPutJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPatchJson',
+      'fetchFixedGithubDelete',
+      'fetchFixedGithubPostDraftPullRequest',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPostJson',
+      'fetchFixedGithubPatchJson',
+      'fetchFixedGithubPostJson',
+    ]);
+  });
+
+  it('continues to forbid arbitrary GitHub passthrough and release publish drift', () => {
+    const boundarySource = readFileSync(join(githubProviderSourceDir, githubHttpBoundaryFileName), 'utf8');
+    const forbiddenTerms = [
+      '/graphql',
+      '/deployments',
+      '/contents/',
+      '/releases/assets',
+      '/collaborators',
+      '/teams/',
+      'auto_merge',
+      'delete_branch_on_merge',
+      'draft: false',
+      'force: true',
+      'make_latest',
+      'publish_release',
+    ];
+    const violations = forbiddenTerms.filter((term) => boundarySource.includes(term));
+
+    expect(violations).toEqual([]);
+    expect(boundarySource).toContain('draft: true');
+    expect(boundarySource).toContain('/pulls/${prNumber}/merge');
+    expect(boundarySource).toContain('/actions/workflows/${workflowId}/dispatches');
+    expect(boundarySource).toContain('/releases');
+  });
+});
 
 describe('GitHub release lifecycle HTTP boundary', () => {
   it('uses only fixed tag and release draft endpoints with hash-only results', async () => {

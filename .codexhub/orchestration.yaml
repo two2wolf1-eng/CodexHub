@@ -5591,3 +5591,29 @@ workflows:
       boundaryFailureConsumesExactlyOnce: true
       requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
+  m47_d9.github-fixed-boundary-debug:
+    risk: critical
+    trigger:
+      type: github-fixed-boundary-debug
+      entrypoint: github-provider-adapter docs tools
+      localControlRequired: false
+    scope:
+      - github-http-boundary-single-file-guard
+      - github-mutating-helper-fixed-callset
+      - github-passthrough-publish-deployment-forbidden-terms
+      - github-provider-public-output-metadata-only
+    docs:
+      - docs/releases/m47-d9-github-fixed-boundary-debug.md
+      - docs/reviews/m47-d9-github-fixed-boundary-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      singleGithubHttpBoundaryFile: true
+      arbitraryGithubPassthroughAllowed: false
+      releasePublishAllowed: false
+      metadataOnlyPublicOutput: true
