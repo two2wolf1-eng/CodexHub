@@ -27,9 +27,19 @@ This matrix extends the M0-M45 baseline with M46 runtime/external agent operatio
 - Active store replacement is critical and requires two approvals.
 - Capability providers remain non-authoritative; CodexHub approval, evidence, and audit stay final.
 
-## M47-D Debug Registration
+## M47-D Debug Completion
 
-- M47-D1 established the clean M0-M47 baseline drift review.
-- M47-D2 registers the debug hardening series in orchestration, integrations, and scaffold health.
-- The M47-D series is review-only: it cannot add providers, routes, store repositories, live boundaries, remote writes, pushes, or pull requests.
-- Deeper rounds D3-D20 are expected to harden tests, audits, public projections, boundary checks, and operator surface drift controls.
+The M47-D series is complete and remains review-only. It added no providers, routes, store repositories, live boundaries, remote writes, pushes, or pull requests.
+
+| Round | Governance Area | Completion State |
+| --- | --- | --- |
+| D1-D2 | Baseline drift and registration | Completed with docs, orchestration, integrations, and scaffold health aligned. |
+| D3-D5 | Contracts, projections, and store round trips | Completed with metadata-only fuzz and round-trip coverage. |
+| D6-D8 | Supervisor gates and approval semantics | Completed with route drift, token/Origin, CORS, authority rejection, and approval consumption checks. |
+| D9-D13 | Capability boundaries | Completed across GitHub, deployment, platform, runtime, external agents, Browser, Electron, MCP, policy, and telemetry. |
+| D14-D16 | Operator surfaces | Completed for Dashboard, CLI, and MCP mutation/read-only allowlists. |
+| D17-D18 | Rehearsals and degraded states | Completed for late-stage scenarios and major operator routes. |
+| D19 | Adversarial static audits | Completed with negative fixtures for imports, dynamic execution, generic POST/URL builders, token storage, env reads, and argv passthrough. |
+| D20 | Final baseline | Completed with final release, review, runbook, matrix, orchestration, and scaffold health registration. |
+
+Future milestones must treat this file as the starting capability/governance matrix and update it before broadening any execution surface.

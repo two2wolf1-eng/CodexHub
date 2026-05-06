@@ -5904,3 +5904,31 @@ workflows:
       noOpenPullRequest: true
       auditOnlyNegativeFixtures: true
       metadataOnlyPublicOutput: true
+  m47_d20.final-governance-baseline:
+    risk: critical
+    trigger:
+      type: final-governance-baseline
+      entrypoint: docs tools
+      localControlRequired: false
+    scope:
+      - final-m0-m47-capability-governance-matrix
+      - m47-d1-through-d19-closeout-summary
+      - final-release-review-runbook-registration
+      - foundation-gate-evidence
+      - residual-risk-register
+      - next-stage-readiness
+    docs:
+      - docs/releases/m47-d20-final-governance-baseline.md
+      - docs/reviews/m0-m47-final-governance-baseline-review.md
+      - docs/reviews/m0-m47-capability-governance-matrix.md
+      - docs/runbooks/m47-final-governance-baseline-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      documentationOnlyCloseout: true
+      metadataOnlyPublicOutput: true

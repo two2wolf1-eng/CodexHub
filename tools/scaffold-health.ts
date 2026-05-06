@@ -163,6 +163,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m47-d17-rehearsal-matrix-debug.md',
   'docs/releases/m47-d18-operator-degraded-state-debug.md',
   'docs/releases/m47-d19-adversarial-static-audit-debug.md',
+  'docs/releases/m47-d20-final-governance-baseline.md',
   'docs/releases/m24.6-foundation-hardening.md',
   'docs/releases/m24.7-deep-governance-hardening.md',
   'docs/releases/m24.8-governance-meta-audit.md',
@@ -246,6 +247,7 @@ const requiredGovernanceFiles = [
   'docs/reviews/m47-d17-rehearsal-matrix-review.md',
   'docs/reviews/m47-d18-operator-degraded-state-review.md',
   'docs/reviews/m47-d19-adversarial-static-audit-review.md',
+  'docs/reviews/m0-m47-final-governance-baseline-review.md',
   'docs/reviews/m0-m24-foundation-hardening-review.md',
   'docs/reviews/m0-m24-deep-governance-debug-review.md',
   'docs/reviews/m0-m24-governance-meta-audit-review.md',
@@ -293,6 +295,7 @@ const requiredGovernanceFiles = [
   'docs/runbooks/m45.10-final-deep-governance-baseline-runbook.md',
   'docs/runbooks/m46-runtime-external-agent-operator-runbook.md',
   'docs/runbooks/m47-disaster-recovery-operator-runbook.md',
+  'docs/runbooks/m47-final-governance-baseline-runbook.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
   'docs/checklists/m10-local-pilot-checklist.md',
 ];

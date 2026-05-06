@@ -2741,6 +2741,10 @@ integrations:
     providerType: builtin
     mode: review-only
     stage: m47-d20-final-governance-baseline
+    debugRoundsCompleted: 20
+    finalRelease: docs/releases/m47-d20-final-governance-baseline.md
+    finalReview: docs/reviews/m0-m47-final-governance-baseline-review.md
+    finalRunbook: docs/runbooks/m47-final-governance-baseline-runbook.md
     processBoundary: false
     networkBoundary: false
     remoteProviderBoundary: false
