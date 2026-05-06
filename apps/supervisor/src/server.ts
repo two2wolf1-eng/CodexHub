@@ -20201,7 +20201,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
       const dryRunRecord = body?.dryRunId
-        ? await store.realPolicyBackendDryRuns.getDryRun(body.dryRunId)
+        ? await resolveRealPolicyBackendDryRun(store, body.dryRunId)
         : undefined;
       if (!dryRunRecord) {
         return reply.code(404).send({ error: 'real policy backend dry-run was not found' });
@@ -20221,7 +20221,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
       const dryRunRecord = body?.dryRunId
-        ? await store.realPolicyBackendDryRuns.getDryRun(body.dryRunId)
+        ? await resolveRealPolicyBackendDryRun(store, body.dryRunId)
         : undefined;
       if (!dryRunRecord) {
         return reply.code(404).send({ error: 'real policy backend dry-run was not found' });
@@ -20252,7 +20252,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
       const dryRunRecord = body?.dryRunId
-        ? await store.realPolicyBackendDryRuns.getDryRun(body.dryRunId)
+        ? await resolveRealPolicyBackendDryRun(store, body.dryRunId)
         : undefined;
       if (!dryRunRecord) {
         return reply.code(404).send({ error: 'real policy backend dry-run was not found' });
@@ -20322,7 +20322,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
       const dryRunRecord = body?.dryRunId
-        ? await store.realTelemetryExportDryRuns.getDryRun(body.dryRunId)
+        ? await resolveRealTelemetryDryRun(store, body.dryRunId)
         : undefined;
       if (!dryRunRecord) {
         return reply.code(404).send({ error: 'real telemetry dry-run was not found' });
@@ -20342,7 +20342,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
       const dryRunRecord = body?.dryRunId
-        ? await store.realTelemetryExportDryRuns.getDryRun(body.dryRunId)
+        ? await resolveRealTelemetryDryRun(store, body.dryRunId)
         : undefined;
       if (!dryRunRecord) {
         return reply.code(404).send({ error: 'real telemetry dry-run was not found' });
@@ -20369,7 +20369,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
       const dryRunRecord = body?.dryRunId
-        ? await store.realTelemetryExportDryRuns.getDryRun(body.dryRunId)
+        ? await resolveRealTelemetryDryRun(store, body.dryRunId)
         : undefined;
       if (!dryRunRecord) {
         return reply.code(404).send({ error: 'real telemetry dry-run was not found' });
@@ -20664,6 +20664,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  async function resolveRealPolicyBackendDryRun(
+    store: CodexHubStore,
+    dryRunId: string,
+  ): Promise<RealPolicyBackendEvaluationPlan | undefined> {
+    const directRecord = await store.realPolicyBackendDryRuns.getDryRun(dryRunId);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.realPolicyBackendDryRuns.listDryRuns({ dryRunId, limit: 1 }))[0];
+  }
+
   function createRealPolicyBackendRunRecord(
     dryRunRecord: RealPolicyBackendEvaluationPlan,
     approvalRecord: RealPolicyBackendApprovalArtifact | undefined,
@@ -20824,6 +20836,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       auditEventIds: [foundationId('audit_real_telemetry_export_approval')],
       summary: 'Real telemetry export approval is metadata-only.',
     });
+  }
+
+  async function resolveRealTelemetryDryRun(
+    store: CodexHubStore,
+    dryRunId: string,
+  ): Promise<RealTelemetryExportPlan | undefined> {
+    const directRecord = await store.realTelemetryExportDryRuns.getDryRun(dryRunId);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.realTelemetryExportDryRuns.listDryRuns({ dryRunId, limit: 1 }))[0];
   }
 
   function createRealTelemetryRunRecord(
@@ -21190,12 +21214,27 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     id: string,
   ): Promise<ControlledWriteDryRun | undefined> {
     if (kind === 'browser') {
-      return store.browserActionDryRuns.getDryRun(id);
+      const directRecord = await store.browserActionDryRuns.getDryRun(id);
+      if (directRecord) {
+        return directRecord;
+      }
+
+      return (await store.browserActionDryRuns.listDryRuns({ dryRunId: id, limit: 1 }))[0];
     }
     if (kind === 'electron') {
-      return store.electronMainInspectorDryRuns.getDryRun(id);
+      const directRecord = await store.electronMainInspectorDryRuns.getDryRun(id);
+      if (directRecord) {
+        return directRecord;
+      }
+
+      return (await store.electronMainInspectorDryRuns.listDryRuns({ dryRunId: id, limit: 1 }))[0];
     }
-    return store.mcpWriteToolDryRuns.getDryRun(id);
+    const directRecord = await store.mcpWriteToolDryRuns.getDryRun(id);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.mcpWriteToolDryRuns.listDryRuns({ dryRunId: id, limit: 1 }))[0];
   }
 
   async function listControlledWriteDryRuns(

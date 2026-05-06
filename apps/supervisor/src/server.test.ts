@@ -5858,9 +5858,9 @@ describe('supervisor GitHub metadata control plane', () => {
     expect(completed.networkBoundaryInvoked).toBe(true);
     expect(completed.responseBodyHashCount).toBe(4);
     expect(completed.existingPullRequestCount).toBe(1);
-    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
-      true,
-    );
+    expect(
+      approvalsResponse.json().records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
     expect(requestedUrls).toEqual([
       'https://api.github.com/repos/octo-org/codexhub',
       'https://api.github.com/repos/octo-org/codexhub/branches/main',
@@ -6096,9 +6096,9 @@ describe('supervisor GitHub PR lifecycle control plane', () => {
     expect(completed.responseBodyHashCount).toBe(5);
     expect(completed.checkRunCount).toBe(2);
     expect(completed.statusContextCount).toBe(1);
-    expect(approvalsResponse.json().records.some((record: { status: string }) => record.status === 'used')).toBe(
-      true,
-    );
+    expect(
+      approvalsResponse.json().records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
     expect(runsResponse.json().count).toBe(2);
     expect(requestedUrls).toEqual([
       'https://api.github.com/repos/octo-org/codexhub',
@@ -6706,6 +6706,289 @@ describe('supervisor deployment and secrets governance control planes', () => {
     expect(completedResponse.body).not.toContain('apiVersion');
     expect(completedResponse.body).not.toContain('kind: Secret');
     expect(rawBodyResponse.statusCode).toBe(400);
+  });
+
+  it('keeps deployment operation approvals unused before boundary and consumes once on failed boundary attempts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-deployment-boundary-failure-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      deploymentOperatorEnabled: true,
+      deploymentKubernetesWriteEnabled: true,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        provider: 'kubernetes',
+        action: 'apply',
+        environment: 'staging',
+        targetHash: 'sha256:deployment-target',
+        artifactHash: 'sha256:manifest-artifact',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, approvalSlot: 'primary' },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        approvalSlot: 'primary',
+        decidedBy: 'operator-a',
+      },
+    });
+    const preBoundaryBlockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/runs',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId },
+    });
+    const approvalsAfterPreBoundaryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/deployments/operations/approvals',
+    });
+    const boundaryFailedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        outcome: 'failed',
+      },
+    });
+    const reusedApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+      },
+    });
+    const approvalsAfterFailureResponse = await server.inject({
+      method: 'GET',
+      url: '/api/deployments/operations/approvals',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(preBoundaryBlockedResponse.statusCode).toBe(200);
+    expect(preBoundaryBlockedResponse.json()).toMatchObject({
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(
+      approvalsAfterPreBoundaryResponse
+        .json()
+        .records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(0);
+    expect(boundaryFailedResponse.statusCode).toBe(200);
+    expect(boundaryFailedResponse.json()).toMatchObject({
+      status: 'failed',
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+    });
+    expect(reusedApprovalResponse.statusCode).toBe(200);
+    expect(reusedApprovalResponse.json()).toMatchObject({
+      status: 'blocked',
+      processBoundaryInvoked: false,
+    });
+    expect(
+      approvalsAfterFailureResponse
+        .json()
+        .records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
+  });
+
+  it('keeps M44 and M45 approvals unused before boundary and consumes once after governed execution starts', async () => {
+    const originalEnv = {
+      CODEXHUB_POLICY_BACKEND_REAL_ENABLED: process.env.CODEXHUB_POLICY_BACKEND_REAL_ENABLED,
+      CODEXHUB_POLICY_BACKEND_OPA_ENABLED: process.env.CODEXHUB_POLICY_BACKEND_OPA_ENABLED,
+      CODEXHUB_OTEL_REAL_ENABLED: process.env.CODEXHUB_OTEL_REAL_ENABLED,
+      CODEXHUB_BROWSER_ACT_ENABLED: process.env.CODEXHUB_BROWSER_ACT_ENABLED,
+      CODEXHUB_ELECTRON_MAIN_INSPECTOR_ENABLED:
+        process.env.CODEXHUB_ELECTRON_MAIN_INSPECTOR_ENABLED,
+      CODEXHUB_MCP_WRITE_TOOLS_ENABLED: process.env.CODEXHUB_MCP_WRITE_TOOLS_ENABLED,
+      CODEXHUB_MCP_WORKSPACE_MUTATION_ENABLED:
+        process.env.CODEXHUB_MCP_WORKSPACE_MUTATION_ENABLED,
+    };
+    const cases = [
+      {
+        family: 'real policy backend',
+        prefix: '/api/policy-backends/evaluations',
+        dryRunPayload: { backendKind: 'opa', runtimeMode: 'local-cli' },
+        enabledEnv: {
+          CODEXHUB_POLICY_BACKEND_REAL_ENABLED: 'true',
+          CODEXHUB_POLICY_BACKEND_OPA_ENABLED: 'true',
+        },
+        completedBoundary: { processBoundaryInvoked: true, networkBoundaryInvoked: false },
+      },
+      {
+        family: 'real telemetry export',
+        prefix: '/api/telemetry/exports',
+        dryRunPayload: { exporterKind: 'in-memory', spanCount: 1 },
+        enabledEnv: { CODEXHUB_OTEL_REAL_ENABLED: 'true' },
+        completedBoundary: { processBoundaryInvoked: false, networkBoundaryInvoked: false },
+      },
+      {
+        family: 'browser action',
+        prefix: '/api/browser/actions',
+        dryRunPayload: { actionKind: 'click' },
+        enabledEnv: { CODEXHUB_BROWSER_ACT_ENABLED: 'true' },
+        completedBoundary: { processBoundaryInvoked: true },
+      },
+      {
+        family: 'electron main inspector',
+        prefix: '/api/electron-cdp/main-inspector',
+        dryRunPayload: { snippetId: 'codexhub.allowed.inspect' },
+        enabledEnv: { CODEXHUB_ELECTRON_MAIN_INSPECTOR_ENABLED: 'true' },
+        completedBoundary: { cdpHttpBoundaryInvoked: true, cdpWebSocketBoundaryInvoked: true },
+      },
+      {
+        family: 'mcp write tool',
+        prefix: '/api/mcp/write-tools',
+        dryRunPayload: { changedFileCount: 1 },
+        enabledEnv: {
+          CODEXHUB_MCP_WRITE_TOOLS_ENABLED: 'true',
+          CODEXHUB_MCP_WORKSPACE_MUTATION_ENABLED: 'true',
+        },
+        completedBoundary: { directExecutionInvoked: true },
+      },
+    ];
+
+    try {
+      for (const testCase of cases) {
+        for (const envName of Object.keys(originalEnv)) {
+          delete process.env[envName];
+        }
+
+        const dir = mkdtempSync(join(tmpdir(), `codexhub-${testCase.family.replaceAll(' ', '-')}-`));
+        const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+        const server = buildSupervisorServer({ store, localControlKey: localControlToken });
+
+        const dryRunResponse = await server.inject({
+          method: 'POST',
+          url: `${testCase.prefix}/dry-runs`,
+          headers: localControlHeaders,
+          payload: testCase.dryRunPayload,
+        });
+        const dryRun = dryRunResponse.json();
+        const approvalRequestResponse = await server.inject({
+          method: 'POST',
+          url: `${testCase.prefix}/approval-requests`,
+          headers: localControlHeaders,
+          payload: { dryRunId: dryRun.dryRunId, reason: `${testCase.family} approval` },
+        });
+        const manualApprovalResponse = await server.inject({
+          method: 'POST',
+          url: `${testCase.prefix}/manual-approvals`,
+          headers: localControlHeaders,
+          payload: {
+            dryRunId: dryRun.dryRunId,
+            approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+            outcome: 'approved',
+            reason: `${testCase.family} approved`,
+          },
+        });
+        const preBoundaryBlockedResponse = await server.inject({
+          method: 'POST',
+          url: `${testCase.prefix}/runs`,
+          headers: localControlHeaders,
+          payload: {
+            dryRunId: dryRun.dryRunId,
+            approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+          },
+        });
+        const approvalsAfterPreBoundaryResponse = await server.inject({
+          method: 'GET',
+          url: `${testCase.prefix}/approvals`,
+        });
+
+        Object.assign(process.env, testCase.enabledEnv);
+
+        const completedResponse = await server.inject({
+          method: 'POST',
+          url: `${testCase.prefix}/runs`,
+          headers: localControlHeaders,
+          payload: {
+            dryRunId: dryRun.dryRunId,
+            approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+          },
+        });
+        const reusedApprovalResponse = await server.inject({
+          method: 'POST',
+          url: `${testCase.prefix}/runs`,
+          headers: localControlHeaders,
+          payload: {
+            dryRunId: dryRun.dryRunId,
+            approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+          },
+        });
+        const approvalsAfterCompletedResponse = await server.inject({
+          method: 'GET',
+          url: `${testCase.prefix}/approvals`,
+        });
+
+        await server.close();
+        await store.close();
+        rmSync(dir, { recursive: true, force: true });
+
+        expect(dryRunResponse.statusCode).toBe(200);
+        expect(approvalRequestResponse.statusCode).toBe(200);
+        expect(manualApprovalResponse.statusCode).toBe(200);
+        expect(preBoundaryBlockedResponse.statusCode).toBe(200);
+        expect(preBoundaryBlockedResponse.json()).toMatchObject({ status: 'blocked' });
+        expect(
+          approvalsAfterPreBoundaryResponse
+            .json()
+            .records.filter((record: { status: string }) => record.status === 'used'),
+        ).toHaveLength(0);
+        expect(completedResponse.statusCode).toBe(200);
+        expect(completedResponse.json()).toMatchObject({
+          status: 'completed',
+          ...testCase.completedBoundary,
+        });
+        expect(reusedApprovalResponse.statusCode).toBe(200);
+        expect(reusedApprovalResponse.json()).toMatchObject({ status: 'blocked' });
+        expect(
+          approvalsAfterCompletedResponse
+            .json()
+            .records.filter((record: { status: string }) => record.status === 'used'),
+        ).toHaveLength(1);
+        for (const responseBody of [
+          preBoundaryBlockedResponse.body,
+          completedResponse.body,
+          reusedApprovalResponse.body,
+        ]) {
+          expect(responseBody).not.toContain(localControlToken);
+          expect(responseBody).not.toContain(`${testCase.family} approved`);
+        }
+      }
+    } finally {
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
   });
 
   it('keeps secrets readiness hash-only and rejects secret values', async () => {
