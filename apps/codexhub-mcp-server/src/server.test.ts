@@ -283,6 +283,71 @@ describe('codexhub MCP server', () => {
       expect(source).not.toContain(`require("${childProcessModule}")`);
     }
   });
+
+  it('keeps MCP bootstrap and HTTP security env access narrow and non-authoritative', () => {
+    const mainSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const securitySource = readFileSync(new URL('./security.ts', import.meta.url), 'utf8');
+    const combinedSource = `${mainSource}\n${securitySource}`;
+    const allowedMainEnvReads = [
+      'process.env.CODEXHUB_MCP_TRANSPORT',
+      'process.env.CODEXHUB_MCP_HOST',
+      'process.env.CODEXHUB_MCP_PORT',
+    ];
+
+    for (const envRead of allowedMainEnvReads) {
+      expect(mainSource).toContain(envRead);
+    }
+
+    expect(securitySource).toContain('process.env[MCP_LOCAL_ENV_VAR]');
+    expect(combinedSource).not.toContain('CODEXHUB_GITHUB_TOKEN');
+    expect(combinedSource).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(combinedSource).not.toContain('CODEXHUB_RUNTIME_SCHEDULER_ENABLED');
+    expect(combinedSource).not.toContain('CODEXHUB_EXTERNAL_AGENTS_ENABLED');
+    expect(combinedSource).not.toContain('CODEXHUB_PLATFORM_OPERATIONS_ENABLED');
+    expect(combinedSource).not.toContain('process.env["');
+    expect(combinedSource).not.toContain("process.env['");
+    expect(combinedSource).not.toContain('process["env"]');
+    expect(combinedSource).not.toContain("process['env']");
+    expect(combinedSource).not.toContain('fetch(');
+    expect(combinedSource).not.toContain('globalThis.fetch');
+    expect(combinedSource).not.toContain('child_process');
+    expect(combinedSource).not.toContain('node:child_process');
+    expect(combinedSource).not.toContain('spawn(');
+    expect(combinedSource).not.toContain('execFile(');
+  });
+
+  it('keeps MCP production tools away from runtime, agent, and platform mutation routes', () => {
+    const mcpProductionSources = ['server.ts', 'security.ts', 'tool-outputs.ts', 'tools.ts'].map(
+      (fileName) => ({
+        fileName,
+        source: readFileSync(new URL(`./${fileName}`, import.meta.url), 'utf8'),
+      }),
+    );
+    const forbiddenMutationTerms = [
+      '/api/runtime/',
+      '/api/agents/',
+      '/api/platform/',
+      '/api/browser/actions/',
+      '/api/electron-cdp/main-inspector/',
+      '/api/mcp/write-tools/',
+      'RuntimeJobPlan',
+      'ExternalAgentPatchPlan',
+      'PlatformBackupPlan',
+      'PlatformRestorePlan',
+      'RuntimeQueueEntry',
+      'workspace.applyPatchToControlledWorktree',
+      'postControlledWriteCliMutation',
+      'startRuntimeJob',
+      'startExternalAgent',
+      'startPlatformOperation',
+    ];
+
+    for (const { source } of mcpProductionSources) {
+      for (const term of forbiddenMutationTerms) {
+        expect(source).not.toContain(term);
+      }
+    }
+  });
 });
 
 function requestJson(

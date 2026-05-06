@@ -5788,3 +5788,33 @@ workflows:
       cliReadOnlyLocalControlReadAllowed: false
       cliDirectAdapterExecuteAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d16.mcp-boundary-surface-debug:
+    risk: critical
+    trigger:
+      type: mcp-boundary-surface-debug
+      entrypoint: codexhub-mcp-server docs tools
+      localControlRequired: false
+    scope:
+      - mcp-production-source-no-adapter-execute
+      - mcp-bootstrap-env-access-narrow
+      - mcp-no-github-or-supervisor-token-env-read
+      - mcp-no-runtime-agent-platform-mutation-routes
+      - mcp-read-only-tools-remain-evidence-audit-metadata-only
+    docs:
+      - docs/releases/m47-d16-mcp-boundary-surface-debug.md
+      - docs/reviews/m47-d16-mcp-boundary-surface-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      mcpRuntimeMutationAllowed: false
+      mcpExternalAgentMutationAllowed: false
+      mcpPlatformOperationMutationAllowed: false
+      mcpDirectAdapterExecuteAllowed: false
+      mcpGithubTokenReadAllowed: false
+      mcpSupervisorLocalTokenReadAllowed: false
+      metadataOnlyPublicOutput: true
