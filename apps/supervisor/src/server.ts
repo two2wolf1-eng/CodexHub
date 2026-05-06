@@ -350,6 +350,24 @@ import type {
   ExternalAgentPatchPlan,
   ExternalAgentProvider,
   ExternalAgentRun,
+  AuditExportPlan,
+  AuditExportRun,
+  OperatorRoleAssignmentPlan,
+  OperatorRoleAssignmentRun,
+  PlatformBackupPlan,
+  PlatformBackupRun,
+  PlatformBackupScope,
+  PlatformOperationApprovalArtifact,
+  PlatformOperationKind,
+  PlatformOperatorRole,
+  PlatformRestoreMode,
+  PlatformRestorePlan,
+  PlatformRestoreRun,
+  PlatformRetentionTarget,
+  RetentionPolicyPlan,
+  RetentionPolicyRun,
+  StoreMigrationPlan,
+  StoreMigrationRun,
   McpWriteToolApprovalArtifact,
   McpWriteToolPlan,
   McpWriteToolRun,
@@ -550,6 +568,21 @@ import {
   createRuntimeJobRun,
   enqueueRuntimeJob,
 } from '@codexhub/runtime-operations-kernel';
+import {
+  createAuditExportPlan,
+  createAuditExportRun,
+  createOperatorRoleAssignmentPlan,
+  createOperatorRoleAssignmentRun,
+  createPlatformBackupPlan,
+  createPlatformBackupRun,
+  createPlatformOperationApprovalArtifact,
+  createPlatformRestorePlan,
+  createPlatformRestoreRun,
+  createRetentionPolicyPlan,
+  createRetentionPolicyRun,
+  createStoreMigrationPlan,
+  createStoreMigrationRun,
+} from '@codexhub/platform-operations-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -4065,6 +4098,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerRuntimeQueueRoutes('/api/runtime/queue');
   registerRuntimeLockRoutes('/api/runtime/locks');
   registerExternalAgentRoutes('/api/agents/external');
+  registerPlatformOperationRoutes('backups', '/api/platform/backups');
+  registerPlatformOperationRoutes('restores', '/api/platform/restores');
+  registerPlatformOperationRoutes('migrations', '/api/platform/migrations');
+  registerPlatformOperationRoutes('retention', '/api/platform/retention');
+  registerPlatformOperationRoutes('audit-exports', '/api/platform/audit-exports');
+  registerPlatformOperationRoutes('operator-roles', '/api/platform/operator-roles');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
   registerGithubPrManagementRoutes('assignees', '/api/github/pr-assignees');
@@ -20227,6 +20266,73 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     reason?: string;
   };
 
+  type PlatformOperationRequestBody = {
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalArtifactIds?: string[];
+    outcome?: GithubProviderApprovalStatus;
+    scope?: PlatformBackupScope;
+    mode?: PlatformRestoreMode;
+    builtInMigrationId?: string;
+    target?: PlatformRetentionTarget;
+    role?: PlatformOperatorRole;
+    storeSnapshotId?: string;
+    backupRootId?: string;
+    sourceBackupManifestId?: string;
+    targetStoreId?: string;
+    currentSchemaId?: string;
+    targetSchemaId?: string;
+    policyId?: string;
+    backupManifestId?: string;
+    destinationId?: string;
+    operatorId?: string;
+    scopeIds?: string[];
+    fileCount?: number;
+    estimatedByteCount?: number;
+    recordCount?: number;
+    previewRecordCount?: number;
+    deletionPlanned?: boolean;
+    approvalRequestId?: string;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+    approvalArtifact?: unknown;
+    authority?: unknown;
+    executionAuthority?: unknown;
+    childArtifacts?: unknown;
+    sql?: unknown;
+    rawSql?: unknown;
+    dbRows?: unknown;
+    backupBody?: unknown;
+    auditBody?: unknown;
+    path?: unknown;
+    rawPath?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
+  type PlatformOperationFamily =
+    | 'backups'
+    | 'restores'
+    | 'migrations'
+    | 'retention'
+    | 'audit-exports'
+    | 'operator-roles';
+  type PlatformPlan =
+    | PlatformBackupPlan
+    | PlatformRestorePlan
+    | StoreMigrationPlan
+    | RetentionPolicyPlan
+    | AuditExportPlan
+    | OperatorRoleAssignmentPlan;
+  type PlatformRun =
+    | PlatformBackupRun
+    | PlatformRestoreRun
+    | StoreMigrationRun
+    | RetentionPolicyRun
+    | AuditExportRun
+    | OperatorRoleAssignmentRun;
+
   function normalizeRuntimeJobKind(value: RuntimeJobKind | undefined): RuntimeJobKind {
     return value === 'external-agent' || value === 'platform-operation' || value === 'workflow'
       ? value
@@ -20432,6 +20538,345 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         },
       },
     });
+  }
+
+  function hasForbiddenPlatformOperationBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'sql',
+      'rawSql',
+      'dbRow',
+      'dbRows',
+      'databaseRow',
+      'databaseRows',
+      'backupBody',
+      'rawBackupBody',
+      'auditBody',
+      'rawAuditBody',
+      'path',
+      'rawPath',
+      'requestBody',
+      'responseBody',
+      'approvalArtifact',
+      'executionAuthority',
+      'authority',
+      'childArtifacts',
+    ]);
+
+    if (value === null || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenPlatformOperationBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        forbiddenKeys.has(key) || hasForbiddenPlatformOperationBody(nestedValue),
+    );
+  }
+
+  function createPlatformPlanRecord(
+    family: PlatformOperationFamily,
+    body: PlatformOperationRequestBody | undefined,
+  ): PlatformPlan {
+    switch (family) {
+      case 'backups':
+        return createPlatformBackupPlan({
+          scope: body?.scope ?? 'store-sqlite',
+          storeSnapshotSeed: body?.storeSnapshotId ?? 'store-snapshot',
+          backupRootSeed: body?.backupRootId ?? 'backup-root',
+          backupDirConfigured: process.env.CODEXHUB_BACKUP_DIR !== undefined,
+          fileCount: body?.fileCount,
+          estimatedByteCount: body?.estimatedByteCount,
+          blockReasons: process.env.CODEXHUB_PLATFORM_BACKUP_ENABLED === 'true'
+            ? []
+            : ['platform_backup_disabled'],
+        });
+      case 'restores':
+        return createPlatformRestorePlan({
+          mode: body?.mode ?? 'isolated-rehearsal',
+          sourceBackupManifest: body?.sourceBackupManifestId ?? 'backup-manifest',
+          targetStoreSeed: body?.targetStoreId ?? 'target-store',
+          replaceActiveStoreEnabled: process.env.CODEXHUB_STORE_RESTORE_REPLACE_ENABLED === 'true',
+          blockReasons: process.env.CODEXHUB_PLATFORM_RESTORE_ENABLED === 'true'
+            ? []
+            : ['platform_restore_disabled'],
+        });
+      case 'migrations':
+        return createStoreMigrationPlan({
+          builtInMigrationId: body?.builtInMigrationId ?? 'foundation_0001',
+          currentSchemaSeed: body?.currentSchemaId ?? 'current-schema',
+          targetSchemaSeed: body?.targetSchemaId ?? 'target-schema',
+          migrationEnabled: process.env.CODEXHUB_STORE_MIGRATION_ENABLED === 'true',
+        });
+      case 'retention':
+        return createRetentionPolicyPlan({
+          target: body?.target ?? 'audit',
+          policySeed: body?.policyId ?? 'retention-policy',
+          previewRecordCount: body?.previewRecordCount,
+          deletionPlanned: body?.deletionPlanned ?? false,
+          backupManifest: body?.backupManifestId,
+          retentionEnabled: process.env.CODEXHUB_RETENTION_POLICY_ENABLED === 'true',
+        });
+      case 'audit-exports':
+        return createAuditExportPlan({
+          destinationSeed: body?.destinationId ?? 'audit-export-destination',
+          recordCount: body?.recordCount,
+          auditExportEnabled: process.env.CODEXHUB_AUDIT_EXPORT_ENABLED === 'true',
+        });
+      case 'operator-roles':
+        return createOperatorRoleAssignmentPlan({
+          operatorIdentity: body?.operatorId ?? 'operator',
+          role: body?.role ?? 'viewer',
+          scopes: body?.scopeIds ?? [],
+          roleEnforcementEnabled: process.env.CODEXHUB_OPERATOR_ROLES_ENABLED === 'true',
+        });
+    }
+  }
+
+  function platformOperationKindForFamily(family: PlatformOperationFamily): PlatformOperationKind {
+    switch (family) {
+      case 'backups':
+        return 'backup';
+      case 'restores':
+        return 'restore';
+      case 'migrations':
+        return 'migration';
+      case 'retention':
+        return 'retention';
+      case 'audit-exports':
+        return 'audit-export';
+      case 'operator-roles':
+        return 'operator-role';
+    }
+  }
+
+  async function savePlatformPlanRecord(
+    store: CodexHubStore,
+    family: PlatformOperationFamily,
+    record: PlatformPlan,
+  ): Promise<void> {
+    switch (family) {
+      case 'backups':
+        await store.platformBackupPlans.saveBackupPlan(record as PlatformBackupPlan);
+        return;
+      case 'restores':
+        await store.platformRestorePlans.saveRestorePlan(record as PlatformRestorePlan);
+        return;
+      case 'migrations':
+        await store.storeMigrationPlans.saveMigrationPlan(record as StoreMigrationPlan);
+        return;
+      case 'retention':
+        await store.retentionPolicyPlans.saveRetentionPlan(record as RetentionPolicyPlan);
+        return;
+      case 'audit-exports':
+        await store.auditExportPlans.saveAuditExportPlan(record as AuditExportPlan);
+        return;
+      case 'operator-roles':
+        await store.operatorRoleAssignmentPlans.saveRoleAssignmentPlan(
+          record as OperatorRoleAssignmentPlan,
+        );
+    }
+  }
+
+  async function listPlatformPlanRecords(
+    store: CodexHubStore,
+    family: PlatformOperationFamily,
+    query: ReturnType<typeof parseReviewPackageQuery>,
+  ): Promise<PlatformPlan[]> {
+    switch (family) {
+      case 'backups':
+        return store.platformBackupPlans.listBackupPlans(query);
+      case 'restores':
+        return store.platformRestorePlans.listRestorePlans(query);
+      case 'migrations':
+        return store.storeMigrationPlans.listMigrationPlans(query);
+      case 'retention':
+        return store.retentionPolicyPlans.listRetentionPlans(query);
+      case 'audit-exports':
+        return store.auditExportPlans.listAuditExportPlans(query);
+      case 'operator-roles':
+        return store.operatorRoleAssignmentPlans.listRoleAssignmentPlans(query);
+    }
+  }
+
+  async function resolvePlatformPlanRecord(
+    store: CodexHubStore,
+    family: PlatformOperationFamily,
+    id: string,
+  ): Promise<PlatformPlan | undefined> {
+    const directRecord = await (async () => {
+      switch (family) {
+        case 'backups':
+          return store.platformBackupPlans.getBackupPlan(id);
+        case 'restores':
+          return store.platformRestorePlans.getRestorePlan(id);
+        case 'migrations':
+          return store.storeMigrationPlans.getMigrationPlan(id);
+        case 'retention':
+          return store.retentionPolicyPlans.getRetentionPlan(id);
+        case 'audit-exports':
+          return store.auditExportPlans.getAuditExportPlan(id);
+        case 'operator-roles':
+          return store.operatorRoleAssignmentPlans.getRoleAssignmentPlan(id);
+      }
+    })();
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await listPlatformPlanRecords(store, family, { dryRunId: id, limit: 1 }))[0];
+  }
+
+  function createPlatformApprovalRecord(
+    family: PlatformOperationFamily,
+    plan: PlatformPlan,
+    body: PlatformOperationRequestBody | undefined,
+    status: GithubProviderApprovalStatus,
+    baseRecord?: PlatformOperationApprovalArtifact,
+  ): PlatformOperationApprovalArtifact {
+    return createPlatformOperationApprovalArtifact({
+      operationKind: platformOperationKindForFamily(family),
+      dryRunRecordId: plan.id,
+      dryRunId: plan.dryRunId,
+      expectedPlanHash: baseRecord?.expectedPlanHash ?? hashLocalMetadata(plan),
+      status,
+      approver: body?.decidedBy ?? body?.requestedBy,
+      reason: body?.reason,
+    });
+  }
+
+  function createPlatformRunRecord(
+    family: PlatformOperationFamily,
+    plan: PlatformPlan,
+    approval: PlatformOperationApprovalArtifact | undefined,
+    body: PlatformOperationRequestBody | undefined,
+  ): PlatformRun {
+    const approvalIds = [
+      ...(body?.approvalArtifactIds ?? []),
+      ...(body?.approvalArtifactId ? [body.approvalArtifactId] : []),
+    ];
+    const expectedPlanHash = hashLocalMetadata(plan);
+    const approvalUsable =
+      approval?.status === 'approved' &&
+      approval.operationKind === platformOperationKindForFamily(family) &&
+      approval.dryRunId === plan.dryRunId &&
+      approval.expectedPlanHash === expectedPlanHash;
+    const blocked = plan.status === 'blocked' || !approvalUsable;
+
+    switch (family) {
+      case 'backups':
+        return createPlatformBackupRun({
+          plan: plan as PlatformBackupPlan,
+          approvalArtifactIds: approvalIds,
+          status: blocked ? 'blocked' : 'completed',
+          boundaryReached: false,
+        });
+      case 'restores':
+        return createPlatformRestoreRun({
+          plan: plan as PlatformRestorePlan,
+          approvalArtifactIds: approvalIds,
+          status: blocked ? 'blocked' : 'completed',
+          boundaryReached: false,
+        });
+      case 'migrations':
+        return createStoreMigrationRun({
+          plan: plan as StoreMigrationPlan,
+          approvalArtifactIds: approvalIds,
+          status: blocked ? 'blocked' : 'completed',
+          boundaryReached: false,
+        });
+      case 'retention':
+        return createRetentionPolicyRun({
+          plan: plan as RetentionPolicyPlan,
+          approvalArtifactIds: approvalIds,
+          status: blocked ? 'blocked' : 'completed',
+          boundaryReached: false,
+        });
+      case 'audit-exports':
+        return createAuditExportRun({
+          plan: plan as AuditExportPlan,
+          approvalArtifactIds: approvalIds,
+          status: blocked ? 'blocked' : 'completed',
+          boundaryReached: false,
+        });
+      case 'operator-roles':
+        return createOperatorRoleAssignmentRun({
+          plan: plan as OperatorRoleAssignmentPlan,
+          approvalArtifactIds: approvalIds,
+          status: blocked ? 'blocked' : 'completed',
+          boundaryReached: false,
+        });
+    }
+  }
+
+  async function savePlatformRunRecord(
+    store: CodexHubStore,
+    family: PlatformOperationFamily,
+    record: PlatformRun,
+  ): Promise<void> {
+    switch (family) {
+      case 'backups':
+        await store.platformBackupRuns.saveRun(record as PlatformBackupRun);
+        return;
+      case 'restores':
+        await store.platformRestoreRuns.saveRun(record as PlatformRestoreRun);
+        return;
+      case 'migrations':
+        await store.storeMigrationRuns.saveRun(record as StoreMigrationRun);
+        return;
+      case 'retention':
+        await store.retentionPolicyRuns.saveRun(record as RetentionPolicyRun);
+        return;
+      case 'audit-exports':
+        await store.auditExportRuns.saveRun(record as AuditExportRun);
+        return;
+      case 'operator-roles':
+        await store.operatorRoleAssignmentRuns.saveRun(record as OperatorRoleAssignmentRun);
+    }
+  }
+
+  async function listPlatformRunRecords(
+    store: CodexHubStore,
+    family: PlatformOperationFamily,
+    query: ReturnType<typeof parseReviewPackageQuery>,
+  ): Promise<PlatformRun[]> {
+    switch (family) {
+      case 'backups':
+        return store.platformBackupRuns.listRuns(query);
+      case 'restores':
+        return store.platformRestoreRuns.listRuns(query);
+      case 'migrations':
+        return store.storeMigrationRuns.listRuns(query);
+      case 'retention':
+        return store.retentionPolicyRuns.listRuns(query);
+      case 'audit-exports':
+        return store.auditExportRuns.listRuns(query);
+      case 'operator-roles':
+        return store.operatorRoleAssignmentRuns.listRuns(query);
+    }
+  }
+
+  async function getPlatformRunRecord(
+    store: CodexHubStore,
+    family: PlatformOperationFamily,
+    id: string,
+  ): Promise<PlatformRun | undefined> {
+    switch (family) {
+      case 'backups':
+        return store.platformBackupRuns.getRun(id);
+      case 'restores':
+        return store.platformRestoreRuns.getRun(id);
+      case 'migrations':
+        return store.storeMigrationRuns.getRun(id);
+      case 'retention':
+        return store.retentionPolicyRuns.getRun(id);
+      case 'audit-exports':
+        return store.auditExportRuns.getRun(id);
+      case 'operator-roles':
+        return store.operatorRoleAssignmentRuns.getRun(id);
+    }
   }
 
   function registerRuntimeJobRoutes(prefix: string): void {
@@ -20683,6 +21128,140 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const params = request.params as { id?: string };
       const record = params.id && store ? await store.externalAgentRuns.getRun(params.id) : undefined;
       return record ?? reply.code(404).send({ error: 'external agent run was not found' });
+    });
+  }
+
+  function registerPlatformOperationRoutes(
+    family: PlatformOperationFamily,
+    prefix: string,
+  ): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(`platform-${family}`));
+      }
+      const body = request.body as PlatformOperationRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenPlatformOperationBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const record = createPlatformPlanRecord(family, body);
+      await savePlatformPlanRecord(store, family, record);
+      return record;
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await listPlatformPlanRecords(store, family, query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(`platform-${family}`));
+      }
+      const body = request.body as PlatformOperationRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenPlatformOperationBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const plan = body?.dryRunId
+        ? await resolvePlatformPlanRecord(store, family, body.dryRunId)
+        : undefined;
+      if (!plan) {
+        return reply.code(404).send({ error: `platform ${family} dry-run was not found` });
+      }
+      const approval = createPlatformApprovalRecord(family, plan, body, 'requested');
+      await store.platformOperationApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(`platform-${family}`));
+      }
+      const body = request.body as PlatformOperationRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenPlatformOperationBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const plan = body?.dryRunId
+        ? await resolvePlatformPlanRecord(store, family, body.dryRunId)
+        : undefined;
+      if (!plan) {
+        return reply.code(404).send({ error: `platform ${family} dry-run was not found` });
+      }
+      const approval = createPlatformApprovalRecord(
+        family,
+        plan,
+        body,
+        body?.outcome ?? 'approved',
+      );
+      await store.platformOperationApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.platformOperationApprovals.listApprovals(query) : [];
+      const kind = platformOperationKindForFamily(family);
+      const filteredRecords = records.filter((record) => record.operationKind === kind);
+      return createControlPlaneListResponse(filteredRecords, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(`platform-${family}`));
+      }
+      const body = request.body as PlatformOperationRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenPlatformOperationBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const plan = body?.dryRunId
+        ? await resolvePlatformPlanRecord(store, family, body.dryRunId)
+        : undefined;
+      if (!plan) {
+        return reply.code(404).send({ error: `platform ${family} dry-run was not found` });
+      }
+      const approval = body?.approvalArtifactId
+        ? await store.platformOperationApprovals.getApprovalByArtifactId(body.approvalArtifactId)
+        : undefined;
+      const run = createPlatformRunRecord(family, plan, approval, body);
+      await savePlatformRunRecord(store, family, run);
+      return run;
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await listPlatformRunRecords(store, family, query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record =
+        params.id && store ? await getPlatformRunRecord(store, family, params.id) : undefined;
+      return record ?? reply.code(404).send({ error: `platform ${family} run was not found` });
     });
   }
 

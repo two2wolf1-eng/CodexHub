@@ -203,6 +203,32 @@ const lateStageSupervisorControlPlaneMatrix = [
     prefix: '/api/agents/external',
     approvalManagedExternally: false,
   },
+  { family: 'platform-backups', prefix: '/api/platform/backups', approvalManagedExternally: false },
+  {
+    family: 'platform-restores',
+    prefix: '/api/platform/restores',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'platform-migrations',
+    prefix: '/api/platform/migrations',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'platform-retention',
+    prefix: '/api/platform/retention',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'platform-audit-exports',
+    prefix: '/api/platform/audit-exports',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'platform-operator-roles',
+    prefix: '/api/platform/operator-roles',
+    approvalManagedExternally: false,
+  },
 ] as const;
 function getLateStageMutatingRoutes(
   entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
@@ -239,6 +265,7 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/mcp/write-tools',
   '/api/runtime/',
   '/api/agents/',
+  '/api/platform/',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -602,6 +629,17 @@ describe('supervisor mock development API', () => {
             `${prefix}/runs`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerPlatformOperationRoutes\('[^']+', '([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -726,6 +764,135 @@ describe('supervisor mock development API', () => {
     expect(response.body).not.toContain('diff --git raw patch');
     expect(response.body).not.toContain('codex exec arbitrary command');
     expect(response.body).not.toContain('C:/Users/Thomas/CodexHub');
+  });
+
+  it('governs platform operation dry-runs, approvals, runs, and raw payload rejection', async () => {
+    const originalEnv = {
+      CODEXHUB_PLATFORM_BACKUP_ENABLED: process.env.CODEXHUB_PLATFORM_BACKUP_ENABLED,
+      CODEXHUB_BACKUP_DIR: process.env.CODEXHUB_BACKUP_DIR,
+    };
+    process.env.CODEXHUB_PLATFORM_BACKUP_ENABLED = 'true';
+    process.env.CODEXHUB_BACKUP_DIR = 'hash-bound-backup-root';
+
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-platform-operation-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/platform/backups/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        scope: 'store-sqlite',
+        storeSnapshotId: 'store-snapshot-fixture',
+        backupRootId: 'backup-root-fixture',
+        fileCount: 2,
+        estimatedByteCount: 256,
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const forgedApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/platform/backups/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifact: { status: 'approved', expectedPlanHash: 'caller-supplied' },
+      },
+    });
+    const rawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/platform/backups/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sql: 'SELECT * FROM audit_events',
+        backupBody: 'raw backup body must not be accepted',
+        path: 'C:/Users/Thomas/CodexHub/codexhub.sqlite',
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/platform/backups/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        requestedBy: 'operator-a',
+        reason: 'private platform approval reason',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/platform/backups/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        decidedBy: 'operator-a',
+        reason: 'private platform approval reason',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/platform/backups/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+      },
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/platform/backups/runs',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    if (originalEnv.CODEXHUB_PLATFORM_BACKUP_ENABLED === undefined) {
+      delete process.env.CODEXHUB_PLATFORM_BACKUP_ENABLED;
+    } else {
+      process.env.CODEXHUB_PLATFORM_BACKUP_ENABLED = originalEnv.CODEXHUB_PLATFORM_BACKUP_ENABLED;
+    }
+    if (originalEnv.CODEXHUB_BACKUP_DIR === undefined) {
+      delete process.env.CODEXHUB_BACKUP_DIR;
+    } else {
+      process.env.CODEXHUB_BACKUP_DIR = originalEnv.CODEXHUB_BACKUP_DIR;
+    }
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun).toMatchObject({
+      status: 'planned',
+      localFilesystemOnly: true,
+      networkExportAllowed: false,
+      arbitraryBackupTargetAllowed: false,
+      rawPathStored: false,
+      rawBackupBodyStored: false,
+    });
+    expect(forgedApprovalRequestResponse.statusCode).toBe(400);
+    expect(rawBodyResponse.statusCode).toBe(400);
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(approvalResponse.json()).toMatchObject({ status: 'approved', approved: true });
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'completed',
+      boundaryReached: false,
+      localFilesystemBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(listResponse.json().records).toHaveLength(1);
+    const serialized = JSON.stringify({
+      dryRun: dryRunResponse.json(),
+      approval: approvalResponse.json(),
+      run: runResponse.json(),
+    });
+    expect(serialized).not.toContain('store-snapshot-fixture');
+    expect(serialized).not.toContain('backup-root-fixture');
+    expect(serialized).not.toContain('private platform approval reason');
+    expect(rawBodyResponse.body).not.toContain('SELECT * FROM audit_events');
+    expect(rawBodyResponse.body).not.toContain('raw backup body');
+    expect(rawBodyResponse.body).not.toContain('CodexHub/codexhub.sqlite');
   });
 
   it('governs browser observation dry-run, persisted approval, and injected execution', async () => {
