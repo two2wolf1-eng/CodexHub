@@ -153,6 +153,8 @@ import type {
   DeploymentAcceptanceScenario,
   DeploymentOperationAcceptanceScenario,
   DeploymentProvider,
+  ExternalAgentProvider,
+  ExternalAgentRehearsalScenario,
   GithubActionsAcceptanceScenario,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
@@ -167,6 +169,7 @@ import type {
   ReleaseLifecycleAcceptanceScenario,
   RemoteSupersedeAcceptanceScenario,
   ReworkLoopAcceptanceScenario,
+  RuntimeSchedulerRehearsalScenario,
   SecretGovernanceAcceptanceScenario,
   SecretProvider,
   ApprovalDecisionHistoryProjection,
@@ -191,6 +194,8 @@ import {
   runDeploymentAcceptanceRehearsal,
   runDeploymentOperationAcceptanceRehearsal,
 } from '@codexhub/deployment-provider-adapter';
+import { rehearseExternalAgent } from '@codexhub/external-agent-adapter';
+import { rehearseRuntimeScheduler } from '@codexhub/runtime-operations-kernel';
 import { runSecretGovernanceAcceptanceRehearsal } from '@codexhub/secret-governance-kernel';
 import {
   runGithubBranchPublishAcceptanceRehearsal,
@@ -1231,6 +1236,22 @@ function registerRuntimeReadOnlyCommands(program: Command): void {
       );
       console.log(formatReadOnlyControlCollectionOutput('Runtime locks', result, options));
     });
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'resume-from-checkpoint')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse runtime scheduler behavior without acquiring work')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('Runtime scheduler rehearsal requires --fixture');
+      }
+      const result = rehearseRuntimeScheduler({
+        scenario: normalizeRuntimeSchedulerRehearsalScenario(options.scenario),
+      });
+      console.log(formatRuntimeSchedulerRehearsalOutput(result, options));
+    });
 }
 
 function registerExternalAgentReadOnlyCommands(program: Command): void {
@@ -1282,9 +1303,27 @@ function registerExternalAgentReadOnlyCommands(program: Command): void {
             'External agent run',
           );
           console.log(formatReadOnlyControlDetailOutput('External agent run', result, options));
-        });
+      });
     }
   }
+
+  externalCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .requiredOption('--provider <provider>', 'codex or claude')
+    .option('--scenario <name>', 'Fixture scenario name', 'codex-all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse external agent governance without invoking CLIs')
+    .action((options: JsonCliOptions & { fixture?: boolean; provider?: string; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('External agent rehearsal requires --fixture');
+      }
+      const result = rehearseExternalAgent({
+        provider: normalizeExternalAgentProvider(options.provider),
+        scenario: normalizeExternalAgentRehearsalScenario(options.scenario),
+      });
+      console.log(formatExternalAgentRehearsalOutput(result, options));
+    });
 }
 
 function registerReadOnlyControlFamily(
@@ -7347,6 +7386,61 @@ function getExternalAgentStatusForCli(): Record<string, unknown> {
   };
 }
 
+function normalizeRuntimeSchedulerRehearsalScenario(
+  value: string | undefined,
+): RuntimeSchedulerRehearsalScenario {
+  const scenarios: RuntimeSchedulerRehearsalScenario[] = [
+    'scheduler-disabled',
+    'queue-full',
+    'lock-held',
+    'concurrency-limit-hit',
+    'timeout',
+    'cancel-requested',
+    'retry-exhausted',
+    'resume-from-checkpoint',
+    'child-workflow-blocked',
+  ];
+
+  return scenarios.includes(value as RuntimeSchedulerRehearsalScenario)
+    ? (value as RuntimeSchedulerRehearsalScenario)
+    : 'resume-from-checkpoint';
+}
+
+function normalizeExternalAgentProvider(value: string | undefined): ExternalAgentProvider {
+  if (value === 'codex' || value === 'codex-cli') {
+    return 'codex-cli';
+  }
+
+  if (value === 'claude' || value === 'claude-code-cli') {
+    return 'claude-code-cli';
+  }
+
+  return 'codex-cli';
+}
+
+function normalizeExternalAgentRehearsalScenario(
+  value: string | undefined,
+): ExternalAgentRehearsalScenario {
+  const scenarios: ExternalAgentRehearsalScenario[] = [
+    'codex-all-pass',
+    'claude-all-pass',
+    'provider-disabled',
+    'cli-missing',
+    'worktree-missing',
+    'approval-blocked',
+    'prompt-hash-mismatch',
+    'patch-hash-mismatch',
+    'repo-root-blocked',
+    'command-passthrough-blocked',
+    'agent-run-failed',
+    'timeout',
+  ];
+
+  return scenarios.includes(value as ExternalAgentRehearsalScenario)
+    ? (value as ExternalAgentRehearsalScenario)
+    : 'codex-all-pass';
+}
+
 function getDeploymentProviderStatusForCli(): Record<string, unknown> {
   const providers: DeploymentProvider[] = ['docker', 'kubernetes', 'helm', 'argo-cd', 'terraform', 'opentofu'];
   const observerEnabled = process.env.CODEXHUB_DEPLOYMENT_OBSERVER_ENABLED === 'true';
@@ -7587,6 +7681,49 @@ export function formatReadOnlyControlDetailOutput(
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n');
+}
+
+function formatRuntimeSchedulerRehearsalOutput(
+  result: ReturnType<typeof rehearseRuntimeScheduler>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Runtime scheduler rehearsal',
+    `scenario: ${result.scenario}`,
+    `status: ${result.status}`,
+    `queue: ${result.queueStatus}`,
+    `job: ${result.jobStatus}`,
+    `lock: ${result.lockStatus}`,
+    `checkpointCreated=${String(result.checkpointCreated)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `summary: ${result.summary}`,
+  ].join('\n');
+}
+
+function formatExternalAgentRehearsalOutput(
+  result: ReturnType<typeof rehearseExternalAgent>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'External agent rehearsal',
+    `provider: ${result.provider}`,
+    `scenario: ${result.scenario}`,
+    `status: ${result.status}`,
+    `readiness: ${result.readinessStatus}`,
+    `changedFiles: ${result.patchSummary?.changedFileCount ?? 0}`,
+    `patchHash: ${result.patchSummary?.patchHash ?? 'none'}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `summary: ${result.summary}`,
+  ].join('\n');
 }
 
 export function formatReleaseLifecycleAcceptanceRehearsalOutput(
