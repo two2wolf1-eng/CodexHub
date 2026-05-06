@@ -168,6 +168,18 @@ const policyTelemetryRuntimeTerms = [
   ['cedar', '-wasm'].join(''),
   ['@cedar', '-policy'].join(''),
 ];
+const deploymentWritePassthroughTerms = [
+  'kubectl apply',
+  'helm upgrade',
+  'argocd app sync',
+  'terraform apply',
+  'tofu apply',
+  'docker compose up',
+  'docker run',
+];
+const browserDirectActionTerms = ['page.click', 'page.type', 'keyboard.type', 'mouse.click'];
+const electronRuntimeEvaluateTerms = ['Runtime.evaluate'];
+const mcpWriteToolDirectTerms = ['workspace.applyPatchToControlledWorktree'];
 const directAdapterExecuteTerms = discoverPublicExecuteTerms();
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
 const dashboardRecoveryForbiddenPayloadTerms = [
@@ -587,6 +599,36 @@ function validateAdversarialAuditSentinels(): void {
       description: 'OpenTelemetry exporter runtime vocabulary outside the reviewed telemetry boundary',
     },
     {
+      workspacePath: 'apps/cli/src/adversarial-deployment-boundary.ts',
+      sourceText: 'const command = "kubectl apply -f manifest.yaml";',
+      expectedTerm: 'kubectl apply',
+      description: 'deployment apply command outside the reviewed deployment operation boundary',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-deployment-boundary.ts',
+      sourceText: 'const command = "terraform apply -auto-approve";',
+      expectedTerm: 'terraform apply',
+      description: 'Terraform apply passthrough outside the reviewed deployment operation boundary',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-browser-boundary.ts',
+      sourceText: 'await page.click(selector);',
+      expectedTerm: 'page.click',
+      description: 'direct Browser click call outside the reviewed Browser action boundary',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-electron-boundary.ts',
+      sourceText: 'const cdpCommand = "Runtime.evaluate";',
+      expectedTerm: 'Runtime.evaluate',
+      description: 'direct Electron Runtime.evaluate command text in an operator surface',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-write-boundary.ts',
+      sourceText: 'const tool = "workspace.applyPatchToControlledWorktree";',
+      expectedTerm: 'workspace.applyPatchToControlledWorktree',
+      description: 'direct MCP workspace write tool exposure from MCP source',
+    },
+    {
       workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
       sourceText:
         'const endpoint = "/api/approvals/decisions"; window.localStorage.setItem("approvalKey", "secret");',
@@ -995,6 +1037,7 @@ function adversarialSentinelWouldViolate(
   auditDashboardMergeWizardScopedGuards(file, sourceText);
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
   auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
+  auditFixedAdapterBoundaryGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
@@ -1016,6 +1059,7 @@ function auditFile(file: string): void {
   auditDashboardMergeWizardScopedGuards(file, sourceText);
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
   auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
+  auditFixedAdapterBoundaryGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -1246,6 +1290,78 @@ function auditTextTerms(file: string, sourceText: string): void {
           line: index + 1,
           term,
           reason: 'Credential or account-control vocabulary is only allowed in documented redaction placeholders.',
+        });
+      }
+    }
+  }
+}
+
+function auditFixedAdapterBoundaryGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+  if (workspacePath === 'tools/audit-no-live-automation.ts') {
+    return;
+  }
+
+  const lines = sourceText.split(/\r?\n/);
+  const isOperatorSource =
+    workspacePath.startsWith('apps/cli/src/') ||
+    workspacePath.startsWith('apps/dashboard/src/') ||
+    workspacePath.startsWith('apps/codexhub-mcp-server/src/');
+  const isCliOrMcpSource =
+    workspacePath.startsWith('apps/cli/src/') ||
+    workspacePath.startsWith('apps/codexhub-mcp-server/src/');
+
+  for (const [index, line] of lines.entries()) {
+    const lowerLine = line.toLowerCase();
+
+    for (const term of deploymentWritePassthroughTerms) {
+      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Deployment write command text is allowed only through reviewed deployment operation boundaries, docs, or tests.',
+        });
+      }
+    }
+
+    for (const term of browserDirectActionTerms) {
+      if (
+        lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedLiveAutomationBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Direct Browser action calls are forbidden outside the reviewed Browser action boundary, docs, or tests.',
+        });
+      }
+    }
+
+    for (const term of electronRuntimeEvaluateTerms) {
+      if (isOperatorSource && line.includes(term) && !isAllowed(workspacePath, term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Electron Runtime.evaluate command text must not appear in operator surfaces outside governed metadata views.',
+        });
+      }
+    }
+
+    for (const term of mcpWriteToolDirectTerms) {
+      if (isCliOrMcpSource && line.includes(term) && !isAllowed(workspacePath, term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'MCP workspace write tool names must not be exposed directly by CLI or MCP production source.',
         });
       }
     }

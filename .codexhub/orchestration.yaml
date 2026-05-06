@@ -5101,3 +5101,32 @@ workflows:
       approvalConsumedExactlyOnceAfterBoundary: true
       requestBodyAuthorityUntrusted: true
       metadataOnlyPublicOutput: true
+  m45_6.fixed-adapter-boundaries-debug:
+    risk: critical
+    trigger:
+      type: fixed-adapter-boundary-debug
+      entrypoint: audit docs tools
+      localControlRequired: false
+    scope:
+      - github-http-boundary-drift
+      - deployment-operation-boundary-drift
+      - policy-telemetry-runtime-boundary-drift
+      - browser-action-boundary-drift
+      - electron-main-inspector-boundary-drift
+      - mcp-write-tool-boundary-drift
+    docs:
+      - docs/releases/m45.6-fixed-adapter-boundaries-debug.md
+      - docs/reviews/m0-m45-fixed-adapter-boundaries-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      arbitraryShellPassthroughForbidden: true
+      genericUrlPayloadPassthroughForbidden: true
+      genericCdpPassthroughForbidden: true
+      genericMcpWritePassthroughForbidden: true
+      metadataOnlyPublicOutput: true
