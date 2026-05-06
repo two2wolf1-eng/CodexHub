@@ -169,6 +169,13 @@ interface OverviewState {
   mcpWriteToolDryRuns: ControlledWriteControlSummary[];
   mcpWriteToolApprovals: ControlledWriteControlSummary[];
   mcpWriteToolRuns: ControlledWriteControlSummary[];
+  runtimeJobDryRuns: RuntimeControlSummary[];
+  runtimeQueueEntries: RuntimeControlSummary[];
+  runtimeLocks: RuntimeControlSummary[];
+  runtimeJobRuns: RuntimeControlSummary[];
+  externalAgentDryRuns: RuntimeControlSummary[];
+  externalAgentApprovals: RuntimeControlSummary[];
+  externalAgentRuns: RuntimeControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -946,6 +953,34 @@ interface SecretReadinessControlSummary {
   summary?: string;
 }
 
+interface RuntimeControlSummary {
+  recordId?: string;
+  id?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  queueEntryId?: string;
+  lockId?: string;
+  status?: string;
+  provider?: string;
+  jobKind?: string;
+  targetKind?: string;
+  priority?: number;
+  attemptCount?: number;
+  patchSummary?: {
+    status?: string;
+    changedFileCount?: number;
+    patchHash?: string;
+  };
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  bodyStored?: boolean;
+  summary?: string;
+}
+
 interface GithubPrManagementControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -1571,6 +1606,13 @@ export function App() {
     mcpWriteToolDryRuns: [],
     mcpWriteToolApprovals: [],
     mcpWriteToolRuns: [],
+    runtimeJobDryRuns: [],
+    runtimeQueueEntries: [],
+    runtimeLocks: [],
+    runtimeJobRuns: [],
+    externalAgentDryRuns: [],
+    externalAgentApprovals: [],
+    externalAgentRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -2612,6 +2654,13 @@ export function App() {
           mcpWriteToolDryRunsResponse,
           mcpWriteToolApprovalsResponse,
           mcpWriteToolRunsResponse,
+          runtimeJobDryRunsResponse,
+          runtimeQueueEntriesResponse,
+          runtimeLocksResponse,
+          runtimeJobRunsResponse,
+          externalAgentDryRunsResponse,
+          externalAgentApprovalsResponse,
+          externalAgentRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -2923,6 +2972,30 @@ export function App() {
             '/api/mcp/write-tools/runs',
             { records: [] },
           ),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>(
+            '/api/runtime/jobs/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>('/api/runtime/queue', {
+            records: [],
+          }),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>('/api/runtime/locks', {
+            records: [],
+          }),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>('/api/runtime/jobs/runs', {
+            records: [],
+          }),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>(
+            '/api/agents/external/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>(
+            '/api/agents/external/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: RuntimeControlSummary[] }>('/api/agents/external/runs', {
+            records: [],
+          }),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
             '/api/github/pr-labels/dry-runs',
             { records: [] },
@@ -3211,6 +3284,13 @@ export function App() {
             mcpWriteToolDryRuns: mcpWriteToolDryRunsResponse.records,
             mcpWriteToolApprovals: mcpWriteToolApprovalsResponse.records,
             mcpWriteToolRuns: mcpWriteToolRunsResponse.records,
+            runtimeJobDryRuns: runtimeJobDryRunsResponse.records,
+            runtimeQueueEntries: runtimeQueueEntriesResponse.records,
+            runtimeLocks: runtimeLocksResponse.records,
+            runtimeJobRuns: runtimeJobRunsResponse.records,
+            externalAgentDryRuns: externalAgentDryRunsResponse.records,
+            externalAgentApprovals: externalAgentApprovalsResponse.records,
+            externalAgentRuns: externalAgentRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -3354,6 +3434,13 @@ export function App() {
     mcpWriteToolDryRuns: [],
     mcpWriteToolApprovals: [],
     mcpWriteToolRuns: [],
+    runtimeJobDryRuns: [],
+    runtimeQueueEntries: [],
+    runtimeLocks: [],
+    runtimeJobRuns: [],
+    externalAgentDryRuns: [],
+    externalAgentApprovals: [],
+    externalAgentRuns: [],
     githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
@@ -9145,6 +9232,95 @@ function renderReadOnlyDashboardView(
             </ul>
           ) : (
             <p>No secrets readiness run metadata is available.</p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'runtime') {
+    const latestRuntimeRun = overview.runtimeJobRuns[0];
+    const latestExternalRun = overview.externalAgentRuns[0];
+    const waitingExternalApprovals = overview.externalAgentApprovals.filter(
+      (record) => record.status === 'requested' || record.status === 'pending',
+    ).length;
+
+    return (
+      <section className="grid">
+        <Panel title="Runtime Scheduler">
+          <ul>
+            <li>job dry-runs: {overview.runtimeJobDryRuns.length}</li>
+            <li>queue entries: {overview.runtimeQueueEntries.length}</li>
+            <li>locks: {overview.runtimeLocks.length}</li>
+            <li>job runs: {overview.runtimeJobRuns.length}</li>
+            <li>latest run: {latestRuntimeRun?.status ?? 'none'}</li>
+          </ul>
+          <p>
+            Runtime data is read from Supervisor GET endpoints only; this view does not acquire
+            leases, locks, or queue work.
+          </p>
+        </Panel>
+        <Panel title="Runtime Queue">
+          {overview.runtimeQueueEntries.length > 0 ? (
+            <ul>
+              {overview.runtimeQueueEntries.slice(0, 6).map((entry, index) => (
+                <li key={entry.queueEntryId ?? entry.recordId ?? entry.id ?? index} className="stacked">
+                  <strong>{entry.jobKind ?? entry.targetKind ?? 'runtime job'}</strong>
+                  <span>
+                    {entry.status ?? 'unknown'}, priority {entry.priority ?? 0}, attempts{' '}
+                    {entry.attemptCount ?? 0}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No runtime queue metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="Runtime Locks">
+          {overview.runtimeLocks.length > 0 ? (
+            <ul>
+              {overview.runtimeLocks.slice(0, 6).map((lock, index) => (
+                <li key={lock.lockId ?? lock.recordId ?? lock.id ?? index} className="stacked">
+                  <strong>{lock.lockId ?? lock.recordId ?? 'runtime lock'}</strong>
+                  <span>{lock.status ?? 'unknown'}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No runtime lock metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="External Agents">
+          <ul>
+            <li>dry-runs: {overview.externalAgentDryRuns.length}</li>
+            <li>approvals: {overview.externalAgentApprovals.length}</li>
+            <li>waiting approvals: {waitingExternalApprovals}</li>
+            <li>runs: {overview.externalAgentRuns.length}</li>
+            <li>latest run: {latestExternalRun?.status ?? 'none'}</li>
+          </ul>
+          <p>
+            External agent records are metadata-only; raw prompts, commands, diffs, and patches are
+            never rendered here.
+          </p>
+        </Panel>
+        <Panel title="External Agent Runs">
+          {overview.externalAgentRuns.length > 0 ? (
+            <ul>
+              {overview.externalAgentRuns.slice(0, 6).map((run, index) => (
+                <li key={run.runId ?? run.recordId ?? run.id ?? index} className="stacked">
+                  <strong>{run.provider ?? 'external-agent'}</strong>
+                  <span>
+                    {run.status ?? 'unknown'}, files{' '}
+                    {run.patchSummary?.changedFileCount ?? 0}, boundary{' '}
+                    {String(run.processBoundaryInvoked ?? false)}
+                  </span>
+                  <span>evidence {run.evidenceRefIds?.length ?? 0}, audit {run.auditEventIds?.length ?? 0}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No external agent run metadata is available.</p>
           )}
         </Panel>
       </section>

@@ -1129,6 +1129,164 @@ function registerDeploymentReadOnlyCommands(program: Command): void {
     });
 }
 
+function registerRuntimeReadOnlyCommands(program: Command): void {
+  const command = program
+    .command('runtime')
+    .description('Read runtime scheduler metadata from Supervisor GET endpoints');
+
+  command
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show scheduler readiness without starting jobs')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getRuntimeStatusForCli();
+      console.log(formatReadOnlyControlCollectionOutput('Runtime scheduler status', result, options));
+    });
+
+  const jobsCommand = command.command('jobs').description('Read runtime job records');
+
+  jobsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List runtime job runs without starting jobs')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/runtime/jobs/runs',
+        'Runtime jobs are read from Supervisor GET endpoints only.',
+        'Runtime job source is unavailable; no job was started.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Runtime jobs', result, options));
+    });
+
+  const dryRunsCommand = jobsCommand
+    .command('dry-runs')
+    .description('Read runtime job dry-run records');
+  dryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List runtime job dry-runs without starting jobs')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/runtime/jobs/dry-runs',
+        'Runtime job dry-runs are read from Supervisor GET endpoints only.',
+        'Runtime job dry-run source is unavailable; no job was started.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Runtime job dry-runs', result, options));
+    });
+
+  const runsCommand = jobsCommand.command('runs').description('Read runtime job run records');
+  runsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List runtime job runs without starting jobs')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/runtime/jobs/runs',
+        'Runtime job runs are read from Supervisor GET endpoints only.',
+        'Runtime job run source is unavailable; no job was started.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Runtime job runs', result, options));
+    });
+
+  runsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show runtime job run metadata without starting jobs')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showSupervisorReadOnlyRecord(
+        '/api/runtime/jobs/runs',
+        runId,
+        'Runtime job run',
+      );
+      console.log(formatReadOnlyControlDetailOutput('Runtime job run', result, options));
+    });
+
+  command
+    .command('queue')
+    .description('Read runtime queue entries')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List queue entries without acquiring work')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/runtime/queue',
+        'Runtime queue is read from Supervisor GET endpoints only.',
+        'Runtime queue source is unavailable; no queue work was acquired.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Runtime queue', result, options));
+    });
+
+  command
+    .command('locks')
+    .description('Read runtime locks')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List runtime locks without acquiring locks')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/runtime/locks',
+        'Runtime locks are read from Supervisor GET endpoints only.',
+        'Runtime lock source is unavailable; no lock was acquired.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Runtime locks', result, options));
+    });
+}
+
+function registerExternalAgentReadOnlyCommands(program: Command): void {
+  const agentsCommand = program
+    .command('agents')
+    .description('Read governed external agent metadata');
+  const externalCommand = agentsCommand
+    .command('external')
+    .description('Read external agent dry-runs, approvals, and runs');
+
+  externalCommand
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show external agent readiness without invoking CLIs')
+    .action((options: JsonCliOptions) => {
+      const result = getExternalAgentStatusForCli();
+      console.log(formatReadOnlyControlCollectionOutput('External agent status', result, options));
+    });
+
+  for (const [segment, route, title] of [
+    ['dry-runs', '/api/agents/external/dry-runs', 'External agent dry-runs'],
+    ['approvals', '/api/agents/external/approvals', 'External agent approvals'],
+    ['runs', '/api/agents/external/runs', 'External agent runs'],
+  ] as const) {
+    const child = externalCommand.command(segment).description(`Read ${title}`);
+    child
+      .command('list')
+      .option('--json', 'Print full JSON output')
+      .description(`List ${title} without invoking external CLIs`)
+      .action(async (options: JsonCliOptions) => {
+        const result = await listSupervisorReadOnlyCollection(
+          route,
+          `${title} are read from Supervisor GET endpoints only.`,
+          `${title} source is unavailable; no external agent was invoked.`,
+        );
+        console.log(formatReadOnlyControlCollectionOutput(title, result, options));
+      });
+
+    if (segment === 'runs') {
+      child
+        .command('show')
+        .argument('<runId>')
+        .option('--json', 'Print full JSON output')
+        .description('Show external agent run metadata without invoking external CLIs')
+        .action(async (runId: string, options: JsonCliOptions) => {
+          const result = await showSupervisorReadOnlyRecord(
+            '/api/agents/external/runs',
+            runId,
+            'External agent run',
+          );
+          console.log(formatReadOnlyControlDetailOutput('External agent run', result, options));
+        });
+    }
+  }
+}
+
 function registerReadOnlyControlFamily(
   parentCommand: Command,
   commandName: string,
@@ -2864,6 +3022,9 @@ export function buildProgram(): Command {
     '/api/telemetry/exports',
     'Real telemetry export',
   );
+
+  registerRuntimeReadOnlyCommands(program);
+  registerExternalAgentReadOnlyCommands(program);
 
   const approvalsCommand = program
     .command('approvals')
@@ -7101,6 +7262,88 @@ async function showSupervisorListRecord(
     rawResponseBodyStored: false,
     bodyStored: false,
     note: record ? `${label} metadata found in read-only list.` : `${label} was not found in read-only list.`,
+  };
+}
+
+async function getRuntimeStatusForCli(): Promise<Record<string, unknown>> {
+  const [jobs, queue, locks] = await Promise.all([
+    listSupervisorReadOnlyCollection(
+      '/api/runtime/jobs/runs',
+      'Runtime job runs are read from Supervisor GET endpoints only.',
+      'Runtime job runs source is unavailable; no scheduler action was attempted.',
+    ),
+    listSupervisorReadOnlyCollection(
+      '/api/runtime/queue',
+      'Runtime queue entries are read from Supervisor GET endpoints only.',
+      'Runtime queue source is unavailable; no queue action was attempted.',
+    ),
+    listSupervisorReadOnlyCollection(
+      '/api/runtime/locks',
+      'Runtime locks are read from Supervisor GET endpoints only.',
+      'Runtime lock source is unavailable; no lock action was attempted.',
+    ),
+  ]);
+  const schedulerEnabled = process.env.CODEXHUB_RUNTIME_SCHEDULER_ENABLED === 'true';
+  const childCoordinationEnabled =
+    process.env.CODEXHUB_RUNTIME_CHILD_WORKFLOW_COORDINATION_ENABLED === 'true';
+
+  return {
+    status: schedulerEnabled && childCoordinationEnabled ? 'ready' : 'blocked',
+    schedulerEnabled,
+    childCoordinationEnabled,
+    jobRunCount: jobs.count ?? 0,
+    queueEntryCount: queue.count ?? 0,
+    lockCount: locks.count ?? 0,
+    degradedSources: [jobs, queue, locks].filter((item) => item.status === 'degraded').length,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    note:
+      'Runtime status is a read-only projection; CLI does not acquire leases, locks, or work.',
+  };
+}
+
+function getExternalAgentStatusForCli(): Record<string, unknown> {
+  const globalEnabled = process.env.CODEXHUB_EXTERNAL_AGENTS_ENABLED === 'true';
+  const providers = [
+    ['codex-cli', process.env.CODEXHUB_EXTERNAL_AGENT_CODEX_ENABLED === 'true'],
+    ['claude-code-cli', process.env.CODEXHUB_EXTERNAL_AGENT_CLAUDE_ENABLED === 'true'],
+  ] as const;
+
+  return {
+    status: globalEnabled && providers.some(([, enabled]) => enabled) ? 'ready' : 'blocked',
+    count: providers.length,
+    records: providers.map(([provider, providerEnabled]) => ({
+      provider,
+      status: globalEnabled && providerEnabled ? 'configured' : 'disabled',
+      globalEnabled,
+      providerEnabled,
+      governedWorktreeRequired: true,
+      approvalRequired: true,
+      directCliInvocationAllowed: false,
+      repoRootMutationAllowed: false,
+      rawPromptStored: false,
+      rawPatchStored: false,
+      rawCommandStored: false,
+      bodyStored: false,
+      summary: providerEnabled
+        ? `${provider} external agent is runtime-enabled behind governance.`
+        : `${provider} external agent is disabled by default.`,
+    })),
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPromptStored: false,
+    rawPatchStored: false,
+    rawCommandStored: false,
+    bodyStored: false,
+    note:
+      'External agent status is env-gate metadata only; CLI does not invoke Codex or Claude.',
   };
 }
 

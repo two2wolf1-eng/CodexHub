@@ -80,6 +80,7 @@ describe('dashboard read-only UX helpers', () => {
       'workflows',
       'deployments',
       'secrets',
+      'runtime',
       'policy-telemetry',
       'browser-profiles',
       'electron',
@@ -307,6 +308,7 @@ describe('dashboard read-only UX helpers', () => {
       'workflows',
       'deployments',
       'secrets',
+      'runtime',
       'policy-telemetry',
       'browser-profiles',
       'electron',
@@ -324,6 +326,7 @@ describe('dashboard read-only UX helpers', () => {
 
     expect(serialized).toContain('#/deployments');
     expect(serialized).toContain('#/secrets');
+    expect(serialized).toContain('#/runtime');
     expect(serialized).toContain('#/policy-telemetry');
     expect(serialized).toContain('#/browser-profiles');
     expect(serialized).toContain('#/electron');

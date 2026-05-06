@@ -130,6 +130,44 @@ describe('cli development mock-run fallback', () => {
     }
   });
 
+  it('keeps runtime and external agent CLI surfaces read-only', () => {
+    const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const runtimeRegistration = extractFunctionSource(cliSource, 'registerRuntimeReadOnlyCommands');
+    const externalAgentRegistration = extractFunctionSource(
+      cliSource,
+      'registerExternalAgentReadOnlyCommands',
+    );
+    const runtimeStatus = extractFunctionSource(cliSource, 'getRuntimeStatusForCli');
+    const externalStatus = extractFunctionSource(cliSource, 'getExternalAgentStatusForCli');
+
+    for (const route of [
+      '/api/runtime/jobs/dry-runs',
+      '/api/runtime/jobs/runs',
+      '/api/runtime/queue',
+      '/api/runtime/locks',
+      '/api/agents/external/dry-runs',
+      '/api/agents/external/approvals',
+      '/api/agents/external/runs',
+    ]) {
+      expect(`${runtimeRegistration}\n${externalAgentRegistration}`).toContain(route);
+    }
+
+    for (const source of [
+      runtimeRegistration,
+      externalAgentRegistration,
+      runtimeStatus,
+      externalStatus,
+    ]) {
+      expect(source).not.toContain("method: 'POST'");
+      expect(source).not.toContain('createSupervisorPostHeaders');
+      expect(source).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+      expect(source).not.toContain('adapter.execute');
+      expect(source).not.toContain('rawPrompt:');
+      expect(source).not.toContain('rawPatch:');
+      expect(source).not.toContain('rawCommand:');
+    }
+  });
+
   it('lists MCP tools from the local read-only registry without invoking MCP', async () => {
     const { formatMcpToolsListOutput, listMcpToolsForCli } = await import('./m3b-readonly');
     const result = listMcpToolsForCli();
