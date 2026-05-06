@@ -248,6 +248,19 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'mcp.write_tool_plan',
     'mcp.write_tool_summary',
     'mcp.write_tool_rehearsal',
+    'runtime.scheduler_plan',
+    'runtime.queue_summary',
+    'runtime.lock_summary',
+    'runtime.lease_summary',
+    'runtime.checkpoint_summary',
+    'runtime.job_run_summary',
+    'runtime.multi_agent_coordination_summary',
+    'external_agent.manifest',
+    'external_agent.readiness',
+    'external_agent.patch_plan',
+    'external_agent.patch_summary',
+    'external_agent.run_summary',
+    'external_agent.rehearsal',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -3388,8 +3401,20 @@ const githubForbiddenMetadataKeys = new Set([
   'rawTypedText',
   'javascript',
   'rawJavascript',
+  'prompt',
+  'rawPrompt',
+  'instructions',
+  'rawInstructions',
+  'diff',
+  'rawDiff',
   'patch',
   'rawPatch',
+  'command',
+  'rawCommand',
+  'stdout',
+  'rawStdout',
+  'stderr',
+  'rawStderr',
   'log',
   'logs',
   'rawLog',
@@ -16331,6 +16356,557 @@ export const ControlledWriteAcceptanceRehearsalRunSchema = createdEntityBaseSche
 export type ControlledWriteAcceptanceRehearsalRun = z.infer<
   typeof ControlledWriteAcceptanceRehearsalRunSchema
 >;
+
+export const RuntimeJobKindSchema = z.enum([
+  'workflow',
+  'external-agent',
+  'platform-operation',
+]);
+export type RuntimeJobKind = z.infer<typeof RuntimeJobKindSchema>;
+
+export const RuntimeJobStatusSchema = z.enum([
+  'queued',
+  'waiting_for_lock',
+  'running',
+  'cancel_requested',
+  'canceled',
+  'timed_out',
+  'retry_pending',
+  'blocked',
+  'completed',
+  'failed',
+]);
+export type RuntimeJobStatus = z.infer<typeof RuntimeJobStatusSchema>;
+
+export const RuntimeQueueStatusSchema = z.enum([
+  'pending',
+  'leased',
+  'blocked',
+  'completed',
+  'failed',
+  'canceled',
+]);
+export type RuntimeQueueStatus = z.infer<typeof RuntimeQueueStatusSchema>;
+
+export const RuntimeLockStatusSchema = z.enum(['available', 'held', 'expired', 'released']);
+export type RuntimeLockStatus = z.infer<typeof RuntimeLockStatusSchema>;
+
+export const RuntimeRetryBackoffStrategySchema = z.enum(['none', 'fixed', 'exponential']);
+export type RuntimeRetryBackoffStrategy = z.infer<typeof RuntimeRetryBackoffStrategySchema>;
+
+export const RuntimeRetryPolicySchema = z
+  .object({
+    maxAttempts: z.number().int().min(1).max(10),
+    attemptCount: z.number().int().nonnegative(),
+    backoffStrategy: RuntimeRetryBackoffStrategySchema,
+    backoffSeconds: z.number().int().nonnegative(),
+    retryableStatuses: z.array(RuntimeJobStatusSchema).default(['failed', 'timed_out']),
+  })
+  .superRefine((record, context) => {
+    if (record.attemptCount > record.maxAttempts) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'attemptCount cannot exceed maxAttempts',
+        path: ['attemptCount'],
+      });
+    }
+  });
+export type RuntimeRetryPolicy = z.infer<typeof RuntimeRetryPolicySchema>;
+
+export const RuntimeConcurrencyPolicySchema = z.object({
+  scope: z.enum(['global', 'workflow-template', 'capability', 'worktree']),
+  scopeHash: z.string().min(1),
+  maxConcurrent: z.number().int().min(1),
+  currentRunningCount: z.number().int().nonnegative(),
+});
+export type RuntimeConcurrencyPolicy = z.infer<typeof RuntimeConcurrencyPolicySchema>;
+
+export const RuntimeJobPlanSchema = createdEntityBaseSchema
+  .extend({
+    jobKind: RuntimeJobKindSchema,
+    targetKind: z.enum(['custom-workflow', 'production-recovery', 'external-agent-patch']),
+    targetRecordIdHash: z.string().min(1),
+    templateIdHash: z.string().min(1).optional(),
+    templateHash: z.string().min(1).optional(),
+    sourceRecordHash: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    riskLevel: RiskLevelSchema,
+    actionMode: ActionModeSchema,
+    approvalRequired: z.boolean(),
+    lockKeyHashes: z.array(z.string().min(1)).default([]),
+    retryPolicy: RuntimeRetryPolicySchema,
+    concurrencyPolicy: RuntimeConcurrencyPolicySchema,
+    timeoutSeconds: z.number().int().positive(),
+    checkpointRequired: z.boolean(),
+    schedulerEnabled: z.boolean(),
+    childWorkflowCoordinationEnabled: z.boolean(),
+    processBoundaryPlanned: z.literal(false),
+    externalProcessPlanned: z.literal(false),
+    networkBoundaryPlanned: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.actionMode !== 'read' && !record.approvalRequired) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'runtime mutating jobs require approval',
+        path: ['approvalRequired'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeJobPlan = z.infer<typeof RuntimeJobPlanSchema>;
+
+export const RuntimeQueueEntrySchema = createdEntityBaseSchema
+  .extend({
+    jobPlanId: z.string().min(1),
+    jobPlanHash: z.string().min(1),
+    status: RuntimeQueueStatusSchema,
+    priority: z.number().int().min(0).max(100),
+    enqueueOrder: z.number().int().nonnegative(),
+    availableAfter: IsoDateTimeSchema.optional(),
+    leaseId: z.string().min(1).optional(),
+    lockKeyHashes: z.array(z.string().min(1)).default([]),
+    retryPolicy: RuntimeRetryPolicySchema,
+    rawPayloadStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeQueueEntry = z.infer<typeof RuntimeQueueEntrySchema>;
+
+export const RuntimeLeaseSchema = createdEntityBaseSchema
+  .extend({
+    queueEntryId: z.string().min(1),
+    workerIdHash: z.string().min(1),
+    leaseTokenHash: z.string().min(1),
+    acquiredAt: IsoDateTimeSchema,
+    expiresAt: IsoDateTimeSchema,
+    releasedAt: IsoDateTimeSchema.optional(),
+    status: z.enum(['active', 'expired', 'released']),
+    rawTokenStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeLease = z.infer<typeof RuntimeLeaseSchema>;
+
+export const RuntimeLockSchema = createdEntityBaseSchema
+  .extend({
+    lockKeyHash: z.string().min(1),
+    holderJobIdHash: z.string().min(1).optional(),
+    holderLeaseIdHash: z.string().min(1).optional(),
+    status: RuntimeLockStatusSchema,
+    acquiredAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    releasedAt: IsoDateTimeSchema.optional(),
+    rawKeyStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeLock = z.infer<typeof RuntimeLockSchema>;
+
+export const RuntimeCheckpointSchema = createdEntityBaseSchema
+  .extend({
+    jobRunId: z.string().min(1),
+    checkpointHash: z.string().min(1),
+    stepIdHash: z.string().min(1),
+    resumable: z.boolean(),
+    completedStepCount: z.number().int().nonnegative(),
+    nextStepIdHash: z.string().min(1).optional(),
+    rawStateStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeCheckpoint = z.infer<typeof RuntimeCheckpointSchema>;
+
+export const RuntimeJobRunSchema = createdEntityBaseSchema
+  .extend({
+    status: RuntimeJobStatusSchema,
+    plan: RuntimeJobPlanSchema,
+    queueEntryId: z.string().min(1),
+    leaseId: z.string().min(1).optional(),
+    attemptNumber: z.number().int().min(1),
+    startedAt: IsoDateTimeSchema.optional(),
+    completedAt: IsoDateTimeSchema.optional(),
+    canceledAt: IsoDateTimeSchema.optional(),
+    timeoutAt: IsoDateTimeSchema.optional(),
+    checkpoint: RuntimeCheckpointSchema.optional(),
+    boundaryReached: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeJobRun = z.infer<typeof RuntimeJobRunSchema>;
+
+export const MultiAgentCoordinationPlanSchema = createdEntityBaseSchema
+  .extend({
+    coordinatorKind: z.literal('workflow-kernel'),
+    workflowTemplateIdHash: z.string().min(1),
+    workflowTemplateHash: z.string().min(1),
+    slotCount: z.number().int().nonnegative(),
+    maxConcurrentSlots: z.number().int().min(1),
+    childRunIdHashes: z.array(z.string().min(1)).default([]),
+    directAgentSpawnAllowed: z.literal(false),
+    dashboardDirectAdapterAllowed: z.literal(false),
+    cliDirectAdapterAllowed: z.literal(false),
+    mcpDirectAdapterAllowed: z.literal(false),
+    rawPromptStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type MultiAgentCoordinationPlan = z.infer<typeof MultiAgentCoordinationPlanSchema>;
+
+export const MultiAgentSlotSummarySchema = createdEntityBaseSchema
+  .extend({
+    coordinationPlanId: z.string().min(1),
+    slotIdHash: z.string().min(1),
+    provider: z.enum(['codex-cli', 'claude-code-cli', 'workflow-kernel']),
+    status: z.enum(['waiting', 'running', 'blocked', 'completed', 'failed', 'canceled']),
+    assignedJobIdHash: z.string().min(1).optional(),
+    childRunIdHash: z.string().min(1).optional(),
+    directAdapterInvoked: z.literal(false),
+    rawPromptStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type MultiAgentSlotSummary = z.infer<typeof MultiAgentSlotSummarySchema>;
+
+export const RuntimeSchedulerRehearsalScenarioSchema = z.enum([
+  'scheduler-disabled',
+  'queue-full',
+  'lock-held',
+  'concurrency-limit-hit',
+  'timeout',
+  'cancel-requested',
+  'retry-exhausted',
+  'resume-from-checkpoint',
+  'child-workflow-blocked',
+]);
+export type RuntimeSchedulerRehearsalScenario = z.infer<
+  typeof RuntimeSchedulerRehearsalScenarioSchema
+>;
+
+export const RuntimeSchedulerRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: RuntimeSchedulerRehearsalScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    queueStatus: RuntimeQueueStatusSchema,
+    jobStatus: RuntimeJobStatusSchema,
+    lockStatus: RuntimeLockStatusSchema.optional(),
+    checkpointCreated: z.boolean(),
+    retryAttemptCount: z.number().int().nonnegative(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.scenario !== 'resume-from-checkpoint' && record.status === 'passed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only resume-from-checkpoint scheduler rehearsal passes in M46 fixtures',
+        path: ['status'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RuntimeSchedulerRehearsalRun = z.infer<typeof RuntimeSchedulerRehearsalRunSchema>;
+
+export const ExternalAgentProviderSchema = z.enum(['codex-cli', 'claude-code-cli']);
+export type ExternalAgentProvider = z.infer<typeof ExternalAgentProviderSchema>;
+
+export const ExternalAgentRunStatusSchema = z.enum([
+  'planned',
+  'blocked',
+  'running',
+  'completed',
+  'failed',
+  'timed_out',
+  'aborted',
+]);
+export type ExternalAgentRunStatus = z.infer<typeof ExternalAgentRunStatusSchema>;
+
+export const ExternalAgentManifestSchema = createdEntityBaseSchema
+  .extend({
+    provider: ExternalAgentProviderSchema,
+    versionHash: z.string().min(1).optional(),
+    enabledByDefault: z.literal(false),
+    actionMode: z.literal('write'),
+    riskLevel: z.literal('critical'),
+    approvalPolicy: z.literal('required'),
+    fixedArgvShapeHash: z.string().min(1),
+    controlledSiblingWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    arbitraryCommandAllowed: z.literal(false),
+    rawPromptStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentManifest = z.infer<typeof ExternalAgentManifestSchema>;
+
+export const ExternalAgentReadinessSchema = createdEntityBaseSchema
+  .extend({
+    provider: ExternalAgentProviderSchema,
+    externalAgentsEnabled: z.boolean(),
+    providerEnabled: z.boolean(),
+    cliConfigured: z.boolean(),
+    cliExecutableHash: z.string().min(1).optional(),
+    worktreeResolved: z.boolean(),
+    worktreeRecordHash: z.string().min(1).optional(),
+    controlledSiblingWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    blockerCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawPromptStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentReadiness = z.infer<typeof ExternalAgentReadinessSchema>;
+
+export const ExternalAgentPatchPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    provider: ExternalAgentProviderSchema,
+    sourceWorktreeRecordHash: z.string().min(1),
+    worktreePathHash: z.string().min(1),
+    promptHash: z.string().min(1),
+    instructionHash: z.string().min(1),
+    expectedPatchHash: z.string().min(1).optional(),
+    changedFileCount: z.number().int().nonnegative(),
+    maxRuntimeSeconds: z.number().int().positive(),
+    fixedArgvShapeHash: z.string().min(1),
+    processBoundaryPlanned: z.literal(true),
+    externalProcessPlanned: z.literal(true),
+    controlledSiblingWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    arbitraryCommandAllowed: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawPromptStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentPatchPlan = z.infer<typeof ExternalAgentPatchPlanSchema>;
+
+export const ExternalAgentApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    rawPromptStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match external agent approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentApprovalArtifact = z.infer<typeof ExternalAgentApprovalArtifactSchema>;
+
+export const ExternalAgentPatchSummarySchema = createdEntityBaseSchema
+  .extend({
+    provider: ExternalAgentProviderSchema,
+    patchHash: z.string().min(1),
+    changedFileCount: z.number().int().nonnegative(),
+    addedLineCount: z.number().int().nonnegative(),
+    deletedLineCount: z.number().int().nonnegative(),
+    worktreePathHash: z.string().min(1),
+    rawPromptStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentPatchSummary = z.infer<typeof ExternalAgentPatchSummarySchema>;
+
+export const ExternalAgentRunSchema = createdEntityBaseSchema
+  .extend({
+    status: ExternalAgentRunStatusSchema,
+    provider: ExternalAgentProviderSchema,
+    plan: ExternalAgentPatchPlanSchema,
+    readiness: ExternalAgentReadinessSchema,
+    patchSummary: ExternalAgentPatchSummarySchema.optional(),
+    approvalArtifactId: z.string().min(1),
+    approvalConsumed: z.boolean(),
+    boundaryReached: z.boolean(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    controlledSiblingWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    rawPromptStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.boundaryReached && !record.approvalConsumed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'external agent boundary reached runs must consume approval',
+        path: ['approvalConsumed'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentRun = z.infer<typeof ExternalAgentRunSchema>;
+
+export const ExternalAgentRehearsalScenarioSchema = z.enum([
+  'codex-all-pass',
+  'claude-all-pass',
+  'provider-disabled',
+  'cli-missing',
+  'worktree-missing',
+  'approval-blocked',
+  'prompt-hash-mismatch',
+  'patch-hash-mismatch',
+  'repo-root-blocked',
+  'command-passthrough-blocked',
+  'agent-run-failed',
+  'timeout',
+]);
+export type ExternalAgentRehearsalScenario = z.infer<
+  typeof ExternalAgentRehearsalScenarioSchema
+>;
+
+export const ExternalAgentRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: ExternalAgentRehearsalScenarioSchema,
+    provider: ExternalAgentProviderSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    runStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    patchSummary: ExternalAgentPatchSummarySchema.optional(),
+    blockerCount: z.number().int().nonnegative(),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    controlledSiblingWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    rawPromptStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawCommandStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    const passingScenarios = new Set(['codex-all-pass', 'claude-all-pass']);
+
+    if (!passingScenarios.has(record.scenario) && record.status === 'passed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass external agent rehearsals can pass',
+        path: ['status'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ExternalAgentRehearsalRun = z.infer<typeof ExternalAgentRehearsalRunSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();
