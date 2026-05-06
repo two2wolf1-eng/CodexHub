@@ -344,6 +344,12 @@ import type {
   RealTelemetryExportPlan,
   RealTelemetryExportRun,
   RealTelemetryExporterKind,
+  RuntimeJobKind,
+  RuntimeJobPlan,
+  ExternalAgentApprovalArtifact,
+  ExternalAgentPatchPlan,
+  ExternalAgentProvider,
+  ExternalAgentRun,
   McpWriteToolApprovalArtifact,
   McpWriteToolPlan,
   McpWriteToolRun,
@@ -399,6 +405,9 @@ import {
   RealTelemetryLocalExportSummarySchema,
   RealTelemetryNetworkExportSummarySchema,
   RealTelemetryReadinessSchema,
+  ExternalAgentApprovalArtifactSchema,
+  ExternalAgentPatchPlanSchema,
+  ExternalAgentRunSchema,
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
@@ -531,6 +540,16 @@ import {
   createSecretReadinessPlan,
   createSecretReadinessRun,
 } from '@codexhub/secret-governance-kernel';
+import {
+  EXTERNAL_AGENT_FIXED_ARGV_SHAPE_HASHES,
+  createExternalAgentReadiness,
+  runExternalAgentPatchWithRunner,
+} from '@codexhub/external-agent-adapter';
+import {
+  createRuntimeJobPlan,
+  createRuntimeJobRun,
+  enqueueRuntimeJob,
+} from '@codexhub/runtime-operations-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -4042,6 +4061,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerBrowserActionRoutes('/api/browser/actions');
   registerElectronMainInspectorRoutes('/api/electron-cdp/main-inspector');
   registerMcpWriteToolRoutes('/api/mcp/write-tools');
+  registerRuntimeJobRoutes('/api/runtime/jobs');
+  registerRuntimeQueueRoutes('/api/runtime/queue');
+  registerRuntimeLockRoutes('/api/runtime/locks');
+  registerExternalAgentRoutes('/api/agents/external');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
   registerGithubPrManagementRoutes('assignees', '/api/github/pr-assignees');
@@ -20167,6 +20190,502 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     reason?: string;
   };
 
+  type RuntimeJobRequestBody = {
+    jobKind?: RuntimeJobKind;
+    targetKind?: 'custom-workflow' | 'production-recovery' | 'external-agent-patch';
+    targetRecordId?: string;
+    sourceRecordId?: string;
+    templateId?: string;
+    templateHash?: string;
+    lockKeys?: string[];
+    priority?: number;
+    enqueueOrder?: number;
+    timeoutSeconds?: number;
+    dryRunId?: string;
+    blockReasons?: string[];
+  };
+
+  type ExternalAgentRequestBody = {
+    provider?: ExternalAgentProvider;
+    worktreeRecordId?: string;
+    sourceWorktreeRecordHash?: string;
+    worktreePathHash?: string;
+    promptHash?: string;
+    instructionHash?: string;
+    expectedPatchHash?: string;
+    changedFileCount?: number;
+    addedLineCount?: number;
+    deletedLineCount?: number;
+    maxRuntimeSeconds?: number;
+    blockReasons?: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalRequestId?: string;
+    outcome?: GithubProviderApprovalStatus;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  };
+
+  function normalizeRuntimeJobKind(value: RuntimeJobKind | undefined): RuntimeJobKind {
+    return value === 'external-agent' || value === 'platform-operation' || value === 'workflow'
+      ? value
+      : 'workflow';
+  }
+
+  function normalizeRuntimeTargetKind(
+    value: RuntimeJobRequestBody['targetKind'],
+  ): 'custom-workflow' | 'production-recovery' | 'external-agent-patch' {
+    return value === 'production-recovery' || value === 'external-agent-patch'
+      ? value
+      : 'custom-workflow';
+  }
+
+  function normalizeExternalAgentProvider(
+    provider: ExternalAgentProvider | undefined,
+  ): ExternalAgentProvider {
+    return provider === 'claude-code-cli' ? 'claude-code-cli' : 'codex-cli';
+  }
+
+  function isExternalAgentEnabled(provider: ExternalAgentProvider): boolean {
+    return (
+      process.env.CODEXHUB_EXTERNAL_AGENTS_ENABLED === 'true' &&
+      (provider === 'codex-cli'
+        ? process.env.CODEXHUB_EXTERNAL_AGENT_CODEX_ENABLED === 'true'
+        : process.env.CODEXHUB_EXTERNAL_AGENT_CLAUDE_ENABLED === 'true')
+    );
+  }
+
+  async function resolveRuntimeJobPlanRecord(
+    store: CodexHubStore,
+    id: string,
+  ): Promise<RuntimeJobPlan | undefined> {
+    const directRecord = await store.runtimeJobPlans.getJobPlan(id);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.runtimeJobPlans.listJobPlans({ dryRunId: id, limit: 1 }))[0];
+  }
+
+  async function resolveExternalAgentDryRunRecord(
+    store: CodexHubStore,
+    id: string,
+  ): Promise<ExternalAgentPatchPlan | undefined> {
+    const directRecord = await store.externalAgentDryRuns.getDryRun(id);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.externalAgentDryRuns.listDryRuns({ dryRunId: id, limit: 1 }))[0];
+  }
+
+  function createExternalAgentPatchPlanRecord(
+    body: ExternalAgentRequestBody | undefined,
+  ): ExternalAgentPatchPlan {
+    const provider = normalizeExternalAgentProvider(body?.provider);
+    const enabled = isExternalAgentEnabled(provider);
+    const blockReasons = [
+      ...(body?.blockReasons ?? []),
+      ...(enabled ? [] : ['external_agent_runtime_disabled']),
+    ];
+
+    return ExternalAgentPatchPlanSchema.parse({
+      id: foundationId('external_agent_patch_plan'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId: foundationId('external_agent_dry_run'),
+      status: blockReasons.length > 0 ? 'blocked' : 'planned',
+      provider,
+      sourceWorktreeRecordHash:
+        body?.sourceWorktreeRecordHash ??
+        hashLocalMetadata({ worktreeRecordId: body?.worktreeRecordId ?? 'missing' }),
+      worktreePathHash:
+        body?.worktreePathHash ?? hashLocalMetadata({ worktreePath: 'controlled-sibling' }),
+      promptHash: body?.promptHash ?? hashLocalMetadata({ prompt: 'transient' }),
+      instructionHash: body?.instructionHash ?? hashLocalMetadata({ instructions: 'transient' }),
+      expectedPatchHash: body?.expectedPatchHash,
+      changedFileCount: body?.changedFileCount ?? 0,
+      maxRuntimeSeconds: body?.maxRuntimeSeconds ?? 900,
+      fixedArgvShapeHash: EXTERNAL_AGENT_FIXED_ARGV_SHAPE_HASHES[provider],
+      processBoundaryPlanned: true,
+      externalProcessPlanned: true,
+      controlledSiblingWorktreeOnly: true,
+      repoRootMutationAllowed: false,
+      arbitraryCommandAllowed: false,
+      blockReasons,
+      rawPromptStored: false,
+      rawDiffStored: false,
+      rawPatchStored: false,
+      rawCommandStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [],
+      auditEventIds: [foundationId('audit_external_agent_dry_run')],
+      summary: `${provider} external agent dry-run stores ids and hashes only.`,
+    });
+  }
+
+  function createExternalAgentApprovalRecord(
+    dryRunRecord: ExternalAgentPatchPlan,
+    body: ExternalAgentRequestBody | undefined,
+    status: GithubProviderApprovalStatus,
+    baseRecord?: ExternalAgentApprovalArtifact,
+  ): ExternalAgentApprovalArtifact {
+    const now = foundationTimestamp();
+    return ExternalAgentApprovalArtifactSchema.parse({
+      id: baseRecord?.id ?? foundationId('external_agent_approval'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: baseRecord?.createdAt ?? now,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalRequestId:
+        baseRecord?.approvalRequestId ??
+        body?.approvalRequestId ??
+        foundationId('external_agent_approval_request'),
+      approvalArtifactId:
+        baseRecord?.approvalArtifactId ?? foundationId('external_agent_approval_artifact'),
+      status,
+      approved: status === 'approved',
+      policyDecisionId: baseRecord?.policyDecisionId ?? foundationId('policy_decision_external_agent'),
+      expectedPlanHash: baseRecord?.expectedPlanHash ?? hashLocalMetadata(dryRunRecord),
+      decidedByHash: body?.decidedBy ? hashLocalMetadata({ decidedBy: body.decidedBy }) : undefined,
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : baseRecord?.reasonHash,
+      rawPromptStored: false,
+      rawDiffStored: false,
+      rawPatchStored: false,
+      rawCommandStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: dryRunRecord.evidenceRefs,
+      auditEventIds: dryRunRecord.auditEventIds,
+      summary: 'External agent approval is store-resolved and hash-bound.',
+    });
+  }
+
+  async function createExternalAgentRunRecord(
+    dryRunRecord: ExternalAgentPatchPlan,
+    approval: ExternalAgentApprovalArtifact | undefined,
+    body: ExternalAgentRequestBody | undefined,
+  ): Promise<ExternalAgentRun> {
+    const provider = dryRunRecord.provider;
+    const readiness = createExternalAgentReadiness({
+      provider,
+      externalAgentsEnabled: process.env.CODEXHUB_EXTERNAL_AGENTS_ENABLED === 'true',
+      providerEnabled:
+        provider === 'codex-cli'
+          ? process.env.CODEXHUB_EXTERNAL_AGENT_CODEX_ENABLED === 'true'
+          : process.env.CODEXHUB_EXTERNAL_AGENT_CLAUDE_ENABLED === 'true',
+      cliConfigured: true,
+      worktreeRecordId: dryRunRecord.sourceWorktreeRecordHash,
+      worktreeResolved: true,
+    });
+    const approvalUsable = approval?.status === 'approved';
+    const blockReasons = [
+      ...dryRunRecord.blockReasons,
+      ...readiness.blockReasons,
+      ...(approvalUsable ? [] : ['external_agent_approval_required']),
+    ];
+
+    if (blockReasons.length > 0 || !approval) {
+      return ExternalAgentRunSchema.parse({
+        id: foundationId('external_agent_run'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        status: 'blocked',
+        provider,
+        plan: dryRunRecord,
+        readiness,
+        approvalArtifactId: approval?.approvalArtifactId ?? body?.approvalArtifactId ?? 'missing',
+        approvalConsumed: false,
+        boundaryReached: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        controlledSiblingWorktreeOnly: true,
+        repoRootMutationAllowed: false,
+        rawPromptStored: false,
+        rawDiffStored: false,
+        rawPatchStored: false,
+        rawCommandStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        evidenceRefs: dryRunRecord.evidenceRefs,
+        auditEventIds: dryRunRecord.auditEventIds,
+        summary: 'External agent run blocked before process boundary.',
+      });
+    }
+
+    return runExternalAgentPatchWithRunner({
+      plan: dryRunRecord,
+      readiness,
+      approval,
+      runner: {
+        async run() {
+          return {
+            status: 'completed',
+            patchHash: body?.expectedPatchHash ?? hashLocalMetadata({ patch: 'external-agent' }),
+            changedFileCount: body?.changedFileCount ?? dryRunRecord.changedFileCount,
+            addedLineCount: body?.addedLineCount ?? 0,
+            deletedLineCount: body?.deletedLineCount ?? 0,
+          };
+        },
+      },
+    });
+  }
+
+  function registerRuntimeJobRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('runtime-jobs'));
+      }
+      const body = request.body as RuntimeJobRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const record = createRuntimeJobPlan({
+        jobKind: normalizeRuntimeJobKind(body?.jobKind),
+        targetKind: normalizeRuntimeTargetKind(body?.targetKind),
+        targetRecordId: body?.targetRecordId ?? 'runtime-target-record',
+        sourceRecord: body?.sourceRecordId ?? 'runtime-source-record',
+        templateId: body?.templateId,
+        templateHash: body?.templateHash,
+        lockKeys: body?.lockKeys ?? ['runtime:default'],
+        concurrencyPolicy: {
+          scopeSeed: body?.templateId ?? body?.targetRecordId ?? 'runtime-default-scope',
+        },
+        timeoutSeconds: body?.timeoutSeconds,
+        schedulerEnabled: process.env.CODEXHUB_RUNTIME_SCHEDULER_ENABLED === 'true',
+        childWorkflowCoordinationEnabled:
+          process.env.CODEXHUB_RUNTIME_CHILD_WORKFLOW_COORDINATION_ENABLED === 'true',
+        blockReasons: body?.blockReasons,
+      });
+      await store.runtimeJobPlans.saveJobPlan(record);
+      return record;
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.runtimeJobPlans.listJobPlans(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('runtime-jobs'));
+      }
+      const body = request.body as RuntimeJobRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const plan = body?.dryRunId
+        ? await resolveRuntimeJobPlanRecord(store, body.dryRunId)
+        : undefined;
+      if (!plan) {
+        return reply.code(404).send({ error: 'runtime job dry-run was not found' });
+      }
+      const queueEntry = enqueueRuntimeJob({
+        plan,
+        priority: body?.priority,
+        enqueueOrder: body?.enqueueOrder,
+        status: plan.status === 'blocked' ? 'blocked' : 'pending',
+      });
+      await store.runtimeQueueEntries.saveQueueEntry(queueEntry);
+      const run = createRuntimeJobRun({
+        plan,
+        queueEntry,
+        status: plan.status === 'blocked' ? 'blocked' : 'queued',
+        boundaryReached: false,
+      });
+      await store.runtimeJobRuns.saveRun(run);
+      return run;
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.runtimeJobRuns.listRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id && store ? await store.runtimeJobRuns.getRun(params.id) : undefined;
+      return record ?? reply.code(404).send({ error: 'runtime job run was not found' });
+    });
+  }
+
+  function registerRuntimeQueueRoutes(prefix: string): void {
+    server.get(prefix, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.runtimeQueueEntries.listQueueEntries(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+  }
+
+  function registerRuntimeLockRoutes(prefix: string): void {
+    server.get(prefix, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.runtimeLocks.listLocks(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+  }
+
+  function registerExternalAgentRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('external-agents'));
+      }
+      const body = request.body as ExternalAgentRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const record = createExternalAgentPatchPlanRecord(body);
+      await store.externalAgentDryRuns.saveDryRun(record);
+      return record;
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.externalAgentDryRuns.listDryRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('external-agents'));
+      }
+      const body = request.body as ExternalAgentRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await resolveExternalAgentDryRunRecord(store, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'external agent dry-run was not found' });
+      }
+      const approval = createExternalAgentApprovalRecord(dryRunRecord, body, 'requested');
+      await store.externalAgentApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('external-agents'));
+      }
+      const body = request.body as ExternalAgentRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await resolveExternalAgentDryRunRecord(store, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'external agent dry-run was not found' });
+      }
+      const approval = createExternalAgentApprovalRecord(
+        dryRunRecord,
+        body,
+        body?.outcome ?? 'approved',
+      );
+      await store.externalAgentApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.externalAgentApprovals.listApprovals(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('external-agents'));
+      }
+      const body = request.body as ExternalAgentRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await resolveExternalAgentDryRunRecord(store, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'external agent dry-run was not found' });
+      }
+      const approval = body?.approvalArtifactId
+        ? await store.externalAgentApprovals.getApprovalByArtifactId(body.approvalArtifactId)
+        : undefined;
+      const run = await createExternalAgentRunRecord(dryRunRecord, approval, body);
+      await store.externalAgentRuns.saveRun(run);
+      if (run.patchSummary) {
+        await store.externalAgentPatchSummaries.savePatchSummary(run.patchSummary);
+      }
+      if (run.boundaryReached && approval) {
+        await store.externalAgentApprovals.saveApproval(
+          createExternalAgentApprovalRecord(dryRunRecord, body, 'used', approval),
+        );
+      }
+      return run;
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.externalAgentRuns.listRuns(query) : [];
+      return createControlPlaneListResponse(
+        records,
+        (record) => record,
+        store,
+        records.some((record) => record.networkBoundaryInvoked),
+      );
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id && store ? await store.externalAgentRuns.getRun(params.id) : undefined;
+      return record ?? reply.code(404).send({ error: 'external agent run was not found' });
+    });
+  }
+
   function registerRealPolicyBackendRoutes(prefix: string): void {
     server.post(`${prefix}/dry-runs`, async (request, reply) => {
       const store = await getStore();
@@ -26523,6 +27042,46 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     return Object.entries(value as Record<string, unknown>).some(
       ([key, nestedValue]) => forbiddenKeys.has(key) || hasForbiddenGithubRawBody(nestedValue),
+    );
+  }
+
+  function hasForbiddenRuntimeExternalAgentBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'prompt',
+      'rawPrompt',
+      'instructions',
+      'rawInstructions',
+      'diff',
+      'rawDiff',
+      'patch',
+      'rawPatch',
+      'path',
+      'rawPath',
+      'command',
+      'rawCommand',
+      'argv',
+      'rawArgv',
+      'cwd',
+      'rawCwd',
+      'stdout',
+      'rawStdout',
+      'stderr',
+      'rawStderr',
+      'repoRoot',
+      'repoRootPath',
+    ]);
+
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenRuntimeExternalAgentBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        forbiddenKeys.has(key) || hasForbiddenRuntimeExternalAgentBody(nestedValue),
     );
   }
 

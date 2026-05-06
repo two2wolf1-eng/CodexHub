@@ -181,6 +181,28 @@ const lateStageSupervisorControlPlaneMatrix = [
     prefix: '/api/mcp/write-tools',
     approvalManagedExternally: false,
   },
+  {
+    family: 'runtime-jobs',
+    prefix: '/api/runtime/jobs',
+    approvalManagedExternally: true,
+  },
+  {
+    family: 'runtime-queue',
+    prefix: '/api/runtime/queue',
+    approvalManagedExternally: true,
+    routeSuffixes: [],
+  },
+  {
+    family: 'runtime-locks',
+    prefix: '/api/runtime/locks',
+    approvalManagedExternally: true,
+    routeSuffixes: [],
+  },
+  {
+    family: 'external-agents',
+    prefix: '/api/agents/external',
+    approvalManagedExternally: false,
+  },
 ] as const;
 function getLateStageMutatingRoutes(
   entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
@@ -215,6 +237,8 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/browser/actions',
   '/api/electron-cdp/main-inspector',
   '/api/mcp/write-tools',
+  '/api/runtime/',
+  '/api/agents/',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -561,6 +585,23 @@ describe('supervisor mock development API', () => {
             `${prefix}/runs`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerRuntimeJobRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [`${prefix}/dry-runs`, `${prefix}/runs`]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerExternalAgentRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -656,6 +697,35 @@ describe('supervisor mock development API', () => {
 
     await server.close();
     await store.close();
+  });
+
+  it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-external-agent-raw-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/agents/external/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        provider: 'codex-cli',
+        rawPrompt: 'external agent raw prompt must not be accepted',
+        rawPatch: 'diff --git raw patch must not be accepted',
+        rawCommand: 'codex exec arbitrary command',
+        rawPath: 'C:/Users/Thomas/CodexHub',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).not.toContain('external agent raw prompt');
+    expect(response.body).not.toContain('diff --git raw patch');
+    expect(response.body).not.toContain('codex exec arbitrary command');
+    expect(response.body).not.toContain('C:/Users/Thomas/CodexHub');
   });
 
   it('governs browser observation dry-run, persisted approval, and injected execution', async () => {
