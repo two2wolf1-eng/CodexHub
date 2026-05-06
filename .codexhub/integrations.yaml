@@ -2395,6 +2395,91 @@ integrations:
       rawPathStorage: forbidden
       tokenStorageAllowed: false
       metadataOnlyPublicOutput: true
+  runtime-external-agents:
+    enabled: false
+    adapter:
+      runtime: runtime-operations-kernel
+      externalAgents: external-agent-adapter
+    provider: runtime-scheduler-and-external-agent-cli
+    providerType: builtin-and-external-process
+    mode: governed-queue-and-controlled-worktree-patch
+    stage: m46-runtime-external-agent-operations
+    defaultActionMode: write
+    defaultRisk: critical
+    runtimeScheduler:
+      enabled: false
+      enablementEnv: CODEXHUB_RUNTIME_SCHEDULER_ENABLED
+      durableQueue: sqlite
+      locksLeasesCheckpoints: metadata-only
+      childWorkflowCoordinationEnabled: false
+      childWorkflowCoordinationEnv: CODEXHUB_RUNTIME_CHILD_WORKFLOW_COORDINATION_ENABLED
+      multiAgentCoordinationPath: workflow-kernel-only
+    externalAgents:
+      enabled: false
+      enablementEnv: CODEXHUB_EXTERNAL_AGENTS_ENABLED
+      providers:
+        codex-cli:
+          enabled: false
+          enablementEnv: CODEXHUB_EXTERNAL_AGENT_CODEX_ENABLED
+          fixedArgvShapeHashRequired: true
+        claude-code-cli:
+          enabled: false
+          enablementEnv: CODEXHUB_EXTERNAL_AGENT_CLAUDE_ENABLED
+          fixedArgvShapeHashRequired: true
+      controlledSiblingWorktreeOnly: true
+      repoRootMutationAllowed: false
+      arbitraryCommandAllowed: false
+      rawPromptStorage: forbidden
+      rawDiffStorage: forbidden
+      rawPatchStorage: forbidden
+      rawCommandStorage: forbidden
+      rawPathStorage: forbidden
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+      runtimeRoutes:
+        - POST /api/runtime/jobs/dry-runs
+        - GET /api/runtime/jobs/dry-runs
+        - POST /api/runtime/jobs/runs
+        - GET /api/runtime/jobs/runs
+        - GET /api/runtime/jobs/runs/:id
+        - GET /api/runtime/queue
+        - GET /api/runtime/locks
+      externalAgentRoutes:
+        - POST /api/agents/external/dry-runs
+        - GET /api/agents/external/dry-runs
+        - POST /api/agents/external/approval-requests
+        - POST /api/agents/external/manual-approvals
+        - GET /api/agents/external/approvals
+        - POST /api/agents/external/runs
+        - GET /api/agents/external/runs
+        - GET /api/agents/external/runs/:id
+    dashboard:
+      route: "#/runtime"
+      mutationAllowedInM46: false
+      localControlTokenPersistence: memory-only-if-guided-panel-added-later
+    cli:
+      readOnlyForRuntimeAndAgents: true
+      rehearsalFixtureOnly: true
+      tokenArgumentAllowed: false
+    safety:
+      externalAgentApprovalRequired: true
+      workflowApprovalDoesNotGrantAgentAuthority: true
+      uiCliMcpDirectAgentExecutionAllowed: false
+      mcpAgentSchedulingAllowed: false
+      rawPromptStored: false
+      rawDiffStored: false
+      rawPatchStored: false
+      rawCommandStored: false
+      rawPathStored: false
+      tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
   m0-m24-foundation-hardening:
     enabled: false
     adapter: governance-audit

@@ -181,12 +181,18 @@ const browserDirectActionTerms = ['page.click', 'page.type', 'keyboard.type', 'm
 const electronRuntimeEvaluateTerms = ['Runtime.evaluate'];
 const mcpWriteToolDirectTerms = ['workspace.applyPatchToControlledWorktree'];
 const directAdapterExecuteTerms = discoverPublicExecuteTerms();
+const directExternalAgentExecutionTerms = [
+  'runExternalAgentPatchWithRunner',
+  'buildExternalAgentBoundaryRequest',
+];
 const dynamicAdapterExecutePropertyTerms = [
   '["execute" +',
   "['execute' +",
   '["execute",',
   "['execute',",
   '.execute(',
+  '["runExternalAgent" +',
+  "['runExternalAgent' +",
 ];
 const browserPersistenceTerms = ['localStorage', 'sessionStorage', 'indexedDB'];
 const browserPersistenceWrapperTerms = [
@@ -643,6 +649,26 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'const run = adapters["execute" + "GithubMerge"];',
       expectedTerm: '["execute" +',
       description: 'adapter execute access through split dynamic property lookup from CLI source',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-agent-run.ts',
+      sourceText:
+        'import { runExternalAgentPatchWithRunner } from "@codexhub/external-agent-adapter"; await runExternalAgentPatchWithRunner(request);',
+      expectedTerm: 'runExternalAgentPatchWithRunner',
+      description: 'direct external agent runner import from CLI source',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-agent-run.tsx',
+      sourceText: 'const run = adapters["runExternalAgent" + "PatchWithRunner"];',
+      expectedTerm: '["runExternalAgent" +',
+      description: 'dynamic external agent runner access from Dashboard source',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-agent-run.ts',
+      sourceText:
+        'import { buildExternalAgentBoundaryRequest } from "@codexhub/external-agent-adapter"; const request = buildExternalAgentBoundaryRequest(plan);',
+      expectedTerm: 'buildExternalAgentBoundaryRequest',
+      description: 'direct external agent boundary request helper from MCP source',
     },
     {
       workspacePath: 'apps/cli/src/adversarial-policy.ts',
@@ -1570,6 +1596,18 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
           term,
           reason:
             'Dashboard, CLI, and MCP tools must not directly call capability adapter execute functions; mutations must go through Supervisor/workflow governance.',
+        });
+      }
+    }
+
+    for (const term of directExternalAgentExecutionTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Dashboard, CLI, and MCP tools must not directly call external agent execution helpers; agent runs must resolve through Supervisor and workflow governance.',
         });
       }
     }

@@ -141,6 +141,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m45.8-rehearsal-degraded-states-debug.md',
   'docs/releases/m45.9-adversarial-audit-negative-fixtures-debug.md',
   'docs/releases/m45.10-final-deep-governance-baseline.md',
+  'docs/releases/m46-runtime-external-agent-results.md',
   'docs/releases/m24.6-foundation-hardening.md',
   'docs/releases/m24.7-deep-governance-hardening.md',
   'docs/releases/m24.8-governance-meta-audit.md',
@@ -203,6 +204,7 @@ const requiredGovernanceFiles = [
   'docs/reviews/m0-m45-adversarial-audit-negative-fixtures-review.md',
   'docs/reviews/m0-m45-final-deep-governance-review.md',
   'docs/reviews/m0-m45-capability-governance-matrix.md',
+  'docs/reviews/m46-runtime-external-agent-hardening-review.md',
   'docs/reviews/m0-m24-foundation-hardening-review.md',
   'docs/reviews/m0-m24-deep-governance-debug-review.md',
   'docs/reviews/m0-m24-governance-meta-audit-review.md',
@@ -248,6 +250,7 @@ const requiredGovernanceFiles = [
   'docs/runbooks/m44-real-policy-telemetry-operator-runbook.md',
   'docs/runbooks/m45-controlled-write-expansion-operator-runbook.md',
   'docs/runbooks/m45.10-final-deep-governance-baseline-runbook.md',
+  'docs/runbooks/m46-runtime-external-agent-operator-runbook.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
   'docs/checklists/m10-local-pilot-checklist.md',
 ];

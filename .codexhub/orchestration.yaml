@@ -5237,3 +5237,78 @@ workflows:
       requestBodyAuthorityTrusted: false
       uiCliMcpDirectAdapterExecuteAllowed: false
       metadataOnlyPublicOutput: true
+  m46.runtime-external-agent-operations:
+    risk: critical
+    trigger:
+      type: runtime-external-agent-governance
+      entrypoint: contracts runtime-operations-kernel external-agent-adapter store supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - phase: contracts
+        package: contracts
+        validates:
+          - runtimeJobPlan
+          - runtimeQueueEntry
+          - runtimeLease
+          - runtimeLock
+          - runtimeCheckpoint
+          - externalAgentPatchPlan
+          - externalAgentRun
+      - phase: durable-runtime-store
+        packages:
+          - runtime-operations-kernel
+          - store-core
+          - store-sqlite
+        validates:
+          - queueRecordsMetadataOnly
+          - locksLeasesCheckpointsMetadataOnly
+          - multiAgentSlotsMetadataOnly
+      - phase: external-agent-boundary
+        package: external-agent-adapter
+        validates:
+          - codexCliFixedArgvShapeHash
+          - claudeCodeCliFixedArgvShapeHash
+          - controlledSiblingWorktreeOnly
+          - injectedRunnerOnlyInM46
+      - phase: supervisor-control-plane
+        app: supervisor
+        routes:
+          - /api/runtime/jobs/*
+          - /api/runtime/queue/*
+          - /api/runtime/locks/*
+          - /api/agents/external/*
+        validates:
+          - localControlRequired
+          - trustedLoopbackOriginRequired
+          - requestBodyAuthorityRejected
+          - rawAgentInputRejected
+      - phase: ux
+        apps:
+          - dashboard
+          - cli
+        validates:
+          - runtimeDashboardMetadataOnly
+          - cliRuntimeExternalAgentReadOnly
+          - fixtureRehearsalOnly
+    docs:
+      - docs/releases/m46-runtime-external-agent-results.md
+      - docs/reviews/m46-runtime-external-agent-hardening-review.md
+      - docs/runbooks/m46-runtime-external-agent-operator-runbook.md
+    safety:
+      productDefaultEnabled: false
+      externalAgentProviders:
+        - codex-cli
+        - claude-code-cli
+      noDirectUiCliMcpAgentExecution: true
+      externalAgentApprovalRequired: true
+      workflowKernelCoordinationOnly: true
+      controlledSiblingWorktreeOnly: true
+      repoRootMutationAllowed: false
+      arbitraryCommandAllowed: false
+      rawPromptStored: false
+      rawDiffStored: false
+      rawPatchStored: false
+      rawCommandStored: false
+      rawPathStored: false
+      tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
