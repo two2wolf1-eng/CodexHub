@@ -282,6 +282,29 @@ function hashTestMetadata(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
+function extractHelperPostSuffixes(
+  serverSource: string,
+  helperName: string,
+  variableName: string,
+): string[] {
+  const helperStart = serverSource.indexOf(`function ${helperName}(`);
+  expect(helperStart).toBeGreaterThanOrEqual(0);
+  const nextHelperStart = serverSource.indexOf('\n  function ', helperStart + 1);
+  const helperBody = serverSource.slice(
+    helperStart,
+    nextHelperStart > helperStart ? nextHelperStart : undefined,
+  );
+  const escapedVariableName = variableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const suffixPattern = new RegExp(
+    'server\\.post\\(`\\$\\{' + escapedVariableName + '\\}([^`]*)`',
+    'g',
+  );
+
+  return [...helperBody.matchAll(suffixPattern)]
+    .map((match) => match[1])
+    .filter((suffix): suffix is string => Boolean(suffix));
+}
+
 afterEach(() => {
   rmSync(symlinkEscapeAbsolutePath, { force: true });
 });
@@ -656,6 +679,123 @@ describe('supervisor mock development API', () => {
       expect(lateStageSupervisorRoutePrefixes).toContain(prefix);
     }
     expect(coveredLateStageRoutes).toEqual(registeredLateStageRoutes);
+  });
+
+  it('keeps late-stage helper POST suffixes synchronized with the gate matrix', () => {
+    const serverSource = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
+    const standardApprovalSuffixes = [
+      '/dry-runs',
+      '/approval-requests',
+      '/manual-approvals',
+      '/runs',
+    ];
+    const helperSuffixExpectations: Array<{
+      helperName: string;
+      variableName: string;
+      suffixes: string[];
+    }> = [
+      {
+        helperName: 'registerGithubMergeRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerGithubActionsObservationRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerGithubActionsRunControlRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerGithubActionsDispatchRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerReleaseVersionPlanRoutes',
+        variableName: 'prefix',
+        suffixes: ['/dry-runs'],
+      },
+      {
+        helperName: 'registerGithubReleaseTagRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerGithubReleaseDraftRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerDeploymentObservationRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerDeploymentOperationRoutes',
+        variableName: 'prefix',
+        suffixes: [
+          '/dry-runs',
+          '/approval-requests',
+          '/manual-approvals',
+          '/rollback-plans',
+          '/runs',
+        ],
+      },
+      {
+        helperName: 'registerSecretReadinessRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerRuntimeJobRoutes',
+        variableName: 'prefix',
+        suffixes: ['/dry-runs', '/runs'],
+      },
+      {
+        helperName: 'registerExternalAgentRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerPlatformOperationRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerRealPolicyBackendRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerRealTelemetryExportRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerControlledWriteRoutes',
+        variableName: 'surface',
+        suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerGithubPrManagementRoutes',
+        variableName: 'prefix',
+        suffixes: standardApprovalSuffixes,
+      },
+    ];
+
+    for (const expectation of helperSuffixExpectations) {
+      expect(
+        extractHelperPostSuffixes(
+          serverSource,
+          expectation.helperName,
+          expectation.variableName,
+        ).sort(),
+      ).toEqual([...expectation.suffixes].sort());
+    }
   });
 
   it('keeps late-stage control-plane matrix classified by family and approval source', () => {

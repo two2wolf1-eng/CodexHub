@@ -5516,3 +5516,26 @@ workflows:
       noOpenPullRequest: true
       adversarialStoreInputsPersistHashOnly: true
       metadataOnlyPublicOutput: true
+  m47_d6.supervisor-route-coverage-drift-debug:
+    risk: critical
+    trigger:
+      type: supervisor-route-coverage-drift-debug
+      entrypoint: supervisor docs tools
+      localControlRequired: false
+    scope:
+      - supervisor-post-route-coverage-drift
+      - helper-post-suffix-gate-matrix-sync
+      - local-control-origin-cors-authority-coverage
+    docs:
+      - docs/releases/m47-d6-supervisor-route-coverage-drift-debug.md
+      - docs/reviews/m47-d6-supervisor-route-coverage-drift-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      routeDriftGuardRequired: true
+      metadataOnlyPublicOutput: true
