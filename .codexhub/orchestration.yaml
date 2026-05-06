@@ -4983,3 +4983,25 @@ workflows:
       repoRootWorkspaceMutationForbidden: true
       genericMcpWritePassthroughForbidden: true
       metadataOnlyPublicOutput: true
+  m45_1.baseline-drift-debug:
+    risk: critical
+    trigger:
+      type: baseline-drift-debug
+      entrypoint: docs config tools audits
+      localControlRequired: false
+    scope:
+      - m0-m45-capability-registration
+      - m44-m45-docs-and-scaffold-health
+      - audit-allowlist-drift-review
+    docs:
+      - docs/releases/m45.1-baseline-drift-debug.md
+      - docs/reviews/m0-m45-baseline-drift-debug-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRealRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
