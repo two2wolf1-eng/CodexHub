@@ -34,7 +34,12 @@ function expectNoForbiddenCliRawOutput(serialized: string): void {
 }
 
 function extractFunctionSource(source: string, functionName: string): string {
-  const startPatterns = [`export function ${functionName}`, `function ${functionName}`];
+  const startPatterns = [
+    `export async function ${functionName}`,
+    `export function ${functionName}`,
+    `async function ${functionName}`,
+    `function ${functionName}`,
+  ];
   const start = startPatterns
     .map((pattern) => source.indexOf(pattern))
     .filter((index) => index >= 0)
@@ -210,6 +215,46 @@ describe('cli development mock-run fallback', () => {
       expect(helperSource, helperName).not.toContain("method: 'POST'");
       expect(helperSource, helperName).not.toContain('method: "POST"');
       expect(helperSource, helperName).not.toMatch(/\bexecute[A-Z][A-Za-z0-9_]*/);
+    }
+  });
+
+  it('keeps operator smoke CLI list/show helpers GET-only and token-free', () => {
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const readOnlyGetHelperNames = [
+      'listGovernanceRuns',
+      'listGithubBranchPublishDryRuns',
+      'listGithubBranchPublishApprovals',
+      'listGithubBranchPublishRuns',
+      'showGithubBranchPublishRun',
+      'listGithubPrLifecycleDryRuns',
+      'listGithubPrLifecycleApprovals',
+      'listGithubPrLifecycleRuns',
+      'showGithubPrLifecycleRun',
+      'listGithubRemoteCleanupDryRuns',
+      'listGithubRemoteCleanupApprovals',
+      'listGithubRemoteCleanupRuns',
+      'showGithubRemoteCleanupRun',
+      'listCustomWorkflowTemplatesForCli',
+      'showCustomWorkflowTemplateForCli',
+      'validateCustomWorkflowTemplateForCli',
+      'rehearseCustomWorkflowForCli',
+      'listApprovalDecisionHistory',
+      'listProductionWorkflowRecoveryDryRuns',
+      'listProductionWorkflowRecoveryApprovals',
+      'listProductionWorkflowRecoveryRuns',
+      'showProductionWorkflowRecoveryRun',
+    ];
+
+    for (const helperName of readOnlyGetHelperNames) {
+      const helperSource = extractFunctionSource(source, helperName);
+
+      expect(helperSource, helperName).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+      expect(helperSource, helperName).not.toContain('createSupervisorPostHeaders');
+      expect(helperSource, helperName).not.toContain("method: 'POST'");
+      expect(helperSource, helperName).not.toContain('method: "POST"');
+      expect(helperSource, helperName).not.toContain('x-codexhub-local-token');
+      expect(helperSource, helperName).not.toMatch(/\bexecute[A-Z][A-Za-z0-9_]*/);
+      expect(helperSource, helperName).not.toContain('.execute(');
     }
   });
 

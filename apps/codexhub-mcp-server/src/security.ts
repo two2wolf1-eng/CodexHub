@@ -18,10 +18,6 @@ export const MCP_LOCAL_ENV_VAR = [
   'CODEXHUB_MCP_LOCAL_',
   LOCAL_CONTROL_KEY_KIND.toUpperCase(),
 ].join('');
-export const SUPERVISOR_LOCAL_ENV_VAR = [
-  'CODEXHUB_SUPERVISOR_LOCAL_',
-  LOCAL_CONTROL_KEY_KIND.toUpperCase(),
-].join('');
 
 const LOCAL_CONTROL_REQUIRED_ERROR = ['local_control', LOCAL_CONTROL_KEY_KIND, 'required'].join(
   '_',
@@ -36,7 +32,7 @@ const DEFAULT_TRUSTED_ORIGIN_PORTS = new Set(['3000', '3001', '3335', '4173', '5
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1']);
 
 export function readConfiguredLocalControlKey(): string | undefined {
-  return process.env[MCP_LOCAL_ENV_VAR] ?? process.env[SUPERVISOR_LOCAL_ENV_VAR];
+  return process.env[MCP_LOCAL_ENV_VAR];
 }
 
 export function authorizeMcpHttpRequest(

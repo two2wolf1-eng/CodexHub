@@ -4375,6 +4375,29 @@ workflows:
       workflowApprovalDoesNotGrantChildAuthority: true
       childApprovalsRemainSeparate: true
       metadataOnlyPublicOutput: true
+  m32_6.operator-ux-cli-mcp-smoke-hardening:
+    risk: high
+    trigger:
+      type: operator-ux-smoke-hardening
+      entrypoint: dashboard cli mcp tests docs
+      localControlRequired: false
+    fixes:
+      - dashboardOperatorSmokeRouteRegistrationGuard
+      - cliOperatorSmokeGetHelperGuard
+      - mcpSupervisorTokenFallbackRemoved
+      - mcpReadOnlySourceGuardExtended
+    docs:
+      - docs/releases/m32.6-operator-ux-smoke-hardening.md
+      - docs/reviews/m0-m32-operator-ux-smoke-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noNewDashboardMutationBeyondRecoveryWizard: true
+      noNewCliMutation: true
+      mcpReadOnlyToolsOnly: true
+      metadataOnlyPublicOutput: true
   m32_3.control-plane-coverage-drift-hardening:
     risk: critical
     trigger:

@@ -26,6 +26,7 @@ import {
   createVerificationReadinessPreview,
   createBrowserProfilesReadOnlySummary,
   createWorktreeReadOnlySummary,
+  DASHBOARD_VIEWS,
   getDashboardHash,
   getDashboardViewFromHash,
   summarizeDegradedState,
@@ -67,6 +68,23 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
+  });
+
+  it('keeps M32.6 operator smoke routes registered as stable hash views', () => {
+    const operatorSmokeViews = [
+      'governance',
+      'readiness',
+      'github',
+      'workflows',
+      'approvals',
+      'pilot',
+      'release-candidates',
+    ] as const;
+
+    for (const view of operatorSmokeViews) {
+      expect(DASHBOARD_VIEWS).toContain(view);
+      expect(getDashboardViewFromHash(getDashboardHash(view))).toBe(view);
+    }
   });
 
   it('keeps approval UX token handling in component memory only', () => {

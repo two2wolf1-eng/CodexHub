@@ -210,6 +210,7 @@ describe('codexhub MCP server', () => {
       const childProcessModule = ['node:', childProcessName].join('');
       const githubTokenEnv = ['CODEXHUB', 'GITHUB', 'TOKEN'].join('_');
       const localControlTokenEnv = ['CODEXHUB', 'SUPERVISOR', 'LOCAL', 'TOKEN'].join('_');
+      const supervisorLocalControlPrefix = ['CODEXHUB', 'SUPERVISOR', 'LOCAL', ''].join('_');
 
       expect(source).not.toContain(childProcessName);
       expect(source).not.toContain(childProcessModule);
@@ -218,6 +219,8 @@ describe('codexhub MCP server', () => {
       expect(source).not.toContain("globalThis['fetch']");
       expect(source).not.toContain(githubTokenEnv);
       expect(source).not.toContain(localControlTokenEnv);
+      expect(source).not.toContain(supervisorLocalControlPrefix);
+      expect(source).not.toContain('SUPERVISOR_LOCAL_ENV_VAR');
       expect(source).not.toContain(`process.env['${githubTokenEnv}']`);
       expect(source).not.toContain(`process.env["${githubTokenEnv}"]`);
       expect(source).not.toContain(`process.env['${localControlTokenEnv}']`);
