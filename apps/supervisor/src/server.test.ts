@@ -6750,6 +6750,156 @@ describe('supervisor GitHub PR management control planes', () => {
     expect(completedResponse.body).not.toContain('ghp_secret');
     expect(completedResponse.body).not.toContain('"bug"');
   });
+
+  it('keeps PR management approvals unused before boundary and consumes once on failed boundary attempts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-pr-labels-boundary-failure-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+      const method = init?.method ?? 'GET';
+
+      return {
+        ok: method !== 'POST',
+        status: method === 'POST' ? 500 : 200,
+        async text() {
+          return method === 'POST' ? '{"message":"github-write-failed"}' : '{"ok":true}';
+        },
+      };
+    }) as unknown as typeof fetch;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubPrLabelsEnabled: true,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: fetchImpl,
+    });
+
+    const dryRunPayload = {
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codexhub/m37',
+      prNumber: '42',
+      itemSummaries: ['bug', 'm37'],
+      payloadSummary: 'Apply approved labels from metadata summary.',
+    };
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/dry-runs',
+      headers: localControlHeaders,
+      payload: dryRunPayload,
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRunResponse.json().dryRunId, reason: 'approve labels' },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const preBoundaryBlockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/runs',
+      headers: localControlHeaders,
+      payload: {
+        ...dryRunPayload,
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        headBranch: 'codexhub/other',
+      },
+    });
+    const approvalsAfterPreBoundaryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/pr-labels/approvals',
+    });
+    const requestCountAfterPreBoundaryBlock = requested.length;
+    const boundaryFailedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/runs',
+      headers: localControlHeaders,
+      payload: {
+        ...dryRunPayload,
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+      },
+    });
+    const reusedApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/runs',
+      headers: localControlHeaders,
+      payload: {
+        ...dryRunPayload,
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+      },
+    });
+    const approvalsAfterFailureResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/pr-labels/approvals',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(preBoundaryBlockedResponse.statusCode).toBe(200);
+    expect(preBoundaryBlockedResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(requestCountAfterPreBoundaryBlock).toBe(0);
+    expect(
+      approvalsAfterPreBoundaryResponse
+        .json()
+        .records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(0);
+    expect(boundaryFailedResponse.statusCode).toBe(200);
+    expect(boundaryFailedResponse.json()).toMatchObject({
+      status: 'failed',
+      networkBoundaryInvoked: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+    });
+    expect(reusedApprovalResponse.statusCode).toBe(200);
+    expect(reusedApprovalResponse.json()).toMatchObject({
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+    });
+    expect(
+      approvalsAfterFailureResponse
+        .json()
+        .records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(1);
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'GET https://api.github.com/repos/octo-org/codexhub/issues/42/labels',
+      'POST https://api.github.com/repos/octo-org/codexhub/issues/42/labels',
+    ]);
+    for (const responseBody of [
+      preBoundaryBlockedResponse.body,
+      boundaryFailedResponse.body,
+      reusedApprovalResponse.body,
+    ]) {
+      expect(responseBody).not.toContain('octo-org');
+      expect(responseBody).not.toContain('codexhub/m37');
+      expect(responseBody).not.toContain('ghp_secret');
+      expect(responseBody).not.toContain('github-write-failed');
+      expect(responseBody).not.toContain('"bug"');
+    }
+  });
 });
 
 describe('supervisor GitHub draft PR control plane', () => {

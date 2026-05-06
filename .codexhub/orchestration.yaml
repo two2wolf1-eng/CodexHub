@@ -5565,3 +5565,29 @@ workflows:
       requestBodyAuthorityTrusted: false
       corsWildcardAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d8.approval-consumption-semantics-debug:
+    risk: critical
+    trigger:
+      type: approval-consumption-semantics-debug
+      entrypoint: supervisor docs tools
+      localControlRequired: false
+    scope:
+      - pre-boundary-block-approval-preservation
+      - boundary-reached-failure-approval-consumption
+      - remote-write-boundary-truth-regression
+      - evidence-audit-metadata-only-output
+    docs:
+      - docs/releases/m47-d8-approval-consumption-semantics-debug.md
+      - docs/reviews/m47-d8-approval-consumption-semantics-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      preBoundaryApprovalConsumed: false
+      boundaryFailureConsumesExactlyOnce: true
+      requestBodyAuthorityTrusted: false
+      metadataOnlyPublicOutput: true
