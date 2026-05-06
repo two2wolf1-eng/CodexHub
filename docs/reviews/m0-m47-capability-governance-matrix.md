@@ -26,3 +26,10 @@ This matrix extends the M0-M45 baseline with M46 runtime/external agent operatio
 - Platform operations are local only; network backup/export is out of scope.
 - Active store replacement is critical and requires two approvals.
 - Capability providers remain non-authoritative; CodexHub approval, evidence, and audit stay final.
+
+## M47-D Debug Registration
+
+- M47-D1 established the clean M0-M47 baseline drift review.
+- M47-D2 registers the debug hardening series in orchestration, integrations, and scaffold health.
+- The M47-D series is review-only: it cannot add providers, routes, store repositories, live boundaries, remote writes, pushes, or pull requests.
+- Deeper rounds D3-D20 are expected to harden tests, audits, public projections, boundary checks, and operator surface drift controls.

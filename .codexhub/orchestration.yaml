@@ -5390,3 +5390,49 @@ workflows:
       cliPlatformOperationsReadOnly: true
       mcpPlatformOperationsMutationAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d1.baseline-drift-debug:
+    risk: critical
+    trigger:
+      type: baseline-drift-debug
+      entrypoint: docs config tools audits
+      localControlRequired: false
+    scope:
+      - m0-m47-capability-matrix
+      - m46-m47-registration
+      - scaffold-health-baseline
+      - no-live-automation-baseline
+    docs:
+      - docs/releases/m47-d1-baseline-drift-debug.md
+      - docs/reviews/m47-d1-baseline-drift-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+  m47_d2.scaffold-registration-debug:
+    risk: critical
+    trigger:
+      type: scaffold-registration-debug
+      entrypoint: docs config tools
+      localControlRequired: false
+    scope:
+      - nx-project-registration
+      - contract-export-registration
+      - governance-doc-registration
+      - review-only-debug-baseline-registration
+    docs:
+      - docs/releases/m47-d2-scaffold-registration-debug.md
+      - docs/reviews/m47-d2-scaffold-registration-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
