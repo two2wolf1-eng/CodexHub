@@ -5208,3 +5208,32 @@ workflows:
       noOpenPullRequest: true
       liveBoundaryAllowlistUnchanged: true
       metadataOnlyPublicOutput: true
+  m45_10.final-deep-governance-baseline:
+    risk: critical
+    trigger:
+      type: final-deep-governance-baseline
+      entrypoint: docs config tools audits
+      localControlRequired: false
+    scope:
+      - m45-1-through-m45-9-findings-aggregation
+      - m0-m45-capability-governance-matrix
+      - final-release-review-runbook
+      - foundation-gate-closeout
+    docs:
+      - docs/releases/m45.10-final-deep-governance-baseline.md
+      - docs/reviews/m0-m45-final-deep-governance-review.md
+      - docs/reviews/m0-m45-capability-governance-matrix.md
+      - docs/runbooks/m45.10-final-deep-governance-baseline-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      liveBoundaryAllowlistUnchanged: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      metadataOnlyPublicOutput: true

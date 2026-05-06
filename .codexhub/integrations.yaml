@@ -2478,3 +2478,62 @@ integrations:
       cliReadOnlyForWorkflowAndGithubViews: true
       mcpReadOnlyToolsOnly: true
       auditNegativeFixturesExtended: true
+  m0-m45-deep-debug-baseline:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-hardening
+    providerType: builtin
+    mode: review-only
+    stage: m45.10-final-deep-governance-baseline
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    reviewedCapabilityChains:
+      - codex
+      - nx-verification
+      - mcp-readonly
+      - mcp-controlled-write
+      - browser-observation
+      - browser-controlled-write
+      - electron-cdp-observation
+      - electron-main-inspector
+      - worktree
+      - policy-backend-advisory
+      - real-policy-backend-advisory
+      - telemetry-projection
+      - real-telemetry-export
+      - github-provider
+      - github-merge
+      - github-actions-cicd
+      - release-lifecycle
+      - deployment-observation
+      - governed-deployment
+      - secrets-governance
+      - review-package
+      - release-candidate
+      - rework-loop
+      - remote-supersede
+      - remote-cleanup
+      - custom-workflows
+      - production-workflow-recovery
+      - controlled-write-expansion
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWriteSmoke: true
+      noPush: true
+      noOpenPullRequest: true
+      liveBoundaryAllowlistUnchanged: true
+      metadataOnlyReviewDocs: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      dashboardMutationAllowlistAudited: true
+      cliMutationAllowlistAudited: true
+      mcpWritePassthroughForbidden: true
+      auditNegativeFixturesExtendedThroughM45_9: true
+      finalBaselineDocsRequired: true
