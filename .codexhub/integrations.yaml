@@ -2231,6 +2231,170 @@ integrations:
       requestBodyApprovalArtifactTrusted: false
       requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
+  real-policy-telemetry:
+    enabled: false
+    adapter:
+      policy: policy-backend-adapter
+      telemetry: otel-adapter
+    provider: policy-telemetry-runtime
+    providerType: builtin
+    mode: governed-advisory-and-export
+    stage: m44-real-policy-telemetry
+    defaultActionMode: write
+    defaultRisk: critical
+    policy:
+      advisoryOnly: true
+      securityKernelFinalAuthority: true
+      enablementEnv: CODEXHUB_POLICY_BACKEND_REAL_ENABLED
+      opa:
+        enabled: false
+        modes:
+          - local-cli
+          - loopback-http
+        enablementEnv: CODEXHUB_POLICY_BACKEND_OPA_ENABLED
+      cedar:
+        enabled: false
+        modes:
+          - local-cli
+          - loopback-http
+        enablementEnv: CODEXHUB_POLICY_BACKEND_CEDAR_ENABLED
+    telemetry:
+      evidenceAuditReplacement: false
+      enablementEnv: CODEXHUB_OTEL_REAL_ENABLED
+      exporters:
+        inMemory:
+          enabled: false
+          networkBoundary: false
+        otlpHttp:
+          enabled: false
+          enablementEnv: CODEXHUB_OTEL_NETWORK_EXPORTER_ENABLED
+          defaultAllowlist: loopback-only
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+      routes:
+        - POST /api/policy-backends/evaluations/dry-runs
+        - GET /api/policy-backends/evaluations/dry-runs
+        - POST /api/policy-backends/evaluations/approval-requests
+        - POST /api/policy-backends/evaluations/manual-approvals
+        - GET /api/policy-backends/evaluations/approvals
+        - POST /api/policy-backends/evaluations/runs
+        - GET /api/policy-backends/evaluations/runs
+        - GET /api/policy-backends/evaluations/runs/:id
+        - POST /api/telemetry/exports/dry-runs
+        - GET /api/telemetry/exports/dry-runs
+        - POST /api/telemetry/exports/approval-requests
+        - POST /api/telemetry/exports/manual-approvals
+        - GET /api/telemetry/exports/approvals
+        - POST /api/telemetry/exports/runs
+        - GET /api/telemetry/exports/runs
+        - GET /api/telemetry/exports/runs/:id
+    dashboard:
+      route: "#/policy-telemetry"
+      guidedPostAllowed: true
+      localControlTokenPersistence: memory-only
+    cli:
+      readOnlyForM44: true
+      mutationCommandsAllowed: false
+    safety:
+      rawPolicyStorage: forbidden
+      rawInputStorage: forbidden
+      rawOutputStorage: forbidden
+      rawSpanStorage: forbidden
+      rawLogStorage: forbidden
+      tokenStorageAllowed: false
+      policyBackendCanGrantAuthority: false
+      telemetryCanReplaceEvidenceAudit: false
+      metadataOnlyPublicOutput: true
+  controlled-write-expansion:
+    enabled: false
+    adapter:
+      browser: playwright-observer-adapter
+      electron: electron-cdp-adapter
+      mcp: mcp-tool-contracts
+    provider: controlled-write-surfaces
+    providerType: builtin
+    mode: governed-fixed-write-allowlist
+    stage: m45-controlled-write-expansion
+    defaultActionMode: write
+    defaultRisk: critical
+    browser:
+      enabled: false
+      enablementEnv: CODEXHUB_BROWSER_ACT_ENABLED
+      allowedActions:
+        - click
+        - type
+      typedTextPersistence: forbidden
+    electron:
+      enabled: false
+      enablementEnv: CODEXHUB_ELECTRON_MAIN_INSPECTOR_ENABLED
+      allowedCommands:
+        - Runtime.evaluate by named snippet id/hash
+      arbitrarySourceFromRequestBody: forbidden
+    mcpWriteTools:
+      enabled: false
+      enablementEnv: CODEXHUB_MCP_WRITE_TOOLS_ENABLED
+      workspaceMutationEnv: CODEXHUB_MCP_WORKSPACE_MUTATION_ENABLED
+      allowedTools:
+        - workspace.applyPatchToControlledWorktree
+      repoRootMutationAllowed: false
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+      routes:
+        - POST /api/browser/actions/dry-runs
+        - GET /api/browser/actions/dry-runs
+        - POST /api/browser/actions/approval-requests
+        - POST /api/browser/actions/manual-approvals
+        - GET /api/browser/actions/approvals
+        - POST /api/browser/actions/runs
+        - GET /api/browser/actions/runs
+        - GET /api/browser/actions/runs/:id
+        - POST /api/electron-cdp/main-inspector/dry-runs
+        - GET /api/electron-cdp/main-inspector/dry-runs
+        - POST /api/electron-cdp/main-inspector/approval-requests
+        - POST /api/electron-cdp/main-inspector/manual-approvals
+        - GET /api/electron-cdp/main-inspector/approvals
+        - POST /api/electron-cdp/main-inspector/runs
+        - GET /api/electron-cdp/main-inspector/runs
+        - GET /api/electron-cdp/main-inspector/runs/:id
+        - POST /api/mcp/write-tools/dry-runs
+        - GET /api/mcp/write-tools/dry-runs
+        - POST /api/mcp/write-tools/approval-requests
+        - POST /api/mcp/write-tools/manual-approvals
+        - GET /api/mcp/write-tools/approvals
+        - POST /api/mcp/write-tools/runs
+        - GET /api/mcp/write-tools/runs
+        - GET /api/mcp/write-tools/runs/:id
+    dashboard:
+      writeExecutionUiAllowed: false
+      readOnlySummariesOnly: true
+    cli:
+      exactMutationCommandsAllowed: true
+      tokenSource: CODEXHUB_SUPERVISOR_LOCAL_TOKEN
+      tokenArgumentAllowed: false
+    safety:
+      genericBrowserAutomationAllowed: false
+      genericCdpPassthroughAllowed: false
+      genericMcpWritePassthroughAllowed: false
+      rawTypedTextStorage: forbidden
+      rawJavascriptStorage: forbidden
+      rawPatchStorage: forbidden
+      rawPathStorage: forbidden
+      tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
   m0-m24-foundation-hardening:
     enabled: false
     adapter: governance-audit

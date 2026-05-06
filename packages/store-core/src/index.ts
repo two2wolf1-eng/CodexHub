@@ -3,11 +3,17 @@ import type {
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
+  BrowserActionApprovalArtifact,
+  BrowserActionPlan,
+  BrowserActionRun,
   CodexPatchChildRecord,
   CodexExecLiveRunRecord,
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  ElectronMainInspectorApprovalArtifact,
+  ElectronMainInspectorPlan,
+  ElectronMainInspectorRun,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -61,6 +67,12 @@ import type {
   ProductionWorkflowRecoveryPlan,
   ProductionWorkflowRecoveryRun,
   NxVerificationChildRecord,
+  RealPolicyBackendApprovalArtifact,
+  RealPolicyBackendEvaluationPlan,
+  RealPolicyBackendEvaluationRun,
+  RealTelemetryExportApprovalArtifact,
+  RealTelemetryExportPlan,
+  RealTelemetryExportRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -75,6 +87,9 @@ import type {
   SecretReadinessApprovalArtifact,
   SecretReadinessPlan,
   SecretReadinessRun,
+  McpWriteToolApprovalArtifact,
+  McpWriteToolPlan,
+  McpWriteToolRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -162,6 +177,11 @@ export type GithubReleaseDraftControlPlaneQuery = WorktreeControlPlaneQuery;
 export type DeploymentObservationControlPlaneQuery = WorktreeControlPlaneQuery;
 export type DeploymentOperationControlPlaneQuery = WorktreeControlPlaneQuery;
 export type SecretReadinessControlPlaneQuery = WorktreeControlPlaneQuery;
+export type RealPolicyBackendControlPlaneQuery = WorktreeControlPlaneQuery;
+export type RealTelemetryExportControlPlaneQuery = WorktreeControlPlaneQuery;
+export type BrowserActionControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ElectronMainInspectorControlPlaneQuery = WorktreeControlPlaneQuery;
+export type McpWriteToolControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -788,6 +808,125 @@ export interface SecretLeakAuditSummaryRepository {
   ): Promise<SecretLeakAuditSummary[]>;
 }
 
+export interface RealPolicyBackendDryRunRepository {
+  saveDryRun(record: RealPolicyBackendEvaluationPlan): Promise<RealPolicyBackendEvaluationPlan>;
+  getDryRun(id: string): Promise<RealPolicyBackendEvaluationPlan | undefined>;
+  listDryRuns(
+    query?: RealPolicyBackendControlPlaneQuery,
+  ): Promise<RealPolicyBackendEvaluationPlan[]>;
+}
+
+export interface RealPolicyBackendApprovalRepository {
+  saveApproval(
+    record: RealPolicyBackendApprovalArtifact,
+  ): Promise<RealPolicyBackendApprovalArtifact>;
+  getApproval(id: string): Promise<RealPolicyBackendApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<RealPolicyBackendApprovalArtifact | undefined>;
+  listApprovals(
+    query?: RealPolicyBackendControlPlaneQuery,
+  ): Promise<RealPolicyBackendApprovalArtifact[]>;
+}
+
+export interface RealPolicyBackendRunRepository {
+  saveRun(record: RealPolicyBackendEvaluationRun): Promise<RealPolicyBackendEvaluationRun>;
+  getRun(id: string): Promise<RealPolicyBackendEvaluationRun | undefined>;
+  listRuns(query?: RealPolicyBackendControlPlaneQuery): Promise<RealPolicyBackendEvaluationRun[]>;
+}
+
+export interface RealTelemetryExportDryRunRepository {
+  saveDryRun(record: RealTelemetryExportPlan): Promise<RealTelemetryExportPlan>;
+  getDryRun(id: string): Promise<RealTelemetryExportPlan | undefined>;
+  listDryRuns(query?: RealTelemetryExportControlPlaneQuery): Promise<RealTelemetryExportPlan[]>;
+}
+
+export interface RealTelemetryExportApprovalRepository {
+  saveApproval(record: RealTelemetryExportApprovalArtifact): Promise<RealTelemetryExportApprovalArtifact>;
+  getApproval(id: string): Promise<RealTelemetryExportApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<RealTelemetryExportApprovalArtifact | undefined>;
+  listApprovals(
+    query?: RealTelemetryExportControlPlaneQuery,
+  ): Promise<RealTelemetryExportApprovalArtifact[]>;
+}
+
+export interface RealTelemetryExportRunRepository {
+  saveRun(record: RealTelemetryExportRun): Promise<RealTelemetryExportRun>;
+  getRun(id: string): Promise<RealTelemetryExportRun | undefined>;
+  listRuns(query?: RealTelemetryExportControlPlaneQuery): Promise<RealTelemetryExportRun[]>;
+}
+
+export interface BrowserActionDryRunRepository {
+  saveDryRun(record: BrowserActionPlan): Promise<BrowserActionPlan>;
+  getDryRun(id: string): Promise<BrowserActionPlan | undefined>;
+  listDryRuns(query?: BrowserActionControlPlaneQuery): Promise<BrowserActionPlan[]>;
+}
+
+export interface BrowserActionApprovalRepository {
+  saveApproval(record: BrowserActionApprovalArtifact): Promise<BrowserActionApprovalArtifact>;
+  getApproval(id: string): Promise<BrowserActionApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<BrowserActionApprovalArtifact | undefined>;
+  listApprovals(query?: BrowserActionControlPlaneQuery): Promise<BrowserActionApprovalArtifact[]>;
+}
+
+export interface BrowserActionRunRepository {
+  saveRun(record: BrowserActionRun): Promise<BrowserActionRun>;
+  getRun(id: string): Promise<BrowserActionRun | undefined>;
+  listRuns(query?: BrowserActionControlPlaneQuery): Promise<BrowserActionRun[]>;
+}
+
+export interface ElectronMainInspectorDryRunRepository {
+  saveDryRun(record: ElectronMainInspectorPlan): Promise<ElectronMainInspectorPlan>;
+  getDryRun(id: string): Promise<ElectronMainInspectorPlan | undefined>;
+  listDryRuns(
+    query?: ElectronMainInspectorControlPlaneQuery,
+  ): Promise<ElectronMainInspectorPlan[]>;
+}
+
+export interface ElectronMainInspectorApprovalRepository {
+  saveApproval(
+    record: ElectronMainInspectorApprovalArtifact,
+  ): Promise<ElectronMainInspectorApprovalArtifact>;
+  getApproval(id: string): Promise<ElectronMainInspectorApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ElectronMainInspectorApprovalArtifact | undefined>;
+  listApprovals(
+    query?: ElectronMainInspectorControlPlaneQuery,
+  ): Promise<ElectronMainInspectorApprovalArtifact[]>;
+}
+
+export interface ElectronMainInspectorRunRepository {
+  saveRun(record: ElectronMainInspectorRun): Promise<ElectronMainInspectorRun>;
+  getRun(id: string): Promise<ElectronMainInspectorRun | undefined>;
+  listRuns(query?: ElectronMainInspectorControlPlaneQuery): Promise<ElectronMainInspectorRun[]>;
+}
+
+export interface McpWriteToolDryRunRepository {
+  saveDryRun(record: McpWriteToolPlan): Promise<McpWriteToolPlan>;
+  getDryRun(id: string): Promise<McpWriteToolPlan | undefined>;
+  listDryRuns(query?: McpWriteToolControlPlaneQuery): Promise<McpWriteToolPlan[]>;
+}
+
+export interface McpWriteToolApprovalRepository {
+  saveApproval(record: McpWriteToolApprovalArtifact): Promise<McpWriteToolApprovalArtifact>;
+  getApproval(id: string): Promise<McpWriteToolApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<McpWriteToolApprovalArtifact | undefined>;
+  listApprovals(query?: McpWriteToolControlPlaneQuery): Promise<McpWriteToolApprovalArtifact[]>;
+}
+
+export interface McpWriteToolRunRepository {
+  saveRun(record: McpWriteToolRun): Promise<McpWriteToolRun>;
+  getRun(id: string): Promise<McpWriteToolRun | undefined>;
+  listRuns(query?: McpWriteToolControlPlaneQuery): Promise<McpWriteToolRun[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -1176,6 +1315,21 @@ export interface CodexHubStore {
   secretReadinessApprovals: SecretReadinessApprovalRepository;
   secretReadinessRuns: SecretReadinessRunRepository;
   secretLeakAuditSummaries: SecretLeakAuditSummaryRepository;
+  realPolicyBackendDryRuns: RealPolicyBackendDryRunRepository;
+  realPolicyBackendApprovals: RealPolicyBackendApprovalRepository;
+  realPolicyBackendRuns: RealPolicyBackendRunRepository;
+  realTelemetryExportDryRuns: RealTelemetryExportDryRunRepository;
+  realTelemetryExportApprovals: RealTelemetryExportApprovalRepository;
+  realTelemetryExportRuns: RealTelemetryExportRunRepository;
+  browserActionDryRuns: BrowserActionDryRunRepository;
+  browserActionApprovals: BrowserActionApprovalRepository;
+  browserActionRuns: BrowserActionRunRepository;
+  electronMainInspectorDryRuns: ElectronMainInspectorDryRunRepository;
+  electronMainInspectorApprovals: ElectronMainInspectorApprovalRepository;
+  electronMainInspectorRuns: ElectronMainInspectorRunRepository;
+  mcpWriteToolDryRuns: McpWriteToolDryRunRepository;
+  mcpWriteToolApprovals: McpWriteToolApprovalRepository;
+  mcpWriteToolRuns: McpWriteToolRunRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

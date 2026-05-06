@@ -24,6 +24,7 @@ const scanRoots = ['apps', 'packages', 'tools'];
 const approvedProcessBoundaryFiles = new Set([
   'packages/codex-kernel/src/real-read-only-adapter-process.ts',
   'packages/nx-verification-adapter/src/process-boundary.ts',
+  'packages/policy-backend-adapter/src/real-policy-boundary.ts',
   'packages/worktree-manager/src/git-process-boundary.ts',
 ]);
 const approvedGitBoundaryFiles = new Set([
@@ -34,17 +35,24 @@ const approvedLocalArtifactWriteBoundaryFiles = new Set([
   'packages/release-candidate-kernel/src/artifact-export-boundary.ts',
 ]);
 const approvedLiveAutomationBoundaryFiles = new Set([
+  'packages/playwright-observer-adapter/src/action-boundary.ts',
   'packages/playwright-observer-adapter/src/real-runner.ts',
 ]);
 const approvedCdpHttpBoundaryFiles = new Set([
   'packages/electron-cdp-adapter/src/controlled-http-runner.ts',
   'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
+  'packages/electron-cdp-adapter/src/main-inspector-boundary.ts',
 ]);
 const approvedCdpWebSocketBoundaryFiles = new Set([
   'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
+  'packages/electron-cdp-adapter/src/main-inspector-boundary.ts',
 ]);
 const approvedGithubHttpBoundaryFiles = new Set([
   'packages/github-provider-adapter/src/github-http-boundary.ts',
+]);
+const approvedPolicyTelemetryRuntimeBoundaryFiles = new Set([
+  'packages/otel-adapter/src/real-exporter-boundary.ts',
+  'packages/policy-backend-adapter/src/real-policy-boundary.ts',
 ]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.jsonl']);
 const customWorkflowTemplateForbiddenKeys = new Set([
@@ -262,6 +270,44 @@ const dashboardDeploymentOperationRouteBypassTerms = [
   ".includes('/api/deployments/operations/')",
   'includes(deployment',
 ];
+const dashboardPolicyTelemetryExactPostRoutes = [
+  '/api/policy-backends/evaluations/dry-runs',
+  '/api/policy-backends/evaluations/approval-requests',
+  '/api/policy-backends/evaluations/manual-approvals',
+  '/api/policy-backends/evaluations/runs',
+  '/api/telemetry/exports/dry-runs',
+  '/api/telemetry/exports/approval-requests',
+  '/api/telemetry/exports/manual-approvals',
+  '/api/telemetry/exports/runs',
+];
+const dashboardPolicyTelemetryScopedPayloadTerms = [
+  'reason:',
+  'rawReason',
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'rawPolicySource',
+  'rawPolicyInput',
+  'rawTrace',
+  'rawSpan',
+  'rawLog',
+  'rawUrl',
+  'CODEXHUB_POLICY_BACKEND_',
+  'CODEXHUB_OTEL_',
+];
+const dashboardPolicyTelemetryRouteBypassTerms = [
+  'startsWith',
+  'indexOf(',
+  "indexOf('/api/policy-backends/evaluations/')",
+  "indexOf('/api/telemetry/exports/')",
+  'indexOf(policy',
+  'indexOf(telemetry',
+  'includes(',
+  ".includes('/api/policy-backends/evaluations/')",
+  ".includes('/api/telemetry/exports/')",
+  'includes(policy',
+  'includes(telemetry',
+];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
@@ -280,6 +326,7 @@ const dashboardAllowedMutationRoutes = new Set([
   ...dashboardRecoveryExactPostRoutes,
   ...dashboardMergeExactPostRoutes,
   ...dashboardDeploymentOperationExactPostRoutes,
+  ...dashboardPolicyTelemetryExactPostRoutes,
 ]);
 const dashboardMutationSurfaceTerms = [
   "method: 'POST'",
@@ -357,23 +404,35 @@ const allowlistRules: AllowlistEntry[] = [
   {
     scope: 'production-source',
     file: 'apps/cli/src/main.ts',
-    terms: ['/releases', '/deployments', ...dashboardDeploymentOperationExactPostRoutes],
+    terms: [
+      '/actions/runs',
+      '/releases',
+      '/deployments',
+      ...dashboardDeploymentOperationExactPostRoutes,
+      ...dashboardPolicyTelemetryExactPostRoutes,
+    ],
     reason:
-      'M40-M43 CLI uses these as read-only Supervisor route strings; no direct provider or mutating execution path',
+      'M40-M45 CLI uses these as read-only or exact Supervisor route strings; no direct provider or generic mutating execution path',
   },
   {
     scope: 'production-source',
     file: 'apps/dashboard/src/App.tsx',
-    terms: ['/releases', '/deployments'],
+    terms: ['/actions/runs', '/releases', '/deployments', ...dashboardPolicyTelemetryExactPostRoutes],
     reason:
-      'M40-M43 Dashboard uses these as governed release/deployment route strings; no direct provider or ungoverned execution path',
+      'M40-M45 Dashboard uses these as governed release/deployment/policy telemetry route strings; no direct provider or ungoverned execution path',
   },
   {
     scope: 'production-source',
     file: 'apps/supervisor/src/server.ts',
-    terms: ['/releases', '/deployments', ...dashboardDeploymentOperationExactPostRoutes],
+    terms: [
+      '/actions/runs',
+      '/releases',
+      '/deployments',
+      ...dashboardDeploymentOperationExactPostRoutes,
+      ...dashboardPolicyTelemetryExactPostRoutes,
+    ],
     reason:
-      'M40-M43 Supervisor owns the governed release, deployment, and secrets control-plane routes',
+      'M40-M45 Supervisor owns the governed release, deployment, secrets, policy telemetry, and controlled-write control-plane routes',
   },
   {
     scope: 'fixture',
@@ -429,12 +488,13 @@ console.log(
 );
 
 function validateBoundaryAllowlists(): void {
-  if (approvedCdpWebSocketBoundaryFiles.size !== 1) {
+  if (approvedCdpWebSocketBoundaryFiles.size !== 2) {
     violations.push({
       file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
       line: 1,
       term: 'approvedCdpWebSocketBoundaryFiles',
-      reason: 'Electron/CDP WebSocket observation must have exactly one audited boundary file.',
+      reason:
+        'Electron/CDP WebSocket observation and main-inspector write execution must have exactly two audited boundary files.',
     });
   }
 
@@ -473,6 +533,7 @@ function validateBoundaryAllowlists(): void {
     ...approvedGitBoundaryFiles,
     ...approvedLocalArtifactWriteBoundaryFiles,
     ...approvedGithubHttpBoundaryFiles,
+    ...approvedPolicyTelemetryRuntimeBoundaryFiles,
   ]) {
     if (!existsSync(resolve(workspaceRoot, workspacePath))) {
       violations.push({
@@ -512,6 +573,18 @@ function validateAdversarialAuditSentinels(): void {
         'const executeName = "executeGithubBranchPublish"; const run = adapters[executeName];',
       expectedTerm: 'executeGithubBranchPublish',
       description: 'adapter execute access through named dynamic property lookup from CLI source',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-policy.ts',
+      sourceText: 'const command = "opa eval data.codexhub.allow";',
+      expectedTerm: 'opa eval',
+      description: 'OPA runtime command text outside the reviewed policy backend boundary',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-telemetry.ts',
+      sourceText: 'const exporter = "OTLPTraceExporter";',
+      expectedTerm: 'OTLPTraceExporter',
+      description: 'OpenTelemetry exporter runtime vocabulary outside the reviewed telemetry boundary',
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
@@ -683,6 +756,26 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: "const ok = path.startsWith('/api/deployments/operations/');",
       expectedTerm: 'startsWith',
       description: 'Dashboard deployment prefix route guard',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-policy-telemetry-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/policy-backends/evaluations/runs"; const body = { dryRunId, executionAuthority: { allowed: true } };',
+      expectedTerm: 'executionAuthority',
+      description: 'Dashboard policy telemetry request-body authority payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-policy-telemetry-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/telemetry/exports/runs"; const ok = path.startsWith("/api/telemetry/exports/");',
+      expectedTerm: 'startsWith',
+      description: 'Dashboard policy telemetry prefix route guard',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-browser.ts',
+      sourceText: 'const browser = await chromium.launch();',
+      expectedTerm: 'chromium.launch',
+      description: 'Browser automation launch outside the reviewed Browser action boundary',
     },
     {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
@@ -901,6 +994,7 @@ function adversarialSentinelWouldViolate(
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
   auditDashboardMergeWizardScopedGuards(file, sourceText);
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
+  auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
@@ -921,6 +1015,7 @@ function auditFile(file: string): void {
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
   auditDashboardMergeWizardScopedGuards(file, sourceText);
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
+  auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -950,7 +1045,11 @@ function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: strin
       });
     }
 
-    if (isPolicyTelemetryRuntimeImport(importPath) && !isAllowed(workspacePath, importPath)) {
+    if (
+      isPolicyTelemetryRuntimeImport(importPath) &&
+      !isApprovedPolicyTelemetryRuntimeBoundary(workspacePath) &&
+      !isAllowed(workspacePath, importPath)
+    ) {
       violations.push({
         file,
         line: 1,
@@ -1001,6 +1100,7 @@ function auditTextTerms(file: string, sourceText: string): void {
     for (const term of executableTextTerms) {
       if (
         lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedLiveAutomationBoundary(workspacePath) &&
         !isApprovedCdpWebSocketBoundary(workspacePath) &&
         !isAllowed(workspacePath, term)
       ) {
@@ -1120,7 +1220,11 @@ function auditTextTerms(file: string, sourceText: string): void {
     }
 
     for (const term of policyTelemetryRuntimeTerms) {
-      if (lowerLine.includes(term.toLowerCase()) && !isAllowed(workspacePath, term)) {
+      if (
+        lowerLine.includes(term.toLowerCase()) &&
+        !isApprovedPolicyTelemetryRuntimeBoundary(workspacePath) &&
+        !isAllowed(workspacePath, term)
+      ) {
         violations.push({
           file,
           line: index + 1,
@@ -1196,7 +1300,9 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
     sourceText.includes('/api/approvals/decisions') ||
     sourceText.includes('/api/workflows/production/recoveries/') ||
     sourceText.includes('/api/github/merges/') ||
-    sourceText.includes('/api/deployments/operations/');
+    sourceText.includes('/api/deployments/operations/') ||
+    sourceText.includes('/api/policy-backends/evaluations/') ||
+    sourceText.includes('/api/telemetry/exports/');
 
   if (!isDashboardSource || !hasGovernedDashboardMutation) {
     return;
@@ -1250,7 +1356,7 @@ function auditDashboardMutationSurfaceGuards(file: string, sourceText: string): 
           line: index + 1,
           term,
           reason:
-            'Dashboard local-control tokens must stay in component memory only; browser storage wrappers are forbidden.',
+          'Dashboard local-control tokens must stay in component memory only; browser storage wrappers are forbidden.',
         });
       }
     }
@@ -1269,7 +1375,7 @@ function auditDashboardMutationSurfaceGuards(file: string, sourceText: string): 
         line: index + 1,
         term,
         reason:
-          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI, recovery wizard, and merge wizard, with exact route allowlists.',
+          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI, recovery wizard, merge wizard, deployment wizard, and policy telemetry wizard, with exact route allowlists.',
       });
     }
   }
@@ -1289,7 +1395,9 @@ function isAllowedDashboardMutationLine(lines: string[], index: number): boolean
     (window.includes('deploymentOperationDashboardPostRoutes.has(path)') &&
       dashboardDeploymentOperationExactPostRoutes.every((route) =>
         lines.join('\n').includes(route),
-      ))
+      )) ||
+    (window.includes('policyTelemetryDashboardPostRoutes.has(path)') &&
+      dashboardPolicyTelemetryExactPostRoutes.every((route) => lines.join('\n').includes(route)))
   );
 }
 
@@ -1697,6 +1805,148 @@ function auditDashboardDeploymentOperationPayloadWindow(
   }
 }
 
+function auditDashboardPolicyTelemetryWizardScopedGuards(
+  file: string,
+  sourceText: string,
+): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (
+    workspacePath !== 'apps/dashboard/src/App.tsx' &&
+    !workspacePath.includes('adversarial-policy-telemetry-ui')
+  ) {
+    return;
+  }
+
+  if (
+    !sourceText.includes('/api/policy-backends/evaluations/') &&
+    !sourceText.includes('/api/telemetry/exports/')
+  ) {
+    return;
+  }
+
+  if (workspacePath.includes('adversarial-policy-telemetry-ui')) {
+    auditDashboardPolicyTelemetrySnippetGuards(file, sourceText);
+    return;
+  }
+
+  for (const route of dashboardPolicyTelemetryExactPostRoutes) {
+    if (!sourceText.includes(route)) {
+      violations.push({
+        file,
+        line: 1,
+        term: route,
+        reason: 'Dashboard policy telemetry wizard must keep every allowed POST route explicit.',
+      });
+    }
+  }
+
+  const dryRunWindow = getWindowBetween(
+    sourceText,
+    'async function createPolicyTelemetryDryRun',
+    'async function requestPolicyTelemetryApproval',
+  );
+  const approvalRequestWindow = getWindowBetween(
+    sourceText,
+    'async function requestPolicyTelemetryApproval',
+    'async function approvePolicyTelemetryRequest',
+  );
+  const manualApprovalWindow = getWindowBetween(
+    sourceText,
+    'async function approvePolicyTelemetryRequest',
+    'async function runPolicyTelemetry',
+  );
+  const runWindow = getWindowBetween(
+    sourceText,
+    'async function runPolicyTelemetry',
+    'async function submitApprovalDecision',
+  );
+  const postWindow = getWindowBetween(sourceText, 'async function postPolicyTelemetryJson', '');
+
+  for (const [name, window] of [
+    ['createPolicyTelemetryDryRun', dryRunWindow],
+    ['requestPolicyTelemetryApproval', approvalRequestWindow],
+    ['approvePolicyTelemetryRequest', manualApprovalWindow],
+    ['runPolicyTelemetry', runWindow],
+  ] as const) {
+    auditDashboardPolicyTelemetryPayloadWindow(file, name, window);
+  }
+
+  if (!postWindow.includes('policyTelemetryDashboardPostRoutes.has(path)')) {
+    violations.push({
+      file,
+      line: findLineNumber(sourceText, 'async function postPolicyTelemetryJson'),
+      term: 'policyTelemetryDashboardPostRoutes.has(path)',
+      reason: 'Dashboard policy telemetry POST helper must enforce the exact route allowlist.',
+    });
+  }
+
+  for (const term of dashboardPolicyTelemetryRouteBypassTerms) {
+    if (postWindow.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(sourceText, term),
+        term,
+        reason:
+          'Dashboard policy telemetry POST helper must not use prefix, substring, or dynamic route guards.',
+      });
+    }
+  }
+}
+
+function auditDashboardPolicyTelemetrySnippetGuards(file: string, sourceText: string): void {
+  for (const term of dashboardPolicyTelemetryScopedPayloadTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason:
+          'Dashboard policy telemetry wizard may only send ids, hashes, fixed provider/runtime metadata, and approver tags; raw policy, telemetry, authority, forged artifacts, and env payloads are forbidden.',
+      });
+    }
+  }
+
+  for (const term of dashboardPolicyTelemetryRouteBypassTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason: 'Dashboard policy telemetry wizard route checks must use the exact route allowlist.',
+      });
+    }
+  }
+}
+
+function auditDashboardPolicyTelemetryPayloadWindow(
+  file: string,
+  name: string,
+  window: string,
+): void {
+  if (window.length === 0) {
+    violations.push({
+      file,
+      line: 1,
+      term: name,
+      reason: `Dashboard policy telemetry wizard function ${name} must remain present for scoped audit coverage.`,
+    });
+    return;
+  }
+
+  for (const term of dashboardPolicyTelemetryScopedPayloadTerms) {
+    if (window.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(window, term),
+        term,
+        reason:
+          'Dashboard policy telemetry wizard may only send ids, hashes, fixed provider/runtime metadata, and approver tags to the M44 control planes; raw policy, telemetry, request-body authority, forged artifacts, and env payloads are forbidden.',
+      });
+    }
+  }
+}
+
 function getWindowBetween(sourceText: string, startMarker: string, endMarker: string): string {
   const start = sourceText.indexOf(startMarker);
 
@@ -1844,6 +2094,10 @@ function isApprovedLocalArtifactWriteBoundary(workspacePath: string): boolean {
 
 function isApprovedGithubHttpBoundary(workspacePath: string): boolean {
   return approvedGithubHttpBoundaryFiles.has(workspacePath);
+}
+
+function isApprovedPolicyTelemetryRuntimeBoundary(workspacePath: string): boolean {
+  return approvedPolicyTelemetryRuntimeBoundaryFiles.has(workspacePath);
 }
 
 function isPolicyTelemetryRuntimeImport(importPath: string): boolean {

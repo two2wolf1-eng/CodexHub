@@ -1176,6 +1176,229 @@ function registerReadOnlyControlFamily(
   return command;
 }
 
+type ControlledWriteCliSurface = 'browser' | 'electron' | 'mcp';
+
+interface ControlledWriteCliOptions extends JsonCliOptions {
+  action?: string;
+  targetUrlHash?: string;
+  selectorHash?: string;
+  typedTextHash?: string;
+  endpointHash?: string;
+  targetIdHash?: string;
+  snippetId?: string;
+  snippetSourceHash?: string;
+  worktreePathHash?: string;
+  patchHash?: string;
+  changedFileCount?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  requestedBy?: string;
+  blockReason?: string[];
+}
+
+const controlledWriteCliMutationRoutes = new Set([
+  '/api/browser/actions/dry-runs',
+  '/api/browser/actions/approval-requests',
+  '/api/browser/actions/runs',
+  '/api/electron-cdp/main-inspector/dry-runs',
+  '/api/electron-cdp/main-inspector/approval-requests',
+  '/api/electron-cdp/main-inspector/runs',
+  '/api/mcp/write-tools/dry-runs',
+  '/api/mcp/write-tools/approval-requests',
+  '/api/mcp/write-tools/runs',
+]);
+
+function registerControlledWriteCliFamily(
+  parentCommand: Command,
+  commandName: string,
+  routePrefix: string,
+  label: string,
+  surface: ControlledWriteCliSurface,
+): Command {
+  const command = registerReadOnlyControlFamily(parentCommand, commandName, routePrefix, label);
+
+  const dryRunsCommand = getOrCreateChildCommand(command, 'dry-runs');
+  dryRunsCommand
+    .command('create')
+    .option('--action <kind>', 'Browser action kind: click or type')
+    .option('--target-url-hash <hash>', 'Hash-bound browser target URL')
+    .option('--selector-hash <hash>', 'Hash-bound browser selector')
+    .option('--typed-text-hash <hash>', 'Hash-bound transient typed text')
+    .option('--endpoint-hash <hash>', 'Hash-bound Electron endpoint')
+    .option('--target-id-hash <hash>', 'Hash-bound Electron target id')
+    .option('--snippet-id <id>', 'Allowlisted Electron snippet id')
+    .option('--snippet-source-hash <hash>', 'Hash-bound Electron snippet source')
+    .option('--worktree-path-hash <hash>', 'Hash-bound controlled worktree path')
+    .option('--patch-hash <hash>', 'Hash-bound transient MCP patch')
+    .option('--changed-file-count <count>', 'MCP changed file count')
+    .option('--block-reason <reason...>', 'Synthetic blocker for rehearsed control-plane metadata')
+    .option('--json', 'Print full JSON output')
+    .description(`Create a governed ${label} dry-run through the exact Supervisor route`)
+    .action(async (options: ControlledWriteCliOptions) => {
+      const result = await postControlledWriteCliMutation(
+        `${routePrefix}/dry-runs`,
+        createControlledWriteDryRunBody(surface, options),
+      );
+      console.log(formatControlledWriteCliMutationOutput(`${label} dry-run`, result, options));
+    });
+
+  const approvalRequestsCommand = getOrCreateChildCommand(command, 'approval-requests');
+  approvalRequestsCommand
+    .command('create')
+    .requiredOption('--dry-run-id <id>', 'Dry-run id resolved by Supervisor store')
+    .option('--requested-by <hash>', 'Optional operator hash or label hash')
+    .option('--json', 'Print full JSON output')
+    .description(`Create a ${label} approval request without approving it`)
+    .action(async (options: ControlledWriteCliOptions) => {
+      const result = await postControlledWriteCliMutation(`${routePrefix}/approval-requests`, {
+        dryRunId: options.dryRunId,
+        requestedBy: options.requestedBy,
+      });
+      console.log(
+        formatControlledWriteCliMutationOutput(`${label} approval request`, result, options),
+      );
+    });
+
+  const runsCommand = getOrCreateChildCommand(command, 'runs');
+  runsCommand
+    .command('start')
+    .requiredOption('--dry-run-id <id>', 'Dry-run id resolved by Supervisor store')
+    .requiredOption('--approval-artifact-id <id>', 'Store-resolved approval artifact id')
+    .option('--json', 'Print full JSON output')
+    .description(`Start a governed ${label} run through the exact Supervisor route`)
+    .action(async (options: ControlledWriteCliOptions) => {
+      const result = await postControlledWriteCliMutation(`${routePrefix}/runs`, {
+        dryRunId: options.dryRunId,
+        approvalArtifactId: options.approvalArtifactId,
+      });
+      console.log(formatControlledWriteCliMutationOutput(`${label} run`, result, options));
+    });
+
+  return command;
+}
+
+function getOrCreateChildCommand(parentCommand: Command, commandName: string): Command {
+  return (
+    parentCommand.commands.find((child) => child.name() === commandName) ??
+    parentCommand.command(commandName)
+  );
+}
+
+async function postControlledWriteCliMutation(
+  route: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!controlledWriteCliMutationRoutes.has(route)) {
+    throw new Error('Controlled write CLI mutation route is not allowlisted.');
+  }
+
+  const response = await fetch(`${supervisorUrl}${route}`, {
+    method: 'POST',
+    headers: createSupervisorPostHeaders(),
+    body: JSON.stringify(removeUndefinedProperties(body)),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!response.ok) {
+    return {
+      status: 'blocked',
+      responseStatus: response.status,
+      result: payload,
+      bodyStored: false,
+      tokenStored: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: `Supervisor rejected controlled write CLI mutation with status ${response.status}.`,
+    };
+  }
+
+  return {
+    ...payload,
+    bodyStored: false,
+    tokenStored: false,
+  };
+}
+
+function createControlledWriteDryRunBody(
+  surface: ControlledWriteCliSurface,
+  options: ControlledWriteCliOptions,
+): Record<string, unknown> {
+  const blockReasons = options.blockReason ?? [];
+
+  switch (surface) {
+    case 'browser':
+      return {
+        actionKind: options.action,
+        targetUrlHash: options.targetUrlHash,
+        selectorHash: options.selectorHash,
+        typedTextHash: options.typedTextHash,
+        blockReasons,
+      };
+    case 'electron':
+      return {
+        endpointHash: options.endpointHash,
+        targetIdHash: options.targetIdHash,
+        snippetId: options.snippetId,
+        snippetSourceHash: options.snippetSourceHash,
+        blockReasons,
+      };
+    case 'mcp':
+      return {
+        worktreePathHash: options.worktreePathHash,
+        patchHash: options.patchHash,
+        changedFileCount: parseOptionalNonNegativeInteger(options.changedFileCount),
+        blockReasons,
+      };
+  }
+}
+
+function parseOptionalNonNegativeInteger(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error('Expected a non-negative integer.');
+  }
+
+  return parsed;
+}
+
+function removeUndefinedProperties(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+}
+
+function formatControlledWriteCliMutationOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `id: ${String(
+      result.runId ??
+        result.dryRunId ??
+        result.approvalArtifactId ??
+        result.approvalRequestId ??
+        result.id ??
+        'unknown',
+    )}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `tokenStored=${String(result.tokenStored ?? false)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    result.summary ? `summary: ${String(result.summary)}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
 function registerSecretReadOnlyCommands(program: Command): void {
   const command = program
     .command('secrets')
@@ -2571,6 +2794,14 @@ export function buildProgram(): Command {
       console.log(formatMcpToolDetailOutput(getMcpToolForCli(toolName), options));
     });
 
+  registerControlledWriteCliFamily(
+    mcpCommand,
+    'write-tools',
+    '/api/mcp/write-tools',
+    'MCP controlled write tool',
+    'mcp',
+  );
+
   const policyBackendCommand = program
     .command('policy-backend')
     .description('Read-only policy backend metadata commands');
@@ -2596,6 +2827,13 @@ export function buildProgram(): Command {
       console.log(formatPolicyBackendPlanOutput(result, options));
     });
 
+  registerReadOnlyControlFamily(
+    policyBackendCommand,
+    'evaluations',
+    '/api/policy-backends/evaluations',
+    'Real policy backend evaluation',
+  );
+
   const telemetryCommand = program
     .command('telemetry')
     .description('Read-only telemetry projection metadata commands');
@@ -2619,6 +2857,13 @@ export function buildProgram(): Command {
     .action((options: JsonCliOptions) => {
       console.log(formatTelemetryProjectionOutput(showTelemetryProjectionForCli(), options));
     });
+
+  registerReadOnlyControlFamily(
+    telemetryCommand,
+    'exports',
+    '/api/telemetry/exports',
+    'Real telemetry export',
+  );
 
   const approvalsCommand = program
     .command('approvals')
@@ -2739,6 +2984,14 @@ export function buildProgram(): Command {
       console.log(formatBrowserObservationRunDetailOutput(result, options));
     });
 
+  registerControlledWriteCliFamily(
+    browserCommand,
+    'actions',
+    '/api/browser/actions',
+    'Browser action',
+    'browser',
+  );
+
   const electronCommand = program
     .command('electron')
     .description('Read-only Electron/CDP observation metadata commands');
@@ -2793,6 +3046,14 @@ export function buildProgram(): Command {
       const result = await showElectronCdpObservationRun(runId);
       console.log(formatElectronCdpObservationRunDetailOutput(result, options));
     });
+
+  registerControlledWriteCliFamily(
+    electronCommand,
+    'main-inspector',
+    '/api/electron-cdp/main-inspector',
+    'Electron main inspector',
+    'electron',
+  );
 
   const githubCommand = program
     .command('github')

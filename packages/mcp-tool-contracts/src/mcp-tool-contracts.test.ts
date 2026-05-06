@@ -10,9 +10,11 @@ import {
   assertReadOnlyMcpToolRegistry,
   createCodexHubMcpServerManifest,
   createCodexHubMcpToolDefinitions,
+  createControlledWorktreePatchToolManifest,
   createMcpToolInvocationRecords,
   createMcpToolManifestEvidenceRef,
   evaluateMcpToolPolicy,
+  planControlledWorktreePatchTool,
 } from './index';
 import { hashUnknown } from './metadata';
 
@@ -124,5 +126,23 @@ describe('mcp-tool-contracts', () => {
 
     expect(hashUnknown(input)).toBe(`sha256:${expected}`);
     expect(hashUnknown(input)).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it('declares a disabled controlled-worktree MCP write manifest separately from read-only tools', () => {
+    const manifest = createControlledWorktreePatchToolManifest(false);
+    const plan = planControlledWorktreePatchTool({
+      worktreePathHash: 'sha256:worktree',
+      patchHash: 'sha256:patch',
+      changedFileCount: 2,
+    });
+    const serialized = JSON.stringify({ manifest, plan });
+
+    expect(manifest.enabled).toBe(false);
+    expect(manifest.actionMode).toBe('write');
+    expect(manifest.approvalPolicy).toBe('required');
+    expect(plan.toolName).toBe('workspace.applyPatchToControlledWorktree');
+    expect(plan.repoRootMutationAllowed).toBe(false);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
   });
 });

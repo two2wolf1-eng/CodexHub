@@ -112,24 +112,29 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('approvalToken=');
   });
 
-  it('keeps Dashboard mutating calls restricted to governed approval, recovery, merge, and deployment paths', () => {
+  it('keeps Dashboard mutating calls restricted to governed approval, recovery, merge, deployment, and policy telemetry paths', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const postMatches = [...appSource.matchAll(/method:\s*['"]POST['"]/g)];
     const approvalDecisionIndex = appSource.indexOf('/api/approvals/decisions');
     const recoveryControlIndex = appSource.indexOf('async function postRecoveryJson');
     const mergeControlIndex = appSource.indexOf('async function postMergeJson');
     const deploymentControlIndex = appSource.indexOf('async function postDeploymentOperationJson');
+    const policyTelemetryControlIndex = appSource.indexOf(
+      'async function postPolicyTelemetryJson',
+    );
 
-    expect(postMatches).toHaveLength(4);
+    expect(postMatches).toHaveLength(5);
     expect(approvalDecisionIndex).toBeGreaterThanOrEqual(0);
     expect(recoveryControlIndex).toBeGreaterThanOrEqual(0);
     expect(mergeControlIndex).toBeGreaterThanOrEqual(0);
     expect(deploymentControlIndex).toBeGreaterThanOrEqual(0);
+    expect(policyTelemetryControlIndex).toBeGreaterThanOrEqual(0);
 
     const approvalPostIndex = postMatches[0]?.index ?? -1;
     const recoveryPostIndex = postMatches[1]?.index ?? -1;
     const mergePostIndex = postMatches[2]?.index ?? -1;
     const deploymentPostIndex = postMatches[3]?.index ?? -1;
+    const policyTelemetryPostIndex = postMatches[4]?.index ?? -1;
     const approvalDecisionWindow = appSource.slice(
       Math.max(0, approvalDecisionIndex - 400),
       approvalDecisionIndex + 900,
@@ -146,6 +151,10 @@ describe('dashboard read-only UX helpers', () => {
       Math.max(0, deploymentControlIndex - 500),
       deploymentControlIndex + 1300,
     );
+    const policyTelemetryControlWindow = appSource.slice(
+      Math.max(0, policyTelemetryControlIndex - 500),
+      policyTelemetryControlIndex + 1300,
+    );
 
     expect(approvalPostIndex).toBeGreaterThan(approvalDecisionIndex);
     expect(approvalDecisionWindow).toContain("method: 'POST'");
@@ -161,6 +170,10 @@ describe('dashboard read-only UX helpers', () => {
     expect(deploymentControlWindow).toContain("method: 'POST'");
     expect(deploymentControlWindow).toContain('dashboardLocalControlHeaderName');
     expect(deploymentControlWindow).toContain('deploymentOperationDashboardPostRoutes.has(path)');
+    expect(policyTelemetryPostIndex).toBeGreaterThan(policyTelemetryControlIndex);
+    expect(policyTelemetryControlWindow).toContain("method: 'POST'");
+    expect(policyTelemetryControlWindow).toContain('dashboardLocalControlHeaderName');
+    expect(policyTelemetryControlWindow).toContain('policyTelemetryDashboardPostRoutes.has(path)');
     expect(approvalDecisionWindow).not.toContain('localStorage');
     expect(approvalDecisionWindow).not.toContain('sessionStorage');
     expect(approvalDecisionWindow).not.toContain('indexedDB');
@@ -181,6 +194,11 @@ describe('dashboard read-only UX helpers', () => {
     expect(deploymentControlWindow).not.toContain('indexedDB');
     expect(deploymentControlWindow).not.toContain('executeGithub');
     expect(deploymentControlWindow).not.toContain('adapter.execute');
+    expect(policyTelemetryControlWindow).not.toContain('localStorage');
+    expect(policyTelemetryControlWindow).not.toContain('sessionStorage');
+    expect(policyTelemetryControlWindow).not.toContain('indexedDB');
+    expect(policyTelemetryControlWindow).not.toContain('executeGithub');
+    expect(policyTelemetryControlWindow).not.toContain('adapter.execute');
   });
 
   it('summarizes approval decision history without raw reason or token data', () => {

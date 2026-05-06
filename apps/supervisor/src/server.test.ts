@@ -135,6 +135,31 @@ const lateStageSupervisorControlPlaneMatrix = [
     prefix: '/api/secrets/readiness',
     approvalManagedExternally: false,
   },
+  {
+    family: 'real-policy-backend-evaluations',
+    prefix: '/api/policy-backends/evaluations',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'real-telemetry-exports',
+    prefix: '/api/telemetry/exports',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'browser-actions',
+    prefix: '/api/browser/actions',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'electron-main-inspector',
+    prefix: '/api/electron-cdp/main-inspector',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'mcp-write-tools',
+    prefix: '/api/mcp/write-tools',
+    approvalManagedExternally: false,
+  },
 ] as const;
 const lateStageSupervisorMutatingRoutes = lateStageSupervisorControlPlaneMatrix.flatMap((entry) =>
   (entry.approvalManagedExternally
@@ -413,6 +438,43 @@ describe('supervisor mock development API', () => {
       )
       .concat(
         [...serverSource.matchAll(/registerSecretReadinessRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerRealPolicyBackendRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerRealTelemetryExportRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [
+          ...serverSource.matchAll(
+            /register(?:BrowserAction|ElectronMainInspector|McpWriteTool)Routes\('([^']+)'\)/g,
+          ),
+        ]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
           .flatMap((prefix) => [

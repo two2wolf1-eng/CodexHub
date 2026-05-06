@@ -4886,3 +4886,100 @@ workflows:
       workflowApprovalDoesNotGrantChildAuthority: true
       childApprovalsRemainSeparate: true
       metadataOnlyPublicOutput: true
+  m44.real-policy-telemetry-integration:
+    risk: critical
+    trigger:
+      type: real-policy-telemetry-governance
+      entrypoint: policy-backend-adapter otel-adapter supervisor dashboard cli
+      localControlRequired: true
+    chain:
+      - phase: contracts
+        package: contracts
+        validates:
+          - realPolicyBackendManifest
+          - telemetryRuntimeManifest
+          - metadataOnlyPublicOutput
+      - phase: runtime-boundaries
+        packages:
+          - policy-backend-adapter
+          - otel-adapter
+        validates:
+          - opaCedarAdvisoryOnly
+          - otelExporterDisabledByDefault
+          - noPolicyAuthorityTransfer
+      - phase: control-plane
+        app: supervisor
+        routes:
+          - /api/policy-backends/evaluations/*
+          - /api/telemetry/exports/*
+        validates:
+          - localControlRequired
+          - trustedLoopbackOriginRequired
+          - requestBodyAuthorityRejected
+      - phase: ux
+        app: dashboard
+        validates:
+          - guidedPostRouteAllowlist
+          - memoryOnlyLocalControlToken
+          - cliReadOnlyForM44
+    docs:
+      - docs/releases/m44-real-policy-telemetry-results.md
+      - docs/reviews/m44-real-policy-telemetry-hardening-review.md
+      - docs/runbooks/m44-real-policy-telemetry-operator-runbook.md
+    safety:
+      policyBackendAdvisoryOnly: true
+      securityKernelFinalAuthority: true
+      telemetryDoesNotReplaceEvidenceAudit: true
+      networkTelemetryExporterDisabledByDefault: true
+      metadataOnlyPublicOutput: true
+  m45.controlled-write-expansion:
+    risk: critical
+    trigger:
+      type: controlled-write-surface-governance
+      entrypoint: browser electron-cdp mcp supervisor cli dashboard
+      localControlRequired: true
+    chain:
+      - phase: contracts
+        package: contracts
+        validates:
+          - browserActionPlan
+          - electronMainInspectorPlan
+          - mcpWriteToolPlan
+      - phase: fixed-boundaries
+        packages:
+          - playwright-observer-adapter
+          - electron-cdp-adapter
+          - mcp-tool-contracts
+        validates:
+          - clickTypeOnly
+          - runtimeEvaluateNamedSnippetOnly
+          - controlledWorktreePatchOnly
+      - phase: control-plane
+        app: supervisor
+        routes:
+          - /api/browser/actions/*
+          - /api/electron-cdp/main-inspector/*
+          - /api/mcp/write-tools/*
+        validates:
+          - localControlRequired
+          - trustedLoopbackOriginRequired
+          - requestBodyAuthorityRejected
+      - phase: ux
+        apps:
+          - cli
+          - dashboard
+        validates:
+          - cliExactMutationCommandsOnly
+          - dashboardReadOnlyForM45Execution
+          - noTokenPersistence
+    docs:
+      - docs/releases/m45-controlled-write-expansion-results.md
+      - docs/reviews/m45-controlled-write-expansion-hardening-review.md
+      - docs/runbooks/m45-controlled-write-expansion-operator-runbook.md
+    safety:
+      browserCredentialEntryForbidden: true
+      arbitraryJavascriptForbidden: true
+      genericCdpPassthroughForbidden: true
+      repoRootWorkspaceMutationForbidden: true
+      genericMcpWritePassthroughForbidden: true
+      metadataOnlyPublicOutput: true

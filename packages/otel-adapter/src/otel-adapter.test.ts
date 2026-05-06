@@ -6,12 +6,14 @@ import {
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
+import { hashText } from '@codexhub/evidence-kernel';
 import {
   createOtelAdapterManifest,
   executeLocalTelemetryProjection,
   executeTelemetryExport,
   planLocalTelemetryProjection,
   planTelemetryExport,
+  runRealTelemetryExportBoundary,
 } from './index';
 
 const authority: ExecutionAuthority = {
@@ -183,5 +185,41 @@ describe('otel-adapter', () => {
     expect(serialized).not.toContain('policy-decision-123');
     expect(serialized).not.toContain('token=secret');
     expect(serialized).not.toContain('private.trace');
+  });
+
+  it('exports real telemetry through in-memory metadata without replacing evidence or audit', async () => {
+    const spanBatch = [{ name: 'workflow.completed', token: 'hidden' }];
+    const result = await runRealTelemetryExportBoundary({
+      exporterKind: 'in-memory',
+      transientSpanBatch: spanBatch,
+      plan: {
+        id: foundationId('real_telemetry_plan'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        dryRunId: 'dry_real_telemetry',
+        status: 'planned',
+        exporterKind: 'in-memory',
+        signalKinds: ['trace'],
+        spanCount: 1,
+        tracePlanHash: `sha256:${hashText(JSON.stringify(spanBatch))}`,
+        networkExportPlanned: false,
+        processBoundaryPlanned: false,
+        blockReasons: [],
+        evidenceAuditAuthoritative: false,
+        rawTracePayloadStored: false,
+        rawLogStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: 'Synthetic real telemetry plan.',
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.networkBoundaryInvoked).toBe(false);
+    expect(result.evidenceAuditAuthoritative).toBe(false);
+    expect(result.rawTracePayloadStored).toBe(false);
+    expect(serialized).not.toContain('workflow.completed');
+    expect(serialized).not.toContain('hidden');
   });
 });

@@ -154,6 +154,21 @@ interface OverviewState {
   secretReadinessDryRuns: SecretReadinessControlSummary[];
   secretReadinessApprovals: SecretReadinessControlSummary[];
   secretReadinessRuns: SecretReadinessControlSummary[];
+  realPolicyBackendDryRuns: PolicyTelemetryControlSummary[];
+  realPolicyBackendApprovals: PolicyTelemetryControlSummary[];
+  realPolicyBackendRuns: PolicyTelemetryControlSummary[];
+  realTelemetryExportDryRuns: PolicyTelemetryControlSummary[];
+  realTelemetryExportApprovals: PolicyTelemetryControlSummary[];
+  realTelemetryExportRuns: PolicyTelemetryControlSummary[];
+  browserActionDryRuns: ControlledWriteControlSummary[];
+  browserActionApprovals: ControlledWriteControlSummary[];
+  browserActionRuns: ControlledWriteControlSummary[];
+  electronMainInspectorDryRuns: ControlledWriteControlSummary[];
+  electronMainInspectorApprovals: ControlledWriteControlSummary[];
+  electronMainInspectorRuns: ControlledWriteControlSummary[];
+  mcpWriteToolDryRuns: ControlledWriteControlSummary[];
+  mcpWriteToolApprovals: ControlledWriteControlSummary[];
+  mcpWriteToolRuns: ControlledWriteControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -241,6 +256,111 @@ interface ElectronCdpObservationControlSummary {
   noRealWrite?: boolean;
   rawPathStored?: boolean;
   bodyStored?: boolean;
+}
+
+interface PolicyTelemetryControlSummary {
+  recordId?: string;
+  id?: string;
+  dryRunId?: string;
+  approvalRequestId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  backendKind?: 'opa' | 'cedar';
+  runtimeMode?: 'local-cli' | 'loopback-http';
+  exporterKind?: 'in-memory' | 'otlp-http';
+  advisoryOnly?: boolean;
+  authorityProvider?: string;
+  readiness?: {
+    status?: string;
+    blockerCount?: number;
+    blockReasons?: string[];
+  };
+  advisoryDecisionSummary?: {
+    outcome?: string;
+    normalizedDecisionHash?: string;
+  };
+  localExportSummary?: {
+    exportHash?: string;
+    spanCount?: number;
+    logCount?: number;
+  };
+  networkExportSummary?: {
+    exportHash?: string;
+    endpointHash?: string;
+    spanCount?: number;
+    logCount?: number;
+  };
+  blockReasons?: string[];
+  policySourceHash?: string;
+  inputHash?: string;
+  queryHash?: string;
+  endpointHash?: string;
+  processBoundaryPlanned?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  rawPolicySourceStored?: boolean;
+  rawInputStored?: boolean;
+  rawOutputStored?: boolean;
+  rawTracePayloadStored?: boolean;
+  rawLogStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefs?: string[];
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface ControlledWriteControlSummary {
+  recordId?: string;
+  id?: string;
+  dryRunId?: string;
+  approvalRequestId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  actionKind?: 'click' | 'type';
+  toolName?: string;
+  snippetId?: string;
+  targetUrlHash?: string;
+  selectorHash?: string;
+  typedTextHash?: string;
+  endpointHash?: string;
+  targetHash?: string;
+  snippetSourceHash?: string;
+  patchInputHash?: string;
+  controlledWorktreeHash?: string;
+  blockReasons?: string[];
+  stepSummaries?: Array<{
+    status?: string;
+    actionKind?: string;
+    targetUrlHash?: string;
+    selectorHash?: string;
+    typedTextHash?: string;
+  }>;
+  processBoundaryPlanned?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  browserActPlanned?: boolean;
+  browserActInvoked?: boolean;
+  mainInspectorPlanned?: boolean;
+  mainInspectorInvoked?: boolean;
+  mcpWriteBoundaryPlanned?: boolean;
+  mcpWriteBoundaryInvoked?: boolean;
+  rawSelectorStored?: boolean;
+  rawTypedTextStored?: boolean;
+  rawSourceStored?: boolean;
+  rawPatchStored?: boolean;
+  repoRootMutationAllowed?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefs?: string[];
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
 }
 
 interface WorktreeControlSummary {
@@ -1205,6 +1325,16 @@ const deploymentOperationDashboardPostRoutes = new Set([
   '/api/deployments/operations/rollback-plans',
   '/api/deployments/operations/runs',
 ]);
+const policyTelemetryDashboardPostRoutes = new Set([
+  '/api/policy-backends/evaluations/dry-runs',
+  '/api/policy-backends/evaluations/approval-requests',
+  '/api/policy-backends/evaluations/manual-approvals',
+  '/api/policy-backends/evaluations/runs',
+  '/api/telemetry/exports/dry-runs',
+  '/api/telemetry/exports/approval-requests',
+  '/api/telemetry/exports/manual-approvals',
+  '/api/telemetry/exports/runs',
+]);
 type RecoveryTemplateId = (typeof recoveryTemplateOptions)[number]['id'];
 type GithubMergeStrategyOption = 'squash' | 'merge' | 'rebase';
 type DeploymentOperationProviderOption =
@@ -1216,6 +1346,10 @@ type DeploymentOperationProviderOption =
   | 'opentofu';
 type DeploymentOperationActionOption = 'deploy' | 'apply' | 'sync' | 'rollback';
 type DeploymentOperationEnvironmentOption = 'dev' | 'staging' | 'prod';
+type PolicyTelemetrySurfaceOption = 'policy' | 'telemetry';
+type RealPolicyBackendKindOption = 'opa' | 'cedar';
+type RealPolicyRuntimeModeOption = 'local-cli' | 'loopback-http';
+type RealTelemetryExporterKindOption = 'in-memory' | 'otlp-http';
 
 interface RecoveryGuidedOperationState {
   recoveryKey: string;
@@ -1314,6 +1448,33 @@ interface DeploymentGuidedOperationState {
   runDeploymentOperation: () => Promise<void>;
 }
 
+interface PolicyTelemetryGuidedOperationState {
+  policyTelemetryKey: string;
+  setPolicyTelemetryKey: (value: string) => void;
+  policyTelemetrySurface: PolicyTelemetrySurfaceOption;
+  setPolicyTelemetrySurface: (value: PolicyTelemetrySurfaceOption) => void;
+  policyBackendKind: RealPolicyBackendKindOption;
+  setPolicyBackendKind: (value: RealPolicyBackendKindOption) => void;
+  policyRuntimeMode: RealPolicyRuntimeModeOption;
+  setPolicyRuntimeMode: (value: RealPolicyRuntimeModeOption) => void;
+  telemetryExporterKind: RealTelemetryExporterKindOption;
+  setTelemetryExporterKind: (value: RealTelemetryExporterKindOption) => void;
+  policyTelemetryMessage: string;
+  policyTelemetryBusy: boolean;
+  policyTelemetryDryRunId: string;
+  policyTelemetryApprovalRequestId: string;
+  policyTelemetryApprovalArtifactId: string;
+  policyTelemetryApprover: string;
+  setPolicyTelemetryApprover: (value: string) => void;
+  latestPolicyTelemetryDryRun?: PolicyTelemetryControlSummary;
+  latestPolicyTelemetryApproval?: PolicyTelemetryControlSummary;
+  latestPolicyTelemetryRun?: PolicyTelemetryControlSummary;
+  createPolicyTelemetryDryRun: () => Promise<void>;
+  requestPolicyTelemetryApproval: () => Promise<void>;
+  approvePolicyTelemetryRequest: () => Promise<void>;
+  runPolicyTelemetry: () => Promise<void>;
+}
+
 export function App() {
   const [overview, setOverview] = useState<OverviewState>({
     status: 'loading',
@@ -1395,6 +1556,21 @@ export function App() {
     secretReadinessDryRuns: [],
     secretReadinessApprovals: [],
     secretReadinessRuns: [],
+    realPolicyBackendDryRuns: [],
+    realPolicyBackendApprovals: [],
+    realPolicyBackendRuns: [],
+    realTelemetryExportDryRuns: [],
+    realTelemetryExportApprovals: [],
+    realTelemetryExportRuns: [],
+    browserActionDryRuns: [],
+    browserActionApprovals: [],
+    browserActionRuns: [],
+    electronMainInspectorDryRuns: [],
+    electronMainInspectorApprovals: [],
+    electronMainInspectorRuns: [],
+    mcpWriteToolDryRuns: [],
+    mcpWriteToolApprovals: [],
+    mcpWriteToolRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -1485,6 +1661,20 @@ export function App() {
   const [deploymentSecondApprovalArtifactId, setDeploymentSecondApprovalArtifactId] = useState('');
   const [deploymentApprover, setDeploymentApprover] = useState('');
   const [deploymentSecondApprover, setDeploymentSecondApprover] = useState('');
+  const [policyTelemetryKey, setPolicyTelemetryKey] = useState('');
+  const [policyTelemetrySurface, setPolicyTelemetrySurface] =
+    useState<PolicyTelemetrySurfaceOption>('policy');
+  const [policyBackendKind, setPolicyBackendKind] = useState<RealPolicyBackendKindOption>('opa');
+  const [policyRuntimeMode, setPolicyRuntimeMode] =
+    useState<RealPolicyRuntimeModeOption>('local-cli');
+  const [telemetryExporterKind, setTelemetryExporterKind] =
+    useState<RealTelemetryExporterKindOption>('in-memory');
+  const [policyTelemetryMessage, setPolicyTelemetryMessage] = useState('');
+  const [policyTelemetryBusy, setPolicyTelemetryBusy] = useState(false);
+  const [policyTelemetryDryRunId, setPolicyTelemetryDryRunId] = useState('');
+  const [policyTelemetryApprovalRequestId, setPolicyTelemetryApprovalRequestId] = useState('');
+  const [policyTelemetryApprovalArtifactId, setPolicyTelemetryApprovalArtifactId] = useState('');
+  const [policyTelemetryApprover, setPolicyTelemetryApprover] = useState('');
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
   const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
@@ -1774,6 +1964,20 @@ export function App() {
     overview.deploymentOperationApprovals.find((record) => record.status === 'approved') ??
     overview.deploymentOperationApprovals[0];
   const latestDeploymentRun = overview.deploymentOperationRuns[0];
+  const latestPolicyTelemetryDryRun =
+    policyTelemetrySurface === 'policy'
+      ? overview.realPolicyBackendDryRuns[0]
+      : overview.realTelemetryExportDryRuns[0];
+  const latestPolicyTelemetryApproval =
+    policyTelemetrySurface === 'policy'
+      ? overview.realPolicyBackendApprovals.find((record) => record.status === 'approved') ??
+        overview.realPolicyBackendApprovals[0]
+      : overview.realTelemetryExportApprovals.find((record) => record.status === 'approved') ??
+        overview.realTelemetryExportApprovals[0];
+  const latestPolicyTelemetryRun =
+    policyTelemetrySurface === 'policy'
+      ? overview.realPolicyBackendRuns[0]
+      : overview.realTelemetryExportRuns[0];
   const deploymentGuidedOperation: DeploymentGuidedOperationState = {
     deploymentKey,
     setDeploymentKey,
@@ -1808,7 +2012,37 @@ export function App() {
     createDeploymentRollbackPlan,
     runDeploymentOperation,
   };
-  const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
+  const policyTelemetryGuidedOperation: PolicyTelemetryGuidedOperationState = {
+    policyTelemetryKey,
+    setPolicyTelemetryKey,
+    policyTelemetrySurface,
+    setPolicyTelemetrySurface,
+    policyBackendKind,
+    setPolicyBackendKind,
+    policyRuntimeMode,
+    setPolicyRuntimeMode,
+    telemetryExporterKind,
+    setTelemetryExporterKind,
+    policyTelemetryMessage,
+    policyTelemetryBusy,
+    policyTelemetryDryRunId,
+    policyTelemetryApprovalRequestId,
+    policyTelemetryApprovalArtifactId,
+    policyTelemetryApprover,
+    setPolicyTelemetryApprover,
+    latestPolicyTelemetryDryRun,
+    latestPolicyTelemetryApproval,
+    latestPolicyTelemetryRun,
+    createPolicyTelemetryDryRun,
+    requestPolicyTelemetryApproval,
+    approvePolicyTelemetryRequest,
+    runPolicyTelemetry,
+  };
+  const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary({
+    projectionSpanCount:
+      overview.realTelemetryExportRuns[0]?.localExportSummary?.spanCount ??
+      overview.realTelemetryExportRuns[0]?.networkExportSummary?.spanCount,
+  });
   const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
     ...overview.runs.map((run) => ({
@@ -2363,6 +2597,21 @@ export function App() {
           secretReadinessDryRunsResponse,
           secretReadinessApprovalsResponse,
           secretReadinessRunsResponse,
+          realPolicyBackendDryRunsResponse,
+          realPolicyBackendApprovalsResponse,
+          realPolicyBackendRunsResponse,
+          realTelemetryExportDryRunsResponse,
+          realTelemetryExportApprovalsResponse,
+          realTelemetryExportRunsResponse,
+          browserActionDryRunsResponse,
+          browserActionApprovalsResponse,
+          browserActionRunsResponse,
+          electronMainInspectorDryRunsResponse,
+          electronMainInspectorApprovalsResponse,
+          electronMainInspectorRunsResponse,
+          mcpWriteToolDryRunsResponse,
+          mcpWriteToolApprovalsResponse,
+          mcpWriteToolRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -2612,6 +2861,66 @@ export function App() {
           ),
           getOptionalJson<{ records: SecretReadinessControlSummary[] }>(
             '/api/secrets/readiness/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+            '/api/policy-backends/evaluations/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+            '/api/policy-backends/evaluations/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+            '/api/policy-backends/evaluations/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+            '/api/telemetry/exports/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+            '/api/telemetry/exports/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+            '/api/telemetry/exports/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/browser/actions/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/browser/actions/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/browser/actions/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/electron-cdp/main-inspector/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/electron-cdp/main-inspector/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/electron-cdp/main-inspector/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/mcp/write-tools/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/mcp/write-tools/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ControlledWriteControlSummary[] }>(
+            '/api/mcp/write-tools/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
@@ -2887,6 +3196,21 @@ export function App() {
             secretReadinessDryRuns: secretReadinessDryRunsResponse.records,
             secretReadinessApprovals: secretReadinessApprovalsResponse.records,
             secretReadinessRuns: secretReadinessRunsResponse.records,
+            realPolicyBackendDryRuns: realPolicyBackendDryRunsResponse.records,
+            realPolicyBackendApprovals: realPolicyBackendApprovalsResponse.records,
+            realPolicyBackendRuns: realPolicyBackendRunsResponse.records,
+            realTelemetryExportDryRuns: realTelemetryExportDryRunsResponse.records,
+            realTelemetryExportApprovals: realTelemetryExportApprovalsResponse.records,
+            realTelemetryExportRuns: realTelemetryExportRunsResponse.records,
+            browserActionDryRuns: browserActionDryRunsResponse.records,
+            browserActionApprovals: browserActionApprovalsResponse.records,
+            browserActionRuns: browserActionRunsResponse.records,
+            electronMainInspectorDryRuns: electronMainInspectorDryRunsResponse.records,
+            electronMainInspectorApprovals: electronMainInspectorApprovalsResponse.records,
+            electronMainInspectorRuns: electronMainInspectorRunsResponse.records,
+            mcpWriteToolDryRuns: mcpWriteToolDryRunsResponse.records,
+            mcpWriteToolApprovals: mcpWriteToolApprovalsResponse.records,
+            mcpWriteToolRuns: mcpWriteToolRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -3011,11 +3335,26 @@ export function App() {
             deploymentOperationDryRuns: [],
             deploymentOperationApprovals: [],
             deploymentOperationRollbackPlans: [],
-            deploymentOperationRuns: [],
-            secretReadinessDryRuns: [],
-            secretReadinessApprovals: [],
-            secretReadinessRuns: [],
-            githubPrLabelsDryRuns: [],
+    deploymentOperationRuns: [],
+    secretReadinessDryRuns: [],
+    secretReadinessApprovals: [],
+    secretReadinessRuns: [],
+    realPolicyBackendDryRuns: [],
+    realPolicyBackendApprovals: [],
+    realPolicyBackendRuns: [],
+    realTelemetryExportDryRuns: [],
+    realTelemetryExportApprovals: [],
+    realTelemetryExportRuns: [],
+    browserActionDryRuns: [],
+    browserActionApprovals: [],
+    browserActionRuns: [],
+    electronMainInspectorDryRuns: [],
+    electronMainInspectorApprovals: [],
+    electronMainInspectorRuns: [],
+    mcpWriteToolDryRuns: [],
+    mcpWriteToolApprovals: [],
+    mcpWriteToolRuns: [],
+    githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
             githubPrAssigneesDryRuns: [],
@@ -3143,6 +3482,179 @@ export function App() {
       deploymentOperationRollbackPlans: rollbackPlansResponse.records,
       deploymentOperationRuns: runsResponse.records,
     }));
+  }
+
+  async function refreshPolicyTelemetryRecords() {
+    const [
+      policyDryRunsResponse,
+      policyApprovalsResponse,
+      policyRunsResponse,
+      telemetryDryRunsResponse,
+      telemetryApprovalsResponse,
+      telemetryRunsResponse,
+    ] = await Promise.all([
+      getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+        '/api/policy-backends/evaluations/dry-runs',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+        '/api/policy-backends/evaluations/approvals',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+        '/api/policy-backends/evaluations/runs',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+        '/api/telemetry/exports/dry-runs',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+        '/api/telemetry/exports/approvals',
+        { records: [] },
+      ),
+      getOptionalJson<{ records: PolicyTelemetryControlSummary[] }>(
+        '/api/telemetry/exports/runs',
+        { records: [] },
+      ),
+    ]);
+
+    setOverview((current) => ({
+      ...current,
+      realPolicyBackendDryRuns: policyDryRunsResponse.records,
+      realPolicyBackendApprovals: policyApprovalsResponse.records,
+      realPolicyBackendRuns: policyRunsResponse.records,
+      realTelemetryExportDryRuns: telemetryDryRunsResponse.records,
+      realTelemetryExportApprovals: telemetryApprovalsResponse.records,
+      realTelemetryExportRuns: telemetryRunsResponse.records,
+    }));
+  }
+
+  function getPolicyTelemetryRoute(suffix: 'dry-runs' | 'approval-requests' | 'manual-approvals' | 'runs') {
+    return policyTelemetrySurface === 'policy'
+      ? `/api/policy-backends/evaluations/${suffix}`
+      : `/api/telemetry/exports/${suffix}`;
+  }
+
+  async function createPolicyTelemetryDryRun() {
+    if (!policyTelemetryKey) {
+      setPolicyTelemetryMessage('Enter the page-memory key before creating a dry-run.');
+      return;
+    }
+
+    setPolicyTelemetryBusy(true);
+    try {
+      const body =
+        policyTelemetrySurface === 'policy'
+          ? { backendKind: policyBackendKind, runtimeMode: policyRuntimeMode }
+          : { exporterKind: telemetryExporterKind };
+      const result = await postPolicyTelemetryJson<PolicyTelemetryControlSummary>(
+        getPolicyTelemetryRoute('dry-runs'),
+        policyTelemetryKey,
+        body,
+      );
+      setPolicyTelemetryDryRunId(result.dryRunId ?? '');
+      setPolicyTelemetryApprovalRequestId('');
+      setPolicyTelemetryApprovalArtifactId('');
+      setPolicyTelemetryMessage(
+        `Policy/telemetry dry-run ${result.dryRunId ?? 'created'} is ${
+          result.status ?? 'planned'
+        }.`,
+      );
+      await refreshPolicyTelemetryRecords();
+    } catch (error) {
+      setPolicyTelemetryMessage(error instanceof Error ? error.message : 'Dry-run failed.');
+    } finally {
+      setPolicyTelemetryBusy(false);
+    }
+  }
+
+  async function requestPolicyTelemetryApproval() {
+    if (!policyTelemetryKey || !policyTelemetryDryRunId) {
+      setPolicyTelemetryMessage('Create a policy/telemetry dry-run before requesting approval.');
+      return;
+    }
+
+    setPolicyTelemetryBusy(true);
+    try {
+      const result = await postPolicyTelemetryJson<PolicyTelemetryControlSummary>(
+        getPolicyTelemetryRoute('approval-requests'),
+        policyTelemetryKey,
+        { dryRunId: policyTelemetryDryRunId },
+      );
+      setPolicyTelemetryApprovalRequestId(result.approvalRequestId ?? '');
+      setPolicyTelemetryMessage(
+        `Approval request ${result.approvalRequestId ?? 'created'} is ${
+          result.status ?? 'requested'
+        }.`,
+      );
+      await refreshPolicyTelemetryRecords();
+    } catch (error) {
+      setPolicyTelemetryMessage(
+        error instanceof Error ? error.message : 'Approval request failed.',
+      );
+    } finally {
+      setPolicyTelemetryBusy(false);
+    }
+  }
+
+  async function approvePolicyTelemetryRequest() {
+    if (!policyTelemetryKey || !policyTelemetryDryRunId || !policyTelemetryApprovalRequestId) {
+      setPolicyTelemetryMessage('Request policy/telemetry approval before approving it.');
+      return;
+    }
+
+    setPolicyTelemetryBusy(true);
+    try {
+      const result = await postPolicyTelemetryJson<PolicyTelemetryControlSummary>(
+        getPolicyTelemetryRoute('manual-approvals'),
+        policyTelemetryKey,
+        {
+          dryRunId: policyTelemetryDryRunId,
+          approvalRequestId: policyTelemetryApprovalRequestId,
+          outcome: 'approved',
+          decidedBy: policyTelemetryApprover || undefined,
+        },
+      );
+      setPolicyTelemetryApprovalArtifactId(result.approvalArtifactId ?? '');
+      setPolicyTelemetryMessage(
+        `Approval ${result.approvalArtifactId ?? 'recorded'} is ${
+          result.status ?? 'approved'
+        }.`,
+      );
+      await refreshPolicyTelemetryRecords();
+    } catch (error) {
+      setPolicyTelemetryMessage(error instanceof Error ? error.message : 'Approval failed.');
+    } finally {
+      setPolicyTelemetryBusy(false);
+    }
+  }
+
+  async function runPolicyTelemetry() {
+    if (!policyTelemetryKey || !policyTelemetryDryRunId || !policyTelemetryApprovalArtifactId) {
+      setPolicyTelemetryMessage('Approve policy/telemetry evaluation before starting the run.');
+      return;
+    }
+
+    setPolicyTelemetryBusy(true);
+    try {
+      const result = await postPolicyTelemetryJson<PolicyTelemetryControlSummary>(
+        getPolicyTelemetryRoute('runs'),
+        policyTelemetryKey,
+        {
+          dryRunId: policyTelemetryDryRunId,
+          approvalArtifactId: policyTelemetryApprovalArtifactId,
+        },
+      );
+      setPolicyTelemetryMessage(
+        `Run ${result.runId ?? 'started'} is ${result.status ?? 'unknown'}.`,
+      );
+      await refreshPolicyTelemetryRecords();
+    } catch (error) {
+      setPolicyTelemetryMessage(error instanceof Error ? error.message : 'Run failed.');
+    } finally {
+      setPolicyTelemetryBusy(false);
+    }
   }
 
   async function submitApprovalDecision(item: ApprovalInboxItem, decision: ApprovalUxDecision) {
@@ -5224,6 +5736,7 @@ export function App() {
             runMerge,
           },
           deploymentGuidedOperation,
+          policyTelemetryGuidedOperation,
         )
       )}
     </main>
@@ -5273,6 +5786,7 @@ function renderReadOnlyDashboardView(
   recoveryGuidedOperation: RecoveryGuidedOperationState,
   mergeGuidedOperation: MergeGuidedOperationState,
   deploymentGuidedOperation: DeploymentGuidedOperationState,
+  policyTelemetryGuidedOperation: PolicyTelemetryGuidedOperationState,
 ) {
   if (activeView === 'development') {
     return (
@@ -5581,6 +6095,35 @@ function renderReadOnlyDashboardView(
             </p>
           )}
         </Panel>
+        <Panel title="Browser Action Runs">
+          {overview.browserActionRuns.length > 0 ? (
+            <ul>
+              {overview.browserActionRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'browser_action_run'}</strong>
+                  <span>
+                    {run.actionKind ?? 'action'} / {run.status ?? 'unknown'}
+                  </span>
+                  <span>
+                    target {run.targetUrlHash ?? 'unavailable'}, selector{' '}
+                    {run.selectorHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    act {String(run.browserActInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefs?.length ?? run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No controlled browser action run metadata is available. Dashboard does not start M45 browser writes.</p>
+          )}
+        </Panel>
       </section>
     );
   }
@@ -5700,6 +6243,36 @@ function renderReadOnlyDashboardView(
               No Electron/CDP observation run metadata is available. This view is read-only and
               never sends local-control credentials.
             </p>
+          )}
+        </Panel>
+        <Panel title="Electron Main Inspector Runs">
+          {overview.electronMainInspectorRuns.length > 0 ? (
+            <ul>
+              {overview.electronMainInspectorRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'electron_main_inspector_run'}</strong>
+                  <span>
+                    snippet {run.snippetId ?? 'unknown'} / {run.status ?? 'unknown'}
+                  </span>
+                  <span>
+                    endpoint {run.endpointHash ?? 'unavailable'}, target{' '}
+                    {run.targetHash ?? 'unavailable'}, source{' '}
+                    {run.snippetSourceHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    inspector {String(run.mainInspectorInvoked ?? false)}, process{' '}
+                    {String(run.processBoundaryInvoked ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefs?.length ?? run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Electron main inspector write metadata is available. Dashboard keeps M45 execution read-only.</p>
           )}
         </Panel>
       </section>
@@ -8579,6 +9152,33 @@ function renderReadOnlyDashboardView(
   }
 
   if (activeView === 'policy-telemetry') {
+    const {
+      policyTelemetryKey,
+      setPolicyTelemetryKey,
+      policyTelemetrySurface,
+      setPolicyTelemetrySurface,
+      policyBackendKind,
+      setPolicyBackendKind,
+      policyRuntimeMode,
+      setPolicyRuntimeMode,
+      telemetryExporterKind,
+      setTelemetryExporterKind,
+      policyTelemetryMessage,
+      policyTelemetryBusy,
+      policyTelemetryDryRunId,
+      policyTelemetryApprovalRequestId,
+      policyTelemetryApprovalArtifactId,
+      policyTelemetryApprover,
+      setPolicyTelemetryApprover,
+      latestPolicyTelemetryDryRun,
+      latestPolicyTelemetryApproval,
+      latestPolicyTelemetryRun,
+      createPolicyTelemetryDryRun,
+      requestPolicyTelemetryApproval,
+      approvePolicyTelemetryRequest,
+      runPolicyTelemetry,
+    } = policyTelemetryGuidedOperation;
+
     return (
       <section className="grid">
         <Panel title="Policy Backend">
@@ -8663,6 +9263,220 @@ function renderReadOnlyDashboardView(
             </li>
           </ul>
           <p>{policyTelemetrySummary.telemetry.summary}</p>
+        </Panel>
+        <Panel title="Policy Telemetry Guided Operation">
+          <ul>
+            <li>
+              <strong>page key</strong>
+              <span>{policyTelemetryKey ? 'entered' : 'missing'}</span>
+            </li>
+            <li>
+              <strong>records</strong>
+              <span>
+                policy dry-runs {overview.realPolicyBackendDryRuns.length}, approvals{' '}
+                {overview.realPolicyBackendApprovals.length}, runs{' '}
+                {overview.realPolicyBackendRuns.length}; telemetry dry-runs{' '}
+                {overview.realTelemetryExportDryRuns.length}, approvals{' '}
+                {overview.realTelemetryExportApprovals.length}, runs{' '}
+                {overview.realTelemetryExportRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>latest dry-run</strong>
+              <span>
+                {policyTelemetryDryRunId || latestPolicyTelemetryDryRun?.dryRunId || 'none'} /{' '}
+                {latestPolicyTelemetryDryRun?.status ?? 'none'}
+              </span>
+            </li>
+            <li>
+              <strong>latest approval</strong>
+              <span>
+                {policyTelemetryApprovalArtifactId ||
+                  latestPolicyTelemetryApproval?.approvalArtifactId ||
+                  latestPolicyTelemetryApproval?.approvalRequestId ||
+                  'none'}{' '}
+                / {latestPolicyTelemetryApproval?.status ?? 'none'}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>
+                {latestPolicyTelemetryRun?.runId ?? 'none'} /{' '}
+                {latestPolicyTelemetryRun?.status ?? 'not_started'}
+              </span>
+            </li>
+            <li>
+              <strong>boundary truth</strong>
+              <span>
+                process {String(latestPolicyTelemetryRun?.processBoundaryInvoked ?? false)},
+                network {String(latestPolicyTelemetryRun?.networkBoundaryInvoked ?? false)}
+              </span>
+            </li>
+          </ul>
+          <div className="form-grid">
+            <label>
+              <span>Local control key</span>
+              <input
+                value={policyTelemetryKey}
+                onChange={(event) => setPolicyTelemetryKey(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Surface</span>
+              <select
+                value={policyTelemetrySurface}
+                onChange={(event) =>
+                  setPolicyTelemetrySurface(event.currentTarget.value as PolicyTelemetrySurfaceOption)
+                }
+              >
+                <option value="policy">policy</option>
+                <option value="telemetry">telemetry</option>
+              </select>
+            </label>
+            <label>
+              <span>Policy backend</span>
+              <select
+                value={policyBackendKind}
+                onChange={(event) =>
+                  setPolicyBackendKind(event.currentTarget.value as RealPolicyBackendKindOption)
+                }
+                disabled={policyTelemetrySurface !== 'policy'}
+              >
+                <option value="opa">opa</option>
+                <option value="cedar">cedar</option>
+              </select>
+            </label>
+            <label>
+              <span>Policy mode</span>
+              <select
+                value={policyRuntimeMode}
+                onChange={(event) =>
+                  setPolicyRuntimeMode(event.currentTarget.value as RealPolicyRuntimeModeOption)
+                }
+                disabled={policyTelemetrySurface !== 'policy'}
+              >
+                <option value="local-cli">local-cli</option>
+                <option value="loopback-http">loopback-http</option>
+              </select>
+            </label>
+            <label>
+              <span>Telemetry exporter</span>
+              <select
+                value={telemetryExporterKind}
+                onChange={(event) =>
+                  setTelemetryExporterKind(
+                    event.currentTarget.value as RealTelemetryExporterKindOption,
+                  )
+                }
+                disabled={policyTelemetrySurface !== 'telemetry'}
+              >
+                <option value="in-memory">in-memory</option>
+                <option value="otlp-http">otlp-http</option>
+              </select>
+            </label>
+            <label>
+              <span>Approver tag</span>
+              <input
+                value={policyTelemetryApprover}
+                onChange={(event) => setPolicyTelemetryApprover(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={policyTelemetryBusy || !policyTelemetryKey}
+              onClick={() => void createPolicyTelemetryDryRun()}
+            >
+              Create Dry-Run
+            </button>
+            <button
+              type="button"
+              disabled={policyTelemetryBusy || !policyTelemetryKey || !policyTelemetryDryRunId}
+              onClick={() => void requestPolicyTelemetryApproval()}
+            >
+              Request Approval
+            </button>
+            <button
+              type="button"
+              disabled={
+                policyTelemetryBusy ||
+                !policyTelemetryKey ||
+                !policyTelemetryDryRunId ||
+                !policyTelemetryApprovalRequestId
+              }
+              onClick={() => void approvePolicyTelemetryRequest()}
+            >
+              Approve
+            </button>
+            <button
+              type="button"
+              disabled={
+                policyTelemetryBusy ||
+                !policyTelemetryKey ||
+                !policyTelemetryDryRunId ||
+                !policyTelemetryApprovalArtifactId
+              }
+              onClick={() => void runPolicyTelemetry()}
+            >
+              Run
+            </button>
+          </div>
+          <p>
+            {policyTelemetryMessage ||
+              'Policy telemetry wizard is scoped to /api/policy-backends/evaluations/* and /api/telemetry/exports/*.'}
+          </p>
+        </Panel>
+        <Panel title="Policy Backend Runs">
+          {overview.realPolicyBackendRuns.length > 0 ? (
+            <ul>
+              {overview.realPolicyBackendRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'real_policy_backend_run'}</strong>
+                  <span>
+                    {run.backendKind ?? 'policy'} / {run.runtimeMode ?? 'mode'} /{' '}
+                    {run.status ?? 'unknown'}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefs?.length ?? run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    process {String(run.processBoundaryInvoked ?? false)}, network{' '}
+                    {String(run.networkBoundaryInvoked ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No real policy backend run metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="Telemetry Export Runs">
+          {overview.realTelemetryExportRuns.length > 0 ? (
+            <ul>
+              {overview.realTelemetryExportRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'real_telemetry_export_run'}</strong>
+                  <span>
+                    {run.exporterKind ?? 'exporter'} / {run.status ?? 'unknown'}
+                  </span>
+                  <span>
+                    local {run.localExportSummary?.exportHash ?? 'none'}, network{' '}
+                    {run.networkExportSummary?.exportHash ?? 'none'}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefs?.length ?? run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No real telemetry export run metadata is available.</p>
+          )}
         </Panel>
       </section>
     );
@@ -9069,6 +9883,36 @@ function renderReadOnlyDashboardView(
           ))}
         </ul>
       </Panel>
+      <Panel title="MCP Write Tool Runs">
+        {overview.mcpWriteToolRuns.length > 0 ? (
+          <ul>
+            {overview.mcpWriteToolRuns.slice(0, 8).map((run) => (
+              <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                <strong>{run.runId ?? run.recordId ?? 'mcp_write_tool_run'}</strong>
+                <span>
+                  {run.toolName ?? 'workspace.applyPatchToControlledWorktree'} /{' '}
+                  {run.status ?? 'unknown'}
+                </span>
+                <span>
+                  patch {run.patchInputHash ?? 'unavailable'}, worktree{' '}
+                  {run.controlledWorktreeHash ?? 'unavailable'}
+                </span>
+                <span>
+                  mcp write {String(run.mcpWriteBoundaryInvoked ?? false)}, repoRootMutation{' '}
+                  {String(run.repoRootMutationAllowed ?? false)}
+                </span>
+                <span>
+                  evidence {run.evidenceRefs?.length ?? run.evidenceRefIds?.length ?? 0}, audit{' '}
+                  {run.auditEventIds?.length ?? 0}
+                </span>
+                {run.summary ? <p>{run.summary}</p> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No controlled MCP write run metadata is available. This view has no write button.</p>
+        )}
+      </Panel>
     </section>
   );
 }
@@ -9238,6 +10082,32 @@ async function postDeploymentOperationJson<T>(
 ): Promise<T> {
   if (!deploymentOperationDashboardPostRoutes.has(path)) {
     throw new Error('Dashboard deployment wizard can only call deployment operation routes.');
+  }
+
+  const response = await fetch(`${supervisorUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      [dashboardLocalControlHeaderName]: pageMemoryKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json()) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new Error(result.error ?? `Supervisor returned ${response.status} for ${path}`);
+  }
+
+  return result;
+}
+
+async function postPolicyTelemetryJson<T>(
+  path: string,
+  pageMemoryKey: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  if (!policyTelemetryDashboardPostRoutes.has(path)) {
+    throw new Error('Dashboard policy telemetry wizard can only call M44 control-plane routes.');
   }
 
   const response = await fetch(`${supervisorUrl}${path}`, {

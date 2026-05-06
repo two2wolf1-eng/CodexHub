@@ -231,6 +231,23 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'secrets.readiness_plan',
     'secrets.readiness_summary',
     'secrets.rehearsal',
+    'policy.real_backend_plan',
+    'policy.real_backend_summary',
+    'policy.advisory_decision_summary',
+    'policy.real_backend_rehearsal',
+    'telemetry.real_export_plan',
+    'telemetry.local_export_summary',
+    'telemetry.network_export_summary',
+    'telemetry.real_export_rehearsal',
+    'browser.action_plan',
+    'browser.action_summary',
+    'browser.action_rehearsal',
+    'electron.main_inspector_plan',
+    'electron.main_inspector_summary',
+    'electron.main_inspector_rehearsal',
+    'mcp.write_tool_plan',
+    'mcp.write_tool_summary',
+    'mcp.write_tool_rehearsal',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -3357,6 +3374,22 @@ const githubForbiddenMetadataKeys = new Set([
   'rawConfigBody',
   'reference',
   'rawReference',
+  'policySource',
+  'rawPolicySource',
+  'policyInput',
+  'rawPolicyInput',
+  'trace',
+  'rawTrace',
+  'span',
+  'rawSpan',
+  'selector',
+  'rawSelector',
+  'typedText',
+  'rawTypedText',
+  'javascript',
+  'rawJavascript',
+  'patch',
+  'rawPatch',
   'log',
   'logs',
   'rawLog',
@@ -15494,6 +15527,809 @@ export const CodexExecRealReadOnlyAdapterPilotPrerequisiteQuerySchema =
   });
 export type CodexExecRealReadOnlyAdapterPilotPrerequisiteQuery = z.infer<
   typeof CodexExecRealReadOnlyAdapterPilotPrerequisiteQuerySchema
+>;
+
+export const RealPolicyBackendKindSchema = z.enum(['opa', 'cedar']);
+export type RealPolicyBackendKind = z.infer<typeof RealPolicyBackendKindSchema>;
+
+export const RealPolicyBackendRuntimeModeSchema = z.enum(['local-cli', 'loopback-http']);
+export type RealPolicyBackendRuntimeMode = z.infer<typeof RealPolicyBackendRuntimeModeSchema>;
+
+export const RealPolicyBackendDecisionOutcomeSchema = z.enum(['allow', 'deny', 'unknown', 'error']);
+export type RealPolicyBackendDecisionOutcome = z.infer<
+  typeof RealPolicyBackendDecisionOutcomeSchema
+>;
+
+export const RealPolicyBackendManifestSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.literal('policy-backend-adapter'),
+    backendKind: RealPolicyBackendKindSchema,
+    runtimeModes: z.array(RealPolicyBackendRuntimeModeSchema).min(1),
+    defaultEnabled: z.literal(false),
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyBackendManifest = z.infer<typeof RealPolicyBackendManifestSchema>;
+
+export const RealPolicyBackendReadinessSchema = createdEntityBaseSchema
+  .extend({
+    backendKind: RealPolicyBackendKindSchema,
+    runtimeMode: RealPolicyBackendRuntimeModeSchema,
+    realBackendEnabled: z.boolean(),
+    backendEnabled: z.boolean(),
+    runtimeAvailable: z.boolean(),
+    endpointHash: z.string().min(1).optional(),
+    cliExecutableHash: z.string().min(1).optional(),
+    blockerCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    processBoundaryPlanned: z.boolean(),
+    networkBoundaryPlanned: z.boolean(),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.blockerCount !== record.blockReasons.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blockerCount must match real policy readiness blockReasons length',
+        path: ['blockerCount'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyBackendReadiness = z.infer<typeof RealPolicyBackendReadinessSchema>;
+
+export const RealPolicyBackendEvaluationPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    backendKind: RealPolicyBackendKindSchema,
+    runtimeMode: RealPolicyBackendRuntimeModeSchema,
+    actionIdHash: z.string().min(1),
+    actionTypeHash: z.string().min(1),
+    inputHash: z.string().min(1),
+    policySourceHash: z.string().min(1),
+    queryHash: z.string().min(1).optional(),
+    endpointHash: z.string().min(1).optional(),
+    processBoundaryPlanned: z.boolean(),
+    networkBoundaryPlanned: z.boolean(),
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyBackendEvaluationPlan = z.infer<
+  typeof RealPolicyBackendEvaluationPlanSchema
+>;
+
+export const RealPolicyBackendApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    approvedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match real policy approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyBackendApprovalArtifact = z.infer<
+  typeof RealPolicyBackendApprovalArtifactSchema
+>;
+
+export const RealPolicyAdvisoryDecisionSummarySchema = createdEntityBaseSchema
+  .extend({
+    backendKind: RealPolicyBackendKindSchema,
+    runtimeMode: RealPolicyBackendRuntimeModeSchema,
+    backendOutcome: RealPolicyBackendDecisionOutcomeSchema,
+    normalizedOutcome: PolicyOutcomeSchema,
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    codexhubPolicyDecisionId: z.string().min(1),
+    rawDecisionHash: z.string().min(1),
+    reasonCount: z.number().int().nonnegative(),
+    matchedRuleCount: z.number().int().nonnegative(),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyAdvisoryDecisionSummary = z.infer<
+  typeof RealPolicyAdvisoryDecisionSummarySchema
+>;
+
+export const RealPolicyBackendEvaluationRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: RealPolicyBackendEvaluationPlanSchema,
+    readiness: RealPolicyBackendReadinessSchema,
+    advisoryDecision: RealPolicyAdvisoryDecisionSummarySchema,
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.boolean(),
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyBackendEvaluationRun = z.infer<
+  typeof RealPolicyBackendEvaluationRunSchema
+>;
+
+export const RealPolicyBackendAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'provider-disabled',
+  'opa-cli-missing',
+  'cedar-cli-missing',
+  'loopback-unavailable',
+  'approval-blocked',
+  'advisory-deny',
+  'backend-error',
+  'raw-output-rejected',
+]);
+export type RealPolicyBackendAcceptanceScenario = z.infer<
+  typeof RealPolicyBackendAcceptanceScenarioSchema
+>;
+
+export const RealPolicyBackendAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: RealPolicyBackendAcceptanceScenarioSchema,
+    backendKind: RealPolicyBackendKindSchema,
+    runtimeMode: RealPolicyBackendRuntimeModeSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    evaluationStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    advisoryOutcome: RealPolicyBackendDecisionOutcomeSchema,
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.boolean(),
+    advisoryOnly: z.literal(true),
+    authorityProvider: z.literal('codexhub-security-kernel'),
+    rawPolicySourceStored: z.literal(false),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.scenario !== 'all-pass' && record.status === 'passed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass real policy rehearsals can pass',
+        path: ['status'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealPolicyBackendAcceptanceRehearsalRun = z.infer<
+  typeof RealPolicyBackendAcceptanceRehearsalRunSchema
+>;
+
+export const RealTelemetryExporterKindSchema = z.enum(['in-memory', 'otlp-http']);
+export type RealTelemetryExporterKind = z.infer<typeof RealTelemetryExporterKindSchema>;
+
+export const RealTelemetryRuntimeManifestSchema = createdEntityBaseSchema
+  .extend({
+    adapterName: z.literal('otel-adapter'),
+    exporterKinds: z.array(RealTelemetryExporterKindSchema).min(1),
+    defaultEnabled: z.literal(false),
+    networkExporterDefaultEnabled: z.literal(false),
+    evidenceAuditAuthoritative: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryRuntimeManifest = z.infer<typeof RealTelemetryRuntimeManifestSchema>;
+
+export const RealTelemetryReadinessSchema = createdEntityBaseSchema
+  .extend({
+    exporterKind: RealTelemetryExporterKindSchema,
+    realTelemetryEnabled: z.boolean(),
+    networkExporterEnabled: z.boolean(),
+    endpointHash: z.string().min(1).optional(),
+    endpointAllowed: z.boolean(),
+    blockerCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    networkBoundaryPlanned: z.boolean(),
+    processBoundaryPlanned: z.literal(false),
+    evidenceAuditAuthoritative: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.blockerCount !== record.blockReasons.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blockerCount must match real telemetry readiness blockReasons length',
+        path: ['blockerCount'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryReadiness = z.infer<typeof RealTelemetryReadinessSchema>;
+
+export const RealTelemetryExportPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    exporterKind: RealTelemetryExporterKindSchema,
+    signalKinds: z.array(TelemetrySignalKindSchema).default(['trace']),
+    spanCount: z.number().int().nonnegative(),
+    tracePlanHash: z.string().min(1),
+    endpointHash: z.string().min(1).optional(),
+    networkExportPlanned: z.boolean(),
+    processBoundaryPlanned: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceAuditAuthoritative: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryExportPlan = z.infer<typeof RealTelemetryExportPlanSchema>;
+
+export const RealTelemetryExportApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    approvedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    evidenceAuditAuthoritative: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match telemetry approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryExportApprovalArtifact = z.infer<
+  typeof RealTelemetryExportApprovalArtifactSchema
+>;
+
+export const RealTelemetryLocalExportSummarySchema = createdEntityBaseSchema
+  .extend({
+    exporterKind: z.literal('in-memory'),
+    exportedSpanCount: z.number().int().nonnegative(),
+    exportSummaryHash: z.string().min(1),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceAuditAuthoritative: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryLocalExportSummary = z.infer<
+  typeof RealTelemetryLocalExportSummarySchema
+>;
+
+export const RealTelemetryNetworkExportSummarySchema = createdEntityBaseSchema
+  .extend({
+    exporterKind: z.literal('otlp-http'),
+    exportedSpanCount: z.number().int().nonnegative(),
+    endpointHash: z.string().min(1),
+    exportSummaryHash: z.string().min(1),
+    networkBoundaryInvoked: z.boolean(),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceAuditAuthoritative: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryNetworkExportSummary = z.infer<
+  typeof RealTelemetryNetworkExportSummarySchema
+>;
+
+export const RealTelemetryExportRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: RealTelemetryExportPlanSchema,
+    readiness: RealTelemetryReadinessSchema,
+    localExportSummary: RealTelemetryLocalExportSummarySchema.optional(),
+    networkExportSummary: RealTelemetryNetworkExportSummarySchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.boolean(),
+    evidenceAuditAuthoritative: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryExportRun = z.infer<typeof RealTelemetryExportRunSchema>;
+
+export const RealTelemetryAcceptanceScenarioSchema = z.enum([
+  'all-pass-local',
+  'exporter-disabled',
+  'network-exporter-disabled',
+  'endpoint-blocked',
+  'approval-blocked',
+  'export-failed',
+  'raw-span-rejected',
+  'network-timeout',
+]);
+export type RealTelemetryAcceptanceScenario = z.infer<
+  typeof RealTelemetryAcceptanceScenarioSchema
+>;
+
+export const RealTelemetryAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: RealTelemetryAcceptanceScenarioSchema,
+    exporterKind: RealTelemetryExporterKindSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    exportStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    exportedSpanCount: z.number().int().nonnegative(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.boolean(),
+    evidenceAuditAuthoritative: z.literal(false),
+    rawTracePayloadStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.scenario !== 'all-pass-local' && record.status === 'passed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass local telemetry rehearsals can pass',
+        path: ['status'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RealTelemetryAcceptanceRehearsalRun = z.infer<
+  typeof RealTelemetryAcceptanceRehearsalRunSchema
+>;
+
+export const BrowserActionKindSchema = z.enum(['click', 'type']);
+export type BrowserActionKind = z.infer<typeof BrowserActionKindSchema>;
+
+export const BrowserActionStepSummarySchema = createdEntityBaseSchema
+  .extend({
+    actionKind: BrowserActionKindSchema,
+    targetUrlHash: z.string().min(1),
+    selectorHash: z.string().min(1),
+    typedTextHash: z.string().min(1).optional(),
+    status: z.enum(['planned', 'completed', 'failed', 'blocked', 'skipped']),
+    rawSelectorStored: z.literal(false),
+    rawTypedTextStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type BrowserActionStepSummary = z.infer<typeof BrowserActionStepSummarySchema>;
+
+export const BrowserActionPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    actionKind: BrowserActionKindSchema,
+    targetUrlHash: z.string().min(1),
+    selectorHash: z.string().min(1),
+    typedTextHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    processBoundaryPlanned: z.literal(true),
+    browserActPlanned: z.literal(true),
+    rawSelectorStored: z.literal(false),
+    rawTypedTextStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type BrowserActionPlan = z.infer<typeof BrowserActionPlanSchema>;
+
+export const BrowserActionApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    reasonHash: z.string().min(1).optional(),
+    rawSelectorStored: z.literal(false),
+    rawTypedTextStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match browser action approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type BrowserActionApprovalArtifact = z.infer<typeof BrowserActionApprovalArtifactSchema>;
+
+export const BrowserActionRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: BrowserActionPlanSchema,
+    stepSummaries: z.array(BrowserActionStepSummarySchema).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    browserActionInvoked: z.boolean(),
+    rawSelectorStored: z.literal(false),
+    rawTypedTextStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type BrowserActionRun = z.infer<typeof BrowserActionRunSchema>;
+
+export const ElectronMainInspectorPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    endpointHash: z.string().min(1),
+    targetIdHash: z.string().min(1),
+    snippetId: z.string().min(1),
+    snippetSourceHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    cdpHttpBoundaryPlanned: z.literal(true),
+    cdpWebSocketBoundaryPlanned: z.literal(true),
+    mainInspectorPlanned: z.literal(true),
+    rawJavascriptStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ElectronMainInspectorPlan = z.infer<typeof ElectronMainInspectorPlanSchema>;
+
+export const ElectronMainInspectorApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    reasonHash: z.string().min(1).optional(),
+    rawJavascriptStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match electron inspector approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ElectronMainInspectorApprovalArtifact = z.infer<
+  typeof ElectronMainInspectorApprovalArtifactSchema
+>;
+
+export const ElectronMainInspectorRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: ElectronMainInspectorPlanSchema,
+    resultHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    cdpHttpBoundaryInvoked: z.boolean(),
+    cdpWebSocketBoundaryInvoked: z.boolean(),
+    mainInspectorInvoked: z.boolean(),
+    rawJavascriptStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ElectronMainInspectorRun = z.infer<typeof ElectronMainInspectorRunSchema>;
+
+export const McpWriteToolNameSchema = z.enum(['workspace.applyPatchToControlledWorktree']);
+export type McpWriteToolName = z.infer<typeof McpWriteToolNameSchema>;
+
+export const McpWriteToolManifestSchema = createdEntityBaseSchema
+  .extend({
+    name: McpWriteToolNameSchema,
+    enabled: z.boolean(),
+    riskLevel: z.literal('critical'),
+    actionMode: z.literal('write'),
+    approvalPolicy: z.literal('required'),
+    directExecutionAllowed: z.literal(true),
+    controlledWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type McpWriteToolManifest = z.infer<typeof McpWriteToolManifestSchema>;
+
+export const McpWriteToolPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    toolName: McpWriteToolNameSchema,
+    worktreePathHash: z.string().min(1),
+    patchHash: z.string().min(1),
+    changedFileCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    directExecutionPlanned: z.literal(true),
+    controlledWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type McpWriteToolPlan = z.infer<typeof McpWriteToolPlanSchema>;
+
+export const McpWriteToolApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    reasonHash: z.string().min(1).optional(),
+    rawPatchStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match MCP write approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type McpWriteToolApprovalArtifact = z.infer<typeof McpWriteToolApprovalArtifactSchema>;
+
+export const McpWriteToolRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: McpWriteToolPlanSchema,
+    appliedFileCount: z.number().int().nonnegative(),
+    resultHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    directExecutionInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    controlledWorktreeOnly: z.literal(true),
+    repoRootMutationAllowed: z.literal(false),
+    rawPatchStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type McpWriteToolRun = z.infer<typeof McpWriteToolRunSchema>;
+
+export const ControlledWriteAcceptanceScenarioSchema = z.enum([
+  'all-pass-click',
+  'all-pass-type',
+  'browser-disabled',
+  'selector-hash-mismatch',
+  'credential-field-blocked',
+  'all-pass-runtime-evaluate',
+  'inspector-disabled',
+  'non-loopback-blocked',
+  'target-hash-mismatch',
+  'snippet-not-allowlisted',
+  'all-pass-controlled-worktree-patch',
+  'mcp-write-disabled',
+  'patch-hash-mismatch',
+  'repo-root-blocked',
+  'path-traversal-blocked',
+  'approval-blocked',
+  'action-failed',
+  'runtime-failed',
+  'patch-apply-failed',
+  'network-timeout',
+  'raw-input-rejected',
+  'raw-source-rejected',
+  'raw-output-rejected',
+]);
+export type ControlledWriteAcceptanceScenario = z.infer<
+  typeof ControlledWriteAcceptanceScenarioSchema
+>;
+
+export const ControlledWriteAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: ControlledWriteAcceptanceScenarioSchema,
+    surface: z.enum(['browser', 'electron', 'mcp']),
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    runStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.boolean(),
+    rawInputStored: z.literal(false),
+    rawOutputStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    const passingScenarios = new Set([
+      'all-pass-click',
+      'all-pass-type',
+      'all-pass-runtime-evaluate',
+      'all-pass-controlled-worktree-patch',
+    ]);
+
+    if (!passingScenarios.has(record.scenario) && record.status === 'passed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass controlled write rehearsals can pass',
+        path: ['status'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ControlledWriteAcceptanceRehearsalRun = z.infer<
+  typeof ControlledWriteAcceptanceRehearsalRunSchema
 >;
 
 export function foundationTimestamp(): string {

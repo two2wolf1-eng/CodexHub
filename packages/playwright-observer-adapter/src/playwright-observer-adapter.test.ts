@@ -16,6 +16,7 @@ import {
   createPlaywrightReadOnlyRealRunner,
   executePlaywrightObserverAdapter,
   isAllowedReadOnlyTargetUrl,
+  runControlledBrowserActionBoundary,
 } from './index';
 
 const createdAt = '2026-05-03T00:00:00.000Z';
@@ -614,5 +615,60 @@ describe('playwright-observer-adapter', () => {
     expect(serialized).not.toContain('https://example.test');
     expect(serialized).not.toContain('secret');
     expect(serialized).not.toContain('External target');
+  });
+
+  it('runs controlled browser actions through a fixed click/type boundary', async () => {
+    const targetUrl = 'http://127.0.0.1:3000/workflows';
+    const selector = '#approve';
+    const result = await runControlledBrowserActionBoundary({
+      actionKind: 'click',
+      targetUrl,
+      targetUrlHash: sha256Ref(targetUrl),
+      selector,
+      selectorHash: sha256Ref(selector),
+      loadPlaywright: async () => ({
+        chromium: {
+          async launch() {
+            return {
+              async newContext() {
+                return {
+                  async newPage() {
+                    return {
+                      async goto() {
+                        return undefined;
+                      },
+                      url() {
+                        return targetUrl;
+                      },
+                      locator() {
+                        return {
+                          async click() {
+                            return undefined;
+                          },
+                          async fill() {
+                            return undefined;
+                          },
+                        };
+                      },
+                    };
+                  },
+                  async close() {
+                    return undefined;
+                  },
+                };
+              },
+              async close() {
+                return undefined;
+              },
+            };
+          },
+        },
+      }),
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.browserActionInvoked).toBe(true);
+    expect(result.rawSelectorStored).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(selector);
   });
 });

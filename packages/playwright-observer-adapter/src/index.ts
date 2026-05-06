@@ -1,4 +1,5 @@
 export * from './audit';
+export * from './action-boundary';
 export * from './evidence';
 export * from './execute';
 export * from './manifest';

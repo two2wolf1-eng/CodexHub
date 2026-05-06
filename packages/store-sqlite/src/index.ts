@@ -7,6 +7,9 @@ import type {
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
+  BrowserActionApprovalArtifact,
+  BrowserActionPlan,
+  BrowserActionRun,
   CodexPatchChildRecord,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
@@ -15,6 +18,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  ElectronMainInspectorApprovalArtifact,
+  ElectronMainInspectorPlan,
+  ElectronMainInspectorRun,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -68,6 +74,12 @@ import type {
   ProductionWorkflowRecoveryPlan,
   ProductionWorkflowRecoveryRun,
   NxVerificationChildRecord,
+  RealPolicyBackendApprovalArtifact,
+  RealPolicyBackendEvaluationPlan,
+  RealPolicyBackendEvaluationRun,
+  RealTelemetryExportApprovalArtifact,
+  RealTelemetryExportPlan,
+  RealTelemetryExportRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -82,6 +94,9 @@ import type {
   SecretReadinessApprovalArtifact,
   SecretReadinessPlan,
   SecretReadinessRun,
+  McpWriteToolApprovalArtifact,
+  McpWriteToolPlan,
+  McpWriteToolRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -125,6 +140,9 @@ import type {
   BrowserObservationDryRunRepository,
   BrowserObservationQuery,
   BrowserObservationRunRepository,
+  BrowserActionApprovalRepository,
+  BrowserActionDryRunRepository,
+  BrowserActionRunRepository,
   CodexPatchChildRecordRepository,
   CodexExecLiveAdapterAdrDecisionRepository,
   CodexExecApprovalRepository,
@@ -148,6 +166,9 @@ import type {
   ElectronCdpObservationDryRunRepository,
   ElectronCdpObservationQuery,
   ElectronCdpObservationRunRepository,
+  ElectronMainInspectorApprovalRepository,
+  ElectronMainInspectorDryRunRepository,
+  ElectronMainInspectorRunRepository,
   GithubBranchPublishApprovalRepository,
   GithubBranchPublishControlPlaneQuery,
   GithubBranchPublishDryRunRepository,
@@ -249,6 +270,15 @@ import type {
   SecretReadinessControlPlaneQuery,
   SecretReadinessDryRunRepository,
   SecretReadinessRunRepository,
+  McpWriteToolApprovalRepository,
+  McpWriteToolDryRunRepository,
+  McpWriteToolRunRepository,
+  RealPolicyBackendApprovalRepository,
+  RealPolicyBackendDryRunRepository,
+  RealPolicyBackendRunRepository,
+  RealTelemetryExportApprovalRepository,
+  RealTelemetryExportDryRunRepository,
+  RealTelemetryExportRunRepository,
   WorkflowRunRepository,
 } from '@codexhub/store-core';
 
@@ -383,6 +413,21 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly secretReadinessApprovals: SecretReadinessApprovalRepository;
   readonly secretReadinessRuns: SecretReadinessRunRepository;
   readonly secretLeakAuditSummaries: SecretLeakAuditSummaryRepository;
+  readonly realPolicyBackendDryRuns: RealPolicyBackendDryRunRepository;
+  readonly realPolicyBackendApprovals: RealPolicyBackendApprovalRepository;
+  readonly realPolicyBackendRuns: RealPolicyBackendRunRepository;
+  readonly realTelemetryExportDryRuns: RealTelemetryExportDryRunRepository;
+  readonly realTelemetryExportApprovals: RealTelemetryExportApprovalRepository;
+  readonly realTelemetryExportRuns: RealTelemetryExportRunRepository;
+  readonly browserActionDryRuns: BrowserActionDryRunRepository;
+  readonly browserActionApprovals: BrowserActionApprovalRepository;
+  readonly browserActionRuns: BrowserActionRunRepository;
+  readonly electronMainInspectorDryRuns: ElectronMainInspectorDryRunRepository;
+  readonly electronMainInspectorApprovals: ElectronMainInspectorApprovalRepository;
+  readonly electronMainInspectorRuns: ElectronMainInspectorRunRepository;
+  readonly mcpWriteToolDryRuns: McpWriteToolDryRunRepository;
+  readonly mcpWriteToolApprovals: McpWriteToolApprovalRepository;
+  readonly mcpWriteToolRuns: McpWriteToolRunRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -584,6 +629,69 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.secretReadinessApprovals = new SqliteSecretReadinessApprovalRepository(database);
     this.secretReadinessRuns = new SqliteSecretReadinessRunRepository(database);
     this.secretLeakAuditSummaries = new SqliteSecretLeakAuditSummaryRepository(database);
+    this.realPolicyBackendDryRuns = new SqliteGenericDryRunRepository<RealPolicyBackendEvaluationPlan>(
+      database,
+      'real_policy_backend_dry_runs',
+    );
+    this.realPolicyBackendApprovals =
+      new SqliteGenericApprovalRepository<RealPolicyBackendApprovalArtifact>(
+      database,
+      'real_policy_backend_approvals',
+    );
+    this.realPolicyBackendRuns = new SqliteGenericRunRepository<RealPolicyBackendEvaluationRun>(
+      database,
+      'real_policy_backend_runs',
+    );
+    this.realTelemetryExportDryRuns = new SqliteGenericDryRunRepository<RealTelemetryExportPlan>(
+      database,
+      'real_telemetry_export_dry_runs',
+    );
+    this.realTelemetryExportApprovals =
+      new SqliteGenericApprovalRepository<RealTelemetryExportApprovalArtifact>(
+      database,
+      'real_telemetry_export_approvals',
+    );
+    this.realTelemetryExportRuns = new SqliteGenericRunRepository<RealTelemetryExportRun>(
+      database,
+      'real_telemetry_export_runs',
+    );
+    this.browserActionDryRuns = new SqliteGenericDryRunRepository<BrowserActionPlan>(
+      database,
+      'browser_action_dry_runs',
+    );
+    this.browserActionApprovals = new SqliteGenericApprovalRepository<BrowserActionApprovalArtifact>(
+      database,
+      'browser_action_approvals',
+    );
+    this.browserActionRuns = new SqliteGenericRunRepository<BrowserActionRun>(
+      database,
+      'browser_action_runs',
+    );
+    this.electronMainInspectorDryRuns = new SqliteGenericDryRunRepository<ElectronMainInspectorPlan>(
+      database,
+      'electron_main_inspector_dry_runs',
+    );
+    this.electronMainInspectorApprovals =
+      new SqliteGenericApprovalRepository<ElectronMainInspectorApprovalArtifact>(
+        database,
+        'electron_main_inspector_approvals',
+      );
+    this.electronMainInspectorRuns = new SqliteGenericRunRepository<ElectronMainInspectorRun>(
+      database,
+      'electron_main_inspector_runs',
+    );
+    this.mcpWriteToolDryRuns = new SqliteGenericDryRunRepository<McpWriteToolPlan>(
+      database,
+      'mcp_write_tool_dry_runs',
+    );
+    this.mcpWriteToolApprovals = new SqliteGenericApprovalRepository<McpWriteToolApprovalArtifact>(
+      database,
+      'mcp_write_tool_approvals',
+    );
+    this.mcpWriteToolRuns = new SqliteGenericRunRepository<McpWriteToolRun>(
+      database,
+      'mcp_write_tool_runs',
+    );
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -3167,6 +3275,99 @@ class SqliteSecretLeakAuditSummaryRepository implements SecretLeakAuditSummaryRe
     query: SecretReadinessControlPlaneQuery = {},
   ): Promise<SecretLeakAuditSummary[]> {
     return (await this.repository.list()).slice(0, normalizeLimit(query.limit));
+  }
+}
+
+class SqliteGenericDryRunRepository<
+  T extends PersistedEntity & { dryRunId?: string; status?: string },
+> {
+  private readonly repository: JsonEntityRepository<T>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<T>(
+      database,
+      tableName,
+      (record) => record.createdAt ?? record.observedAt ?? '',
+    );
+  }
+
+  async saveDryRun(record: T): Promise<T> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<T | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(query: WorktreeControlPlaneQuery = {}): Promise<T[]> {
+    return listObservationControlPlaneRecords<T>(this.database, this.tableName, query);
+  }
+}
+
+class SqliteGenericApprovalRepository<
+  T extends PersistedEntity & {
+    approvalArtifactId?: string;
+    dryRunId?: string;
+    status?: string;
+  },
+> {
+  private readonly repository: JsonEntityRepository<T>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<T>(
+      database,
+      tableName,
+      (record) => record.createdAt ?? record.observedAt ?? '',
+    );
+  }
+
+  async saveApproval(record: T): Promise<T> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<T | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(approvalArtifactId: string): Promise<T | undefined> {
+    return getApprovalRecordByArtifactId<T>(this.database, this.tableName, approvalArtifactId);
+  }
+
+  async listApprovals(query: WorktreeControlPlaneQuery = {}): Promise<T[]> {
+    return listObservationControlPlaneRecords<T>(this.database, this.tableName, query);
+  }
+}
+
+class SqliteGenericRunRepository<T extends PersistedEntity & { dryRunId?: string; status?: string }> {
+  private readonly repository: JsonEntityRepository<T>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<T>(
+      database,
+      tableName,
+      (record) => record.createdAt ?? record.observedAt ?? '',
+    );
+  }
+
+  async saveRun(record: T): Promise<T> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<T | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(query: WorktreeControlPlaneQuery = {}): Promise<T[]> {
+    return listObservationControlPlaneRecords<T>(this.database, this.tableName, query);
   }
 }
 

@@ -11,12 +11,14 @@ import {
   createElectronProcessSummary,
   createElectronTargetSummary,
 } from '@codexhub/electron-cdp-kernel';
+import { hashText } from '@codexhub/evidence-kernel';
 import { describe, expect, it } from 'vitest';
 
 import { createElectronCdpControlledHttpRunner } from './controlled-http-runner';
 import { createElectronCdpControlledWebSocketEventRunner } from './controlled-websocket-event-runner';
 import { executeElectronCdpAdapter } from './execute';
 import { createElectronCdpFixtureRunner } from './fixture';
+import { runElectronMainInspectorBoundary } from './main-inspector-boundary';
 import { createElectronCdpAdapterManifest } from './manifest';
 import { planElectronCdpObservation } from './plan';
 
@@ -648,6 +650,32 @@ describe('electron-cdp-adapter', () => {
     expect(result.electronRun.plan.blockReasons).toContain(
       'fixture_process_boundary_forbidden',
     );
+  });
+
+  it('runs Electron main inspector snippets only when snippet hash is allowlisted', async () => {
+    const endpointUrl = 'http://127.0.0.1:9222/devtools/page/1';
+    const snippetSource = '(() => 1)()';
+    const snippetSourceHash = `sha256:${hashText(snippetSource)}`;
+    const result = await runElectronMainInspectorBoundary({
+      endpointUrl,
+      endpointHash: `sha256:${hashText(endpointUrl)}`,
+      targetIdHash: 'sha256:target',
+      snippetId: 'safe-snippet',
+      snippetSource,
+      snippetSourceHash,
+      allowedSnippetHashes: { 'safe-snippet': snippetSourceHash },
+      runtimeRunner: async () => ({
+        status: 'completed',
+        resultHash: 'sha256:result',
+        summary: 'Synthetic runtime completed.',
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.mainInspectorInvoked).toBe(true);
+    expect(result.rawJavascriptStored).toBe(false);
+    expect(serialized).not.toContain(snippetSource);
   });
 });
 

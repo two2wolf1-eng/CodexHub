@@ -2072,10 +2072,10 @@ export function createPolicyTelemetryReadOnlySummary(input: {
   return {
     policyBackend: {
       manifestName: 'policy-backend-adapter',
-      manifestVersion: '0.2.0-m7b',
+      manifestVersion: '0.44.0-real-policy',
       productDefaultEnabled: false,
-      backendKinds: ['fixture', 'opa-plan-only', 'cedar-plan-only'],
-      evaluatorSources: ['fixture-inline', 'fixture-config'],
+      backendKinds: ['opa', 'cedar'],
+      evaluatorSources: ['local-cli', 'loopback-http'],
       advisoryOnly: true,
       authorityProvider: 'codexhub',
       processBoundaryInvoked: false,
@@ -2089,9 +2089,9 @@ export function createPolicyTelemetryReadOnlySummary(input: {
     },
     telemetry: {
       manifestName: 'otel-adapter',
-      manifestVersion: '0.2.0-m7c',
+      manifestVersion: '0.44.0-real-telemetry',
       productDefaultEnabled: false,
-      exporterKinds: ['noop', 'fixture'],
+      exporterKinds: ['in-memory', 'otlp-http'],
       localProjectionEnabled: true,
       projectionSpanCount,
       projectionHash: stableSha256LikeHash(`policy-telemetry-projection:${projectionSpanCount}`),

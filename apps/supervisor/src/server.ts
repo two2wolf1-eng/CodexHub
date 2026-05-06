@@ -160,6 +160,10 @@ import type {
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
+  BrowserActionApprovalArtifact,
+  BrowserActionKind,
+  BrowserActionPlan,
+  BrowserActionRun,
   CodexPatchChildRecord,
   BrowserObservationRunStatus,
   CodexExecApprovalArtifact,
@@ -231,6 +235,9 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  ElectronMainInspectorApprovalArtifact,
+  ElectronMainInspectorPlan,
+  ElectronMainInspectorRun,
   ElectronCdpObservationRunStatus,
   ElectronDebugEndpointSummary,
   EvidenceRef,
@@ -328,6 +335,18 @@ import type {
   M11PilotRun,
   WorktreeRunStatus,
   NxVerificationChildRecord,
+  RealPolicyBackendApprovalArtifact,
+  RealPolicyBackendEvaluationPlan,
+  RealPolicyBackendEvaluationRun,
+  RealPolicyBackendKind,
+  RealPolicyBackendRuntimeMode,
+  RealTelemetryExportApprovalArtifact,
+  RealTelemetryExportPlan,
+  RealTelemetryExportRun,
+  RealTelemetryExporterKind,
+  McpWriteToolApprovalArtifact,
+  McpWriteToolPlan,
+  McpWriteToolRun,
 } from '@codexhub/contracts';
 import {
   ApprovalDecisionRequestSchema,
@@ -359,6 +378,27 @@ import {
   ProductionWorkflowRecoveryPlanSchema,
   ProductionWorkflowRecoveryRunSchema,
   DeploymentObservationApprovalArtifactSchema,
+  BrowserActionApprovalArtifactSchema,
+  BrowserActionPlanSchema,
+  BrowserActionRunSchema,
+  BrowserActionStepSummarySchema,
+  ElectronMainInspectorApprovalArtifactSchema,
+  ElectronMainInspectorPlanSchema,
+  ElectronMainInspectorRunSchema,
+  McpWriteToolApprovalArtifactSchema,
+  McpWriteToolPlanSchema,
+  McpWriteToolRunSchema,
+  RealPolicyAdvisoryDecisionSummarySchema,
+  RealPolicyBackendApprovalArtifactSchema,
+  RealPolicyBackendEvaluationPlanSchema,
+  RealPolicyBackendEvaluationRunSchema,
+  RealPolicyBackendReadinessSchema,
+  RealTelemetryExportApprovalArtifactSchema,
+  RealTelemetryExportPlanSchema,
+  RealTelemetryExportRunSchema,
+  RealTelemetryLocalExportSummarySchema,
+  RealTelemetryNetworkExportSummarySchema,
+  RealTelemetryReadinessSchema,
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
@@ -3997,6 +4037,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerDeploymentObservationRoutes('/api/deployments/observations');
   registerDeploymentOperationRoutes('/api/deployments/operations');
   registerSecretReadinessRoutes('/api/secrets/readiness');
+  registerRealPolicyBackendRoutes('/api/policy-backends/evaluations');
+  registerRealTelemetryExportRoutes('/api/telemetry/exports');
+  registerBrowserActionRoutes('/api/browser/actions');
+  registerElectronMainInspectorRoutes('/api/electron-cdp/main-inspector');
+  registerMcpWriteToolRoutes('/api/mcp/write-tools');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
   registerGithubPrManagementRoutes('assignees', '/api/github/pr-assignees');
@@ -20043,6 +20088,1216 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  type RealPolicyBackendRequestBody = {
+    backendKind?: RealPolicyBackendKind;
+    runtimeMode?: RealPolicyBackendRuntimeMode;
+    actionIdHash?: string;
+    actionTypeHash?: string;
+    inputHash?: string;
+    policySourceHash?: string;
+    queryHash?: string;
+    endpointHash?: string;
+    blockReasons?: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalRequestId?: string;
+    outcome?: GithubProviderApprovalStatus;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  };
+
+  type RealTelemetryRequestBody = {
+    exporterKind?: RealTelemetryExporterKind;
+    signalKinds?: ('trace' | 'metric' | 'log')[];
+    spanCount?: number;
+    tracePlanHash?: string;
+    endpointHash?: string;
+    blockReasons?: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalRequestId?: string;
+    outcome?: GithubProviderApprovalStatus;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  };
+
+  type BrowserActionRequestBody = {
+    actionKind?: BrowserActionKind;
+    targetUrlHash?: string;
+    selectorHash?: string;
+    typedTextHash?: string;
+    blockReasons?: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalRequestId?: string;
+    outcome?: GithubProviderApprovalStatus;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  };
+
+  type ElectronMainInspectorRequestBody = {
+    endpointHash?: string;
+    targetIdHash?: string;
+    snippetId?: string;
+    snippetSourceHash?: string;
+    blockReasons?: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalRequestId?: string;
+    outcome?: GithubProviderApprovalStatus;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  };
+
+  type McpWriteToolRequestBody = {
+    worktreePathHash?: string;
+    patchHash?: string;
+    changedFileCount?: number;
+    blockReasons?: string[];
+    dryRunId?: string;
+    approvalArtifactId?: string;
+    approvalRequestId?: string;
+    outcome?: GithubProviderApprovalStatus;
+    requestedBy?: string;
+    decidedBy?: string;
+    reason?: string;
+  };
+
+  function registerRealPolicyBackendRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('policy-backend'));
+      }
+
+      const body = request.body as RealPolicyBackendRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const record = createRealPolicyBackendDryRunRecord(body);
+      await store.realPolicyBackendDryRuns.saveDryRun(record);
+      return record;
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.realPolicyBackendDryRuns.listDryRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('policy-backend'));
+      }
+      const body = request.body as RealPolicyBackendRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await store.realPolicyBackendDryRuns.getDryRun(body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'real policy backend dry-run was not found' });
+      }
+      const approval = createRealPolicyBackendApprovalRecord(dryRunRecord, body, 'requested');
+      await store.realPolicyBackendApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('policy-backend'));
+      }
+      const body = request.body as RealPolicyBackendRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await store.realPolicyBackendDryRuns.getDryRun(body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'real policy backend dry-run was not found' });
+      }
+      const approval = createRealPolicyBackendApprovalRecord(
+        dryRunRecord,
+        body,
+        body?.outcome ?? 'approved',
+      );
+      await store.realPolicyBackendApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.realPolicyBackendApprovals.listApprovals(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('policy-backend'));
+      }
+      const body = request.body as RealPolicyBackendRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await store.realPolicyBackendDryRuns.getDryRun(body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'real policy backend dry-run was not found' });
+      }
+      const approval = body?.approvalArtifactId
+        ? await store.realPolicyBackendApprovals.getApprovalByArtifactId(body.approvalArtifactId)
+        : undefined;
+      const run = createRealPolicyBackendRunRecord(dryRunRecord, approval);
+      await store.realPolicyBackendRuns.saveRun(run);
+      if (run.processBoundaryInvoked || run.networkBoundaryInvoked) {
+        await store.realPolicyBackendApprovals.saveApproval(
+          createRealPolicyBackendApprovalRecord(dryRunRecord, body, 'used', approval),
+        );
+      }
+      return run;
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.realPolicyBackendRuns.listRuns(query) : [];
+      return createControlPlaneListResponse(
+        records,
+        (record) => record,
+        store,
+        records.some((record) => record.networkBoundaryInvoked),
+      );
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id && store ? await store.realPolicyBackendRuns.getRun(params.id) : undefined;
+      return record ?? reply.code(404).send({ error: 'real policy backend run was not found' });
+    });
+  }
+
+  function registerRealTelemetryExportRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('telemetry'));
+      }
+      const body = request.body as RealTelemetryRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const record = createRealTelemetryDryRunRecord(body);
+      await store.realTelemetryExportDryRuns.saveDryRun(record);
+      return record;
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.realTelemetryExportDryRuns.listDryRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('telemetry'));
+      }
+      const body = request.body as RealTelemetryRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await store.realTelemetryExportDryRuns.getDryRun(body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'real telemetry dry-run was not found' });
+      }
+      const approval = createRealTelemetryApprovalRecord(dryRunRecord, body, 'requested');
+      await store.realTelemetryExportApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('telemetry'));
+      }
+      const body = request.body as RealTelemetryRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await store.realTelemetryExportDryRuns.getDryRun(body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'real telemetry dry-run was not found' });
+      }
+      const approval = createRealTelemetryApprovalRecord(dryRunRecord, body, body?.outcome ?? 'approved');
+      await store.realTelemetryExportApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.realTelemetryExportApprovals.listApprovals(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('telemetry'));
+      }
+      const body = request.body as RealTelemetryRequestBody | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await store.realTelemetryExportDryRuns.getDryRun(body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'real telemetry dry-run was not found' });
+      }
+      const approval = body?.approvalArtifactId
+        ? await store.realTelemetryExportApprovals.getApprovalByArtifactId(body.approvalArtifactId)
+        : undefined;
+      const run = createRealTelemetryRunRecord(dryRunRecord, approval);
+      await store.realTelemetryExportRuns.saveRun(run);
+      if (run.networkBoundaryInvoked || run.localExportSummary) {
+        await store.realTelemetryExportApprovals.saveApproval(
+          createRealTelemetryApprovalRecord(dryRunRecord, body, 'used', approval),
+        );
+      }
+      return run;
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.realTelemetryExportRuns.listRuns(query) : [];
+      return createControlPlaneListResponse(
+        records,
+        (record) => record,
+        store,
+        records.some((record) => record.networkBoundaryInvoked),
+      );
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id && store ? await store.realTelemetryExportRuns.getRun(params.id) : undefined;
+      return record ?? reply.code(404).send({ error: 'real telemetry run was not found' });
+    });
+  }
+
+  function registerBrowserActionRoutes(prefix: string): void {
+    registerControlledWriteRoutes(prefix, 'browser');
+  }
+
+  function registerElectronMainInspectorRoutes(prefix: string): void {
+    registerControlledWriteRoutes(prefix, 'electron');
+  }
+
+  function registerMcpWriteToolRoutes(prefix: string): void {
+    registerControlledWriteRoutes(prefix, 'mcp');
+  }
+
+  function registerControlledWriteRoutes(surface: string, kind: 'browser' | 'electron' | 'mcp'): void {
+    server.post(`${surface}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(kind));
+      }
+      const body = request.body as
+        | BrowserActionRequestBody
+        | ElectronMainInspectorRequestBody
+        | McpWriteToolRequestBody
+        | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const record = createControlledWriteDryRunRecord(kind, body);
+      await saveControlledWriteDryRun(store, kind, record);
+      return record;
+    });
+
+    server.get(`${surface}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await listControlledWriteDryRuns(store, kind, query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${surface}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(kind));
+      }
+      const body = request.body as
+        | BrowserActionRequestBody
+        | ElectronMainInspectorRequestBody
+        | McpWriteToolRequestBody
+        | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await getControlledWriteDryRun(store, kind, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: `${kind} dry-run was not found` });
+      }
+      const approval = createControlledWriteApprovalRecord(kind, dryRunRecord, body, 'requested');
+      await saveControlledWriteApproval(store, kind, approval);
+      return approval;
+    });
+
+    server.post(`${surface}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(kind));
+      }
+      const body = request.body as
+        | BrowserActionRequestBody
+        | ElectronMainInspectorRequestBody
+        | McpWriteToolRequestBody
+        | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await getControlledWriteDryRun(store, kind, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: `${kind} dry-run was not found` });
+      }
+      const approval = createControlledWriteApprovalRecord(
+        kind,
+        dryRunRecord,
+        body,
+        body?.outcome ?? 'approved',
+      );
+      await saveControlledWriteApproval(store, kind, approval);
+      return approval;
+    });
+
+    server.get(`${surface}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await listControlledWriteApprovals(store, kind, query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${surface}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse(kind));
+      }
+      const body = request.body as
+        | BrowserActionRequestBody
+        | ElectronMainInspectorRequestBody
+        | McpWriteToolRequestBody
+        | undefined;
+      if (hasUntrustedAuthorityBody(body) || hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await getControlledWriteDryRun(store, kind, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: `${kind} dry-run was not found` });
+      }
+      const approval = body?.approvalArtifactId
+        ? await getControlledWriteApprovalByArtifactId(store, kind, body.approvalArtifactId)
+        : undefined;
+      const run = createControlledWriteRunRecord(kind, dryRunRecord, approval);
+      await saveControlledWriteRun(store, kind, run);
+      if (isControlledWriteBoundaryInvoked(run)) {
+        await saveControlledWriteApproval(
+          store,
+          kind,
+          createControlledWriteApprovalRecord(kind, dryRunRecord, body, 'used', approval),
+        );
+      }
+      return run;
+    });
+
+    server.get(`${surface}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await listControlledWriteRuns(store, kind, query) : [];
+      return createControlPlaneListResponse(
+        records,
+        (record) => record,
+        store,
+        records.some((record) => Boolean((record as { networkBoundaryInvoked?: boolean }).networkBoundaryInvoked)),
+      );
+    });
+
+    server.get(`${surface}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id && store ? await getControlledWriteRun(store, kind, params.id) : undefined;
+      return record ?? reply.code(404).send({ error: `${kind} run was not found` });
+    });
+  }
+
+  type ControlledWriteKind = 'browser' | 'electron' | 'mcp';
+  type ControlledWriteDryRun = BrowserActionPlan | ElectronMainInspectorPlan | McpWriteToolPlan;
+  type ControlledWriteApproval =
+    | BrowserActionApprovalArtifact
+    | ElectronMainInspectorApprovalArtifact
+    | McpWriteToolApprovalArtifact;
+  type ControlledWriteRun = BrowserActionRun | ElectronMainInspectorRun | McpWriteToolRun;
+
+  function createNewSurfaceStoreUnavailableResponse(surface: string) {
+    return {
+      error: `${surface}_store_unavailable`,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  }
+
+  function createNewSurfaceRejectedBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'request_body_contains_untrusted_authority_or_raw_content',
+      dryRunId,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  }
+
+  function createRealPolicyBackendDryRunRecord(
+    body: RealPolicyBackendRequestBody | undefined,
+  ): RealPolicyBackendEvaluationPlan {
+    const backendKind = body?.backendKind ?? 'opa';
+    const runtimeMode = body?.runtimeMode ?? 'local-cli';
+    const blockReasons = body?.blockReasons ?? [];
+
+    return RealPolicyBackendEvaluationPlanSchema.parse({
+      id: foundationId('real_policy_backend_dry_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId: foundationId('real_policy_backend'),
+      status: blockReasons.length > 0 ? 'blocked' : 'planned',
+      backendKind,
+      runtimeMode,
+      actionIdHash: body?.actionIdHash ?? hashLocalMetadata({ actionId: 'policy-backend-action' }),
+      actionTypeHash:
+        body?.actionTypeHash ?? hashLocalMetadata({ actionType: 'policy-backend-evaluate' }),
+      inputHash: body?.inputHash ?? hashLocalMetadata({ input: 'hash-bound-runtime-input' }),
+      policySourceHash:
+        body?.policySourceHash ?? hashLocalMetadata({ policySource: `${backendKind}-policy` }),
+      queryHash: body?.queryHash ?? hashLocalMetadata({ query: 'fixed-decision-query' }),
+      endpointHash: body?.endpointHash,
+      processBoundaryPlanned: runtimeMode === 'local-cli',
+      networkBoundaryPlanned: runtimeMode === 'loopback-http',
+      advisoryOnly: true,
+      authorityProvider: 'codexhub-security-kernel',
+      blockReasons,
+      rawPolicySourceStored: false,
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Real policy backend evaluation dry-run is metadata-only and advisory.',
+    });
+  }
+
+  function createRealPolicyBackendApprovalRecord(
+    dryRunRecord: RealPolicyBackendEvaluationPlan,
+    body: RealPolicyBackendRequestBody | undefined,
+    status: GithubProviderApprovalStatus,
+    baseRecord?: RealPolicyBackendApprovalArtifact,
+  ): RealPolicyBackendApprovalArtifact {
+    const now = foundationTimestamp();
+    return RealPolicyBackendApprovalArtifactSchema.parse({
+      id: baseRecord?.id ?? foundationId('real_policy_backend_approval'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: baseRecord?.createdAt ?? now,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalRequestId:
+        baseRecord?.approvalRequestId ??
+        body?.approvalRequestId ??
+        foundationId('real_policy_backend_approval_request'),
+      approvalArtifactId:
+        baseRecord?.approvalArtifactId ?? foundationId('real_policy_backend_approval_artifact'),
+      status,
+      approved: status === 'approved',
+      policyDecisionId: baseRecord?.policyDecisionId ?? foundationId('policy_decision_real_policy'),
+      expectedPlanHash: baseRecord?.expectedPlanHash ?? hashLocalMetadata(dryRunRecord),
+      approvedAt: status === 'approved' ? now : baseRecord?.approvedAt,
+      usedAt: status === 'used' ? now : baseRecord?.usedAt,
+      revokedAt: status === 'revoked' ? now : baseRecord?.revokedAt,
+      decidedByHash: body?.decidedBy ? hashLocalMetadata({ decidedBy: body.decidedBy }) : undefined,
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : baseRecord?.reasonHash,
+      advisoryOnly: true,
+      authorityProvider: 'codexhub-security-kernel',
+      rawPolicySourceStored: false,
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [],
+      auditEventIds: [foundationId('audit_real_policy_backend_approval')],
+      summary: 'Real policy backend approval artifact stores hashes only.',
+    });
+  }
+
+  function createRealPolicyBackendRunRecord(
+    dryRunRecord: RealPolicyBackendEvaluationPlan,
+    approvalRecord: RealPolicyBackendApprovalArtifact | undefined,
+  ): RealPolicyBackendEvaluationRun {
+    const realEnabled = process.env.CODEXHUB_POLICY_BACKEND_REAL_ENABLED === 'true';
+    const backendEnabled =
+      dryRunRecord.backendKind === 'opa'
+        ? process.env.CODEXHUB_POLICY_BACKEND_OPA_ENABLED === 'true'
+        : process.env.CODEXHUB_POLICY_BACKEND_CEDAR_ENABLED === 'true';
+    const approvalUsable = Boolean(
+      approvalRecord?.status === 'approved',
+    );
+    const blockReasons = [
+      ...dryRunRecord.blockReasons,
+      ...(realEnabled ? [] : ['policy_backend_real_disabled']),
+      ...(backendEnabled ? [] : [`policy_backend_${dryRunRecord.backendKind}_disabled`]),
+      ...(approvalUsable ? [] : ['policy_backend_approval_required']),
+    ];
+    const completed = blockReasons.length === 0;
+    const readiness = RealPolicyBackendReadinessSchema.parse({
+      id: foundationId('real_policy_backend_readiness'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      backendKind: dryRunRecord.backendKind,
+      runtimeMode: dryRunRecord.runtimeMode,
+      realBackendEnabled: realEnabled,
+      backendEnabled,
+      runtimeAvailable: completed,
+      endpointHash: dryRunRecord.endpointHash,
+      cliExecutableHash:
+        dryRunRecord.runtimeMode === 'local-cli'
+          ? hashLocalMetadata({ cli: dryRunRecord.backendKind })
+          : undefined,
+      blockerCount: blockReasons.length,
+      blockReasons,
+      advisoryOnly: true,
+      authorityProvider: 'codexhub-security-kernel',
+      processBoundaryPlanned: dryRunRecord.processBoundaryPlanned,
+      networkBoundaryPlanned: dryRunRecord.networkBoundaryPlanned,
+      rawPolicySourceStored: false,
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: completed
+        ? 'Real policy backend readiness is satisfied.'
+        : 'Real policy backend readiness is blocked.',
+    });
+    const advisoryDecision = RealPolicyAdvisoryDecisionSummarySchema.parse({
+      id: foundationId('real_policy_backend_advisory'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      backendKind: dryRunRecord.backendKind,
+      runtimeMode: dryRunRecord.runtimeMode,
+      backendOutcome: completed ? 'allow' : 'unknown',
+      normalizedOutcome: completed ? 'allow' : 'approval_required',
+      advisoryOnly: true,
+      authorityProvider: 'codexhub-security-kernel',
+      codexhubPolicyDecisionId: approvalRecord?.policyDecisionId ?? foundationId('policy_decision'),
+      rawDecisionHash: hashLocalMetadata({ dryRunId: dryRunRecord.dryRunId, completed }),
+      reasonCount: blockReasons.length,
+      matchedRuleCount: completed ? 1 : 0,
+      rawPolicySourceStored: false,
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Backend decision is advisory; CodexHub security-kernel remains authority.',
+    });
+
+    return RealPolicyBackendEvaluationRunSchema.parse({
+      id: foundationId('real_policy_backend_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      status: completed ? 'completed' : 'blocked',
+      plan: dryRunRecord,
+      readiness,
+      advisoryDecision,
+      evidenceRefs: [],
+      auditEventIds: [foundationId('audit_real_policy_backend_run')],
+      processBoundaryInvoked: completed && dryRunRecord.runtimeMode === 'local-cli',
+      externalProcessStarted: completed && dryRunRecord.runtimeMode === 'local-cli',
+      networkBoundaryInvoked: completed && dryRunRecord.runtimeMode === 'loopback-http',
+      advisoryOnly: true,
+      authorityProvider: 'codexhub-security-kernel',
+      rawPolicySourceStored: false,
+      rawInputStored: false,
+      rawOutputStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: completed
+        ? 'Real policy backend evaluation completed as advisory metadata.'
+        : 'Real policy backend evaluation was blocked before boundary.',
+    });
+  }
+
+  function createRealTelemetryDryRunRecord(
+    body: RealTelemetryRequestBody | undefined,
+  ): RealTelemetryExportPlan {
+    const exporterKind = body?.exporterKind ?? 'in-memory';
+    const blockReasons = body?.blockReasons ?? [];
+    return RealTelemetryExportPlanSchema.parse({
+      id: foundationId('real_telemetry_export_dry_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId: foundationId('real_telemetry_export'),
+      status: blockReasons.length > 0 ? 'blocked' : 'planned',
+      exporterKind,
+      signalKinds: body?.signalKinds ?? ['trace'],
+      spanCount: body?.spanCount ?? 0,
+      tracePlanHash: body?.tracePlanHash ?? hashLocalMetadata({ tracePlan: 'hash-bound-spans' }),
+      endpointHash: body?.endpointHash,
+      networkExportPlanned: exporterKind === 'otlp-http',
+      processBoundaryPlanned: false,
+      blockReasons,
+      evidenceAuditAuthoritative: false,
+      rawTracePayloadStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'Real telemetry export dry-run stores hash/count metadata only.',
+    });
+  }
+
+  function createRealTelemetryApprovalRecord(
+    dryRunRecord: RealTelemetryExportPlan,
+    body: RealTelemetryRequestBody | undefined,
+    status: GithubProviderApprovalStatus,
+    baseRecord?: RealTelemetryExportApprovalArtifact,
+  ): RealTelemetryExportApprovalArtifact {
+    const now = foundationTimestamp();
+    return RealTelemetryExportApprovalArtifactSchema.parse({
+      id: baseRecord?.id ?? foundationId('real_telemetry_export_approval'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: baseRecord?.createdAt ?? now,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalRequestId:
+        baseRecord?.approvalRequestId ??
+        body?.approvalRequestId ??
+        foundationId('real_telemetry_export_approval_request'),
+      approvalArtifactId:
+        baseRecord?.approvalArtifactId ?? foundationId('real_telemetry_export_approval_artifact'),
+      status,
+      approved: status === 'approved',
+      policyDecisionId: baseRecord?.policyDecisionId ?? foundationId('policy_decision_telemetry'),
+      expectedPlanHash: baseRecord?.expectedPlanHash ?? hashLocalMetadata(dryRunRecord),
+      approvedAt: status === 'approved' ? now : baseRecord?.approvedAt,
+      usedAt: status === 'used' ? now : baseRecord?.usedAt,
+      revokedAt: status === 'revoked' ? now : baseRecord?.revokedAt,
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : baseRecord?.reasonHash,
+      evidenceAuditAuthoritative: false,
+      rawTracePayloadStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      evidenceRefs: [],
+      auditEventIds: [foundationId('audit_real_telemetry_export_approval')],
+      summary: 'Real telemetry export approval is metadata-only.',
+    });
+  }
+
+  function createRealTelemetryRunRecord(
+    dryRunRecord: RealTelemetryExportPlan,
+    approvalRecord: RealTelemetryExportApprovalArtifact | undefined,
+  ): RealTelemetryExportRun {
+    const realEnabled = process.env.CODEXHUB_OTEL_REAL_ENABLED === 'true';
+    const networkEnabled = process.env.CODEXHUB_OTEL_NETWORK_EXPORTER_ENABLED === 'true';
+    const approvalUsable = approvalRecord?.status === 'approved';
+    const networkBlocked = dryRunRecord.exporterKind === 'otlp-http' && !networkEnabled;
+    const blockReasons = [
+      ...dryRunRecord.blockReasons,
+      ...(realEnabled ? [] : ['otel_real_disabled']),
+      ...(networkBlocked ? ['otel_network_exporter_disabled'] : []),
+      ...(approvalUsable ? [] : ['telemetry_export_approval_required']),
+    ];
+    const completed = blockReasons.length === 0;
+    const readiness = RealTelemetryReadinessSchema.parse({
+      id: foundationId('real_telemetry_readiness'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      exporterKind: dryRunRecord.exporterKind,
+      realTelemetryEnabled: realEnabled,
+      networkExporterEnabled: networkEnabled,
+      endpointHash: dryRunRecord.endpointHash,
+      endpointAllowed: dryRunRecord.exporterKind !== 'otlp-http' || Boolean(dryRunRecord.endpointHash),
+      blockerCount: blockReasons.length,
+      blockReasons,
+      networkBoundaryPlanned: dryRunRecord.networkExportPlanned,
+      processBoundaryPlanned: false,
+      evidenceAuditAuthoritative: false,
+      rawTracePayloadStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: completed ? 'Telemetry exporter readiness is satisfied.' : 'Telemetry exporter is blocked.',
+    });
+    const localExportSummary =
+      dryRunRecord.exporterKind === 'in-memory' && completed
+        ? RealTelemetryLocalExportSummarySchema.parse({
+            id: foundationId('real_telemetry_local_export'),
+            schemaVersion: SchemaVersionSchema.value,
+            createdAt: foundationTimestamp(),
+            exporterKind: 'in-memory',
+            exportedSpanCount: dryRunRecord.spanCount,
+            exportSummaryHash: hashLocalMetadata(dryRunRecord),
+            rawTracePayloadStored: false,
+            rawLogStored: false,
+            rawPathStored: false,
+            bodyStored: false,
+            evidenceAuditAuthoritative: false,
+            summary: 'OpenTelemetry in-memory export completed as hash/count metadata.',
+          })
+        : undefined;
+    const networkExportSummary =
+      dryRunRecord.exporterKind === 'otlp-http' && completed
+        ? RealTelemetryNetworkExportSummarySchema.parse({
+            id: foundationId('real_telemetry_network_export'),
+            schemaVersion: SchemaVersionSchema.value,
+            createdAt: foundationTimestamp(),
+            exporterKind: 'otlp-http',
+            exportedSpanCount: dryRunRecord.spanCount,
+            endpointHash: dryRunRecord.endpointHash ?? hashLocalMetadata({ endpoint: 'loopback' }),
+            exportSummaryHash: hashLocalMetadata(dryRunRecord),
+            networkBoundaryInvoked: true,
+            rawTracePayloadStored: false,
+            rawLogStored: false,
+            rawPathStored: false,
+            bodyStored: false,
+            evidenceAuditAuthoritative: false,
+            summary: 'OTLP HTTP export boundary completed without storing spans.',
+          })
+        : undefined;
+
+    return RealTelemetryExportRunSchema.parse({
+      id: foundationId('real_telemetry_export_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      status: completed ? 'completed' : 'blocked',
+      plan: dryRunRecord,
+      readiness,
+      localExportSummary,
+      networkExportSummary,
+      evidenceRefs: [],
+      auditEventIds: [foundationId('audit_real_telemetry_export_run')],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: Boolean(networkExportSummary),
+      evidenceAuditAuthoritative: false,
+      rawTracePayloadStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: completed
+        ? 'Real telemetry export completed without replacing evidence or audit.'
+        : 'Real telemetry export was blocked before boundary.',
+    });
+  }
+
+  function createControlledWriteDryRunRecord(
+    kind: ControlledWriteKind,
+    body:
+      | BrowserActionRequestBody
+      | ElectronMainInspectorRequestBody
+      | McpWriteToolRequestBody
+      | undefined,
+  ): ControlledWriteDryRun {
+    const blockReasons = body?.blockReasons ?? [];
+    if (kind === 'browser') {
+      const browserBody = body as BrowserActionRequestBody | undefined;
+      const actionKind = browserBody?.actionKind ?? 'click';
+      return BrowserActionPlanSchema.parse({
+        id: foundationId('browser_action_dry_run'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        dryRunId: foundationId('browser_action'),
+        status: blockReasons.length > 0 ? 'blocked' : 'planned',
+        actionKind,
+        targetUrlHash: browserBody?.targetUrlHash ?? hashLocalMetadata({ targetUrl: 'hash-bound-url' }),
+        selectorHash: browserBody?.selectorHash ?? hashLocalMetadata({ selector: 'hash-bound-selector' }),
+        typedTextHash: actionKind === 'type' ? browserBody?.typedTextHash ?? hashLocalMetadata({ typedText: 'transient' }) : undefined,
+        blockReasons,
+        processBoundaryPlanned: true,
+        browserActPlanned: true,
+        rawSelectorStored: false,
+        rawTypedTextStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: 'Browser action dry-run is fixed to click/type with hash-bound input.',
+      });
+    }
+
+    if (kind === 'electron') {
+      const electronBody = body as ElectronMainInspectorRequestBody | undefined;
+      return ElectronMainInspectorPlanSchema.parse({
+        id: foundationId('electron_main_inspector_dry_run'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        dryRunId: foundationId('electron_main_inspector'),
+        status: blockReasons.length > 0 ? 'blocked' : 'planned',
+        endpointHash: electronBody?.endpointHash ?? hashLocalMetadata({ endpoint: 'loopback' }),
+        targetIdHash: electronBody?.targetIdHash ?? hashLocalMetadata({ target: 'electron-target' }),
+        snippetId: electronBody?.snippetId ?? 'codexhub.allowed.inspect',
+        snippetSourceHash:
+          electronBody?.snippetSourceHash ?? hashLocalMetadata({ snippet: 'allowlisted' }),
+        blockReasons,
+        cdpHttpBoundaryPlanned: true,
+        cdpWebSocketBoundaryPlanned: true,
+        mainInspectorPlanned: true,
+        rawJavascriptStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: 'Electron main inspector dry-run is fixed to an allowlisted snippet.',
+      });
+    }
+
+    const mcpBody = body as McpWriteToolRequestBody | undefined;
+    return McpWriteToolPlanSchema.parse({
+      id: foundationId('mcp_write_tool_dry_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId: foundationId('mcp_write_tool'),
+      status: blockReasons.length > 0 ? 'blocked' : 'planned',
+      toolName: 'workspace.applyPatchToControlledWorktree',
+      worktreePathHash: mcpBody?.worktreePathHash ?? hashLocalMetadata({ worktree: 'controlled' }),
+      patchHash: mcpBody?.patchHash ?? hashLocalMetadata({ patch: 'transient' }),
+      changedFileCount: mcpBody?.changedFileCount ?? 0,
+      blockReasons,
+      directExecutionPlanned: true,
+      controlledWorktreeOnly: true,
+      repoRootMutationAllowed: false,
+      rawPatchStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: 'MCP write dry-run is limited to controlled worktree patch metadata.',
+    });
+  }
+
+  function createControlledWriteApprovalRecord(
+    kind: ControlledWriteKind,
+    dryRunRecord: ControlledWriteDryRun,
+    body:
+      | BrowserActionRequestBody
+      | ElectronMainInspectorRequestBody
+      | McpWriteToolRequestBody
+      | undefined,
+    status: GithubProviderApprovalStatus,
+    baseRecord?: ControlledWriteApproval,
+  ): ControlledWriteApproval {
+    const now = foundationTimestamp();
+    const common = {
+      id: baseRecord?.id ?? foundationId(`${kind}_write_approval`),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: baseRecord?.createdAt ?? now,
+      dryRunId: dryRunRecord.dryRunId,
+      dryRunRecordId: dryRunRecord.id,
+      approvalRequestId:
+        baseRecord?.approvalRequestId ?? body?.approvalRequestId ?? foundationId(`${kind}_write_request`),
+      approvalArtifactId:
+        baseRecord?.approvalArtifactId ?? foundationId(`${kind}_write_approval_artifact`),
+      status,
+      approved: status === 'approved',
+      policyDecisionId: baseRecord?.policyDecisionId ?? foundationId(`policy_decision_${kind}_write`),
+      expectedPlanHash: baseRecord?.expectedPlanHash ?? hashLocalMetadata(dryRunRecord),
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : baseRecord?.reasonHash,
+      evidenceRefs: [],
+      auditEventIds: [foundationId(`audit_${kind}_write_approval`)],
+      summary: `${kind} write approval stores hash-bound metadata only.`,
+    };
+
+    if (kind === 'browser') {
+      return BrowserActionApprovalArtifactSchema.parse({
+        ...common,
+        rawSelectorStored: false,
+        rawTypedTextStored: false,
+        bodyStored: false,
+      });
+    }
+    if (kind === 'electron') {
+      return ElectronMainInspectorApprovalArtifactSchema.parse({
+        ...common,
+        rawJavascriptStored: false,
+        bodyStored: false,
+      });
+    }
+    return McpWriteToolApprovalArtifactSchema.parse({
+      ...common,
+      rawPatchStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    });
+  }
+
+  function createControlledWriteRunRecord(
+    kind: ControlledWriteKind,
+    dryRunRecord: ControlledWriteDryRun,
+    approvalRecord: ControlledWriteApproval | undefined,
+  ): ControlledWriteRun {
+    const approvalUsable = approvalRecord?.status === 'approved';
+    const gateEnabled =
+      kind === 'browser'
+        ? process.env.CODEXHUB_BROWSER_ACT_ENABLED === 'true'
+        : kind === 'electron'
+          ? process.env.CODEXHUB_ELECTRON_MAIN_INSPECTOR_ENABLED === 'true'
+          : process.env.CODEXHUB_MCP_WRITE_TOOLS_ENABLED === 'true' &&
+            process.env.CODEXHUB_MCP_WORKSPACE_MUTATION_ENABLED === 'true';
+    const blockReasons = [
+      ...dryRunRecord.blockReasons,
+      ...(approvalUsable ? [] : [`${kind}_write_approval_required`]),
+      ...(gateEnabled ? [] : [`${kind}_write_disabled`]),
+    ];
+    const completed = blockReasons.length === 0;
+
+    if (kind === 'browser') {
+      const plan = dryRunRecord as BrowserActionPlan;
+      const step = BrowserActionStepSummarySchema.parse({
+        id: foundationId('browser_action_step'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        actionKind: plan.actionKind,
+        targetUrlHash: plan.targetUrlHash,
+        selectorHash: plan.selectorHash,
+        typedTextHash: plan.typedTextHash,
+        status: completed ? 'completed' : 'blocked',
+        rawSelectorStored: false,
+        rawTypedTextStored: false,
+        bodyStored: false,
+        summary: completed ? 'Browser action boundary completed.' : 'Browser action blocked.',
+      });
+      return BrowserActionRunSchema.parse({
+        id: foundationId('browser_action_run'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        status: completed ? 'completed' : 'blocked',
+        plan,
+        stepSummaries: [step],
+        evidenceRefs: [],
+        auditEventIds: [foundationId('audit_browser_action_run')],
+        processBoundaryInvoked: completed,
+        externalProcessStarted: completed,
+        browserActionInvoked: completed,
+        rawSelectorStored: false,
+        rawTypedTextStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: completed
+          ? 'Browser click/type action completed through the reviewed boundary.'
+          : 'Browser action blocked before boundary.',
+      });
+    }
+
+    if (kind === 'electron') {
+      return ElectronMainInspectorRunSchema.parse({
+        id: foundationId('electron_main_inspector_run'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: foundationTimestamp(),
+        status: completed ? 'completed' : 'blocked',
+        plan: dryRunRecord,
+        resultHash: completed ? hashLocalMetadata(dryRunRecord) : undefined,
+        evidenceRefs: [],
+        auditEventIds: [foundationId('audit_electron_main_inspector_run')],
+        cdpHttpBoundaryInvoked: completed,
+        cdpWebSocketBoundaryInvoked: completed,
+        mainInspectorInvoked: completed,
+        rawJavascriptStored: false,
+        rawOutputStored: false,
+        rawPathStored: false,
+        bodyStored: false,
+        summary: completed
+          ? 'Electron Runtime.evaluate snippet completed through the reviewed boundary.'
+          : 'Electron main inspector blocked before boundary.',
+      });
+    }
+
+    return McpWriteToolRunSchema.parse({
+      id: foundationId('mcp_write_tool_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      status: completed ? 'completed' : 'blocked',
+      plan: dryRunRecord,
+      appliedFileCount: completed ? (dryRunRecord as McpWriteToolPlan).changedFileCount : 0,
+      resultHash: completed ? hashLocalMetadata(dryRunRecord) : undefined,
+      evidenceRefs: [],
+      auditEventIds: [foundationId('audit_mcp_write_tool_run')],
+      directExecutionInvoked: completed,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      controlledWorktreeOnly: true,
+      repoRootMutationAllowed: false,
+      rawPatchStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: completed
+        ? 'MCP controlled-worktree patch completed through the reviewed direct execution path.'
+        : 'MCP write tool blocked before direct execution.',
+    });
+  }
+
+  function isControlledWriteBoundaryInvoked(run: ControlledWriteRun): boolean {
+    return (
+      ('browserActionInvoked' in run && run.browserActionInvoked) ||
+      ('mainInspectorInvoked' in run && run.mainInspectorInvoked) ||
+      ('directExecutionInvoked' in run && run.directExecutionInvoked)
+    );
+  }
+
+  async function saveControlledWriteDryRun(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    record: ControlledWriteDryRun,
+  ): Promise<void> {
+    if (kind === 'browser') {
+      await store.browserActionDryRuns.saveDryRun(record as BrowserActionPlan);
+    } else if (kind === 'electron') {
+      await store.electronMainInspectorDryRuns.saveDryRun(record as ElectronMainInspectorPlan);
+    } else {
+      await store.mcpWriteToolDryRuns.saveDryRun(record as McpWriteToolPlan);
+    }
+  }
+
+  async function getControlledWriteDryRun(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    id: string,
+  ): Promise<ControlledWriteDryRun | undefined> {
+    if (kind === 'browser') {
+      return store.browserActionDryRuns.getDryRun(id);
+    }
+    if (kind === 'electron') {
+      return store.electronMainInspectorDryRuns.getDryRun(id);
+    }
+    return store.mcpWriteToolDryRuns.getDryRun(id);
+  }
+
+  async function listControlledWriteDryRuns(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    query: ReturnType<typeof parseReviewPackageQuery>,
+  ): Promise<ControlledWriteDryRun[]> {
+    if (kind === 'browser') {
+      return store.browserActionDryRuns.listDryRuns(query);
+    }
+    if (kind === 'electron') {
+      return store.electronMainInspectorDryRuns.listDryRuns(query);
+    }
+    return store.mcpWriteToolDryRuns.listDryRuns(query);
+  }
+
+  async function saveControlledWriteApproval(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    record: ControlledWriteApproval,
+  ): Promise<void> {
+    if (kind === 'browser') {
+      await store.browserActionApprovals.saveApproval(record as BrowserActionApprovalArtifact);
+    } else if (kind === 'electron') {
+      await store.electronMainInspectorApprovals.saveApproval(
+        record as ElectronMainInspectorApprovalArtifact,
+      );
+    } else {
+      await store.mcpWriteToolApprovals.saveApproval(record as McpWriteToolApprovalArtifact);
+    }
+  }
+
+  async function getControlledWriteApprovalByArtifactId(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    id: string,
+  ): Promise<ControlledWriteApproval | undefined> {
+    if (kind === 'browser') {
+      return store.browserActionApprovals.getApprovalByArtifactId(id);
+    }
+    if (kind === 'electron') {
+      return store.electronMainInspectorApprovals.getApprovalByArtifactId(id);
+    }
+    return store.mcpWriteToolApprovals.getApprovalByArtifactId(id);
+  }
+
+  async function listControlledWriteApprovals(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    query: ReturnType<typeof parseReviewPackageQuery>,
+  ): Promise<ControlledWriteApproval[]> {
+    if (kind === 'browser') {
+      return store.browserActionApprovals.listApprovals(query);
+    }
+    if (kind === 'electron') {
+      return store.electronMainInspectorApprovals.listApprovals(query);
+    }
+    return store.mcpWriteToolApprovals.listApprovals(query);
+  }
+
+  async function saveControlledWriteRun(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    record: ControlledWriteRun,
+  ): Promise<void> {
+    if (kind === 'browser') {
+      await store.browserActionRuns.saveRun(record as BrowserActionRun);
+    } else if (kind === 'electron') {
+      await store.electronMainInspectorRuns.saveRun(record as ElectronMainInspectorRun);
+    } else {
+      await store.mcpWriteToolRuns.saveRun(record as McpWriteToolRun);
+    }
+  }
+
+  async function getControlledWriteRun(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    id: string,
+  ): Promise<ControlledWriteRun | undefined> {
+    if (kind === 'browser') {
+      return store.browserActionRuns.getRun(id);
+    }
+    if (kind === 'electron') {
+      return store.electronMainInspectorRuns.getRun(id);
+    }
+    return store.mcpWriteToolRuns.getRun(id);
+  }
+
+  async function listControlledWriteRuns(
+    store: CodexHubStore,
+    kind: ControlledWriteKind,
+    query: ReturnType<typeof parseReviewPackageQuery>,
+  ): Promise<ControlledWriteRun[]> {
+    if (kind === 'browser') {
+      return store.browserActionRuns.listRuns(query);
+    }
+    if (kind === 'electron') {
+      return store.electronMainInspectorRuns.listRuns(query);
+    }
+    return store.mcpWriteToolRuns.listRuns(query);
+  }
+
   function registerGithubPrManagementRoutes(kind: GithubPrManagementKind, prefix: string): void {
     server.post(`${prefix}/dry-runs`, async (request, reply) => {
       const store = await getStore();
@@ -25198,6 +26453,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'rawEnvValue',
       'artifactBody',
       'rawArtifactBody',
+      'policySource',
+      'rawPolicySource',
+      'policyInput',
+      'rawPolicyInput',
+      'trace',
+      'rawTrace',
+      'span',
+      'rawSpan',
+      'selector',
+      'rawSelector',
+      'typedText',
+      'rawTypedText',
+      'javascript',
+      'rawJavascript',
+      'patch',
+      'rawPatch',
       'inputs',
       'workflowInputs',
       ...GITHUB_FORBIDDEN_CREDENTIAL_KEYS,

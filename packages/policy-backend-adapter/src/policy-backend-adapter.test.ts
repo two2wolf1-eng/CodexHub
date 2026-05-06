@@ -8,6 +8,7 @@ import {
   foundationTimestamp,
 } from '@codexhub/contracts';
 import { validateCapabilityExecutionEnvelope } from '@codexhub/capability-adapter-kernel';
+import { hashText } from '@codexhub/evidence-kernel';
 import {
   createPolicyBackendAuditEvent,
   createPolicyBackendAdapterManifest,
@@ -16,6 +17,7 @@ import {
   executePolicyBackendEvaluation,
   parsePolicyBackendFixtureConfig,
   planPolicyBackendEvaluation,
+  runRealPolicyBackendBoundary,
 } from './index';
 
 const authority: ExecutionAuthority = {
@@ -274,5 +276,38 @@ describe('policy-backend-adapter', () => {
     expect(serialized).not.toContain('local fixture policy rules');
     expect(serialized).not.toContain('.codexhub/policy-backend.fixture.json');
     expect(serialized).not.toContain('rawConfig');
+  });
+
+  it('runs real policy backend boundaries with fixed CLI shape and hash-only output', async () => {
+    const transientInput = JSON.stringify({ action: 'workspace.read', secret: 'hidden' });
+    const transientPolicySource = 'package codexhub.authz\nallow := true';
+    const result = await runRealPolicyBackendBoundary({
+      backendKind: 'opa',
+      runtimeMode: 'local-cli',
+      inputHash: `sha256:${hashText(transientInput)}`,
+      policySourceHash: `sha256:${hashText(transientPolicySource)}`,
+      transientInput,
+      transientPolicySource,
+      spawnProcess: async ({ command, args }) => ({
+        status: command === 'opa' && args[0] === 'eval' ? 'completed' : 'failed',
+        stdoutHash: 'sha256:stdout',
+        stderrHash: 'sha256:stderr',
+        stdoutByteCount: 2,
+        stderrByteCount: 0,
+        exitCode: 0,
+        summary: 'Synthetic policy CLI completed.',
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.processBoundaryInvoked).toBe(true);
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.networkBoundaryInvoked).toBe(false);
+    expect(result.rawPolicySourceStored).toBe(false);
+    expect(result.rawInputStored).toBe(false);
+    expect(result.rawOutputStored).toBe(false);
+    expect(serialized).not.toContain('package codexhub.authz');
+    expect(serialized).not.toContain('hidden');
   });
 });
