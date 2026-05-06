@@ -5759,3 +5759,32 @@ workflows:
       dashboardDirectAdapterExecuteAllowed: false
       platformOperationsDashboardMutationAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d15.cli-mutation-surface-debug:
+    risk: critical
+    trigger:
+      type: cli-mutation-surface-debug
+      entrypoint: cli docs tools
+      localControlRequired: false
+    scope:
+      - cli-post-call-sites-local-control-gated
+      - cli-no-token-option-or-token-persistence
+      - cli-read-only-registrations-no-post-or-local-control-helper
+      - cli-controlled-write-mutations-remain-exact-route-set
+      - cli-no-generic-api-prefix-post-expansion
+    docs:
+      - docs/releases/m47-d15-cli-mutation-surface-debug.md
+      - docs/reviews/m47-d15-cli-mutation-surface-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      cliGenericPostAllowed: false
+      cliTokenArgumentAllowed: false
+      cliTokenPersistenceAllowed: false
+      cliReadOnlyLocalControlReadAllowed: false
+      cliDirectAdapterExecuteAllowed: false
+      metadataOnlyPublicOutput: true

@@ -71,6 +71,19 @@ function sourceWindow(source: string, startMarker: string, endMarker: string): s
   return source.slice(start, end);
 }
 
+function expectNoCliLocalControlMutationSurface(source: string): void {
+  expect(source).not.toContain("method: 'POST'");
+  expect(source).not.toContain('method: "POST"');
+  expect(source).not.toContain('createSupervisorPostHeaders');
+  expect(source).not.toContain('LOCAL_CONTROL_ENV_VAR');
+  expect(source).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+  expect(source).not.toContain('postControlledWriteCliMutation');
+  expect(source).not.toContain('adapter.execute');
+  expect(source).not.toContain('executeGithub');
+  expect(source).not.toContain('.option(\'--token');
+  expect(source).not.toContain('.option("--token');
+}
+
 describe('cli development mock-run fallback', () => {
   beforeEach(() => {
     process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
@@ -127,6 +140,62 @@ describe('cli development mock-run fallback', () => {
     for (const forbiddenRouteGuard of ['startsWith(', 'includes(', 'indexOf(']) {
       expect(helperSource).not.toContain(forbiddenRouteGuard);
       expect(routeSetSource).not.toContain(forbiddenRouteGuard);
+    }
+  });
+
+  it('keeps CLI POST call sites exact, local-control gated, and free of token options', () => {
+    const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const postMatches = [...cliSource.matchAll(/method:\s*['"]POST['"]/g)];
+
+    expect(postMatches).toHaveLength(25);
+    expect(cliSource).not.toContain(".option('--token");
+    expect(cliSource).not.toContain('.option("--token');
+    expect(cliSource).not.toContain('--local-token');
+    expect(cliSource).not.toContain('--local-control-token');
+    expect(cliSource).not.toContain('localStorage');
+    expect(cliSource).not.toContain('sessionStorage');
+    expect(cliSource).not.toContain('indexedDB');
+
+    for (const match of postMatches) {
+      const index = match.index ?? -1;
+      const window = cliSource.slice(Math.max(0, index - 500), index + 900);
+
+      expect(window).toContain('createSupervisorPostHeaders()');
+      expect(window).not.toContain("startsWith('/api/");
+      expect(window).not.toContain('startsWith("/api/');
+      expect(window).not.toContain("includes('/api/");
+      expect(window).not.toContain('includes("/api/');
+      expect(window).not.toContain("indexOf('/api/");
+      expect(window).not.toContain('indexOf("/api/');
+      expect(window).not.toContain('approvalArtifact:');
+      expect(window).not.toContain('executionAuthority');
+      expect(window).not.toContain('authority:');
+      expect(window).not.toContain('token:');
+      expect(window).not.toContain('rawPatch:');
+      expect(window).not.toContain('rawCommand:');
+    }
+  });
+
+  it('keeps registered read-only CLI command families free of local-control mutation helpers', () => {
+    const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const readOnlyRegistrations = [
+      'registerGithubMergeReadOnlyCommands',
+      'registerGithubActionsReadOnlyCommands',
+      'registerGithubReleaseLifecycleReadOnlyCommands',
+      'registerReleaseReadOnlyCommands',
+      'registerDeploymentReadOnlyCommands',
+      'registerRuntimeReadOnlyCommands',
+      'registerExternalAgentReadOnlyCommands',
+      'registerPlatformOperationsReadOnlyCommands',
+      'registerSecretReadOnlyCommands',
+      'registerGithubActionsObservationCommands',
+      'registerGithubActionsRunControlCommands',
+      'registerGithubActionsDispatchCommands',
+      'registerGithubPrManagementReadOnlyCommands',
+    ];
+
+    for (const functionName of readOnlyRegistrations) {
+      expectNoCliLocalControlMutationSurface(extractFunctionSource(cliSource, functionName));
     }
   });
 
