@@ -59,6 +59,10 @@ const lateStageSupervisorMutatingRoutes = [
   '/api/workflows/custom/approval-requests',
   '/api/workflows/custom/manual-approvals',
   '/api/workflows/custom/runs',
+  '/api/workflows/production/recoveries/dry-runs',
+  '/api/workflows/production/recoveries/approval-requests',
+  '/api/workflows/production/recoveries/manual-approvals',
+  '/api/workflows/production/recoveries/runs',
 ] as const;
 const lateStageSupervisorRoutePrefixes = [
   '/api/review-packages',
@@ -71,6 +75,7 @@ const lateStageSupervisorRoutePrefixes = [
   '/api/github/remote-cleanups',
   '/api/rework-loops',
   '/api/workflows/custom',
+  '/api/workflows/production/recoveries',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -6487,6 +6492,21 @@ describe('supervisor GitHub branch publish control plane', () => {
       },
     });
     const dryRun = dryRunResponse.json();
+    const disabledStoreDir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-disabled-recovery-'));
+    const disabledStore = await createSqliteStore({
+      dbPath: join(disabledStoreDir, 'codexhub.sqlite'),
+    });
+    const disabledRunServer = buildSupervisorServer({
+      store: disabledStore,
+      productionWorkflowRecoveryEnabled: true,
+      productionWorkflowChildOrchestrationEnabled: false,
+    });
+    const disabledDryRunResponse = await disabledRunServer.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      headers: localControlHeaders,
+      payload: { templateId: 'local-patch-review' },
+    });
     const forgedApprovalRequestResponse = await server.inject({
       method: 'POST',
       url: '/api/github/remote-cleanups/approval-requests',
@@ -6566,12 +6586,22 @@ describe('supervisor GitHub branch publish control plane', () => {
     await server.close();
     await store.close();
     rmSync(dir, { recursive: true, force: true });
+    await disabledRunServer.close();
+    await disabledStore.close();
+    rmSync(disabledStoreDir, { recursive: true, force: true });
 
     expect(supersedesResponse.statusCode).toBe(200);
     expect(supersedesResponse.json().records).toEqual([]);
     expect(missingTokenResponse.statusCode).toBe(401);
     expect(maliciousOriginResponse.statusCode).toBe(403);
     expect(dryRunResponse.statusCode).toBe(200);
+    expect(disabledDryRunResponse.statusCode).toBe(200);
+    expect(disabledDryRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      childAdapterExecuteAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
     expect(dryRun.status).toBe('planned');
     expect(dryRun.deleteRefAllowed).toBe(true);
     expect(dryRun.deleteNonCodexhubBranchAllowed).toBe(false);
@@ -6923,6 +6953,238 @@ describe('supervisor GitHub branch publish control plane', () => {
       expect(responseBody).not.toContain('adapter.execute');
       expect(responseBody).not.toContain(localControlToken);
       expect(responseBody).not.toContain('custom workflow approved');
+    }
+  });
+
+  it('governs production workflow recovery without substituting child approvals', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-workflow-recoveries-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      productionWorkflowRecoveryEnabled: true,
+      productionWorkflowChildOrchestrationEnabled: true,
+    });
+
+    const missingTokenResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      payload: { templateId: 'local-patch-review' },
+    });
+    const maliciousOriginResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      headers: { ...localControlHeaders, origin: 'https://evil.example' },
+      payload: { templateId: 'local-patch-review' },
+    });
+    const forbiddenRawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      headers: localControlHeaders,
+      payload: { templateId: 'local-patch-review', prompt: 'raw prompt body' },
+    });
+    const staleHashResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      headers: localControlHeaders,
+      payload: { templateId: 'local-patch-review', templateHash: 'sha256:stale' },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/dry-runs',
+      headers: localControlHeaders,
+      payload: { templateId: 'local-patch-review' },
+    });
+    const dryRun = dryRunResponse.json();
+    const forgedApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, childArtifacts: [{ id: 'caller-child' }] },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, reason: 'recover local workflow' },
+    });
+    const manualApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'approve workflow recovery',
+      },
+    });
+    const forbiddenAuthorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        executionAuthority: { allowed: true },
+      },
+    });
+    const mismatchResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: 'sha256:mismatch',
+      },
+    });
+    const approvalsAfterMismatchResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/production/recoveries/approvals',
+    });
+    const waitingChildApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: manualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+      },
+    });
+    const secondApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, reason: 'recover after child approvals' },
+    });
+    const secondManualApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: secondApprovalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+        reason: 'second recovery approval',
+      },
+    });
+    const childApprovalApproved = Object.fromEntries(
+      dryRun.childActionPlans.map((action: { actionId: string }) => [action.actionId, true]),
+    );
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/production/recoveries/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: secondManualApprovalResponse.json().approvalArtifactId,
+        templateId: dryRun.templateId,
+        templateHash: dryRun.templateHash,
+        childApprovalApproved,
+      },
+    });
+    const runsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/production/recoveries/runs',
+    });
+    const showResponse = await server.inject({
+      method: 'GET',
+      url: `/api/workflows/production/recoveries/runs/${completedResponse.json().runId}`,
+    });
+    const approvalsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/production/recoveries/approvals',
+    });
+    const rehearsalResponse = await server.inject({
+      method: 'GET',
+      url: '/api/workflows/production/recoveries/rehearsals/latest',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(maliciousOriginResponse.statusCode).toBe(403);
+    expect(forbiddenRawBodyResponse.statusCode).toBe(400);
+    expect(staleHashResponse.statusCode).toBe(409);
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun).toMatchObject({
+      status: 'planned',
+      templateId: 'local-patch-review',
+      childActionCount: 5,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(forgedApprovalRequestResponse.statusCode).toBe(400);
+    expect(approvalRequestResponse.statusCode).toBe(200);
+    expect(manualApprovalResponse.statusCode).toBe(200);
+    expect(manualApprovalResponse.json()).toMatchObject({
+      status: 'approved',
+      childApprovalsIncluded: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(forbiddenAuthorityResponse.statusCode).toBe(400);
+    expect(mismatchResponse.statusCode).toBe(409);
+    expect(
+      approvalsAfterMismatchResponse
+        .json()
+        .records.some((record: { status: string }) => record.status === 'used'),
+    ).toBe(false);
+    expect(waitingChildApprovalResponse.statusCode).toBe(200);
+    expect(waitingChildApprovalResponse.json()).toMatchObject({
+      status: 'waiting_for_child_approval',
+      waitingChildApprovalCount: 1,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(waitingChildApprovalResponse.json().childActionStates[0]).toMatchObject({
+      status: 'waiting_for_child_approval',
+      childAutoApprovalAllowed: false,
+      childAdapterExecuteAllowed: false,
+      childApprovalResolvedFromStore: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json()).toMatchObject({
+      status: 'completed',
+      completedChildActionCount: 5,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+    });
+    expect(runsResponse.json().records).toHaveLength(2);
+    expect(showResponse.statusCode).toBe(200);
+    expect(
+      approvalsResponse.json().records.filter((record: { status: string }) => record.status === 'used'),
+    ).toHaveLength(2);
+    expect(rehearsalResponse.json()).toMatchObject({
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    });
+    for (const responseBody of [
+      dryRunResponse.body,
+      manualApprovalResponse.body,
+      waitingChildApprovalResponse.body,
+      completedResponse.body,
+      showResponse.body,
+      rehearsalResponse.body,
+    ]) {
+      expect(responseBody).not.toContain('raw prompt body');
+      expect(responseBody).not.toContain('adapter.execute');
+      expect(responseBody).not.toContain(localControlToken);
+      expect(responseBody).not.toContain('approve workflow recovery');
+      expect(responseBody).not.toContain('childArtifacts');
     }
   });
 });

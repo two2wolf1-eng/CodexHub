@@ -37,6 +37,21 @@ import {
   type ProductionWorkflowOperationsSmokeScenario,
   ProductionWorkflowPauseSummarySchema,
   type ProductionWorkflowPauseSummary,
+  ProductionWorkflowChildActionPlanSchema,
+  type ProductionWorkflowChildActionPlan,
+  ProductionWorkflowChildActionStateSchema,
+  type ProductionWorkflowChildActionState,
+  ProductionWorkflowRecoveryApprovalArtifactSchema,
+  type ProductionWorkflowRecoveryApprovalArtifact,
+  ProductionWorkflowRecoveryPlanSchema,
+  type ProductionWorkflowRecoveryPlan,
+  ProductionWorkflowRecoveryRunSchema,
+  type ProductionWorkflowRecoveryRun,
+  type ProductionWorkflowRecoveryScenario,
+  ProductionWorkflowRecoveryScenarioSchema,
+  ProductionWorkflowRecoveryStepSchema,
+  type ProductionWorkflowRecoveryStep,
+  type ProductionWorkflowRecoveryStatus,
   ProductionWorkflowResumeSummarySchema,
   type ProductionWorkflowResumeSummary,
   ProductionWorkflowRollbackSummarySchema,
@@ -156,6 +171,33 @@ export interface ProductionWorkflowOperationIntentOptions {
   reasonHash: string;
 }
 
+export type ProductionWorkflowChildActionRuntimeStatus =
+  | ProductionWorkflowChildRecordStatus
+  | 'waiting_for_child_approval'
+  | 'dry_run_failed'
+  | 'approval_requested';
+
+export interface ProductionWorkflowRecoveryOptions {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  templateHash?: string;
+  dryRunId?: string;
+  sourceRunIdHash?: string;
+  recoveryEnabled?: boolean;
+  childOrchestrationEnabled?: boolean;
+  workflowApprovalApproved?: boolean;
+  approvalArtifact?: ProductionWorkflowRecoveryApprovalArtifact;
+  childApprovalApproved?: Record<string, boolean>;
+  childRunStatuses?: Record<string, ProductionWorkflowChildActionRuntimeStatus>;
+  resumeFromStepId?: string;
+}
+
+export interface ProductionWorkflowRecoveryRehearsalOptions {
+  template?: CustomWorkflowTemplate;
+  templateId?: string;
+  scenario?: ProductionWorkflowRecoveryScenario;
+}
+
 const customWorkflowForbiddenKeys = new Set([
   'prompt',
   'rawPrompt',
@@ -202,6 +244,57 @@ const builtInProductionTemplateIds = new Set([
 ]);
 
 const defaultCustomWorkflowRequiredEnvFlags = ['CODEXHUB_CUSTOM_WORKFLOWS_ENABLED'];
+
+const productionRecoveryChildBindings: Partial<
+  Record<
+    CustomWorkflowStepKind,
+    {
+      childActionKind: ProductionWorkflowChildActionPlan['childActionKind'];
+      childControlPlane: string;
+    }
+  >
+> = {
+  worktree: {
+    childActionKind: 'worktree-create',
+    childControlPlane: 'worktrees',
+  },
+  'codex-patch': {
+    childActionKind: 'codex-patch',
+    childControlPlane: 'codex.patch-runs',
+  },
+  'nx-verification': {
+    childActionKind: 'nx-verification',
+    childControlPlane: 'nx-verification',
+  },
+  'review-package': {
+    childActionKind: 'review-package-export',
+    childControlPlane: 'review-packages',
+  },
+  'governance-projection': {
+    childActionKind: 'governance-projection',
+    childControlPlane: 'governance-projection',
+  },
+  'github-branch-publish': {
+    childActionKind: 'github-branch-publish',
+    childControlPlane: 'github.branch-publishes',
+  },
+  'github-draft-pr': {
+    childActionKind: 'github-draft-pr',
+    childControlPlane: 'github.draft-prs',
+  },
+  'github-pr-lifecycle': {
+    childActionKind: 'github-pr-lifecycle',
+    childControlPlane: 'github.pr-lifecycle',
+  },
+  'remote-supersede': {
+    childActionKind: 'remote-supersede',
+    childControlPlane: 'github.supersedes',
+  },
+  'remote-cleanup': {
+    childActionKind: 'remote-cleanup',
+    childControlPlane: 'github.remote-cleanups',
+  },
+};
 
 const customWorkflowStepProfiles: Record<
   CustomWorkflowStepKind,
@@ -1581,6 +1674,437 @@ export function runProductionWorkflowOperationsSmoke(input: {
   });
 }
 
+export function createProductionWorkflowRecoveryPlan(
+  input: ProductionWorkflowRecoveryOptions = {},
+): ProductionWorkflowRecoveryPlan {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const childActionPlans = createProductionWorkflowChildActionPlans(template);
+  const blockReasons = createProductionWorkflowRecoveryPlanBlockReasons(
+    template,
+    input,
+  );
+
+  return ProductionWorkflowRecoveryPlanSchema.parse({
+    id: foundationId('production_workflow_recovery_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId ?? foundationId('production_workflow_recovery_dry_run'),
+    templateId: template.templateId,
+    templateHash: template.templateHash,
+    sourceRunIdHash:
+      input.sourceRunIdHash ?? `sha256:${hashText(template.templateHash)}`,
+    status: blockReasons.length === 0 ? 'planned' : 'blocked',
+    childActionPlans,
+    childActionCount: childActionPlans.length,
+    approvalRequired: true,
+    childApprovalsRequired: childActionPlans.filter(
+      (action) => action.requiresChildApproval,
+    ).length,
+    blockReasons,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    childAdapterExecuteAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      blockReasons.length === 0
+        ? 'Production workflow recovery plan created a governed child action queue.'
+        : 'Production workflow recovery plan is blocked before child orchestration.',
+    metadata: {
+      templateHash: template.templateHash,
+      childActionCount: childActionPlans.length,
+      blockerCount: blockReasons.length,
+    },
+  });
+}
+
+export function createProductionWorkflowRecoveryApprovalArtifact(input: {
+  dryRunId: string;
+  templateId: string;
+  templateHash: string;
+  status?: ProductionWorkflowRecoveryApprovalArtifact['status'];
+  approvedBy?: string;
+  reasonHash?: string;
+  reasonSummary?: string;
+  approvalArtifactId?: string;
+  expiresAt?: string;
+  usedAt?: string;
+}): ProductionWorkflowRecoveryApprovalArtifact {
+  return ProductionWorkflowRecoveryApprovalArtifactSchema.parse({
+    id: foundationId('production_workflow_recovery_approval'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    dryRunId: input.dryRunId,
+    templateId: input.templateId,
+    templateHash: input.templateHash,
+    approvalArtifactId:
+      input.approvalArtifactId ?? foundationId('production_workflow_recovery_artifact'),
+    status: input.status ?? 'requested',
+    approvedBy: input.approvedBy,
+    reasonHash: input.reasonHash,
+    reasonSummary: input.reasonSummary
+      ? 'Production workflow recovery approval reason stored as hash-only summary.'
+      : undefined,
+    expiresAt: input.expiresAt,
+    usedAt: input.usedAt,
+    childApprovalsIncluded: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: `Production workflow recovery approval ${input.status ?? 'requested'}.`,
+    metadata: { templateHash: input.templateHash },
+  });
+}
+
+export function runProductionWorkflowRecoveryCoordinator(
+  input: ProductionWorkflowRecoveryOptions = {},
+): ProductionWorkflowRecoveryRun {
+  const plan = createProductionWorkflowRecoveryPlan(input);
+  const workflowApprovalApproved =
+    input.workflowApprovalApproved === true ||
+    input.approvalArtifact?.status === 'approved';
+  const globalBlockReasons = [...plan.blockReasons];
+  if (!workflowApprovalApproved) {
+    globalBlockReasons.push('production_workflow_recovery_approval_missing_or_not_approved');
+  }
+
+  const childApprovalApproved = input.childApprovalApproved ?? {};
+  const childRunStatuses = input.childRunStatuses ?? {};
+  const childActionStates: ProductionWorkflowChildActionState[] = [];
+  const recoverySteps: ProductionWorkflowRecoveryStep[] = [];
+  let blockedByPriorStep = globalBlockReasons.length > 0;
+  let overallStatus: ProductionWorkflowRecoveryStatus =
+    !workflowApprovalApproved && plan.blockReasons.length === 0
+      ? 'waiting_for_workflow_approval'
+      : plan.status === 'blocked'
+        ? 'blocked'
+        : 'completed';
+
+  for (const action of plan.childActionPlans) {
+    const runtimeStatus = getProductionWorkflowRecoveryChildRuntimeStatus(
+      childRunStatuses,
+      action,
+    );
+    const actionApproved = getProductionWorkflowRecoveryChildApproval(
+      childApprovalApproved,
+      action,
+    );
+    const actionBlockReasons: string[] = [];
+    let childStatus: ProductionWorkflowChildActionState['status'] = 'planned';
+    let stepStatus: ProductionWorkflowRecoveryStatus = 'planned';
+
+    if (blockedByPriorStep) {
+      childStatus = 'skipped';
+      stepStatus = overallStatus === 'waiting_for_workflow_approval' ? overallStatus : 'blocked';
+      actionBlockReasons.push(...globalBlockReasons);
+    } else if (runtimeStatus === 'dry_run_failed') {
+      childStatus = 'blocked';
+      stepStatus = 'blocked';
+      actionBlockReasons.push(`production_workflow_child_dry_run_failed:${action.stepId}`);
+      overallStatus = 'blocked';
+      blockedByPriorStep = true;
+    } else if (action.requiresChildApproval && actionApproved !== true) {
+      childStatus =
+        runtimeStatus === 'approval_requested'
+          ? 'approval_requested'
+          : 'waiting_for_child_approval';
+      stepStatus = 'waiting_for_child_approval';
+      actionBlockReasons.push(`production_workflow_child_approval_required:${action.stepId}`);
+      overallStatus = 'waiting_for_child_approval';
+      blockedByPriorStep = true;
+    } else if (runtimeStatus === 'failed' || runtimeStatus === 'aborted') {
+      childStatus = 'failed';
+      stepStatus = 'failed';
+      actionBlockReasons.push(`production_workflow_child_run_${runtimeStatus}:${action.stepId}`);
+      overallStatus = 'failed';
+      blockedByPriorStep = true;
+    } else if (runtimeStatus === 'blocked' || runtimeStatus === 'stale') {
+      childStatus = 'blocked';
+      stepStatus = 'blocked';
+      actionBlockReasons.push(`production_workflow_child_run_${runtimeStatus}:${action.stepId}`);
+      overallStatus = 'blocked';
+      blockedByPriorStep = true;
+    } else if (runtimeStatus === 'waiting_for_child_approval') {
+      childStatus = 'waiting_for_child_approval';
+      stepStatus = 'waiting_for_child_approval';
+      actionBlockReasons.push(`production_workflow_child_approval_required:${action.stepId}`);
+      overallStatus = 'waiting_for_child_approval';
+      blockedByPriorStep = true;
+    } else {
+      childStatus = 'completed';
+      stepStatus = 'completed';
+    }
+
+    const childState = ProductionWorkflowChildActionStateSchema.parse({
+      actionId: action.actionId,
+      stepId: action.stepId,
+      stepKind: action.stepKind,
+      childActionKind: action.childActionKind,
+      childControlPlane: action.childControlPlane,
+      status: childStatus,
+      childDryRunIdHash:
+        childStatus === 'skipped'
+          ? undefined
+          : `sha256:${hashText(`${action.actionId}:dry-run`)}`,
+      childApprovalRequestIdHash:
+        action.requiresChildApproval && childStatus !== 'skipped'
+          ? `sha256:${hashText(`${action.actionId}:approval-request`)}`
+          : undefined,
+      childApprovalArtifactIdHash:
+        action.requiresChildApproval && actionApproved
+          ? `sha256:${hashText(`${action.actionId}:approval-artifact`)}`
+          : undefined,
+      childRunIdHash:
+        childStatus === 'completed' || childStatus === 'failed' || childStatus === 'blocked'
+          ? `sha256:${hashText(`${action.actionId}:run`)}`
+          : undefined,
+      childHashBindingMatched:
+        childStatus !== 'skipped' && childStatus !== 'waiting_for_child_approval',
+      childApprovalRequired: action.requiresChildApproval,
+      childApprovalResolvedFromStore: action.requiresChildApproval ? actionApproved === true : true,
+      childAutoApprovalAllowed: false,
+      childAdapterExecuteAllowed: false,
+      blockReasons: actionBlockReasons,
+      evidenceRefIds:
+        childStatus === 'completed' ? [`evidence:${hashText(action.actionId)}`] : [],
+      auditEventIds:
+        childStatus === 'completed' ? [`audit:${hashText(action.actionId)}`] : [],
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary:
+        childStatus === 'completed'
+          ? `${action.childActionKind} child action is satisfied through its child control plane.`
+          : `${action.childActionKind} child action is waiting or blocked before direct execution.`,
+    });
+    childActionStates.push(childState);
+    recoverySteps.push(
+      ProductionWorkflowRecoveryStepSchema.parse({
+        stepId: action.stepId,
+        kind: action.stepKind,
+        status: stepStatus,
+        childActionStates: [childState],
+        blockReasons: actionBlockReasons,
+        evidenceRefIds: childState.evidenceRefIds,
+        auditEventIds: childState.auditEventIds,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        bodyStored: false,
+        rawPathStored: false,
+        summary:
+          stepStatus === 'completed'
+            ? `${action.stepKind} recovery step completed through child metadata.`
+            : `${action.stepKind} recovery step is waiting or blocked.`,
+      }),
+    );
+  }
+
+  const completedChildActionCount = childActionStates.filter(
+    (state) => state.status === 'completed',
+  ).length;
+  const waitingChildApprovalCount = childActionStates.filter(
+    (state) =>
+      state.status === 'waiting_for_child_approval' ||
+      state.status === 'approval_requested',
+  ).length;
+  const failedChildActionCount = childActionStates.filter(
+    (state) => state.status === 'failed',
+  ).length;
+  const blockReasons = uniqueValues([
+    ...globalBlockReasons,
+    ...childActionStates.flatMap((state) => state.blockReasons),
+  ]);
+  if (childActionStates.length === 0 && overallStatus === 'completed') {
+    overallStatus = blockReasons.length === 0 ? 'completed' : 'blocked';
+  }
+  const lastCompletedStep = [...recoverySteps]
+    .reverse()
+    .find((step) => step.status === 'completed');
+
+  return ProductionWorkflowRecoveryRunSchema.parse({
+    id: foundationId('production_workflow_recovery_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    recoveryRunId: foundationId('production_workflow_recovery_run'),
+    dryRunId: plan.dryRunId,
+    approvalArtifactId: input.approvalArtifact?.approvalArtifactId,
+    templateId: plan.templateId,
+    templateHash: plan.templateHash,
+    status: overallStatus,
+    steps: recoverySteps,
+    childActionStates,
+    stepCount: recoverySteps.length,
+    childActionCount: childActionStates.length,
+    completedChildActionCount,
+    waitingChildApprovalCount,
+    failedChildActionCount,
+    lastSafeStepId: lastCompletedStep?.stepId,
+    resumeFromStepId: input.resumeFromStepId,
+    blockReasons,
+    evidenceRefIds: childActionStates.flatMap((state) => state.evidenceRefIds),
+    auditEventIds: childActionStates.flatMap((state) => state.auditEventIds),
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    childAdapterExecuteAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary:
+      overallStatus === 'completed'
+        ? 'Production workflow recovery completed through approved child control-plane records.'
+        : 'Production workflow recovery is waiting or blocked before unsafe execution.',
+    metadata: {
+      templateHash: plan.templateHash,
+      childActionCount: childActionStates.length,
+      blockerCount: blockReasons.length,
+    },
+  });
+}
+
+export function runProductionWorkflowRecoveryRehearsal(
+  input: ProductionWorkflowRecoveryRehearsalOptions = {},
+): ProductionWorkflowRecoveryRun {
+  const template = resolveProductionWorkflowPilotTemplate(input);
+  const scenario = ProductionWorkflowRecoveryScenarioSchema.parse(
+    input.scenario ?? 'all-pass',
+  );
+  const plan = createProductionWorkflowRecoveryPlan({
+    template,
+    recoveryEnabled: true,
+    childOrchestrationEnabled: true,
+  });
+  const childApprovalApproved = Object.fromEntries(
+    plan.childActionPlans.map((action) => [action.actionId, true]),
+  );
+  const childRunStatuses: Record<string, ProductionWorkflowChildActionRuntimeStatus> = {};
+  let workflowApprovalApproved = true;
+  let recoveryEnabled = true;
+  let childOrchestrationEnabled = true;
+
+  switch (scenario) {
+    case 'workflow-approval-blocked':
+      workflowApprovalApproved = false;
+      break;
+    case 'child-dry-run-failed': {
+      const target = plan.childActionPlans[0];
+      if (target) {
+        childRunStatuses[target.actionId] = 'dry_run_failed';
+      }
+      break;
+    }
+    case 'child-approval-blocked':
+    case 'child-run-missing': {
+      const target = plan.childActionPlans.find((action) => action.requiresChildApproval);
+      if (target) {
+        childApprovalApproved[target.actionId] = false;
+      }
+      break;
+    }
+    case 'nx-verification-failed': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'nx-verification',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'failed';
+      }
+      break;
+    }
+    case 'review-package-blocked': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'review-package-export',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'blocked';
+      }
+      break;
+    }
+    case 'branch-publish-failed': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'github-branch-publish',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'failed';
+      }
+      break;
+    }
+    case 'draft-pr-failed': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'github-draft-pr',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'failed';
+      }
+      break;
+    }
+    case 'lifecycle-checks-failed': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'github-pr-lifecycle',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'failed';
+      }
+      break;
+    }
+    case 'remote-cleanup-blocked': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'remote-cleanup',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'blocked';
+      }
+      break;
+    }
+    case 'resume-after-child-approval':
+      break;
+    case 'superseded-source':
+      recoveryEnabled = true;
+      childOrchestrationEnabled = false;
+      break;
+    case 'all-pass':
+      break;
+  }
+
+  const rehearsalPlan = createProductionWorkflowRecoveryPlan({
+    template,
+    recoveryEnabled,
+    childOrchestrationEnabled,
+  });
+  const approval = createProductionWorkflowRecoveryApprovalArtifact({
+    dryRunId: rehearsalPlan.dryRunId,
+    templateId: rehearsalPlan.templateId,
+    templateHash: rehearsalPlan.templateHash,
+    status: workflowApprovalApproved ? 'approved' : 'requested',
+    approvedBy: workflowApprovalApproved ? 'operator' : undefined,
+    reasonHash: workflowApprovalApproved ? 'sha256:fixture-reason' : undefined,
+    reasonSummary: workflowApprovalApproved ? 'Fixture workflow recovery approval.' : undefined,
+  });
+
+  return runProductionWorkflowRecoveryCoordinator({
+    template,
+    dryRunId: rehearsalPlan.dryRunId,
+    recoveryEnabled,
+    childOrchestrationEnabled,
+    workflowApprovalApproved,
+    approvalArtifact: approval,
+    childApprovalApproved,
+    childRunStatuses,
+    resumeFromStepId:
+      scenario === 'resume-after-child-approval'
+        ? plan.childActionPlans[0]?.stepId
+        : undefined,
+  });
+}
+
 function createProductionWorkflowOperationsSmokeBlockReasons(
   scenario: ProductionWorkflowOperationsSmokeScenario,
 ): string[] {
@@ -1600,6 +2124,82 @@ function createProductionWorkflowOperationsSmokeBlockReasons(
     case 'remote-child-blocked':
       return ['custom_workflow_remote_child_blocked'];
   }
+}
+
+function createProductionWorkflowChildActionPlans(
+  template: CustomWorkflowTemplate,
+): ProductionWorkflowChildActionPlan[] {
+  return template.steps.flatMap((step) => {
+    const binding = productionRecoveryChildBindings[step.kind];
+    if (!binding) {
+      return [];
+    }
+    return [
+      ProductionWorkflowChildActionPlanSchema.parse({
+        actionId: `child_action_${step.stepId}`,
+        stepId: step.stepId,
+        stepKind: step.kind,
+        childActionKind: binding.childActionKind,
+        childControlPlane: binding.childControlPlane,
+        actionMode: step.actionMode,
+        riskLevel: step.riskLevel,
+        requiresChildApproval: step.capabilityBinding.childApprovalRequired,
+        createsChildDryRun: true,
+        createsChildApprovalRequest: step.capabilityBinding.childApprovalRequired,
+        childAutoApprovalAllowed: false,
+        childAdapterExecuteAllowed: false,
+        hashBindingRequired: true,
+        summary: `${step.kind} recovery child action is bound to ${binding.childControlPlane}.`,
+      }),
+    ];
+  });
+}
+
+function createProductionWorkflowRecoveryPlanBlockReasons(
+  template: CustomWorkflowTemplate,
+  input: ProductionWorkflowRecoveryOptions,
+): string[] {
+  const blockReasons: string[] = [];
+  if (!builtInProductionTemplateIds.has(template.templateId)) {
+    blockReasons.push('production_workflow_recovery_template_not_from_catalog');
+  }
+  if (input.templateHash && input.templateHash !== template.templateHash) {
+    blockReasons.push('production_workflow_recovery_template_hash_mismatch');
+  }
+  if (input.recoveryEnabled !== true) {
+    blockReasons.push('production_workflow_recovery_disabled');
+  }
+  if (input.childOrchestrationEnabled !== true) {
+    blockReasons.push('production_workflow_child_orchestration_disabled');
+  }
+  if (createProductionWorkflowChildActionPlans(template).length === 0) {
+    blockReasons.push('production_workflow_recovery_no_child_actions');
+  }
+  return blockReasons;
+}
+
+function getProductionWorkflowRecoveryChildRuntimeStatus(
+  statuses: Record<string, ProductionWorkflowChildActionRuntimeStatus>,
+  action: ProductionWorkflowChildActionPlan,
+): ProductionWorkflowChildActionRuntimeStatus | undefined {
+  return (
+    statuses[action.actionId] ??
+    statuses[action.stepId] ??
+    statuses[action.childActionKind] ??
+    statuses[action.childControlPlane]
+  );
+}
+
+function getProductionWorkflowRecoveryChildApproval(
+  approvals: Record<string, boolean>,
+  action: ProductionWorkflowChildActionPlan,
+): boolean | undefined {
+  return (
+    approvals[action.actionId] ??
+    approvals[action.stepId] ??
+    approvals[action.childActionKind] ??
+    approvals[action.childControlPlane]
+  );
 }
 
 function createCustomWorkflowStepTemplate(

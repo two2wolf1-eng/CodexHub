@@ -25,6 +25,10 @@ import {
   type CustomWorkflowApprovalArtifactRecord,
   type CustomWorkflowPlan,
   type CustomWorkflowRun,
+  type ProductionWorkflowChildActionStateRecord,
+  type ProductionWorkflowRecoveryApprovalArtifact,
+  type ProductionWorkflowRecoveryPlan,
+  type ProductionWorkflowRecoveryRun,
   type ElectronCdpObservationApprovalArtifactRecord,
   type ElectronCdpObservationControlPlaneRun,
   type ElectronCdpObservationDryRunRecord,
@@ -223,6 +227,14 @@ describe('store-sqlite migration initialization', () => {
     await first.customWorkflowApprovals.saveApproval(customWorkflowApproval);
     const customWorkflowRun = createCustomWorkflowRunFixture();
     await first.customWorkflowRuns.saveRun(customWorkflowRun);
+    const recoveryDryRun = createProductionWorkflowRecoveryPlanFixture();
+    await first.productionWorkflowRecoveryDryRuns.saveDryRun(recoveryDryRun);
+    const recoveryApproval = createProductionWorkflowRecoveryApprovalFixture();
+    await first.productionWorkflowRecoveryApprovals.saveApproval(recoveryApproval);
+    const recoveryRun = createProductionWorkflowRecoveryRunFixture();
+    await first.productionWorkflowRecoveryRuns.saveRun(recoveryRun);
+    const recoveryChildState = createProductionWorkflowRecoveryChildActionStateFixture();
+    await first.productionWorkflowRecoveryChildActionStates.saveChildActionState(recoveryChildState);
     const reportReview: CodexExecReportReviewRecord = createCodexReportReviewFixture();
     await first.codexReportReviews.saveReportReview(reportReview);
     const adrDecision: CodexExecLiveAdapterAdrDecisionRecord =
@@ -427,6 +439,47 @@ describe('store-sqlite migration initialization', () => {
     });
     const customWorkflowRunRecord =
       await second.customWorkflowRuns.getRun('custom_workflow_run_1');
+    const recoveryDryRuns = await second.productionWorkflowRecoveryDryRuns.listDryRuns({
+      dryRunId: 'production_workflow_recovery_dry_run_1',
+      status: 'planned',
+      limit: 10,
+    });
+    const recoveryDryRunRecord =
+      await second.productionWorkflowRecoveryDryRuns.getDryRun(
+        'production_workflow_recovery_plan_record_1',
+      );
+    const recoveryApprovals = await second.productionWorkflowRecoveryApprovals.listApprovals({
+      dryRunId: 'production_workflow_recovery_dry_run_1',
+      status: 'approved',
+      limit: 10,
+    });
+    const recoveryApprovalRecord =
+      await second.productionWorkflowRecoveryApprovals.getApproval(
+        'production_workflow_recovery_approval_record_1',
+      );
+    const recoveryApprovalByArtifact =
+      await second.productionWorkflowRecoveryApprovals.getApprovalByArtifactId(
+        'production_workflow_recovery_approval_artifact_1',
+      );
+    const recoveryRuns = await second.productionWorkflowRecoveryRuns.listRuns({
+      dryRunId: 'production_workflow_recovery_dry_run_1',
+      status: 'waiting_for_child_approval',
+      limit: 10,
+    });
+    const recoveryRunRecord =
+      await second.productionWorkflowRecoveryRuns.getRun(
+        'production_workflow_recovery_run_1',
+      );
+    const recoveryChildStates =
+      await second.productionWorkflowRecoveryChildActionStates.listChildActionStates({
+        dryRunId: 'production_workflow_recovery_dry_run_1',
+        status: 'waiting_for_child_approval',
+        limit: 10,
+      });
+    const recoveryChildStateRecord =
+      await second.productionWorkflowRecoveryChildActionStates.getChildActionState(
+        'production_workflow_recovery_child_action_state_1',
+      );
     const reportReviews = await second.codexReportReviews.listReportReviews({
       dryRunId: 'codex_dry_run_1',
       status: 'reviewed',
@@ -702,6 +755,30 @@ describe('store-sqlite migration initialization', () => {
         customWorkflowApprovalRecord,
         customWorkflowRuns,
         customWorkflowRunRecord,
+      }),
+    ).toEqual([]);
+    expect(recoveryDryRuns).toHaveLength(1);
+    expect(recoveryDryRunRecord?.childAdapterExecuteAllowed).toBe(false);
+    expect(recoveryApprovals).toHaveLength(1);
+    expect(recoveryApprovalRecord?.childApprovalsIncluded).toBe(false);
+    expect(recoveryApprovalByArtifact?.id).toBe(
+      'production_workflow_recovery_approval_record_1',
+    );
+    expect(recoveryRuns).toHaveLength(1);
+    expect(recoveryRunRecord?.waitingChildApprovalCount).toBe(1);
+    expect(recoveryRunRecord?.childAdapterExecuteAllowed).toBe(false);
+    expect(recoveryChildStates).toHaveLength(1);
+    expect(recoveryChildStateRecord?.state.childAutoApprovalAllowed).toBe(false);
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        recoveryDryRuns,
+        recoveryDryRunRecord,
+        recoveryApprovals,
+        recoveryApprovalRecord,
+        recoveryRuns,
+        recoveryRunRecord,
+        recoveryChildStates,
+        recoveryChildStateRecord,
       }),
     ).toEqual([]);
     expect(reportReviews).toHaveLength(1);
@@ -1763,6 +1840,165 @@ function createGithubBranchPublishRunFixture(
       networkBoundaryInvoked: true,
     },
     summary: 'GitHub branch publish run fixture completed with hash-only output.',
+  };
+}
+
+function createProductionWorkflowRecoveryPlanFixture(): ProductionWorkflowRecoveryPlan {
+  return {
+    id: 'production_workflow_recovery_plan_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-04-28T00:00:23.000Z',
+    dryRunId: 'production_workflow_recovery_dry_run_1',
+    templateId: 'local-patch-review',
+    templateHash: 'sha256:production-template',
+    sourceRunIdHash: 'sha256:source-run',
+    status: 'planned',
+    childActionPlans: [
+      {
+        actionId: 'child_action_worktree',
+        stepId: 'worktree',
+        stepKind: 'worktree',
+        childActionKind: 'worktree-create',
+        childControlPlane: 'worktrees',
+        actionMode: 'write',
+        riskLevel: 'high',
+        requiresChildApproval: true,
+        createsChildDryRun: true,
+        createsChildApprovalRequest: true,
+        childAutoApprovalAllowed: false,
+        childAdapterExecuteAllowed: false,
+        hashBindingRequired: true,
+        summary: 'Worktree child action is controlled by worktree control plane.',
+      },
+    ],
+    childActionCount: 1,
+    approvalRequired: true,
+    childApprovalsRequired: 1,
+    blockReasons: [],
+    evidenceRefIds: ['evidence_recovery_plan_1'],
+    auditEventIds: ['audit_recovery_plan_1'],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    childAdapterExecuteAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow recovery plan stores child action metadata only.',
+  };
+}
+
+function createProductionWorkflowRecoveryApprovalFixture(): ProductionWorkflowRecoveryApprovalArtifact {
+  return {
+    id: 'production_workflow_recovery_approval_record_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-04-28T00:00:24.000Z',
+    dryRunId: 'production_workflow_recovery_dry_run_1',
+    templateId: 'local-patch-review',
+    templateHash: 'sha256:production-template',
+    approvalArtifactId: 'production_workflow_recovery_approval_artifact_1',
+    status: 'approved',
+    approvedBy: 'local-operator',
+    reasonHash: 'sha256:reason',
+    reasonSummary: 'Reason stored as hash only.',
+    childApprovalsIncluded: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow recovery approval does not include child approvals.',
+  };
+}
+
+function createProductionWorkflowRecoveryChildActionStateFixture(): ProductionWorkflowChildActionStateRecord {
+  const state: ProductionWorkflowChildActionStateRecord['state'] = {
+    actionId: 'child_action_worktree',
+    stepId: 'worktree',
+    stepKind: 'worktree',
+    childActionKind: 'worktree-create',
+    childControlPlane: 'worktrees',
+    status: 'waiting_for_child_approval',
+    childDryRunIdHash: 'sha256:child-dry-run',
+    childApprovalRequestIdHash: 'sha256:child-approval-request',
+    childHashBindingMatched: true,
+    childApprovalRequired: true,
+    childApprovalResolvedFromStore: false,
+    childAutoApprovalAllowed: false,
+    childAdapterExecuteAllowed: false,
+    blockReasons: ['production_workflow_child_approval_required:worktree'],
+    evidenceRefIds: [],
+    auditEventIds: [],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Worktree child action waits for separate child approval.',
+  };
+  return {
+    id: 'production_workflow_recovery_child_action_state_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-04-28T00:00:26.000Z',
+    dryRunId: 'production_workflow_recovery_dry_run_1',
+    recoveryRunId: 'production_workflow_recovery_run_1',
+    actionId: state.actionId,
+    stepId: state.stepId,
+    status: state.status,
+    state,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow recovery child action state stores metadata only.',
+  };
+}
+
+function createProductionWorkflowRecoveryRunFixture(): ProductionWorkflowRecoveryRun {
+  const childRecord = createProductionWorkflowRecoveryChildActionStateFixture();
+  const childState = childRecord.state;
+  return {
+    id: 'production_workflow_recovery_run_1',
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: '2026-04-28T00:00:25.000Z',
+    recoveryRunId: 'production_workflow_recovery_run_1',
+    dryRunId: 'production_workflow_recovery_dry_run_1',
+    approvalArtifactId: 'production_workflow_recovery_approval_artifact_1',
+    templateId: 'local-patch-review',
+    templateHash: 'sha256:production-template',
+    status: 'waiting_for_child_approval',
+    steps: [
+      {
+        stepId: 'worktree',
+        kind: 'worktree',
+        status: 'waiting_for_child_approval',
+        childActionStates: [childState],
+        blockReasons: ['production_workflow_child_approval_required:worktree'],
+        evidenceRefIds: [],
+        auditEventIds: [],
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        bodyStored: false,
+        rawPathStored: false,
+        summary: 'Worktree recovery step waits for child approval.',
+      },
+    ],
+    childActionStates: [childState],
+    stepCount: 1,
+    childActionCount: 1,
+    completedChildActionCount: 0,
+    waitingChildApprovalCount: 1,
+    failedChildActionCount: 0,
+    blockReasons: ['production_workflow_child_approval_required:worktree'],
+    evidenceRefIds: [],
+    auditEventIds: [],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    childAdapterExecuteAllowed: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow recovery run waits for separate child approval.',
   };
 }
 

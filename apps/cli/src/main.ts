@@ -156,6 +156,7 @@ import type {
   GithubPublishDraftPrAcceptanceScenario,
   GithubRemoteCleanupAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
+  ProductionWorkflowRecoveryScenario,
   RemoteSupersedeAcceptanceScenario,
   ReworkLoopAcceptanceScenario,
   ApprovalDecisionHistoryProjection,
@@ -213,6 +214,7 @@ import {
   runCustomWorkflowFixtureRehearsal,
   runProductionWorkflowOperationsSmoke,
   runProductionWorkflowPilotRehearsal,
+  runProductionWorkflowRecoveryRehearsal,
   validateCustomWorkflowTemplateInput,
   createMockWorkflowDefinition,
 } from '@codexhub/workflow-kernel';
@@ -1581,6 +1583,81 @@ export function buildProgram(): Command {
           options.scenario,
         );
         console.log(formatProductionWorkflowOperationsSmokeOutput(result, options));
+      },
+    );
+
+  const workflowProductionRecoveriesCommand = workflowProductionCommand
+    .command('recoveries')
+    .description('Read production workflow recovery metadata without execution');
+
+  const workflowProductionRecoveryDryRunsCommand = workflowProductionRecoveriesCommand
+    .command('dry-runs')
+    .description('Read production workflow recovery dry-run records');
+
+  workflowProductionRecoveryDryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List production workflow recovery dry-runs from read-only Supervisor GET data')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listProductionWorkflowRecoveryDryRuns();
+      console.log(formatProductionWorkflowRecoveryListOutput('dry-runs', result, options));
+    });
+
+  const workflowProductionRecoveryApprovalsCommand = workflowProductionRecoveriesCommand
+    .command('approvals')
+    .description('Read production workflow recovery approval records');
+
+  workflowProductionRecoveryApprovalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List production workflow recovery approvals from read-only Supervisor GET data')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listProductionWorkflowRecoveryApprovals();
+      console.log(formatProductionWorkflowRecoveryListOutput('approvals', result, options));
+    });
+
+  const workflowProductionRecoveryRunsCommand = workflowProductionRecoveriesCommand
+    .command('runs')
+    .description('Read production workflow recovery run records');
+
+  workflowProductionRecoveryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List production workflow recovery runs from read-only Supervisor GET data')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listProductionWorkflowRecoveryRuns();
+      console.log(formatProductionWorkflowRecoveryListOutput('runs', result, options));
+    });
+
+  workflowProductionRecoveryRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one production workflow recovery metadata summary')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showProductionWorkflowRecoveryRun(runId);
+      console.log(formatProductionWorkflowRecoveryRunOutput(result, options));
+    });
+
+  workflowProductionRecoveriesCommand
+    .command('rehearse')
+    .requiredOption('--template-id <templateId>', 'Production template id to rehearse')
+    .requiredOption('--fixture', 'Use fixture-only recovery rehearsal data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Run a fixture-only production workflow recovery rehearsal without execution')
+    .action(
+      async (
+        options: JsonCliOptions & {
+          templateId: string;
+          scenario: string;
+        },
+      ) => {
+        const result = rehearseProductionWorkflowRecoveryForCli(
+          options.templateId,
+          options.scenario,
+        );
+        console.log(formatProductionWorkflowRecoveryRehearsalOutput(result, options));
       },
     );
 
@@ -5775,6 +5852,37 @@ export function runProductionWorkflowOperationsSmokeForCli(
   };
 }
 
+export function rehearseProductionWorkflowRecoveryForCli(
+  templateId: string,
+  scenario: string,
+): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const template = catalog.templates.find((item) => item.templateId === templateId);
+  const rehearsal = runProductionWorkflowRecoveryRehearsal({
+    template: template ?? createCustomWorkflowTemplateFixture({ templateId }),
+    scenario: template
+      ? (scenario as ProductionWorkflowRecoveryScenario)
+      : 'workflow-approval-blocked',
+  });
+
+  return {
+    record: rehearsal,
+    found: Boolean(template),
+    fixtureOnly: true,
+    recoveryReadOnly: true,
+    childApprovalsRemainSeparate: true,
+    supervisorPostAllowed: false,
+    localControlKeyRead: false,
+    directAdapterExecutionAllowed: false,
+    directChildExecutionAllowed: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    bodyStored: false,
+    rawPathStored: false,
+  };
+}
+
 async function listCustomWorkflowDryRuns(): Promise<Record<string, unknown>> {
   return getSupervisorJson('/api/workflows/custom/dry-runs');
 }
@@ -5789,6 +5897,24 @@ async function listCustomWorkflowRuns(): Promise<Record<string, unknown>> {
 
 async function showCustomWorkflowRun(runId: string): Promise<Record<string, unknown>> {
   return getSupervisorJson(`/api/workflows/custom/runs/${encodeURIComponent(runId)}`);
+}
+
+async function listProductionWorkflowRecoveryDryRuns(): Promise<Record<string, unknown>> {
+  return getSupervisorJson('/api/workflows/production/recoveries/dry-runs');
+}
+
+async function listProductionWorkflowRecoveryApprovals(): Promise<Record<string, unknown>> {
+  return getSupervisorJson('/api/workflows/production/recoveries/approvals');
+}
+
+async function listProductionWorkflowRecoveryRuns(): Promise<Record<string, unknown>> {
+  return getSupervisorJson('/api/workflows/production/recoveries/runs');
+}
+
+async function showProductionWorkflowRecoveryRun(runId: string): Promise<Record<string, unknown>> {
+  return getSupervisorJson(
+    `/api/workflows/production/recoveries/runs/${encodeURIComponent(runId)}`,
+  );
 }
 
 function summarizeCustomWorkflowTemplate(template: ReturnType<typeof createCustomWorkflowTemplateFixture>) {
@@ -11123,6 +11249,63 @@ export function formatProductionWorkflowOperationsSmokeOutput(
     `bodyStored=${String(record?.bodyStored ?? false)}`,
     `rawPathStored=${String(record?.rawPathStored ?? false)}`,
     `summary: ${String(record?.summary ?? 'Production workflow operations smoke metadata summary.')}`,
+  ].join('\n');
+}
+
+export function formatProductionWorkflowRecoveryListOutput(
+  kind: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowCollectionOutput(
+    `Production workflow recovery ${kind}`,
+    result,
+    options,
+  );
+}
+
+export function formatProductionWorkflowRecoveryRunOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatCustomWorkflowRunDetailOutput(result, options).replace(
+    'Custom workflow run',
+    'Production workflow recovery run',
+  );
+}
+
+export function formatProductionWorkflowRecoveryRehearsalOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+
+  return [
+    'Production workflow recovery rehearsal',
+    `recoveryRunId: ${String(record?.runId ?? record?.dryRunId ?? 'unknown')}`,
+    `templateId: ${String(record?.templateId ?? 'unknown')}`,
+    `templateHash: ${String(record?.templateHash ?? 'unavailable')}`,
+    `scenario: ${String(record?.scenario ?? 'unknown')}`,
+    `status: ${String(record?.status ?? 'unknown')}`,
+    `childActions: ${String(record?.childActionCount ?? 0)}`,
+    `waitingForChildApproval=${String(record?.waitingForChildApproval ?? false)}`,
+    `childApprovalsRemainSeparate=${String(
+      result.childApprovalsRemainSeparate ?? true,
+    )}`,
+    `directAdapterExecutionAllowed=${String(record?.directAdapterExecutionAllowed ?? false)}`,
+    `directChildExecutionAllowed=${String(record?.directChildExecutionAllowed ?? false)}`,
+    `processBoundaryInvoked=${String(record?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(record?.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(record?.networkBoundaryInvoked ?? false)}`,
+    `bodyStored=${String(record?.bodyStored ?? false)}`,
+    `rawPathStored=${String(record?.rawPathStored ?? false)}`,
+    `summary: ${String(
+      record?.summary ?? 'Production workflow recovery fixture metadata summary.',
+    )}`,
   ].join('\n');
 }
 

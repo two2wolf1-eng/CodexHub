@@ -3992,3 +3992,167 @@ workflows:
       noUiCliPost: true
       childApprovalsRemainSeparate: true
       metadataOnlyPublicOutput: true
+  m29a.production-workflow-recovery-contracts:
+    risk: high
+    trigger:
+      type: contracts-store-foundation
+      entrypoint: contracts store workflow-kernel
+      localControlRequired: false
+    records:
+      dryRuns: production_workflow_recovery_dry_runs
+      approvals: production_workflow_recovery_approvals
+      runs: production_workflow_recovery_runs
+      childActionStates: production_workflow_recovery_child_action_states
+    safety:
+      metadataOnlyPublicOutput: true
+      childApprovalsRemainSeparate: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+  m29b.local-production-workflow-recovery-registry:
+    risk: high
+    trigger:
+      type: workflow-kernel-child-registry
+      entrypoint: local-patch-review
+      localControlRequired: false
+    childSteps:
+      - worktree-create
+      - codex-patch
+      - nx-verification
+      - review-package-export
+      - governance-projection
+    safety:
+      createsChildDryRuns: true
+      createsChildApprovalRequests: true
+      autoApprovesChildActions: false
+      directAdapterExecutionAllowed: false
+      metadataOnlyPublicOutput: true
+  m29c.production-workflow-recovery-control-plane:
+    risk: high
+    trigger:
+      type: supervisor-control-plane
+      entrypoint: /api/workflows/production/recoveries/*
+      localControlRequired: true
+    routes:
+      - POST /api/workflows/production/recoveries/dry-runs
+      - POST /api/workflows/production/recoveries/approval-requests
+      - POST /api/workflows/production/recoveries/manual-approvals
+      - POST /api/workflows/production/recoveries/runs
+    safety:
+      trustedLoopbackOriginRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      childArtifactsFromRequestTrusted: false
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true
+  m29d.production-workflow-recovery-read-only-ux:
+    risk: medium
+    trigger:
+      type: read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    commands:
+      - codexhub workflows production recoveries dry-runs list
+      - codexhub workflows production recoveries approvals list
+      - codexhub workflows production recoveries runs list
+      - codexhub workflows production recoveries runs show <runId>
+      - codexhub workflows production recoveries rehearse --template-id local-patch-review --fixture --scenario <name>
+    safety:
+      supervisorPostAllowed: false
+      localControlTokenRead: false
+      adapterExecuteAllowed: false
+      metadataOnlyPublicOutput: true
+  m29_5.production-workflow-recovery-hardening:
+    risk: high
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m29-production-workflow-recovery-results.md
+      - docs/reviews/m29-production-workflow-recovery-hardening-review.md
+      - docs/runbooks/m29-production-workflow-recovery-operator-runbook.md
+    safety:
+      noNewProvider: true
+      noNewExecutionBoundary: true
+      noUiCliMutationPath: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true
+  m30a.remote-production-workflow-recovery-registry:
+    risk: critical
+    trigger:
+      type: workflow-kernel-child-registry
+      entrypoint: github-draft-pr-chain rework-cleanup
+      localControlRequired: false
+    childSteps:
+      - github-branch-publish
+      - github-draft-pr
+      - github-pr-lifecycle
+      - remote-supersede
+      - remote-cleanup
+    safety:
+      existingGithubControlPlanesOnly: true
+      autoApprovesChildActions: false
+      directGithubAdapterExecutionAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+  m30b.governed-remote-recovery-runs:
+    risk: critical
+    trigger:
+      type: supervisor-coordinator
+      entrypoint: /api/workflows/production/recoveries/runs
+      localControlRequired: true
+    safety:
+      githubProviderEnabledRequired: true
+      githubTokenConfiguredRequiredByChildPlane: true
+      childApprovalsRemainSeparate: true
+      noPush: true
+      noMerge: true
+      noUpdateExistingRef: true
+      noForce: true
+      noCommentsLabelsReviewers: true
+      metadataOnlyPublicOutput: true
+  m30c.resumable-production-workflow-recovery:
+    risk: critical
+    trigger:
+      type: resumable-coordinator
+      entrypoint: workflow-kernel
+      localControlRequired: true
+    safety:
+      resumeFromLastSafeStepOnly: true
+      failedBranchPublishBlocksDraftPr: true
+      failedDraftPrDoesNotAutoDeleteBranch: true
+      remoteCleanupRequiresSeparateChildApproval: true
+  m30d.remote-recovery-ux-acceptance-smoke:
+    risk: medium
+    trigger:
+      type: fixture-smoke-read-only-ux
+      entrypoint: dashboard cli
+      localControlRequired: false
+    scenarios:
+      - all-pass
+      - workflow-approval-blocked
+      - child-dry-run-failed
+      - child-approval-blocked
+      - branch-publish-failed
+      - draft-pr-failed
+      - lifecycle-checks-failed
+      - remote-cleanup-blocked
+      - resume-after-child-approval
+      - superseded-source
+    safety:
+      fixtureOnly: true
+      supervisorPostAllowed: false
+      adapterExecuteAllowed: false
+  m30_5.remote-recovery-hardening:
+    risk: critical
+    trigger:
+      type: release-hardening
+      entrypoint: docs tools audits
+      localControlRequired: false
+    docs:
+      - docs/releases/m30-remote-production-workflow-recovery-results.md
+      - docs/reviews/m30-remote-production-workflow-recovery-hardening-review.md
+      - docs/runbooks/m30-remote-production-workflow-recovery-operator-runbook.md
+    safety:
+      tokenStorageAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+      childApprovalIsolationRequired: true
+      metadataOnlyPublicOutput: true

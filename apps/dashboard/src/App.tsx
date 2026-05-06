@@ -131,6 +131,9 @@ interface OverviewState {
   customWorkflowDryRuns: CustomWorkflowControlSummary[];
   customWorkflowApprovals: CustomWorkflowControlSummary[];
   customWorkflowRuns: CustomWorkflowControlSummary[];
+  productionWorkflowRecoveryDryRuns: CustomWorkflowControlSummary[];
+  productionWorkflowRecoveryApprovals: CustomWorkflowControlSummary[];
+  productionWorkflowRecoveryRuns: CustomWorkflowControlSummary[];
   worktreeDryRuns: WorktreeControlSummary[];
   worktreeApprovals: WorktreeControlSummary[];
   worktreeRuns: WorktreeControlSummary[];
@@ -752,6 +755,9 @@ export function App() {
     customWorkflowDryRuns: [],
     customWorkflowApprovals: [],
     customWorkflowRuns: [],
+    productionWorkflowRecoveryDryRuns: [],
+    productionWorkflowRecoveryApprovals: [],
+    productionWorkflowRecoveryRuns: [],
     worktreeDryRuns: [],
     worktreeApprovals: [],
     worktreeRuns: [],
@@ -977,10 +983,23 @@ export function App() {
     approvalCount: overview.customWorkflowApprovals.length,
     runCount: overview.customWorkflowRuns.length,
     latestRunStatus: overview.customWorkflowRuns[0]?.status,
+    recoveryDryRunCount: overview.productionWorkflowRecoveryDryRuns.length,
+    recoveryApprovalCount: overview.productionWorkflowRecoveryApprovals.length,
+    recoveryRunCount: overview.productionWorkflowRecoveryRuns.length,
+    latestRecoveryStatus: overview.productionWorkflowRecoveryRuns[0]?.status,
+    latestRecoveryChildActionCount:
+      overview.productionWorkflowRecoveryRuns[0]?.stepCount ??
+      overview.productionWorkflowRecoveryDryRuns[0]?.stepCount,
+    latestRecoveryWaitingForChildApproval:
+      overview.productionWorkflowRecoveryRuns[0]?.status === 'waiting_for_child_approval',
     processBoundaryInvoked: overview.customWorkflowRuns.some(
+      (record) => record.processBoundaryInvoked === true,
+    ) || overview.productionWorkflowRecoveryRuns.some(
       (record) => record.processBoundaryInvoked === true,
     ),
     networkBoundaryInvoked: overview.customWorkflowRuns.some(
+      (record) => record.networkBoundaryInvoked === true,
+    ) || overview.productionWorkflowRecoveryRuns.some(
       (record) => record.networkBoundaryInvoked === true,
     ),
   });
@@ -1518,6 +1537,9 @@ export function App() {
           customWorkflowDryRunsResponse,
           customWorkflowApprovalsResponse,
           customWorkflowRunsResponse,
+          productionWorkflowRecoveryDryRunsResponse,
+          productionWorkflowRecoveryApprovalsResponse,
+          productionWorkflowRecoveryRunsResponse,
           worktreeDryRunsResponse,
           worktreeApprovalsResponse,
           worktreeRunsResponse,
@@ -1654,6 +1676,18 @@ export function App() {
           ),
           getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
             '/api/workflows/custom/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+            '/api/workflows/production/recoveries/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+            '/api/workflows/production/recoveries/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: CustomWorkflowControlSummary[] }>(
+            '/api/workflows/production/recoveries/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: WorktreeControlSummary[] }>('/api/worktrees/dry-runs', {
@@ -1793,6 +1827,10 @@ export function App() {
             customWorkflowDryRuns: customWorkflowDryRunsResponse.records,
             customWorkflowApprovals: customWorkflowApprovalsResponse.records,
             customWorkflowRuns: customWorkflowRunsResponse.records,
+            productionWorkflowRecoveryDryRuns: productionWorkflowRecoveryDryRunsResponse.records,
+            productionWorkflowRecoveryApprovals:
+              productionWorkflowRecoveryApprovalsResponse.records,
+            productionWorkflowRecoveryRuns: productionWorkflowRecoveryRunsResponse.records,
             worktreeDryRuns: worktreeDryRunsResponse.records,
             worktreeApprovals: worktreeApprovalsResponse.records,
             worktreeRuns: worktreeRunsResponse.records,
@@ -1870,6 +1908,9 @@ export function App() {
             customWorkflowDryRuns: [],
             customWorkflowApprovals: [],
             customWorkflowRuns: [],
+            productionWorkflowRecoveryDryRuns: [],
+            productionWorkflowRecoveryApprovals: [],
+            productionWorkflowRecoveryRuns: [],
             worktreeDryRuns: [],
             worktreeApprovals: [],
             worktreeRuns: [],
@@ -5080,10 +5121,28 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>runtime recovery</strong>
+              <span>
+                {customWorkflowSummary.latestRecoveryStatus}, dry-runs{' '}
+                {customWorkflowSummary.recoveryDryRunCount}, approvals{' '}
+                {customWorkflowSummary.recoveryApprovalCount}, runs{' '}
+                {customWorkflowSummary.recoveryRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>recovery child queue</strong>
+              <span>
+                actions {customWorkflowSummary.latestRecoveryChildActionCount}, waiting child
+                approval {String(customWorkflowSummary.latestRecoveryWaitingForChildApproval)},
+                separate approvals{' '}
+                {String(customWorkflowSummary.recoveryChildApprovalsRemainSeparate)}
+              </span>
+            </li>
+            <li>
               <strong>write controls</strong>
               <span>
                 supervisor POST {String(customWorkflowSummary.supervisorPostAllowed)},
-                local-control key read {String(customWorkflowSummary.localControlKeyRead)}
+                local key read {String(customWorkflowSummary.localControlKeyRead)}
               </span>
             </li>
             <li>
@@ -5096,6 +5155,33 @@ function renderReadOnlyDashboardView(
           </ul>
           <p>{customWorkflowSummary.operationsNextActionSummary}</p>
           <p>{customWorkflowSummary.summary}</p>
+        </Panel>
+        <Panel title="Production Workflow Runtime Recovery">
+          <ul>
+            <li>
+              <strong>dry-runs / approvals / runs</strong>
+              <span>
+                {customWorkflowSummary.recoveryDryRunCount} /{' '}
+                {customWorkflowSummary.recoveryApprovalCount} /{' '}
+                {customWorkflowSummary.recoveryRunCount}
+              </span>
+            </li>
+            <li>
+              <strong>latest status</strong>
+              <span>{customWorkflowSummary.latestRecoveryStatus}</span>
+            </li>
+            <li>
+              <strong>child authority</strong>
+              <span>
+                workflow approval does not grant child authority:{' '}
+                {String(customWorkflowSummary.recoveryChildApprovalsRemainSeparate)}
+              </span>
+            </li>
+            <li>
+              <strong>direct child execution</strong>
+              <span>{String(customWorkflowSummary.recoveryDirectChildExecutionAllowed)}</span>
+            </li>
+          </ul>
         </Panel>
         <Panel title="Production Workflow Catalog">
           <ul>

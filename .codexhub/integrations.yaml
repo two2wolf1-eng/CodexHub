@@ -1504,6 +1504,10 @@ integrations:
       pauseResumeRollbackMetadataOnly: true
       catalogDryRunHashBindingRequired: true
       productionRehearsalFixtureOnly: true
+      productionWorkflowRecoveryEnabled: false
+      childOrchestrationEnabled: false
+      childApprovalsRemainSeparate: true
+      workflowApprovalDoesNotGrantChildAuthority: true
       builtInProductionTemplates:
         - local-patch-review
         - local-rc-bundle
@@ -1559,6 +1563,31 @@ integrations:
         - GET /api/workflows/custom/runs
         - GET /api/workflows/custom/runs/:id
         - GET /api/workflows/custom/rehearsals/latest
+    recoveryControlPlane:
+      enabledByDefault: false
+      recoveryEnablementEnv: CODEXHUB_PRODUCTION_WORKFLOW_RECOVERY_ENABLED
+      childOrchestrationEnablementEnv: CODEXHUB_PRODUCTION_WORKFLOW_CHILD_ORCHESTRATION_ENABLED
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedWorkflowApprovalRequired: true
+      childApprovalsRemainSeparate: true
+      childDryRunCreationAllowed: true
+      childApprovalRequestCreationAllowed: true
+      childAutoApprovalAllowed: false
+      directChildAdapterExecutionAllowed: false
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      routes:
+        - POST /api/workflows/production/recoveries/dry-runs
+        - GET /api/workflows/production/recoveries/dry-runs
+        - POST /api/workflows/production/recoveries/approval-requests
+        - POST /api/workflows/production/recoveries/manual-approvals
+        - GET /api/workflows/production/recoveries/approvals
+        - POST /api/workflows/production/recoveries/runs
+        - GET /api/workflows/production/recoveries/runs
+        - GET /api/workflows/production/recoveries/runs/:id
+        - GET /api/workflows/production/recoveries/rehearsals/latest
     readOnlyUx:
       dashboardRoute: "#/workflows"
       cliCommands:
@@ -1581,6 +1610,11 @@ integrations:
         - codexhub workflows production operations status
         - codexhub workflows production operations history
         - codexhub workflows production operations smoke --fixture --scenario <name>
+        - codexhub workflows production recoveries dry-runs list
+        - codexhub workflows production recoveries approvals list
+        - codexhub workflows production recoveries runs list
+        - codexhub workflows production recoveries runs show <runId>
+        - codexhub workflows production recoveries rehearse --template-id <templateId> --fixture --scenario <name>
       supervisorPostAllowed: false
       localControlTokenRead: false
       adapterExecuteAllowed: false
@@ -1589,6 +1623,10 @@ integrations:
       customWorkflowApprovalDoesNotGrantChildExecution: true
       productionPilotCreatesChildApprovals: false
       productionPilotCallsChildAdapters: false
+      recoveryCreatesChildDryRuns: true
+      recoveryCreatesChildApprovalRequests: true
+      recoveryAutoApprovesChildActions: false
+      recoveryCallsChildAdapters: false
       missingChildRecordBlocksStep: true
       failedChildRecordBlocksLaterSteps: true
     storage:

@@ -253,6 +253,10 @@ import type {
   CustomWorkflowApprovalArtifactRecord,
   CustomWorkflowPlan,
   CustomWorkflowRun,
+  ProductionWorkflowChildActionStateRecord,
+  ProductionWorkflowRecoveryApprovalArtifact,
+  ProductionWorkflowRecoveryPlan,
+  ProductionWorkflowRecoveryRun,
   GithubProviderApprovalStatus,
   RemoteSupersedePlan,
   RemoteSupersedeRun,
@@ -301,6 +305,10 @@ import {
   CustomWorkflowApprovalArtifactRecordSchema,
   CustomWorkflowPlanSchema,
   CustomWorkflowRunSchema,
+  ProductionWorkflowChildActionStateRecordSchema,
+  ProductionWorkflowRecoveryApprovalArtifactSchema,
+  ProductionWorkflowRecoveryPlanSchema,
+  ProductionWorkflowRecoveryRunSchema,
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
@@ -388,8 +396,13 @@ import {
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
   findCustomWorkflowCatalogTemplate,
+  createProductionWorkflowRecoveryApprovalArtifact,
+  createProductionWorkflowRecoveryPlan,
   runCustomWorkflowCoordinator,
   runCustomWorkflowFixtureRehearsal,
+  runProductionWorkflowRecoveryCoordinator,
+  runProductionWorkflowRecoveryRehearsal,
+  type ProductionWorkflowRecoveryOptions,
   createMockWorkflowDefinition,
 } from '@codexhub/workflow-kernel';
 import {
@@ -437,6 +450,8 @@ interface SupervisorServerOptions {
   githubRemoteCleanupEnabled?: boolean;
   reworkLoopEnabled?: boolean;
   customWorkflowEnabled?: boolean;
+  productionWorkflowRecoveryEnabled?: boolean;
+  productionWorkflowChildOrchestrationEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
 }
@@ -911,6 +926,53 @@ interface CustomWorkflowRunRequestBody {
   executionAuthority?: unknown;
 }
 
+interface ProductionWorkflowRecoveryDryRunRequestBody {
+  templateId?: string;
+  templateHash?: string;
+  sourceRunIdHash?: string;
+  requestedBy?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+  childArtifacts?: unknown;
+}
+
+interface ProductionWorkflowRecoveryApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+  childArtifacts?: unknown;
+}
+
+interface ProductionWorkflowRecoveryManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: ProductionWorkflowRecoveryApprovalArtifact['status'];
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+  childArtifacts?: unknown;
+}
+
+interface ProductionWorkflowRecoveryRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  templateId?: string;
+  templateHash?: string;
+  childApprovalApproved?: Record<string, boolean>;
+  childRunStatuses?: Record<string, string>;
+  resumeFromStepId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+  childArtifacts?: unknown;
+}
+
 interface GithubRemoteCleanupDryRunRequestBody {
   owner?: string;
   repo?: string;
@@ -1150,7 +1212,8 @@ function hasUntrustedAuthorityBody(body: unknown): boolean {
   return (
     hasRequestBodyProperty(body, 'approvalArtifact') ||
     hasRequestBodyProperty(body, 'authority') ||
-    hasRequestBodyProperty(body, 'executionAuthority')
+    hasRequestBodyProperty(body, 'executionAuthority') ||
+    hasRequestBodyProperty(body, 'childArtifacts')
   );
 }
 
@@ -1221,6 +1284,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const customWorkflowDryRunRecords: CustomWorkflowPlan[] = [];
   const customWorkflowApprovalRecords: CustomWorkflowApprovalArtifactRecord[] = [];
   const customWorkflowRunRecords: CustomWorkflowRun[] = [];
+  const productionWorkflowRecoveryDryRunRecords: ProductionWorkflowRecoveryPlan[] = [];
+  const productionWorkflowRecoveryApprovalRecords: ProductionWorkflowRecoveryApprovalArtifact[] =
+    [];
+  const productionWorkflowRecoveryRunRecords: ProductionWorkflowRecoveryRun[] = [];
+  const productionWorkflowRecoveryChildActionStateRecords: ProductionWorkflowChildActionStateRecord[] =
+    [];
   const githubBranchPublishDryRunRecords: GithubBranchPublishPlan[] = [];
   const githubBranchPublishApprovalRecords: GithubBranchPublishApprovalArtifactRecord[] = [];
   const githubBranchPublishRunRecords: GithubBranchPublishRun[] = [];
@@ -4166,6 +4235,405 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     return {
       record: rehearsal,
+      degraded: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/workflows/production/recoveries/dry-runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createProductionWorkflowRecoveryStoreUnavailableResponse('dry-run'));
+    }
+
+    const body = request.body as ProductionWorkflowRecoveryDryRunRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(undefined));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryForbiddenRawBodyResponse(undefined));
+    }
+
+    const templateId = body?.templateId ?? 'local-patch-review';
+    const catalogTemplate = findCustomWorkflowCatalogTemplate(templateId, process.cwd());
+    if (!catalogTemplate) {
+      return reply.code(404).send({
+        error: 'production workflow recovery catalog template was not found',
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+    if (body?.templateHash && body.templateHash !== catalogTemplate.templateHash) {
+      return reply.code(409).send({
+        error: 'production workflow recovery template hash mismatch',
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+
+    const dryRunRecord = createProductionWorkflowRecoveryPlan({
+      template: catalogTemplate,
+      sourceRunIdHash: body?.sourceRunIdHash,
+      recoveryEnabled: isProductionWorkflowRecoveryEnabled(),
+      childOrchestrationEnabled: isProductionWorkflowChildOrchestrationEnabled(),
+    });
+    await persistProductionWorkflowRecoveryDryRunRecord(dryRunRecord, store);
+
+    return createProductionWorkflowRecoveryDryRunResponse(dryRunRecord);
+  });
+
+  server.get('/api/workflows/production/recoveries/dry-runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listProductionWorkflowRecoveryDryRuns(query, store);
+
+    return {
+      records: records.map(createProductionWorkflowRecoveryDryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/workflows/production/recoveries/approval-requests', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createProductionWorkflowRecoveryStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ProductionWorkflowRecoveryApprovalRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveProductionWorkflowRecoveryDryRunRecord(body?.dryRunId, store);
+    if (!dryRunRecord) {
+      return reply
+        .code(404)
+        .send({ error: 'production workflow recovery dry-run record was not found' });
+    }
+    if (dryRunRecord.status === 'blocked') {
+      return reply.code(409).send({
+        error: 'production workflow recovery dry-run is blocked',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+
+    const approvalRecord = createProductionWorkflowRecoveryApprovalArtifact({
+      dryRunId: dryRunRecord.dryRunId,
+      templateId: dryRunRecord.templateId,
+      templateHash: dryRunRecord.templateHash,
+      status: 'requested',
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : undefined,
+      reasonSummary: body?.reason ? 'Recovery approval reason hash stored.' : undefined,
+    });
+    await persistProductionWorkflowRecoveryApprovalRecord(approvalRecord, store);
+
+    return createProductionWorkflowRecoveryApprovalResponse(approvalRecord);
+  });
+
+  server.post('/api/workflows/production/recoveries/manual-approvals', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createProductionWorkflowRecoveryStoreUnavailableResponse('approval'));
+    }
+
+    const body = request.body as ProductionWorkflowRecoveryManualApprovalRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveProductionWorkflowRecoveryDryRunRecord(body?.dryRunId, store);
+    if (!dryRunRecord) {
+      return reply
+        .code(404)
+        .send({ error: 'production workflow recovery dry-run record was not found' });
+    }
+    const approvalRequest = body?.approvalRequestId
+      ? await resolveProductionWorkflowRecoveryApprovalRecord(body.approvalRequestId, store)
+      : (await listProductionWorkflowRecoveryApprovals(
+          { dryRunId: dryRunRecord.dryRunId, limit: 1 },
+          store,
+        ))[0];
+    if (!approvalRequest) {
+      return reply
+        .code(404)
+        .send({ error: 'production workflow recovery approval request was not found' });
+    }
+
+    const approvalRecord = createProductionWorkflowRecoveryApprovalArtifact({
+      dryRunId: dryRunRecord.dryRunId,
+      templateId: dryRunRecord.templateId,
+      templateHash: dryRunRecord.templateHash,
+      approvalArtifactId: approvalRequest.approvalArtifactId,
+      status: body?.outcome ?? 'approved',
+      approvedBy: body?.decidedBy,
+      reasonHash: body?.reason ? hashLocalMetadata({ reason: body.reason }) : undefined,
+      reasonSummary: body?.reason ? 'Recovery decision reason hash stored.' : undefined,
+    });
+    await persistProductionWorkflowRecoveryApprovalRecord(approvalRecord, store);
+
+    return createProductionWorkflowRecoveryApprovalResponse(approvalRecord);
+  });
+
+  server.get('/api/workflows/production/recoveries/approvals', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listProductionWorkflowRecoveryApprovals(query, store);
+
+    return {
+      records: records.map(createProductionWorkflowRecoveryApprovalResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.post('/api/workflows/production/recoveries/runs', async (request, reply) => {
+    const store = await getStore();
+
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createProductionWorkflowRecoveryStoreUnavailableResponse('execution'));
+    }
+
+    const body = request.body as ProductionWorkflowRecoveryRunRequestBody | undefined;
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryUntrustedAuthorityResponse(body?.dryRunId));
+    }
+    if (
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply
+        .code(400)
+        .send(createProductionWorkflowRecoveryForbiddenRawBodyResponse(body?.dryRunId));
+    }
+
+    const dryRunRecord = await resolveProductionWorkflowRecoveryDryRunRecord(body?.dryRunId, store);
+    if (!dryRunRecord) {
+      return reply
+        .code(404)
+        .send({ error: 'production workflow recovery dry-run record was not found' });
+    }
+    if (dryRunRecord.status === 'blocked') {
+      return reply.code(409).send({
+        error: 'production workflow recovery dry-run is blocked',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+    if (body?.templateId && body.templateId !== dryRunRecord.templateId) {
+      return reply.code(409).send({ error: 'production workflow recovery template id mismatch' });
+    }
+    if (body?.templateHash && body.templateHash !== dryRunRecord.templateHash) {
+      return reply.code(409).send({ error: 'production workflow recovery template hash mismatch' });
+    }
+
+    const approvalRecord = body?.approvalArtifactId
+      ? await resolveProductionWorkflowRecoveryApprovalRecordByArtifactId(
+          body.approvalArtifactId,
+          store,
+        )
+      : undefined;
+    if (
+      !approvalRecord ||
+      approvalRecord.dryRunId !== dryRunRecord.dryRunId ||
+      approvalRecord.templateId !== dryRunRecord.templateId ||
+      approvalRecord.templateHash !== dryRunRecord.templateHash
+    ) {
+      return reply.code(409).send({
+        error: 'production workflow recovery approval does not match dry-run',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+    if (approvalRecord.status !== 'approved') {
+      return reply.code(409).send({
+        error: 'production workflow recovery approval is not approved',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        approvalStatus: approvalRecord.status,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+      });
+    }
+    if (
+      !isProductionWorkflowRecoveryEnabled() ||
+      !isProductionWorkflowChildOrchestrationEnabled()
+    ) {
+      return reply.code(409).send({
+        error: 'production workflow recovery is disabled',
+        dryRunId: dryRunRecord.dryRunId,
+        status: 'blocked',
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        directAdapterExecutionAllowed: false,
+        childAdapterExecuteAllowed: false,
+      });
+    }
+
+    const catalogTemplate = findCustomWorkflowCatalogTemplate(dryRunRecord.templateId, process.cwd());
+    if (!catalogTemplate) {
+      return reply
+        .code(404)
+        .send({ error: 'production workflow recovery catalog template was not found' });
+    }
+    const runRecord = runProductionWorkflowRecoveryCoordinator({
+      template: catalogTemplate,
+      dryRunId: dryRunRecord.dryRunId,
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+      workflowApprovalApproved: true,
+      approvalArtifact: approvalRecord,
+      childApprovalApproved: body?.childApprovalApproved,
+      childRunStatuses: body?.childRunStatuses as
+        | ProductionWorkflowRecoveryOptions['childRunStatuses']
+        | undefined,
+      resumeFromStepId: body?.resumeFromStepId,
+    });
+    await persistProductionWorkflowRecoveryRunRecord(runRecord, store);
+    for (const childActionState of runRecord.childActionStates) {
+      await persistProductionWorkflowRecoveryChildActionStateRecord(
+        createProductionWorkflowRecoveryChildActionStateRecord(
+          runRecord.dryRunId,
+          runRecord.recoveryRunId,
+          childActionState,
+        ),
+        store,
+      );
+    }
+    const usedRecord = createProductionWorkflowRecoveryApprovalArtifact({
+      dryRunId: dryRunRecord.dryRunId,
+      templateId: dryRunRecord.templateId,
+      templateHash: dryRunRecord.templateHash,
+      approvalArtifactId: approvalRecord.approvalArtifactId,
+      status: 'used',
+      reasonHash: hashLocalMetadata({ reason: 'production workflow recovery orchestration used approval' }),
+      reasonSummary: 'Production workflow recovery approval consumed by orchestration run.',
+      usedAt: foundationTimestamp(),
+    });
+    await persistProductionWorkflowRecoveryApprovalRecord(usedRecord, store);
+
+    return createProductionWorkflowRecoveryRunResponse(runRecord);
+  });
+
+  server.get('/api/workflows/production/recoveries/runs', async (request) => {
+    const store = await getStore();
+    const query = parseReviewPackageQuery(request.query);
+    const records = await listProductionWorkflowRecoveryRuns(query, store);
+
+    return {
+      records: records.map(createProductionWorkflowRecoveryRunResponse),
+      count: records.length,
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/api/workflows/production/recoveries/runs/:id', async (request, reply) => {
+    const store = await getStore();
+    const params = request.params as { id?: string };
+    const record = params.id
+      ? await resolveProductionWorkflowRecoveryRun(params.id, store)
+      : undefined;
+
+    if (!record) {
+      return reply
+        .code(404)
+        .send({ error: 'production workflow recovery run was not found' });
+    }
+
+    return createProductionWorkflowRecoveryRunResponse(record);
+  });
+
+  server.get('/api/workflows/production/recoveries/rehearsals/latest', async () => {
+    const rehearsal = runProductionWorkflowRecoveryRehearsal({
+      scenario: 'all-pass',
+    });
+
+    return {
+      record: createProductionWorkflowRecoveryRunResponse(rehearsal),
       degraded: false,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
@@ -15062,6 +15530,139 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       : customWorkflowRunRecords.slice(0, query.limit ?? 50);
   }
 
+  async function persistProductionWorkflowRecoveryDryRunRecord(
+    record: ProductionWorkflowRecoveryPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.productionWorkflowRecoveryDryRuns.saveDryRun(record);
+      return;
+    }
+    productionWorkflowRecoveryDryRunRecords.unshift(record);
+  }
+
+  async function persistProductionWorkflowRecoveryApprovalRecord(
+    record: ProductionWorkflowRecoveryApprovalArtifact,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.productionWorkflowRecoveryApprovals.saveApproval(record);
+      return;
+    }
+    productionWorkflowRecoveryApprovalRecords.unshift(record);
+  }
+
+  async function persistProductionWorkflowRecoveryRunRecord(
+    record: ProductionWorkflowRecoveryRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.productionWorkflowRecoveryRuns.saveRun(record);
+      return;
+    }
+    productionWorkflowRecoveryRunRecords.unshift(record);
+  }
+
+  async function persistProductionWorkflowRecoveryChildActionStateRecord(
+    record: ProductionWorkflowChildActionStateRecord,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.productionWorkflowRecoveryChildActionStates.saveChildActionState(record);
+      return;
+    }
+    productionWorkflowRecoveryChildActionStateRecords.unshift(record);
+  }
+
+  async function resolveProductionWorkflowRecoveryDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.productionWorkflowRecoveryDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.productionWorkflowRecoveryDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return productionWorkflowRecoveryDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveProductionWorkflowRecoveryApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact | undefined> {
+    if (store) {
+      const directRecord =
+        await store.productionWorkflowRecoveryApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.productionWorkflowRecoveryApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.id === approvalRequestId,
+      );
+    }
+    return productionWorkflowRecoveryApprovalRecords.find(
+      (record) => record.id === approvalRequestId,
+    );
+  }
+
+  async function resolveProductionWorkflowRecoveryApprovalRecordByArtifactId(
+    approvalArtifactId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact | undefined> {
+    return store
+      ? await store.productionWorkflowRecoveryApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : productionWorkflowRecoveryApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveProductionWorkflowRecoveryRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryRun | undefined> {
+    return store
+      ? await store.productionWorkflowRecoveryRuns.getRun(runId)
+      : productionWorkflowRecoveryRunRecords.find(
+          (record) => record.id === runId || record.recoveryRunId === runId,
+        );
+  }
+
+  async function listProductionWorkflowRecoveryDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryPlan[]> {
+    return store
+      ? await store.productionWorkflowRecoveryDryRuns.listDryRuns(query)
+      : productionWorkflowRecoveryDryRunRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listProductionWorkflowRecoveryApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact[]> {
+    return store
+      ? await store.productionWorkflowRecoveryApprovals.listApprovals(query)
+      : productionWorkflowRecoveryApprovalRecords.slice(0, query.limit ?? 50);
+  }
+
+  async function listProductionWorkflowRecoveryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<ProductionWorkflowRecoveryRun[]> {
+    return store
+      ? await store.productionWorkflowRecoveryRuns.listRuns(query)
+      : productionWorkflowRecoveryRunRecords.slice(0, query.limit ?? 50);
+  }
+
   async function persistGithubDraftPrDryRunRecord(
     record: GithubDraftPrPlan,
     store: CodexHubStore | undefined,
@@ -16002,6 +16603,219 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       })),
       summary: record.summary,
     };
+  }
+
+  function createProductionWorkflowRecoveryDryRunResponse(
+    record: ProductionWorkflowRecoveryPlan,
+  ) {
+    return ProductionWorkflowRecoveryPlanSchema.parse(record) && {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      templateId: record.templateId,
+      templateHash: record.templateHash,
+      sourceRunIdHash: record.sourceRunIdHash,
+      status: record.status,
+      childActionCount: record.childActionCount,
+      approvalRequired: record.approvalRequired,
+      childApprovalsRequired: record.childApprovalsRequired,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      directAdapterExecutionAllowed: record.directAdapterExecutionAllowed,
+      childAdapterExecuteAllowed: record.childAdapterExecuteAllowed,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: record.rawPathStored,
+      bodyStored: record.bodyStored,
+      childActionPlans: record.childActionPlans.map((action) => ({
+        actionId: action.actionId,
+        stepId: action.stepId,
+        stepKind: action.stepKind,
+        childActionKind: action.childActionKind,
+        childControlPlane: action.childControlPlane,
+        actionMode: action.actionMode,
+        riskLevel: action.riskLevel,
+        requiresChildApproval: action.requiresChildApproval,
+        createsChildDryRun: action.createsChildDryRun,
+        createsChildApprovalRequest: action.createsChildApprovalRequest,
+        childAutoApprovalAllowed: action.childAutoApprovalAllowed,
+        childAdapterExecuteAllowed: action.childAdapterExecuteAllowed,
+        hashBindingRequired: action.hashBindingRequired,
+        summary: action.summary,
+      })),
+      summary: record.summary,
+    };
+  }
+
+  function createProductionWorkflowRecoveryApprovalResponse(
+    record: ProductionWorkflowRecoveryApprovalArtifact,
+  ) {
+    return ProductionWorkflowRecoveryApprovalArtifactSchema.parse(record) && {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      approvalRequestId: record.id,
+      approvalArtifactId: record.approvalArtifactId,
+      templateId: record.templateId,
+      templateHash: record.templateHash,
+      status: record.status,
+      approvedByHash: record.approvedBy
+        ? hashSupervisorMetadata({ approvedBy: record.approvedBy })
+        : undefined,
+      reasonHash: record.reasonHash,
+      expiresAt: record.expiresAt,
+      usedAt: record.usedAt,
+      childApprovalsIncluded: record.childApprovalsIncluded,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      rawPathStored: record.rawPathStored,
+      bodyStored: record.bodyStored,
+      noRealWrite: true,
+      summary: record.summary,
+    };
+  }
+
+  function createProductionWorkflowRecoveryRunResponse(record: ProductionWorkflowRecoveryRun) {
+    return ProductionWorkflowRecoveryRunSchema.parse(record) && {
+      recordId: record.id,
+      runId: record.id,
+      recoveryRunId: record.recoveryRunId,
+      dryRunId: record.dryRunId,
+      approvalArtifactId: record.approvalArtifactId,
+      templateId: record.templateId,
+      templateHash: record.templateHash,
+      status: record.status,
+      stepCount: record.stepCount,
+      childActionCount: record.childActionCount,
+      completedChildActionCount: record.completedChildActionCount,
+      waitingChildApprovalCount: record.waitingChildApprovalCount,
+      failedChildActionCount: record.failedChildActionCount,
+      lastSafeStepId: record.lastSafeStepId,
+      resumeFromStepId: record.resumeFromStepId,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefIds,
+      auditEventIds: record.auditEventIds,
+      directAdapterExecutionAllowed: record.directAdapterExecutionAllowed,
+      childAdapterExecuteAllowed: record.childAdapterExecuteAllowed,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      noRealWrite: record.noRealWrite,
+      rawPathStored: record.rawPathStored,
+      bodyStored: record.bodyStored,
+      childActionStates: record.childActionStates.map((state) => ({
+        actionId: state.actionId,
+        stepId: state.stepId,
+        stepKind: state.stepKind,
+        childActionKind: state.childActionKind,
+        childControlPlane: state.childControlPlane,
+        status: state.status,
+        childDryRunIdHash: state.childDryRunIdHash,
+        childApprovalRequestIdHash: state.childApprovalRequestIdHash,
+        childApprovalArtifactIdHash: state.childApprovalArtifactIdHash,
+        childRunIdHash: state.childRunIdHash,
+        childHashBindingMatched: state.childHashBindingMatched,
+        childApprovalRequired: state.childApprovalRequired,
+        childApprovalResolvedFromStore: state.childApprovalResolvedFromStore,
+        childAutoApprovalAllowed: state.childAutoApprovalAllowed,
+        childAdapterExecuteAllowed: state.childAdapterExecuteAllowed,
+        blockReasons: state.blockReasons,
+        evidenceRefIds: state.evidenceRefIds,
+        auditEventIds: state.auditEventIds,
+        summary: state.summary,
+      })),
+      steps: record.steps.map((step) => ({
+        stepId: step.stepId,
+        kind: step.kind,
+        status: step.status,
+        blockReasons: step.blockReasons,
+        evidenceRefIds: step.evidenceRefIds,
+        auditEventIds: step.auditEventIds,
+        summary: step.summary,
+      })),
+      summary: record.summary,
+    };
+  }
+
+  function createProductionWorkflowRecoveryChildActionStateRecord(
+    dryRunId: string,
+    recoveryRunId: string,
+    state: ProductionWorkflowRecoveryRun['childActionStates'][number],
+  ): ProductionWorkflowChildActionStateRecord {
+    return ProductionWorkflowChildActionStateRecordSchema.parse({
+      id: foundationId('production_workflow_recovery_child_action_state'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      dryRunId,
+      recoveryRunId,
+      actionId: state.actionId,
+      stepId: state.stepId,
+      status: state.status,
+      state,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Production workflow recovery child action state stored metadata only.',
+    });
+  }
+
+  function createProductionWorkflowRecoveryStoreUnavailableResponse(stage: string) {
+    return {
+      error: `production workflow recovery ${stage} store is unavailable`,
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+    };
+  }
+
+  function createProductionWorkflowRecoveryUntrustedAuthorityResponse(
+    dryRunId: string | undefined,
+  ) {
+    return {
+      error: 'production workflow recovery request body authority is not trusted',
+      dryRunId,
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+    };
+  }
+
+  function createProductionWorkflowRecoveryForbiddenRawBodyResponse(
+    dryRunId: string | undefined,
+  ) {
+    return {
+      error: 'production workflow recovery request contains forbidden raw body or path fields',
+      dryRunId,
+      status: 'blocked',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      childAdapterExecuteAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+    };
+  }
+
+  function isProductionWorkflowRecoveryEnabled(): boolean {
+    return (
+      options.productionWorkflowRecoveryEnabled ??
+      process.env.CODEXHUB_PRODUCTION_WORKFLOW_RECOVERY_ENABLED === 'true'
+    );
+  }
+
+  function isProductionWorkflowChildOrchestrationEnabled(): boolean {
+    return (
+      options.productionWorkflowChildOrchestrationEnabled ??
+      process.env.CODEXHUB_PRODUCTION_WORKFLOW_CHILD_ORCHESTRATION_ENABLED === 'true'
+    );
   }
 
   function createRemoteSupersedeDryRunResponse(record: RemoteSupersedePlan) {

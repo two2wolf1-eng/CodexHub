@@ -14,6 +14,8 @@ import {
   createCustomWorkflowTemplateFromJson,
   createProductionWorkflowOperationsProjection,
   createProductionWorkflowPauseSummary,
+  createProductionWorkflowRecoveryApprovalArtifact,
+  createProductionWorkflowRecoveryPlan,
   createProductionWorkflowResumeSummary,
   createProductionWorkflowRollbackSummary,
   createDevelopmentRequestWorkflowDefinition,
@@ -25,6 +27,8 @@ import {
   runCustomWorkflowFixtureRehearsal,
   runProductionWorkflowPilot,
   runProductionWorkflowPilotRehearsal,
+  runProductionWorkflowRecoveryCoordinator,
+  runProductionWorkflowRecoveryRehearsal,
   runProductionWorkflowOperationsSmoke,
   validateCustomWorkflowTemplateInput,
 } from './index';
@@ -393,5 +397,124 @@ describe('workflow-kernel custom workflows', () => {
     expect(smoke.fixtureOnly).toBe(true);
     expect(smoke.networkBoundaryInvoked).toBe(false);
     expect(findAdversarialPublicOutputRoundTripLeaks({ projection, pause, resume, rollback, smoke })).toEqual([]);
+  });
+
+  it('plans local production workflow recovery as a child control-plane queue', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+    expect(template).toBeTruthy();
+    const plan = createProductionWorkflowRecoveryPlan({
+      template: template!,
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+    });
+    const approval = createProductionWorkflowRecoveryApprovalArtifact({
+      dryRunId: plan.dryRunId,
+      templateId: plan.templateId,
+      templateHash: plan.templateHash,
+      status: 'approved',
+      approvedBy: 'operator',
+      reasonHash: 'sha256:recovery-reason',
+      reasonSummary: adversarialPublicOutputFixture,
+    });
+
+    expect(plan.status).toBe('planned');
+    expect(plan.childActionPlans.map((action) => action.childActionKind)).toEqual([
+      'worktree-create',
+      'codex-patch',
+      'nx-verification',
+      'review-package-export',
+      'governance-projection',
+    ]);
+    expect(plan.childActionPlans.every((action) => action.childAutoApprovalAllowed === false)).toBe(
+      true,
+    );
+    expect(plan.childAdapterExecuteAllowed).toBe(false);
+    expect(approval.childApprovalsIncluded).toBe(false);
+    expect(findAdversarialPublicOutputRoundTripLeaks({ plan, approval })).toEqual([]);
+  });
+
+  it('runs local recovery without direct adapter calls and waits for separate child approval', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+    expect(template).toBeTruthy();
+    const plan = createProductionWorkflowRecoveryPlan({
+      template: template!,
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+    });
+    const approval = createProductionWorkflowRecoveryApprovalArtifact({
+      dryRunId: plan.dryRunId,
+      templateId: plan.templateId,
+      templateHash: plan.templateHash,
+      status: 'approved',
+      approvedBy: 'operator',
+      reasonHash: 'sha256:recovery-reason',
+    });
+    const waiting = runProductionWorkflowRecoveryCoordinator({
+      template: template!,
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+      workflowApprovalApproved: true,
+      approvalArtifact: approval,
+    });
+    const completed = runProductionWorkflowRecoveryCoordinator({
+      template: template!,
+      recoveryEnabled: true,
+      childOrchestrationEnabled: true,
+      workflowApprovalApproved: true,
+      approvalArtifact: approval,
+      childApprovalApproved: Object.fromEntries(
+        plan.childActionPlans.map((action) => [action.actionId, true]),
+      ),
+    });
+
+    expect(waiting.status).toBe('waiting_for_child_approval');
+    expect(waiting.waitingChildApprovalCount).toBe(1);
+    expect(waiting.childActionStates[0]?.childApprovalResolvedFromStore).toBe(false);
+    expect(completed.status).toBe('completed');
+    expect(completed.directAdapterExecutionAllowed).toBe(false);
+    expect(completed.childAdapterExecuteAllowed).toBe(false);
+    expect(completed.processBoundaryInvoked).toBe(false);
+    expect(findAdversarialPublicOutputRoundTripLeaks({ waiting, completed })).toEqual([]);
+  });
+
+  it('blocks local recovery before later steps when Nx verification fails', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+    expect(template).toBeTruthy();
+    const failed = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'nx-verification-failed',
+    });
+    const reviewPackage = failed.childActionStates.find(
+      (state) => state.childActionKind === 'review-package-export',
+    );
+
+    expect(failed.status).toBe('failed');
+    expect(failed.failedChildActionCount).toBe(1);
+    expect(reviewPackage?.status).toBe('skipped');
+    expect(failed.blockReasons.join(' ')).toContain('nx-verification');
+  });
+
+  it('blocks remote recovery after branch publish failure and supports resume metadata', () => {
+    const template = findCustomWorkflowCatalogTemplate('github-draft-pr-chain');
+    expect(template).toBeTruthy();
+    const failedPublish = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'branch-publish-failed',
+    });
+    const draftPr = failedPublish.childActionStates.find(
+      (state) => state.childActionKind === 'github-draft-pr',
+    );
+    const resume = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'resume-after-child-approval',
+    });
+
+    expect(failedPublish.status).toBe('failed');
+    expect(draftPr?.status).toBe('skipped');
+    expect(resume.resumeFromStepId).toBeTruthy();
+    expect(resume.status).toBe('completed');
+    expect(resume.networkBoundaryInvoked).toBe(false);
+    expect(JSON.stringify({ failedPublish, resume })).not.toContain('git push');
+    expect(JSON.stringify({ failedPublish, resume })).not.toContain('reviewer');
   });
 });

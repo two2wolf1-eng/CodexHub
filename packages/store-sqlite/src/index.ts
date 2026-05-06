@@ -34,6 +34,10 @@ import type {
   CustomWorkflowApprovalArtifactRecord,
   CustomWorkflowPlan,
   CustomWorkflowRun,
+  ProductionWorkflowChildActionStateRecord,
+  ProductionWorkflowRecoveryApprovalArtifact,
+  ProductionWorkflowRecoveryPlan,
+  ProductionWorkflowRecoveryRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -135,6 +139,11 @@ import type {
   CustomWorkflowControlPlaneQuery,
   CustomWorkflowDryRunRepository,
   CustomWorkflowRunRepository,
+  ProductionWorkflowRecoveryApprovalRepository,
+  ProductionWorkflowRecoveryChildActionStateRepository,
+  ProductionWorkflowRecoveryControlPlaneQuery,
+  ProductionWorkflowRecoveryDryRunRepository,
+  ProductionWorkflowRecoveryRunRepository,
   ReworkLoopApprovalRepository,
   ReworkLoopControlPlaneQuery,
   ReworkLoopDryRunRepository,
@@ -253,6 +262,10 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly customWorkflowDryRuns: CustomWorkflowDryRunRepository;
   readonly customWorkflowApprovals: CustomWorkflowApprovalRepository;
   readonly customWorkflowRuns: CustomWorkflowRunRepository;
+  readonly productionWorkflowRecoveryDryRuns: ProductionWorkflowRecoveryDryRunRepository;
+  readonly productionWorkflowRecoveryApprovals: ProductionWorkflowRecoveryApprovalRepository;
+  readonly productionWorkflowRecoveryRuns: ProductionWorkflowRecoveryRunRepository;
+  readonly productionWorkflowRecoveryChildActionStates: ProductionWorkflowRecoveryChildActionStateRepository;
   readonly codexReportReviews: CodexReportReviewRepository;
   readonly codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   readonly codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
@@ -329,6 +342,14 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.customWorkflowDryRuns = new SqliteCustomWorkflowDryRunRepository(database);
     this.customWorkflowApprovals = new SqliteCustomWorkflowApprovalRepository(database);
     this.customWorkflowRuns = new SqliteCustomWorkflowRunRepository(database);
+    this.productionWorkflowRecoveryDryRuns =
+      new SqliteProductionWorkflowRecoveryDryRunRepository(database);
+    this.productionWorkflowRecoveryApprovals =
+      new SqliteProductionWorkflowRecoveryApprovalRepository(database);
+    this.productionWorkflowRecoveryRuns =
+      new SqliteProductionWorkflowRecoveryRunRepository(database);
+    this.productionWorkflowRecoveryChildActionStates =
+      new SqliteProductionWorkflowRecoveryChildActionStateRepository(database);
     this.codexReportReviews = new SqliteCodexReportReviewRepository(database);
     this.codexExecLiveAdapterAdrDecisions = new SqliteCodexExecLiveAdapterAdrDecisionRepository(
       database,
@@ -2058,6 +2079,158 @@ class SqliteCustomWorkflowRunRepository implements CustomWorkflowRunRepository {
   }
 }
 
+class SqliteProductionWorkflowRecoveryDryRunRepository
+  implements ProductionWorkflowRecoveryDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionWorkflowRecoveryPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionWorkflowRecoveryPlan>(
+      database,
+      'production_workflow_recovery_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(
+    record: ProductionWorkflowRecoveryPlan,
+  ): Promise<ProductionWorkflowRecoveryPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<ProductionWorkflowRecoveryPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: ProductionWorkflowRecoveryControlPlaneQuery = {},
+  ): Promise<ProductionWorkflowRecoveryPlan[]> {
+    return listObservationControlPlaneRecords<ProductionWorkflowRecoveryPlan>(
+      this.database,
+      'production_workflow_recovery_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteProductionWorkflowRecoveryApprovalRepository
+  implements ProductionWorkflowRecoveryApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionWorkflowRecoveryApprovalArtifact>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionWorkflowRecoveryApprovalArtifact>(
+      database,
+      'production_workflow_recovery_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: ProductionWorkflowRecoveryApprovalArtifact,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact | undefined> {
+    const rows = this.database
+      .prepare(
+        'SELECT payload FROM production_workflow_recovery_approvals ORDER BY recorded_at DESC, id DESC',
+      )
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as ProductionWorkflowRecoveryApprovalArtifact)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: ProductionWorkflowRecoveryControlPlaneQuery = {},
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<ProductionWorkflowRecoveryApprovalArtifact>(
+      this.database,
+      'production_workflow_recovery_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteProductionWorkflowRecoveryRunRepository
+  implements ProductionWorkflowRecoveryRunRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionWorkflowRecoveryRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionWorkflowRecoveryRun>(
+      database,
+      'production_workflow_recovery_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: ProductionWorkflowRecoveryRun): Promise<ProductionWorkflowRecoveryRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<ProductionWorkflowRecoveryRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: ProductionWorkflowRecoveryControlPlaneQuery = {},
+  ): Promise<ProductionWorkflowRecoveryRun[]> {
+    return listObservationControlPlaneRecords<ProductionWorkflowRecoveryRun>(
+      this.database,
+      'production_workflow_recovery_runs',
+      query,
+    );
+  }
+}
+
+class SqliteProductionWorkflowRecoveryChildActionStateRepository
+  implements ProductionWorkflowRecoveryChildActionStateRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionWorkflowChildActionStateRecord>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionWorkflowChildActionStateRecord>(
+      database,
+      'production_workflow_recovery_child_action_states',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveChildActionState(
+    record: ProductionWorkflowChildActionStateRecord,
+  ): Promise<ProductionWorkflowChildActionStateRecord> {
+    return this.repository.create(record);
+  }
+
+  async getChildActionState(
+    id: string,
+  ): Promise<ProductionWorkflowChildActionStateRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listChildActionStates(
+    query: ProductionWorkflowRecoveryControlPlaneQuery = {},
+  ): Promise<ProductionWorkflowChildActionStateRecord[]> {
+    return listObservationControlPlaneRecords<ProductionWorkflowChildActionStateRecord>(
+      this.database,
+      'production_workflow_recovery_child_action_states',
+      query,
+    );
+  }
+}
+
 class SqliteCodexReportReviewRepository implements CodexReportReviewRepository {
   private readonly repository: JsonEntityRepository<CodexExecReportReviewRecord>;
 
@@ -3191,6 +3364,30 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS custom_workflow_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_workflow_recovery_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_workflow_recovery_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_workflow_recovery_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_workflow_recovery_child_action_states (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

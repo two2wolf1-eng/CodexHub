@@ -336,13 +336,19 @@ describe('dashboard read-only UX helpers', () => {
       operationsBlockedReasonCount: 1,
       operationsStaleChildRecordCount: 1,
       operationsRollbackAvailable: true,
+      recoveryDryRunCount: 1,
+      recoveryApprovalCount: 1,
+      recoveryRunCount: 1,
+      latestRecoveryStatus: 'waiting_for_child_approval',
+      latestRecoveryChildActionCount: 5,
+      latestRecoveryWaitingForChildApproval: true,
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
     });
     const serialized = JSON.stringify(summary);
 
     expect(summary.manifestName).toBe('custom-workflow');
-    expect(summary.manifestVersion).toContain('m26');
+    expect(summary.manifestVersion).toContain('m30');
     expect(summary.catalogTemplateCount).toBe(4);
     expect(summary.catalogReadyCount).toBe(0);
     expect(summary.catalogBlockedOrDisabledCount).toBe(4);
@@ -362,6 +368,14 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.operationsBlockedReasonCount).toBe(1);
     expect(summary.operationsStaleChildRecordCount).toBe(1);
     expect(summary.operationsRollbackAvailable).toBe(true);
+    expect(summary.recoveryDryRunCount).toBe(1);
+    expect(summary.recoveryApprovalCount).toBe(1);
+    expect(summary.recoveryRunCount).toBe(1);
+    expect(summary.latestRecoveryStatus).toBe('waiting_for_child_approval');
+    expect(summary.latestRecoveryChildActionCount).toBe(5);
+    expect(summary.latestRecoveryWaitingForChildApproval).toBe(true);
+    expect(summary.recoveryChildApprovalsRemainSeparate).toBe(true);
+    expect(summary.recoveryDirectChildExecutionAllowed).toBe(false);
     expect(summary.dryRunCount).toBe(2);
     expect(summary.approvalRequired).toBe(true);
     expect(summary.childApprovalsRequired).toBe(true);
@@ -380,6 +394,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('local-control-secret');
     expect(serialized).not.toContain('C:\\');
+    expect(serialized).not.toContain('approvalArtifact');
   });
 
   it('summarizes GitHub provider metadata without raw remote refs or credentials', () => {
@@ -819,6 +834,23 @@ describe('dashboard read-only UX helpers', () => {
     expect(githubRoute).not.toContain('approvalKey');
     expect(githubRoute).not.toContain('local-control');
     expect(githubRoute).not.toContain('CODEXHUB_GITHUB_TOKEN');
+  });
+
+  it('keeps the production workflow recovery route display-only in the Dashboard source', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const workflowRoute = appSource.slice(
+      appSource.indexOf("if (activeView === 'workflows')"),
+      appSource.indexOf("if (activeView === 'release-candidates')"),
+    );
+
+    expect(workflowRoute).toContain('Production Workflow Runtime Recovery');
+    expect(workflowRoute).toContain('workflow approval does not grant child authority');
+    expect(workflowRoute).not.toContain('<button');
+    expect(workflowRoute).not.toContain('fetch(');
+    expect(workflowRoute).not.toContain("method: 'POST'");
+    expect(workflowRoute).not.toContain('approvalKey');
+    expect(workflowRoute).not.toContain('local-control');
+    expect(workflowRoute).not.toContain('CODEXHUB_SUPERVISOR_LOCAL');
   });
 
   it('summarizes policy backend and telemetry status as read-only advisory metadata', () => {

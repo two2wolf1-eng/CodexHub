@@ -206,6 +206,10 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'workflow.catalog_entry',
     'workflow.catalog_readiness',
     'workflow.catalog_validation',
+    'workflow.recovery_plan',
+    'workflow.recovery_child_action',
+    'workflow.recovery_run_summary',
+    'workflow.recovery_public_summary',
   ]),
   summary: z.string().min(1).optional(),
   hash: z.string().min(1),
@@ -1179,6 +1183,337 @@ export const ProductionWorkflowOperationsSmokeRunSchema = createdEntityBaseSchem
   .superRefine(rejectCustomWorkflowRawMetadata);
 export type ProductionWorkflowOperationsSmokeRun = z.infer<
   typeof ProductionWorkflowOperationsSmokeRunSchema
+>;
+
+export const ProductionWorkflowRecoveryStatusSchema = z.enum([
+  'planned',
+  'waiting_for_workflow_approval',
+  'waiting_for_child_approval',
+  'child_running',
+  'blocked',
+  'completed',
+  'failed',
+  'aborted',
+]);
+export type ProductionWorkflowRecoveryStatus = z.infer<
+  typeof ProductionWorkflowRecoveryStatusSchema
+>;
+
+export const ProductionWorkflowChildActionKindSchema = z.enum([
+  'worktree-create',
+  'codex-patch',
+  'nx-verification',
+  'review-package-export',
+  'governance-projection',
+  'github-branch-publish',
+  'github-draft-pr',
+  'github-pr-lifecycle',
+  'remote-supersede',
+  'remote-cleanup',
+]);
+export type ProductionWorkflowChildActionKind = z.infer<
+  typeof ProductionWorkflowChildActionKindSchema
+>;
+
+export const ProductionWorkflowChildActionStatusSchema = z.enum([
+  'planned',
+  'dry_run_created',
+  'approval_requested',
+  'waiting_for_child_approval',
+  'child_approved',
+  'child_running',
+  'completed',
+  'failed',
+  'blocked',
+  'skipped',
+]);
+export type ProductionWorkflowChildActionStatus = z.infer<
+  typeof ProductionWorkflowChildActionStatusSchema
+>;
+
+export const ProductionWorkflowRecoveryScenarioSchema = z.enum([
+  'all-pass',
+  'workflow-approval-blocked',
+  'child-dry-run-failed',
+  'child-approval-blocked',
+  'child-run-missing',
+  'nx-verification-failed',
+  'review-package-blocked',
+  'branch-publish-failed',
+  'draft-pr-failed',
+  'lifecycle-checks-failed',
+  'remote-cleanup-blocked',
+  'resume-after-child-approval',
+  'superseded-source',
+]);
+export type ProductionWorkflowRecoveryScenario = z.infer<
+  typeof ProductionWorkflowRecoveryScenarioSchema
+>;
+
+export const ProductionWorkflowChildActionPlanSchema = z
+  .object({
+    actionId: z.string().min(1),
+    stepId: z.string().min(1),
+    stepKind: CustomWorkflowStepKindSchema,
+    childActionKind: ProductionWorkflowChildActionKindSchema,
+    childControlPlane: z.string().min(1),
+    actionMode: ActionModeSchema,
+    riskLevel: RiskLevelSchema,
+    requiresChildApproval: z.boolean(),
+    createsChildDryRun: z.boolean().default(true),
+    createsChildApprovalRequest: z.boolean().default(true),
+    childAutoApprovalAllowed: z.literal(false).default(false),
+    childAdapterExecuteAllowed: z.literal(false).default(false),
+    hashBindingRequired: z.literal(true).default(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowChildActionPlan = z.infer<
+  typeof ProductionWorkflowChildActionPlanSchema
+>;
+
+export const ProductionWorkflowChildActionStateSchema = z
+  .object({
+    actionId: z.string().min(1),
+    stepId: z.string().min(1),
+    stepKind: CustomWorkflowStepKindSchema,
+    childActionKind: ProductionWorkflowChildActionKindSchema,
+    childControlPlane: z.string().min(1),
+    status: ProductionWorkflowChildActionStatusSchema,
+    childDryRunIdHash: z.string().min(1).optional(),
+    childApprovalRequestIdHash: z.string().min(1).optional(),
+    childApprovalArtifactIdHash: z.string().min(1).optional(),
+    childRunIdHash: z.string().min(1).optional(),
+    childHashBindingMatched: z.boolean().default(false),
+    childApprovalRequired: z.boolean(),
+    childApprovalResolvedFromStore: z.boolean().default(false),
+    childAutoApprovalAllowed: z.literal(false).default(false),
+    childAdapterExecuteAllowed: z.literal(false).default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowChildActionState = z.infer<
+  typeof ProductionWorkflowChildActionStateSchema
+>;
+
+export const ProductionWorkflowChildActionStateRecordSchema =
+  createdEntityBaseSchema
+    .extend({
+      dryRunId: z.string().min(1),
+      recoveryRunId: z.string().min(1).optional(),
+      actionId: z.string().min(1),
+      stepId: z.string().min(1),
+      status: ProductionWorkflowChildActionStatusSchema,
+      state: ProductionWorkflowChildActionStateSchema,
+      bodyStored: z.literal(false).default(false),
+      rawPathStored: z.literal(false).default(false),
+      summary: z.string().min(1),
+    })
+    .strict()
+    .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowChildActionStateRecord = z.infer<
+  typeof ProductionWorkflowChildActionStateRecordSchema
+>;
+
+export const ProductionWorkflowRecoveryStepSchema = z
+  .object({
+    stepId: z.string().min(1),
+    kind: CustomWorkflowStepKindSchema,
+    status: ProductionWorkflowRecoveryStatusSchema,
+    childActionStates: z.array(ProductionWorkflowChildActionStateSchema).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowRecoveryStep = z.infer<
+  typeof ProductionWorkflowRecoveryStepSchema
+>;
+
+export const ProductionWorkflowRecoveryPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    sourceRunIdHash: z.string().min(1).optional(),
+    status: ProductionWorkflowRecoveryStatusSchema,
+    childActionPlans: z.array(ProductionWorkflowChildActionPlanSchema),
+    childActionCount: z.number().int().nonnegative(),
+    approvalRequired: z.literal(true).default(true),
+    childApprovalsRequired: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    childAdapterExecuteAllowed: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.childActionCount !== value.childActionPlans.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production workflow recovery childActionCount must match childActionPlans length',
+        path: ['childActionCount'],
+      });
+    }
+  });
+export type ProductionWorkflowRecoveryPlan = z.infer<
+  typeof ProductionWorkflowRecoveryPlanSchema
+>;
+
+export const ProductionWorkflowRecoveryApprovalArtifactSchema =
+  createdEntityBaseSchema
+    .extend({
+      dryRunId: z.string().min(1),
+      templateId: z.string().min(1),
+      templateHash: z.string().min(1),
+      approvalArtifactId: z.string().min(1),
+      status: CustomWorkflowApprovalStatusSchema,
+      approvedBy: z.string().min(1).optional(),
+      reasonHash: z.string().min(1).optional(),
+      reasonSummary: z.string().min(1).optional(),
+      expiresAt: IsoDateTimeSchema.optional(),
+      usedAt: IsoDateTimeSchema.optional(),
+      childApprovalsIncluded: z.literal(false).default(false),
+      bodyStored: z.literal(false).default(false),
+      rawPathStored: z.literal(false).default(false),
+      summary: z.string().min(1),
+    })
+    .strict()
+    .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowRecoveryApprovalArtifact = z.infer<
+  typeof ProductionWorkflowRecoveryApprovalArtifactSchema
+>;
+
+export const ProductionWorkflowRecoveryRunSchema = createdEntityBaseSchema
+  .extend({
+    recoveryRunId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    templateId: z.string().min(1),
+    templateHash: z.string().min(1),
+    status: ProductionWorkflowRecoveryStatusSchema,
+    steps: z.array(ProductionWorkflowRecoveryStepSchema),
+    childActionStates: z.array(ProductionWorkflowChildActionStateSchema),
+    stepCount: z.number().int().nonnegative(),
+    childActionCount: z.number().int().nonnegative(),
+    completedChildActionCount: z.number().int().nonnegative(),
+    waitingChildApprovalCount: z.number().int().nonnegative(),
+    failedChildActionCount: z.number().int().nonnegative(),
+    lastSafeStepId: z.string().min(1).optional(),
+    resumeFromStepId: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    childAdapterExecuteAllowed: z.literal(false).default(false),
+    noRealWrite: z.boolean().default(true),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    rejectCustomWorkflowRawMetadata(value, ctx);
+    if (value.stepCount !== value.steps.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production workflow recovery stepCount must match steps length',
+        path: ['stepCount'],
+      });
+    }
+    if (value.childActionCount !== value.childActionStates.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production workflow recovery childActionCount must match childActionStates length',
+        path: ['childActionCount'],
+      });
+    }
+  });
+export type ProductionWorkflowRecoveryRun = z.infer<
+  typeof ProductionWorkflowRecoveryRunSchema
+>;
+
+export const ProductionWorkflowRecoveryTimelineEventSchema =
+  createdEntityBaseSchema
+    .extend({
+      recoveryRunId: z.string().min(1),
+      eventType: z.enum([
+        'dry_run_created',
+        'workflow_approval_requested',
+        'workflow_approval_used',
+        'child_dry_run_created',
+        'child_approval_requested',
+        'child_waiting_for_approval',
+        'child_run_completed',
+        'child_run_failed',
+        'recovery_blocked',
+        'recovery_completed',
+      ]),
+      status: ProductionWorkflowRecoveryStatusSchema,
+      childActionId: z.string().min(1).optional(),
+      evidenceRefIds: z.array(z.string().min(1)).default([]),
+      auditEventIds: z.array(z.string().min(1)).default([]),
+      summary: z.string().min(1),
+    })
+    .strict()
+    .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowRecoveryTimelineEvent = z.infer<
+  typeof ProductionWorkflowRecoveryTimelineEventSchema
+>;
+
+export const ProductionWorkflowRecoveryPublicSummarySchema =
+  createdEntityBaseSchema
+    .extend({
+      recoveryRunId: z.string().min(1),
+      templateId: z.string().min(1),
+      templateHash: z.string().min(1),
+      status: ProductionWorkflowRecoveryStatusSchema,
+      childActionCount: z.number().int().nonnegative(),
+      waitingChildApprovalCount: z.number().int().nonnegative(),
+      failedChildActionCount: z.number().int().nonnegative(),
+      evidenceRefIds: z.array(z.string().min(1)).default([]),
+      auditEventIds: z.array(z.string().min(1)).default([]),
+      processBoundaryInvoked: z.boolean().default(false),
+      externalProcessStarted: z.boolean().default(false),
+      networkBoundaryInvoked: z.boolean().default(false),
+      bodyStored: z.literal(false).default(false),
+      rawPathStored: z.literal(false).default(false),
+      summary: z.string().min(1),
+    })
+    .strict()
+    .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionWorkflowRecoveryPublicSummary = z.infer<
+  typeof ProductionWorkflowRecoveryPublicSummarySchema
 >;
 
 export const McpToolNameSchema = z.enum([

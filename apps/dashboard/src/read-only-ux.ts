@@ -289,6 +289,14 @@ export interface CustomWorkflowReadOnlySummary {
   operationsStaleChildRecordCount: number;
   operationsRollbackAvailable: boolean;
   operationsNextActionSummary: string;
+  recoveryDryRunCount: number;
+  recoveryApprovalCount: number;
+  recoveryRunCount: number;
+  latestRecoveryStatus: string;
+  latestRecoveryChildActionCount: number;
+  latestRecoveryWaitingForChildApproval: boolean;
+  recoveryChildApprovalsRemainSeparate: true;
+  recoveryDirectChildExecutionAllowed: false;
   approvalRequired: true;
   childApprovalsRequired: true;
   productDefaultEnabled: false;
@@ -1637,12 +1645,18 @@ export function createCustomWorkflowReadOnlySummary(input: {
   operationsStaleChildRecordCount?: number;
   operationsRollbackAvailable?: boolean;
   operationsNextActionSummary?: string;
+  recoveryDryRunCount?: number;
+  recoveryApprovalCount?: number;
+  recoveryRunCount?: number;
+  latestRecoveryStatus?: string;
+  latestRecoveryChildActionCount?: number;
+  latestRecoveryWaitingForChildApproval?: boolean;
   processBoundaryInvoked?: boolean;
   networkBoundaryInvoked?: boolean;
 } = {}): CustomWorkflowReadOnlySummary {
   return {
     manifestName: 'custom-workflow',
-    manifestVersion: '0.3.0-m26',
+    manifestVersion: '0.4.0-m30',
     templateCount: input.templateCount ?? 0,
     catalogTemplateCount: input.catalogTemplateCount ?? 4,
     catalogReadyCount: input.catalogReadyCount ?? 0,
@@ -1678,6 +1692,15 @@ export function createCustomWorkflowReadOnlySummary(input: {
     operationsNextActionSummary:
       input.operationsNextActionSummary ??
       'Resolve production workflow blockers through existing child control planes.',
+    recoveryDryRunCount: input.recoveryDryRunCount ?? 0,
+    recoveryApprovalCount: input.recoveryApprovalCount ?? 0,
+    recoveryRunCount: input.recoveryRunCount ?? 0,
+    latestRecoveryStatus: input.latestRecoveryStatus ?? 'none',
+    latestRecoveryChildActionCount: input.latestRecoveryChildActionCount ?? 0,
+    latestRecoveryWaitingForChildApproval:
+      input.latestRecoveryWaitingForChildApproval ?? false,
+    recoveryChildApprovalsRemainSeparate: true,
+    recoveryDirectChildExecutionAllowed: false,
     approvalRequired: true,
     childApprovalsRequired: true,
     productDefaultEnabled: false,

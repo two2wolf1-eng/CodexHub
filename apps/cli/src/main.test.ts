@@ -196,6 +196,7 @@ describe('cli development mock-run fallback', () => {
       'getProductionWorkflowOperationsStatusForCli',
       'getProductionWorkflowOperationsHistoryForCli',
       'runProductionWorkflowOperationsSmokeForCli',
+      'rehearseProductionWorkflowRecoveryForCli',
     ];
 
     for (const helperName of readOnlyHelperNames) {
@@ -222,10 +223,12 @@ describe('cli development mock-run fallback', () => {
       formatProductionWorkflowPilotRehearsalOutput,
       formatProductionWorkflowOperationsSmokeOutput,
       formatProductionWorkflowOperationsStatusOutput,
+      formatProductionWorkflowRecoveryRehearsalOutput,
       rehearseCustomWorkflowProductionForCli,
       rehearseProductionWorkflowPilotForCli,
       getProductionWorkflowOperationsStatusForCli,
       runProductionWorkflowOperationsSmokeForCli,
+      rehearseProductionWorkflowRecoveryForCli,
     } = await import('./main');
     const catalog = createCustomWorkflowCatalog();
     const localPatch = catalog.entries.find((entry) => entry.templateId === 'local-patch-review');
@@ -277,10 +280,16 @@ describe('cli development mock-run fallback', () => {
       'local-patch-review',
       'rollback-required',
     );
+    const recoveryRehearsal = rehearseProductionWorkflowRecoveryForCli(
+      'github-draft-pr-chain',
+      'child-approval-blocked',
+    );
     const rehearsalOutput = formatCustomWorkflowRehearsalOutput(productionRehearsal);
     const pilotOutput = formatProductionWorkflowPilotRehearsalOutput(pilotRehearsal);
     const operationsOutput = formatProductionWorkflowOperationsStatusOutput(operationsStatus);
     const operationsSmokeOutput = formatProductionWorkflowOperationsSmokeOutput(operationsSmoke);
+    const recoveryOutput =
+      formatProductionWorkflowRecoveryRehearsalOutput(recoveryRehearsal);
     const serialized = [
       JSON.stringify(catalog),
       JSON.stringify({
@@ -289,6 +298,7 @@ describe('cli development mock-run fallback', () => {
         pilotRehearsal,
         operationsStatus,
         operationsSmoke,
+        recoveryRehearsal,
       }),
       listOutput,
       detailOutput,
@@ -297,6 +307,7 @@ describe('cli development mock-run fallback', () => {
       pilotOutput,
       operationsOutput,
       operationsSmokeOutput,
+      recoveryOutput,
     ].join('\n');
 
     expect(listOutput).toContain('Custom workflow production catalog');
@@ -325,7 +336,10 @@ describe('cli development mock-run fallback', () => {
     expect(pilotOutput).toContain('status: blocked');
     expect(operationsOutput).toContain('Production workflow operations status');
     expect(operationsSmokeOutput).toContain('Production workflow operations smoke');
+    expect(recoveryOutput).toContain('Production workflow recovery rehearsal');
+    expect(recoveryOutput).toContain('childApprovalsRemainSeparate=true');
     expect(serialized).toContain('directAdapterExecutionAllowed=false');
+    expect(serialized).toContain('directChildExecutionAllowed=false');
     expectNoForbiddenCliRawOutput(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
     expect(serialized).not.toContain('x-codexhub-local-token');

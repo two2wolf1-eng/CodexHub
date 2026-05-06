@@ -27,6 +27,10 @@ import type {
   CustomWorkflowApprovalArtifactRecord,
   CustomWorkflowPlan,
   CustomWorkflowRun,
+  ProductionWorkflowChildActionStateRecord,
+  ProductionWorkflowRecoveryApprovalArtifact,
+  ProductionWorkflowRecoveryPlan,
+  ProductionWorkflowRecoveryRun,
   ReworkLoopApprovalArtifactRecord,
   ReworkLoopPlan,
   ReworkLoopRun,
@@ -116,6 +120,7 @@ export type GithubPrLifecycleControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ProductionWorkflowRecoveryControlPlaneQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -536,6 +541,45 @@ export interface CustomWorkflowRunRepository {
   listRuns(query?: CustomWorkflowControlPlaneQuery): Promise<CustomWorkflowRun[]>;
 }
 
+export interface ProductionWorkflowRecoveryDryRunRepository {
+  saveDryRun(record: ProductionWorkflowRecoveryPlan): Promise<ProductionWorkflowRecoveryPlan>;
+  getDryRun(id: string): Promise<ProductionWorkflowRecoveryPlan | undefined>;
+  listDryRuns(
+    query?: ProductionWorkflowRecoveryControlPlaneQuery,
+  ): Promise<ProductionWorkflowRecoveryPlan[]>;
+}
+
+export interface ProductionWorkflowRecoveryApprovalRepository {
+  saveApproval(
+    record: ProductionWorkflowRecoveryApprovalArtifact,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact>;
+  getApproval(id: string): Promise<ProductionWorkflowRecoveryApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact | undefined>;
+  listApprovals(
+    query?: ProductionWorkflowRecoveryControlPlaneQuery,
+  ): Promise<ProductionWorkflowRecoveryApprovalArtifact[]>;
+}
+
+export interface ProductionWorkflowRecoveryRunRepository {
+  saveRun(record: ProductionWorkflowRecoveryRun): Promise<ProductionWorkflowRecoveryRun>;
+  getRun(id: string): Promise<ProductionWorkflowRecoveryRun | undefined>;
+  listRuns(
+    query?: ProductionWorkflowRecoveryControlPlaneQuery,
+  ): Promise<ProductionWorkflowRecoveryRun[]>;
+}
+
+export interface ProductionWorkflowRecoveryChildActionStateRepository {
+  saveChildActionState(
+    record: ProductionWorkflowChildActionStateRecord,
+  ): Promise<ProductionWorkflowChildActionStateRecord>;
+  getChildActionState(id: string): Promise<ProductionWorkflowChildActionStateRecord | undefined>;
+  listChildActionStates(
+    query?: ProductionWorkflowRecoveryControlPlaneQuery,
+  ): Promise<ProductionWorkflowChildActionStateRecord[]>;
+}
+
 export interface CodexReportReviewRepository {
   saveReportReview(record: CodexExecReportReviewRecord): Promise<CodexExecReportReviewRecord>;
   getReportReview(id: string): Promise<CodexExecReportReviewRecord | undefined>;
@@ -751,6 +795,10 @@ export interface CodexHubStore {
   customWorkflowDryRuns: CustomWorkflowDryRunRepository;
   customWorkflowApprovals: CustomWorkflowApprovalRepository;
   customWorkflowRuns: CustomWorkflowRunRepository;
+  productionWorkflowRecoveryDryRuns: ProductionWorkflowRecoveryDryRunRepository;
+  productionWorkflowRecoveryApprovals: ProductionWorkflowRecoveryApprovalRepository;
+  productionWorkflowRecoveryRuns: ProductionWorkflowRecoveryRunRepository;
+  productionWorkflowRecoveryChildActionStates: ProductionWorkflowRecoveryChildActionStateRepository;
   codexReportReviews: CodexReportReviewRepository;
   codexExecLiveAdapterAdrDecisions: CodexExecLiveAdapterAdrDecisionRepository;
   codexExecReadOnlyAdapterSimulatorReviews: CodexExecReadOnlyAdapterSimulatorReviewRepository;
