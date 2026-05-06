@@ -261,6 +261,19 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'external_agent.patch_summary',
     'external_agent.run_summary',
     'external_agent.rehearsal',
+    'platform.backup_plan',
+    'platform.backup_summary',
+    'platform.restore_plan',
+    'platform.restore_summary',
+    'platform.migration_plan',
+    'platform.migration_summary',
+    'platform.retention_plan',
+    'platform.retention_summary',
+    'platform.audit_export_plan',
+    'platform.audit_export_summary',
+    'platform.operator_role_plan',
+    'platform.operator_role_summary',
+    'platform.disaster_recovery_rehearsal',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -467,6 +480,16 @@ const customWorkflowForbiddenMetadataKeys = new Set([
   'executionAuthority',
   'command',
   'rawCommand',
+  'sql',
+  'rawSql',
+  'dbRow',
+  'dbRows',
+  'databaseRow',
+  'databaseRows',
+  'backupBody',
+  'rawBackupBody',
+  'auditBody',
+  'rawAuditBody',
 ]);
 
 function rejectCustomWorkflowRawMetadata(value: unknown, ctx: z.RefinementCtx) {
@@ -3411,6 +3434,16 @@ const githubForbiddenMetadataKeys = new Set([
   'rawPatch',
   'command',
   'rawCommand',
+  'sql',
+  'rawSql',
+  'dbRow',
+  'dbRows',
+  'databaseRow',
+  'databaseRows',
+  'backupBody',
+  'rawBackupBody',
+  'auditBody',
+  'rawAuditBody',
   'stdout',
   'rawStdout',
   'stderr',
@@ -16907,6 +16940,433 @@ export const ExternalAgentRehearsalRunSchema = createdEntityBaseSchema
     rejectGithubRawMetadata(record.metadata, context, ['metadata']);
   });
 export type ExternalAgentRehearsalRun = z.infer<typeof ExternalAgentRehearsalRunSchema>;
+
+export const PlatformOperationStatusSchema = z.enum([
+  'planned',
+  'blocked',
+  'running',
+  'completed',
+  'failed',
+  'aborted',
+  'rehearsed',
+]);
+export type PlatformOperationStatus = z.infer<typeof PlatformOperationStatusSchema>;
+
+export const PlatformOperationKindSchema = z.enum([
+  'backup',
+  'restore',
+  'migration',
+  'retention',
+  'audit-export',
+  'operator-role',
+]);
+export type PlatformOperationKind = z.infer<typeof PlatformOperationKindSchema>;
+
+export const PlatformBackupScopeSchema = z.enum([
+  'store-sqlite',
+  'governance-docs',
+  'audit-evidence-index',
+  'runtime-state',
+]);
+export type PlatformBackupScope = z.infer<typeof PlatformBackupScopeSchema>;
+
+export const PlatformRestoreModeSchema = z.enum(['isolated-rehearsal', 'replace-active-store']);
+export type PlatformRestoreMode = z.infer<typeof PlatformRestoreModeSchema>;
+
+export const PlatformOperatorRoleSchema = z.enum([
+  'viewer',
+  'operator',
+  'approver',
+  'auditor',
+  'admin',
+]);
+export type PlatformOperatorRole = z.infer<typeof PlatformOperatorRoleSchema>;
+
+export const PlatformRetentionTargetSchema = z.enum([
+  'runtime-jobs',
+  'evidence',
+  'audit',
+  'backups',
+  'store-records',
+]);
+export type PlatformRetentionTarget = z.infer<typeof PlatformRetentionTargetSchema>;
+
+export const DisasterRecoveryScenarioSchema = z.enum([
+  'backup-all-pass',
+  'backup-dir-missing',
+  'backup-hash-mismatch',
+  'restore-rehearsal-pass',
+  'restore-replace-disabled',
+  'restore-second-approval-missing',
+  'migration-pending',
+  'migration-failed',
+  'retention-preview',
+  'retention-backup-required',
+  'audit-export-pass',
+  'role-missing',
+  'role-insufficient',
+  'disaster-recovery-drill',
+]);
+export type DisasterRecoveryScenario = z.infer<typeof DisasterRecoveryScenarioSchema>;
+
+const platformMetadataFlagsSchema = z.object({
+  rawPathStored: z.literal(false),
+  rawSqlStored: z.literal(false),
+  rawDbRowsStored: z.literal(false),
+  rawBackupBodyStored: z.literal(false),
+  rawAuditBodyStored: z.literal(false),
+  rawTokenStored: z.literal(false),
+  rawEnvStored: z.literal(false),
+  rawRequestBodyStored: z.literal(false),
+  rawResponseBodyStored: z.literal(false),
+  bodyStored: z.literal(false),
+});
+
+const platformEvidenceAuditSchema = z.object({
+  evidenceRefs: z.array(EvidenceRefSchema).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+});
+
+export const PlatformOperationApprovalArtifactSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    operationKind: PlatformOperationKindSchema,
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    approverHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match platform operation approval status',
+        path: ['approved'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type PlatformOperationApprovalArtifact = z.infer<
+  typeof PlatformOperationApprovalArtifactSchema
+>;
+
+export const PlatformBackupPlanSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    scope: PlatformBackupScopeSchema,
+    storeSnapshotHash: z.string().min(1),
+    backupRootHash: z.string().min(1),
+    manifestHash: z.string().min(1),
+    catalogEntryHash: z.string().min(1).optional(),
+    fileCount: z.number().int().nonnegative(),
+    estimatedByteCount: z.number().int().nonnegative(),
+    localFilesystemOnly: z.literal(true),
+    networkExportAllowed: z.literal(false),
+    arbitraryBackupTargetAllowed: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type PlatformBackupPlan = z.infer<typeof PlatformBackupPlanSchema>;
+
+export const PlatformBackupRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    status: PlatformOperationStatusSchema,
+    plan: PlatformBackupPlanSchema,
+    manifestHash: z.string().min(1),
+    artifactCount: z.number().int().nonnegative(),
+    byteCount: z.number().int().nonnegative(),
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    localFilesystemBoundaryInvoked: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.boundaryReached && !record.approvalConsumed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'backup boundary reached runs must consume approval',
+        path: ['approvalConsumed'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type PlatformBackupRun = z.infer<typeof PlatformBackupRunSchema>;
+
+export const PlatformRestorePlanSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    mode: PlatformRestoreModeSchema,
+    sourceBackupManifestHash: z.string().min(1),
+    targetStoreHash: z.string().min(1),
+    isolatedRestoreDefault: z.literal(true),
+    replaceActiveStoreEnabled: z.boolean(),
+    schedulerQuiescenceRequired: z.literal(true),
+    backupManifestHashMatchRequired: z.literal(true),
+    twoApprovalsRequiredForReplace: z.boolean(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.mode === 'replace-active-store' && !record.twoApprovalsRequiredForReplace) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'active store replacement must require two approvals',
+        path: ['twoApprovalsRequiredForReplace'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type PlatformRestorePlan = z.infer<typeof PlatformRestorePlanSchema>;
+
+export const PlatformRestoreRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    status: PlatformOperationStatusSchema,
+    plan: PlatformRestorePlanSchema,
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    approvalConsumedCount: z.number().int().nonnegative(),
+    boundaryReached: z.boolean(),
+    isolatedRestoreBoundaryInvoked: z.boolean(),
+    storeReplacementBoundaryInvoked: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    restoredRecordCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.plan.mode === 'replace-active-store' && record.approvalArtifactIds.length < 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'active store replacement run must reference two approvals',
+        path: ['approvalArtifactIds'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type PlatformRestoreRun = z.infer<typeof PlatformRestoreRunSchema>;
+
+export const StoreMigrationPlanSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    builtInMigrationId: z.string().min(1),
+    builtInMigrationIdHash: z.string().min(1),
+    currentSchemaHash: z.string().min(1),
+    targetSchemaHash: z.string().min(1),
+    requestBodySqlAccepted: z.literal(false),
+    arbitrarySqlAllowed: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type StoreMigrationPlan = z.infer<typeof StoreMigrationPlanSchema>;
+
+export const StoreMigrationRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    status: PlatformOperationStatusSchema,
+    plan: StoreMigrationPlanSchema,
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    migrationBoundaryInvoked: z.boolean(),
+    migratedRecordCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type StoreMigrationRun = z.infer<typeof StoreMigrationRunSchema>;
+
+export const RetentionPolicyPlanSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    target: PlatformRetentionTargetSchema,
+    policyHash: z.string().min(1),
+    previewRecordCount: z.number().int().nonnegative(),
+    deletionPlanned: z.boolean(),
+    backupRequiredBeforeDelete: z.literal(true),
+    backupManifestHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    if (record.deletionPlanned && !record.backupManifestHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'destructive retention plans must reference a backup manifest hash',
+        path: ['backupManifestHash'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RetentionPolicyPlan = z.infer<typeof RetentionPolicyPlanSchema>;
+
+export const RetentionPolicyRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    status: PlatformOperationStatusSchema,
+    plan: RetentionPolicyPlanSchema,
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    retentionBoundaryInvoked: z.boolean(),
+    affectedRecordCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type RetentionPolicyRun = z.infer<typeof RetentionPolicyRunSchema>;
+
+export const AuditExportPlanSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    exportFormat: z.literal('jsonl'),
+    destinationHash: z.string().min(1),
+    manifestHash: z.string().min(1),
+    recordCount: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    networkExportAllowed: z.literal(false),
+    rawAuditRowsStored: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type AuditExportPlan = z.infer<typeof AuditExportPlanSchema>;
+
+export const AuditExportRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    status: PlatformOperationStatusSchema,
+    plan: AuditExportPlanSchema,
+    manifestHash: z.string().min(1),
+    recordCount: z.number().int().nonnegative(),
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    localFilesystemBoundaryInvoked: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type AuditExportRun = z.infer<typeof AuditExportRunSchema>;
+
+export const OperatorRoleAssignmentPlanSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    operatorHash: z.string().min(1),
+    role: PlatformOperatorRoleSchema,
+    scopeHashes: z.array(z.string().min(1)).default([]),
+    roleEnforcementEnabled: z.boolean(),
+    localControlTokenReplacementAllowed: z.literal(false),
+    rawOperatorIdentityStored: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type OperatorRoleAssignmentPlan = z.infer<typeof OperatorRoleAssignmentPlanSchema>;
+
+export const OperatorRoleAssignmentRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    status: PlatformOperationStatusSchema,
+    plan: OperatorRoleAssignmentPlanSchema,
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    boundaryReached: z.boolean(),
+    approvalConsumed: z.boolean(),
+    roleStoreBoundaryInvoked: z.boolean(),
+    assignedRoleHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type OperatorRoleAssignmentRun = z.infer<typeof OperatorRoleAssignmentRunSchema>;
+
+export const DisasterRecoveryRehearsalRunSchema = createdEntityBaseSchema
+  .merge(platformMetadataFlagsSchema)
+  .merge(platformEvidenceAuditSchema)
+  .extend({
+    scenario: DisasterRecoveryScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    backupStatus: PlatformOperationStatusSchema,
+    restoreStatus: PlatformOperationStatusSchema,
+    migrationStatus: PlatformOperationStatusSchema.optional(),
+    retentionStatus: PlatformOperationStatusSchema.optional(),
+    auditExportStatus: PlatformOperationStatusSchema.optional(),
+    operatorRoleStatus: PlatformOperationStatusSchema.optional(),
+    blockerCount: z.number().int().nonnegative(),
+    boundaryReached: z.boolean(),
+    localFilesystemBoundaryInvoked: z.boolean(),
+    storeReplacementBoundaryInvoked: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .superRefine((record, context) => {
+    const passingScenarios = new Set([
+      'backup-all-pass',
+      'restore-rehearsal-pass',
+      'audit-export-pass',
+    ]);
+
+    if (!passingScenarios.has(record.scenario) && record.status === 'passed') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only explicitly passing disaster recovery fixture scenarios can pass',
+        path: ['status'],
+      });
+    }
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type DisasterRecoveryRehearsalRun = z.infer<typeof DisasterRecoveryRehearsalRunSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

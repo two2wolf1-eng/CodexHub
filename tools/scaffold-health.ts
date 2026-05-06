@@ -603,6 +603,19 @@ const requiredContractExports = [
   'ExternalAgentRunSchema',
   'ExternalAgentPatchSummarySchema',
   'ExternalAgentRehearsalRunSchema',
+  'PlatformBackupPlanSchema',
+  'PlatformBackupRunSchema',
+  'PlatformRestorePlanSchema',
+  'PlatformRestoreRunSchema',
+  'StoreMigrationPlanSchema',
+  'StoreMigrationRunSchema',
+  'RetentionPolicyPlanSchema',
+  'RetentionPolicyRunSchema',
+  'AuditExportPlanSchema',
+  'AuditExportRunSchema',
+  'OperatorRoleAssignmentPlanSchema',
+  'OperatorRoleAssignmentRunSchema',
+  'DisasterRecoveryRehearsalRunSchema',
 ];
 
 const projects = readNxProjects();
