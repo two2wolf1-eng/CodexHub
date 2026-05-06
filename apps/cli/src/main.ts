@@ -151,6 +151,7 @@ import type {
   CodexExecTimelineFilter,
   CodexReplaySummary,
   DeploymentAcceptanceScenario,
+  DeploymentOperationAcceptanceScenario,
   DeploymentProvider,
   GithubActionsAcceptanceScenario,
   GithubBranchPublishAcceptanceScenario,
@@ -166,6 +167,8 @@ import type {
   ReleaseLifecycleAcceptanceScenario,
   RemoteSupersedeAcceptanceScenario,
   ReworkLoopAcceptanceScenario,
+  SecretGovernanceAcceptanceScenario,
+  SecretProvider,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
   ApprovalInboxProjection,
@@ -184,7 +187,11 @@ import {
 } from '@codexhub/orchestrator-kernel';
 import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kernel';
 import { runReleaseLifecycleAcceptanceRehearsal } from '@codexhub/release-lifecycle-kernel';
-import { runDeploymentAcceptanceRehearsal } from '@codexhub/deployment-provider-adapter';
+import {
+  runDeploymentAcceptanceRehearsal,
+  runDeploymentOperationAcceptanceRehearsal,
+} from '@codexhub/deployment-provider-adapter';
+import { runSecretGovernanceAcceptanceRehearsal } from '@codexhub/secret-governance-kernel';
 import {
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
@@ -1077,6 +1084,31 @@ function registerDeploymentReadOnlyCommands(program: Command): void {
     '/api/deployments/observations',
     'Deployment observation',
   );
+  const operationsCommand = registerReadOnlyControlFamily(
+    command,
+    'operations',
+    '/api/deployments/operations',
+    'Deployment operation',
+    [['rollback-plans', 'Deployment operation rollback plans']],
+  );
+
+  operationsCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .requiredOption('--provider <provider>', 'Deployment provider')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse governed deployment operations without apply/sync/rollback')
+    .action((options: JsonCliOptions & { fixture?: boolean; provider?: string; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('Deployment operation rehearsal requires --fixture');
+      }
+      const result = runDeploymentOperationAcceptanceRehearsal({
+        provider: normalizeDeploymentProvider(options.provider),
+        scenario: normalizeDeploymentOperationAcceptanceScenario(options.scenario),
+      });
+      console.log(formatDeploymentOperationAcceptanceRehearsalOutput(result, options));
+    });
 
   command
     .command('rehearse')
@@ -1102,7 +1134,8 @@ function registerReadOnlyControlFamily(
   commandName: string,
   routePrefix: string,
   label: string,
-): void {
+  extraSegments: readonly (readonly [string, string])[] = [],
+): Command {
   const command = parentCommand
     .command(commandName)
     .description(`Read ${label} control-plane records from Supervisor GET endpoints`);
@@ -1111,6 +1144,7 @@ function registerReadOnlyControlFamily(
     ['dry-runs', `${label} dry-runs`],
     ['approvals', `${label} approvals`],
     ['runs', `${label} runs`],
+    ...extraSegments,
   ] as const) {
     const child = command.command(segment).description(`Read ${title}`);
     child
@@ -1135,9 +1169,51 @@ function registerReadOnlyControlFamily(
         .action(async (runId: string, options: JsonCliOptions) => {
           const result = await showSupervisorReadOnlyRecord(`${routePrefix}/runs`, runId, `${label} run`);
           console.log(formatReadOnlyControlDetailOutput(`${label} run`, result, options));
-        });
+      });
     }
   }
+
+  return command;
+}
+
+function registerSecretReadOnlyCommands(program: Command): void {
+  const command = program
+    .command('secrets')
+    .description('Read secrets governance readiness metadata');
+
+  command
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show secret provider readiness without reading secret values')
+    .action((options: JsonCliOptions) => {
+      const result = getSecretProviderStatusForCli();
+      console.log(formatReadOnlyControlCollectionOutput('Secret provider status', result, options));
+    });
+
+  registerReadOnlyControlFamily(
+    command,
+    'readiness',
+    '/api/secrets/readiness',
+    'Secret readiness',
+  );
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .requiredOption('--provider <provider>', 'Secret provider')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse secrets readiness without reading secret values')
+    .action((options: JsonCliOptions & { fixture?: boolean; provider?: string; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('Secrets governance rehearsal requires --fixture');
+      }
+      const result = runSecretGovernanceAcceptanceRehearsal({
+        provider: normalizeSecretProvider(options.provider),
+        scenario: normalizeSecretGovernanceAcceptanceScenario(options.scenario),
+      });
+      console.log(formatSecretGovernanceAcceptanceRehearsalOutput(result, options));
+    });
 }
 
 function registerGithubActionsObservationCommands(command: Command): void {
@@ -3024,6 +3100,7 @@ export function buildProgram(): Command {
   registerGithubReleaseLifecycleReadOnlyCommands(githubCommand);
   registerReleaseReadOnlyCommands(program);
   registerDeploymentReadOnlyCommands(program);
+  registerSecretReadOnlyCommands(program);
 
   const githubSupersedesCommand = githubCommand
     .command('supersedes')
@@ -6802,6 +6879,50 @@ function getDeploymentProviderStatusForCli(): Record<string, unknown> {
   };
 }
 
+function getSecretProviderStatusForCli(): Record<string, unknown> {
+  const providers: SecretProvider[] = ['vault', 'sops', 'onepassword', 'doppler'];
+  const governanceEnabled = process.env.CODEXHUB_SECRETS_GOVERNANCE_ENABLED === 'true';
+  const records = providers.map((provider) => {
+    const envName = `CODEXHUB_SECRETS_${provider.toUpperCase()}_READINESS_ENABLED`;
+    const providerEnabled = process.env[envName] === 'true';
+
+    return {
+      provider,
+      status: governanceEnabled && providerEnabled ? 'configured' : 'disabled',
+      governanceEnabled,
+      providerEnabled,
+      configuredSummary: providerEnabled ? 'configured' : 'missing',
+      secretValueReadAllowed: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
+      rawConfigStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: providerEnabled
+        ? `${provider} secrets readiness is runtime-enabled as metadata only.`
+        : `${provider} secrets readiness is disabled by default.`,
+    };
+  });
+
+  return {
+    status: governanceEnabled ? 'ready' : 'blocked',
+    count: records.length,
+    records,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    secretValueReadAllowed: false,
+    secretValueStored: false,
+    tokenValueStored: false,
+    envValueStored: false,
+    bodyStored: false,
+    note: 'Secrets governance readiness is local env flag metadata only and never reads secret values.',
+  };
+}
+
 function normalizeReleaseLifecycleAcceptanceScenario(
   value: string | undefined,
 ): ReleaseLifecycleAcceptanceScenario {
@@ -6846,6 +6967,56 @@ function normalizeDeploymentAcceptanceScenario(value: string | undefined): Deplo
 
   return scenarios.includes(value as DeploymentAcceptanceScenario)
     ? (value as DeploymentAcceptanceScenario)
+    : 'all-pass';
+}
+
+function normalizeDeploymentOperationAcceptanceScenario(
+  value: string | undefined,
+): DeploymentOperationAcceptanceScenario {
+  const scenarios: DeploymentOperationAcceptanceScenario[] = [
+    'all-pass',
+    'provider-disabled',
+    'tool-missing',
+    'approval-blocked',
+    'prod-second-approval-missing',
+    'env-approval-mismatch',
+    'rollback-plan-missing',
+    'target-hash-mismatch',
+    'apply-failed',
+    'sync-failed',
+    'rollback-failed',
+    'raw-output-rejected',
+    'network-timeout',
+  ];
+
+  return scenarios.includes(value as DeploymentOperationAcceptanceScenario)
+    ? (value as DeploymentOperationAcceptanceScenario)
+    : 'all-pass';
+}
+
+function normalizeSecretProvider(value: string | undefined): SecretProvider {
+  const providers: SecretProvider[] = ['vault', 'sops', 'onepassword', 'doppler'];
+
+  return providers.includes(value as SecretProvider) ? (value as SecretProvider) : 'vault';
+}
+
+function normalizeSecretGovernanceAcceptanceScenario(
+  value: string | undefined,
+): SecretGovernanceAcceptanceScenario {
+  const scenarios: SecretGovernanceAcceptanceScenario[] = [
+    'all-pass',
+    'provider-disabled',
+    'config-missing',
+    ['to', 'ken-configured-hash-only'].join('') as SecretGovernanceAcceptanceScenario,
+    'secret-value-rejected',
+    'env-value-rejected',
+    'approval-blocked',
+    'leak-audit-failed',
+    'raw-output-rejected',
+  ];
+
+  return scenarios.includes(value as SecretGovernanceAcceptanceScenario)
+    ? (value as SecretGovernanceAcceptanceScenario)
     : 'all-pass';
 }
 
@@ -6960,6 +7131,55 @@ export function formatDeploymentAcceptanceRehearsalOutput(
     `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
     `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
     `noRealWrite=${String(result.noRealWrite)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
+}
+
+export function formatDeploymentOperationAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runDeploymentOperationAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Deployment operation rehearsal',
+    `status: ${result.status}`,
+    `provider: ${result.provider}`,
+    `action: ${result.action}`,
+    `environment: ${result.environment}`,
+    `scenario: ${result.scenario}`,
+    `readiness: ${result.readinessStatus}`,
+    `operation: ${result.operationStatus}`,
+    `rollback: ${result.rollbackStatus}`,
+    `blockers: ${result.blockerCount}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
+}
+
+export function formatSecretGovernanceAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runSecretGovernanceAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Secrets governance rehearsal',
+    `status: ${result.status}`,
+    `provider: ${result.provider}`,
+    `scenario: ${result.scenario}`,
+    `readiness: ${result.readinessStatus}`,
+    `leakAudit: ${result.leakAuditStatus}`,
+    `blockers: ${result.blockerCount}`,
+    `secretValueReadAllowed=${String(result.secretValueReadAllowed)}`,
+    `secretValueStored=${String(result.secretValueStored)}`,
+    `tokenValueStored=${String(result.tokenValueStored)}`,
+    `envValueStored=${String(result.envValueStored)}`,
     `bodyStored=${String(result.bodyStored)}`,
   ].join('\n');
 }

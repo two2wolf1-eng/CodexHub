@@ -256,6 +256,12 @@ import type {
   DeploymentObservationApprovalArtifact,
   DeploymentObservationPlan,
   DeploymentObservationRun,
+  DeploymentEnvironment,
+  DeploymentOperationAction,
+  DeploymentOperationApprovalArtifact,
+  DeploymentOperationPlan,
+  DeploymentOperationRun,
+  DeploymentRollbackPlan,
   DeploymentProvider,
   GithubDraftPrApprovalArtifactRecord,
   GithubDraftPrPlan,
@@ -281,6 +287,11 @@ import type {
   GithubRemoteCleanupPlan,
   GithubRemoteCleanupRun,
   ReleaseVersionPlan,
+  SecretProvider,
+  SecretReadinessApprovalArtifact,
+  SecretReadinessPlan,
+  SecretReadinessRun,
+  SecretLeakAuditSummary,
   CustomWorkflowApprovalArtifactRecord,
   CustomWorkflowPlan,
   CustomWorkflowRun,
@@ -466,7 +477,20 @@ import {
 import {
   createDeploymentObservationPlan,
   createDeploymentObservationRun,
+  createDeploymentOperationApprovalRecord,
+  createDeploymentOperationPlan,
+  createDeploymentOperationRun,
+  createDeploymentRollbackPlan,
 } from '@codexhub/deployment-provider-adapter';
+import {
+  createConfiguredSecretReferenceSummary,
+  createSecretEnvironmentReadiness,
+  createSecretLeakAuditSummary,
+  createSecretProviderReadiness,
+  createSecretReadinessApprovalRecord,
+  createSecretReadinessPlan,
+  createSecretReadinessRun,
+} from '@codexhub/secret-governance-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -545,6 +569,19 @@ interface SupervisorServerOptions {
   deploymentArgoCdEnabled?: boolean;
   deploymentTerraformEnabled?: boolean;
   deploymentOpentofuEnabled?: boolean;
+  deploymentOperatorEnabled?: boolean;
+  deploymentDockerWriteEnabled?: boolean;
+  deploymentKubernetesWriteEnabled?: boolean;
+  deploymentHelmWriteEnabled?: boolean;
+  deploymentArgoCdWriteEnabled?: boolean;
+  deploymentTerraformWriteEnabled?: boolean;
+  deploymentOpentofuWriteEnabled?: boolean;
+  deploymentProdWriteEnabled?: boolean;
+  secretsGovernanceEnabled?: boolean;
+  secretsVaultReadinessEnabled?: boolean;
+  secretsSopsReadinessEnabled?: boolean;
+  secretsOnepasswordReadinessEnabled?: boolean;
+  secretsDopplerReadinessEnabled?: boolean;
   githubRemoteCleanupEnabled?: boolean;
   reworkLoopEnabled?: boolean;
   customWorkflowEnabled?: boolean;
@@ -1358,6 +1395,108 @@ interface DeploymentObservationRunRequestBody {
   executionAuthority?: unknown;
 }
 
+interface DeploymentOperationDryRunRequestBody {
+  provider?: DeploymentProvider;
+  action?: DeploymentOperationAction;
+  environment?: DeploymentEnvironment;
+  target?: string;
+  targetHash?: string;
+  artifact?: string;
+  artifactHash?: string;
+  rollbackPlanId?: string;
+  rollbackPlanHash?: string;
+  runnerMode?: 'planning-only' | 'fixture' | 'controlled-deployment-operation';
+  blockReasons?: string[];
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface DeploymentOperationApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalSlot?: 'primary' | 'secondary';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface DeploymentOperationManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: GithubProviderApprovalStatus;
+  approvalSlot?: 'primary' | 'secondary';
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface DeploymentRollbackPlanRequestBody {
+  provider?: DeploymentProvider;
+  environment?: DeploymentEnvironment;
+  target?: string;
+  sourceRun?: string;
+  rollbackArtifact?: string;
+  approvedRollbackArtifact?: string;
+  blockReasons?: string[];
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface DeploymentOperationRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  approvalArtifactIds?: string[];
+  rollbackPlanId?: string;
+  outcome?: 'completed' | 'failed' | 'blocked' | 'aborted';
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface SecretReadinessDryRunRequestBody {
+  provider?: SecretProvider;
+  environment?: DeploymentEnvironment;
+  configHash?: string;
+  expectedReferenceCount?: number;
+  blockReasons?: string[];
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface SecretReadinessApprovalRequestBody {
+  dryRunId?: string;
+  requestedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface SecretReadinessManualApprovalRequestBody {
+  dryRunId?: string;
+  approvalRequestId?: string;
+  outcome?: GithubProviderApprovalStatus;
+  decidedBy?: string;
+  reason?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
+interface SecretReadinessRunRequestBody {
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  approvalArtifact?: unknown;
+  authority?: unknown;
+  executionAuthority?: unknown;
+}
+
 interface ReworkLoopDryRunRequestBody {
   triggerKind?: 'checks_failed' | 'review_changes_requested' | 'operator_requested' | 'stale_branch';
   sourceRunId?: string;
@@ -1839,6 +1978,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const deploymentObservationDryRunRecords: DeploymentObservationPlan[] = [];
   const deploymentObservationApprovalRecords: DeploymentObservationApprovalArtifact[] = [];
   const deploymentObservationRunRecords: DeploymentObservationRun[] = [];
+  const deploymentOperationDryRunRecords: DeploymentOperationPlan[] = [];
+  const deploymentOperationApprovalRecords: DeploymentOperationApprovalArtifact[] = [];
+  const deploymentRollbackPlanRecords: DeploymentRollbackPlan[] = [];
+  const deploymentOperationRunRecords: DeploymentOperationRun[] = [];
+  const secretReadinessDryRunRecords: SecretReadinessPlan[] = [];
+  const secretReadinessApprovalRecords: SecretReadinessApprovalArtifact[] = [];
+  const secretReadinessRunRecords: SecretReadinessRun[] = [];
+  const secretLeakAuditSummaryRecords: SecretLeakAuditSummary[] = [];
   const githubPrManagementRecords = createInMemoryGithubPrManagementRecords();
   const remoteSupersedeDryRunRecords: RemoteSupersedePlan[] = [];
   const remoteSupersedeRunRecords: RemoteSupersedeRun[] = [];
@@ -3848,6 +3995,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerGithubReleaseTagRoutes('/api/github/release-tags');
   registerGithubReleaseDraftRoutes('/api/github/release-drafts');
   registerDeploymentObservationRoutes('/api/deployments/observations');
+  registerDeploymentOperationRoutes('/api/deployments/operations');
+  registerSecretReadinessRoutes('/api/secrets/readiness');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
   registerGithubPrManagementRoutes('assignees', '/api/github/pr-assignees');
@@ -16624,6 +16773,94 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     deploymentObservationRunRecords.unshift(record);
   }
 
+  async function persistDeploymentOperationDryRunRecord(
+    record: DeploymentOperationPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.deploymentOperationDryRuns.saveDryRun(record);
+      return;
+    }
+    deploymentOperationDryRunRecords.unshift(record);
+  }
+
+  async function persistDeploymentOperationApprovalRecord(
+    record: DeploymentOperationApprovalArtifact,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.deploymentOperationApprovals.saveApproval(record);
+      return;
+    }
+    deploymentOperationApprovalRecords.unshift(record);
+  }
+
+  async function persistDeploymentRollbackPlanRecord(
+    record: DeploymentRollbackPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.deploymentRollbackPlans.saveRollbackPlan(record);
+      return;
+    }
+    deploymentRollbackPlanRecords.unshift(record);
+  }
+
+  async function persistDeploymentOperationRunRecord(
+    record: DeploymentOperationRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.deploymentOperationRuns.saveRun(record);
+      return;
+    }
+    deploymentOperationRunRecords.unshift(record);
+  }
+
+  async function persistSecretReadinessDryRunRecord(
+    record: SecretReadinessPlan,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.secretReadinessDryRuns.saveDryRun(record);
+      return;
+    }
+    secretReadinessDryRunRecords.unshift(record);
+  }
+
+  async function persistSecretReadinessApprovalRecord(
+    record: SecretReadinessApprovalArtifact,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.secretReadinessApprovals.saveApproval(record);
+      return;
+    }
+    secretReadinessApprovalRecords.unshift(record);
+  }
+
+  async function persistSecretReadinessRunRecord(
+    record: SecretReadinessRun,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.secretReadinessRuns.saveRun(record);
+      return;
+    }
+    secretReadinessRunRecords.unshift(record);
+  }
+
+  async function persistSecretLeakAuditSummaryRecord(
+    record: SecretLeakAuditSummary,
+    store: CodexHubStore | undefined,
+  ): Promise<void> {
+    if (store) {
+      await store.secretLeakAuditSummaries.saveLeakAuditSummary(record);
+      return;
+    }
+    secretLeakAuditSummaryRecords.unshift(record);
+  }
+
   async function resolveReleaseVersionPlanDryRunRecord(
     dryRunId: string | undefined,
     store: CodexHubStore | undefined,
@@ -16919,6 +17156,214 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return store
       ? await store.deploymentObservationRuns.listRuns(query)
       : listInMemoryControlPlaneRecords(deploymentObservationRunRecords, query);
+  }
+
+  async function resolveDeploymentOperationDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.deploymentOperationDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.deploymentOperationDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return deploymentOperationDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveDeploymentOperationApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationApprovalArtifact | undefined> {
+    if (store) {
+      const directRecord = await store.deploymentOperationApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.deploymentOperationApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return deploymentOperationApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveDeploymentOperationApprovalByArtifactId(
+    approvalArtifactId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationApprovalArtifact | undefined> {
+    if (!approvalArtifactId) {
+      return undefined;
+    }
+    return store
+      ? await store.deploymentOperationApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : deploymentOperationApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveDeploymentRollbackPlanRecord(
+    rollbackPlanId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentRollbackPlan | undefined> {
+    if (!rollbackPlanId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.deploymentRollbackPlans.getRollbackPlan(rollbackPlanId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.deploymentRollbackPlans.listRollbackPlans({ limit: 100 })).find(
+        (record) => record.id === rollbackPlanId || record.rollbackPlanId === rollbackPlanId,
+      );
+    }
+    return deploymentRollbackPlanRecords.find(
+      (record) => record.id === rollbackPlanId || record.rollbackPlanId === rollbackPlanId,
+    );
+  }
+
+  async function resolveDeploymentOperationRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationRun | undefined> {
+    return store
+      ? await store.deploymentOperationRuns.getRun(runId)
+      : deploymentOperationRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listDeploymentOperationDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationPlan[]> {
+    return store
+      ? await store.deploymentOperationDryRuns.listDryRuns(query)
+      : listInMemoryControlPlaneRecords(deploymentOperationDryRunRecords, query);
+  }
+
+  async function listDeploymentOperationApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationApprovalArtifact[]> {
+    return store
+      ? await store.deploymentOperationApprovals.listApprovals(query)
+      : listInMemoryControlPlaneRecords(deploymentOperationApprovalRecords, query);
+  }
+
+  async function listDeploymentRollbackPlans(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentRollbackPlan[]> {
+    return store
+      ? await store.deploymentRollbackPlans.listRollbackPlans(query)
+      : listInMemoryControlPlaneRecords(deploymentRollbackPlanRecords, query);
+  }
+
+  async function listDeploymentOperationRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<DeploymentOperationRun[]> {
+    return store
+      ? await store.deploymentOperationRuns.listRuns(query)
+      : listInMemoryControlPlaneRecords(deploymentOperationRunRecords, query);
+  }
+
+  async function resolveSecretReadinessDryRunRecord(
+    dryRunId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessPlan | undefined> {
+    if (!dryRunId) {
+      return undefined;
+    }
+    if (store) {
+      const directRecord = await store.secretReadinessDryRuns.getDryRun(dryRunId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.secretReadinessDryRuns.listDryRuns({ limit: 100 })).find(
+        (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+      );
+    }
+    return secretReadinessDryRunRecords.find(
+      (record) => record.id === dryRunId || record.dryRunId === dryRunId,
+    );
+  }
+
+  async function resolveSecretReadinessApprovalRecord(
+    approvalRequestId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessApprovalArtifact | undefined> {
+    if (store) {
+      const directRecord = await store.secretReadinessApprovals.getApproval(approvalRequestId);
+      if (directRecord) {
+        return directRecord;
+      }
+      return (await store.secretReadinessApprovals.listApprovals({ limit: 100 })).find(
+        (record) => record.approvalRequestId === approvalRequestId,
+      );
+    }
+    return secretReadinessApprovalRecords.find(
+      (record) => record.id === approvalRequestId || record.approvalRequestId === approvalRequestId,
+    );
+  }
+
+  async function resolveSecretReadinessApprovalByArtifactId(
+    approvalArtifactId: string | undefined,
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessApprovalArtifact | undefined> {
+    if (!approvalArtifactId) {
+      return undefined;
+    }
+    return store
+      ? await store.secretReadinessApprovals.getApprovalByArtifactId(approvalArtifactId)
+      : secretReadinessApprovalRecords.find(
+          (record) => record.approvalArtifactId === approvalArtifactId,
+        );
+  }
+
+  async function resolveSecretReadinessRun(
+    runId: string,
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessRun | undefined> {
+    return store
+      ? await store.secretReadinessRuns.getRun(runId)
+      : secretReadinessRunRecords.find((record) => record.id === runId);
+  }
+
+  async function listSecretReadinessDryRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessPlan[]> {
+    return store
+      ? await store.secretReadinessDryRuns.listDryRuns(query)
+      : listInMemoryControlPlaneRecords(secretReadinessDryRunRecords, query);
+  }
+
+  async function listSecretReadinessApprovals(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessApprovalArtifact[]> {
+    return store
+      ? await store.secretReadinessApprovals.listApprovals(query)
+      : listInMemoryControlPlaneRecords(secretReadinessApprovalRecords, query);
+  }
+
+  async function listSecretReadinessRuns(
+    query: { dryRunId?: string; status?: string; limit?: number },
+    store: CodexHubStore | undefined,
+  ): Promise<SecretReadinessRun[]> {
+    return store
+      ? await store.secretReadinessRuns.listRuns(query)
+      : listInMemoryControlPlaneRecords(secretReadinessRunRecords, query);
   }
 
   function registerGithubMergeRoutes(prefix: string): void {
@@ -18989,6 +19434,612 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       }
 
       return createDeploymentObservationRunResponse(record);
+    });
+  }
+
+  function registerDeploymentOperationRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createDeploymentStoreUnavailableResponse('dry-run'));
+      }
+
+      const body = request.body as DeploymentOperationDryRunRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createDeploymentUntrustedAuthorityResponse(undefined));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createDeploymentForbiddenRawBodyResponse(undefined));
+      }
+
+      const provider = body?.provider ?? 'docker';
+      const action = body?.action ?? 'apply';
+      const environment = body?.environment ?? 'staging';
+      const rollbackPlan = await resolveDeploymentRollbackPlanRecord(body?.rollbackPlanId, store);
+      const blockReasons = [
+        ...(body?.blockReasons ?? []),
+        ...(body?.rollbackPlanId && !rollbackPlan ? ['deployment_rollback_plan_missing'] : []),
+      ];
+      const dryRunRecord = createDeploymentOperationPlan({
+        provider,
+        action,
+        environment,
+        target: body?.targetHash ?? body?.target,
+        artifact: body?.artifactHash ?? body?.artifact,
+        rollbackPlan,
+        runnerMode: body?.runnerMode ?? 'controlled-deployment-operation',
+        blockReasons,
+      });
+
+      await persistDeploymentOperationDryRunRecord(dryRunRecord, store);
+      await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        dryRunRecord.auditEventIds,
+        dryRunRecord.evidenceRefs,
+        store,
+        dryRunRecord.policyDecision.id,
+        false,
+      );
+
+      return createDeploymentOperationDryRunResponse(dryRunRecord);
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listDeploymentOperationDryRuns(query, store);
+
+      return createControlPlaneListResponse(records, createDeploymentOperationDryRunResponse, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createDeploymentStoreUnavailableResponse('approval'));
+      }
+
+      const body = request.body as DeploymentOperationApprovalRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createDeploymentUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createDeploymentForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveDeploymentOperationDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'deployment operation dry-run record was not found' });
+      }
+
+      const approvalRecord = createDeploymentOperationApprovalRecord({
+        dryRunRecord,
+        status: 'requested',
+        requestedBy: body?.requestedBy,
+        reason: body?.reason,
+        approvalSlot: body?.approvalSlot,
+      });
+
+      await persistDeploymentOperationApprovalRecord(approvalRecord, store);
+      await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        approvalRecord.auditEventIds,
+        approvalRecord.evidenceRefs,
+        store,
+        approvalRecord.policyDecisionId,
+        false,
+      );
+
+      return createDeploymentOperationApprovalResponse(approvalRecord);
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createDeploymentStoreUnavailableResponse('approval'));
+      }
+
+      const body = request.body as DeploymentOperationManualApprovalRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createDeploymentUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createDeploymentForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveDeploymentOperationDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'deployment operation dry-run record was not found' });
+      }
+
+      const approvalRequest = body?.approvalRequestId
+        ? await resolveDeploymentOperationApprovalRecord(body.approvalRequestId, store)
+        : (await listDeploymentOperationApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+      if (!approvalRequest) {
+        return reply.code(404).send({ error: 'deployment operation approval request was not found' });
+      }
+
+      const approvalRecord = createDeploymentOperationApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRequest,
+        status: body?.outcome ?? 'approved',
+        decidedBy: body?.decidedBy,
+        reason: body?.reason,
+        approvalSlot: body?.approvalSlot ?? approvalRequest.approvalSlot,
+      });
+
+      await persistDeploymentOperationApprovalRecord(approvalRecord, store);
+      await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        approvalRecord.auditEventIds,
+        approvalRecord.evidenceRefs,
+        store,
+        approvalRecord.policyDecisionId,
+        false,
+      );
+
+      return createDeploymentOperationApprovalResponse(approvalRecord);
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listDeploymentOperationApprovals(query, store);
+
+      return createControlPlaneListResponse(records, createDeploymentOperationApprovalResponse, store, false);
+    });
+
+    server.post(`${prefix}/rollback-plans`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createDeploymentStoreUnavailableResponse('dry-run'));
+      }
+
+      const body = request.body as DeploymentRollbackPlanRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createDeploymentUntrustedAuthorityResponse(undefined));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createDeploymentForbiddenRawBodyResponse(undefined));
+      }
+
+      const rollbackPlan = createDeploymentRollbackPlan({
+        provider: body?.provider ?? 'docker',
+        environment: body?.environment ?? 'staging',
+        target: body?.target,
+        sourceRun: body?.sourceRun,
+        rollbackArtifact: body?.rollbackArtifact,
+        approvedRollbackArtifact: body?.approvedRollbackArtifact,
+        blockReasons: body?.blockReasons,
+      });
+
+      await persistDeploymentRollbackPlanRecord(rollbackPlan, store);
+      await persistEvidenceRefs(rollbackPlan.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        rollbackPlan.auditEventIds,
+        rollbackPlan.evidenceRefs,
+        store,
+        rollbackPlan.rollbackPlanId,
+        false,
+      );
+
+      return createDeploymentRollbackPlanResponse(rollbackPlan);
+    });
+
+    server.get(`${prefix}/rollback-plans`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listDeploymentRollbackPlans(query, store);
+
+      return createControlPlaneListResponse(records, createDeploymentRollbackPlanResponse, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createDeploymentStoreUnavailableResponse('execution'));
+      }
+
+      const body = request.body as DeploymentOperationRunRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createDeploymentUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createDeploymentForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveDeploymentOperationDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'deployment operation dry-run record was not found' });
+      }
+
+      const rollbackPlan =
+        dryRunRecord.rollbackPlanId || body?.rollbackPlanId
+          ? await resolveDeploymentRollbackPlanRecord(body?.rollbackPlanId ?? dryRunRecord.rollbackPlanId, store)
+          : undefined;
+      const approvalArtifactIds = [
+        ...(body?.approvalArtifactId ? [body.approvalArtifactId] : []),
+        ...(body?.approvalArtifactIds ?? []),
+      ];
+      const approvals = (
+        await Promise.all(
+          approvalArtifactIds.map((id) => resolveDeploymentOperationApprovalByArtifactId(id, store)),
+        )
+      ).filter((record): record is DeploymentOperationApprovalArtifact => Boolean(record));
+      const approvedApprovals = approvals.filter((approval) => isApprovedUsableApproval(approval));
+      const uniqueApproverHashes = new Set(
+        approvedApprovals.map((approval) => approval.approverHash).filter(Boolean),
+      );
+      const operatorEnabled =
+        options.deploymentOperatorEnabled ?? process.env.CODEXHUB_DEPLOYMENT_OPERATOR_ENABLED === 'true';
+      const providerWriteEnabled = resolveDeploymentProviderWriteEnabled(dryRunRecord.provider);
+      const prodWriteEnabled =
+        options.deploymentProdWriteEnabled ?? process.env.CODEXHUB_DEPLOYMENT_PROD_WRITE_ENABLED === 'true';
+      const requiredApprovals = dryRunRecord.approvalPolicy.requiredApprovalCount;
+      const approvalBlockReasons = [
+        ...(approvalArtifactIds.length === 0 ? ['deployment_operation_approval_required'] : []),
+        ...(approvals.length !== approvalArtifactIds.length ? ['deployment_operation_approval_missing'] : []),
+        ...(approvedApprovals.length < requiredApprovals
+          ? ['deployment_operation_required_approval_count_missing']
+          : []),
+        ...(dryRunRecord.environment === 'prod' && uniqueApproverHashes.size < 2
+          ? ['deployment_prod_second_approver_required']
+          : []),
+      ];
+      const blockReasons = [
+        ...dryRunRecord.blockReasons,
+        ...approvalBlockReasons,
+        ...(dryRunRecord.status === 'planned' ? [] : ['deployment_operation_dry_run_not_planned']),
+        ...(operatorEnabled ? [] : ['deployment_operator_disabled']),
+        ...(providerWriteEnabled ? [] : [`deployment_${dryRunRecord.provider}_write_disabled`]),
+        ...(dryRunRecord.environment === 'prod' && !prodWriteEnabled
+          ? ['deployment_prod_write_disabled']
+          : []),
+        ...(dryRunRecord.action === 'rollback' && !rollbackPlan ? ['deployment_rollback_plan_missing'] : []),
+      ];
+      const boundaryInvoked = blockReasons.length === 0 && dryRunRecord.runnerMode === 'controlled-deployment-operation';
+      const runStatus = blockReasons.length > 0 ? 'blocked' : body?.outcome ?? 'completed';
+      const runRecord = createDeploymentOperationRun({
+        plan: dryRunRecord,
+        rollbackPlan,
+        approvalArtifactIds: approvedApprovals.map((approval) => approval.approvalArtifactId),
+        status: runStatus,
+        blockReasons,
+        processBoundaryInvoked: boundaryInvoked,
+        externalProcessStarted: boundaryInvoked,
+      });
+
+      await persistDeploymentOperationRunRecord(runRecord, store);
+      await persistEvidenceRefs(runRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        runRecord.auditEventIds,
+        runRecord.evidenceRefs,
+        store,
+        dryRunRecord.policyDecision.id,
+        runRecord.processBoundaryInvoked,
+      );
+
+      if (runRecord.processBoundaryInvoked) {
+        for (const approvalRecord of approvedApprovals) {
+          const usedRecord = createDeploymentOperationApprovalRecord({
+            dryRunRecord,
+            baseRecord: approvalRecord,
+            status: 'used',
+            reason: 'deployment operation approval consumed after governed runner boundary attempt',
+          });
+          await persistDeploymentOperationApprovalRecord(usedRecord, store);
+          await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+          await persistGithubMergeAuditEvents(
+            usedRecord.auditEventIds,
+            usedRecord.evidenceRefs,
+            store,
+            usedRecord.policyDecisionId,
+            runRecord.processBoundaryInvoked,
+          );
+        }
+      }
+
+      return createDeploymentOperationRunResponse(runRecord);
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listDeploymentOperationRuns(query, store);
+
+      return createControlPlaneListResponse(records, createDeploymentOperationRunResponse, store, false);
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id ? await resolveDeploymentOperationRun(params.id, store) : undefined;
+
+      if (!record) {
+        return reply.code(404).send({ error: 'deployment operation run was not found' });
+      }
+
+      return createDeploymentOperationRunResponse(record);
+    });
+  }
+
+  function registerSecretReadinessRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createSecretStoreUnavailableResponse('dry-run'));
+      }
+
+      const body = request.body as SecretReadinessDryRunRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createSecretUntrustedAuthorityResponse(undefined));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createSecretForbiddenRawBodyResponse(undefined));
+      }
+
+      const dryRunRecord = createSecretReadinessPlan({
+        provider: body?.provider ?? 'vault',
+        environment: body?.environment ?? 'staging',
+        config: body?.configHash,
+        expectedReferenceCount: body?.expectedReferenceCount,
+        blockReasons: body?.blockReasons,
+      });
+
+      await persistSecretReadinessDryRunRecord(dryRunRecord, store);
+      await persistEvidenceRefs(dryRunRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        dryRunRecord.auditEventIds,
+        dryRunRecord.evidenceRefs,
+        store,
+        dryRunRecord.policyDecision.id,
+        false,
+      );
+
+      return createSecretReadinessDryRunResponse(dryRunRecord);
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listSecretReadinessDryRuns(query, store);
+
+      return createControlPlaneListResponse(records, createSecretReadinessDryRunResponse, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createSecretStoreUnavailableResponse('approval'));
+      }
+
+      const body = request.body as SecretReadinessApprovalRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createSecretUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createSecretForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveSecretReadinessDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'secret readiness dry-run record was not found' });
+      }
+
+      const approvalRecord = createSecretReadinessApprovalRecord({
+        dryRunRecord,
+        status: 'requested',
+        requestedBy: body?.requestedBy,
+        reason: body?.reason,
+      });
+
+      await persistSecretReadinessApprovalRecord(approvalRecord, store);
+      await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        approvalRecord.auditEventIds,
+        approvalRecord.evidenceRefs,
+        store,
+        approvalRecord.policyDecisionId,
+        false,
+      );
+
+      return createSecretReadinessApprovalResponse(approvalRecord);
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createSecretStoreUnavailableResponse('approval'));
+      }
+
+      const body = request.body as SecretReadinessManualApprovalRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createSecretUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createSecretForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveSecretReadinessDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'secret readiness dry-run record was not found' });
+      }
+
+      const approvalRequest = body?.approvalRequestId
+        ? await resolveSecretReadinessApprovalRecord(body.approvalRequestId, store)
+        : (await listSecretReadinessApprovals({ dryRunId: dryRunRecord.dryRunId, limit: 1 }, store))[0];
+
+      if (!approvalRequest) {
+        return reply.code(404).send({ error: 'secret readiness approval request was not found' });
+      }
+
+      const approvalRecord = createSecretReadinessApprovalRecord({
+        dryRunRecord,
+        baseRecord: approvalRequest,
+        status: body?.outcome ?? 'approved',
+        decidedBy: body?.decidedBy,
+        reason: body?.reason,
+      });
+
+      await persistSecretReadinessApprovalRecord(approvalRecord, store);
+      await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        approvalRecord.auditEventIds,
+        approvalRecord.evidenceRefs,
+        store,
+        approvalRecord.policyDecisionId,
+        false,
+      );
+
+      return createSecretReadinessApprovalResponse(approvalRecord);
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listSecretReadinessApprovals(query, store);
+
+      return createControlPlaneListResponse(records, createSecretReadinessApprovalResponse, store, false);
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+
+      if (!store) {
+        return reply.code(503).send(createSecretStoreUnavailableResponse('execution'));
+      }
+
+      const body = request.body as SecretReadinessRunRequestBody | undefined;
+
+      if (hasUntrustedAuthorityBody(body)) {
+        return reply.code(400).send(createSecretUntrustedAuthorityResponse(body?.dryRunId));
+      }
+      if (hasForbiddenGithubRawBody(body)) {
+        return reply.code(400).send(createSecretForbiddenRawBodyResponse(body?.dryRunId));
+      }
+
+      const dryRunRecord = await resolveSecretReadinessDryRunRecord(body?.dryRunId, store);
+
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'secret readiness dry-run record was not found' });
+      }
+
+      const approvalRecord = body?.approvalArtifactId
+        ? await resolveSecretReadinessApprovalByArtifactId(body.approvalArtifactId, store)
+        : undefined;
+      const governanceEnabled =
+        options.secretsGovernanceEnabled ?? process.env.CODEXHUB_SECRETS_GOVERNANCE_ENABLED === 'true';
+      const providerEnabled = resolveSecretProviderReadinessEnabled(dryRunRecord.provider);
+      const approved = approvalRecord ? isApprovedUsableApproval(approvalRecord) : false;
+      const blockReasons = [
+        ...dryRunRecord.blockReasons,
+        ...(approved ? [] : ['secret_readiness_approval_required']),
+        ...(dryRunRecord.status === 'planned' ? [] : ['secret_readiness_dry_run_not_planned']),
+        ...(governanceEnabled ? [] : ['secrets_governance_disabled']),
+        ...(providerEnabled ? [] : [`secrets_${dryRunRecord.provider}_readiness_disabled`]),
+      ];
+      const referenceSummary = createConfiguredSecretReferenceSummary({
+        provider: dryRunRecord.provider,
+        environment: dryRunRecord.environment,
+        configured: blockReasons.length === 0,
+      });
+      const providerReadiness = createSecretProviderReadiness({
+        provider: dryRunRecord.provider,
+        governanceEnabled,
+        providerEnabled,
+        configured: blockReasons.length === 0,
+        config: dryRunRecord.configHash,
+        referenceSummaries: [referenceSummary],
+        blockReasons,
+      });
+      const environmentReadiness = createSecretEnvironmentReadiness({
+        environment: dryRunRecord.environment,
+        governanceEnabled,
+        providerReadiness: [providerReadiness],
+        blockReasons,
+      });
+      const leakAuditSummary = createSecretLeakAuditSummary({ scannedSurfaceCount: 4 });
+      const runRecord = createSecretReadinessRun({
+        plan: dryRunRecord,
+        status: blockReasons.length > 0 ? 'blocked' : 'completed',
+        blockReasons,
+        providerReadiness,
+        environmentReadiness,
+        referenceSummaries: [referenceSummary],
+        leakAuditSummary,
+      });
+
+      await persistSecretLeakAuditSummaryRecord(leakAuditSummary, store);
+      await persistSecretReadinessRunRecord(runRecord, store);
+      await persistEvidenceRefs(runRecord.evidenceRefs, store);
+      await persistGithubMergeAuditEvents(
+        runRecord.auditEventIds,
+        runRecord.evidenceRefs,
+        store,
+        dryRunRecord.policyDecision.id,
+        false,
+      );
+
+      if (runRecord.status === 'completed' && approvalRecord) {
+        const usedRecord = createSecretReadinessApprovalRecord({
+          dryRunRecord,
+          baseRecord: approvalRecord,
+          status: 'used',
+          reason: 'secret readiness approval consumed after metadata-only readiness run',
+        });
+        await persistSecretReadinessApprovalRecord(usedRecord, store);
+        await persistEvidenceRefs(usedRecord.evidenceRefs, store);
+        await persistGithubMergeAuditEvents(
+          usedRecord.auditEventIds,
+          usedRecord.evidenceRefs,
+          store,
+          usedRecord.policyDecisionId,
+          false,
+        );
+      }
+
+      return createSecretReadinessRunResponse(runRecord);
+    });
+
+    server.get(`${prefix}/runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = await listSecretReadinessRuns(query, store);
+
+      return createControlPlaneListResponse(records, createSecretReadinessRunResponse, store, false);
+    });
+
+    server.get(`${prefix}/runs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record = params.id ? await resolveSecretReadinessRun(params.id, store) : undefined;
+
+      if (!record) {
+        return reply.code(404).send({ error: 'secret readiness run was not found' });
+      }
+
+      return createSecretReadinessRunResponse(record);
     });
   }
 
@@ -21444,6 +22495,241 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createDeploymentOperationDryRunResponse(record: DeploymentOperationPlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      provider: record.provider,
+      action: record.action,
+      environment: record.environment,
+      runnerMode: record.runnerMode,
+      targetHash: record.targetHash,
+      artifactHash: record.artifactHash,
+      rollbackPlanId: record.rollbackPlanId,
+      rollbackPlanHash: record.rollbackPlanHash,
+      requiredApprovalCount: record.approvalPolicy.requiredApprovalCount,
+      requiresDistinctApproverHashes: record.approvalPolicy.requiresDistinctApproverHashes,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryPlanned: record.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      fixedRunner: record.fixedRunner,
+      arbitraryCommandAllowed: false,
+      noDelete: record.noDelete,
+      noDestroy: record.noDestroy,
+      rawManifestStored: false,
+      rawPlanStored: false,
+      rawDiffStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createDeploymentOperationApprovalResponse(record: DeploymentOperationApprovalArtifact) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.status === 'approved',
+      provider: record.provider,
+      action: record.action,
+      environment: record.environment,
+      targetHash: record.targetHash,
+      expectedPlanHash: record.expectedPlanHash,
+      approvalSlot: record.approvalSlot,
+      reasonHash: record.reasonHash,
+      reasonSummary: record.reasonSummary,
+      approverHash: record.approverHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      tokenValueStored: false,
+      rawManifestStored: false,
+      rawPlanStored: false,
+      rawDiffStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createDeploymentRollbackPlanResponse(record: DeploymentRollbackPlan) {
+    return {
+      recordId: record.id,
+      rollbackPlanId: record.rollbackPlanId,
+      status: record.status,
+      provider: record.provider,
+      environment: record.environment,
+      targetHash: record.targetHash,
+      sourceRunHash: record.sourceRunHash,
+      rollbackArtifactHash: record.rollbackArtifactHash,
+      approvedRollbackArtifactHash: record.approvedRollbackArtifactHash,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      deleteAllowed: false,
+      destroyAllowed: false,
+      forceAllowed: false,
+      rawManifestStored: false,
+      rawPlanStored: false,
+      rawDiffStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createDeploymentOperationRunResponse(record: DeploymentOperationRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.plan.dryRunId,
+      status: record.status,
+      provider: record.plan.provider,
+      action: record.plan.action,
+      environment: record.plan.environment,
+      targetHash: record.resultSummary.targetHash,
+      resultHash: record.resultSummary.resultHash,
+      changedResourceCount: record.resultSummary.changedResourceCount,
+      warningCount: record.resultSummary.warningCount,
+      errorCount: record.resultSummary.errorCount,
+      rollbackPlanId: record.rollbackPlan?.rollbackPlanId,
+      approvalArtifactIdCount: record.approvalArtifactIds.length,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: record.processBoundaryInvoked,
+      externalProcessStarted: record.externalProcessStarted,
+      networkBoundaryInvoked: record.networkBoundaryInvoked,
+      fixedRunner: record.fixedRunner,
+      arbitraryCommandAllowed: false,
+      noDelete: record.noDelete,
+      noDestroy: record.noDestroy,
+      rawManifestStored: false,
+      rawPlanStored: false,
+      rawDiffStored: false,
+      rawLogStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createSecretReadinessDryRunResponse(record: SecretReadinessPlan) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      status: record.status,
+      provider: record.provider,
+      environment: record.environment,
+      configHash: record.configHash,
+      expectedReferenceCount: record.expectedReferenceCount,
+      blockReasons: record.blockReasons,
+      policyDecisionId: record.policyDecision.id,
+      requiresApproval: record.requiresApproval,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryPlanned: record.processBoundaryPlanned,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      secretValueReadAllowed: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
+      rawConfigStored: false,
+      rawPathStored: false,
+      rawUrlStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createSecretReadinessApprovalResponse(record: SecretReadinessApprovalArtifact) {
+    return {
+      recordId: record.id,
+      dryRunId: record.dryRunId,
+      dryRunRecordId: record.dryRunRecordId,
+      approvalRequestId: record.approvalRequestId,
+      approvalArtifactId: record.approvalArtifactId,
+      status: record.status,
+      approved: record.status === 'approved',
+      provider: record.provider,
+      environment: record.environment,
+      expectedPlanHash: record.expectedPlanHash,
+      reasonHash: record.reasonHash,
+      reasonSummary: record.reasonSummary,
+      approverHash: record.approverHash,
+      expiresAt: record.expiresAt,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
+      rawConfigStored: false,
+      rawPathStored: false,
+      rawUrlStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
+  function createSecretReadinessRunResponse(record: SecretReadinessRun) {
+    return {
+      recordId: record.id,
+      dryRunId: record.plan.dryRunId,
+      status: record.status,
+      provider: record.plan.provider,
+      environment: record.plan.environment,
+      governanceEnabled: record.providerReadiness.governanceEnabled,
+      providerEnabled: record.providerReadiness.providerEnabled,
+      configured: record.providerReadiness.configured,
+      configHash: record.providerReadiness.configHash,
+      providerBlockerCount: record.providerReadiness.blockerCount,
+      environmentBlockerCount: record.environmentReadiness.blockerCount,
+      secretRefCount: record.providerReadiness.secretRefCount,
+      configuredRefHashCount: record.providerReadiness.configuredRefHashes.length,
+      leakDetected: record.leakAuditSummary.leakDetected,
+      leakFindingCount: record.leakAuditSummary.findingCount,
+      blockReasons: record.blockReasons,
+      evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: record.auditEventIds,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      secretValueReadAllowed: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
+      rawConfigStored: false,
+      rawPathStored: false,
+      rawUrlStored: false,
+      bodyStored: false,
+      summary: record.summary,
+    };
+  }
+
   function createControlPlaneListResponse<T>(
     records: T[],
     mapRecord: (record: T) => unknown,
@@ -21547,6 +22833,53 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       externalProcessStarted: false,
       bodyStored: false,
       rawPathStored: false,
+    };
+  }
+
+  function createSecretStoreUnavailableResponse(phase: 'dry-run' | 'approval' | 'execution') {
+    return {
+      error: `secret readiness ${phase} store is unavailable`,
+      phase,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      rawPathStored: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
+    };
+  }
+
+  function createSecretUntrustedAuthorityResponse(dryRunId: string | undefined) {
+    return {
+      error: 'request body cannot carry secret readiness authority or approval artifacts',
+      dryRunId,
+      requestBodyAuthorityRejected: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      rawPathStored: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
+    };
+  }
+
+  function createSecretForbiddenRawBodyResponse(dryRunId: string | undefined) {
+    return {
+      error: 'request body contains forbidden raw secret readiness fields',
+      dryRunId,
+      requestBodyRawFieldsRejected: true,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      bodyStored: false,
+      rawPathStored: false,
+      secretValueStored: false,
+      tokenValueStored: false,
+      envValueStored: false,
     };
   }
 
@@ -23828,6 +25161,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'rawChangelog',
       'rawChangelogBody',
       'rawTag',
+      'manifest',
+      'manifestBody',
+      'rawManifest',
+      'rawManifestBody',
       'kubeconfig',
       'rawKubeconfig',
       'kubeContext',
@@ -23842,7 +25179,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'stateFile',
       'secret',
       'secretValue',
+      'rawSecretValue',
+      'privateKey',
+      'rawPrivateKey',
+      'credential',
+      'credentials',
+      'rawCredential',
+      'rawCredentials',
+      'config',
+      'rawConfig',
+      'configBody',
+      'rawConfigBody',
+      'reference',
+      'rawReference',
+      'env',
+      'rawEnv',
       'envValue',
+      'rawEnvValue',
       'artifactBody',
       'rawArtifactBody',
       'inputs',
@@ -23979,6 +25332,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  function isApprovedUsableApproval(record: {
+    status: string;
+    approved?: boolean;
+    expiresAt?: string;
+  }): boolean {
+    if (record.status !== 'approved' || record.approved === false) {
+      return false;
+    }
+    if (!record.expiresAt) {
+      return true;
+    }
+    const expiresAt = Date.parse(record.expiresAt);
+    return Number.isNaN(expiresAt) || expiresAt > Date.now();
+  }
+
   function resolveDeploymentProviderEnabled(provider: DeploymentProvider | undefined): boolean {
     if (!provider) {
       return false;
@@ -23997,6 +25365,74 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         return options.deploymentTerraformEnabled ?? process.env.CODEXHUB_DEPLOYMENT_TERRAFORM_ENABLED === 'true';
       case 'opentofu':
         return options.deploymentOpentofuEnabled ?? process.env.CODEXHUB_DEPLOYMENT_OPENTOFU_ENABLED === 'true';
+    }
+  }
+
+  function resolveDeploymentProviderWriteEnabled(provider: DeploymentProvider | undefined): boolean {
+    if (!provider) {
+      return false;
+    }
+
+    switch (provider) {
+      case 'docker':
+        return (
+          options.deploymentDockerWriteEnabled ??
+          process.env.CODEXHUB_DEPLOYMENT_DOCKER_WRITE_ENABLED === 'true'
+        );
+      case 'kubernetes':
+        return (
+          options.deploymentKubernetesWriteEnabled ??
+          process.env.CODEXHUB_DEPLOYMENT_KUBERNETES_WRITE_ENABLED === 'true'
+        );
+      case 'helm':
+        return (
+          options.deploymentHelmWriteEnabled ??
+          process.env.CODEXHUB_DEPLOYMENT_HELM_WRITE_ENABLED === 'true'
+        );
+      case 'argo-cd':
+        return (
+          options.deploymentArgoCdWriteEnabled ??
+          process.env.CODEXHUB_DEPLOYMENT_ARGO_CD_WRITE_ENABLED === 'true'
+        );
+      case 'terraform':
+        return (
+          options.deploymentTerraformWriteEnabled ??
+          process.env.CODEXHUB_DEPLOYMENT_TERRAFORM_WRITE_ENABLED === 'true'
+        );
+      case 'opentofu':
+        return (
+          options.deploymentOpentofuWriteEnabled ??
+          process.env.CODEXHUB_DEPLOYMENT_OPENTOFU_WRITE_ENABLED === 'true'
+        );
+    }
+  }
+
+  function resolveSecretProviderReadinessEnabled(provider: SecretProvider | undefined): boolean {
+    if (!provider) {
+      return false;
+    }
+
+    switch (provider) {
+      case 'vault':
+        return (
+          options.secretsVaultReadinessEnabled ??
+          process.env.CODEXHUB_SECRETS_VAULT_READINESS_ENABLED === 'true'
+        );
+      case 'sops':
+        return (
+          options.secretsSopsReadinessEnabled ??
+          process.env.CODEXHUB_SECRETS_SOPS_READINESS_ENABLED === 'true'
+        );
+      case 'onepassword':
+        return (
+          options.secretsOnepasswordReadinessEnabled ??
+          process.env.CODEXHUB_SECRETS_ONEPASSWORD_READINESS_ENABLED === 'true'
+        );
+      case 'doppler':
+        return (
+          options.secretsDopplerReadinessEnabled ??
+          process.env.CODEXHUB_SECRETS_DOPPLER_READINESS_ENABLED === 'true'
+        );
     }
   }
 

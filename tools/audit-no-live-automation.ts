@@ -233,6 +233,35 @@ const dashboardMergeRouteBypassTerms = [
   ".includes('/api/github/merges/')",
   'includes(merge',
 ];
+const dashboardDeploymentOperationExactPostRoutes = [
+  '/api/deployments/operations/dry-runs',
+  '/api/deployments/operations/approval-requests',
+  '/api/deployments/operations/manual-approvals',
+  '/api/deployments/operations/rollback-plans',
+  '/api/deployments/operations/runs',
+];
+const dashboardDeploymentOperationScopedPayloadTerms = [
+  'reason:',
+  'rawReason',
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'rawManifest',
+  'rawPlan',
+  'rawDiff',
+  'rawLog',
+  'rawPath',
+  'CODEXHUB_DEPLOYMENT_',
+];
+const dashboardDeploymentOperationRouteBypassTerms = [
+  'startsWith',
+  'indexOf(',
+  "indexOf('/api/deployments/operations/')",
+  'indexOf(deployment',
+  'includes(',
+  ".includes('/api/deployments/operations/')",
+  'includes(deployment',
+];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
@@ -250,6 +279,7 @@ const dashboardAllowedMutationRoutes = new Set([
   '/api/approvals/decisions',
   ...dashboardRecoveryExactPostRoutes,
   ...dashboardMergeExactPostRoutes,
+  ...dashboardDeploymentOperationExactPostRoutes,
 ]);
 const dashboardMutationSurfaceTerms = [
   "method: 'POST'",
@@ -295,6 +325,12 @@ const allowlistRules: AllowlistEntry[] = [
     reason: 'GitHub provider token readiness exposes configured/hash-only metadata',
   },
   {
+    scope: 'production-source',
+    filePrefix: 'packages/secret-governance-kernel/src/',
+    terms: sensitiveConceptTerms,
+    reason: 'M43 secrets governance readiness exposes configured/hash-only metadata and never reads values',
+  },
+  {
     scope: 'test',
     file: 'packages/evidence-kernel/src/evidence-kernel.test.ts',
     terms: sensitiveConceptTerms,
@@ -321,23 +357,23 @@ const allowlistRules: AllowlistEntry[] = [
   {
     scope: 'production-source',
     file: 'apps/cli/src/main.ts',
-    terms: ['/releases', '/deployments'],
+    terms: ['/releases', '/deployments', ...dashboardDeploymentOperationExactPostRoutes],
     reason:
-      'M40/M41 CLI uses these as read-only Supervisor GET route strings; no direct provider or mutating execution path',
+      'M40-M43 CLI uses these as read-only Supervisor route strings; no direct provider or mutating execution path',
   },
   {
     scope: 'production-source',
     file: 'apps/dashboard/src/App.tsx',
     terms: ['/releases', '/deployments'],
     reason:
-      'M40/M41 Dashboard uses these as metadata route/view strings; no direct provider or ungoverned execution path',
+      'M40-M43 Dashboard uses these as governed release/deployment route strings; no direct provider or ungoverned execution path',
   },
   {
     scope: 'production-source',
     file: 'apps/supervisor/src/server.ts',
-    terms: ['/releases', '/deployments'],
+    terms: ['/releases', '/deployments', ...dashboardDeploymentOperationExactPostRoutes],
     reason:
-      'M40/M41 Supervisor owns the governed release and deployment observation control-plane routes',
+      'M40-M43 Supervisor owns the governed release, deployment, and secrets control-plane routes',
   },
   {
     scope: 'fixture',
@@ -615,6 +651,40 @@ function validateAdversarialAuditSentinels(): void {
       description: 'Dashboard merge prefix route guard',
     },
     {
+      workspacePath: 'apps/dashboard/src/adversarial-deployment-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/deployments/operations/runs"; window.localStorage.setItem("deploymentKey", "secret");',
+      expectedTerm: 'localStorage',
+      description: 'Dashboard deployment key persistence',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-deployment-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/deployments/operations/runs"; const body = { dryRunId, executionAuthority: { allowed: true } };',
+      expectedTerm: 'executionAuthority',
+      description: 'Dashboard deployment request-body authority payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-deployment-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/deployments/operations/manual-approvals"; const body = { dryRunId, approvalArtifact: { id: "forged" } };',
+      expectedTerm: 'approvalArtifact:',
+      description: 'Dashboard deployment forged approval artifact payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-deployment-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/deployments/operations/dry-runs"; const body = { provider, rawManifest: manifestText };',
+      expectedTerm: 'rawManifest',
+      description: 'Dashboard deployment raw manifest payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-deployment-ui.tsx',
+      sourceText: "const ok = path.startsWith('/api/deployments/operations/');",
+      expectedTerm: 'startsWith',
+      description: 'Dashboard deployment prefix route guard',
+    },
+    {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
       sourceText: 'const boundary = await import("node:child_process");',
       expectedTerm: 'node:child_process',
@@ -830,6 +900,7 @@ function adversarialSentinelWouldViolate(
   auditDashboardMutationSurfaceGuards(file, sourceText);
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
   auditDashboardMergeWizardScopedGuards(file, sourceText);
+  auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
@@ -849,6 +920,7 @@ function auditFile(file: string): void {
   auditDashboardMutationSurfaceGuards(file, sourceText);
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
   auditDashboardMergeWizardScopedGuards(file, sourceText);
+  auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -1123,7 +1195,8 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
   const hasGovernedDashboardMutation =
     sourceText.includes('/api/approvals/decisions') ||
     sourceText.includes('/api/workflows/production/recoveries/') ||
-    sourceText.includes('/api/github/merges/');
+    sourceText.includes('/api/github/merges/') ||
+    sourceText.includes('/api/deployments/operations/');
 
   if (!isDashboardSource || !hasGovernedDashboardMutation) {
     return;
@@ -1212,7 +1285,11 @@ function isAllowedDashboardMutationLine(lines: string[], index: number): boolean
     (window.includes('recoveryDashboardPostRoutes.has(path)') &&
       dashboardRecoveryExactPostRoutes.every((route) => lines.join('\n').includes(route))) ||
     (window.includes('mergeDashboardPostRoutes.has(path)') &&
-      dashboardMergeExactPostRoutes.every((route) => lines.join('\n').includes(route)))
+      dashboardMergeExactPostRoutes.every((route) => lines.join('\n').includes(route))) ||
+    (window.includes('deploymentOperationDashboardPostRoutes.has(path)') &&
+      dashboardDeploymentOperationExactPostRoutes.every((route) =>
+        lines.join('\n').includes(route),
+      ))
   );
 }
 
@@ -1466,6 +1543,155 @@ function auditDashboardMergePayloadWindow(file: string, name: string, window: st
         term,
         reason:
           'Dashboard merge wizard may only send ids, hashes, fixed strategy, and approver tags to the merge control plane; raw reasons, request-body authority, forged artifacts, raw GitHub data, and token payloads are forbidden.',
+      });
+    }
+  }
+}
+
+function auditDashboardDeploymentOperationWizardScopedGuards(
+  file: string,
+  sourceText: string,
+): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (
+    workspacePath !== 'apps/dashboard/src/App.tsx' &&
+    !workspacePath.includes('adversarial-deployment-ui')
+  ) {
+    return;
+  }
+
+  if (!sourceText.includes('/api/deployments/operations/')) {
+    return;
+  }
+
+  if (workspacePath.includes('adversarial-deployment-ui')) {
+    auditDashboardDeploymentOperationSnippetGuards(file, sourceText);
+    return;
+  }
+
+  for (const route of dashboardDeploymentOperationExactPostRoutes) {
+    if (!sourceText.includes(route)) {
+      violations.push({
+        file,
+        line: 1,
+        term: route,
+        reason: 'Dashboard deployment wizard must keep every allowed POST route explicit.',
+      });
+    }
+  }
+
+  const dryRunWindow = getWindowBetween(
+    sourceText,
+    'async function createDeploymentOperationDryRun',
+    'async function requestDeploymentOperationApproval',
+  );
+  const approvalRequestWindow = getWindowBetween(
+    sourceText,
+    'async function requestDeploymentOperationApproval',
+    'async function approveDeploymentOperationRequest',
+  );
+  const manualApprovalWindow = getWindowBetween(
+    sourceText,
+    'async function approveDeploymentOperationRequest',
+    'async function createDeploymentRollbackPlan',
+  );
+  const rollbackPlanWindow = getWindowBetween(
+    sourceText,
+    'async function createDeploymentRollbackPlan',
+    'async function runDeploymentOperation',
+  );
+  const runWindow = getWindowBetween(
+    sourceText,
+    'async function runDeploymentOperation',
+    'return (',
+  );
+  const postWindow = getWindowBetween(
+    sourceText,
+    'async function postDeploymentOperationJson',
+    '',
+  );
+
+  for (const [name, window] of [
+    ['createDeploymentOperationDryRun', dryRunWindow],
+    ['requestDeploymentOperationApproval', approvalRequestWindow],
+    ['approveDeploymentOperationRequest', manualApprovalWindow],
+    ['createDeploymentRollbackPlan', rollbackPlanWindow],
+    ['runDeploymentOperation', runWindow],
+  ] as const) {
+    auditDashboardDeploymentOperationPayloadWindow(file, name, window);
+  }
+
+  if (!postWindow.includes('deploymentOperationDashboardPostRoutes.has(path)')) {
+    violations.push({
+      file,
+      line: findLineNumber(sourceText, 'async function postDeploymentOperationJson'),
+      term: 'deploymentOperationDashboardPostRoutes.has(path)',
+      reason: 'Dashboard deployment POST helper must enforce the exact route allowlist.',
+    });
+  }
+
+  for (const term of dashboardDeploymentOperationRouteBypassTerms) {
+    if (postWindow.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(sourceText, term),
+        term,
+        reason:
+          'Dashboard deployment POST helper must not use prefix, substring, or dynamic route guards.',
+      });
+    }
+  }
+}
+
+function auditDashboardDeploymentOperationSnippetGuards(file: string, sourceText: string): void {
+  for (const term of dashboardDeploymentOperationScopedPayloadTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason:
+          'Dashboard deployment wizard may only send ids, hashes, provider/action/environment metadata, and approver tags; raw deployment bodies, authority objects, forged artifacts, and env payloads are forbidden.',
+      });
+    }
+  }
+
+  for (const term of dashboardDeploymentOperationRouteBypassTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason: 'Dashboard deployment wizard route checks must use the exact route allowlist.',
+      });
+    }
+  }
+}
+
+function auditDashboardDeploymentOperationPayloadWindow(
+  file: string,
+  name: string,
+  window: string,
+): void {
+  if (window.length === 0) {
+    violations.push({
+      file,
+      line: 1,
+      term: name,
+      reason: `Dashboard deployment wizard function ${name} must remain present for scoped audit coverage.`,
+    });
+    return;
+  }
+
+  for (const term of dashboardDeploymentOperationScopedPayloadTerms) {
+    if (window.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(window, term),
+        term,
+        reason:
+          'Dashboard deployment wizard may only send ids, hashes, provider/action/environment metadata, and approver tags to the deployment operation control plane; raw deployment bodies, request-body authority, forged artifacts, and env payloads are forbidden.',
       });
     }
   }

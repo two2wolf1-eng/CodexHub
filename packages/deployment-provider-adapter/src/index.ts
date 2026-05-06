@@ -2,6 +2,25 @@ import {
   DeploymentAcceptanceRehearsalRunSchema,
   type DeploymentAcceptanceRehearsalRun,
   type DeploymentAcceptanceScenario,
+  DeploymentEnvironmentApprovalPolicySchema,
+  type DeploymentEnvironment,
+  type DeploymentEnvironmentApprovalPolicy,
+  DeploymentOperationAcceptanceRehearsalRunSchema,
+  type DeploymentOperationAcceptanceRehearsalRun,
+  type DeploymentOperationAcceptanceScenario,
+  type DeploymentOperationAction,
+  DeploymentOperationApprovalArtifactSchema,
+  type DeploymentOperationApprovalArtifact,
+  DeploymentOperationPlanSchema,
+  type DeploymentOperationPlan,
+  DeploymentOperationReadinessSchema,
+  type DeploymentOperationReadiness,
+  DeploymentOperationResultSummarySchema,
+  type DeploymentOperationResultSummary,
+  DeploymentOperationRunSchema,
+  type DeploymentOperationRun,
+  DeploymentRollbackPlanSchema,
+  type DeploymentRollbackPlan,
   DeploymentObservationPlanSchema,
   type DeploymentObservationPlan,
   DeploymentObservationRunSchema,
@@ -54,6 +73,77 @@ export interface DeploymentObservationRunInput {
   changedResourceCount?: number;
   processBoundaryInvoked?: boolean;
   externalProcessStarted?: boolean;
+  blockReasons?: readonly string[];
+  now?: () => string;
+}
+
+export interface DeploymentEnvironmentApprovalPolicyInput {
+  environment: DeploymentEnvironment;
+  now?: () => string;
+}
+
+export interface DeploymentOperationReadinessInput {
+  provider: DeploymentProvider;
+  action: DeploymentOperationAction;
+  environment: DeploymentEnvironment;
+  operatorEnabled?: boolean;
+  providerWriteEnabled?: boolean;
+  prodWriteEnabled?: boolean;
+  toolConfigured?: boolean;
+  target?: string;
+  artifact?: string;
+  rollbackPlanRequired?: boolean;
+  rollbackPlanPresent?: boolean;
+  blockReasons?: readonly string[];
+  now?: () => string;
+}
+
+export interface DeploymentRollbackPlanInput {
+  provider: DeploymentProvider;
+  environment: DeploymentEnvironment;
+  target?: string;
+  sourceRun?: string;
+  rollbackArtifact?: string;
+  approvedRollbackArtifact?: string;
+  status?: 'planned' | 'blocked' | 'approved' | 'superseded';
+  blockReasons?: readonly string[];
+  now?: () => string;
+}
+
+export interface DeploymentOperationPlanInput {
+  provider: DeploymentProvider;
+  action: DeploymentOperationAction;
+  environment: DeploymentEnvironment;
+  target?: string;
+  artifact?: string;
+  rollbackPlan?: DeploymentRollbackPlan;
+  runnerMode?: 'planning-only' | 'fixture' | 'controlled-deployment-operation';
+  blockReasons?: readonly string[];
+  now?: () => string;
+}
+
+export interface DeploymentOperationApprovalInput {
+  dryRunRecord: DeploymentOperationPlan;
+  baseRecord?: DeploymentOperationApprovalArtifact;
+  status: 'requested' | 'approved' | 'denied' | 'expired' | 'used' | 'revoked';
+  approvalSlot?: 'primary' | 'secondary';
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  now?: () => string;
+}
+
+export interface DeploymentOperationRunInput {
+  plan: DeploymentOperationPlan;
+  rollbackPlan?: DeploymentRollbackPlan;
+  status?: 'completed' | 'failed' | 'blocked' | 'aborted';
+  approvalArtifactIds?: readonly string[];
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryInvoked?: boolean;
+  changedResourceCount?: number;
+  warningCount?: number;
+  errorCount?: number;
   blockReasons?: readonly string[];
   now?: () => string;
 }
@@ -270,6 +360,367 @@ export function createDeploymentObservationRun(input: DeploymentObservationRunIn
   });
 }
 
+export function createDeploymentEnvironmentApprovalPolicy(
+  input: DeploymentEnvironmentApprovalPolicyInput,
+): DeploymentEnvironmentApprovalPolicy {
+  const now = input.now ?? foundationTimestamp;
+  const prod = input.environment === 'prod';
+
+  return DeploymentEnvironmentApprovalPolicySchema.parse({
+    id: foundationId('deployment_environment_approval_policy'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    environment: input.environment,
+    requiredApprovalCount: prod ? 2 : 1,
+    requiresDistinctApproverHashes: prod,
+    criticalRisk: prod,
+    policyHash: hashText(`deployment:${input.environment}:approval-policy:v1`),
+    summary: prod
+      ? 'Production deployment operations require two distinct approvals.'
+      : `${input.environment} deployment operations require one persisted approval.`,
+  });
+}
+
+export function createDeploymentOperationReadiness(
+  input: DeploymentOperationReadinessInput,
+): DeploymentOperationReadiness {
+  const now = input.now ?? foundationTimestamp;
+  const rollbackPlanRequired = input.rollbackPlanRequired ?? input.action === 'rollback';
+  const rollbackPlanPresent = input.rollbackPlanPresent ?? !rollbackPlanRequired;
+  const blockReasons = [
+    ...(input.blockReasons ?? []),
+    ...(input.operatorEnabled ? [] : ['deployment_operator_disabled']),
+    ...(input.providerWriteEnabled ? [] : [`deployment_${input.provider}_write_disabled`]),
+    ...(input.environment === 'prod' && !input.prodWriteEnabled ? ['deployment_prod_write_disabled'] : []),
+    ...(input.toolConfigured ? [] : ['deployment_tool_missing']),
+    ...(rollbackPlanRequired && !rollbackPlanPresent ? ['rollback_plan_missing'] : []),
+  ];
+
+  return DeploymentOperationReadinessSchema.parse({
+    id: foundationId('deployment_operation_readiness'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    provider: input.provider,
+    action: input.action,
+    environment: input.environment,
+    operatorEnabled: input.operatorEnabled ?? false,
+    providerWriteEnabled: input.providerWriteEnabled ?? false,
+    prodWriteEnabled: input.prodWriteEnabled ?? false,
+    toolConfigured: input.toolConfigured ?? false,
+    rollbackPlanRequired,
+    rollbackPlanPresent,
+    targetHash: input.target ? hashText(input.target) : undefined,
+    artifactHash: input.artifact ? hashText(input.artifact) : undefined,
+    blockerCount: blockReasons.length,
+    blockReasons,
+    approvalPolicy: createDeploymentEnvironmentApprovalPolicy({
+      environment: input.environment,
+      now,
+    }),
+    tokenValueStored: false,
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    arbitraryCommandAllowed: false,
+    summary:
+      blockReasons.length > 0
+        ? `${input.provider} ${input.action} is blocked for ${input.environment}.`
+        : `${input.provider} ${input.action} is ready for governed operation.`,
+  });
+}
+
+export function createDeploymentRollbackPlan(input: DeploymentRollbackPlanInput): DeploymentRollbackPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = [...(input.blockReasons ?? [])];
+
+  return DeploymentRollbackPlanSchema.parse({
+    id: foundationId('deployment_rollback_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    rollbackPlanId: foundationId('deployment_rollback_plan_id'),
+    status: input.status ?? (blockReasons.length > 0 ? 'blocked' : 'planned'),
+    provider: input.provider,
+    environment: input.environment,
+    targetHash: hashText(input.target ?? `${input.provider}:${input.environment}:target`),
+    sourceRunHash: hashText(input.sourceRun ?? `${input.provider}:${input.environment}:source-run`),
+    rollbackArtifactHash: hashText(
+      input.rollbackArtifact ?? `${input.provider}:${input.environment}:rollback-artifact`,
+    ),
+    approvedRollbackArtifactHash: hashText(
+      input.approvedRollbackArtifact ??
+        `${input.provider}:${input.environment}:approved-rollback-artifact`,
+    ),
+    blockReasons,
+    evidenceRefs: [
+      createDeploymentEvidenceRef(
+        'deployment.rollback_plan',
+        hashText(`${input.provider}:${input.environment}:rollback-plan`),
+        'Deployment rollback plan stores hashes only.',
+        now,
+      ),
+    ],
+    auditEventIds: [foundationId('audit_deployment_rollback_plan')],
+    deleteAllowed: false,
+    destroyAllowed: false,
+    forceAllowed: false,
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      blockReasons.length > 0
+        ? `${input.provider} rollback plan is blocked.`
+        : `${input.provider} rollback plan is hash-bound and metadata-only.`,
+  });
+}
+
+export function createDeploymentOperationPlan(
+  input: DeploymentOperationPlanInput,
+): DeploymentOperationPlan {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = [
+    ...(input.blockReasons ?? []),
+    ...(input.action === 'rollback' && !input.rollbackPlan ? ['rollback_plan_missing'] : []),
+  ];
+  const runnerMode = input.runnerMode ?? 'controlled-deployment-operation';
+  const status = blockReasons.length > 0 ? 'blocked' : 'planned';
+
+  return DeploymentOperationPlanSchema.parse({
+    id: foundationId('deployment_operation_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: foundationId('deployment_operation_dry_run'),
+    status,
+    provider: input.provider,
+    action: input.action,
+    environment: input.environment,
+    runnerMode,
+    targetHash: hashText(input.target ?? `${input.provider}:${input.environment}:target`),
+    artifactHash: hashText(input.artifact ?? `${input.provider}:${input.action}:artifact`),
+    rollbackPlanId: input.rollbackPlan?.rollbackPlanId,
+    rollbackPlanHash: input.rollbackPlan ? hashText(JSON.stringify(input.rollbackPlan)) : undefined,
+    approvalPolicy: createDeploymentEnvironmentApprovalPolicy({
+      environment: input.environment,
+      now,
+    }),
+    blockReasons,
+    policyDecision: createDeploymentOperationPolicyDecision(
+      input.provider,
+      input.action,
+      input.environment,
+      now,
+    ),
+    requiresApproval: true,
+    evidenceRefs: [
+      createDeploymentEvidenceRef(
+        'deployment.operation_plan',
+        hashText(`${input.provider}:${input.action}:${input.environment}:operation-plan`),
+        'Deployment operation plan is metadata-only.',
+        now,
+      ),
+    ],
+    auditEventIds: [foundationId('audit_deployment_operation_plan')],
+    processBoundaryPlanned: status === 'planned' && runnerMode !== 'fixture',
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryPlanned: false,
+    networkBoundaryInvoked: false,
+    noDelete: true,
+    noDestroy: true,
+    fixedRunner: true,
+    arbitraryCommandAllowed: false,
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary:
+      status === 'blocked'
+        ? `${input.provider} ${input.action} is blocked before runner start.`
+        : `${input.provider} ${input.action} is planned through a fixed governed runner.`,
+  });
+}
+
+export function createDeploymentOperationApprovalRecord(
+  input: DeploymentOperationApprovalInput,
+): DeploymentOperationApprovalArtifact {
+  const now = input.now ?? foundationTimestamp;
+  const requestedIdentity = input.requestedBy ?? input.baseRecord?.approverHash ?? 'operator';
+  const decidedIdentity = input.decidedBy ?? input.baseRecord?.approverHash ?? requestedIdentity;
+  const reason = input.reason ?? input.baseRecord?.reasonSummary ?? `${input.status} deployment operation`;
+  const status = input.status;
+
+  return DeploymentOperationApprovalArtifactSchema.parse({
+    id: foundationId('deployment_operation_approval'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId:
+      input.baseRecord?.approvalRequestId ?? foundationId('deployment_operation_approval_request'),
+    approvalArtifactId:
+      input.baseRecord?.approvalArtifactId ?? foundationId('deployment_operation_approval_artifact'),
+    status,
+    approved: status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    provider: input.dryRunRecord.provider,
+    action: input.dryRunRecord.action,
+    environment: input.dryRunRecord.environment,
+    targetHash: input.dryRunRecord.targetHash,
+    expectedPlanHash: hashText(JSON.stringify(input.dryRunRecord)),
+    approvalSlot: input.approvalSlot ?? input.baseRecord?.approvalSlot ?? 'primary',
+    approvedAt: status === 'approved' ? now() : input.baseRecord?.approvedAt,
+    usedAt: status === 'used' ? now() : undefined,
+    deniedAt: status === 'denied' ? now() : undefined,
+    revokedAt: status === 'revoked' ? now() : undefined,
+    reasonHash: hashText(reason),
+    reasonSummary: `${status} deployment operation approval metadata.`,
+    approverHash: hashText(status === 'requested' ? requestedIdentity : decidedIdentity),
+    evidenceRefs: [
+      createDeploymentEvidenceRef(
+        'deployment.operation_summary',
+        hashText(`${input.dryRunRecord.provider}:${status}:deployment-approval`),
+        'Deployment operation approval stores hashes only.',
+        now,
+      ),
+    ],
+    auditEventIds: [foundationId('audit_deployment_operation_approval')],
+    tokenValueStored: false,
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: `${status} deployment operation approval for ${input.dryRunRecord.provider}.`,
+  });
+}
+
+export function createDeploymentOperationRun(input: DeploymentOperationRunInput): DeploymentOperationRun {
+  const now = input.now ?? foundationTimestamp;
+  const blockReasons = [...(input.blockReasons ?? [])];
+  const status = input.status ?? (blockReasons.length > 0 ? 'blocked' : 'completed');
+  const boundaryInvoked =
+    input.processBoundaryInvoked ??
+    (status !== 'blocked' && input.plan.runnerMode === 'controlled-deployment-operation');
+  const resultSummary: DeploymentOperationResultSummary = DeploymentOperationResultSummarySchema.parse({
+    id: foundationId('deployment_operation_result'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    provider: input.plan.provider,
+    action: input.plan.action,
+    environment: input.plan.environment,
+    targetHash: input.plan.targetHash,
+    resultHash: hashText(`${input.plan.provider}:${input.plan.action}:${status}:result`),
+    changedResourceCount: input.changedResourceCount ?? (status === 'completed' ? 1 : 0),
+    warningCount: input.warningCount ?? (status === 'completed' ? 0 : blockReasons.length),
+    errorCount: input.errorCount ?? (status === 'failed' ? 1 : 0),
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: `Deployment operation result completed with ${status} metadata.`,
+  });
+
+  return DeploymentOperationRunSchema.parse({
+    id: foundationId('deployment_operation_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    status,
+    plan: input.plan,
+    resultSummary,
+    rollbackPlan: input.rollbackPlan,
+    approvalArtifactIds: [...(input.approvalArtifactIds ?? [])],
+    blockReasons,
+    evidenceRefs: [
+      createDeploymentEvidenceRef(
+        'deployment.operation_summary',
+        hashText(`${input.plan.provider}:${input.plan.action}:${status}:operation-run`),
+        'Deployment operation run stores result hashes only.',
+        now,
+      ),
+    ],
+    auditEventIds: [foundationId('audit_deployment_operation_run')],
+    processBoundaryInvoked: boundaryInvoked,
+    externalProcessStarted: input.externalProcessStarted ?? boundaryInvoked,
+    networkBoundaryInvoked: input.networkBoundaryInvoked ?? false,
+    noDelete: true,
+    noDestroy: true,
+    fixedRunner: true,
+    arbitraryCommandAllowed: false,
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: `${input.plan.provider} ${input.plan.action} finished with ${status}.`,
+  });
+}
+
+export function runDeploymentOperationAcceptanceRehearsal(input: {
+  provider: DeploymentProvider;
+  action?: DeploymentOperationAction;
+  environment?: DeploymentEnvironment;
+  scenario: DeploymentOperationAcceptanceScenario;
+  now?: () => string;
+}): DeploymentOperationAcceptanceRehearsalRun {
+  const now = input.now ?? foundationTimestamp;
+  const passed = input.scenario === 'all-pass';
+  const rollbackScenario = input.scenario === 'rollback-plan-missing' || input.scenario === 'rollback-failed';
+  const action = input.action ?? (rollbackScenario ? 'rollback' : 'apply');
+
+  return DeploymentOperationAcceptanceRehearsalRunSchema.parse({
+    id: foundationId('deployment_operation_rehearsal'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    scenario: input.scenario,
+    provider: input.provider,
+    action,
+    environment: input.environment ?? 'staging',
+    status: passed ? 'passed' : input.scenario.endsWith('failed') ? 'failed' : 'blocked',
+    readinessStatus:
+      input.scenario === 'provider-disabled' || input.scenario === 'tool-missing'
+        ? 'blocked'
+        : 'fixture_completed',
+    operationStatus: passed ? 'fixture_completed' : input.scenario.endsWith('failed') ? 'failed' : 'blocked',
+    rollbackStatus:
+      action === 'rollback' && input.scenario === 'rollback-plan-missing'
+        ? 'blocked'
+        : action === 'rollback'
+          ? 'fixture_completed'
+          : 'skipped',
+    stepCount: action === 'rollback' ? 4 : 3,
+    blockerCount: passed ? 0 : 1,
+    evidenceRefCount: 2,
+    auditEventCount: 2,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    noDelete: true,
+    noDestroy: true,
+    fixedRunner: true,
+    arbitraryCommandAllowed: false,
+    rawManifestStored: false,
+    rawPlanStored: false,
+    rawDiffStored: false,
+    rawLogStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: passed
+      ? `${input.provider} deployment operation rehearsal passed with fixture metadata.`
+      : `${input.provider} deployment operation rehearsal blocked for ${input.scenario}.`,
+  });
+}
+
 export function runDeploymentAcceptanceRehearsal(input: {
   provider: DeploymentProvider;
   scenario: DeploymentAcceptanceScenario;
@@ -328,6 +779,31 @@ function createDeploymentPolicyDecision(provider: DeploymentProvider, now: () =>
     riskLevel: 'high',
     outcome: 'approval_required',
     reasons: ['live deployment observation requires persisted approval'],
+    requiresDryRun: true,
+    requiresApproval: true,
+  });
+}
+
+function createDeploymentOperationPolicyDecision(
+  provider: DeploymentProvider,
+  action: DeploymentOperationAction,
+  environment: DeploymentEnvironment,
+  now: () => string,
+): PolicyDecision {
+  return PolicyDecisionSchema.parse({
+    id: foundationId('policy_deployment_operation'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(),
+    actionId: foundationId('deployment_operation'),
+    actionType: `deployment.${provider}.${action}.${environment}`,
+    actionMode: 'write',
+    riskLevel: environment === 'prod' ? 'critical' : 'high',
+    outcome: 'approval_required',
+    reasons: [
+      environment === 'prod'
+        ? 'production deployment operations require two persisted approvals'
+        : 'deployment operations require dry-run and persisted approval',
+    ],
     requiresDryRun: true,
     requiresApproval: true,
   });

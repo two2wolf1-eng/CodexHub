@@ -20,6 +20,10 @@ import type {
   DeploymentObservationApprovalArtifact,
   DeploymentObservationPlan,
   DeploymentObservationRun,
+  DeploymentOperationApprovalArtifact,
+  DeploymentOperationPlan,
+  DeploymentOperationRun,
+  DeploymentRollbackPlan,
   GithubBranchPublishApprovalArtifactRecord,
   GithubBranchPublishPlan,
   GithubBranchPublishRun,
@@ -67,6 +71,10 @@ import type {
   LocalRcBundleControlPlaneRun,
   LocalRcBundleDryRunRecord,
   ReleaseVersionPlan,
+  SecretLeakAuditSummary,
+  SecretReadinessApprovalArtifact,
+  SecretReadinessPlan,
+  SecretReadinessRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -152,6 +160,8 @@ export type ReleaseVersionPlanControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubReleaseTagControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubReleaseDraftControlPlaneQuery = WorktreeControlPlaneQuery;
 export type DeploymentObservationControlPlaneQuery = WorktreeControlPlaneQuery;
+export type DeploymentOperationControlPlaneQuery = WorktreeControlPlaneQuery;
+export type SecretReadinessControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -716,6 +726,68 @@ export interface DeploymentObservationRunRepository {
   listRuns(query?: DeploymentObservationControlPlaneQuery): Promise<DeploymentObservationRun[]>;
 }
 
+export interface DeploymentOperationDryRunRepository {
+  saveDryRun(record: DeploymentOperationPlan): Promise<DeploymentOperationPlan>;
+  getDryRun(id: string): Promise<DeploymentOperationPlan | undefined>;
+  listDryRuns(query?: DeploymentOperationControlPlaneQuery): Promise<DeploymentOperationPlan[]>;
+}
+
+export interface DeploymentOperationApprovalRepository {
+  saveApproval(record: DeploymentOperationApprovalArtifact): Promise<DeploymentOperationApprovalArtifact>;
+  getApproval(id: string): Promise<DeploymentOperationApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<DeploymentOperationApprovalArtifact | undefined>;
+  listApprovals(
+    query?: DeploymentOperationControlPlaneQuery,
+  ): Promise<DeploymentOperationApprovalArtifact[]>;
+}
+
+export interface DeploymentRollbackPlanRepository {
+  saveRollbackPlan(record: DeploymentRollbackPlan): Promise<DeploymentRollbackPlan>;
+  getRollbackPlan(id: string): Promise<DeploymentRollbackPlan | undefined>;
+  listRollbackPlans(
+    query?: DeploymentOperationControlPlaneQuery,
+  ): Promise<DeploymentRollbackPlan[]>;
+}
+
+export interface DeploymentOperationRunRepository {
+  saveRun(record: DeploymentOperationRun): Promise<DeploymentOperationRun>;
+  getRun(id: string): Promise<DeploymentOperationRun | undefined>;
+  listRuns(query?: DeploymentOperationControlPlaneQuery): Promise<DeploymentOperationRun[]>;
+}
+
+export interface SecretReadinessDryRunRepository {
+  saveDryRun(record: SecretReadinessPlan): Promise<SecretReadinessPlan>;
+  getDryRun(id: string): Promise<SecretReadinessPlan | undefined>;
+  listDryRuns(query?: SecretReadinessControlPlaneQuery): Promise<SecretReadinessPlan[]>;
+}
+
+export interface SecretReadinessApprovalRepository {
+  saveApproval(record: SecretReadinessApprovalArtifact): Promise<SecretReadinessApprovalArtifact>;
+  getApproval(id: string): Promise<SecretReadinessApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<SecretReadinessApprovalArtifact | undefined>;
+  listApprovals(
+    query?: SecretReadinessControlPlaneQuery,
+  ): Promise<SecretReadinessApprovalArtifact[]>;
+}
+
+export interface SecretReadinessRunRepository {
+  saveRun(record: SecretReadinessRun): Promise<SecretReadinessRun>;
+  getRun(id: string): Promise<SecretReadinessRun | undefined>;
+  listRuns(query?: SecretReadinessControlPlaneQuery): Promise<SecretReadinessRun[]>;
+}
+
+export interface SecretLeakAuditSummaryRepository {
+  saveLeakAuditSummary(record: SecretLeakAuditSummary): Promise<SecretLeakAuditSummary>;
+  getLeakAuditSummary(id: string): Promise<SecretLeakAuditSummary | undefined>;
+  listLeakAuditSummaries(
+    query?: SecretReadinessControlPlaneQuery,
+  ): Promise<SecretLeakAuditSummary[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -1096,6 +1168,14 @@ export interface CodexHubStore {
   deploymentObservationDryRuns: DeploymentObservationDryRunRepository;
   deploymentObservationApprovals: DeploymentObservationApprovalRepository;
   deploymentObservationRuns: DeploymentObservationRunRepository;
+  deploymentOperationDryRuns: DeploymentOperationDryRunRepository;
+  deploymentOperationApprovals: DeploymentOperationApprovalRepository;
+  deploymentRollbackPlans: DeploymentRollbackPlanRepository;
+  deploymentOperationRuns: DeploymentOperationRunRepository;
+  secretReadinessDryRuns: SecretReadinessDryRunRepository;
+  secretReadinessApprovals: SecretReadinessApprovalRepository;
+  secretReadinessRuns: SecretReadinessRunRepository;
+  secretLeakAuditSummaries: SecretLeakAuditSummaryRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

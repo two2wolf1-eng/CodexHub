@@ -124,16 +124,28 @@ const lateStageSupervisorControlPlaneMatrix = [
     prefix: '/api/workflows/production/recoveries',
     approvalManagedExternally: false,
   },
+  {
+    family: 'deployment-operations',
+    prefix: '/api/deployments/operations',
+    approvalManagedExternally: false,
+    extraMutatingRoutes: ['/api/deployments/operations/rollback-plans'],
+  },
+  {
+    family: 'secret-readiness',
+    prefix: '/api/secrets/readiness',
+    approvalManagedExternally: false,
+  },
 ] as const;
 const lateStageSupervisorMutatingRoutes = lateStageSupervisorControlPlaneMatrix.flatMap((entry) =>
-  entry.approvalManagedExternally
+  (entry.approvalManagedExternally
     ? [`${entry.prefix}/dry-runs`, `${entry.prefix}/runs`]
     : [
         `${entry.prefix}/dry-runs`,
         `${entry.prefix}/approval-requests`,
         `${entry.prefix}/manual-approvals`,
         `${entry.prefix}/runs`,
-      ],
+      ]
+  ).concat('extraMutatingRoutes' in entry ? entry.extraMutatingRoutes : []),
 );
 const lateStageSupervisorRoutePrefixes = lateStageSupervisorControlPlaneMatrix.map(
   (entry) => entry.prefix,
@@ -378,6 +390,29 @@ describe('supervisor mock development API', () => {
       )
       .concat(
         [...serverSource.matchAll(/registerGithubActionsDispatchRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerDeploymentOperationRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/rollback-plans`,
+            `${prefix}/runs`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerSecretReadinessRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
           .flatMap((prefix) => [
@@ -6384,6 +6419,186 @@ describe('supervisor GitHub draft PR control plane', () => {
     });
     expect(runResponse.json().blockReasons).toContain('github_draft_pr_disabled');
     expect(fetchCalled).toBe(false);
+  });
+});
+
+describe('supervisor deployment and secrets governance control planes', () => {
+  it('governs prod deployment operations with two approvals and metadata-only output', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-deployment-operation-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      deploymentOperatorEnabled: true,
+      deploymentKubernetesWriteEnabled: true,
+      deploymentProdWriteEnabled: true,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        provider: 'kubernetes',
+        action: 'apply',
+        environment: 'prod',
+        targetHash: 'sha256:deployment-target',
+        artifactHash: 'sha256:manifest-artifact',
+      },
+    });
+    const dryRun = dryRunResponse.json();
+
+    const firstApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, approvalSlot: 'primary' },
+    });
+    const firstApprovalRequest = firstApprovalRequestResponse.json();
+    const firstApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: firstApprovalRequest.approvalRequestId,
+        outcome: 'approved',
+        approvalSlot: 'primary',
+        decidedBy: 'operator-a',
+      },
+    });
+    const firstApproval = firstApprovalResponse.json();
+
+    const oneApprovalRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [firstApproval.approvalArtifactId],
+      },
+    });
+
+    const secondApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId, approvalSlot: 'secondary' },
+    });
+    const secondApprovalRequest = secondApprovalRequestResponse.json();
+    const secondApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: secondApprovalRequest.approvalRequestId,
+        outcome: 'approved',
+        approvalSlot: 'secondary',
+        decidedBy: 'operator-b',
+      },
+    });
+    const secondApproval = secondApprovalResponse.json();
+
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [
+          firstApproval.approvalArtifactId,
+          secondApproval.approvalArtifactId,
+        ],
+      },
+    });
+    const rawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/deployments/operations/dry-runs',
+      headers: localControlHeaders,
+      payload: { rawManifest: 'apiVersion: v1\nkind: Secret' },
+    });
+
+    await server.close();
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.requiredApprovalCount).toBe(2);
+    expect(oneApprovalRunResponse.statusCode).toBe(200);
+    expect(oneApprovalRunResponse.json().status).toBe('blocked');
+    expect(oneApprovalRunResponse.json().processBoundaryInvoked).toBe(false);
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json().status).toBe('completed');
+    expect(completedResponse.json().processBoundaryInvoked).toBe(true);
+    expect(completedResponse.body).not.toContain('apiVersion');
+    expect(completedResponse.body).not.toContain('kind: Secret');
+    expect(rawBodyResponse.statusCode).toBe(400);
+  });
+
+  it('keeps secrets readiness hash-only and rejects secret values', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-secrets-readiness-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      secretsGovernanceEnabled: true,
+      secretsVaultReadinessEnabled: true,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/secrets/readiness/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        provider: 'vault',
+        environment: 'prod',
+        configHash: 'sha256:vault-config',
+        expectedReferenceCount: 1,
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/secrets/readiness/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.dryRunId },
+    });
+    const approvalRequest = approvalRequestResponse.json();
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/secrets/readiness/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalRequestId: approvalRequest.approvalRequestId,
+        outcome: 'approved',
+        decidedBy: 'operator-a',
+      },
+    });
+    const approval = approvalResponse.json();
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/secrets/readiness/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactId: approval.approvalArtifactId,
+      },
+    });
+    const rawSecretResponse = await server.inject({
+      method: 'POST',
+      url: '/api/secrets/readiness/dry-runs',
+      headers: localControlHeaders,
+      payload: { provider: 'vault', secretValue: 'plaintext-secret' },
+    });
+
+    await server.close();
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json().secretValueReadAllowed).toBe(false);
+    expect(completedResponse.json().secretValueStored).toBe(false);
+    expect(completedResponse.body).not.toContain('plaintext-secret');
+    expect(rawSecretResponse.statusCode).toBe(400);
   });
 });
 

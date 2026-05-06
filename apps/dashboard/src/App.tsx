@@ -147,6 +147,13 @@ interface OverviewState {
   deploymentObservationDryRuns: DeploymentObservationControlSummary[];
   deploymentObservationApprovals: DeploymentObservationControlSummary[];
   deploymentObservationRuns: DeploymentObservationControlSummary[];
+  deploymentOperationDryRuns: DeploymentOperationControlSummary[];
+  deploymentOperationApprovals: DeploymentOperationControlSummary[];
+  deploymentOperationRollbackPlans: DeploymentOperationControlSummary[];
+  deploymentOperationRuns: DeploymentOperationControlSummary[];
+  secretReadinessDryRuns: SecretReadinessControlSummary[];
+  secretReadinessApprovals: SecretReadinessControlSummary[];
+  secretReadinessRuns: SecretReadinessControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -732,6 +739,93 @@ interface DeploymentObservationControlSummary {
   summary?: string;
 }
 
+interface DeploymentOperationControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalRequestId?: string;
+  approvalArtifactId?: string;
+  rollbackPlanId?: string;
+  runId?: string;
+  status?: string;
+  provider?: string;
+  action?: string;
+  environment?: string;
+  runnerMode?: string;
+  targetHash?: string;
+  artifactHash?: string;
+  rollbackPlanHash?: string;
+  resultHash?: string;
+  requiredApprovalCount?: number;
+  requiresDistinctApproverHashes?: boolean;
+  approvalArtifactIdCount?: number;
+  approvalSlot?: string;
+  approved?: boolean;
+  approverHash?: string;
+  changedResourceCount?: number;
+  warningCount?: number;
+  errorCount?: number;
+  blockReasons?: string[];
+  processBoundaryPlanned?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryInvoked?: boolean;
+  fixedRunner?: boolean;
+  arbitraryCommandAllowed?: boolean;
+  noDelete?: boolean;
+  noDestroy?: boolean;
+  destroyAllowed?: boolean;
+  forceAllowed?: boolean;
+  rawManifestStored?: boolean;
+  rawPlanStored?: boolean;
+  rawDiffStored?: boolean;
+  rawLogStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface SecretReadinessControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalRequestId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  provider?: string;
+  environment?: string;
+  governanceEnabled?: boolean;
+  providerEnabled?: boolean;
+  configured?: boolean;
+  configHash?: string;
+  expectedReferenceCount?: number;
+  providerBlockerCount?: number;
+  environmentBlockerCount?: number;
+  secretRefCount?: number;
+  configuredRefHashCount?: number;
+  leakDetected?: boolean;
+  leakFindingCount?: number;
+  blockReasons?: string[];
+  approved?: boolean;
+  approverHash?: string;
+  processBoundaryPlanned?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryInvoked?: boolean;
+  secretValueReadAllowed?: boolean;
+  secretValueStored?: boolean;
+  tokenValueStored?: boolean;
+  envValueStored?: boolean;
+  rawConfigStored?: boolean;
+  rawPathStored?: boolean;
+  rawUrlStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
 interface GithubPrManagementControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -1104,8 +1198,24 @@ const mergeDashboardPostRoutes = new Set([
   '/api/github/merges/manual-approvals',
   '/api/github/merges/runs',
 ]);
+const deploymentOperationDashboardPostRoutes = new Set([
+  '/api/deployments/operations/dry-runs',
+  '/api/deployments/operations/approval-requests',
+  '/api/deployments/operations/manual-approvals',
+  '/api/deployments/operations/rollback-plans',
+  '/api/deployments/operations/runs',
+]);
 type RecoveryTemplateId = (typeof recoveryTemplateOptions)[number]['id'];
 type GithubMergeStrategyOption = 'squash' | 'merge' | 'rebase';
+type DeploymentOperationProviderOption =
+  | 'docker'
+  | 'kubernetes'
+  | 'helm'
+  | 'argo-cd'
+  | 'terraform'
+  | 'opentofu';
+type DeploymentOperationActionOption = 'deploy' | 'apply' | 'sync' | 'rollback';
+type DeploymentOperationEnvironmentOption = 'dev' | 'staging' | 'prod';
 
 interface RecoveryGuidedOperationState {
   recoveryKey: string;
@@ -1167,6 +1277,41 @@ interface MergeGuidedOperationState {
   requestMergeApproval: (approvalPhase: 'readiness' | 'merge_execution') => Promise<void>;
   approveMergeRequest: (approvalPhase: 'readiness' | 'merge_execution') => Promise<void>;
   runMerge: () => Promise<void>;
+}
+
+interface DeploymentGuidedOperationState {
+  deploymentKey: string;
+  setDeploymentKey: (value: string) => void;
+  deploymentProvider: DeploymentOperationProviderOption;
+  setDeploymentProvider: (value: DeploymentOperationProviderOption) => void;
+  deploymentAction: DeploymentOperationActionOption;
+  setDeploymentAction: (value: DeploymentOperationActionOption) => void;
+  deploymentEnvironment: DeploymentOperationEnvironmentOption;
+  setDeploymentEnvironment: (value: DeploymentOperationEnvironmentOption) => void;
+  deploymentMessage: string;
+  deploymentBusy: boolean;
+  deploymentDryRunId: string;
+  setDeploymentDryRunId: (value: string) => void;
+  deploymentRollbackPlanId: string;
+  setDeploymentRollbackPlanId: (value: string) => void;
+  deploymentApprovalRequestId: string;
+  setDeploymentApprovalRequestId: (value: string) => void;
+  deploymentApprovalArtifactId: string;
+  setDeploymentApprovalArtifactId: (value: string) => void;
+  deploymentSecondApprovalArtifactId: string;
+  setDeploymentSecondApprovalArtifactId: (value: string) => void;
+  deploymentApprover: string;
+  setDeploymentApprover: (value: string) => void;
+  deploymentSecondApprover: string;
+  setDeploymentSecondApprover: (value: string) => void;
+  latestDeploymentDryRun?: DeploymentOperationControlSummary;
+  latestDeploymentApproval?: DeploymentOperationControlSummary;
+  latestDeploymentRun?: DeploymentOperationControlSummary;
+  createDeploymentOperationDryRun: () => Promise<void>;
+  requestDeploymentOperationApproval: () => Promise<void>;
+  approveDeploymentOperationRequest: (slot: 'primary' | 'secondary') => Promise<void>;
+  createDeploymentRollbackPlan: () => Promise<void>;
+  runDeploymentOperation: () => Promise<void>;
 }
 
 export function App() {
@@ -1243,6 +1388,13 @@ export function App() {
     deploymentObservationDryRuns: [],
     deploymentObservationApprovals: [],
     deploymentObservationRuns: [],
+    deploymentOperationDryRuns: [],
+    deploymentOperationApprovals: [],
+    deploymentOperationRollbackPlans: [],
+    deploymentOperationRuns: [],
+    secretReadinessDryRuns: [],
+    secretReadinessApprovals: [],
+    secretReadinessRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -1318,6 +1470,21 @@ export function App() {
   const [mergeExecutionApprovalArtifactId, setMergeExecutionApprovalArtifactId] = useState('');
   const [mergeReadinessApprover, setMergeReadinessApprover] = useState('');
   const [mergeExecutionApprover, setMergeExecutionApprover] = useState('');
+  const [deploymentKey, setDeploymentKey] = useState('');
+  const [deploymentProvider, setDeploymentProvider] =
+    useState<DeploymentOperationProviderOption>('kubernetes');
+  const [deploymentAction, setDeploymentAction] = useState<DeploymentOperationActionOption>('apply');
+  const [deploymentEnvironment, setDeploymentEnvironment] =
+    useState<DeploymentOperationEnvironmentOption>('staging');
+  const [deploymentMessage, setDeploymentMessage] = useState('');
+  const [deploymentBusy, setDeploymentBusy] = useState(false);
+  const [deploymentDryRunId, setDeploymentDryRunId] = useState('');
+  const [deploymentRollbackPlanId, setDeploymentRollbackPlanId] = useState('');
+  const [deploymentApprovalRequestId, setDeploymentApprovalRequestId] = useState('');
+  const [deploymentApprovalArtifactId, setDeploymentApprovalArtifactId] = useState('');
+  const [deploymentSecondApprovalArtifactId, setDeploymentSecondApprovalArtifactId] = useState('');
+  const [deploymentApprover, setDeploymentApprover] = useState('');
+  const [deploymentSecondApprover, setDeploymentSecondApprover] = useState('');
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
   const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
@@ -1602,6 +1769,45 @@ export function App() {
       (record) => record.approvalPhase === 'merge_execution' && record.status === 'approved',
     ) ?? overview.githubMergeApprovals.find((record) => record.approvalPhase === 'merge_execution');
   const latestMergeRun = overview.githubMergeRuns[0];
+  const latestDeploymentDryRun = overview.deploymentOperationDryRuns[0];
+  const latestDeploymentApproval =
+    overview.deploymentOperationApprovals.find((record) => record.status === 'approved') ??
+    overview.deploymentOperationApprovals[0];
+  const latestDeploymentRun = overview.deploymentOperationRuns[0];
+  const deploymentGuidedOperation: DeploymentGuidedOperationState = {
+    deploymentKey,
+    setDeploymentKey,
+    deploymentProvider,
+    setDeploymentProvider,
+    deploymentAction,
+    setDeploymentAction,
+    deploymentEnvironment,
+    setDeploymentEnvironment,
+    deploymentMessage,
+    deploymentBusy,
+    deploymentDryRunId,
+    setDeploymentDryRunId,
+    deploymentRollbackPlanId,
+    setDeploymentRollbackPlanId,
+    deploymentApprovalRequestId,
+    setDeploymentApprovalRequestId,
+    deploymentApprovalArtifactId,
+    setDeploymentApprovalArtifactId,
+    deploymentSecondApprovalArtifactId,
+    setDeploymentSecondApprovalArtifactId,
+    deploymentApprover,
+    setDeploymentApprover,
+    deploymentSecondApprover,
+    setDeploymentSecondApprover,
+    latestDeploymentDryRun,
+    latestDeploymentApproval,
+    latestDeploymentRun,
+    createDeploymentOperationDryRun,
+    requestDeploymentOperationApproval,
+    approveDeploymentOperationRequest,
+    createDeploymentRollbackPlan,
+    runDeploymentOperation,
+  };
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary();
   const readinessSummary = createOperatorReadinessReadOnlySummary();
   const governanceSummary = createGovernanceReadOnlySummary([
@@ -2150,6 +2356,13 @@ export function App() {
           deploymentObservationDryRunsResponse,
           deploymentObservationApprovalsResponse,
           deploymentObservationRunsResponse,
+          deploymentOperationDryRunsResponse,
+          deploymentOperationApprovalsResponse,
+          deploymentOperationRollbackPlansResponse,
+          deploymentOperationRunsResponse,
+          secretReadinessDryRunsResponse,
+          secretReadinessApprovalsResponse,
+          secretReadinessRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -2371,6 +2584,34 @@ export function App() {
           ),
           getOptionalJson<{ records: DeploymentObservationControlSummary[] }>(
             '/api/deployments/observations/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+            '/api/deployments/operations/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+            '/api/deployments/operations/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+            '/api/deployments/operations/rollback-plans',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+            '/api/deployments/operations/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: SecretReadinessControlSummary[] }>(
+            '/api/secrets/readiness/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: SecretReadinessControlSummary[] }>(
+            '/api/secrets/readiness/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: SecretReadinessControlSummary[] }>(
+            '/api/secrets/readiness/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
@@ -2639,6 +2880,13 @@ export function App() {
             deploymentObservationDryRuns: deploymentObservationDryRunsResponse.records,
             deploymentObservationApprovals: deploymentObservationApprovalsResponse.records,
             deploymentObservationRuns: deploymentObservationRunsResponse.records,
+            deploymentOperationDryRuns: deploymentOperationDryRunsResponse.records,
+            deploymentOperationApprovals: deploymentOperationApprovalsResponse.records,
+            deploymentOperationRollbackPlans: deploymentOperationRollbackPlansResponse.records,
+            deploymentOperationRuns: deploymentOperationRunsResponse.records,
+            secretReadinessDryRuns: secretReadinessDryRunsResponse.records,
+            secretReadinessApprovals: secretReadinessApprovalsResponse.records,
+            secretReadinessRuns: secretReadinessRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -2760,6 +3008,13 @@ export function App() {
             deploymentObservationDryRuns: [],
             deploymentObservationApprovals: [],
             deploymentObservationRuns: [],
+            deploymentOperationDryRuns: [],
+            deploymentOperationApprovals: [],
+            deploymentOperationRollbackPlans: [],
+            deploymentOperationRuns: [],
+            secretReadinessDryRuns: [],
+            secretReadinessApprovals: [],
+            secretReadinessRuns: [],
             githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
@@ -2857,6 +3112,36 @@ export function App() {
       githubMergeDryRuns: dryRunsResponse.records,
       githubMergeApprovals: approvalsResponse.records,
       githubMergeRuns: runsResponse.records,
+    }));
+  }
+
+  async function refreshDeploymentOperationRecords() {
+    const [dryRunsResponse, approvalsResponse, rollbackPlansResponse, runsResponse] =
+      await Promise.all([
+        getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+          '/api/deployments/operations/dry-runs',
+          { records: [] },
+        ),
+        getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+          '/api/deployments/operations/approvals',
+          { records: [] },
+        ),
+        getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+          '/api/deployments/operations/rollback-plans',
+          { records: [] },
+        ),
+        getOptionalJson<{ records: DeploymentOperationControlSummary[] }>(
+          '/api/deployments/operations/runs',
+          { records: [] },
+        ),
+      ]);
+
+    setOverview((current) => ({
+      ...current,
+      deploymentOperationDryRuns: dryRunsResponse.records,
+      deploymentOperationApprovals: approvalsResponse.records,
+      deploymentOperationRollbackPlans: rollbackPlansResponse.records,
+      deploymentOperationRuns: runsResponse.records,
     }));
   }
 
@@ -3166,6 +3451,172 @@ export function App() {
       setMergeMessage(error instanceof Error ? error.message : 'Merge run failed.');
     } finally {
       setMergeBusy(false);
+    }
+  }
+
+  async function createDeploymentOperationDryRun() {
+    if (!deploymentKey) {
+      setDeploymentMessage('Enter the page-memory key before creating a deployment dry-run.');
+      return;
+    }
+
+    setDeploymentBusy(true);
+    try {
+      const result = await postDeploymentOperationJson<DeploymentOperationControlSummary>(
+        '/api/deployments/operations/dry-runs',
+        deploymentKey,
+        {
+          provider: deploymentProvider,
+          action: deploymentAction,
+          environment: deploymentEnvironment,
+        },
+      );
+      setDeploymentDryRunId(result.dryRunId ?? '');
+      setDeploymentRollbackPlanId(result.rollbackPlanId ?? '');
+      setDeploymentApprovalRequestId('');
+      setDeploymentApprovalArtifactId('');
+      setDeploymentSecondApprovalArtifactId('');
+      setDeploymentMessage(
+        `Deployment dry-run ${result.dryRunId ?? 'created'} is ${result.status ?? 'planned'}.`,
+      );
+      await refreshDeploymentOperationRecords();
+    } catch (error) {
+      setDeploymentMessage(error instanceof Error ? error.message : 'Deployment dry-run failed.');
+    } finally {
+      setDeploymentBusy(false);
+    }
+  }
+
+  async function requestDeploymentOperationApproval() {
+    if (!deploymentKey || !deploymentDryRunId) {
+      setDeploymentMessage('Create a deployment dry-run before requesting approval.');
+      return;
+    }
+
+    setDeploymentBusy(true);
+    try {
+      const result = await postDeploymentOperationJson<DeploymentOperationControlSummary>(
+        '/api/deployments/operations/approval-requests',
+        deploymentKey,
+        {
+          dryRunId: deploymentDryRunId,
+          approvalSlot: deploymentSecondApprovalArtifactId ? 'secondary' : 'primary',
+        },
+      );
+      setDeploymentApprovalRequestId(result.approvalRequestId ?? '');
+      setDeploymentMessage(
+        `Deployment approval request ${result.approvalRequestId ?? 'created'} is ${
+          result.status ?? 'requested'
+        }.`,
+      );
+      await refreshDeploymentOperationRecords();
+    } catch (error) {
+      setDeploymentMessage(
+        error instanceof Error ? error.message : 'Deployment approval request failed.',
+      );
+    } finally {
+      setDeploymentBusy(false);
+    }
+  }
+
+  async function approveDeploymentOperationRequest(slot: 'primary' | 'secondary') {
+    const decidedBy = slot === 'primary' ? deploymentApprover : deploymentSecondApprover;
+
+    if (!deploymentKey || !deploymentDryRunId || !deploymentApprovalRequestId || !decidedBy) {
+      setDeploymentMessage('Request deployment approval and enter an approver tag first.');
+      return;
+    }
+
+    setDeploymentBusy(true);
+    try {
+      const result = await postDeploymentOperationJson<DeploymentOperationControlSummary>(
+        '/api/deployments/operations/manual-approvals',
+        deploymentKey,
+        {
+          dryRunId: deploymentDryRunId,
+          approvalRequestId: deploymentApprovalRequestId,
+          outcome: 'approved',
+          approvalSlot: slot,
+          decidedBy,
+        },
+      );
+      if (slot === 'primary') {
+        setDeploymentApprovalArtifactId(result.approvalArtifactId ?? '');
+      } else {
+        setDeploymentSecondApprovalArtifactId(result.approvalArtifactId ?? '');
+      }
+      setDeploymentMessage(
+        `Deployment ${slot} approval ${result.approvalArtifactId ?? 'recorded'} is ${
+          result.status ?? 'approved'
+        }.`,
+      );
+      await refreshDeploymentOperationRecords();
+    } catch (error) {
+      setDeploymentMessage(error instanceof Error ? error.message : 'Deployment approval failed.');
+    } finally {
+      setDeploymentBusy(false);
+    }
+  }
+
+  async function createDeploymentRollbackPlan() {
+    if (!deploymentKey) {
+      setDeploymentMessage('Enter the page-memory key before creating a rollback plan.');
+      return;
+    }
+
+    setDeploymentBusy(true);
+    try {
+      const result = await postDeploymentOperationJson<DeploymentOperationControlSummary>(
+        '/api/deployments/operations/rollback-plans',
+        deploymentKey,
+        {
+          provider: deploymentProvider,
+          environment: deploymentEnvironment,
+        },
+      );
+      setDeploymentRollbackPlanId(result.rollbackPlanId ?? '');
+      setDeploymentMessage(
+        `Rollback plan ${result.rollbackPlanId ?? 'created'} is ${result.status ?? 'planned'}.`,
+      );
+      await refreshDeploymentOperationRecords();
+    } catch (error) {
+      setDeploymentMessage(error instanceof Error ? error.message : 'Rollback plan failed.');
+    } finally {
+      setDeploymentBusy(false);
+    }
+  }
+
+  async function runDeploymentOperation() {
+    if (!deploymentKey || !deploymentDryRunId || !deploymentApprovalArtifactId) {
+      setDeploymentMessage('Approve the deployment operation before starting it.');
+      return;
+    }
+
+    setDeploymentBusy(true);
+    try {
+      const approvalArtifactIds = [
+        deploymentApprovalArtifactId,
+        ...(deploymentSecondApprovalArtifactId ? [deploymentSecondApprovalArtifactId] : []),
+      ];
+      const result = await postDeploymentOperationJson<DeploymentOperationControlSummary>(
+        '/api/deployments/operations/runs',
+        deploymentKey,
+        {
+          dryRunId: deploymentDryRunId,
+          approvalArtifactIds,
+          rollbackPlanId: deploymentRollbackPlanId || undefined,
+        },
+      );
+      setDeploymentMessage(
+        `Deployment operation run ${result.runId ?? 'started'} is ${
+          result.status ?? 'unknown'
+        }.`,
+      );
+      await refreshDeploymentOperationRecords();
+    } catch (error) {
+      setDeploymentMessage(error instanceof Error ? error.message : 'Deployment operation failed.');
+    } finally {
+      setDeploymentBusy(false);
     }
   }
 
@@ -4772,6 +5223,7 @@ export function App() {
             approveMergeRequest,
             runMerge,
           },
+          deploymentGuidedOperation,
         )
       )}
     </main>
@@ -4820,6 +5272,7 @@ function renderReadOnlyDashboardView(
   >,
   recoveryGuidedOperation: RecoveryGuidedOperationState,
   mergeGuidedOperation: MergeGuidedOperationState,
+  deploymentGuidedOperation: DeploymentGuidedOperationState,
 ) {
   if (activeView === 'development') {
     return (
@@ -7643,7 +8096,42 @@ function renderReadOnlyDashboardView(
 
   if (activeView === 'deployments') {
     const latestObservationRun = overview.deploymentObservationRuns[0];
+    const latestOperationRun = overview.deploymentOperationRuns[0];
     const providers = ['docker', 'kubernetes', 'helm', 'argo-cd', 'terraform', 'opentofu'];
+    const {
+      deploymentKey,
+      setDeploymentKey,
+      deploymentProvider,
+      setDeploymentProvider,
+      deploymentAction,
+      setDeploymentAction,
+      deploymentEnvironment,
+      setDeploymentEnvironment,
+      deploymentMessage,
+      deploymentBusy,
+      deploymentDryRunId,
+      setDeploymentDryRunId,
+      deploymentRollbackPlanId,
+      setDeploymentRollbackPlanId,
+      deploymentApprovalRequestId,
+      setDeploymentApprovalRequestId,
+      deploymentApprovalArtifactId,
+      setDeploymentApprovalArtifactId,
+      deploymentSecondApprovalArtifactId,
+      setDeploymentSecondApprovalArtifactId,
+      deploymentApprover,
+      setDeploymentApprover,
+      deploymentSecondApprover,
+      setDeploymentSecondApprover,
+      latestDeploymentDryRun,
+      latestDeploymentApproval,
+      latestDeploymentRun,
+      createDeploymentOperationDryRun,
+      requestDeploymentOperationApproval,
+      approveDeploymentOperationRequest,
+      createDeploymentRollbackPlan,
+      runDeploymentOperation,
+    } = deploymentGuidedOperation;
 
     return (
       <section className="grid">
@@ -7738,6 +8226,353 @@ function renderReadOnlyDashboardView(
               );
             })}
           </ul>
+        </Panel>
+        <Panel title="Deployment Operations">
+          <ul>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {overview.deploymentOperationDryRuns.length}, approvals{' '}
+                {overview.deploymentOperationApprovals.length}, rollback plans{' '}
+                {overview.deploymentOperationRollbackPlans.length}, runs{' '}
+                {overview.deploymentOperationRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>
+                {latestOperationRun?.runId ?? latestOperationRun?.recordId ?? 'none'} /{' '}
+                {latestOperationRun?.status ?? 'not_started'}
+              </span>
+            </li>
+            <li>
+              <strong>prod policy</strong>
+              <span>prod requires two approvals; dev and staging require one approval</span>
+            </li>
+          </ul>
+          <p>
+            Deployment operations remain disabled by default and are restricted to fixed provider
+            runners. Rollback must use a persisted rollback plan.
+          </p>
+        </Panel>
+        <Panel title="Guided Deployment Operation">
+          <div className="form-grid">
+            <label>
+              Page-memory key
+              <input
+                type="password"
+                value={deploymentKey}
+                onChange={(event) => setDeploymentKey(event.currentTarget.value)}
+                placeholder="entered / missing"
+              />
+            </label>
+            <label>
+              Provider
+              <select
+                value={deploymentProvider}
+                onChange={(event) =>
+                  setDeploymentProvider(event.currentTarget.value as DeploymentOperationProviderOption)
+                }
+              >
+                {providers.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {provider}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Action
+              <select
+                value={deploymentAction}
+                onChange={(event) =>
+                  setDeploymentAction(event.currentTarget.value as DeploymentOperationActionOption)
+                }
+              >
+                {['deploy', 'apply', 'sync', 'rollback'].map((action) => (
+                  <option key={action} value={action}>
+                    {action}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Environment
+              <select
+                value={deploymentEnvironment}
+                onChange={(event) =>
+                  setDeploymentEnvironment(
+                    event.currentTarget.value as DeploymentOperationEnvironmentOption,
+                  )
+                }
+              >
+                {['dev', 'staging', 'prod'].map((environment) => (
+                  <option key={environment} value={environment}>
+                    {environment}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Dry-run id
+              <input
+                value={deploymentDryRunId}
+                onChange={(event) => setDeploymentDryRunId(event.currentTarget.value)}
+                placeholder={latestDeploymentDryRun?.dryRunId ?? 'created dry-run id'}
+              />
+            </label>
+            <label>
+              Rollback plan id
+              <input
+                value={deploymentRollbackPlanId}
+                onChange={(event) => setDeploymentRollbackPlanId(event.currentTarget.value)}
+                placeholder="required for rollback"
+              />
+            </label>
+            <label>
+              Approval request id
+              <input
+                value={deploymentApprovalRequestId}
+                onChange={(event) => setDeploymentApprovalRequestId(event.currentTarget.value)}
+                placeholder={latestDeploymentApproval?.approvalRequestId ?? 'approval request id'}
+              />
+            </label>
+            <label>
+              Primary approval artifact id
+              <input
+                value={deploymentApprovalArtifactId}
+                onChange={(event) => setDeploymentApprovalArtifactId(event.currentTarget.value)}
+                placeholder={latestDeploymentApproval?.approvalArtifactId ?? 'approval artifact id'}
+              />
+            </label>
+            <label>
+              Secondary approval artifact id
+              <input
+                value={deploymentSecondApprovalArtifactId}
+                onChange={(event) => setDeploymentSecondApprovalArtifactId(event.currentTarget.value)}
+                placeholder="prod only"
+              />
+            </label>
+            <label>
+              Primary approver tag
+              <input
+                value={deploymentApprover}
+                onChange={(event) => setDeploymentApprover(event.currentTarget.value)}
+                placeholder="hash-only after submit"
+              />
+            </label>
+            <label>
+              Secondary approver tag
+              <input
+                value={deploymentSecondApprover}
+                onChange={(event) => setDeploymentSecondApprover(event.currentTarget.value)}
+                placeholder="prod distinct approver"
+              />
+            </label>
+          </div>
+          <ul>
+            <li>
+              <strong>key state</strong>
+              <span>{deploymentKey ? 'entered' : 'missing'}</span>
+            </li>
+            <li>
+              <strong>latest operation</strong>
+              <span>{latestDeploymentRun?.status ?? latestDeploymentDryRun?.status ?? 'none'}</span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                process {String(latestDeploymentRun?.processBoundaryInvoked ?? false)}, network{' '}
+                {String(latestDeploymentRun?.networkBoundaryInvoked ?? false)}
+              </span>
+            </li>
+          </ul>
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={deploymentBusy || !deploymentKey}
+              onClick={() => void createDeploymentOperationDryRun()}
+            >
+              Create Dry-Run
+            </button>
+            <button
+              type="button"
+              disabled={deploymentBusy || !deploymentKey}
+              onClick={() => void createDeploymentRollbackPlan()}
+            >
+              Create Rollback Plan
+            </button>
+            <button
+              type="button"
+              disabled={deploymentBusy || !deploymentKey || !deploymentDryRunId}
+              onClick={() => void requestDeploymentOperationApproval()}
+            >
+              Request Approval
+            </button>
+            <button
+              type="button"
+              disabled={
+                deploymentBusy ||
+                !deploymentKey ||
+                !deploymentDryRunId ||
+                !deploymentApprovalRequestId ||
+                !deploymentApprover
+              }
+              onClick={() => void approveDeploymentOperationRequest('primary')}
+            >
+              Approve Primary
+            </button>
+            <button
+              type="button"
+              disabled={
+                deploymentBusy ||
+                !deploymentKey ||
+                !deploymentDryRunId ||
+                !deploymentApprovalRequestId ||
+                !deploymentSecondApprover
+              }
+              onClick={() => void approveDeploymentOperationRequest('secondary')}
+            >
+              Approve Secondary
+            </button>
+            <button
+              type="button"
+              disabled={deploymentBusy || !deploymentKey || !deploymentDryRunId || !deploymentApprovalArtifactId}
+              onClick={() => void runDeploymentOperation()}
+            >
+              Run Operation
+            </button>
+          </div>
+          {deploymentMessage ? <p>{deploymentMessage}</p> : null}
+        </Panel>
+        <Panel title="Latest Deployment Operation Runs">
+          {overview.deploymentOperationRuns.length > 0 ? (
+            <ul>
+              {overview.deploymentOperationRuns.slice(0, 10).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'deployment_operation_run'}</strong>
+                  <span>
+                    provider {run.provider ?? 'unknown'}, action {run.action ?? 'unknown'},
+                    environment {run.environment ?? 'unknown'}, status {run.status ?? 'unknown'}
+                  </span>
+                  <span>
+                    changed {run.changedResourceCount ?? 0}, warnings {run.warningCount ?? 0},
+                    errors {run.errorCount ?? 0}, approvals {run.approvalArtifactIdCount ?? 0}
+                  </span>
+                  <span>
+                    process {String(run.processBoundaryInvoked ?? false)}, network{' '}
+                    {String(run.networkBoundaryInvoked ?? false)}, rollback plan{' '}
+                    {run.rollbackPlanId ?? 'none'}
+                  </span>
+                  <span>
+                    raw manifest {String(run.rawManifestStored ?? false)}, raw plan{' '}
+                    {String(run.rawPlanStored ?? false)}, raw log {String(run.rawLogStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No deployment operation run metadata is available.</p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'secrets') {
+    const latestSecretRun = overview.secretReadinessRuns[0];
+    const providers = ['vault', 'sops', 'onepassword', 'doppler'];
+
+    return (
+      <section className="grid">
+        <Panel title="Secrets Governance">
+          <ul>
+            <li>
+              <strong>providers</strong>
+              <span>{providers.join(', ')}</span>
+            </li>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {overview.secretReadinessDryRuns.length}, approvals{' '}
+                {overview.secretReadinessApprovals.length}, runs{' '}
+                {overview.secretReadinessRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>
+                {latestSecretRun?.runId ?? latestSecretRun?.recordId ?? 'none'} /{' '}
+                {latestSecretRun?.status ?? 'not_started'}
+              </span>
+            </li>
+            <li>
+              <strong>value handling</strong>
+              <span>secret values are never read, stored, printed, or exported</span>
+            </li>
+          </ul>
+          <p>
+            M43 readiness reports configured, missing, and hash-only metadata for secret provider
+            setup. Provider APIs and CLIs are not used to retrieve secret values.
+          </p>
+        </Panel>
+        <Panel title="Provider Readiness">
+          <ul>
+            {providers.map((provider) => {
+              const providerRuns = overview.secretReadinessRuns.filter(
+                (run) => run.provider === provider,
+              );
+              const latest = providerRuns[0];
+              return (
+                <li key={provider} className="stacked">
+                  <strong>{provider}</strong>
+                  <span>
+                    runs {providerRuns.length}, configured {String(latest?.configured ?? false)},
+                    provider enabled {String(latest?.providerEnabled ?? false)}
+                  </span>
+                  <span>
+                    refs {latest?.secretRefCount ?? 0}, configured hashes{' '}
+                    {latest?.configuredRefHashCount ?? 0}, blockers{' '}
+                    {latest?.providerBlockerCount ?? 0}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
+        <Panel title="Latest Secrets Readiness Runs">
+          {overview.secretReadinessRuns.length > 0 ? (
+            <ul>
+              {overview.secretReadinessRuns.slice(0, 10).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'secret_readiness_run'}</strong>
+                  <span>
+                    provider {run.provider ?? 'unknown'}, environment{' '}
+                    {run.environment ?? 'unknown'}, status {run.status ?? 'unknown'}
+                  </span>
+                  <span>
+                    governance {String(run.governanceEnabled ?? false)}, configured{' '}
+                    {String(run.configured ?? false)}, config hash {run.configHash ?? 'missing'}
+                  </span>
+                  <span>
+                    leak detected {String(run.leakDetected ?? false)}, findings{' '}
+                    {run.leakFindingCount ?? 0}, evidence {run.evidenceRefIds?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    value read {String(run.secretValueReadAllowed ?? false)}, secret stored{' '}
+                    {String(run.secretValueStored ?? false)}, tokenStored{' '}
+                    {String(run.tokenValueStored ?? false)}, env stored{' '}
+                    {String(run.envValueStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No secrets readiness run metadata is available.</p>
+          )}
         </Panel>
       </section>
     );
@@ -8377,6 +9212,32 @@ async function postMergeJson<T>(
 ): Promise<T> {
   if (!mergeDashboardPostRoutes.has(path)) {
     throw new Error('Dashboard merge wizard can only call merge control-plane routes.');
+  }
+
+  const response = await fetch(`${supervisorUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      [dashboardLocalControlHeaderName]: pageMemoryKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json()) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new Error(result.error ?? `Supervisor returned ${response.status} for ${path}`);
+  }
+
+  return result;
+}
+
+async function postDeploymentOperationJson<T>(
+  path: string,
+  pageMemoryKey: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  if (!deploymentOperationDashboardPostRoutes.has(path)) {
+    throw new Error('Dashboard deployment wizard can only call deployment operation routes.');
   }
 
   const response = await fetch(`${supervisorUrl}${path}`, {

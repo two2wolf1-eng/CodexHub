@@ -112,21 +112,24 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('approvalToken=');
   });
 
-  it('keeps Dashboard mutating calls restricted to governed approval, recovery, and merge paths', () => {
+  it('keeps Dashboard mutating calls restricted to governed approval, recovery, merge, and deployment paths', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const postMatches = [...appSource.matchAll(/method:\s*['"]POST['"]/g)];
     const approvalDecisionIndex = appSource.indexOf('/api/approvals/decisions');
     const recoveryControlIndex = appSource.indexOf('async function postRecoveryJson');
     const mergeControlIndex = appSource.indexOf('async function postMergeJson');
+    const deploymentControlIndex = appSource.indexOf('async function postDeploymentOperationJson');
 
-    expect(postMatches).toHaveLength(3);
+    expect(postMatches).toHaveLength(4);
     expect(approvalDecisionIndex).toBeGreaterThanOrEqual(0);
     expect(recoveryControlIndex).toBeGreaterThanOrEqual(0);
     expect(mergeControlIndex).toBeGreaterThanOrEqual(0);
+    expect(deploymentControlIndex).toBeGreaterThanOrEqual(0);
 
     const approvalPostIndex = postMatches[0]?.index ?? -1;
     const recoveryPostIndex = postMatches[1]?.index ?? -1;
     const mergePostIndex = postMatches[2]?.index ?? -1;
+    const deploymentPostIndex = postMatches[3]?.index ?? -1;
     const approvalDecisionWindow = appSource.slice(
       Math.max(0, approvalDecisionIndex - 400),
       approvalDecisionIndex + 900,
@@ -139,6 +142,10 @@ describe('dashboard read-only UX helpers', () => {
       Math.max(0, mergeControlIndex - 500),
       mergeControlIndex + 1300,
     );
+    const deploymentControlWindow = appSource.slice(
+      Math.max(0, deploymentControlIndex - 500),
+      deploymentControlIndex + 1300,
+    );
 
     expect(approvalPostIndex).toBeGreaterThan(approvalDecisionIndex);
     expect(approvalDecisionWindow).toContain("method: 'POST'");
@@ -150,6 +157,10 @@ describe('dashboard read-only UX helpers', () => {
     expect(mergeControlWindow).toContain("method: 'POST'");
     expect(mergeControlWindow).toContain('dashboardLocalControlHeaderName');
     expect(mergeControlWindow).toContain('mergeDashboardPostRoutes.has(path)');
+    expect(deploymentPostIndex).toBeGreaterThan(deploymentControlIndex);
+    expect(deploymentControlWindow).toContain("method: 'POST'");
+    expect(deploymentControlWindow).toContain('dashboardLocalControlHeaderName');
+    expect(deploymentControlWindow).toContain('deploymentOperationDashboardPostRoutes.has(path)');
     expect(approvalDecisionWindow).not.toContain('localStorage');
     expect(approvalDecisionWindow).not.toContain('sessionStorage');
     expect(approvalDecisionWindow).not.toContain('indexedDB');
@@ -165,6 +176,11 @@ describe('dashboard read-only UX helpers', () => {
     expect(mergeControlWindow).not.toContain('indexedDB');
     expect(mergeControlWindow).not.toContain('executeGithub');
     expect(mergeControlWindow).not.toContain('adapter.execute');
+    expect(deploymentControlWindow).not.toContain('localStorage');
+    expect(deploymentControlWindow).not.toContain('sessionStorage');
+    expect(deploymentControlWindow).not.toContain('indexedDB');
+    expect(deploymentControlWindow).not.toContain('executeGithub');
+    expect(deploymentControlWindow).not.toContain('adapter.execute');
   });
 
   it('summarizes approval decision history without raw reason or token data', () => {
@@ -975,7 +991,7 @@ describe('dashboard read-only UX helpers', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const localRcRoute = appSource.slice(
       appSource.indexOf("if (activeView === 'release-candidates')"),
-      appSource.indexOf("if (activeView === 'policy-telemetry')"),
+      appSource.indexOf("if (activeView === 'releases')"),
     );
 
     expect(localRcRoute).toContain('Local RC Readiness');
@@ -1073,6 +1089,63 @@ describe('dashboard read-only UX helpers', () => {
       expect(window).not.toContain('rawPrBody');
       expect(window).not.toContain('CODEXHUB_GITHUB_TOKEN');
       expect(window).not.toContain('executeGithub');
+      expect(window).not.toContain('adapter.execute');
+    }
+  });
+
+  it('keeps the deployment wizard scoped to fixed operation routes and metadata payloads', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const createWindow = sourceWindow(
+      appSource,
+      'async function createDeploymentOperationDryRun',
+      'async function requestDeploymentOperationApproval',
+    );
+    const requestWindow = sourceWindow(
+      appSource,
+      'async function requestDeploymentOperationApproval',
+      'async function approveDeploymentOperationRequest',
+    );
+    const approveWindow = sourceWindow(
+      appSource,
+      'async function approveDeploymentOperationRequest',
+      'async function createDeploymentRollbackPlan',
+    );
+    const rollbackWindow = sourceWindow(
+      appSource,
+      'async function createDeploymentRollbackPlan',
+      'async function runDeploymentOperation',
+    );
+    const runWindow = sourceWindow(
+      appSource,
+      'async function runDeploymentOperation',
+      'return (',
+    );
+    const postWindow = sourceWindow(
+      appSource,
+      'async function postDeploymentOperationJson',
+      '',
+    );
+
+    expect(appSource).toContain('/api/deployments/operations/dry-runs');
+    expect(appSource).toContain('/api/deployments/operations/approval-requests');
+    expect(appSource).toContain('/api/deployments/operations/manual-approvals');
+    expect(appSource).toContain('/api/deployments/operations/rollback-plans');
+    expect(appSource).toContain('/api/deployments/operations/runs');
+    expect(appSource).toContain('deploymentOperationDashboardPostRoutes.has(path)');
+    expect(appSource).not.toContain("startsWith('/api/deployments/operations/')");
+    expect(postWindow).toContain('deploymentOperationDashboardPostRoutes.has(path)');
+    expect(postWindow).not.toContain('localStorage');
+    expect(postWindow).not.toContain('sessionStorage');
+    expect(postWindow).not.toContain('indexedDB');
+    for (const window of [createWindow, requestWindow, approveWindow, rollbackWindow, runWindow]) {
+      expect(window).not.toContain('approvalArtifact:');
+      expect(window).not.toContain('executionAuthority');
+      expect(window).not.toContain('authority:');
+      expect(window).not.toContain('rawManifest');
+      expect(window).not.toContain('rawPlan');
+      expect(window).not.toContain('rawDiff');
+      expect(window).not.toContain('rawLog');
+      expect(window).not.toContain('CODEXHUB_DEPLOYMENT_');
       expect(window).not.toContain('adapter.execute');
     }
   });

@@ -4656,6 +4656,99 @@ workflows:
       rawLogStored: false
       tokenStorageAllowed: false
       metadataOnlyPublicOutput: true
+  m42.governed-deployment-operations:
+    risk: critical
+    trigger:
+      type: governed-deployment-operations
+      entrypoint: contracts deployment-provider-adapter store supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - deployment-operation-contracts
+      - deployment-operation-store-and-fixed-runner-metadata
+      - deployment-operation-supervisor-control-plane
+      - deployment-operation-guided-ux-rehearsal
+      - deployment-operation-hardening
+    providers:
+      - docker
+      - kubernetes
+      - helm
+      - argo-cd
+      - terraform
+      - opentofu
+    requiredEnv:
+      - CODEXHUB_DEPLOYMENT_OPERATOR_ENABLED
+      - CODEXHUB_DEPLOYMENT_DOCKER_WRITE_ENABLED
+      - CODEXHUB_DEPLOYMENT_KUBERNETES_WRITE_ENABLED
+      - CODEXHUB_DEPLOYMENT_HELM_WRITE_ENABLED
+      - CODEXHUB_DEPLOYMENT_ARGOCD_WRITE_ENABLED
+      - CODEXHUB_DEPLOYMENT_TERRAFORM_WRITE_ENABLED
+      - CODEXHUB_DEPLOYMENT_OPENTOFU_WRITE_ENABLED
+      - CODEXHUB_DEPLOYMENT_PROD_WRITE_ENABLED
+    docs:
+      - docs/releases/m42-governed-deployment-results.md
+      - docs/reviews/m42-governed-deployment-hardening-review.md
+      - docs/runbooks/m42-governed-deployment-operator-runbook.md
+    safety:
+      fixedProviderRunnersOnly: true
+      productDefaultEnabled: false
+      devStagingApprovalsRequired: 1
+      prodApprovalsRequired: 2
+      prodApproverHashesMustDiffer: true
+      rollbackPlanRequiredBeforeRollback: true
+      terraformDestroyAllowed: false
+      deleteAllowed: false
+      scaleAllowed: false
+      restartAllowed: false
+      arbitraryCommandAllowed: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawManifestStored: false
+      rawPlanStored: false
+      rawDiffStored: false
+      rawLogStored: false
+      tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
+  m43.secrets-environment-governance:
+    risk: critical
+    trigger:
+      type: secrets-environment-governance
+      entrypoint: contracts secret-governance-kernel store supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - secrets-governance-contracts
+      - secrets-readiness-store
+      - secrets-readiness-supervisor-control-plane
+      - secrets-read-only-ux-rehearsal
+      - secrets-hardening
+    providers:
+      - vault
+      - sops
+      - onepassword
+      - doppler
+    requiredEnv:
+      - CODEXHUB_SECRETS_GOVERNANCE_ENABLED
+      - CODEXHUB_SECRETS_VAULT_READINESS_ENABLED
+      - CODEXHUB_SECRETS_SOPS_READINESS_ENABLED
+      - CODEXHUB_SECRETS_ONEPASSWORD_READINESS_ENABLED
+      - CODEXHUB_SECRETS_DOPPLER_READINESS_ENABLED
+    docs:
+      - docs/releases/m43-secrets-environment-governance-results.md
+      - docs/reviews/m43-secrets-governance-hardening-review.md
+      - docs/runbooks/m43-secrets-governance-operator-runbook.md
+    safety:
+      metadataOnlyReadiness: true
+      providerApiSecretReadAllowed: false
+      providerCliSecretReadAllowed: false
+      secretValueStored: false
+      secretValuePrinted: false
+      tokenStorageAllowed: false
+      envValueStorageAllowed: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawConfigStored: false
+      rawPathStored: false
+      rawUrlStored: false
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

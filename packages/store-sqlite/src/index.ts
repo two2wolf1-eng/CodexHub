@@ -27,6 +27,10 @@ import type {
   DeploymentObservationApprovalArtifact,
   DeploymentObservationPlan,
   DeploymentObservationRun,
+  DeploymentOperationApprovalArtifact,
+  DeploymentOperationPlan,
+  DeploymentOperationRun,
+  DeploymentRollbackPlan,
   GithubBranchPublishApprovalArtifactRecord,
   GithubBranchPublishPlan,
   GithubBranchPublishRun,
@@ -74,6 +78,10 @@ import type {
   LocalRcBundleControlPlaneRun,
   LocalRcBundleDryRunRecord,
   ReleaseVersionPlan,
+  SecretLeakAuditSummary,
+  SecretReadinessApprovalArtifact,
+  SecretReadinessPlan,
+  SecretReadinessRun,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -172,6 +180,11 @@ import type {
   DeploymentObservationControlPlaneQuery,
   DeploymentObservationDryRunRepository,
   DeploymentObservationRunRepository,
+  DeploymentOperationApprovalRepository,
+  DeploymentOperationControlPlaneQuery,
+  DeploymentOperationDryRunRepository,
+  DeploymentOperationRunRepository,
+  DeploymentRollbackPlanRepository,
   ReleaseVersionPlanControlPlaneQuery,
   ReleaseVersionPlanDryRunRepository,
   GithubReleaseDraftApprovalRepository,
@@ -231,6 +244,11 @@ import type {
   ReleaseCandidateDryRunRepository,
   ReleaseCandidateRunRepository,
   StoreFactoryOptions,
+  SecretLeakAuditSummaryRepository,
+  SecretReadinessApprovalRepository,
+  SecretReadinessControlPlaneQuery,
+  SecretReadinessDryRunRepository,
+  SecretReadinessRunRepository,
   WorkflowRunRepository,
 } from '@codexhub/store-core';
 
@@ -357,6 +375,14 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly deploymentObservationDryRuns: DeploymentObservationDryRunRepository;
   readonly deploymentObservationApprovals: DeploymentObservationApprovalRepository;
   readonly deploymentObservationRuns: DeploymentObservationRunRepository;
+  readonly deploymentOperationDryRuns: DeploymentOperationDryRunRepository;
+  readonly deploymentOperationApprovals: DeploymentOperationApprovalRepository;
+  readonly deploymentRollbackPlans: DeploymentRollbackPlanRepository;
+  readonly deploymentOperationRuns: DeploymentOperationRunRepository;
+  readonly secretReadinessDryRuns: SecretReadinessDryRunRepository;
+  readonly secretReadinessApprovals: SecretReadinessApprovalRepository;
+  readonly secretReadinessRuns: SecretReadinessRunRepository;
+  readonly secretLeakAuditSummaries: SecretLeakAuditSummaryRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -549,6 +575,15 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.deploymentObservationApprovals =
       new SqliteDeploymentObservationApprovalRepository(database);
     this.deploymentObservationRuns = new SqliteDeploymentObservationRunRepository(database);
+    this.deploymentOperationDryRuns = new SqliteDeploymentOperationDryRunRepository(database);
+    this.deploymentOperationApprovals =
+      new SqliteDeploymentOperationApprovalRepository(database);
+    this.deploymentRollbackPlans = new SqliteDeploymentRollbackPlanRepository(database);
+    this.deploymentOperationRuns = new SqliteDeploymentOperationRunRepository(database);
+    this.secretReadinessDryRuns = new SqliteSecretReadinessDryRunRepository(database);
+    this.secretReadinessApprovals = new SqliteSecretReadinessApprovalRepository(database);
+    this.secretReadinessRuns = new SqliteSecretReadinessRunRepository(database);
+    this.secretLeakAuditSummaries = new SqliteSecretLeakAuditSummaryRepository(database);
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -2873,6 +2908,268 @@ class SqliteDeploymentObservationRunRepository implements DeploymentObservationR
   }
 }
 
+class SqliteDeploymentOperationDryRunRepository
+  implements DeploymentOperationDryRunRepository
+{
+  private readonly repository: JsonEntityRepository<DeploymentOperationPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<DeploymentOperationPlan>(
+      database,
+      'deployment_operation_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: DeploymentOperationPlan): Promise<DeploymentOperationPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<DeploymentOperationPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: DeploymentOperationControlPlaneQuery = {},
+  ): Promise<DeploymentOperationPlan[]> {
+    return listObservationControlPlaneRecords<DeploymentOperationPlan>(
+      this.database,
+      'deployment_operation_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteDeploymentOperationApprovalRepository
+  implements DeploymentOperationApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<DeploymentOperationApprovalArtifact>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<DeploymentOperationApprovalArtifact>(
+      database,
+      'deployment_operation_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: DeploymentOperationApprovalArtifact,
+  ): Promise<DeploymentOperationApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<DeploymentOperationApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<DeploymentOperationApprovalArtifact | undefined> {
+    return getApprovalRecordByArtifactId<DeploymentOperationApprovalArtifact>(
+      this.database,
+      'deployment_operation_approvals',
+      approvalArtifactId,
+    );
+  }
+
+  async listApprovals(
+    query: DeploymentOperationControlPlaneQuery = {},
+  ): Promise<DeploymentOperationApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<DeploymentOperationApprovalArtifact>(
+      this.database,
+      'deployment_operation_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteDeploymentRollbackPlanRepository implements DeploymentRollbackPlanRepository {
+  private readonly repository: JsonEntityRepository<DeploymentRollbackPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<DeploymentRollbackPlan>(
+      database,
+      'deployment_rollback_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRollbackPlan(record: DeploymentRollbackPlan): Promise<DeploymentRollbackPlan> {
+    return this.repository.create(record);
+  }
+
+  async getRollbackPlan(id: string): Promise<DeploymentRollbackPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRollbackPlans(
+    query: DeploymentOperationControlPlaneQuery = {},
+  ): Promise<DeploymentRollbackPlan[]> {
+    return listObservationControlPlaneRecords<DeploymentRollbackPlan>(
+      this.database,
+      'deployment_rollback_plans',
+      query,
+    );
+  }
+}
+
+class SqliteDeploymentOperationRunRepository implements DeploymentOperationRunRepository {
+  private readonly repository: JsonEntityRepository<DeploymentOperationRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<DeploymentOperationRun>(
+      database,
+      'deployment_operation_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: DeploymentOperationRun): Promise<DeploymentOperationRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<DeploymentOperationRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: DeploymentOperationControlPlaneQuery = {},
+  ): Promise<DeploymentOperationRun[]> {
+    return listObservationControlPlaneRecords<DeploymentOperationRun>(
+      this.database,
+      'deployment_operation_runs',
+      query,
+    );
+  }
+}
+
+class SqliteSecretReadinessDryRunRepository implements SecretReadinessDryRunRepository {
+  private readonly repository: JsonEntityRepository<SecretReadinessPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<SecretReadinessPlan>(
+      database,
+      'secret_readiness_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: SecretReadinessPlan): Promise<SecretReadinessPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<SecretReadinessPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: SecretReadinessControlPlaneQuery = {},
+  ): Promise<SecretReadinessPlan[]> {
+    return listObservationControlPlaneRecords<SecretReadinessPlan>(
+      this.database,
+      'secret_readiness_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteSecretReadinessApprovalRepository implements SecretReadinessApprovalRepository {
+  private readonly repository: JsonEntityRepository<SecretReadinessApprovalArtifact>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<SecretReadinessApprovalArtifact>(
+      database,
+      'secret_readiness_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: SecretReadinessApprovalArtifact,
+  ): Promise<SecretReadinessApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<SecretReadinessApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<SecretReadinessApprovalArtifact | undefined> {
+    return getApprovalRecordByArtifactId<SecretReadinessApprovalArtifact>(
+      this.database,
+      'secret_readiness_approvals',
+      approvalArtifactId,
+    );
+  }
+
+  async listApprovals(
+    query: SecretReadinessControlPlaneQuery = {},
+  ): Promise<SecretReadinessApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<SecretReadinessApprovalArtifact>(
+      this.database,
+      'secret_readiness_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteSecretReadinessRunRepository implements SecretReadinessRunRepository {
+  private readonly repository: JsonEntityRepository<SecretReadinessRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<SecretReadinessRun>(
+      database,
+      'secret_readiness_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: SecretReadinessRun): Promise<SecretReadinessRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<SecretReadinessRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(query: SecretReadinessControlPlaneQuery = {}): Promise<SecretReadinessRun[]> {
+    return listObservationControlPlaneRecords<SecretReadinessRun>(
+      this.database,
+      'secret_readiness_runs',
+      query,
+    );
+  }
+}
+
+class SqliteSecretLeakAuditSummaryRepository implements SecretLeakAuditSummaryRepository {
+  private readonly repository: JsonEntityRepository<SecretLeakAuditSummary>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<SecretLeakAuditSummary>(
+      database,
+      'secret_leak_audit_summaries',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveLeakAuditSummary(record: SecretLeakAuditSummary): Promise<SecretLeakAuditSummary> {
+    return this.repository.create(record);
+  }
+
+  async getLeakAuditSummary(id: string): Promise<SecretLeakAuditSummary | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listLeakAuditSummaries(
+    query: SecretReadinessControlPlaneQuery = {},
+  ): Promise<SecretLeakAuditSummary[]> {
+    return (await this.repository.list()).slice(0, normalizeLimit(query.limit));
+  }
+}
+
 class SqliteGithubRemoteCleanupDryRunRepository
   implements GithubRemoteCleanupDryRunRepository
 {
@@ -4740,6 +5037,54 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS deployment_observation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS deployment_operation_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS deployment_operation_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS deployment_rollback_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS deployment_operation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_readiness_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_readiness_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_readiness_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_leak_audit_summaries (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

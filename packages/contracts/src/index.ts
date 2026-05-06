@@ -219,6 +219,18 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'deployment.observation_summary',
     'deployment.drift_summary',
     'deployment.rehearsal',
+    'deployment.operation_plan',
+    'deployment.operation_summary',
+    'deployment.rollback_plan',
+    'deployment.operation_rehearsal',
+    'secrets.provider_manifest',
+    'secrets.provider_readiness',
+    'secrets.environment_readiness',
+    'secrets.reference_summary',
+    'secrets.leak_audit_summary',
+    'secrets.readiness_plan',
+    'secrets.readiness_summary',
+    'secrets.rehearsal',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -3317,6 +3329,10 @@ const githubForbiddenMetadataKeys = new Set([
   'changelog',
   'rawChangelog',
   'rawChangelogBody',
+  'manifest',
+  'manifestBody',
+  'rawManifest',
+  'rawManifestBody',
   'kubeconfig',
   'kubeContext',
   'namespace',
@@ -3327,6 +3343,20 @@ const githubForbiddenMetadataKeys = new Set([
   'rawDiffBody',
   'stateFile',
   'secret',
+  'secretValue',
+  'rawSecretValue',
+  'privateKey',
+  'rawPrivateKey',
+  'credential',
+  'credentials',
+  'rawCredential',
+  'rawCredentials',
+  'config',
+  'rawConfig',
+  'configBody',
+  'rawConfigBody',
+  'reference',
+  'rawReference',
   'log',
   'logs',
   'rawLog',
@@ -3344,7 +3374,10 @@ const githubForbiddenMetadataKeys = new Set([
   ['to', 'ken'].join(''),
   ['coo', 'kie'].join(''),
   ['sess', 'ion'].join(''),
+  'env',
+  'rawEnv',
   'envValue',
+  'rawEnvValue',
   ['local', 'ControlKey'].join(''),
 ]);
 
@@ -7713,6 +7746,650 @@ export const DeploymentAcceptanceRehearsalRunSchema = createdEntityBaseSchema
   });
 export type DeploymentAcceptanceRehearsalRun = z.infer<
   typeof DeploymentAcceptanceRehearsalRunSchema
+>;
+
+export const DeploymentOperationActionSchema = z.enum(['deploy', 'apply', 'sync', 'rollback']);
+export type DeploymentOperationAction = z.infer<typeof DeploymentOperationActionSchema>;
+
+export const DeploymentEnvironmentSchema = z.enum(['dev', 'staging', 'prod']);
+export type DeploymentEnvironment = z.infer<typeof DeploymentEnvironmentSchema>;
+
+export const DeploymentOperationRunnerModeSchema = z.enum([
+  'planning-only',
+  'fixture',
+  'controlled-deployment-operation',
+]);
+export type DeploymentOperationRunnerMode = z.infer<typeof DeploymentOperationRunnerModeSchema>;
+
+export const DeploymentEnvironmentApprovalPolicySchema = createdEntityBaseSchema
+  .extend({
+    environment: DeploymentEnvironmentSchema,
+    requiredApprovalCount: z.number().int().min(1).max(2),
+    requiresDistinctApproverHashes: z.boolean(),
+    criticalRisk: z.boolean(),
+    policyHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.environment === 'prod' && record.requiredApprovalCount < 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'prod deployment operations require two approvals',
+        path: ['requiredApprovalCount'],
+      });
+    }
+  });
+export type DeploymentEnvironmentApprovalPolicy = z.infer<
+  typeof DeploymentEnvironmentApprovalPolicySchema
+>;
+
+export const DeploymentOperationReadinessSchema = createdEntityBaseSchema
+  .extend({
+    provider: DeploymentProviderSchema,
+    action: DeploymentOperationActionSchema,
+    environment: DeploymentEnvironmentSchema,
+    operatorEnabled: z.boolean(),
+    providerWriteEnabled: z.boolean(),
+    prodWriteEnabled: z.boolean(),
+    toolConfigured: z.boolean(),
+    rollbackPlanRequired: z.boolean(),
+    rollbackPlanPresent: z.boolean(),
+    targetHash: z.string().min(1),
+    artifactHash: z.string().min(1).optional(),
+    blockerCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    approvalPolicy: DeploymentEnvironmentApprovalPolicySchema,
+    tokenValueStored: z.literal(false),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    arbitraryCommandAllowed: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.blockerCount !== record.blockReasons.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blockerCount must match deployment operation blockReasons length',
+        path: ['blockerCount'],
+      });
+    }
+    if (record.rollbackPlanRequired && !record.rollbackPlanPresent) {
+      const hasBlocker = record.blockReasons.includes('rollback_plan_missing');
+      if (!hasBlocker) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'missing rollback plans must be represented as a blocker',
+          path: ['blockReasons'],
+        });
+      }
+    }
+  });
+export type DeploymentOperationReadiness = z.infer<typeof DeploymentOperationReadinessSchema>;
+
+export const DeploymentRollbackPlanSchema = createdEntityBaseSchema
+  .extend({
+    rollbackPlanId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    provider: DeploymentProviderSchema,
+    environment: DeploymentEnvironmentSchema,
+    targetHash: z.string().min(1),
+    sourceRunHash: z.string().min(1),
+    rollbackArtifactHash: z.string().min(1),
+    approvedRollbackArtifactHash: z.string().min(1),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    deleteAllowed: z.literal(false),
+    destroyAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type DeploymentRollbackPlan = z.infer<typeof DeploymentRollbackPlanSchema>;
+
+export const DeploymentOperationPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    provider: DeploymentProviderSchema,
+    action: DeploymentOperationActionSchema,
+    environment: DeploymentEnvironmentSchema,
+    runnerMode: DeploymentOperationRunnerModeSchema,
+    targetHash: z.string().min(1),
+    artifactHash: z.string().min(1),
+    rollbackPlanId: z.string().min(1).optional(),
+    rollbackPlanHash: z.string().min(1).optional(),
+    approvalPolicy: DeploymentEnvironmentApprovalPolicySchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryPlanned: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryPlanned: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    noDelete: z.literal(true),
+    noDestroy: z.literal(true),
+    fixedRunner: z.literal(true),
+    arbitraryCommandAllowed: z.literal(false),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.status === 'blocked' && record.processBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked deployment operation plans cannot plan a process boundary',
+        path: ['processBoundaryPlanned'],
+      });
+    }
+    if (record.action === 'rollback' && record.status !== 'blocked' && !record.rollbackPlanId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'rollback deployment operation plans require rollbackPlanId',
+        path: ['rollbackPlanId'],
+      });
+    }
+  });
+export type DeploymentOperationPlan = z.infer<typeof DeploymentOperationPlanSchema>;
+
+export const DeploymentOperationApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    provider: DeploymentProviderSchema,
+    action: DeploymentOperationActionSchema,
+    environment: DeploymentEnvironmentSchema,
+    targetHash: z.string().min(1),
+    expectedPlanHash: z.string().min(1),
+    approvalSlot: z.enum(['primary', 'secondary']).default('primary'),
+    approvedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    deniedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    reasonHash: z.string().min(1).optional(),
+    reasonSummary: z.string().min(1).optional(),
+    approverHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    tokenValueStored: z.literal(false),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match deployment operation approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type DeploymentOperationApprovalArtifact = z.infer<
+  typeof DeploymentOperationApprovalArtifactSchema
+>;
+
+export const DeploymentOperationResultSummarySchema = createdEntityBaseSchema
+  .extend({
+    provider: DeploymentProviderSchema,
+    action: DeploymentOperationActionSchema,
+    environment: DeploymentEnvironmentSchema,
+    targetHash: z.string().min(1),
+    resultHash: z.string().min(1),
+    changedResourceCount: z.number().int().nonnegative(),
+    warningCount: z.number().int().nonnegative(),
+    errorCount: z.number().int().nonnegative(),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type DeploymentOperationResultSummary = z.infer<
+  typeof DeploymentOperationResultSummarySchema
+>;
+
+export const DeploymentOperationRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: DeploymentOperationPlanSchema,
+    resultSummary: DeploymentOperationResultSummarySchema,
+    rollbackPlan: DeploymentRollbackPlanSchema.optional(),
+    approvalArtifactIds: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.boolean(),
+    externalProcessStarted: z.boolean(),
+    networkBoundaryInvoked: z.boolean(),
+    noDelete: z.literal(true),
+    noDestroy: z.literal(true),
+    fixedRunner: z.literal(true),
+    arbitraryCommandAllowed: z.literal(false),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type DeploymentOperationRun = z.infer<typeof DeploymentOperationRunSchema>;
+
+export const DeploymentOperationAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'provider-disabled',
+  'tool-missing',
+  'approval-blocked',
+  'prod-second-approval-missing',
+  'env-approval-mismatch',
+  'rollback-plan-missing',
+  'target-hash-mismatch',
+  'apply-failed',
+  'sync-failed',
+  'rollback-failed',
+  'raw-output-rejected',
+  'network-timeout',
+]);
+export type DeploymentOperationAcceptanceScenario = z.infer<
+  typeof DeploymentOperationAcceptanceScenarioSchema
+>;
+
+export const DeploymentOperationAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: DeploymentOperationAcceptanceScenarioSchema,
+    provider: DeploymentProviderSchema,
+    action: DeploymentOperationActionSchema,
+    environment: DeploymentEnvironmentSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    operationStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    rollbackStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    stepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    noDelete: z.literal(true),
+    noDestroy: z.literal(true),
+    fixedRunner: z.literal(true),
+    arbitraryCommandAllowed: z.literal(false),
+    rawManifestStored: z.literal(false),
+    rawPlanStored: z.literal(false),
+    rawDiffStored: z.literal(false),
+    rawLogStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.status === 'passed' && record.scenario !== 'all-pass') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass deployment operation rehearsals can pass',
+        path: ['status'],
+      });
+    }
+  });
+export type DeploymentOperationAcceptanceRehearsalRun = z.infer<
+  typeof DeploymentOperationAcceptanceRehearsalRunSchema
+>;
+
+export const SecretProviderSchema = z.enum(['vault', 'sops', 'onepassword', 'doppler']);
+export type SecretProvider = z.infer<typeof SecretProviderSchema>;
+
+export const SecretProviderManifestSchema = createdEntityBaseSchema
+  .extend({
+    name: z.string().min(1),
+    provider: SecretProviderSchema,
+    version: z.string().min(1),
+    implemented: z.boolean(),
+    defaultEnabled: z.literal(false),
+    actionMode: z.literal('read'),
+    riskLevel: z.literal('high'),
+    readinessOnly: z.literal(true),
+    secretValueReadAllowed: z.literal(false),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type SecretProviderManifest = z.infer<typeof SecretProviderManifestSchema>;
+
+export const ConfiguredSecretReferenceSummarySchema = createdEntityBaseSchema
+  .extend({
+    provider: SecretProviderSchema,
+    environment: DeploymentEnvironmentSchema,
+    referenceHash: z.string().min(1),
+    purposeHash: z.string().min(1).optional(),
+    configured: z.boolean(),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    rawReferenceStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type ConfiguredSecretReferenceSummary = z.infer<
+  typeof ConfiguredSecretReferenceSummarySchema
+>;
+
+export const SecretProviderReadinessSchema = createdEntityBaseSchema
+  .extend({
+    provider: SecretProviderSchema,
+    governanceEnabled: z.boolean(),
+    providerEnabled: z.boolean(),
+    configured: z.boolean(),
+    configHash: z.string().min(1).optional(),
+    secretRefCount: z.number().int().nonnegative(),
+    configuredRefHashes: z.array(z.string().min(1)).default([]),
+    blockerCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    secretValueReadAllowed: z.literal(false),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.blockerCount !== record.blockReasons.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blockerCount must match secret provider readiness blockReasons length',
+        path: ['blockerCount'],
+      });
+    }
+  });
+export type SecretProviderReadiness = z.infer<typeof SecretProviderReadinessSchema>;
+
+export const SecretEnvironmentReadinessSchema = createdEntityBaseSchema
+  .extend({
+    environment: DeploymentEnvironmentSchema,
+    governanceEnabled: z.boolean(),
+    providerCount: z.number().int().nonnegative(),
+    configuredProviderCount: z.number().int().nonnegative(),
+    missingProviderCount: z.number().int().nonnegative(),
+    configuredReferenceCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.providerCount !== record.configuredProviderCount + record.missingProviderCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'providerCount must equal configured plus missing providers',
+        path: ['providerCount'],
+      });
+    }
+  });
+export type SecretEnvironmentReadiness = z.infer<typeof SecretEnvironmentReadinessSchema>;
+
+export const SecretLeakAuditSummarySchema = createdEntityBaseSchema
+  .extend({
+    scannedSurfaceCount: z.number().int().nonnegative(),
+    findingCount: z.number().int().nonnegative(),
+    leakDetected: z.boolean(),
+    findingHashes: z.array(z.string().min(1)).default([]),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.findingCount !== record.findingHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'findingCount must match findingHashes length',
+        path: ['findingCount'],
+      });
+    }
+  });
+export type SecretLeakAuditSummary = z.infer<typeof SecretLeakAuditSummarySchema>;
+
+export const SecretReadinessPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    status: z.enum(['planned', 'blocked']),
+    provider: SecretProviderSchema,
+    environment: DeploymentEnvironmentSchema,
+    configHash: z.string().min(1).optional(),
+    expectedReferenceCount: z.number().int().nonnegative(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryPlanned: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    secretValueReadAllowed: z.literal(false),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type SecretReadinessPlan = z.infer<typeof SecretReadinessPlanSchema>;
+
+export const SecretReadinessApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    provider: SecretProviderSchema,
+    environment: DeploymentEnvironmentSchema,
+    expectedPlanHash: z.string().min(1),
+    approvedAt: IsoDateTimeSchema.optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    deniedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    reasonHash: z.string().min(1).optional(),
+    reasonSummary: z.string().min(1).optional(),
+    approverHash: z.string().min(1).optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match secret readiness approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type SecretReadinessApprovalArtifact = z.infer<
+  typeof SecretReadinessApprovalArtifactSchema
+>;
+
+export const SecretReadinessRunSchema = createdEntityBaseSchema
+  .extend({
+    status: GithubControlPlaneRunStatusSchema,
+    plan: SecretReadinessPlanSchema,
+    providerReadiness: SecretProviderReadinessSchema,
+    environmentReadiness: SecretEnvironmentReadinessSchema,
+    referenceSummaries: z.array(ConfiguredSecretReferenceSummarySchema).default([]),
+    leakAuditSummary: SecretLeakAuditSummarySchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    secretValueReadAllowed: z.literal(false),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type SecretReadinessRun = z.infer<typeof SecretReadinessRunSchema>;
+
+export const SecretGovernanceAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'provider-disabled',
+  'config-missing',
+  'token-configured-hash-only',
+  'secret-value-rejected',
+  'env-value-rejected',
+  'approval-blocked',
+  'leak-audit-failed',
+  'raw-output-rejected',
+]);
+export type SecretGovernanceAcceptanceScenario = z.infer<
+  typeof SecretGovernanceAcceptanceScenarioSchema
+>;
+
+export const SecretGovernanceAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    scenario: SecretGovernanceAcceptanceScenarioSchema,
+    provider: SecretProviderSchema,
+    environment: DeploymentEnvironmentSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    readinessStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    leakAuditStatus: z.enum(['fixture_completed', 'blocked', 'failed', 'skipped']),
+    stepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    networkBoundaryInvoked: z.literal(false),
+    secretValueReadAllowed: z.literal(false),
+    secretValueStored: z.literal(false),
+    tokenValueStored: z.literal(false),
+    envValueStored: z.literal(false),
+    rawConfigStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    rawUrlStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+    if (record.status === 'passed' && record.scenario !== 'all-pass') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass secrets governance rehearsals can pass',
+        path: ['status'],
+      });
+    }
+  });
+export type SecretGovernanceAcceptanceRehearsalRun = z.infer<
+  typeof SecretGovernanceAcceptanceRehearsalRunSchema
 >;
 
 export const GithubPublishDraftPrChainRunSchema = createdEntityBaseSchema

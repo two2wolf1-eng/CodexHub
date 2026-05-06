@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "secret-governance-kernel",
+  "projectType": "library",
+  "sourceRoot": "packages/secret-governance-kernel/src",
+  "implicitDependencies": ["contracts", "evidence-kernel"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json",
+        "cwd": "packages/secret-governance-kernel"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "packages/secret-governance-kernel"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "packages/secret-governance-kernel"
+      }
+    }
+  }
+}

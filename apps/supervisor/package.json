@@ -19,6 +19,7 @@
     "@codexhub/release-lifecycle-kernel": "workspace:*",
     "@codexhub/review-package-kernel": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
+    "@codexhub/secret-governance-kernel": "workspace:*",
     "@codexhub/store-core": "workspace:*",
     "@codexhub/store-sqlite": "workspace:*",
     "@codexhub/worktree-manager": "workspace:*",

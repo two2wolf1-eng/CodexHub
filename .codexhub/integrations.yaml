@@ -2038,10 +2038,10 @@ integrations:
   deployment-providers:
     enabled: false
     adapter: deployment-provider-adapter
-    provider: deployment-read-only
+    provider: deployment-governed
     providerType: mixed-local-and-network
-    mode: read-only-observation
-    stage: m41-deployment-read-only-providers
+    mode: read-only-observation-and-governed-operation
+    stage: m42-governed-deployment-operations
     defaultActionMode: read
     defaultRisk: critical
     enablementEnv: CODEXHUB_DEPLOYMENT_OBSERVER_ENABLED
@@ -2064,6 +2064,28 @@ integrations:
       opentofu:
         enabled: false
         enablementEnv: CODEXHUB_DEPLOYMENT_OPENTOFU_ENABLED
+    operation:
+      enabled: false
+      enablementEnv: CODEXHUB_DEPLOYMENT_OPERATOR_ENABLED
+      prodWriteEnabled: false
+      prodWriteEnablementEnv: CODEXHUB_DEPLOYMENT_PROD_WRITE_ENABLED
+      childProviderWritesDefaultDisabled: true
+      rollbackPlanRequired: true
+      environments:
+        dev:
+          requiredApprovalCount: 1
+        staging:
+          requiredApprovalCount: 1
+        prod:
+          requiredApprovalCount: 2
+          distinctApproverHashesRequired: true
+      providerWriteFlags:
+        docker: CODEXHUB_DEPLOYMENT_DOCKER_WRITE_ENABLED
+        kubernetes: CODEXHUB_DEPLOYMENT_KUBERNETES_WRITE_ENABLED
+        helm: CODEXHUB_DEPLOYMENT_HELM_WRITE_ENABLED
+        argo-cd: CODEXHUB_DEPLOYMENT_ARGOCD_WRITE_ENABLED
+        terraform: CODEXHUB_DEPLOYMENT_TERRAFORM_WRITE_ENABLED
+        opentofu: CODEXHUB_DEPLOYMENT_OPENTOFU_WRITE_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -2082,6 +2104,17 @@ integrations:
         - POST /api/deployments/observations/runs
         - GET /api/deployments/observations/runs
         - GET /api/deployments/observations/runs/:id
+      operationRoutes:
+        - POST /api/deployments/operations/dry-runs
+        - GET /api/deployments/operations/dry-runs
+        - POST /api/deployments/operations/approval-requests
+        - POST /api/deployments/operations/manual-approvals
+        - GET /api/deployments/operations/approvals
+        - POST /api/deployments/operations/rollback-plans
+        - GET /api/deployments/operations/rollback-plans
+        - POST /api/deployments/operations/runs
+        - GET /api/deployments/operations/runs
+        - GET /api/deployments/operations/runs/:id
     readOnlyUx:
       dashboardRoute: "#/deployments"
       cliCommands:
@@ -2090,27 +2123,113 @@ integrations:
         - codexhub deployments observations approvals list
         - codexhub deployments observations runs list
         - codexhub deployments observations runs show <runId>
+        - codexhub deployments operations dry-runs list
+        - codexhub deployments operations approvals list
+        - codexhub deployments operations rollback-plans list
+        - codexhub deployments operations runs list
+        - codexhub deployments operations runs show <runId>
+        - codexhub deployments operations rehearse --fixture --provider <provider> --scenario <name>
         - codexhub deployments rehearse --fixture --provider <provider> --scenario <name>
       supervisorPostAllowed: false
       localControlTokenRead: false
       adapterExecuteAllowed: false
+    guidedOperationUx:
+      dashboardRoute: "#/deployments"
+      exactDashboardPostRouteAllowlist: true
+      pageMemoryKeyOnly: true
+      browserStorageAllowed: false
+      acceptedPayload: ids-hashes-provider-action-environment-strategy-metadata
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      rawManifestAccepted: false
+      rawPlanAccepted: false
+      rawDiffAccepted: false
+      rawLogAccepted: false
     safety:
-      applyAllowed: false
-      syncAllowed: false
-      rollbackAllowed: false
+      applyAllowed: governed-disabled-by-default
+      syncAllowed: governed-disabled-by-default
+      rollbackAllowed: governed-disabled-by-default
       deleteAllowed: false
       scaleAllowed: false
       restartAllowed: false
       imagePushAllowed: false
       helmUpgradeAllowed: false
       terraformApplyAllowed: false
+      terraformDestroyAllowed: false
       arbitraryCommandAllowed: false
       rawKubeconfigStorage: forbidden
       rawContextStorage: forbidden
+      rawManifestStorage: forbidden
       rawPlanStorage: forbidden
       rawDiffStorage: forbidden
       rawLogStorage: forbidden
       tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
+  secrets-governance:
+    enabled: false
+    adapter: secret-governance-kernel
+    provider: environment-secret-readiness
+    providerType: builtin
+    mode: metadata-only-readiness
+    stage: m43-secrets-environment-governance
+    defaultActionMode: read
+    defaultRisk: critical
+    enablementEnv: CODEXHUB_SECRETS_GOVERNANCE_ENABLED
+    providers:
+      vault:
+        enabled: false
+        enablementEnv: CODEXHUB_SECRETS_VAULT_READINESS_ENABLED
+      sops:
+        enabled: false
+        enablementEnv: CODEXHUB_SECRETS_SOPS_READINESS_ENABLED
+      onepassword:
+        enabled: false
+        enablementEnv: CODEXHUB_SECRETS_ONEPASSWORD_READINESS_ENABLED
+      doppler:
+        enabled: false
+        enablementEnv: CODEXHUB_SECRETS_DOPPLER_READINESS_ENABLED
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+      routes:
+        - POST /api/secrets/readiness/dry-runs
+        - GET /api/secrets/readiness/dry-runs
+        - POST /api/secrets/readiness/approval-requests
+        - POST /api/secrets/readiness/manual-approvals
+        - GET /api/secrets/readiness/approvals
+        - POST /api/secrets/readiness/runs
+        - GET /api/secrets/readiness/runs
+        - GET /api/secrets/readiness/runs/:id
+    readOnlyUx:
+      dashboardRoute: "#/secrets"
+      cliCommands:
+        - codexhub secrets status
+        - codexhub secrets readiness dry-runs list
+        - codexhub secrets readiness approvals list
+        - codexhub secrets readiness runs list
+        - codexhub secrets readiness runs show <runId>
+        - codexhub secrets rehearse --fixture --provider <provider> --scenario <name>
+      supervisorPostAllowed: false
+      localControlTokenRead: false
+      adapterExecuteAllowed: false
+    safety:
+      providerApiSecretReadAllowed: false
+      providerCliSecretReadAllowed: false
+      secretValueStorageAllowed: false
+      secretValueOutputAllowed: false
+      tokenStorageAllowed: false
+      envValueStorageAllowed: false
+      rawConfigStorage: forbidden
+      rawPathStorage: forbidden
+      rawUrlStorage: forbidden
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
       metadataOnlyPublicOutput: true
   m0-m24-foundation-hardening:
     enabled: false

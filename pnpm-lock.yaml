@@ -120,6 +120,9 @@ importers:
       '@codexhub/release-lifecycle-kernel':
         specifier: workspace:*
         version: link:../../packages/release-lifecycle-kernel
+      '@codexhub/secret-governance-kernel':
+        specifier: workspace:*
+        version: link:../../packages/secret-governance-kernel
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../../packages/security-kernel
@@ -265,6 +268,9 @@ importers:
       '@codexhub/review-package-kernel':
         specifier: workspace:*
         version: link:../../packages/review-package-kernel
+      '@codexhub/secret-governance-kernel':
+        specifier: workspace:*
+        version: link:../../packages/secret-governance-kernel
       '@codexhub/security-kernel':
         specifier: workspace:*
         version: link:../../packages/security-kernel
@@ -531,6 +537,15 @@ importers:
         version: link:../evidence-kernel
 
   packages/review-package-kernel:
+    dependencies:
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@codexhub/evidence-kernel':
+        specifier: workspace:*
+        version: link:../evidence-kernel
+
+  packages/secret-governance-kernel:
     dependencies:
       '@codexhub/contracts':
         specifier: workspace:*

@@ -53,6 +53,7 @@ export const DASHBOARD_VIEWS = [
   'release-candidates',
   'releases',
   'deployments',
+  'secrets',
   'workflows',
 ] as const;
 
