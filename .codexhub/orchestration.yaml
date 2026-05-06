@@ -4332,3 +4332,24 @@ workflows:
       workflowApprovalDoesNotGrantChildAuthority: true
       childApprovalsRemainSeparate: true
       metadataOnlyPublicOutput: true
+  m32_3.control-plane-coverage-drift-hardening:
+    risk: critical
+    trigger:
+      type: control-plane-coverage-hardening
+      entrypoint: apps/supervisor tests docs
+      localControlRequired: false
+    fixes:
+      - familyLevelLateStageControlPlaneMatrix
+      - approvalManagedExternallyClassification
+      - matrixDerivedRouteCoverageDriftCheck
+    docs:
+      - docs/releases/m32.3-control-plane-coverage-hardening.md
+      - docs/reviews/m0-m32-control-plane-coverage-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true

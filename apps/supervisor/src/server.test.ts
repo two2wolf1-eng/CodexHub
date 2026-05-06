@@ -20,63 +20,64 @@ const symlinkEscapeAbsolutePath = join(process.cwd(), ...symlinkEscapeFixturePat
 const localControlToken = 'test-local-control-token';
 const localControlHeaders = { 'x-codexhub-local-token': localControlToken };
 const trustedLoopbackOrigin = 'http://127.0.0.1:5173';
-const lateStageSupervisorMutatingRoutes = [
-  '/api/review-packages/dry-runs',
-  '/api/review-packages/approval-requests',
-  '/api/review-packages/manual-approvals',
-  '/api/review-packages/runs',
-  '/api/release-candidates/dry-runs',
-  '/api/release-candidates/approval-requests',
-  '/api/release-candidates/manual-approvals',
-  '/api/release-candidates/runs',
-  '/api/github/metadata/dry-runs',
-  '/api/github/metadata/approval-requests',
-  '/api/github/metadata/manual-approvals',
-  '/api/github/metadata/runs',
-  '/api/github/pr-lifecycle/dry-runs',
-  '/api/github/pr-lifecycle/approval-requests',
-  '/api/github/pr-lifecycle/manual-approvals',
-  '/api/github/pr-lifecycle/runs',
-  '/api/github/draft-prs/dry-runs',
-  '/api/github/draft-prs/approval-requests',
-  '/api/github/draft-prs/manual-approvals',
-  '/api/github/draft-prs/runs',
-  '/api/github/branch-publishes/dry-runs',
-  '/api/github/branch-publishes/approval-requests',
-  '/api/github/branch-publishes/manual-approvals',
-  '/api/github/branch-publishes/runs',
-  '/api/github/publish-draft-pr-chains/dry-runs',
-  '/api/github/publish-draft-pr-chains/runs',
-  '/api/github/remote-cleanups/dry-runs',
-  '/api/github/remote-cleanups/approval-requests',
-  '/api/github/remote-cleanups/manual-approvals',
-  '/api/github/remote-cleanups/runs',
-  '/api/rework-loops/dry-runs',
-  '/api/rework-loops/approval-requests',
-  '/api/rework-loops/manual-approvals',
-  '/api/rework-loops/runs',
-  '/api/workflows/custom/dry-runs',
-  '/api/workflows/custom/approval-requests',
-  '/api/workflows/custom/manual-approvals',
-  '/api/workflows/custom/runs',
-  '/api/workflows/production/recoveries/dry-runs',
-  '/api/workflows/production/recoveries/approval-requests',
-  '/api/workflows/production/recoveries/manual-approvals',
-  '/api/workflows/production/recoveries/runs',
+const lateStageSupervisorControlPlaneMatrix = [
+  { family: 'review-packages', prefix: '/api/review-packages', approvalManagedExternally: false },
+  {
+    family: 'release-candidates',
+    prefix: '/api/release-candidates',
+    approvalManagedExternally: false,
+  },
+  { family: 'github-metadata', prefix: '/api/github/metadata', approvalManagedExternally: false },
+  {
+    family: 'github-pr-lifecycle',
+    prefix: '/api/github/pr-lifecycle',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-draft-prs',
+    prefix: '/api/github/draft-prs',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-branch-publishes',
+    prefix: '/api/github/branch-publishes',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-publish-draft-pr-chains',
+    prefix: '/api/github/publish-draft-pr-chains',
+    approvalManagedExternally: true,
+  },
+  {
+    family: 'github-remote-cleanups',
+    prefix: '/api/github/remote-cleanups',
+    approvalManagedExternally: false,
+  },
+  { family: 'rework-loops', prefix: '/api/rework-loops', approvalManagedExternally: false },
+  {
+    family: 'custom-workflows',
+    prefix: '/api/workflows/custom',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'production-workflow-recoveries',
+    prefix: '/api/workflows/production/recoveries',
+    approvalManagedExternally: false,
+  },
 ] as const;
-const lateStageSupervisorRoutePrefixes = [
-  '/api/review-packages',
-  '/api/release-candidates',
-  '/api/github/metadata',
-  '/api/github/pr-lifecycle',
-  '/api/github/draft-prs',
-  '/api/github/branch-publishes',
-  '/api/github/publish-draft-pr-chains',
-  '/api/github/remote-cleanups',
-  '/api/rework-loops',
-  '/api/workflows/custom',
-  '/api/workflows/production/recoveries',
-] as const;
+const lateStageSupervisorMutatingRoutes = lateStageSupervisorControlPlaneMatrix.flatMap((entry) =>
+  entry.approvalManagedExternally
+    ? [`${entry.prefix}/dry-runs`, `${entry.prefix}/runs`]
+    : [
+        `${entry.prefix}/dry-runs`,
+        `${entry.prefix}/approval-requests`,
+        `${entry.prefix}/manual-approvals`,
+        `${entry.prefix}/runs`,
+      ],
+);
+const lateStageSupervisorRoutePrefixes = lateStageSupervisorControlPlaneMatrix.map(
+  (entry) => entry.prefix,
+);
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
 
@@ -271,6 +272,29 @@ describe('supervisor mock development API', () => {
     const coveredLateStageRoutes = [...lateStageSupervisorMutatingRoutes].sort();
 
     expect(coveredLateStageRoutes).toEqual(registeredLateStageRoutes);
+  });
+
+  it('keeps late-stage control-plane matrix classified by family and approval source', () => {
+    const coveredLateStageRoutes = [...lateStageSupervisorMutatingRoutes];
+
+    expect(new Set(coveredLateStageRoutes).size).toBe(coveredLateStageRoutes.length);
+
+    for (const entry of lateStageSupervisorControlPlaneMatrix) {
+      const routes = coveredLateStageRoutes.filter((route) => route.startsWith(entry.prefix));
+
+      expect(routes).toContain(`${entry.prefix}/dry-runs`);
+      expect(routes).toContain(`${entry.prefix}/runs`);
+      expect(routes.every((route) => route.startsWith(entry.prefix))).toBe(true);
+
+      if (entry.approvalManagedExternally) {
+        expect(routes).not.toContain(`${entry.prefix}/approval-requests`);
+        expect(routes).not.toContain(`${entry.prefix}/manual-approvals`);
+        continue;
+      }
+
+      expect(routes).toContain(`${entry.prefix}/approval-requests`);
+      expect(routes).toContain(`${entry.prefix}/manual-approvals`);
+    }
   });
 
   it('rejects caller-supplied authority objects on late-stage approval and run routes', async () => {
