@@ -2480,6 +2480,118 @@ integrations:
       rawPathStored: false
       tokenStorageAllowed: false
       metadataOnlyPublicOutput: true
+  platform-operations-lifecycle:
+    enabled: false
+    adapter: platform-operations-kernel
+    provider: codexhub-platform-operations
+    providerType: builtin
+    mode: governed-local-platform-operations
+    stage: m47-platform-operations-lifecycle
+    defaultActionMode: write
+    defaultRisk: critical
+    backup:
+      enabled: false
+      target: local-filesystem-only
+      targetEnv: CODEXHUB_BACKUP_DIR
+      manifestHashRequired: true
+      networkExportAllowed: false
+    restore:
+      rehearsalDefault: true
+      activeStoreReplacementEnabled: false
+      replaceEnablementEnv: CODEXHUB_STORE_RESTORE_REPLACE_ENABLED
+      schedulerQuiescenceRequired: true
+      backupManifestHashRequired: true
+      approvalsRequiredForReplace: 2
+    migrations:
+      builtInMigrationIdsOnly: true
+      requestBodyMigrationTextTrusted: false
+    retention:
+      previewRequired: true
+      backupRequiredBeforeDestructiveRetention: true
+    auditExport:
+      target: local-jsonl-and-manifest-only
+      networkExportAllowed: false
+      rawAuditBodiesStored: false
+    operatorRoles:
+      operatorHashesOnly: true
+      roleScopesHashBound: true
+      roleEnforcementOptionalGate: true
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+      routes:
+        - POST /api/platform/backups/dry-runs
+        - GET /api/platform/backups/dry-runs
+        - POST /api/platform/backups/approval-requests
+        - POST /api/platform/backups/manual-approvals
+        - GET /api/platform/backups/approvals
+        - POST /api/platform/backups/runs
+        - GET /api/platform/backups/runs
+        - GET /api/platform/backups/runs/:id
+        - POST /api/platform/restores/dry-runs
+        - GET /api/platform/restores/dry-runs
+        - POST /api/platform/restores/approval-requests
+        - POST /api/platform/restores/manual-approvals
+        - GET /api/platform/restores/approvals
+        - POST /api/platform/restores/runs
+        - GET /api/platform/restores/runs
+        - GET /api/platform/restores/runs/:id
+        - POST /api/platform/migrations/dry-runs
+        - GET /api/platform/migrations/dry-runs
+        - POST /api/platform/migrations/approval-requests
+        - POST /api/platform/migrations/manual-approvals
+        - GET /api/platform/migrations/approvals
+        - POST /api/platform/migrations/runs
+        - GET /api/platform/migrations/runs
+        - GET /api/platform/migrations/runs/:id
+        - POST /api/platform/retention/dry-runs
+        - GET /api/platform/retention/dry-runs
+        - POST /api/platform/retention/approval-requests
+        - POST /api/platform/retention/manual-approvals
+        - GET /api/platform/retention/approvals
+        - POST /api/platform/retention/runs
+        - GET /api/platform/retention/runs
+        - GET /api/platform/retention/runs/:id
+        - POST /api/platform/audit-exports/dry-runs
+        - GET /api/platform/audit-exports/dry-runs
+        - POST /api/platform/audit-exports/approval-requests
+        - POST /api/platform/audit-exports/manual-approvals
+        - GET /api/platform/audit-exports/approvals
+        - POST /api/platform/audit-exports/runs
+        - GET /api/platform/audit-exports/runs
+        - GET /api/platform/audit-exports/runs/:id
+        - POST /api/platform/operator-roles/dry-runs
+        - GET /api/platform/operator-roles/dry-runs
+        - POST /api/platform/operator-roles/approval-requests
+        - POST /api/platform/operator-roles/manual-approvals
+        - GET /api/platform/operator-roles/approvals
+        - POST /api/platform/operator-roles/runs
+        - GET /api/platform/operator-roles/runs
+        - GET /api/platform/operator-roles/runs/:id
+    dashboard:
+      route: "#/operations"
+      guidedPanelsReviewedOnly: true
+      localControlCredentialPersistence: memory-only
+    cli:
+      readOnlyForPlatformOperations: true
+      rehearsalFixtureOnly: true
+      tokenArgumentAllowed: false
+    safety:
+      activeStoreReplacementRequiresTwoApprovals: true
+      arbitraryBackupTargetAllowed: false
+      arbitraryMigrationBodyAllowed: false
+      networkBackupExportAllowed: false
+      rawDatabaseRowsStored: false
+      destructiveRetentionWithoutBackupAllowed: false
+      roleBypassAllowed: false
+      uiCliMcpDirectAdapterExecutionAllowed: false
+      metadataOnlyPublicOutput: true
   m0-m24-foundation-hardening:
     enabled: false
     adapter: governance-audit

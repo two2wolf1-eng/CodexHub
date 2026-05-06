@@ -5312,3 +5312,81 @@ workflows:
       rawPathStored: false
       tokenStorageAllowed: false
       metadataOnlyPublicOutput: true
+  m47.platform-operations-lifecycle:
+    risk: critical
+    trigger:
+      type: platform-operations-governance
+      entrypoint: contracts platform-operations-kernel store supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - phase: contracts
+        package: contracts
+        validates:
+          - platformBackupPlan
+          - platformRestorePlan
+          - storeMigrationPlan
+          - retentionPolicyPlan
+          - auditExportPlan
+          - operatorRoleAssignmentPlan
+          - disasterRecoveryRehearsalRun
+      - phase: platform-kernel-store
+        packages:
+          - platform-operations-kernel
+          - store-core
+          - store-sqlite
+        validates:
+          - backupCatalogMetadataOnly
+          - restoreRehearsalDefault
+          - builtInMigrationIdsOnly
+          - auditExportManifestHashOnly
+          - operatorRoleHashesOnly
+      - phase: supervisor-control-plane
+        app: supervisor
+        routes:
+          - /api/platform/backups/*
+          - /api/platform/restores/*
+          - /api/platform/migrations/*
+          - /api/platform/retention/*
+          - /api/platform/audit-exports/*
+          - /api/platform/operator-roles/*
+        validates:
+          - localControlRequired
+          - trustedLoopbackOriginRequired
+          - requestBodyAuthorityRejected
+          - restoreReplacementTwoApprovals
+      - phase: ux
+        apps:
+          - dashboard
+          - cli
+        validates:
+          - operationsDashboardMetadataOnly
+          - cliOperationsReadOnly
+          - fixtureRehearsalOnly
+      - phase: hardening
+        validates:
+          - noNetworkBackupExport
+          - noActiveStoreReplacementWithoutGate
+          - noArbitraryMigrationBody
+          - noDestructiveRetentionWithoutBackup
+          - noRoleBypass
+    docs:
+      - docs/releases/m47-platform-operations-results.md
+      - docs/reviews/m47-platform-operations-hardening-review.md
+      - docs/reviews/m0-m47-capability-governance-matrix.md
+      - docs/runbooks/m47-disaster-recovery-operator-runbook.md
+    safety:
+      productDefaultEnabled: false
+      localBackupTargetOnly: true
+      restoreReplaceDefaultEnabled: false
+      restoreReplaceRequiresTwoApprovals: true
+      schedulerQuiescenceRequiredForRestoreReplace: true
+      builtInMigrationIdsOnly: true
+      networkBackupExportAllowed: false
+      rawDbRowsStored: false
+      rawAuditBodiesStored: false
+      rawPathStored: false
+      tokenStorageAllowed: false
+      dashboardGuidedPanelsReviewedOnly: true
+      cliPlatformOperationsReadOnly: true
+      mcpPlatformOperationsMutationAllowed: false
+      metadataOnlyPublicOutput: true
