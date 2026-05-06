@@ -870,9 +870,12 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).toContain('/api/workflows/production/recoveries/approval-requests');
     expect(appSource).toContain('/api/workflows/production/recoveries/manual-approvals');
     expect(appSource).toContain('/api/workflows/production/recoveries/runs');
+    expect(appSource).toContain('recoveryDashboardPostRoutes.has(path)');
+    expect(appSource).not.toContain("startsWith('/api/workflows/production/recoveries/')");
     expect(recoveryWizard).not.toContain('approvalKey');
     expect(recoveryWizard).not.toContain('local-control');
     expect(workflowRoute).not.toContain('CODEXHUB_SUPERVISOR_LOCAL');
+    expect(appSource).not.toContain('reason: recoveryReason');
     for (const forbidden of [
       'approvalArtifact:',
       'executionAuthority',

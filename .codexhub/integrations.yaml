@@ -1596,9 +1596,11 @@ integrations:
         - github-draft-pr-chain
         - rework-cleanup
       usesExistingRecoveryRoutesOnly: true
+      exactDashboardPostRouteAllowlist: true
       noNewSupervisorRoute: true
       pageMemoryKeyOnly: true
       browserStorageAllowed: false
+      rawReasonAcceptedFromDashboard: false
       childAutoApprovalAllowed: false
       childAdapterExecutionAllowed: false
       childArtifactsAcceptedFromDashboard: false

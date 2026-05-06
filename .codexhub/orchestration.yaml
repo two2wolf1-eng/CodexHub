@@ -4284,3 +4284,27 @@ workflows:
       noNewRoute: true
       noNewProvider: true
       metadataOnlyPublicOutput: true
+  m32_1.m0-m32-full-debug-hardening:
+    risk: critical
+    trigger:
+      type: full-debug-hardening
+      entrypoint: dashboard supervisor workflow-kernel audits docs
+      localControlRequired: false
+    findings:
+      - dashboardRecoveryPostRouteGuardWasPrefixBased
+      - dashboardRecoveryWizardAcceptedFreeFormReasonInput
+    fixes:
+      - exactDashboardRecoveryPostRouteAllowlist
+      - noRawRecoveryReasonFromDashboard
+      - noLiveAuditNegativeFixturesForPrefixRouteGuardAndRawReason
+    docs:
+      - docs/releases/m32.1-full-debug-hardening.md
+      - docs/reviews/m0-m32-full-debug-hardening-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true

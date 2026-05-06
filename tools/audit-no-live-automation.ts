@@ -164,6 +164,8 @@ const dashboardRecoveryForbiddenPayloadTerms = [
   'childArtifacts',
   'childApprovalApproved',
   'childRunStatuses',
+  'reason: recoveryReason',
+  "startsWith('/api/workflows/production/recoveries/')",
 ];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
@@ -417,6 +419,19 @@ function validateAdversarialAuditSentinels(): void {
         'const endpoint = "/api/workflows/production/recoveries/approval-requests"; const body = { dryRunId, childArtifacts: [] };',
       expectedTerm: 'childArtifacts',
       description: 'Dashboard recovery child artifact payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/workflows/production/recoveries/approval-requests"; const body = { dryRunId, reason: recoveryReason };',
+      expectedTerm: 'reason: recoveryReason',
+      description: 'Dashboard recovery raw reason payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
+      sourceText: "const ok = path.startsWith('/api/workflows/production/recoveries/');",
+      expectedTerm: "startsWith('/api/workflows/production/recoveries/')",
+      description: 'Dashboard recovery prefix route guard',
     },
     {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',

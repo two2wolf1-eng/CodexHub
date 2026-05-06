@@ -766,6 +766,12 @@ const recoveryTemplateOptions = [
   { id: 'github-draft-pr-chain', label: 'GitHub Draft PR Chain' },
   { id: 'rework-cleanup', label: 'Rework Cleanup' },
 ] as const;
+const recoveryDashboardPostRoutes = new Set([
+  '/api/workflows/production/recoveries/dry-runs',
+  '/api/workflows/production/recoveries/approval-requests',
+  '/api/workflows/production/recoveries/manual-approvals',
+  '/api/workflows/production/recoveries/runs',
+]);
 type RecoveryTemplateId = (typeof recoveryTemplateOptions)[number]['id'];
 
 interface RecoveryGuidedOperationState {
@@ -773,8 +779,6 @@ interface RecoveryGuidedOperationState {
   setRecoveryKey: (value: string) => void;
   recoveryTemplateId: RecoveryTemplateId;
   setRecoveryTemplateId: (value: RecoveryTemplateId) => void;
-  recoveryReason: string;
-  setRecoveryReason: (value: string) => void;
   recoveryMessage: string;
   recoveryBusy: boolean;
   recoveryDryRunId: string;
@@ -880,9 +884,6 @@ export function App() {
   const [recoveryKey, setRecoveryKey] = useState('');
   const [recoveryTemplateId, setRecoveryTemplateId] =
     useState<RecoveryTemplateId>('local-patch-review');
-  const [recoveryReason, setRecoveryReason] = useState(
-    'Reviewed recovery metadata-only evidence',
-  );
   const [recoveryMessage, setRecoveryMessage] = useState('');
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryDryRunId, setRecoveryDryRunId] = useState('');
@@ -2154,7 +2155,7 @@ export function App() {
       const result = await postRecoveryJson<CustomWorkflowControlSummary>(
         '/api/workflows/production/recoveries/approval-requests',
         recoveryKey,
-        { dryRunId: recoveryDryRunId, reason: recoveryReason },
+        { dryRunId: recoveryDryRunId },
       );
       setRecoveryApprovalRequestId(result.approvalRequestId ?? '');
       setRecoveryMessage(
@@ -2187,7 +2188,6 @@ export function App() {
           dryRunId: recoveryDryRunId,
           approvalRequestId: recoveryApprovalRequestId,
           outcome: 'approved',
-          reason: recoveryReason,
         },
       );
       setRecoveryApprovalArtifactId(result.approvalArtifactId ?? '');
@@ -3782,8 +3782,6 @@ export function App() {
             setRecoveryKey,
             recoveryTemplateId,
             setRecoveryTemplateId,
-            recoveryReason,
-            setRecoveryReason,
             recoveryMessage,
             recoveryBusy,
             recoveryDryRunId,
@@ -5337,8 +5335,6 @@ function renderReadOnlyDashboardView(
       setRecoveryKey,
       recoveryTemplateId,
       setRecoveryTemplateId,
-      recoveryReason,
-      setRecoveryReason,
       recoveryMessage,
       recoveryBusy,
       recoveryDryRunId,
@@ -5525,13 +5521,6 @@ function renderReadOnlyDashboardView(
                 value={recoveryKey}
                 onChange={(event) => setRecoveryKey(event.currentTarget.value)}
                 placeholder="Required for recovery dry-run, approval, and run"
-              />
-            </label>
-            <label className="stacked">
-              <strong>reason summary</strong>
-              <input
-                value={recoveryReason}
-                onChange={(event) => setRecoveryReason(event.currentTarget.value)}
               />
             </label>
           </div>
@@ -6540,7 +6529,7 @@ async function postRecoveryJson<T>(
   pageMemoryKey: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  if (!path.startsWith('/api/workflows/production/recoveries/')) {
+  if (!recoveryDashboardPostRoutes.has(path)) {
     throw new Error('Dashboard recovery wizard can only call recovery control-plane routes.');
   }
 

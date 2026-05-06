@@ -15,7 +15,8 @@ Supported templates:
 - Dashboard POST calls are limited to `/api/workflows/production/recoveries/*`.
 - The local-control key is entered by the operator and kept only in React page memory.
 - The key state is displayed only as `entered` or `missing`.
-- The Dashboard does not send request-body approval artifacts, execution authority objects, child artifacts, raw paths, raw bodies, or raw secrets.
+- The Dashboard does not send request-body approval artifacts, execution authority objects, child artifacts, raw reasons, raw paths, raw bodies, or raw secrets.
+- Dashboard POST calls use exact recovery route allowlisting rather than prefix-based routing.
 - Workflow recovery approval does not grant child authority.
 - Child actions remain separately governed by their own child control planes.
 
@@ -32,4 +33,3 @@ Supported templates:
 ## Verification Evidence
 
 M31 is covered by Dashboard source tests, Supervisor recovery route tests, and the no-live automation audit. Full verification is recorded in the M32 closeout.
-
