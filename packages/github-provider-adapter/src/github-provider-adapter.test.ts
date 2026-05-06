@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  runGithubReleaseDraftHttpBoundary,
+  runGithubReleaseTagHttpBoundary,
+} from './github-http-boundary';
+import {
   CapabilityManifestSchema,
   GithubBranchPublishPlanSchema,
   GithubDraftPrPlanSchema,
@@ -93,6 +97,76 @@ const branchPublishFileInputs = branchPublishFiles.map((file) => ({
 function expectNoForbiddenGithubPublicOutput(serialized: string): void {
   expect(findAdversarialPublicOutputLeaks(serialized)).toEqual([]);
 }
+
+describe('GitHub release lifecycle HTTP boundary', () => {
+  it('uses only fixed tag and release draft endpoints with hash-only results', async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    let tagRefLookupCount = 0;
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET' });
+      const path = String(url);
+      if (path.includes('/releases/tags/v1.2.3')) {
+        return new Response('{}', { status: 404 });
+      }
+      if (path.includes('/git/ref/tags/v1.2.3')) {
+        tagRefLookupCount += 1;
+        return tagRefLookupCount === 1
+          ? new Response('{}', { status: 404 })
+          : new Response(JSON.stringify({ object: { sha: 'tag-sha-123' } }), { status: 200 });
+      }
+      if (path.endsWith('/git/tags')) {
+        return new Response(JSON.stringify({ sha: 'tag-sha-123' }), { status: 201 });
+      }
+      if (path.endsWith('/git/refs')) {
+        return new Response(JSON.stringify({ ref: 'refs/tags/v1.2.3' }), { status: 201 });
+      }
+      if (path.endsWith('/releases')) {
+        return new Response(JSON.stringify({ id: 123, draft: true }), { status: 201 });
+      }
+      if (path.includes('/git/ref/heads/main')) {
+        return new Response(JSON.stringify({ object: { sha: 'base-sha-123' } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    const tag = await runGithubReleaseTagHttpBoundary({
+      owner: 'two2wolf1-eng',
+      repo: 'CodexHub',
+      baseBranch: 'main',
+      tagName: 'v1.2.3',
+      tagMessage: 'Release v1.2.3',
+      token: 'token',
+      fetchImpl,
+    });
+    const draft = await runGithubReleaseDraftHttpBoundary({
+      owner: 'two2wolf1-eng',
+      repo: 'CodexHub',
+      tagName: 'v1.2.3',
+      releaseName: 'Release v1.2.3',
+      releaseBody: 'raw release body is sent transiently only',
+      token: 'token',
+      fetchImpl,
+    });
+    const serialized = JSON.stringify([tag, draft]);
+
+    expect(tag.status).toBe('completed');
+    expect(draft.status).toBe('completed');
+    expect(calls.map((call) => call.method)).toEqual([
+      'GET',
+      'GET',
+      'GET',
+      'POST',
+      'POST',
+      'GET',
+      'GET',
+      'GET',
+      'POST',
+    ]);
+    expect(calls.every((call) => call.url.startsWith('https://api.github.com/'))).toBe(true);
+    expect(serialized).not.toContain('raw release body');
+    expect(serialized).not.toContain('token');
+  });
+});
 
 async function createCompletedBranchPublishRun() {
   const dryRunRecord = createGithubBranchPublishPlan({

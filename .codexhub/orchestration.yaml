@@ -4563,6 +4563,99 @@ workflows:
       releaseDeploymentAllowed: false
       arbitraryGithubPassthroughAllowed: false
       metadataOnlyPublicOutput: true
+  m40.release-version-tag-lifecycle:
+    risk: critical
+    trigger:
+      type: release-version-tag-lifecycle
+      entrypoint: contracts release-lifecycle-kernel github-provider store supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - release-lifecycle-contracts
+      - release-kernel-store-github-adapter
+      - release-supervisor-control-plane
+      - release-read-only-ux-rehearsal
+      - release-hardening
+    requiredEnv:
+      - CODEXHUB_GITHUB_PROVIDER_ENABLED
+      - CODEXHUB_GITHUB_RELEASE_TAG_ENABLED
+      - CODEXHUB_GITHUB_RELEASE_DRAFT_ENABLED
+    docs:
+      - docs/releases/m40-release-version-tag-results.md
+      - docs/reviews/m40-release-lifecycle-hardening-review.md
+      - docs/runbooks/m40-release-lifecycle-operator-runbook.md
+    safety:
+      fixedGithubEndpointsOnly: true
+      versionPlanMetadataOnly: true
+      changelogSummaryMetadataOnly: true
+      localGitTagAllowed: false
+      releasePublishAllowed: false
+      tagCreationRequiresApproval: true
+      releaseDraftRequiresApproval: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawReleaseBodyStored: false
+      rawChangelogStored: false
+      tokenStorageAllowed: false
+      pushAllowed: false
+      updateRefAllowedOutsideTagCreate: false
+      forceAllowed: false
+      mergeAllowed: false
+      deploymentAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+      metadataOnlyPublicOutput: true
+  m41.deployment-read-only-providers:
+    risk: critical
+    trigger:
+      type: deployment-read-only-providers
+      entrypoint: contracts deployment-provider-adapter store supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - deployment-contracts
+      - deployment-unified-adapter-store
+      - deployment-observation-supervisor-control-plane
+      - deployment-read-only-ux-rehearsal
+      - deployment-hardening
+    providers:
+      - docker
+      - kubernetes
+      - helm
+      - argo-cd
+      - terraform
+      - opentofu
+    requiredEnv:
+      - CODEXHUB_DEPLOYMENT_OBSERVER_ENABLED
+      - CODEXHUB_DEPLOYMENT_DOCKER_ENABLED
+      - CODEXHUB_DEPLOYMENT_KUBERNETES_ENABLED
+      - CODEXHUB_DEPLOYMENT_HELM_ENABLED
+      - CODEXHUB_DEPLOYMENT_ARGOCD_ENABLED
+      - CODEXHUB_DEPLOYMENT_TERRAFORM_ENABLED
+      - CODEXHUB_DEPLOYMENT_OPENTOFU_ENABLED
+    docs:
+      - docs/releases/m41-deployment-read-only-results.md
+      - docs/reviews/m41-deployment-read-only-hardening-review.md
+      - docs/runbooks/m41-deployment-read-only-operator-runbook.md
+    safety:
+      readOnlyObservationOnly: true
+      fixedProviderRunnersOnly: true
+      applyAllowed: false
+      syncAllowed: false
+      rollbackAllowed: false
+      deleteAllowed: false
+      scaleAllowed: false
+      restartAllowed: false
+      imagePushAllowed: false
+      helmUpgradeAllowed: false
+      terraformApplyAllowed: false
+      arbitraryCommandAllowed: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawKubeconfigStored: false
+      rawContextStored: false
+      rawPlanStored: false
+      rawDiffStored: false
+      rawLogStored: false
+      tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

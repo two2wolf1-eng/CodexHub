@@ -62,6 +62,12 @@ import {
   GithubRemotePrLifecycleSummarySchema,
   GithubRemoteCommitSummarySchema,
   GithubRemoteRefSummarySchema,
+  GithubReleaseDraftApprovalArtifactSchema,
+  GithubReleaseDraftRunSchema,
+  GithubReleaseDraftSummarySchema,
+  GithubReleaseTagApprovalArtifactSchema,
+  GithubReleaseTagRunSchema,
+  GithubReleaseTagSummarySchema,
   GithubTokenReadinessSchema,
   PolicyDecisionSchema,
   RemotePrAuditChainSchema,
@@ -153,6 +159,12 @@ import {
   type GithubRemotePrLifecycleSummary,
   type GithubRemoteCommitSummary,
   type GithubRemoteRefSummary,
+  type GithubReleaseDraftApprovalArtifact,
+  type GithubReleaseDraftPlan,
+  type GithubReleaseDraftRun,
+  type GithubReleaseTagApprovalArtifact,
+  type GithubReleaseTagPlan,
+  type GithubReleaseTagRun,
   type GithubTokenReadiness,
   type PolicyDecision,
   type RemoteCleanupReadiness,
@@ -177,6 +189,8 @@ import {
   runGithubMergeHttpBoundary,
   runGithubPrLifecycleHttpBoundary,
   runGithubPrManagementHttpBoundary,
+  runGithubReleaseDraftHttpBoundary,
+  runGithubReleaseTagHttpBoundary,
   runGithubRemoteCleanupHttpBoundary,
   type GithubBranchPublishHttpBoundaryRequest,
   type GithubActionsDispatchHttpBoundaryRequest,
@@ -186,6 +200,8 @@ import {
   type GithubMergeHttpBoundaryRequest,
   type GithubPrLifecycleHttpBoundaryRequest,
   type GithubPrManagementHttpBoundaryRequest,
+  type GithubReleaseDraftHttpBoundaryRequest,
+  type GithubReleaseTagHttpBoundaryRequest,
   type GithubRemoteCleanupHttpBoundaryRequest,
 } from './github-http-boundary';
 
@@ -447,6 +463,28 @@ export interface GithubActionsDispatchApprovalInput {
   now?: () => string;
 }
 
+export interface GithubReleaseTagApprovalInput {
+  dryRunRecord: GithubReleaseTagPlan;
+  baseRecord?: GithubReleaseTagApprovalArtifact;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  expiresAt?: string;
+  now?: () => string;
+}
+
+export interface GithubReleaseDraftApprovalInput {
+  dryRunRecord: GithubReleaseDraftPlan;
+  baseRecord?: GithubReleaseDraftApprovalArtifact;
+  status: GithubProviderApprovalStatus;
+  requestedBy?: string;
+  decidedBy?: string;
+  reason?: string;
+  expiresAt?: string;
+  now?: () => string;
+}
+
 export interface GithubRemoteCleanupApprovalInput {
   dryRunRecord: GithubRemoteCleanupPlan;
   baseRecord?: GithubRemoteCleanupApprovalArtifactRecord;
@@ -570,6 +608,30 @@ export interface GithubActionsDispatchExecutionInput {
   approvalRecord?: GithubActionsDispatchApprovalArtifact;
   authority?: ExecutionAuthority;
   runtime: Omit<GithubActionsDispatchHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
+export interface GithubReleaseTagExecutionInput {
+  dryRunRecord: GithubReleaseTagPlan;
+  approvalRecord?: GithubReleaseTagApprovalArtifact;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubReleaseTagHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
+    token?: string;
+  };
+  enabled?: boolean;
+  fetchImpl?: typeof fetch;
+  now?: () => string;
+}
+
+export interface GithubReleaseDraftExecutionInput {
+  dryRunRecord: GithubReleaseDraftPlan;
+  approvalRecord?: GithubReleaseDraftApprovalArtifact;
+  authority?: ExecutionAuthority;
+  runtime: Omit<GithubReleaseDraftHttpBoundaryRequest, 'fetchImpl' | 'token'> & {
     token?: string;
   };
   enabled?: boolean;
@@ -2319,6 +2381,145 @@ export function createGithubActionsDispatchApprovalRecord(
   });
 }
 
+export function createGithubReleaseTagApprovalRecord(
+  input: GithubReleaseTagApprovalInput,
+): GithubReleaseTagApprovalArtifact {
+  const now = input.now ?? foundationTimestamp;
+  const createdAt = now();
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_release_tag_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_release_tag_approval_artifact', input.dryRunRecord.dryRunId);
+
+  return GithubReleaseTagApprovalArtifactSchema.parse({
+    id: stableId(
+      'github_release_tag_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${createdAt}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    targetRefHash: stableHash(JSON.stringify(input.dryRunRecord.targetRef)),
+    tagNameHash: input.dryRunRecord.tagNameHash,
+    expectedPlanHash: stableHash(input.dryRunRecord.id),
+    approvedAt: input.status === 'approved' ? createdAt : baseRecord?.approvedAt,
+    expiresAt: input.expiresAt ?? baseRecord?.expiresAt,
+    usedAt: input.status === 'used' ? createdAt : baseRecord?.usedAt,
+    deniedAt: input.status === 'denied' ? createdAt : baseRecord?.deniedAt,
+    revokedAt: input.status === 'revoked' ? createdAt : baseRecord?.revokedAt,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    reasonSummary: input.reason ? summarizeReason(input.reason) : baseRecord?.reasonSummary,
+    approverHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.approverHash,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.release_tag_plan',
+        label: 'github-release-tag-approval',
+        summary: 'GitHub release tag approval stores target and tag hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          approvalArtifactIdHash: stableHash(approvalArtifactId),
+          status: input.status,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    tokenValueStored: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+    },
+    summary: `GitHub release tag approval status is ${input.status}.`,
+  });
+}
+
+export function createGithubReleaseDraftApprovalRecord(
+  input: GithubReleaseDraftApprovalInput,
+): GithubReleaseDraftApprovalArtifact {
+  const now = input.now ?? foundationTimestamp;
+  const createdAt = now();
+  const baseRecord = input.baseRecord;
+  const approvalRequestId =
+    baseRecord?.approvalRequestId ??
+    stableId('github_release_draft_approval_request', input.dryRunRecord.dryRunId);
+  const approvalArtifactId =
+    baseRecord?.approvalArtifactId ??
+    stableId('github_release_draft_approval_artifact', input.dryRunRecord.dryRunId);
+
+  return GithubReleaseDraftApprovalArtifactSchema.parse({
+    id: stableId(
+      'github_release_draft_approval_record',
+      `${input.dryRunRecord.dryRunId}:${approvalArtifactId}:${input.status}:${createdAt}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: input.dryRunRecord.dryRunId,
+    dryRunRecordId: input.dryRunRecord.id,
+    approvalRequestId,
+    approvalArtifactId,
+    status: input.status,
+    approved: input.status === 'approved',
+    policyDecisionId: input.dryRunRecord.policyDecision.id,
+    targetRefHash: stableHash(JSON.stringify(input.dryRunRecord.targetRef)),
+    tagNameHash: input.dryRunRecord.tagNameHash,
+    expectedPlanHash: stableHash(input.dryRunRecord.id),
+    releaseNameHash: input.dryRunRecord.releaseNameHash,
+    releaseBodyHash: input.dryRunRecord.releaseBodyHash,
+    draft: true,
+    releasePublishAllowed: false,
+    approvedAt: input.status === 'approved' ? createdAt : baseRecord?.approvedAt,
+    expiresAt: input.expiresAt ?? baseRecord?.expiresAt,
+    usedAt: input.status === 'used' ? createdAt : baseRecord?.usedAt,
+    deniedAt: input.status === 'denied' ? createdAt : baseRecord?.deniedAt,
+    revokedAt: input.status === 'revoked' ? createdAt : baseRecord?.revokedAt,
+    reasonHash: input.reason ? stableHash(input.reason) : baseRecord?.reasonHash,
+    reasonSummary: input.reason ? summarizeReason(input.reason) : baseRecord?.reasonSummary,
+    approverHash: input.decidedBy ? stableHash(input.decidedBy) : baseRecord?.approverHash,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.release_draft_plan',
+        label: 'github-release-draft-approval',
+        summary: 'GitHub release draft approval stores generated body hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          approvalArtifactIdHash: stableHash(approvalArtifactId),
+          status: input.status,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    tokenValueStored: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    bodyStored: false,
+    rawReleaseBodyStored: false,
+    rawChangelogStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      approvalArtifactIdHash: stableHash(approvalArtifactId),
+      status: input.status,
+      draft: true,
+    },
+    summary: `GitHub release draft approval status is ${input.status}.`,
+  });
+}
+
 export function createGithubDraftPrApprovalRecord(
   input: GithubDraftPrApprovalInput,
 ): GithubDraftPrApprovalArtifactRecord {
@@ -3184,6 +3385,217 @@ export async function executeGithubActionsDispatch(
       status === 'completed'
         ? 'GitHub Actions dispatch completed through fixed endpoint and fixed ref payload.'
         : `GitHub Actions dispatch ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
+export async function executeGithubReleaseTag(
+  input: GithubReleaseTagExecutionInput,
+): Promise<GithubReleaseTagRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectGithubReleaseTagExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubReleaseTagHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        baseBranch: boundaryInput.baseBranch,
+        tagName: boundaryInput.tagName,
+        tagMessage: boundaryInput.tagMessage,
+        targetSha: boundaryInput.targetSha,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const tagSummary = GithubReleaseTagSummarySchema.parse({
+    id: stableId('github_release_tag_summary', `${input.dryRunRecord.dryRunId}:${status}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    tagNameHash: boundaryResult?.tagNameHash ?? input.dryRunRecord.tagNameHash,
+    targetShaHash: boundaryResult?.targetShaHash ?? input.dryRunRecord.targetShaHash,
+    createdTagShaHash: boundaryResult?.createdTagShaHash,
+    createdRefHash: boundaryResult?.createdRefHash,
+    responseHashCount: responseBodyHashes.length,
+    tagAlreadyExists: boundaryResult?.tagAlreadyExists ?? false,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.release_tag_summary',
+        label: 'github-release-tag-summary',
+        summary: 'GitHub release tag run stores only tag, target, response, and ref hashes.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          status,
+          responseBodyHashCount: responseBodyHashes.length,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    rawTagStored: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    bodyStored: false,
+    summary:
+      status === 'completed'
+        ? 'GitHub release tag was created through fixed Git Data API endpoints.'
+        : `GitHub release tag ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+  const evidenceRefs = tagSummary.evidenceRefs;
+
+  return GithubReleaseTagRunSchema.parse({
+    id: stableId(
+      'github_release_tag_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    status,
+    plan: input.dryRunRecord,
+    tagSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: status !== 'completed',
+    fixedEndpointOnly: true,
+    localGitTagAllowed: false,
+    pushAllowed: false,
+    updateRefOutsideTagFlowAllowed: false,
+    forceAllowed: false,
+    releasePublishAllowed: false,
+    rawRefStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      responseBodyHashCount: responseBodyHashes.length,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub release tag run completed with hash-only public output.'
+        : `GitHub release tag run ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+}
+
+export async function executeGithubReleaseDraft(
+  input: GithubReleaseDraftExecutionInput,
+): Promise<GithubReleaseDraftRun> {
+  const now = input.now ?? foundationTimestamp;
+  const observedAt = now();
+  const blockReasons = collectGithubReleaseDraftExecutionBlockReasons(input, observedAt);
+  const boundaryInput = blockReasons.length === 0 ? input.runtime : undefined;
+  const boundaryResult = boundaryInput
+    ? await runGithubReleaseDraftHttpBoundary({
+        owner: boundaryInput.owner,
+        repo: boundaryInput.repo,
+        tagName: boundaryInput.tagName,
+        releaseName: boundaryInput.releaseName,
+        releaseBody: boundaryInput.releaseBody,
+        token: boundaryInput.token ?? '',
+        fetchImpl: input.fetchImpl,
+      })
+    : undefined;
+  const finalBlockReasons = [...blockReasons, ...(boundaryResult?.blockReasons ?? [])];
+  const status =
+    blockReasons.length > 0
+      ? 'blocked'
+      : boundaryResult?.status === 'completed'
+        ? 'completed'
+        : boundaryResult?.status ?? 'failed';
+  const responseBodyHashes = boundaryResult?.responseBodyHashes ?? [];
+  const draftSummary = GithubReleaseDraftSummarySchema.parse({
+    id: stableId('github_release_draft_summary', `${input.dryRunRecord.dryRunId}:${status}`),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    tagNameHash: boundaryResult?.tagNameHash ?? input.dryRunRecord.tagNameHash,
+    releaseNameHash: boundaryResult?.releaseNameHash ?? input.dryRunRecord.releaseNameHash,
+    releaseBodyHash: boundaryResult?.releaseBodyHash ?? input.dryRunRecord.releaseBodyHash,
+    releaseIdHash: boundaryResult?.releaseIdHash,
+    responseHashCount: responseBodyHashes.length,
+    draft: true,
+    alreadyExists: boundaryResult?.alreadyExists ?? false,
+    evidenceRefs: [
+      createGithubEvidenceRef({
+        kind: 'github.release_draft_summary',
+        label: 'github-release-draft-summary',
+        summary: 'GitHub release draft run stores generated body hash and response hashes only.',
+        metadata: {
+          integration: GITHUB_PROVIDER_NAME,
+          dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+          status,
+          responseBodyHashCount: responseBodyHashes.length,
+        },
+      }),
+    ],
+    auditEventIds: [foundationId('audit')],
+    rawReleaseBodyStored: false,
+    rawChangelogStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    bodyStored: false,
+    summary:
+      status === 'completed'
+        ? 'GitHub release draft was created with draft=true.'
+        : `GitHub release draft ${status}: ${finalBlockReasons.join(', ')}.`,
+  });
+  const evidenceRefs = draftSummary.evidenceRefs;
+
+  return GithubReleaseDraftRunSchema.parse({
+    id: stableId(
+      'github_release_draft_run',
+      `${input.dryRunRecord.dryRunId}:${status}:${observedAt}:${responseBodyHashes.join(',')}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    status,
+    plan: input.dryRunRecord,
+    draftSummary,
+    responseBodyHashes,
+    blockReasons: finalBlockReasons,
+    evidenceRefs,
+    auditEventIds: [foundationId('audit')],
+    networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: status !== 'completed',
+    fixedEndpointOnly: true,
+    draft: true,
+    releasePublishAllowed: false,
+    rawReleaseBodyStored: false,
+    rawChangelogStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    rawPathStored: false,
+    bodyStored: false,
+    metadata: {
+      integration: GITHUB_PROVIDER_NAME,
+      dryRunIdHash: stableHash(input.dryRunRecord.dryRunId),
+      status,
+      networkBoundaryInvoked: boundaryResult?.networkBoundaryInvoked ?? false,
+      responseBodyHashCount: responseBodyHashes.length,
+      draft: true,
+    },
+    summary:
+      status === 'completed'
+        ? 'GitHub release draft run completed with hash-only public output.'
+        : `GitHub release draft run ${status}: ${finalBlockReasons.join(', ')}.`,
   });
 }
 
@@ -5320,6 +5732,101 @@ function collectGithubActionsDispatchExecutionBlockReasons(
   return [...new Set(reasons)];
 }
 
+function collectGithubReleaseTagExecutionBlockReasons(
+  input: GithubReleaseTagExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const reasons = [
+    input.enabled ? undefined : 'github_release_tag_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-release-tag'
+      ? undefined
+      : 'release_tag_runner_mode_not_controlled',
+    input.approvalRecord?.status === 'approved' ? undefined : 'missing_persisted_approval',
+    input.approvalRecord?.dryRunId === input.dryRunRecord.dryRunId
+      ? undefined
+      : 'approval_hash_mismatch',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    stableHash(input.runtime.baseBranch) === input.dryRunRecord.baseRefHash
+      ? undefined
+      : 'github_release_tag_base_ref_hash_mismatch',
+    stableHash(input.runtime.tagName) === input.dryRunRecord.tagNameHash
+      ? undefined
+      : 'github_release_tag_name_hash_mismatch',
+    stableHash(input.runtime.tagMessage) === input.dryRunRecord.tagMessageHash
+      ? undefined
+      : 'github_release_tag_message_hash_mismatch',
+    input.dryRunRecord.targetShaHash && input.runtime.targetSha
+      ? stableHash(input.runtime.targetSha) === input.dryRunRecord.targetShaHash
+        ? undefined
+        : 'github_release_tag_target_sha_hash_mismatch'
+      : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
+function collectGithubReleaseDraftExecutionBlockReasons(
+  input: GithubReleaseDraftExecutionInput,
+  nowIso: string,
+): string[] {
+  const authority = input.authority ? ExecutionAuthoritySchema.safeParse(input.authority) : undefined;
+  const runtimeValidation = validateRemoteRefInput(input.runtime);
+  const approvalExpired =
+    input.approvalRecord?.expiresAt !== undefined &&
+    Date.parse(input.approvalRecord.expiresAt) <= Date.parse(nowIso);
+  const authorityExpired =
+    authority?.success &&
+    authority.data.expiresAt !== undefined &&
+    Date.parse(authority.data.expiresAt) <= Date.parse(nowIso);
+  const reasons = [
+    input.enabled ? undefined : 'github_release_draft_disabled',
+    input.dryRunRecord.status === 'planned' ? undefined : 'dry_run_not_planned',
+    input.dryRunRecord.runnerMode === 'controlled-github-release-draft'
+      ? undefined
+      : 'release_draft_runner_mode_not_controlled',
+    input.approvalRecord?.status === 'approved' ? undefined : 'missing_persisted_approval',
+    input.approvalRecord?.dryRunId === input.dryRunRecord.dryRunId
+      ? undefined
+      : 'approval_hash_mismatch',
+    approvalExpired ? 'approval_artifact_expired' : undefined,
+    authority?.success && authority.data.allowed ? undefined : 'execution_authority_denied',
+    authorityExpired ? 'execution_authority_expired' : undefined,
+    input.runtime.token ? undefined : 'github_token_missing',
+    runtimeValidation,
+    matchesRemoteRefSummary(input.dryRunRecord.targetRef, input.runtime)
+      ? undefined
+      : 'github_remote_ref_hash_mismatch',
+    stableHash(input.runtime.tagName) === input.dryRunRecord.tagNameHash
+      ? undefined
+      : 'github_release_draft_tag_hash_mismatch',
+    stableHash(input.runtime.releaseName) === input.dryRunRecord.releaseNameHash
+      ? undefined
+      : 'github_release_draft_name_hash_mismatch',
+    stableHash(input.runtime.releaseBody) === input.dryRunRecord.releaseBodyHash
+      ? undefined
+      : 'github_release_draft_body_hash_mismatch',
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(reasons)];
+}
+
 function collectDraftPrExecutionBlockReasons(
   input: GithubDraftPrExecutionInput,
   nowIso: string,
@@ -5870,6 +6377,10 @@ function createGithubEvidenceRef(input: {
     | 'github.actions_dispatch_plan'
     | 'github.actions_dispatch_summary'
     | 'github.actions_rehearsal'
+    | 'github.release_tag_plan'
+    | 'github.release_tag_summary'
+    | 'github.release_draft_plan'
+    | 'github.release_draft_summary'
     | 'github.publish_draft_pr_rehearsal'
     | 'github.remote_supersede_plan'
     | 'github.remote_supersede_summary'
@@ -6933,4 +7444,8 @@ function stableId(prefix: string, seed: string): string {
 
 function stableHash(value: string): string {
   return `sha256:${hashText(value)}`;
+}
+
+function summarizeReason(value: string): string {
+  return `approval reason (${value.length} chars, hash ${stableHash(value)})`;
 }

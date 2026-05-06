@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "release-lifecycle-kernel",
+  "projectType": "library",
+  "sourceRoot": "packages/release-lifecycle-kernel/src",
+  "implicitDependencies": ["contracts", "evidence-kernel"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json",
+        "cwd": "packages/release-lifecycle-kernel"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "packages/release-lifecycle-kernel"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "packages/release-lifecycle-kernel"
+      }
+    }
+  }
+}

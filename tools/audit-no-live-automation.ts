@@ -319,6 +319,27 @@ const allowlistRules: AllowlistEntry[] = [
     reason: 'scaffold health release-document path vocabulary only; no GitHub API operation path',
   },
   {
+    scope: 'production-source',
+    file: 'apps/cli/src/main.ts',
+    terms: ['/releases', '/deployments'],
+    reason:
+      'M40/M41 CLI uses these as read-only Supervisor GET route strings; no direct provider or mutating execution path',
+  },
+  {
+    scope: 'production-source',
+    file: 'apps/dashboard/src/App.tsx',
+    terms: ['/releases', '/deployments'],
+    reason:
+      'M40/M41 Dashboard uses these as metadata route/view strings; no direct provider or ungoverned execution path',
+  },
+  {
+    scope: 'production-source',
+    file: 'apps/supervisor/src/server.ts',
+    terms: ['/releases', '/deployments'],
+    reason:
+      'M40/M41 Supervisor owns the governed release and deployment observation control-plane routes',
+  },
+  {
     scope: 'fixture',
     filePrefix: 'packages/codex-kernel/fixtures/',
     terms: executableTextTerms,
@@ -1517,9 +1538,12 @@ function discoverPublicExecuteTerms(): string[] {
 
 function isAllowedSensitiveMetadataLine(lowerLine: string, term: string): boolean {
   const tokenTerm = ['to', 'ken'].join('');
-  const metadataFlag = ['to', 'ken', 'stored'].join('').toLowerCase();
+  const metadataFlags = [
+    ['to', 'ken', 'stored'].join('').toLowerCase(),
+    ['to', 'ken', 'value', 'stored'].join('').toLowerCase(),
+  ];
 
-  return term === tokenTerm && lowerLine.includes(metadataFlag);
+  return term === tokenTerm && metadataFlags.some((metadataFlag) => lowerLine.includes(metadataFlag));
 }
 
 function collectModuleSpecifiers(sourceFile: ts.SourceFile, sourceText: string): string[] {

@@ -20,7 +20,9 @@
     "@codexhub/playwright-observer-adapter": "workspace:*",
     "@codexhub/otel-adapter": "workspace:*",
     "@codexhub/policy-backend-adapter": "workspace:*",
+    "@codexhub/deployment-provider-adapter": "workspace:*",
     "@codexhub/release-candidate-kernel": "workspace:*",
+    "@codexhub/release-lifecycle-kernel": "workspace:*",
     "@codexhub/security-kernel": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "commander": "^12.1.0"

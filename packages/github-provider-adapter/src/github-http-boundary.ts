@@ -183,6 +183,46 @@ export interface GithubActionsDispatchHttpBoundaryResult {
   summary: string;
 }
 
+export interface GithubReleaseTagHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  baseBranch: string;
+  tagName: string;
+  tagMessage: string;
+  targetSha?: string;
+}
+
+export interface GithubReleaseTagHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  tagNameHash: string;
+  targetShaHash?: string;
+  createdTagShaHash?: string;
+  createdRefHash?: string;
+  tagAlreadyExists: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
+export interface GithubReleaseDraftHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  tagName: string;
+  releaseName: string;
+  releaseBody: string;
+}
+
+export interface GithubReleaseDraftHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  tagNameHash: string;
+  releaseNameHash: string;
+  releaseBodyHash: string;
+  releaseIdHash?: string;
+  draftCreated: boolean;
+  alreadyExists: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
 export interface GithubPrLifecycleHttpBoundaryResult {
   status: 'completed' | 'failed' | 'aborted';
   networkBoundaryInvoked: boolean;
@@ -1010,6 +1050,274 @@ export async function runGithubActionsDispatchHttpBoundary(
         'github_actions_dispatch_network_failure',
       ]),
       responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubReleaseTagHttpBoundary(
+  request: GithubReleaseTagHttpBoundaryRequest,
+): Promise<GithubReleaseTagHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+  const tagNameHash = `sha256:${hashText(request.tagName)}`;
+
+  if (!fetchImpl) {
+    return {
+      status: 'aborted',
+      networkBoundaryInvoked: false,
+      responseBodyHashes: [],
+      tagNameHash,
+      targetShaHash: request.targetSha ? `sha256:${hashText(request.targetSha)}` : undefined,
+      tagAlreadyExists: false,
+      blockReasons: ['fetch_unavailable'],
+      summary: 'GitHub release tag boundary could not start because fetch is unavailable.',
+    };
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const baseBranch = encodePathSegment(request.baseBranch);
+  const tagName = encodePathSegment(request.tagName);
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}`);
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const baseRef = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`,
+    );
+    responseBodyHashes.push(baseRef.bodyHash);
+    if (!baseRef.ok) {
+      blockReasons.push(`base_ref_http_${baseRef.status}`);
+    }
+
+    const existingTag = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/git/ref/tags/${tagName}`,
+    );
+    responseBodyHashes.push(existingTag.bodyHash);
+    if (existingTag.ok) {
+      blockReasons.push('tag_exists');
+    } else if (existingTag.status !== 404) {
+      blockReasons.push(`tag_lookup_http_${existingTag.status}`);
+    }
+
+    const targetSha = request.targetSha ?? extractShaFromGithubRef(baseRef.bodyText) ?? 'unknown-target';
+    const targetShaHash = `sha256:${hashText(targetSha)}`;
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        tagNameHash,
+        targetShaHash,
+        tagAlreadyExists: existingTag.ok,
+        blockReasons,
+        summary: `GitHub release tag preflight failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const tagCreate = await fetchFixedGithubPostJson(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/git/tags`,
+      {
+        tag: request.tagName,
+        message: request.tagMessage,
+        object: targetSha,
+        type: 'commit',
+      },
+    );
+    responseBodyHashes.push(tagCreate.bodyHash);
+    if (!tagCreate.ok) {
+      blockReasons.push(`tag_create_http_${tagCreate.status}`);
+    }
+
+    const createdTagSha = extractShaFromGithubObject(tagCreate.bodyText);
+    if (!createdTagSha) {
+      blockReasons.push('tag_sha_missing');
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        tagNameHash,
+        targetShaHash,
+        tagAlreadyExists: false,
+        blockReasons,
+        summary: `GitHub annotated tag creation failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const refCreate = await fetchFixedGithubPostJson(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/git/refs`,
+      {
+        ref: `refs/tags/${request.tagName}`,
+        sha: createdTagSha,
+      },
+    );
+    responseBodyHashes.push(refCreate.bodyHash);
+    if (!refCreate.ok) {
+      blockReasons.push(`tag_ref_create_http_${refCreate.status}`);
+    }
+
+    return {
+      status: refCreate.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      tagNameHash,
+      targetShaHash,
+      createdTagShaHash: createdTagSha ? `sha256:${hashText(createdTagSha)}` : undefined,
+      createdRefHash: refCreate.ok ? `sha256:${hashText(`refs/tags/${request.tagName}`)}` : undefined,
+      tagAlreadyExists: false,
+      blockReasons,
+      summary: refCreate.ok
+        ? 'GitHub release tag boundary completed with fixed Git Data API endpoints.'
+        : `GitHub release tag ref creation failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      status: 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      tagNameHash,
+      targetShaHash: request.targetSha ? `sha256:${hashText(request.targetSha)}` : undefined,
+      tagAlreadyExists: false,
+      blockReasons: ['github_release_tag_network_failure'],
+      summary: 'GitHub release tag boundary failed due to a network error.',
+    };
+  }
+}
+
+export async function runGithubReleaseDraftHttpBoundary(
+  request: GithubReleaseDraftHttpBoundaryRequest,
+): Promise<GithubReleaseDraftHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+  const tagNameHash = `sha256:${hashText(request.tagName)}`;
+  const releaseNameHash = `sha256:${hashText(request.releaseName)}`;
+  const releaseBodyHash = `sha256:${hashText(request.releaseBody)}`;
+
+  if (!fetchImpl) {
+    return {
+      status: 'aborted',
+      networkBoundaryInvoked: false,
+      responseBodyHashes: [],
+      tagNameHash,
+      releaseNameHash,
+      releaseBodyHash,
+      draftCreated: false,
+      alreadyExists: false,
+      blockReasons: ['fetch_unavailable'],
+      summary: 'GitHub release draft boundary could not start because fetch is unavailable.',
+    };
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const tagName = encodePathSegment(request.tagName);
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(fetchImpl, request, `/repos/${owner}/${repo}`);
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const tagRef = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/git/ref/tags/${tagName}`,
+    );
+    responseBodyHashes.push(tagRef.bodyHash);
+    if (!tagRef.ok) {
+      blockReasons.push(`tag_ref_http_${tagRef.status}`);
+    }
+
+    const existingRelease = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/releases/tags/${tagName}`,
+    );
+    responseBodyHashes.push(existingRelease.bodyHash);
+    if (existingRelease.ok) {
+      blockReasons.push('release_already_exists');
+    } else if (existingRelease.status !== 404) {
+      blockReasons.push(`release_lookup_http_${existingRelease.status}`);
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        tagNameHash,
+        releaseNameHash,
+        releaseBodyHash,
+        draftCreated: false,
+        alreadyExists: existingRelease.ok,
+        blockReasons,
+        summary: `GitHub release draft preflight failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const release = await fetchFixedGithubPostJson(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/releases`,
+      {
+        tag_name: request.tagName,
+        name: request.releaseName,
+        body: request.releaseBody,
+        draft: true,
+        prerelease: false,
+      },
+    );
+    responseBodyHashes.push(release.bodyHash);
+    if (!release.ok) {
+      blockReasons.push(`release_draft_create_http_${release.status}`);
+    }
+
+    return {
+      status: release.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      tagNameHash,
+      releaseNameHash,
+      releaseBodyHash,
+      releaseIdHash: release.ok ? extractIdHashFromGithubResponse(release.bodyText) : undefined,
+      draftCreated: release.ok,
+      alreadyExists: false,
+      blockReasons,
+      summary: release.ok
+        ? 'GitHub release draft boundary completed with draft=true and fixed payload shape.'
+        : `GitHub release draft boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      status: 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      tagNameHash,
+      releaseNameHash,
+      releaseBodyHash,
+      draftCreated: false,
+      alreadyExists: false,
+      blockReasons: ['github_release_draft_network_failure'],
+      summary: 'GitHub release draft boundary failed due to a network error.',
     };
   }
 }
@@ -1948,6 +2256,36 @@ function extractSha(bodyText: string): string | undefined {
     const sha = parsed.sha;
 
     return typeof sha === 'string' ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function extractShaFromGithubRef(bodyText: string): string | undefined {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const object = parsed.object;
+    if (!object || typeof object !== 'object') {
+      return undefined;
+    }
+    const sha = (object as Record<string, unknown>).sha;
+    return typeof sha === 'string' ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function extractShaFromGithubObject(bodyText: string): string | undefined {
+  return extractSha(bodyText);
+}
+
+function extractIdHashFromGithubResponse(bodyText: string): string | undefined {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const id = parsed.id;
+    return typeof id === 'number' || typeof id === 'string'
+      ? `sha256:${hashText(String(id))}`
+      : undefined;
   } catch {
     return undefined;
   }

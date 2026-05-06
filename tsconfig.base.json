@@ -39,7 +39,11 @@
       "@codexhub/release-candidate-kernel": [
         "packages/release-candidate-kernel/src/index.ts"
       ],
+      "@codexhub/release-lifecycle-kernel": [
+        "packages/release-lifecycle-kernel/src/index.ts"
+      ],
       "@codexhub/review-package-kernel": ["packages/review-package-kernel/src/index.ts"],
+      "@codexhub/deployment-provider-adapter": ["packages/deployment-provider-adapter/src/index.ts"],
       "@codexhub/security-kernel": ["packages/security-kernel/src/index.ts"],
       "@codexhub/skill-registry": ["packages/skill-registry/src/index.ts"],
       "@codexhub/store-core": ["packages/store-core/src/index.ts"],

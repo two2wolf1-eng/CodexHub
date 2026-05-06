@@ -17,6 +17,9 @@ import type {
   GithubActionsRunControlApprovalArtifact,
   GithubActionsRunControlPlan,
   GithubActionsRunControlRun,
+  DeploymentObservationApprovalArtifact,
+  DeploymentObservationPlan,
+  DeploymentObservationRun,
   GithubBranchPublishApprovalArtifactRecord,
   GithubBranchPublishPlan,
   GithubBranchPublishRun,
@@ -29,6 +32,12 @@ import type {
   GithubMergeApprovalArtifact,
   GithubMergeReadinessPlan,
   GithubMergeRun,
+  GithubReleaseDraftApprovalArtifact,
+  GithubReleaseDraftPlan,
+  GithubReleaseDraftRun,
+  GithubReleaseTagApprovalArtifact,
+  GithubReleaseTagPlan,
+  GithubReleaseTagRun,
   GithubPrLifecycleApprovalArtifactRecord,
   GithubPrLifecycleObservationPlan,
   GithubPrLifecycleObservationRun,
@@ -57,6 +66,7 @@ import type {
   LocalRcBundleApprovalArtifactRecord,
   LocalRcBundleControlPlaneRun,
   LocalRcBundleDryRunRecord,
+  ReleaseVersionPlan,
   WorktreeApprovalArtifactRecord,
   WorktreeCleanupApprovalArtifactRecord,
   WorktreeCleanupControlPlaneRun,
@@ -138,6 +148,10 @@ export type GithubMergeControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubActionsObservationControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubActionsRunControlControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubActionsDispatchControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ReleaseVersionPlanControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubReleaseTagControlPlaneQuery = WorktreeControlPlaneQuery;
+export type GithubReleaseDraftControlPlaneQuery = WorktreeControlPlaneQuery;
+export type DeploymentObservationControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -621,6 +635,87 @@ export interface GithubActionsDispatchRunRepository {
   listRuns(query?: GithubActionsDispatchControlPlaneQuery): Promise<GithubActionsDispatchRun[]>;
 }
 
+export interface ReleaseVersionPlanDryRunRepository {
+  saveDryRun(record: ReleaseVersionPlan): Promise<ReleaseVersionPlan>;
+  getDryRun(id: string): Promise<ReleaseVersionPlan | undefined>;
+  listDryRuns(query?: ReleaseVersionPlanControlPlaneQuery): Promise<ReleaseVersionPlan[]>;
+}
+
+export interface GithubReleaseTagDryRunRepository {
+  saveDryRun(record: GithubReleaseTagPlan): Promise<GithubReleaseTagPlan>;
+  getDryRun(id: string): Promise<GithubReleaseTagPlan | undefined>;
+  listDryRuns(query?: GithubReleaseTagControlPlaneQuery): Promise<GithubReleaseTagPlan[]>;
+}
+
+export interface GithubReleaseTagApprovalRepository {
+  saveApproval(record: GithubReleaseTagApprovalArtifact): Promise<GithubReleaseTagApprovalArtifact>;
+  getApproval(id: string): Promise<GithubReleaseTagApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubReleaseTagApprovalArtifact | undefined>;
+  listApprovals(
+    query?: GithubReleaseTagControlPlaneQuery,
+  ): Promise<GithubReleaseTagApprovalArtifact[]>;
+}
+
+export interface GithubReleaseTagRunRepository {
+  saveRun(record: GithubReleaseTagRun): Promise<GithubReleaseTagRun>;
+  getRun(id: string): Promise<GithubReleaseTagRun | undefined>;
+  listRuns(query?: GithubReleaseTagControlPlaneQuery): Promise<GithubReleaseTagRun[]>;
+}
+
+export interface GithubReleaseDraftDryRunRepository {
+  saveDryRun(record: GithubReleaseDraftPlan): Promise<GithubReleaseDraftPlan>;
+  getDryRun(id: string): Promise<GithubReleaseDraftPlan | undefined>;
+  listDryRuns(query?: GithubReleaseDraftControlPlaneQuery): Promise<GithubReleaseDraftPlan[]>;
+}
+
+export interface GithubReleaseDraftApprovalRepository {
+  saveApproval(
+    record: GithubReleaseDraftApprovalArtifact,
+  ): Promise<GithubReleaseDraftApprovalArtifact>;
+  getApproval(id: string): Promise<GithubReleaseDraftApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubReleaseDraftApprovalArtifact | undefined>;
+  listApprovals(
+    query?: GithubReleaseDraftControlPlaneQuery,
+  ): Promise<GithubReleaseDraftApprovalArtifact[]>;
+}
+
+export interface GithubReleaseDraftRunRepository {
+  saveRun(record: GithubReleaseDraftRun): Promise<GithubReleaseDraftRun>;
+  getRun(id: string): Promise<GithubReleaseDraftRun | undefined>;
+  listRuns(query?: GithubReleaseDraftControlPlaneQuery): Promise<GithubReleaseDraftRun[]>;
+}
+
+export interface DeploymentObservationDryRunRepository {
+  saveDryRun(record: DeploymentObservationPlan): Promise<DeploymentObservationPlan>;
+  getDryRun(id: string): Promise<DeploymentObservationPlan | undefined>;
+  listDryRuns(
+    query?: DeploymentObservationControlPlaneQuery,
+  ): Promise<DeploymentObservationPlan[]>;
+}
+
+export interface DeploymentObservationApprovalRepository {
+  saveApproval(
+    record: DeploymentObservationApprovalArtifact,
+  ): Promise<DeploymentObservationApprovalArtifact>;
+  getApproval(id: string): Promise<DeploymentObservationApprovalArtifact | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<DeploymentObservationApprovalArtifact | undefined>;
+  listApprovals(
+    query?: DeploymentObservationControlPlaneQuery,
+  ): Promise<DeploymentObservationApprovalArtifact[]>;
+}
+
+export interface DeploymentObservationRunRepository {
+  saveRun(record: DeploymentObservationRun): Promise<DeploymentObservationRun>;
+  getRun(id: string): Promise<DeploymentObservationRun | undefined>;
+  listRuns(query?: DeploymentObservationControlPlaneQuery): Promise<DeploymentObservationRun[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -991,6 +1086,16 @@ export interface CodexHubStore {
   githubActionsDispatchDryRuns: GithubActionsDispatchDryRunRepository;
   githubActionsDispatchApprovals: GithubActionsDispatchApprovalRepository;
   githubActionsDispatchRuns: GithubActionsDispatchRunRepository;
+  releaseVersionPlanDryRuns: ReleaseVersionPlanDryRunRepository;
+  githubReleaseTagDryRuns: GithubReleaseTagDryRunRepository;
+  githubReleaseTagApprovals: GithubReleaseTagApprovalRepository;
+  githubReleaseTagRuns: GithubReleaseTagRunRepository;
+  githubReleaseDraftDryRuns: GithubReleaseDraftDryRunRepository;
+  githubReleaseDraftApprovals: GithubReleaseDraftApprovalRepository;
+  githubReleaseDraftRuns: GithubReleaseDraftRunRepository;
+  deploymentObservationDryRuns: DeploymentObservationDryRunRepository;
+  deploymentObservationApprovals: DeploymentObservationApprovalRepository;
+  deploymentObservationRuns: DeploymentObservationRunRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

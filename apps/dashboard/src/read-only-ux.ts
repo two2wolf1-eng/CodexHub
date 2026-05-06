@@ -51,6 +51,8 @@ export const DASHBOARD_VIEWS = [
   'pilot',
   'approvals',
   'release-candidates',
+  'releases',
+  'deployments',
   'workflows',
 ] as const;
 

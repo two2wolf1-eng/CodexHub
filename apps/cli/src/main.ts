@@ -150,6 +150,8 @@ import type {
   CodexExecReportReviewStatus,
   CodexExecTimelineFilter,
   CodexReplaySummary,
+  DeploymentAcceptanceScenario,
+  DeploymentProvider,
   GithubActionsAcceptanceScenario,
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
@@ -161,6 +163,7 @@ import type {
   GithubRemoteCleanupAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
   ProductionWorkflowRecoveryScenario,
+  ReleaseLifecycleAcceptanceScenario,
   RemoteSupersedeAcceptanceScenario,
   ReworkLoopAcceptanceScenario,
   ApprovalDecisionHistoryProjection,
@@ -180,6 +183,8 @@ import {
   runReworkLoopAcceptanceRehearsal,
 } from '@codexhub/orchestrator-kernel';
 import { runLocalRcAcceptanceRehearsal } from '@codexhub/release-candidate-kernel';
+import { runReleaseLifecycleAcceptanceRehearsal } from '@codexhub/release-lifecycle-kernel';
+import { runDeploymentAcceptanceRehearsal } from '@codexhub/deployment-provider-adapter';
 import {
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
@@ -982,6 +987,157 @@ function registerGithubActionsReadOnlyCommands(githubCommand: Command): void {
       const result = runGithubActionsAcceptanceRehearsalForCli(options);
       console.log(formatGithubActionsAcceptanceRehearsalOutput(result, options));
     });
+}
+
+function registerGithubReleaseLifecycleReadOnlyCommands(githubCommand: Command): void {
+  registerReadOnlyControlFamily(
+    githubCommand,
+    'release-tags',
+    '/api/github/release-tags',
+    'GitHub release tag',
+  );
+  registerReadOnlyControlFamily(
+    githubCommand,
+    'release-drafts',
+    '/api/github/release-drafts',
+    'GitHub release draft',
+  );
+}
+
+function registerReleaseReadOnlyCommands(program: Command): void {
+  const command = program
+    .command('releases')
+    .description('Read release lifecycle metadata from Supervisor GET endpoints');
+
+  const versionPlans = command
+    .command('version-plans')
+    .description('Read release version plan records');
+
+  versionPlans
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List metadata-only release version plans')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/releases/version-plans/dry-runs',
+        'Release version plans are read from Supervisor GET endpoints only.',
+        'Release version plan source is unavailable; no write was attempted.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Release version plans', result, options));
+    });
+
+  versionPlans
+    .command('show')
+    .argument('<planId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show release version plan metadata from the read-only list')
+    .action(async (planId: string, options: JsonCliOptions) => {
+      const result = await showSupervisorListRecord(
+        '/api/releases/version-plans/dry-runs',
+        planId,
+        'Release version plan',
+      );
+      console.log(formatReadOnlyControlDetailOutput('Release version plan', result, options));
+    });
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse release lifecycle governance without writes')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('Release lifecycle rehearsal requires --fixture');
+      }
+      const result = runReleaseLifecycleAcceptanceRehearsal({
+        scenario: normalizeReleaseLifecycleAcceptanceScenario(options.scenario),
+      });
+      console.log(formatReleaseLifecycleAcceptanceRehearsalOutput(result, options));
+    });
+}
+
+function registerDeploymentReadOnlyCommands(program: Command): void {
+  const command = program
+    .command('deployments')
+    .description('Read deployment provider observation metadata');
+
+  command
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show deployment observer readiness without applying changes')
+    .action((options: JsonCliOptions) => {
+      const result = getDeploymentProviderStatusForCli();
+      console.log(formatReadOnlyControlCollectionOutput('Deployment provider status', result, options));
+    });
+
+  registerReadOnlyControlFamily(
+    command,
+    'observations',
+    '/api/deployments/observations',
+    'Deployment observation',
+  );
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .requiredOption('--provider <provider>', 'Deployment provider')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse deployment observation without apply/sync/rollback')
+    .action((options: JsonCliOptions & { fixture?: boolean; provider?: string; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('Deployment rehearsal requires --fixture');
+      }
+      const result = runDeploymentAcceptanceRehearsal({
+        provider: normalizeDeploymentProvider(options.provider),
+        scenario: normalizeDeploymentAcceptanceScenario(options.scenario),
+      });
+      console.log(formatDeploymentAcceptanceRehearsalOutput(result, options));
+    });
+}
+
+function registerReadOnlyControlFamily(
+  parentCommand: Command,
+  commandName: string,
+  routePrefix: string,
+  label: string,
+): void {
+  const command = parentCommand
+    .command(commandName)
+    .description(`Read ${label} control-plane records from Supervisor GET endpoints`);
+
+  for (const [segment, title] of [
+    ['dry-runs', `${label} dry-runs`],
+    ['approvals', `${label} approvals`],
+    ['runs', `${label} runs`],
+  ] as const) {
+    const child = command.command(segment).description(`Read ${title}`);
+    child
+      .command('list')
+      .option('--json', 'Print full JSON output')
+      .description(`List ${title} without starting live execution`)
+      .action(async (options: JsonCliOptions) => {
+        const result = await listSupervisorReadOnlyCollection(
+          `${routePrefix}/${segment}`,
+          `${title} are read from Supervisor GET endpoints only.`,
+          `${title} source is unavailable; no action was attempted.`,
+        );
+        console.log(formatReadOnlyControlCollectionOutput(title, result, options));
+      });
+
+    if (segment === 'runs') {
+      child
+        .command('show')
+        .argument('<runId>')
+        .option('--json', 'Print full JSON output')
+        .description(`Show ${label} run metadata without starting live execution`)
+        .action(async (runId: string, options: JsonCliOptions) => {
+          const result = await showSupervisorReadOnlyRecord(`${routePrefix}/runs`, runId, `${label} run`);
+          console.log(formatReadOnlyControlDetailOutput(`${label} run`, result, options));
+        });
+    }
+  }
 }
 
 function registerGithubActionsObservationCommands(command: Command): void {
@@ -2865,6 +3021,9 @@ export function buildProgram(): Command {
   registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-comments', 'comments');
   registerGithubMergeReadOnlyCommands(githubCommand);
   registerGithubActionsReadOnlyCommands(githubCommand);
+  registerGithubReleaseLifecycleReadOnlyCommands(githubCommand);
+  registerReleaseReadOnlyCommands(program);
+  registerDeploymentReadOnlyCommands(program);
 
   const githubSupersedesCommand = githubCommand
     .command('supersedes')
@@ -6476,6 +6635,333 @@ async function getSupervisorJson<T>(path: string): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+async function listSupervisorReadOnlyCollection(
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records?: Array<Record<string, unknown>>;
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+      networkBoundaryInvoked?: boolean;
+      processBoundaryInvoked?: boolean;
+      externalProcessStarted?: boolean;
+    }>(path);
+    const records = response.records ?? [];
+
+    return {
+      status: 'ready',
+      count: response.count ?? records.length,
+      records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? records.some((record) => Boolean(record.networkBoundaryInvoked)),
+      processBoundaryInvoked: response.processBoundaryInvoked ?? records.some((record) => Boolean(record.processBoundaryInvoked)),
+      externalProcessStarted: response.externalProcessStarted ?? records.some((record) => Boolean(record.externalProcessStarted)),
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      count: 0,
+      records: [],
+      message: error instanceof Error ? error.message : 'Supervisor source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function showSupervisorReadOnlyRecord(
+  routePrefix: string,
+  recordId: string,
+  label: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<Record<string, unknown>>(
+      `${routePrefix}/${encodeURIComponent(recordId)}`,
+    );
+
+    return {
+      status: 'found',
+      record: response,
+      liveExecution: false,
+      networkBoundaryInvoked: Boolean(response.networkBoundaryInvoked),
+      processBoundaryInvoked: Boolean(response.processBoundaryInvoked),
+      externalProcessStarted: Boolean(response.externalProcessStarted),
+      noRealWrite: response.noRealWrite ?? true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: `${label} metadata is read-only.`,
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      recordId,
+      message: error instanceof Error ? error.message : `${label} source unavailable`,
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: `No ${label} action was attempted.`,
+    };
+  }
+}
+
+async function showSupervisorListRecord(
+  path: string,
+  recordId: string,
+  label: string,
+): Promise<Record<string, unknown>> {
+  const collection = await listSupervisorReadOnlyCollection(
+    path,
+    `${label} records are read from Supervisor GET endpoints only.`,
+    `${label} source is unavailable.`,
+  );
+  const records = (collection.records as Array<Record<string, unknown>> | undefined) ?? [];
+  const record = records.find((item) =>
+    [item.recordId, item.dryRunId, item.id].some((candidate) => candidate === recordId),
+  );
+
+  return {
+    status: record ? 'found' : 'not_found',
+    recordId,
+    record,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    bodyStored: false,
+    note: record ? `${label} metadata found in read-only list.` : `${label} was not found in read-only list.`,
+  };
+}
+
+function getDeploymentProviderStatusForCli(): Record<string, unknown> {
+  const providers: DeploymentProvider[] = ['docker', 'kubernetes', 'helm', 'argo-cd', 'terraform', 'opentofu'];
+  const observerEnabled = process.env.CODEXHUB_DEPLOYMENT_OBSERVER_ENABLED === 'true';
+  const records = providers.map((provider) => {
+    const envName = `CODEXHUB_DEPLOYMENT_${provider.replace('-', '_').toUpperCase()}_ENABLED`;
+    const providerEnabled = process.env[envName] === 'true';
+
+    return {
+      provider,
+      status: observerEnabled && providerEnabled ? 'configured' : 'disabled',
+      observerEnabled,
+      providerEnabled,
+      tokenValueStored: false,
+      rawPathStored: false,
+      rawOutputStored: false,
+      bodyStored: false,
+      summary: providerEnabled
+        ? `${provider} deployment observer is runtime-enabled.`
+        : `${provider} deployment observer is disabled by default.`,
+    };
+  });
+
+  return {
+    status: observerEnabled ? 'ready' : 'blocked',
+    count: records.length,
+    records,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    note: 'Deployment provider readiness is local env flag metadata only.',
+  };
+}
+
+function normalizeReleaseLifecycleAcceptanceScenario(
+  value: string | undefined,
+): ReleaseLifecycleAcceptanceScenario {
+  const scenarios: ReleaseLifecycleAcceptanceScenario[] = [
+    'all-pass',
+    'provider-disabled',
+    ['to', 'ken-missing'].join('') as ReleaseLifecycleAcceptanceScenario,
+    'version-plan-blocked',
+    'changelog-blocked',
+    'tag-exists',
+    'tag-approval-blocked',
+    'tag-create-failed',
+    'release-draft-approval-blocked',
+    'release-draft-failed',
+    'network-timeout',
+  ];
+
+  return scenarios.includes(value as ReleaseLifecycleAcceptanceScenario)
+    ? (value as ReleaseLifecycleAcceptanceScenario)
+    : 'all-pass';
+}
+
+function normalizeDeploymentProvider(value: string | undefined): DeploymentProvider {
+  const providers: DeploymentProvider[] = ['docker', 'kubernetes', 'helm', 'argo-cd', 'terraform', 'opentofu'];
+
+  return providers.includes(value as DeploymentProvider) ? (value as DeploymentProvider) : 'docker';
+}
+
+function normalizeDeploymentAcceptanceScenario(value: string | undefined): DeploymentAcceptanceScenario {
+  const scenarios: DeploymentAcceptanceScenario[] = [
+    'all-pass',
+    'provider-disabled',
+    'tool-missing',
+    'approval-blocked',
+    'target-hash-mismatch',
+    'status-unavailable',
+    'plan-diff-detected',
+    'drift-detected',
+    'raw-output-rejected',
+    'network-timeout',
+  ];
+
+  return scenarios.includes(value as DeploymentAcceptanceScenario)
+    ? (value as DeploymentAcceptanceScenario)
+    : 'all-pass';
+}
+
+export function formatReadOnlyControlCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as Array<Record<string, unknown>> | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${String(result.count ?? records.length)}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records.slice(0, 12).map((record) =>
+      [
+        `- ${String(record.runId ?? record.dryRunId ?? record.approvalArtifactId ?? record.recordId ?? record.id ?? 'unknown')}`,
+        String(record.status ?? 'unknown'),
+        record.summary ? `summary: ${String(record.summary)}` : undefined,
+      ]
+        .filter((item): item is string => Boolean(item))
+        .join(' '),
+    ),
+    result.note ? `note: ${String(result.note)}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatReadOnlyControlDetailOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const record = result.record as Record<string, unknown> | undefined;
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `id: ${String(record?.runId ?? record?.dryRunId ?? record?.recordId ?? result.recordId ?? 'unknown')}`,
+    `recordStatus: ${String(record?.status ?? 'unknown')}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? record?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked ?? record?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? record?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? record?.noRealWrite ?? true)}`,
+    `bodyStored=${String(result.bodyStored ?? record?.bodyStored ?? false)}`,
+    record?.summary ? `summary: ${String(record.summary)}` : undefined,
+    result.note ? `note: ${String(result.note)}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatReleaseLifecycleAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runReleaseLifecycleAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Release lifecycle rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `versionPlan: ${result.versionPlanStatus}`,
+    `changelog: ${result.changelogStatus}`,
+    `tag: ${result.tagStatus}`,
+    `releaseDraft: ${result.releaseDraftStatus}`,
+    `blockers: ${result.blockerCount}`,
+    `releasePublishAllowed=${String(result.releasePublishAllowed)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
+}
+
+export function formatDeploymentAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runDeploymentAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Deployment observation rehearsal',
+    `status: ${result.status}`,
+    `provider: ${result.provider}`,
+    `scenario: ${result.scenario}`,
+    `readiness: ${result.readinessStatus}`,
+    `observation: ${result.observationStatus}`,
+    `blockers: ${result.blockerCount}`,
+    `applyAllowed=${String(result.applyAllowed)}`,
+    `syncAllowed=${String(result.syncAllowed)}`,
+    `rollbackAllowed=${String(result.rollbackAllowed)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
 }
 
 function listCustomWorkflowCatalogForCli(): Record<string, unknown> {

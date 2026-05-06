@@ -326,6 +326,9 @@ integrations:
     githubActionsRerunEnabled: false
     githubActionsCancelEnabled: false
     githubActionsDispatchEnabled: false
+    releaseTagCreationEnabled: false
+    releaseDraftCreationEnabled: false
+    releasePublishEnabled: false
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     branchPublishEnablementEnv: CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
@@ -341,6 +344,8 @@ integrations:
     githubActionsRerunEnablementEnv: CODEXHUB_GITHUB_ACTIONS_RERUN_ENABLED
     githubActionsCancelEnablementEnv: CODEXHUB_GITHUB_ACTIONS_CANCEL_ENABLED
     githubActionsDispatchEnablementEnv: CODEXHUB_GITHUB_ACTIONS_DISPATCH_ENABLED
+    releaseTagEnablementEnv: CODEXHUB_GITHUB_RELEASE_TAG_ENABLED
+    releaseDraftEnablementEnv: CODEXHUB_GITHUB_RELEASE_DRAFT_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -476,8 +481,26 @@ integrations:
         - POST /api/github/actions/dispatches/runs
         - GET /api/github/actions/dispatches/runs
         - GET /api/github/actions/dispatches/runs/:id
+      releaseTagRoutes:
+        - POST /api/github/release-tags/dry-runs
+        - GET /api/github/release-tags/dry-runs
+        - POST /api/github/release-tags/approval-requests
+        - POST /api/github/release-tags/manual-approvals
+        - GET /api/github/release-tags/approvals
+        - POST /api/github/release-tags/runs
+        - GET /api/github/release-tags/runs
+        - GET /api/github/release-tags/runs/:id
+      releaseDraftRoutes:
+        - POST /api/github/release-drafts/dry-runs
+        - GET /api/github/release-drafts/dry-runs
+        - POST /api/github/release-drafts/approval-requests
+        - POST /api/github/release-drafts/manual-approvals
+        - GET /api/github/release-drafts/approvals
+        - POST /api/github/release-drafts/runs
+        - GET /api/github/release-drafts/runs
+        - GET /api/github/release-drafts/runs/:id
     readOnlyUx:
-      stage: m39d
+      stage: m40d
       dashboardRoute: "#/github"
       cliCommands:
         - codexhub github status
@@ -557,9 +580,21 @@ integrations:
         - codexhub github actions dispatches runs list
         - codexhub github actions dispatches runs show <runId>
         - codexhub github actions rehearse --fixture --scenario <name>
+        - codexhub releases version-plans list
+        - codexhub releases version-plans show <planId>
+        - codexhub releases rehearse --fixture --scenario <name>
+        - codexhub github release-tags dry-runs list
+        - codexhub github release-tags approvals list
+        - codexhub github release-tags runs list
+        - codexhub github release-tags runs show <runId>
+        - codexhub github release-drafts dry-runs list
+        - codexhub github release-drafts approvals list
+        - codexhub github release-drafts runs list
+        - codexhub github release-drafts runs show <runId>
       localControlRequired: false
       supervisorPostAllowed: false
       dashboardMergeWizardPostAllowed: true
+      dashboardReleaseWizardPostAllowed: false
       adapterExecuteAllowed: false
       credentialOutput: configured-hash-only
       publicOutput: ids-hashes-counts-statuses-evidence-audit-boundaries
@@ -1984,6 +2019,99 @@ integrations:
       forceAllowed: false
       mergeAllowed: false
       tokenStorageAllowed: false
+    releaseLifecycle:
+      stage: m40
+      versionPlansMetadataOnly: true
+      changelogSummariesMetadataOnly: true
+      tagCreationEnabledByDefault: false
+      releaseDraftCreationEnabledByDefault: false
+      releasePublishAllowed: false
+      tagCreationEnablementEnv: CODEXHUB_GITHUB_RELEASE_TAG_ENABLED
+      releaseDraftEnablementEnv: CODEXHUB_GITHUB_RELEASE_DRAFT_ENABLED
+      fixedGithubEndpointsOnly: true
+      localGitTagAllowed: false
+      rawReleaseBodyStorage: forbidden
+      rawChangelogStorage: forbidden
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      metadataOnlyPublicOutput: true
+  deployment-providers:
+    enabled: false
+    adapter: deployment-provider-adapter
+    provider: deployment-read-only
+    providerType: mixed-local-and-network
+    mode: read-only-observation
+    stage: m41-deployment-read-only-providers
+    defaultActionMode: read
+    defaultRisk: critical
+    enablementEnv: CODEXHUB_DEPLOYMENT_OBSERVER_ENABLED
+    providers:
+      docker:
+        enabled: false
+        enablementEnv: CODEXHUB_DEPLOYMENT_DOCKER_ENABLED
+      kubernetes:
+        enabled: false
+        enablementEnv: CODEXHUB_DEPLOYMENT_KUBERNETES_ENABLED
+      helm:
+        enabled: false
+        enablementEnv: CODEXHUB_DEPLOYMENT_HELM_ENABLED
+      argo-cd:
+        enabled: false
+        enablementEnv: CODEXHUB_DEPLOYMENT_ARGOCD_ENABLED
+      terraform:
+        enabled: false
+        enablementEnv: CODEXHUB_DEPLOYMENT_TERRAFORM_ENABLED
+      opentofu:
+        enabled: false
+        enablementEnv: CODEXHUB_DEPLOYMENT_OPENTOFU_ENABLED
+    supervisorControlPlane:
+      enabledByDefault: false
+      localControlRequiredForPost: true
+      trustedLoopbackOriginRequired: true
+      dryRunPersistedBySupervisor: true
+      persistedApprovalRequired: true
+      requestBodyApprovalArtifactTrusted: false
+      executionAuthorityBodyTrusted: false
+      hashBoundRuntimeInputRequired: true
+      routes:
+        - POST /api/deployments/observations/dry-runs
+        - GET /api/deployments/observations/dry-runs
+        - POST /api/deployments/observations/approval-requests
+        - POST /api/deployments/observations/manual-approvals
+        - GET /api/deployments/observations/approvals
+        - POST /api/deployments/observations/runs
+        - GET /api/deployments/observations/runs
+        - GET /api/deployments/observations/runs/:id
+    readOnlyUx:
+      dashboardRoute: "#/deployments"
+      cliCommands:
+        - codexhub deployments status
+        - codexhub deployments observations dry-runs list
+        - codexhub deployments observations approvals list
+        - codexhub deployments observations runs list
+        - codexhub deployments observations runs show <runId>
+        - codexhub deployments rehearse --fixture --provider <provider> --scenario <name>
+      supervisorPostAllowed: false
+      localControlTokenRead: false
+      adapterExecuteAllowed: false
+    safety:
+      applyAllowed: false
+      syncAllowed: false
+      rollbackAllowed: false
+      deleteAllowed: false
+      scaleAllowed: false
+      restartAllowed: false
+      imagePushAllowed: false
+      helmUpgradeAllowed: false
+      terraformApplyAllowed: false
+      arbitraryCommandAllowed: false
+      rawKubeconfigStorage: forbidden
+      rawContextStorage: forbidden
+      rawPlanStorage: forbidden
+      rawDiffStorage: forbidden
+      rawLogStorage: forbidden
+      tokenStorageAllowed: false
+      metadataOnlyPublicOutput: true
   m0-m24-foundation-hardening:
     enabled: false
     adapter: governance-audit

@@ -137,6 +137,16 @@ interface OverviewState {
   githubActionsDispatchDryRuns: GithubActionsDispatchControlSummary[];
   githubActionsDispatchApprovals: GithubActionsDispatchControlSummary[];
   githubActionsDispatchRuns: GithubActionsDispatchControlSummary[];
+  releaseVersionPlanDryRuns: ReleaseLifecycleControlSummary[];
+  githubReleaseTagDryRuns: ReleaseLifecycleControlSummary[];
+  githubReleaseTagApprovals: ReleaseLifecycleControlSummary[];
+  githubReleaseTagRuns: ReleaseLifecycleControlSummary[];
+  githubReleaseDraftDryRuns: ReleaseLifecycleControlSummary[];
+  githubReleaseDraftApprovals: ReleaseLifecycleControlSummary[];
+  githubReleaseDraftRuns: ReleaseLifecycleControlSummary[];
+  deploymentObservationDryRuns: DeploymentObservationControlSummary[];
+  deploymentObservationApprovals: DeploymentObservationControlSummary[];
+  deploymentObservationRuns: DeploymentObservationControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -632,6 +642,89 @@ interface GithubActionsDispatchControlSummary {
   arbitraryPayloadAllowed?: boolean;
   rawUrlStored?: boolean;
   rawResponseBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface ReleaseLifecycleControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  runnerMode?: string;
+  targetRef?: {
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+  };
+  tagNameHash?: string;
+  releaseNameHash?: string;
+  releaseBodyHash?: string;
+  responseBodyHashes?: string[];
+  blockReasons?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  fixedEndpointOnly?: boolean;
+  releasePublishAllowed?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawReleaseBodyStored?: boolean;
+  rawChangelogStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface DeploymentObservationControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  provider?: string;
+  runnerMode?: string;
+  targetHash?: string;
+  requestedObservationKinds?: string[];
+  providerStatus?: {
+    status?: string;
+    resourceCount?: number;
+    warningCount?: number;
+    errorCount?: number;
+  };
+  driftSummary?: {
+    driftDetected?: boolean;
+    driftItemCount?: number;
+  };
+  planDiffSummary?: {
+    changedResourceCount?: number;
+  };
+  blockReasons?: string[];
+  processBoundaryPlanned?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  networkBoundaryInvoked?: boolean;
+  noRealWrite?: boolean;
+  fixedReadOnlyRunner?: boolean;
+  applyAllowed?: boolean;
+  syncAllowed?: boolean;
+  rollbackAllowed?: boolean;
+  deleteAllowed?: boolean;
+  scaleAllowed?: boolean;
+  restartAllowed?: boolean;
+  arbitraryCommandAllowed?: boolean;
+  rawOutputStored?: boolean;
+  rawPlanStored?: boolean;
+  rawDiffStored?: boolean;
+  rawLogStored?: boolean;
   rawPathStored?: boolean;
   bodyStored?: boolean;
   evidenceRefIds?: string[];
@@ -1140,6 +1233,16 @@ export function App() {
     githubActionsDispatchDryRuns: [],
     githubActionsDispatchApprovals: [],
     githubActionsDispatchRuns: [],
+    releaseVersionPlanDryRuns: [],
+    githubReleaseTagDryRuns: [],
+    githubReleaseTagApprovals: [],
+    githubReleaseTagRuns: [],
+    githubReleaseDraftDryRuns: [],
+    githubReleaseDraftApprovals: [],
+    githubReleaseDraftRuns: [],
+    deploymentObservationDryRuns: [],
+    deploymentObservationApprovals: [],
+    deploymentObservationRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -2037,6 +2140,16 @@ export function App() {
           githubActionsDispatchDryRunsResponse,
           githubActionsDispatchApprovalsResponse,
           githubActionsDispatchRunsResponse,
+          releaseVersionPlanDryRunsResponse,
+          githubReleaseTagDryRunsResponse,
+          githubReleaseTagApprovalsResponse,
+          githubReleaseTagRunsResponse,
+          githubReleaseDraftDryRunsResponse,
+          githubReleaseDraftApprovalsResponse,
+          githubReleaseDraftRunsResponse,
+          deploymentObservationDryRunsResponse,
+          deploymentObservationApprovalsResponse,
+          deploymentObservationRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -2218,6 +2331,46 @@ export function App() {
           ),
           getOptionalJson<{ records: GithubActionsDispatchControlSummary[] }>(
             '/api/github/actions/dispatches/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/releases/version-plans/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/github/release-tags/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/github/release-tags/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/github/release-tags/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/github/release-drafts/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/github/release-drafts/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ReleaseLifecycleControlSummary[] }>(
+            '/api/github/release-drafts/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentObservationControlSummary[] }>(
+            '/api/deployments/observations/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentObservationControlSummary[] }>(
+            '/api/deployments/observations/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: DeploymentObservationControlSummary[] }>(
+            '/api/deployments/observations/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
@@ -2476,6 +2629,16 @@ export function App() {
             githubActionsDispatchDryRuns: githubActionsDispatchDryRunsResponse.records,
             githubActionsDispatchApprovals: githubActionsDispatchApprovalsResponse.records,
             githubActionsDispatchRuns: githubActionsDispatchRunsResponse.records,
+            releaseVersionPlanDryRuns: releaseVersionPlanDryRunsResponse.records,
+            githubReleaseTagDryRuns: githubReleaseTagDryRunsResponse.records,
+            githubReleaseTagApprovals: githubReleaseTagApprovalsResponse.records,
+            githubReleaseTagRuns: githubReleaseTagRunsResponse.records,
+            githubReleaseDraftDryRuns: githubReleaseDraftDryRunsResponse.records,
+            githubReleaseDraftApprovals: githubReleaseDraftApprovalsResponse.records,
+            githubReleaseDraftRuns: githubReleaseDraftRunsResponse.records,
+            deploymentObservationDryRuns: deploymentObservationDryRunsResponse.records,
+            deploymentObservationApprovals: deploymentObservationApprovalsResponse.records,
+            deploymentObservationRuns: deploymentObservationRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -2587,6 +2750,16 @@ export function App() {
             githubActionsDispatchDryRuns: [],
             githubActionsDispatchApprovals: [],
             githubActionsDispatchRuns: [],
+            releaseVersionPlanDryRuns: [],
+            githubReleaseTagDryRuns: [],
+            githubReleaseTagApprovals: [],
+            githubReleaseTagRuns: [],
+            githubReleaseDraftDryRuns: [],
+            githubReleaseDraftApprovals: [],
+            githubReleaseDraftRuns: [],
+            deploymentObservationDryRuns: [],
+            deploymentObservationApprovals: [],
+            deploymentObservationRuns: [],
             githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
@@ -7325,6 +7498,245 @@ function renderReadOnlyDashboardView(
                 {String(releaseCandidateSummary.pullRequestOpened)}
               </span>
             </li>
+          </ul>
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'releases') {
+    const latestTagRun = overview.githubReleaseTagRuns[0];
+    const latestDraftRun = overview.githubReleaseDraftRuns[0];
+
+    return (
+      <section className="grid">
+        <Panel title="Release Lifecycle">
+          <ul>
+            <li>
+              <strong>version plans</strong>
+              <span>{overview.releaseVersionPlanDryRuns.length}</span>
+            </li>
+            <li>
+              <strong>tag records</strong>
+              <span>
+                dry-runs {overview.githubReleaseTagDryRuns.length}, approvals{' '}
+                {overview.githubReleaseTagApprovals.length}, runs{' '}
+                {overview.githubReleaseTagRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>release draft records</strong>
+              <span>
+                dry-runs {overview.githubReleaseDraftDryRuns.length}, approvals{' '}
+                {overview.githubReleaseDraftApprovals.length}, runs{' '}
+                {overview.githubReleaseDraftRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>latest tag</strong>
+              <span>
+                {latestTagRun?.runId ?? 'none'} / {latestTagRun?.status ?? 'not_started'}
+              </span>
+            </li>
+            <li>
+              <strong>latest draft</strong>
+              <span>
+                {latestDraftRun?.runId ?? 'none'} /{' '}
+                {latestDraftRun?.status ?? 'not_started'}
+              </span>
+            </li>
+          </ul>
+          <p>
+            Release lifecycle records are metadata-only. Version bumps and changelogs are
+            summaries, tag creation and draft creation stay behind Supervisor approval gates, and
+            publish remains unavailable.
+          </p>
+        </Panel>
+        <Panel title="Version Plans">
+          {overview.releaseVersionPlanDryRuns.length > 0 ? (
+            <ul>
+              {overview.releaseVersionPlanDryRuns.slice(0, 8).map((plan) => (
+                <li key={plan.dryRunId ?? plan.recordId ?? 'release_version_plan'} className="stacked">
+                  <strong>{plan.dryRunId ?? plan.recordId ?? 'release_version_plan'}</strong>
+                  <span>
+                    status {plan.status ?? 'unknown'}, runner {plan.runnerMode ?? 'metadata'}
+                  </span>
+                  <span>
+                    tag {plan.tagNameHash ?? 'unavailable'}, evidence{' '}
+                    {plan.evidenceRefIds?.length ?? 0}, audit {plan.auditEventIds?.length ?? 0}
+                  </span>
+                  {plan.summary ? <p>{plan.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No version plan metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="GitHub Release Tags">
+          {overview.githubReleaseTagRuns.length > 0 ? (
+            <ul>
+              {overview.githubReleaseTagRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_release_tag_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, base{' '}
+                    {run.targetRef?.baseBranchHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    tag {run.tagNameHash ?? 'unavailable'}, network{' '}
+                    {String(run.networkBoundaryInvoked ?? false)}, response hashes{' '}
+                    {run.responseBodyHashes?.length ?? 0}
+                  </span>
+                  <span>
+                    publish {String(run.releasePublishAllowed ?? false)}, raw release{' '}
+                    {String(run.rawReleaseBodyStored ?? false)}, raw changelog{' '}
+                    {String(run.rawChangelogStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No GitHub release tag run metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="GitHub Release Drafts">
+          {overview.githubReleaseDraftRuns.length > 0 ? (
+            <ul>
+              {overview.githubReleaseDraftRuns.slice(0, 8).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'github_release_draft_run'}</strong>
+                  <span>
+                    status {run.status ?? 'unknown'}, runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, tag{' '}
+                    {run.tagNameHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    draft {run.releaseNameHash ?? 'unavailable'}, body hash{' '}
+                    {run.releaseBodyHash ?? 'unavailable'}, network{' '}
+                    {String(run.networkBoundaryInvoked ?? false)}
+                  </span>
+                  <span>
+                    publish {String(run.releasePublishAllowed ?? false)}, raw release{' '}
+                    {String(run.rawReleaseBodyStored ?? false)}, response hashes{' '}
+                    {run.responseBodyHashes?.length ?? 0}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No GitHub release draft run metadata is available.</p>
+          )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'deployments') {
+    const latestObservationRun = overview.deploymentObservationRuns[0];
+    const providers = ['docker', 'kubernetes', 'helm', 'argo-cd', 'terraform', 'opentofu'];
+
+    return (
+      <section className="grid">
+        <Panel title="Deployment Observations">
+          <ul>
+            <li>
+              <strong>providers</strong>
+              <span>{providers.join(', ')}</span>
+            </li>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {overview.deploymentObservationDryRuns.length}, approvals{' '}
+                {overview.deploymentObservationApprovals.length}, runs{' '}
+                {overview.deploymentObservationRuns.length}
+              </span>
+            </li>
+            <li>
+              <strong>latest run</strong>
+              <span>
+                {latestObservationRun?.runId ?? 'none'} /{' '}
+                {latestObservationRun?.status ?? 'not_started'}
+              </span>
+            </li>
+            <li>
+              <strong>write boundaries</strong>
+              <span>apply false, sync false, rollback false, delete false, scale false</span>
+            </li>
+          </ul>
+          <p>
+            Deployment providers are read-only in M41. This page displays status, drift, plan, and
+            diff hashes without running apply, sync, rollback, restart, or arbitrary commands.
+          </p>
+        </Panel>
+        <Panel title="Latest Deployment Runs">
+          {overview.deploymentObservationRuns.length > 0 ? (
+            <ul>
+              {overview.deploymentObservationRuns.slice(0, 10).map((run) => (
+                <li key={run.runId ?? run.recordId ?? run.dryRunId} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? 'deployment_observation_run'}</strong>
+                  <span>
+                    provider {run.provider ?? 'unknown'}, status {run.status ?? 'unknown'},
+                    runner {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    target {run.targetHash ?? 'unavailable'}, resources{' '}
+                    {run.providerStatus?.resourceCount ?? 0}, warnings{' '}
+                    {run.providerStatus?.warningCount ?? 0}, errors{' '}
+                    {run.providerStatus?.errorCount ?? 0}
+                  </span>
+                  <span>
+                    drift {String(run.driftSummary?.driftDetected ?? false)}, drift items{' '}
+                    {run.driftSummary?.driftItemCount ?? 0}, changed resources{' '}
+                    {run.planDiffSummary?.changedResourceCount ?? 0}
+                  </span>
+                  <span>
+                    process {String(run.processBoundaryInvoked ?? false)}, network{' '}
+                    {String(run.networkBoundaryInvoked ?? false)}, evidence{' '}
+                    {run.evidenceRefIds?.length ?? 0}, audit {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    apply {String(run.applyAllowed ?? false)}, sync{' '}
+                    {String(run.syncAllowed ?? false)}, rollback{' '}
+                    {String(run.rollbackAllowed ?? false)}, arbitrary command{' '}
+                    {String(run.arbitraryCommandAllowed ?? false)}
+                  </span>
+                  <span>
+                    raw output {String(run.rawOutputStored ?? false)}, raw plan{' '}
+                    {String(run.rawPlanStored ?? false)}, raw diff{' '}
+                    {String(run.rawDiffStored ?? false)}, raw log{' '}
+                    {String(run.rawLogStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No deployment observation run metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="Deployment Readiness">
+          <ul>
+            {providers.map((provider) => {
+              const providerRunCount = overview.deploymentObservationRuns.filter(
+                (run) => run.provider === provider,
+              ).length;
+              return (
+                <li key={provider}>
+                  <strong>{provider}</strong>
+                  <span>runs {providerRunCount}, live observation disabled by default</span>
+                </li>
+              );
+            })}
           </ul>
         </Panel>
       </section>
