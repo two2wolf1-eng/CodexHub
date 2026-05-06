@@ -5005,3 +5005,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m45_2.public-projection-fuzz-debug:
+    risk: critical
+    trigger:
+      type: public-projection-fuzz-debug
+      entrypoint: contracts cli dashboard test-fixtures docs
+      localControlRequired: false
+    scope:
+      - adversarial-public-output-fixtures
+      - contracts-public-roundtrip
+      - cli-dashboard-public-formatters
+    docs:
+      - docs/releases/m45.2-public-projection-fuzz-debug.md
+      - docs/reviews/m0-m45-public-projection-fuzz-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      rawPolicyInputStored: false
+      rawTelemetrySpanStored: false
+      rawBrowserActionInputStored: false
+      rawElectronJavascriptStored: false
+      rawMcpPatchStored: false
+      metadataOnlyPublicOutput: true

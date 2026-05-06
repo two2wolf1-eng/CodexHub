@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
   CodexExecLiveRunRecordSchema,
   CodexExecLiveConfigSchema,
@@ -13401,6 +13402,25 @@ describe('contracts schemas', () => {
     ]);
     expect(policyRun.advisoryOnly).toBe(true);
     expect(telemetryRun.evidenceAuditAuthoritative).toBe(false);
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks([
+        policyManifest,
+        policyReadiness,
+        policyPlan,
+        policyApproval,
+        advisory,
+        policyRun,
+        policyRehearsal,
+        telemetryManifest,
+        telemetryReadiness,
+        telemetryPlan,
+        telemetryApproval,
+        localExport,
+        networkExport,
+        telemetryRun,
+        telemetryRehearsal,
+      ]),
+    ).toEqual([]);
     expect(serialized).not.toContain('package main');
     expect(serialized).not.toContain('raw span body');
     expect(serialized).not.toContain('ghp_');
@@ -13668,6 +13688,21 @@ describe('contracts schemas', () => {
     expect(browserRun.browserActionInvoked).toBe(true);
     expect(electronRun.mainInspectorInvoked).toBe(true);
     expect(mcpRun.repoRootMutationAllowed).toBe(false);
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks([
+        browserPlan,
+        browserApproval,
+        browserRun,
+        electronPlan,
+        electronApproval,
+        electronRun,
+        mcpManifest,
+        mcpPlan,
+        mcpApproval,
+        mcpRun,
+        rehearsal,
+      ]),
+    ).toEqual([]);
     expect(serialized).not.toContain('#password');
     expect(serialized).not.toContain('Runtime.evaluate source');
     expect(serialized).not.toContain('raw patch');

@@ -18,6 +18,16 @@ export const adversarialPublicOutputTerms = [
   'request body fixture',
   'response body fixture',
   'HTTP response body fixture',
+  'raw policy input fixture',
+  'raw policy source fixture',
+  'raw policy output fixture',
+  'raw span payload fixture',
+  'raw log payload fixture',
+  'Runtime.evaluate source fixture',
+  'raw javascript source fixture',
+  'raw selector fixture',
+  'raw typed text fixture',
+  'raw controlled patch fixture',
 ] as const;
 
 export const adversarialPublicOutputFixture = adversarialPublicOutputTerms.join(' ');
