@@ -5645,3 +5645,31 @@ workflows:
       rawDbExportAllowed: false
       roleBypassAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d11.runtime-external-agent-boundary-debug:
+    risk: critical
+    trigger:
+      type: runtime-external-agent-boundary-debug
+      entrypoint: runtime-operations-kernel external-agent-adapter docs tools
+      localControlRequired: false
+    scope:
+      - runtime-queue-lock-lease-checkpoint-determinism
+      - runtime-no-direct-process-network-adapter-bypass
+      - external-agent-fixed-argv-codex-claude
+      - external-agent-controlled-sibling-worktree-only
+      - external-agent-raw-prompt-diff-patch-command-path-metadata-only
+    docs:
+      - docs/releases/m47-d11-runtime-external-agent-boundary-debug.md
+      - docs/reviews/m47-d11-runtime-external-agent-boundary-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      arbitraryProcessAllowed: false
+      arbitraryArgvAllowed: false
+      repoRootMutationAllowed: false
+      multiAgentBypassAllowed: false
+      metadataOnlyPublicOutput: true
