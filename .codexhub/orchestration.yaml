@@ -5463,3 +5463,28 @@ workflows:
       rawDbRowsStored: false
       rawAuditBodyStored: false
       metadataOnlyPublicOutput: true
+  m47_d4.public-projection-roundtrip-debug:
+    risk: critical
+    trigger:
+      type: public-projection-roundtrip-debug
+      entrypoint: governance-projection operator-readiness dashboard cli mcp docs tools
+      localControlRequired: false
+    scope:
+      - governance-projection-roundtrip
+      - operator-readiness-roundtrip
+      - dashboard-summary-roundtrip
+      - cli-formatter-roundtrip
+      - mcp-tool-summary-roundtrip
+    docs:
+      - docs/releases/m47-d4-public-projection-roundtrip-debug.md
+      - docs/reviews/m47-d4-public-projection-roundtrip-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      mcpDevelopmentRequestRawSummaryStored: false
+      metadataOnlyPublicOutput: true

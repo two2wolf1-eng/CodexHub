@@ -94,10 +94,12 @@ export async function getOpenDevelopmentRequests(
     openRequests: [],
     openRequestCount: 0,
     recentRunSummaries: recentRuns.map((run) => ({
-      id: run.id,
-      title: run.summary.requestTitle,
+      idHash: hashPublicValue(run.id),
+      titleHash: hashPublicValue(run.summary.requestTitle),
       status: run.summary.verificationStatus,
-      summary: run.summary,
+      summaryHash: hashPublicValue(run.summary),
+      taskCount: run.summary.taskCount,
+      agentRunCount: run.summary.agentRunCount,
       evidenceRefCount: run.evidenceRefs?.length ?? 0,
     })),
     bodyStored: false,
@@ -272,6 +274,10 @@ function readRecordKeys(value: unknown): string[] {
 
 function readRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
+}
+
+function hashPublicValue(value: unknown): string {
+  return `sha256:${hashText(JSON.stringify(value))}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

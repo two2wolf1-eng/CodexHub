@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import type { CodexHubStore } from '@codexhub/store-core';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputRoundTripLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 import { createCodexHubMcpServer, startCodexHubMcpHttpServer } from './server';
 import { invokeReadOnlyMcpTool } from './tools';
 
@@ -169,6 +173,51 @@ describe('codexhub MCP server', () => {
     expect(serialized).not.toContain('jsonl');
   });
 
+  it('keeps MCP development request summaries metadata-only after store round-trip', async () => {
+    const store = createFakeStore({
+      developmentRuns: [
+        {
+          id: adversarialPublicOutputFixture,
+          summary: {
+            requestTitle: adversarialPublicOutputFixture,
+            taskCount: 1,
+            selectedSkillIds: [],
+            agentRunCount: 1,
+            verificationStatus: 'blocked',
+            evidenceCount: 1,
+            auditEventCount: 1,
+            orchestrationPlanId: adversarialPublicOutputFixture,
+            mockOnly: true,
+          },
+          evidenceRefs: [{ id: 'evidence_adversarial', kind: 'mcp.tool_invocation' }],
+        },
+      ],
+    });
+
+    const result = await invokeReadOnlyMcpTool(
+      'codexhub.getOpenDevelopmentRequests',
+      {},
+      { workspaceRoot: process.cwd(), store: store as unknown as CodexHubStore },
+    );
+    const summary = result.structuredContent as {
+      recentRunSummaries: Array<Record<string, unknown>>;
+    };
+
+    expect(result.isError).toBeUndefined();
+    expect(findAdversarialPublicOutputRoundTripLeaks(result)).toEqual([]);
+    expect(summary.recentRunSummaries[0]).toMatchObject({
+      status: 'blocked',
+      taskCount: 1,
+      agentRunCount: 1,
+      evidenceRefCount: 1,
+    });
+    expect(summary.recentRunSummaries[0]?.idHash).toMatch(/^sha256:/);
+    expect(summary.recentRunSummaries[0]?.titleHash).toMatch(/^sha256:/);
+    expect(summary.recentRunSummaries[0]?.summaryHash).toMatch(/^sha256:/);
+    expect(summary.recentRunSummaries[0]).not.toHaveProperty('title');
+    expect(summary.recentRunSummaries[0]).not.toHaveProperty('summary');
+  });
+
   it('keeps all production MCP source away from adapter execute and live boundary helpers', () => {
     const mcpProductionSources = ['server.ts', 'security.ts', 'tool-outputs.ts', 'tools.ts'].map(
       (fileName) => ({
@@ -272,7 +321,7 @@ function requestJson(
   });
 }
 
-function createFakeStore() {
+function createFakeStore(options: { developmentRuns?: unknown[] } = {}) {
   const evidenceRecords: unknown[] = [];
   const auditRecords: unknown[] = [];
   const store = {
@@ -295,7 +344,7 @@ function createFakeStore() {
     },
     developmentRuns: {
       async listMockDevelopmentRuns() {
-        return [];
+        return options.developmentRuns ?? [];
       },
     },
   };
