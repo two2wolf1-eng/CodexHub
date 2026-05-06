@@ -5539,3 +5539,29 @@ workflows:
       noOpenPullRequest: true
       routeDriftGuardRequired: true
       metadataOnlyPublicOutput: true
+  m47_d7.supervisor-route-gates-debug:
+    risk: critical
+    trigger:
+      type: supervisor-route-gates-debug
+      entrypoint: supervisor docs tools
+      localControlRequired: false
+    scope:
+      - missing-token-gate
+      - bad-token-gate
+      - malicious-origin-gate
+      - cors-non-wildcard-preflight
+      - request-body-authority-artifact-rejection
+    docs:
+      - docs/releases/m47-d7-supervisor-route-gates-debug.md
+      - docs/reviews/m47-d7-supervisor-route-gates-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      requestBodyAuthorityTrusted: false
+      corsWildcardAllowed: false
+      metadataOnlyPublicOutput: true

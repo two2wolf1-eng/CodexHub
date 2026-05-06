@@ -458,6 +458,24 @@ describe('supervisor mock development API', () => {
           'access-control-request-headers': 'content-type, x-codexhub-local-token',
         },
       });
+      const maliciousPreflightResponse = await server.inject({
+        method: 'OPTIONS',
+        url,
+        headers: {
+          origin: 'https://evil.example',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type, x-codexhub-local-token',
+        },
+      });
+      const missingPreflightLocalControlHeaderResponse = await server.inject({
+        method: 'OPTIONS',
+        url,
+        headers: {
+          origin: 'http://localhost:4173',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type',
+        },
+      });
 
       expect(missingTokenResponse.statusCode).toBe(401);
       expect(missingTokenResponse.json().error).toBe('invalid_local_control_token');
@@ -476,6 +494,21 @@ describe('supervisor mock development API', () => {
       expect(preflightResponse.statusCode).toBe(204);
       expect(preflightResponse.headers['access-control-allow-origin']).toBe('http://localhost:4173');
       expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
+      expect(maliciousPreflightResponse.statusCode).toBe(403);
+      expect(maliciousPreflightResponse.json().error).toBe('untrusted_origin');
+      expect(maliciousPreflightResponse.headers['access-control-allow-origin']).not.toBe(
+        '*',
+      );
+      expect(missingPreflightLocalControlHeaderResponse.statusCode).toBe(401);
+      expect(missingPreflightLocalControlHeaderResponse.json().error).toBe(
+        'local_control_token_required',
+      );
+      expect(
+        missingPreflightLocalControlHeaderResponse.headers['access-control-allow-origin'],
+      ).toBe('http://localhost:4173');
+      expect(
+        missingPreflightLocalControlHeaderResponse.headers['access-control-allow-origin'],
+      ).not.toBe('*');
     }
 
     await server.close();
@@ -870,6 +903,39 @@ describe('supervisor mock development API', () => {
       expect(response.body).not.toContain('CALLER_SUPPLIED_ENV_VALUE');
       expect(response.body).not.toContain('caller_supplied_child_artifact');
       expect(response.body).not.toContain('caller_supplied_full_artifact');
+      expect(response.body).not.toContain('"allowed":true');
+    }
+
+    await server.close();
+    await store.close();
+  });
+
+  it('rejects caller-supplied authority objects before validation on all late-stage mutating routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-late-stage-authority-all-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    for (const url of lateStageSupervisorMutatingRoutes) {
+      const response = await server.inject({
+        method: 'POST',
+        url,
+        headers: localControlHeaders,
+        payload: {
+          dryRunId: 'dry-run-fixture',
+          approvalArtifactId: 'approval-fixture',
+          approvalArtifact: { id: 'caller_supplied_artifact', status: 'approved' },
+          executionAuthority: { allowed: true, policyDecisionId: 'caller_supplied_policy' },
+          authority: { allowed: true, policyDecisionId: 'caller_supplied_authority' },
+          childArtifacts: [{ id: 'caller_supplied_child_artifact', status: 'approved' }],
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.body.toLowerCase()).toContain('authority');
+      expect(response.body).not.toContain('caller_supplied_artifact');
+      expect(response.body).not.toContain('caller_supplied_child_artifact');
+      expect(response.body).not.toContain('caller_supplied_policy');
+      expect(response.body).not.toContain('caller_supplied_authority');
       expect(response.body).not.toContain('"allowed":true');
     }
 
