@@ -172,6 +172,7 @@ import type {
   RuntimeSchedulerRehearsalScenario,
   SecretGovernanceAcceptanceScenario,
   SecretProvider,
+  DisasterRecoveryScenario,
   ApprovalDecisionHistoryProjection,
   ApprovalDecisionResult,
   ApprovalInboxProjection,
@@ -195,6 +196,7 @@ import {
   runDeploymentOperationAcceptanceRehearsal,
 } from '@codexhub/deployment-provider-adapter';
 import { rehearseExternalAgent } from '@codexhub/external-agent-adapter';
+import { rehearseDisasterRecovery } from '@codexhub/platform-operations-kernel';
 import { rehearseRuntimeScheduler } from '@codexhub/runtime-operations-kernel';
 import { runSecretGovernanceAcceptanceRehearsal } from '@codexhub/secret-governance-kernel';
 import {
@@ -1323,6 +1325,92 @@ function registerExternalAgentReadOnlyCommands(program: Command): void {
         scenario: normalizeExternalAgentRehearsalScenario(options.scenario),
       });
       console.log(formatExternalAgentRehearsalOutput(result, options));
+  });
+}
+
+function registerPlatformOperationsReadOnlyCommands(program: Command): void {
+  const command = program
+    .command('operations')
+    .description('Read platform operations metadata from Supervisor GET endpoints');
+
+  command
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show platform operations readiness without running backup or restore')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getPlatformOperationsStatusForCli();
+      console.log(formatReadOnlyControlCollectionOutput('Platform operations status', result, options));
+    });
+
+  for (const [commandName, routePrefix, label] of [
+    ['backups', '/api/platform/backups', 'Platform backups'],
+    ['restores', '/api/platform/restores', 'Platform restores'],
+    ['migrations', '/api/platform/migrations', 'Platform migrations'],
+    ['retention', '/api/platform/retention', 'Platform retention'],
+    ['audit-exports', '/api/platform/audit-exports', 'Platform audit exports'],
+    ['roles', '/api/platform/operator-roles', 'Platform operator roles'],
+  ] as const) {
+    const family = command.command(commandName).description(`Read ${label} metadata`);
+
+    family
+      .command('list')
+      .option('--json', 'Print full JSON output')
+      .description(`List ${label} runs without starting platform operations`)
+      .action(async (options: JsonCliOptions) => {
+        const result = await listSupervisorReadOnlyCollection(
+          `${routePrefix}/runs`,
+          `${label} runs are read from Supervisor GET endpoints only.`,
+          `${label} run source is unavailable; no platform operation was attempted.`,
+        );
+        console.log(formatReadOnlyControlCollectionOutput(label, result, options));
+      });
+
+    family
+      .command('show')
+      .argument('<runId>')
+      .option('--json', 'Print full JSON output')
+      .description(`Show ${label} run metadata without starting platform operations`)
+      .action(async (runId: string, options: JsonCliOptions) => {
+        const result = await showSupervisorReadOnlyRecord(`${routePrefix}/runs`, runId, label);
+        console.log(formatReadOnlyControlDetailOutput(label, result, options));
+      });
+
+    for (const [segment, title] of [
+      ['dry-runs', `${label} dry-runs`],
+      ['approvals', `${label} approvals`],
+      ['runs', `${label} runs`],
+    ] as const) {
+      family
+        .command(segment)
+        .description(`Read ${title}`)
+        .command('list')
+        .option('--json', 'Print full JSON output')
+        .description(`List ${title} without starting platform operations`)
+        .action(async (options: JsonCliOptions) => {
+          const result = await listSupervisorReadOnlyCollection(
+            `${routePrefix}/${segment}`,
+            `${title} are read from Supervisor GET endpoints only.`,
+            `${title} source is unavailable; no platform operation was attempted.`,
+          );
+          console.log(formatReadOnlyControlCollectionOutput(title, result, options));
+        });
+    }
+  }
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'backup-all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Rehearse platform disaster recovery without running platform operations')
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      if (!options.fixture) {
+        throw new Error('Platform operations rehearsal requires --fixture');
+      }
+      const result = rehearseDisasterRecovery({
+        scenario: normalizeDisasterRecoveryScenario(options.scenario),
+      });
+      console.log(formatDisasterRecoveryRehearsalOutput(result, options));
     });
 }
 
@@ -3562,6 +3650,7 @@ export function buildProgram(): Command {
   registerReleaseReadOnlyCommands(program);
   registerDeploymentReadOnlyCommands(program);
   registerSecretReadOnlyCommands(program);
+  registerPlatformOperationsReadOnlyCommands(program);
 
   const githubSupersedesCommand = githubCommand
     .command('supersedes')
@@ -7386,6 +7475,57 @@ function getExternalAgentStatusForCli(): Record<string, unknown> {
   };
 }
 
+async function getPlatformOperationsStatusForCli(): Promise<Record<string, unknown>> {
+  const families = [
+    ['backups', '/api/platform/backups/runs'],
+    ['restores', '/api/platform/restores/runs'],
+    ['migrations', '/api/platform/migrations/runs'],
+    ['retention', '/api/platform/retention/runs'],
+    ['audit-exports', '/api/platform/audit-exports/runs'],
+    ['operator-roles', '/api/platform/operator-roles/runs'],
+  ] as const;
+  const records = await Promise.all(
+    families.map(async ([family, route]) => {
+      const result = await listSupervisorReadOnlyCollection(
+        route,
+        `${family} runs are read from Supervisor GET endpoints only.`,
+        `${family} run source is unavailable; no platform operation was attempted.`,
+      );
+      return {
+        family,
+        status: result.status,
+        count: result.count ?? 0,
+        degraded: result.status === 'degraded',
+      };
+    }),
+  );
+  const enabled = {
+    backupDirConfigured: Boolean(process.env.CODEXHUB_BACKUP_DIR),
+    storeRestoreReplaceEnabled: process.env.CODEXHUB_STORE_RESTORE_REPLACE_ENABLED === 'true',
+    roleEnforcementEnabled: process.env.CODEXHUB_OPERATOR_ROLE_ENFORCEMENT_ENABLED === 'true',
+  };
+
+  return {
+    status: records.some((record) => record.degraded) ? 'degraded' : 'ready',
+    count: records.length,
+    records,
+    configured: enabled,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    bodyStored: false,
+    rawPathStored: false,
+    rawSqlStored: false,
+    rawDbRowsStored: false,
+    rawBackupBodyStored: false,
+    rawAuditBodyStored: false,
+    note:
+      'Platform operations status is read-only; CLI does not run backups, restores, migrations, retention, audit exports, or role changes.',
+  };
+}
+
 function normalizeRuntimeSchedulerRehearsalScenario(
   value: string | undefined,
 ): RuntimeSchedulerRehearsalScenario {
@@ -7590,6 +7730,29 @@ function normalizeDeploymentOperationAcceptanceScenario(
   return scenarios.includes(value as DeploymentOperationAcceptanceScenario)
     ? (value as DeploymentOperationAcceptanceScenario)
     : 'all-pass';
+}
+
+function normalizeDisasterRecoveryScenario(value: string | undefined): DisasterRecoveryScenario {
+  const scenarios: DisasterRecoveryScenario[] = [
+    'backup-all-pass',
+    'backup-dir-missing',
+    'backup-hash-mismatch',
+    'restore-rehearsal-pass',
+    'restore-replace-disabled',
+    'restore-second-approval-missing',
+    'migration-pending',
+    'migration-failed',
+    'retention-preview',
+    'retention-backup-required',
+    'audit-export-pass',
+    'role-missing',
+    'role-insufficient',
+    'disaster-recovery-drill',
+  ];
+
+  return scenarios.includes(value as DisasterRecoveryScenario)
+    ? (value as DisasterRecoveryScenario)
+    : 'backup-all-pass';
 }
 
 function normalizeSecretProvider(value: string | undefined): SecretProvider {
@@ -7797,6 +7960,31 @@ export function formatDeploymentOperationAcceptanceRehearsalOutput(
     `blockers: ${result.blockerCount}`,
     `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
     `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+  ].join('\n');
+}
+
+export function formatDisasterRecoveryRehearsalOutput(
+  result: ReturnType<typeof rehearseDisasterRecovery>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'Platform operations disaster recovery rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `backup: ${result.backupStatus}`,
+    `restore: ${result.restoreStatus}`,
+    `migration: ${result.migrationStatus ?? 'not_planned'}`,
+    `retention: ${result.retentionStatus ?? 'not_planned'}`,
+    `auditExport: ${result.auditExportStatus ?? 'not_planned'}`,
+    `role: ${result.operatorRoleStatus ?? 'not_planned'}`,
+    `blockers: ${result.blockerCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=false`,
     `bodyStored=${String(result.bodyStored)}`,
   ].join('\n');
 }

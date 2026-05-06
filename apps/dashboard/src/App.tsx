@@ -176,6 +176,24 @@ interface OverviewState {
   externalAgentDryRuns: RuntimeControlSummary[];
   externalAgentApprovals: RuntimeControlSummary[];
   externalAgentRuns: RuntimeControlSummary[];
+  platformBackupDryRuns: PlatformOperationControlSummary[];
+  platformBackupApprovals: PlatformOperationControlSummary[];
+  platformBackupRuns: PlatformOperationControlSummary[];
+  platformRestoreDryRuns: PlatformOperationControlSummary[];
+  platformRestoreApprovals: PlatformOperationControlSummary[];
+  platformRestoreRuns: PlatformOperationControlSummary[];
+  platformMigrationDryRuns: PlatformOperationControlSummary[];
+  platformMigrationApprovals: PlatformOperationControlSummary[];
+  platformMigrationRuns: PlatformOperationControlSummary[];
+  platformRetentionDryRuns: PlatformOperationControlSummary[];
+  platformRetentionApprovals: PlatformOperationControlSummary[];
+  platformRetentionRuns: PlatformOperationControlSummary[];
+  platformAuditExportDryRuns: PlatformOperationControlSummary[];
+  platformAuditExportApprovals: PlatformOperationControlSummary[];
+  platformAuditExportRuns: PlatformOperationControlSummary[];
+  platformOperatorRoleDryRuns: PlatformOperationControlSummary[];
+  platformOperatorRoleApprovals: PlatformOperationControlSummary[];
+  platformOperatorRoleRuns: PlatformOperationControlSummary[];
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -981,6 +999,46 @@ interface RuntimeControlSummary {
   summary?: string;
 }
 
+interface PlatformOperationControlSummary {
+  recordId?: string;
+  id?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  operationKind?: string;
+  scope?: string;
+  mode?: string;
+  target?: string;
+  role?: string;
+  fileCount?: number;
+  recordCount?: number;
+  artifactCount?: number;
+  restoredRecordCount?: number;
+  migratedRecordCount?: number;
+  previewRecordCount?: number;
+  affectedRecordCount?: number;
+  boundaryReached?: boolean;
+  localFilesystemBoundaryInvoked?: boolean;
+  isolatedRestoreBoundaryInvoked?: boolean;
+  storeReplacementBoundaryInvoked?: boolean;
+  migrationBoundaryInvoked?: boolean;
+  retentionBoundaryInvoked?: boolean;
+  roleStoreBoundaryInvoked?: boolean;
+  networkBoundaryInvoked?: boolean;
+  evidenceRefIds?: string[];
+  evidenceRefs?: Array<{ id?: string }>;
+  auditEventIds?: string[];
+  blockReasons?: string[];
+  summary?: string;
+  rawPathStored?: boolean;
+  rawSqlStored?: boolean;
+  rawDbRowsStored?: boolean;
+  rawBackupBodyStored?: boolean;
+  rawAuditBodyStored?: boolean;
+  bodyStored?: boolean;
+}
+
 interface GithubPrManagementControlSummary {
   recordId?: string;
   dryRunId?: string;
@@ -1613,6 +1671,24 @@ export function App() {
     externalAgentDryRuns: [],
     externalAgentApprovals: [],
     externalAgentRuns: [],
+    platformBackupDryRuns: [],
+    platformBackupApprovals: [],
+    platformBackupRuns: [],
+    platformRestoreDryRuns: [],
+    platformRestoreApprovals: [],
+    platformRestoreRuns: [],
+    platformMigrationDryRuns: [],
+    platformMigrationApprovals: [],
+    platformMigrationRuns: [],
+    platformRetentionDryRuns: [],
+    platformRetentionApprovals: [],
+    platformRetentionRuns: [],
+    platformAuditExportDryRuns: [],
+    platformAuditExportApprovals: [],
+    platformAuditExportRuns: [],
+    platformOperatorRoleDryRuns: [],
+    platformOperatorRoleApprovals: [],
+    platformOperatorRoleRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -2661,6 +2737,24 @@ export function App() {
           externalAgentDryRunsResponse,
           externalAgentApprovalsResponse,
           externalAgentRunsResponse,
+          platformBackupDryRunsResponse,
+          platformBackupApprovalsResponse,
+          platformBackupRunsResponse,
+          platformRestoreDryRunsResponse,
+          platformRestoreApprovalsResponse,
+          platformRestoreRunsResponse,
+          platformMigrationDryRunsResponse,
+          platformMigrationApprovalsResponse,
+          platformMigrationRunsResponse,
+          platformRetentionDryRunsResponse,
+          platformRetentionApprovalsResponse,
+          platformRetentionRunsResponse,
+          platformAuditExportDryRunsResponse,
+          platformAuditExportApprovalsResponse,
+          platformAuditExportRunsResponse,
+          platformOperatorRoleDryRunsResponse,
+          platformOperatorRoleApprovalsResponse,
+          platformOperatorRoleRunsResponse,
           githubPrLabelsDryRunsResponse,
           githubPrLabelsApprovalsResponse,
           githubPrLabelsRunsResponse,
@@ -2996,6 +3090,78 @@ export function App() {
           getOptionalJson<{ records: RuntimeControlSummary[] }>('/api/agents/external/runs', {
             records: [],
           }),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/backups/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/backups/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/backups/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/restores/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/restores/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/restores/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/migrations/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/migrations/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/migrations/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/retention/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/retention/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/retention/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/audit-exports/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/audit-exports/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/audit-exports/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/operator-roles/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/operator-roles/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: PlatformOperationControlSummary[] }>(
+            '/api/platform/operator-roles/runs',
+            { records: [] },
+          ),
           getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
             '/api/github/pr-labels/dry-runs',
             { records: [] },
@@ -3291,6 +3457,24 @@ export function App() {
             externalAgentDryRuns: externalAgentDryRunsResponse.records,
             externalAgentApprovals: externalAgentApprovalsResponse.records,
             externalAgentRuns: externalAgentRunsResponse.records,
+            platformBackupDryRuns: platformBackupDryRunsResponse.records,
+            platformBackupApprovals: platformBackupApprovalsResponse.records,
+            platformBackupRuns: platformBackupRunsResponse.records,
+            platformRestoreDryRuns: platformRestoreDryRunsResponse.records,
+            platformRestoreApprovals: platformRestoreApprovalsResponse.records,
+            platformRestoreRuns: platformRestoreRunsResponse.records,
+            platformMigrationDryRuns: platformMigrationDryRunsResponse.records,
+            platformMigrationApprovals: platformMigrationApprovalsResponse.records,
+            platformMigrationRuns: platformMigrationRunsResponse.records,
+            platformRetentionDryRuns: platformRetentionDryRunsResponse.records,
+            platformRetentionApprovals: platformRetentionApprovalsResponse.records,
+            platformRetentionRuns: platformRetentionRunsResponse.records,
+            platformAuditExportDryRuns: platformAuditExportDryRunsResponse.records,
+            platformAuditExportApprovals: platformAuditExportApprovalsResponse.records,
+            platformAuditExportRuns: platformAuditExportRunsResponse.records,
+            platformOperatorRoleDryRuns: platformOperatorRoleDryRunsResponse.records,
+            platformOperatorRoleApprovals: platformOperatorRoleApprovalsResponse.records,
+            platformOperatorRoleRuns: platformOperatorRoleRunsResponse.records,
             githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
             githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
             githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
@@ -3441,6 +3625,24 @@ export function App() {
     externalAgentDryRuns: [],
     externalAgentApprovals: [],
     externalAgentRuns: [],
+    platformBackupDryRuns: [],
+    platformBackupApprovals: [],
+    platformBackupRuns: [],
+    platformRestoreDryRuns: [],
+    platformRestoreApprovals: [],
+    platformRestoreRuns: [],
+    platformMigrationDryRuns: [],
+    platformMigrationApprovals: [],
+    platformMigrationRuns: [],
+    platformRetentionDryRuns: [],
+    platformRetentionApprovals: [],
+    platformRetentionRuns: [],
+    platformAuditExportDryRuns: [],
+    platformAuditExportApprovals: [],
+    platformAuditExportRuns: [],
+    platformOperatorRoleDryRuns: [],
+    platformOperatorRoleApprovals: [],
+    platformOperatorRoleRuns: [],
     githubPrLabelsDryRuns: [],
             githubPrLabelsApprovals: [],
             githubPrLabelsRuns: [],
@@ -9322,6 +9524,159 @@ function renderReadOnlyDashboardView(
           ) : (
             <p>No external agent run metadata is available.</p>
           )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'operations') {
+    const platformGroups = [
+      {
+        label: 'Backups',
+        dryRuns: overview.platformBackupDryRuns,
+        approvals: overview.platformBackupApprovals,
+        runs: overview.platformBackupRuns,
+      },
+      {
+        label: 'Restores',
+        dryRuns: overview.platformRestoreDryRuns,
+        approvals: overview.platformRestoreApprovals,
+        runs: overview.platformRestoreRuns,
+      },
+      {
+        label: 'Migrations',
+        dryRuns: overview.platformMigrationDryRuns,
+        approvals: overview.platformMigrationApprovals,
+        runs: overview.platformMigrationRuns,
+      },
+      {
+        label: 'Retention',
+        dryRuns: overview.platformRetentionDryRuns,
+        approvals: overview.platformRetentionApprovals,
+        runs: overview.platformRetentionRuns,
+      },
+      {
+        label: 'Audit exports',
+        dryRuns: overview.platformAuditExportDryRuns,
+        approvals: overview.platformAuditExportApprovals,
+        runs: overview.platformAuditExportRuns,
+      },
+      {
+        label: 'Operator roles',
+        dryRuns: overview.platformOperatorRoleDryRuns,
+        approvals: overview.platformOperatorRoleApprovals,
+        runs: overview.platformOperatorRoleRuns,
+      },
+    ];
+    const platformRuns = platformGroups.flatMap((group) =>
+      group.runs.map((run) => ({ ...run, group: group.label })),
+    );
+    const latestPlatformRun = platformRuns[0];
+    const pendingPlatformApprovals = platformGroups.reduce(
+      (total, group) =>
+        total +
+        group.approvals.filter(
+          (record) => record.status === 'requested' || record.status === 'pending',
+        ).length,
+      0,
+    );
+
+    return (
+      <section className="grid">
+        <Panel title="Platform Operations">
+          <ul>
+            <li>backup dry-runs: {overview.platformBackupDryRuns.length}</li>
+            <li>restore dry-runs: {overview.platformRestoreDryRuns.length}</li>
+            <li>migration dry-runs: {overview.platformMigrationDryRuns.length}</li>
+            <li>pending approvals: {pendingPlatformApprovals}</li>
+            <li>latest run: {latestPlatformRun?.status ?? 'none'}</li>
+          </ul>
+          <p>
+            Platform operations records are metadata-only. Raw SQL, database rows, backup
+            bodies, audit bodies, paths, credential material, and environment values are not
+            rendered here.
+          </p>
+        </Panel>
+        <Panel title="Operation Families">
+          <ul>
+            {platformGroups.map((group) => (
+              <li key={group.label} className="stacked">
+                <strong>{group.label}</strong>
+                <span>
+                  dry-runs {group.dryRuns.length}, approvals {group.approvals.length}, runs{' '}
+                  {group.runs.length}
+                </span>
+                <span>latest {group.runs[0]?.status ?? group.dryRuns[0]?.status ?? 'none'}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+        <Panel title="Backup / Restore">
+          <ul>
+            <li>backup runs: {overview.platformBackupRuns.length}</li>
+            <li>restore runs: {overview.platformRestoreRuns.length}</li>
+            <li>
+              latest backup boundary:{' '}
+              {String(overview.platformBackupRuns[0]?.localFilesystemBoundaryInvoked ?? false)}
+            </li>
+            <li>
+              active store replacement:{' '}
+              {String(overview.platformRestoreRuns[0]?.storeReplacementBoundaryInvoked ?? false)}
+            </li>
+          </ul>
+          <p>
+            Restore replacement remains critical and store-resolved; this view does not replace the
+            active store.
+          </p>
+        </Panel>
+        <Panel title="Store Maintenance">
+          <ul>
+            <li>migration runs: {overview.platformMigrationRuns.length}</li>
+            <li>retention previews: {overview.platformRetentionDryRuns.length}</li>
+            <li>audit export runs: {overview.platformAuditExportRuns.length}</li>
+            <li>
+              network export:{' '}
+              {String(
+                overview.platformAuditExportRuns.some((run) => run.networkBoundaryInvoked === true),
+              )}
+            </li>
+          </ul>
+          <p>
+            Migrations use built-in ids only; retention and audit export summaries stay hash/count
+            based.
+          </p>
+        </Panel>
+        <Panel title="Latest Platform Runs">
+          {platformRuns.length > 0 ? (
+            <ul>
+              {platformRuns.slice(0, 8).map((run, index) => (
+                <li key={run.runId ?? run.recordId ?? run.id ?? index} className="stacked">
+                  <strong>{run.group}</strong>
+                  <span>
+                    {run.status ?? 'unknown'}, boundary {String(run.boundaryReached ?? false)}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds?.length ?? run.evidenceRefs?.length ?? 0}, audit{' '}
+                    {run.auditEventIds?.length ?? 0}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No platform operation run metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="Operator Roles / DR">
+          <ul>
+            <li>role dry-runs: {overview.platformOperatorRoleDryRuns.length}</li>
+            <li>role approvals: {overview.platformOperatorRoleApprovals.length}</li>
+            <li>role runs: {overview.platformOperatorRoleRuns.length}</li>
+            <li>disaster recovery rehearsal: fixture-only in M47e</li>
+          </ul>
+          <p>
+            Operator roles are hash/scoped metadata only; role enforcement does not bypass
+            local-control gates.
+          </p>
         </Panel>
       </section>
     );

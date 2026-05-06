@@ -66,6 +66,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/pilot')).toBe('pilot');
     expect(getDashboardViewFromHash('#/approvals')).toBe('approvals');
     expect(getDashboardViewFromHash('#/release-candidates')).toBe('release-candidates');
+    expect(getDashboardViewFromHash('#/operations')).toBe('operations');
     expect(getDashboardViewFromHash('#/workflows')).toBe('workflows');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
@@ -81,6 +82,7 @@ describe('dashboard read-only UX helpers', () => {
       'deployments',
       'secrets',
       'runtime',
+      'operations',
       'policy-telemetry',
       'browser-profiles',
       'electron',
@@ -309,6 +311,7 @@ describe('dashboard read-only UX helpers', () => {
       'deployments',
       'secrets',
       'runtime',
+      'operations',
       'policy-telemetry',
       'browser-profiles',
       'electron',
@@ -327,6 +330,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).toContain('#/deployments');
     expect(serialized).toContain('#/secrets');
     expect(serialized).toContain('#/runtime');
+    expect(serialized).toContain('#/operations');
     expect(serialized).toContain('#/policy-telemetry');
     expect(serialized).toContain('#/browser-profiles');
     expect(serialized).toContain('#/electron');
@@ -1212,6 +1216,39 @@ describe('dashboard read-only UX helpers', () => {
       expect(window).not.toContain('CODEXHUB_DEPLOYMENT_');
       expect(window).not.toContain('adapter.execute');
     }
+  });
+
+  it('adds platform operations as a GET-only operator view', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const operationsRoute = appSource.slice(
+      appSource.indexOf("if (activeView === 'operations')"),
+      appSource.indexOf("if (activeView === 'policy-telemetry')"),
+    );
+
+    for (const route of [
+      '/api/platform/backups/dry-runs',
+      '/api/platform/backups/approvals',
+      '/api/platform/backups/runs',
+      '/api/platform/restores/dry-runs',
+      '/api/platform/migrations/runs',
+      '/api/platform/retention/runs',
+      '/api/platform/audit-exports/runs',
+      '/api/platform/operator-roles/runs',
+    ]) {
+      expect(appSource).toContain(route);
+    }
+    expect(operationsRoute).toContain('Platform Operations');
+    expect(operationsRoute).toContain('Operator Roles / DR');
+    expect(operationsRoute).not.toContain('Local control key');
+    expect(operationsRoute).not.toContain('postPlatform');
+    expect(operationsRoute).not.toContain('createSupervisorPostHeaders');
+    expect(operationsRoute).not.toContain('approvalArtifact:');
+    expect(operationsRoute).not.toContain('executionAuthority');
+    expect(operationsRoute).not.toContain('authority:');
+    expect(operationsRoute).not.toContain('rawSql');
+    expect(operationsRoute).not.toContain('rawDbRows');
+    expect(operationsRoute).not.toContain('rawBackupBody');
+    expect(operationsRoute).not.toContain('rawAuditBody');
   });
 
   it('keeps the production workflow recovery wizard scoped to existing recovery routes', () => {

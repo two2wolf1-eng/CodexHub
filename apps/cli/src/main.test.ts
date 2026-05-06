@@ -130,15 +130,20 @@ describe('cli development mock-run fallback', () => {
     }
   });
 
-  it('keeps runtime and external agent CLI surfaces read-only', () => {
+  it('keeps runtime, external agent, and platform operations CLI surfaces read-only', () => {
     const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
     const runtimeRegistration = extractFunctionSource(cliSource, 'registerRuntimeReadOnlyCommands');
     const externalAgentRegistration = extractFunctionSource(
       cliSource,
       'registerExternalAgentReadOnlyCommands',
     );
+    const platformOperationsRegistration = extractFunctionSource(
+      cliSource,
+      'registerPlatformOperationsReadOnlyCommands',
+    );
     const runtimeStatus = extractFunctionSource(cliSource, 'getRuntimeStatusForCli');
     const externalStatus = extractFunctionSource(cliSource, 'getExternalAgentStatusForCli');
+    const platformStatus = extractFunctionSource(cliSource, 'getPlatformOperationsStatusForCli');
 
     for (const route of [
       '/api/runtime/jobs/dry-runs',
@@ -148,15 +153,25 @@ describe('cli development mock-run fallback', () => {
       '/api/agents/external/dry-runs',
       '/api/agents/external/approvals',
       '/api/agents/external/runs',
+      '/api/platform/backups',
+      '/api/platform/restores',
+      '/api/platform/migrations',
+      '/api/platform/retention',
+      '/api/platform/audit-exports',
+      '/api/platform/operator-roles',
     ]) {
-      expect(`${runtimeRegistration}\n${externalAgentRegistration}`).toContain(route);
+      expect(`${runtimeRegistration}\n${externalAgentRegistration}\n${platformOperationsRegistration}`).toContain(
+        route,
+      );
     }
 
     for (const source of [
       runtimeRegistration,
       externalAgentRegistration,
+      platformOperationsRegistration,
       runtimeStatus,
       externalStatus,
+      platformStatus,
     ]) {
       expect(source).not.toContain("method: 'POST'");
       expect(source).not.toContain('createSupervisorPostHeaders');

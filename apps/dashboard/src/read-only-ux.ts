@@ -55,6 +55,7 @@ export const DASHBOARD_VIEWS = [
   'deployments',
   'secrets',
   'runtime',
+  'operations',
   'workflows',
 ] as const;
 
