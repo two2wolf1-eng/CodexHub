@@ -613,30 +613,175 @@ export function rehearseDisasterRecovery(input: {
   now?: () => string;
 }): DisasterRecoveryRehearsalRun {
   const now = input.now ?? foundationTimestamp;
-  const passing = new Set(['backup-all-pass', 'restore-rehearsal-pass', 'audit-export-pass']);
-  const status = passing.has(input.scenario)
-    ? 'passed'
-    : input.scenario.includes('failed')
-      ? 'failed'
-      : 'blocked';
+  const scenarioMatrix: Record<
+    DisasterRecoveryScenario,
+    {
+      status: DisasterRecoveryRehearsalRun['status'];
+      backupStatus: PlatformOperationStatus;
+      restoreStatus: PlatformOperationStatus;
+      migrationStatus: PlatformOperationStatus;
+      retentionStatus: PlatformOperationStatus;
+      auditExportStatus: PlatformOperationStatus;
+      operatorRoleStatus: PlatformOperationStatus;
+      blockerCount: number;
+    }
+  > = {
+    'backup-all-pass': {
+      status: 'passed',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'rehearsed',
+      operatorRoleStatus: 'rehearsed',
+      blockerCount: 0,
+    },
+    'backup-dir-missing': {
+      status: 'blocked',
+      backupStatus: 'blocked',
+      restoreStatus: 'blocked',
+      migrationStatus: 'planned',
+      retentionStatus: 'planned',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'backup-hash-mismatch': {
+      status: 'blocked',
+      backupStatus: 'blocked',
+      restoreStatus: 'blocked',
+      migrationStatus: 'planned',
+      retentionStatus: 'planned',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'restore-rehearsal-pass': {
+      status: 'passed',
+      backupStatus: 'completed',
+      restoreStatus: 'completed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'rehearsed',
+      operatorRoleStatus: 'rehearsed',
+      blockerCount: 0,
+    },
+    'restore-replace-disabled': {
+      status: 'blocked',
+      backupStatus: 'completed',
+      restoreStatus: 'blocked',
+      migrationStatus: 'planned',
+      retentionStatus: 'planned',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'restore-second-approval-missing': {
+      status: 'blocked',
+      backupStatus: 'completed',
+      restoreStatus: 'blocked',
+      migrationStatus: 'planned',
+      retentionStatus: 'planned',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'migration-pending': {
+      status: 'blocked',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'planned',
+      retentionStatus: 'planned',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'migration-failed': {
+      status: 'failed',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'failed',
+      retentionStatus: 'blocked',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'retention-preview': {
+      status: 'passed',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'rehearsed',
+      operatorRoleStatus: 'rehearsed',
+      blockerCount: 0,
+    },
+    'retention-backup-required': {
+      status: 'blocked',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'blocked',
+      auditExportStatus: 'planned',
+      operatorRoleStatus: 'planned',
+      blockerCount: 1,
+    },
+    'audit-export-pass': {
+      status: 'passed',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'completed',
+      operatorRoleStatus: 'rehearsed',
+      blockerCount: 0,
+    },
+    'role-missing': {
+      status: 'blocked',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'rehearsed',
+      operatorRoleStatus: 'blocked',
+      blockerCount: 1,
+    },
+    'role-insufficient': {
+      status: 'blocked',
+      backupStatus: 'completed',
+      restoreStatus: 'rehearsed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'rehearsed',
+      operatorRoleStatus: 'blocked',
+      blockerCount: 1,
+    },
+    'disaster-recovery-drill': {
+      status: 'passed',
+      backupStatus: 'completed',
+      restoreStatus: 'completed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
+      auditExportStatus: 'completed',
+      operatorRoleStatus: 'rehearsed',
+      blockerCount: 0,
+    },
+  };
+  const scenario = scenarioMatrix[input.scenario];
 
   return DisasterRecoveryRehearsalRunSchema.parse({
     id: foundationId('disaster_recovery_rehearsal'),
     schemaVersion: SchemaVersionSchema.value,
     createdAt: now(),
     scenario: input.scenario,
-    status,
-    backupStatus: input.scenario === 'backup-dir-missing' ? 'blocked' : 'completed',
-    restoreStatus: input.scenario === 'restore-second-approval-missing' ? 'blocked' : 'completed',
-    migrationStatus: input.scenario === 'migration-failed' ? 'failed' : 'rehearsed',
-    retentionStatus:
-      input.scenario === 'retention-backup-required' ? 'blocked' : 'rehearsed',
-    auditExportStatus: input.scenario === 'audit-export-pass' ? 'completed' : 'rehearsed',
-    operatorRoleStatus:
-      input.scenario === 'role-missing' || input.scenario === 'role-insufficient'
-        ? 'blocked'
-        : 'rehearsed',
-    blockerCount: status === 'passed' ? 0 : 1,
+    status: scenario.status,
+    backupStatus: scenario.backupStatus,
+    restoreStatus: scenario.restoreStatus,
+    migrationStatus: scenario.migrationStatus,
+    retentionStatus: scenario.retentionStatus,
+    auditExportStatus: scenario.auditExportStatus,
+    operatorRoleStatus: scenario.operatorRoleStatus,
+    blockerCount: scenario.blockerCount,
     boundaryReached: false,
     localFilesystemBoundaryInvoked: false,
     storeReplacementBoundaryInvoked: false,

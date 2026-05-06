@@ -17354,7 +17354,9 @@ export const DisasterRecoveryRehearsalRunSchema = createdEntityBaseSchema
     const passingScenarios = new Set([
       'backup-all-pass',
       'restore-rehearsal-pass',
+      'retention-preview',
       'audit-export-pass',
+      'disaster-recovery-drill',
     ]);
 
     if (!passingScenarios.has(record.scenario) && record.status === 'passed') {

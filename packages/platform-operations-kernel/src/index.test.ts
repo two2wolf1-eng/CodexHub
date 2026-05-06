@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { DisasterRecoveryScenario } from '@codexhub/contracts';
 import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
   createAuditExportPlan,
@@ -129,5 +130,63 @@ describe('platform operations kernel', () => {
         replaceActiveStoreEnabled: false,
       }).status,
     ).toBe('blocked');
+  });
+
+  it('maps each disaster recovery fixture to precise operation statuses', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const scenarios: Array<
+      [
+        DisasterRecoveryScenario,
+        {
+          status: string;
+          backupStatus?: string;
+          restoreStatus?: string;
+          migrationStatus?: string;
+          retentionStatus?: string;
+          auditExportStatus?: string;
+          operatorRoleStatus?: string;
+          blockerCount: number;
+        },
+      ]
+    > = [
+      ['backup-all-pass', { status: 'passed', backupStatus: 'completed', blockerCount: 0 }],
+      ['backup-dir-missing', { status: 'blocked', backupStatus: 'blocked', blockerCount: 1 }],
+      ['backup-hash-mismatch', { status: 'blocked', backupStatus: 'blocked', blockerCount: 1 }],
+      ['restore-rehearsal-pass', { status: 'passed', restoreStatus: 'completed', blockerCount: 0 }],
+      ['restore-replace-disabled', { status: 'blocked', restoreStatus: 'blocked', blockerCount: 1 }],
+      [
+        'restore-second-approval-missing',
+        { status: 'blocked', restoreStatus: 'blocked', blockerCount: 1 },
+      ],
+      ['migration-pending', { status: 'blocked', migrationStatus: 'planned', blockerCount: 1 }],
+      ['migration-failed', { status: 'failed', migrationStatus: 'failed', blockerCount: 1 }],
+      ['retention-preview', { status: 'passed', retentionStatus: 'rehearsed', blockerCount: 0 }],
+      [
+        'retention-backup-required',
+        { status: 'blocked', retentionStatus: 'blocked', blockerCount: 1 },
+      ],
+      ['audit-export-pass', { status: 'passed', auditExportStatus: 'completed', blockerCount: 0 }],
+      ['role-missing', { status: 'blocked', operatorRoleStatus: 'blocked', blockerCount: 1 }],
+      ['role-insufficient', { status: 'blocked', operatorRoleStatus: 'blocked', blockerCount: 1 }],
+      [
+        'disaster-recovery-drill',
+        {
+          status: 'passed',
+          restoreStatus: 'completed',
+          auditExportStatus: 'completed',
+          blockerCount: 0,
+        },
+      ],
+    ];
+
+    const rehearsals = scenarios.map(([scenario, expected]) => {
+      const rehearsal = rehearseDisasterRecovery({ scenario, now });
+      expect(rehearsal).toMatchObject(expected);
+      expect(rehearsal.boundaryReached).toBe(false);
+      expect(rehearsal.networkBoundaryInvoked).toBe(false);
+      return rehearsal;
+    });
+
+    expect(findAdversarialPublicOutputRoundTripLeaks(rehearsals)).toEqual([]);
   });
 });

@@ -14458,19 +14458,28 @@ describe('contracts schemas', () => {
       ...platformFlags,
       ...evidenceAudit,
       scenario: 'disaster-recovery-drill',
-      status: 'blocked',
+      status: 'passed',
       backupStatus: 'completed',
-      restoreStatus: 'blocked',
-      migrationStatus: 'planned',
-      retentionStatus: 'planned',
+      restoreStatus: 'completed',
+      migrationStatus: 'rehearsed',
+      retentionStatus: 'rehearsed',
       auditExportStatus: 'completed',
-      operatorRoleStatus: 'planned',
-      blockerCount: 1,
+      operatorRoleStatus: 'rehearsed',
+      blockerCount: 0,
       boundaryReached: false,
       localFilesystemBoundaryInvoked: false,
       storeReplacementBoundaryInvoked: false,
       networkBoundaryInvoked: false,
-      summary: 'Disaster recovery rehearsal blocks before active store replacement.',
+      summary: 'Disaster recovery drill records metadata-only completion.',
+    });
+
+    const retentionPreview = DisasterRecoveryRehearsalRunSchema.parse({
+      ...disasterRecovery,
+      id: 'disaster_recovery_retention_preview',
+      scenario: 'retention-preview',
+      restoreStatus: 'rehearsed',
+      auditExportStatus: 'rehearsed',
+      summary: 'Retention preview records metadata-only completion.',
     });
 
     expect(
@@ -14489,6 +14498,7 @@ describe('contracts schemas', () => {
         roleRun,
         approval,
         disasterRecovery,
+        retentionPreview,
       ]),
     ).toEqual([]);
     expect(() =>
