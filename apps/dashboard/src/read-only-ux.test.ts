@@ -72,15 +72,22 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardHash('evidence')).toBe('#/evidence');
   });
 
-  it('keeps M32.6 operator smoke routes registered as stable hash views', () => {
+  it('keeps M45.8 operator smoke routes registered as stable hash views', () => {
     const operatorSmokeViews = [
       'governance',
       'readiness',
       'github',
       'workflows',
+      'deployments',
+      'secrets',
+      'policy-telemetry',
+      'browser-profiles',
+      'electron',
+      'mcp-tools',
       'approvals',
       'pilot',
       'release-candidates',
+      'releases',
     ] as const;
 
     for (const view of operatorSmokeViews) {
@@ -290,6 +297,42 @@ describe('dashboard read-only UX helpers', () => {
       'Supervisor unavailable',
     );
     expect(summarizeDegradedState('ready')).toBe('Read-only data loaded.');
+  });
+
+  it('keeps M45.8 degraded smoke summaries metadata-only across late views', () => {
+    const smokeViews = [
+      'governance',
+      'readiness',
+      'github',
+      'workflows',
+      'deployments',
+      'secrets',
+      'policy-telemetry',
+      'browser-profiles',
+      'electron',
+      'mcp-tools',
+    ] as const;
+    const summaries = smokeViews.map((view) => ({
+      view,
+      route: getDashboardHash(view),
+      state: summarizeDegradedState('degraded', 'Supervisor unavailable'),
+      postAttempted: false,
+      adapterExecuteInvoked: false,
+      localControlStored: false,
+    }));
+    const serialized = JSON.stringify(summaries);
+
+    expect(serialized).toContain('#/deployments');
+    expect(serialized).toContain('#/secrets');
+    expect(serialized).toContain('#/policy-telemetry');
+    expect(serialized).toContain('#/browser-profiles');
+    expect(serialized).toContain('#/electron');
+    expect(serialized).toContain('#/mcp-tools');
+    expectNoForbiddenRawOutputTerms(serialized);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('localStorage');
+    expect(serialized).not.toContain('sessionStorage');
+    expect(serialized).not.toContain('indexedDB');
   });
 
   it('applies shared forbidden raw-output checks to representative read-only summaries', () => {

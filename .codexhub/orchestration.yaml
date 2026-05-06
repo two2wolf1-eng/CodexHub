@@ -5157,3 +5157,29 @@ workflows:
       cliTokenArgumentsForbidden: true
       mcpWriteToolExposureForbidden: true
       metadataOnlyPublicOutput: true
+  m45_8.rehearsal-degraded-states-debug:
+    risk: critical
+    trigger:
+      type: rehearsal-degraded-state-debug
+      entrypoint: dashboard cli docs tools
+      localControlRequired: false
+    scope:
+      - dashboard-late-route-smoke-review
+      - dashboard-degraded-state-metadata-only-review
+      - cli-late-rehearsal-formatter-review
+      - no-live-operator-surface-review
+    docs:
+      - docs/releases/m45.8-rehearsal-degraded-states-debug.md
+      - docs/reviews/m0-m45-rehearsal-degraded-states-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      dashboardM45ControlledWriteExecutionUi: false
+      unsupportedPostForbidden: true
+      directAdapterExecuteForbidden: true
+      metadataOnlyPublicOutput: true

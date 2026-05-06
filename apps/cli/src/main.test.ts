@@ -214,10 +214,24 @@ describe('cli development mock-run fallback', () => {
 
   it('applies shared forbidden raw-output checks to representative CLI summaries and rehearsals', async () => {
     const { formatMcpToolsListOutput, listMcpToolsForCli } = await import('./m3b-readonly');
+    const { runReleaseLifecycleAcceptanceRehearsal } = await import(
+      '@codexhub/release-lifecycle-kernel'
+    );
     const {
+      runDeploymentAcceptanceRehearsal,
+      runDeploymentOperationAcceptanceRehearsal,
+    } = await import('@codexhub/deployment-provider-adapter');
+    const { runSecretGovernanceAcceptanceRehearsal } = await import(
+      '@codexhub/secret-governance-kernel'
+    );
+    const {
+      formatDeploymentAcceptanceRehearsalOutput,
+      formatDeploymentOperationAcceptanceRehearsalOutput,
       formatGithubBranchPublishAcceptanceRehearsalOutput,
       formatGithubProviderStatusOutput,
       formatM10PilotAcceptanceRehearsalOutput,
+      formatReleaseLifecycleAcceptanceRehearsalOutput,
+      formatSecretGovernanceAcceptanceRehearsalOutput,
       getGithubProviderStatusForCli,
       runGithubBranchPublishAcceptanceRehearsalForCli,
       runM10PilotAcceptanceRehearsalForCli,
@@ -234,8 +248,33 @@ describe('cli development mock-run fallback', () => {
           scenario: 'branch-exists',
         }),
       ),
+      formatReleaseLifecycleAcceptanceRehearsalOutput(
+        runReleaseLifecycleAcceptanceRehearsal({ scenario: 'tag-exists' }),
+      ),
+      formatDeploymentAcceptanceRehearsalOutput(
+        runDeploymentAcceptanceRehearsal({
+          provider: 'kubernetes',
+          scenario: 'drift-detected',
+        }),
+      ),
+      formatDeploymentOperationAcceptanceRehearsalOutput(
+        runDeploymentOperationAcceptanceRehearsal({
+          provider: 'helm',
+          scenario: 'rollback-plan-missing',
+        }),
+      ),
+      formatSecretGovernanceAcceptanceRehearsalOutput(
+        runSecretGovernanceAcceptanceRehearsal({
+          provider: 'vault',
+          scenario: 'secret-value-rejected',
+        }),
+      ),
     ].join('\n');
 
+    expect(output).toContain('Release lifecycle rehearsal');
+    expect(output).toContain('Deployment observation rehearsal');
+    expect(output).toContain('Deployment operation rehearsal');
+    expect(output).toContain('Secrets governance rehearsal');
     expectNoForbiddenCliRawOutput(output);
     expect(output).not.toContain('local-control-secret');
     expect(output).not.toContain('Authorization');
@@ -257,6 +296,10 @@ describe('cli development mock-run fallback', () => {
       'runRemoteSupersedeAcceptanceRehearsalForCli',
       'runGithubRemoteCleanupAcceptanceRehearsalForCli',
       'runReworkLoopAcceptanceRehearsalForCli',
+      'formatReleaseLifecycleAcceptanceRehearsalOutput',
+      'formatDeploymentAcceptanceRehearsalOutput',
+      'formatDeploymentOperationAcceptanceRehearsalOutput',
+      'formatSecretGovernanceAcceptanceRehearsalOutput',
       'getGithubProviderStatusForCli',
       'createGithubRemoteTargetStatusForCli',
       'listCustomWorkflowCatalogForCli',
