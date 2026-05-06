@@ -4398,6 +4398,32 @@ workflows:
       noNewCliMutation: true
       mcpReadOnlyToolsOnly: true
       metadataOnlyPublicOutput: true
+  m32_7.final-adversarial-governance-baseline:
+    risk: critical
+    trigger:
+      type: final-adversarial-governance-debug-baseline
+      entrypoint: audit docs config
+      localControlRequired: false
+    fixes:
+      - auditNegativeFixtureAliasImportAndDynamicExecuteGuard
+      - auditNegativeFixtureGenericDashboardPostGuard
+      - auditNegativeFixtureSegmentedGithubEndpointGuard
+      - auditNegativeFixtureDynamicTokenReadGuard
+      - finalM0M32CapabilityGovernanceMatrix
+    docs:
+      - docs/releases/m32.7-final-governance-debug-baseline.md
+      - docs/reviews/m0-m32-final-adversarial-debug-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRealGithubWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      childApprovalsRemainSeparate: true
+      metadataOnlyPublicOutput: true
   m32_3.control-plane-coverage-drift-hardening:
     risk: critical
     trigger:

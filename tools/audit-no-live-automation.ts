@@ -138,6 +138,10 @@ const githubForbiddenRemoteMutationTerms = [
   'force: true',
   'draft=false',
   'draft: false',
+  "['git', 'refs'].join('/')",
+  '["git", "refs"].join("/")',
+  "'git', 'refs'].join('/')",
+  '"git", "refs"].join("/")',
 ];
 const policyTelemetryRuntimeTerms = [
   ['@open', 'telemetry/'].join(''),
@@ -204,6 +208,17 @@ const mcpBoundaryBypassTerms = [
   "process['env']",
   'CODEXHUB_GITHUB_TOKEN',
   'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
+  'CODEXHUB_SUPERVISOR_LOCAL_',
+];
+const dashboardAllowedMutationRoutes = new Set([
+  '/api/approvals/decisions',
+  ...dashboardRecoveryExactPostRoutes,
+]);
+const dashboardMutationSurfaceTerms = [
+  "method: 'POST'",
+  'method: "POST"',
+  'x-codexhub-local-token',
+  'createSupervisorPostHeaders',
 ];
 const sensitiveConceptTerms = [
   ['coo', 'kie'].join(''),
@@ -398,6 +413,13 @@ function validateAdversarialAuditSentinels(): void {
       description: 'adapter execute access through dynamic property lookup from CLI source',
     },
     {
+      workspacePath: 'apps/cli/src/adversarial-readonly-command.ts',
+      sourceText:
+        'const executeName = "executeGithubBranchPublish"; const run = adapters[executeName];',
+      expectedTerm: 'executeGithubBranchPublish',
+      description: 'adapter execute access through named dynamic property lookup from CLI source',
+    },
+    {
       workspacePath: 'apps/dashboard/src/adversarial-approval-ui.tsx',
       sourceText:
         'const endpoint = "/api/approvals/decisions"; window.localStorage.setItem("approvalKey", "secret");',
@@ -417,6 +439,19 @@ function validateAdversarialAuditSentinels(): void {
         'const endpoint = "/api/approvals/decisions"; window.indexedDB.open("codexhub-approval-key");',
       expectedTerm: 'indexedDB',
       description: 'Dashboard approval token persistence through IndexedDB alias',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText:
+        'const postJson = (path: string) => fetch(path, { method: "POST", headers: createSupervisorPostHeaders(token) }); postJson("/api/github/metadata/runs");',
+      expectedTerm: 'method: "POST"',
+      description: 'Dashboard generic POST helper outside the governed mutation surfaces',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText: 'window["localStorage"].setItem("codexhub-local-control", token);',
+      expectedTerm: 'localStorage',
+      description: 'Dashboard token persistence through bracket notation wrapper',
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
@@ -519,6 +554,19 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText:
+        "const envName = ['CODEXHUB', 'SUPERVISOR', 'LOCAL', 'TOKEN'].join('_'); const token = process.env[envName];",
+      expectedTerm: 'process.env[',
+      description: 'MCP dynamic local-control token env read',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText: 'const envName = "CODEXHUB_SUPERVISOR_LOCAL_" + "TOKEN";',
+      expectedTerm: 'CODEXHUB_SUPERVISOR_LOCAL_',
+      description: 'MCP local-control token env prefix reconstruction',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
       sourceText: 'await globalThis.fetch("https://api.github.com/repos/example/example");',
       expectedTerm: 'fetch(',
       description: 'MCP indirect network boundary',
@@ -588,6 +636,12 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'const command = "git update-ref refs/heads/main";',
       expectedTerm: 'update-ref',
       description: 'CLI existing ref update operation',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-github.ts',
+      sourceText: "const endpoint = ['/repos', owner, repo, 'git', 'refs'].join('/');",
+      expectedTerm: "'git', 'refs'].join('/')",
+      description: 'CLI segmented generic GitHub ref endpoint construction',
     },
   ];
 
@@ -681,6 +735,7 @@ function adversarialSentinelWouldViolate(
 
   auditTextTerms(file, sourceText);
   auditM9ApprovalUxGuards(file, sourceText);
+  auditDashboardMutationSurfaceGuards(file, sourceText);
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
@@ -698,6 +753,7 @@ function auditFile(file: string): void {
   auditCallExpressions(file, sourceFile);
   auditTextTerms(file, sourceText);
   auditM9ApprovalUxGuards(file, sourceText);
+  auditDashboardMutationSurfaceGuards(file, sourceText);
   auditDashboardRecoveryWizardScopedGuards(file, sourceText);
 }
 
@@ -1007,6 +1063,61 @@ function auditM9ApprovalUxGuards(file: string, sourceText: string): void {
   }
 }
 
+function auditDashboardMutationSurfaceGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (!workspacePath.startsWith('apps/dashboard/src/') || workspacePath.endsWith('.test.ts')) {
+    return;
+  }
+
+  const lines = sourceText.split(/\r?\n/);
+  const isAllowedDashboardMutationFile = workspacePath === 'apps/dashboard/src/App.tsx';
+
+  for (const [index, line] of lines.entries()) {
+    for (const term of browserPersistenceTerms) {
+      if (line.includes(term)) {
+        violations.push({
+          file,
+          line: index + 1,
+          term,
+          reason:
+            'Dashboard local-control tokens must stay in component memory only; browser storage wrappers are forbidden.',
+        });
+      }
+    }
+
+    for (const term of dashboardMutationSurfaceTerms) {
+      if (!line.includes(term)) {
+        continue;
+      }
+
+      if (isAllowedDashboardMutationFile && isAllowedDashboardMutationLine(lines, index)) {
+        continue;
+      }
+
+      violations.push({
+        file,
+        line: index + 1,
+        term,
+        reason:
+          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI and recovery wizard, with exact route allowlists.',
+      });
+    }
+  }
+}
+
+function isAllowedDashboardMutationLine(lines: string[], index: number): boolean {
+  const window = lines
+    .slice(Math.max(0, index - 12), Math.min(lines.length, index + 12))
+    .join('\n');
+
+  return (
+    window.includes('/api/approvals/decisions') ||
+    (window.includes('recoveryDashboardPostRoutes.has(path)') &&
+      [...dashboardAllowedMutationRoutes].every((route) => route.startsWith('/api/approvals/') || lines.join('\n').includes(route)))
+  );
+}
+
 function auditDashboardRecoveryWizardScopedGuards(file: string, sourceText: string): void {
   const workspacePath = toWorkspacePath(file);
 
@@ -1163,8 +1274,7 @@ function findLineNumber(sourceText: string, term: string): number {
 function isAllowedMcpLocalHttpGateEnvLine(workspacePath: string, line: string): boolean {
   return (
     workspacePath === 'apps/codexhub-mcp-server/src/security.ts' &&
-    (line.includes('process.env[MCP_LOCAL_ENV_VAR]') ||
-      line.includes('process.env[SUPERVISOR_LOCAL_ENV_VAR]'))
+    line.includes('process.env[MCP_LOCAL_ENV_VAR]')
   );
 }
 

@@ -1719,3 +1719,48 @@ integrations:
       requestBodyAuthorityTrusted: false
       uiCliDirectAdapterExecuteAllowed: false
       auditNoLiveAutomationExtended: true
+  m0-m32-adversarial-governance-baseline:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-hardening
+    providerType: builtin
+    mode: review-only
+    stage: m32.7-final-adversarial-governance-baseline
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    reviewedCapabilityChains:
+      - codex
+      - nx-verification
+      - mcp-readonly
+      - browser-observation
+      - electron-cdp-observation
+      - worktree
+      - policy-backend
+      - telemetry
+      - github-provider
+      - review-package
+      - release-candidate
+      - rework-loop
+      - remote-supersede
+      - remote-cleanup
+      - custom-workflows
+      - production-workflow-recovery
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWriteSmoke: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyReviewDocs: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliDirectAdapterExecuteAllowed: false
+      dashboardMutationLimitedToApprovalAndRecoveryWizard: true
+      cliReadOnlyForWorkflowAndGithubViews: true
+      mcpReadOnlyToolsOnly: true
+      auditNegativeFixturesExtended: true
