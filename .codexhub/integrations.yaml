@@ -1500,6 +1500,8 @@ integrations:
       productionExecutionEnabled: false
       productionPilotExecutionEnabled: false
       productionPilotFixtureOnly: true
+      localProductionWorkflowPilotEnabled: false
+      localProductionWorkflowPilotEnablementEnv: CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED
       operationsProjectionEnabled: true
       pauseResumeRollbackMetadataOnly: true
       catalogDryRunHashBindingRequired: true
@@ -1643,6 +1645,14 @@ integrations:
       customWorkflowApprovalDoesNotGrantChildExecution: true
       productionPilotCreatesChildApprovals: false
       productionPilotCallsChildAdapters: false
+      localProductionPilotRuntimeGated: true
+      localProductionPilotTemplateId: local-patch-review
+      localProductionPilotChildBoundary:
+        - worktree-create
+        - codex-patch
+        - nx-verification
+        - review-package-export
+        - governance-projection
       recoveryCreatesChildDryRuns: true
       recoveryCreatesChildApprovalRequests: true
       recoveryAutoApprovesChildActions: false

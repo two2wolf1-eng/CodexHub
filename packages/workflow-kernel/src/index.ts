@@ -144,6 +144,7 @@ export interface ProductionWorkflowPilotOptions {
   templateHash?: string;
   childRecordHashes?: Record<string, string>;
   childRunStatuses?: Record<string, ProductionWorkflowChildRecordStatus>;
+  localProductionPilotEnabled?: boolean;
   productionExecutionEnabled?: boolean;
   workflowApprovalApproved?: boolean;
   source?: ProductionWorkflowPilotSource;
@@ -183,6 +184,7 @@ export interface ProductionWorkflowRecoveryOptions {
   templateHash?: string;
   dryRunId?: string;
   sourceRunIdHash?: string;
+  localProductionPilotEnabled?: boolean;
   recoveryEnabled?: boolean;
   childOrchestrationEnabled?: boolean;
   workflowApprovalApproved?: boolean;
@@ -1304,12 +1306,14 @@ export function runProductionWorkflowPilotRehearsal(
   );
   const childRunStatuses: Record<string, ProductionWorkflowChildRecordStatus> = {};
   let productionExecutionEnabled = true;
+  let localProductionPilotEnabled = true;
   let workflowApprovalApproved = true;
 
   switch (CustomWorkflowRehearsalScenarioSchema.parse(scenario)) {
     case 'template-disabled':
     case 'stale-template-hash':
       productionExecutionEnabled = false;
+      localProductionPilotEnabled = false;
       break;
     case 'workflow-approval-blocked':
     case 'approval-blocked':
@@ -1355,6 +1359,7 @@ export function runProductionWorkflowPilotRehearsal(
     }
     case 'invalid-template':
       productionExecutionEnabled = false;
+      localProductionPilotEnabled = false;
       break;
     case 'all-pass':
       break;
@@ -1364,6 +1369,7 @@ export function runProductionWorkflowPilotRehearsal(
     template,
     childRecordHashes,
     childRunStatuses,
+    localProductionPilotEnabled,
     productionExecutionEnabled,
     workflowApprovalApproved,
     source: 'fixture',
@@ -1411,6 +1417,12 @@ function createProductionWorkflowPilotReadiness(
   if (input.productionExecutionEnabled !== true) {
     blockers.push('custom_workflow_production_execution_disabled');
   }
+  if (
+    template.templateId === 'local-patch-review' &&
+    input.localProductionPilotEnabled !== true
+  ) {
+    blockers.push('local_production_workflow_pilot_disabled');
+  }
   if (input.workflowApprovalApproved !== true) {
     blockers.push('custom_workflow_approval_missing_or_not_approved');
   }
@@ -1454,6 +1466,7 @@ function createProductionWorkflowPilotReadiness(
     blockers,
     approvalRequired: true,
     childApprovalsRequired: requiredChildSteps.length,
+    localProductionPilotEnabled: input.localProductionPilotEnabled ?? false,
     productionExecutionEnabled: input.productionExecutionEnabled ?? false,
     directAdapterExecutionAllowed: false,
     bodyStored: false,
@@ -1980,6 +1993,7 @@ export function runProductionWorkflowRecoveryRehearsal(
   );
   const plan = createProductionWorkflowRecoveryPlan({
     template,
+    localProductionPilotEnabled: true,
     recoveryEnabled: true,
     childOrchestrationEnabled: true,
   });
@@ -1988,10 +2002,14 @@ export function runProductionWorkflowRecoveryRehearsal(
   );
   const childRunStatuses: Record<string, ProductionWorkflowChildActionRuntimeStatus> = {};
   let workflowApprovalApproved = true;
+  let localProductionPilotEnabled = true;
   let recoveryEnabled = true;
   let childOrchestrationEnabled = true;
 
   switch (scenario) {
+    case 'pilot-disabled':
+      localProductionPilotEnabled = false;
+      break;
     case 'workflow-approval-blocked':
       workflowApprovalApproved = false;
       break;
@@ -2010,6 +2028,25 @@ export function runProductionWorkflowRecoveryRehearsal(
       }
       break;
     }
+    case 'worktree-failed': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'worktree-create',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'failed';
+      }
+      break;
+    }
+    case 'codex-patch-failed': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'codex-patch',
+      );
+      if (target) {
+        childRunStatuses[target.actionId] = 'failed';
+      }
+      break;
+    }
+    case 'nx-failed':
     case 'nx-verification-failed': {
       const target = plan.childActionPlans.find(
         (action) => action.childActionKind === 'nx-verification',
@@ -2019,6 +2056,7 @@ export function runProductionWorkflowRecoveryRehearsal(
       }
       break;
     }
+    case 'review-export-blocked':
     case 'review-package-blocked': {
       const target = plan.childActionPlans.find(
         (action) => action.childActionKind === 'review-package-export',
@@ -2076,6 +2114,7 @@ export function runProductionWorkflowRecoveryRehearsal(
 
   const rehearsalPlan = createProductionWorkflowRecoveryPlan({
     template,
+    localProductionPilotEnabled,
     recoveryEnabled,
     childOrchestrationEnabled,
   });
@@ -2092,6 +2131,7 @@ export function runProductionWorkflowRecoveryRehearsal(
   return runProductionWorkflowRecoveryCoordinator({
     template,
     dryRunId: rehearsalPlan.dryRunId,
+    localProductionPilotEnabled,
     recoveryEnabled,
     childOrchestrationEnabled,
     workflowApprovalApproved,
@@ -2171,6 +2211,12 @@ function createProductionWorkflowRecoveryPlanBlockReasons(
   }
   if (input.childOrchestrationEnabled !== true) {
     blockReasons.push('production_workflow_child_orchestration_disabled');
+  }
+  if (
+    template.templateId === 'local-patch-review' &&
+    input.localProductionPilotEnabled !== true
+  ) {
+    blockReasons.push('local_production_workflow_pilot_disabled');
   }
   if (createProductionWorkflowChildActionPlans(template).length === 0) {
     blockReasons.push('production_workflow_recovery_no_child_actions');

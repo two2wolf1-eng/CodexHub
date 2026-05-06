@@ -218,6 +218,11 @@ import {
   CustomWorkflowTemplateFamilySummarySchema,
   CustomWorkflowValidationReportSchema,
   ProductionWorkflowPilotEvidenceSummarySchema,
+  LocalProductionWorkflowAcceptanceRunSchema,
+  LocalProductionWorkflowChildBoundarySummarySchema,
+  LocalProductionWorkflowPilotPlanSchema,
+  LocalProductionWorkflowPilotRunSchema,
+  LocalProductionWorkflowPilotStepSchema,
   ProductionWorkflowPilotPlanSchema,
   ProductionWorkflowPilotReadinessSchema,
   ProductionWorkflowPilotRunSchema,
@@ -232,6 +237,7 @@ import {
   ProductionWorkflowRecoveryPlanSchema,
   ProductionWorkflowRecoveryPublicSummarySchema,
   ProductionWorkflowRecoveryRunSchema,
+  ProductionWorkflowRecoveryScenarioSchema,
   ProductionWorkflowRecoveryStepSchema,
   ProductionWorkflowRecoveryTimelineEventSchema,
   ProductionWorkflowResumeSummarySchema,
@@ -10407,6 +10413,7 @@ describe('contracts schemas', () => {
       blockers: [],
       approvalRequired: true,
       childApprovalsRequired: 1,
+      localProductionPilotEnabled: true,
       productionExecutionEnabled: true,
       directAdapterExecutionAllowed: false,
       bodyStored: false,
@@ -10481,6 +10488,27 @@ describe('contracts schemas', () => {
       rawPathStored: false,
       summary: 'Production workflow pilot completed as coordination only.',
     });
+    const localBoundary = LocalProductionWorkflowChildBoundarySummarySchema.parse({
+      stepId: step.stepId,
+      childActionKind: 'worktree-create',
+      childControlPlane: 'worktrees',
+      childRecordIdHash: 'sha256:child-record',
+      childApprovalRequired: true,
+      childApprovalResolvedFromStore: true,
+      childHashBindingMatched: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      directAdapterExecutionAllowed: false,
+      bodyStored: false,
+      rawPathStored: false,
+      summary: 'Local production child boundary is represented by metadata only.',
+    });
+    expect(LocalProductionWorkflowPilotPlanSchema.parse(pilotPlan).status).toBe('ready');
+    expect(LocalProductionWorkflowPilotStepSchema.parse(pilotStep).status).toBe('completed');
+    expect(LocalProductionWorkflowPilotRunSchema.parse(pilotRun).status).toBe('completed');
+    expect(LocalProductionWorkflowAcceptanceRunSchema.parse(pilotRun).status).toBe('completed');
+    expect(localBoundary.directAdapterExecutionAllowed).toBe(false);
     const operationsProjection = ProductionWorkflowOperationsProjectionSchema.parse({
       id: 'production_workflow_operations_1',
       schemaVersion,
@@ -10730,6 +10758,23 @@ describe('contracts schemas', () => {
       rawPathStored: false,
       summary: 'Recovery public summary is metadata-only.',
     });
+    expect(
+      [
+        'pilot-disabled',
+        'worktree-failed',
+        'codex-patch-failed',
+        'nx-failed',
+        'review-export-blocked',
+        'resume-after-child-approval',
+      ].map((scenario) => ProductionWorkflowRecoveryScenarioSchema.parse(scenario)),
+    ).toEqual([
+      'pilot-disabled',
+      'worktree-failed',
+      'codex-patch-failed',
+      'nx-failed',
+      'review-export-blocked',
+      'resume-after-child-approval',
+    ]);
 
     const serialized = JSON.stringify([
       template,
@@ -10739,6 +10784,7 @@ describe('contracts schemas', () => {
       rehearsal,
       pilotPlan,
       pilotRun,
+      localBoundary,
       operationsProjection,
       pause,
       resume,

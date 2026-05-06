@@ -198,6 +198,7 @@ describe('cli development mock-run fallback', () => {
       'rehearseCustomWorkflowForCli',
       'rehearseCustomWorkflowProductionForCli',
       'rehearseProductionWorkflowPilotForCli',
+      'getLocalProductionWorkflowPilotReadinessForCli',
       'getProductionWorkflowOperationsStatusForCli',
       'getProductionWorkflowOperationsHistoryForCli',
       'runProductionWorkflowOperationsSmokeForCli',
@@ -266,11 +267,13 @@ describe('cli development mock-run fallback', () => {
       formatCustomWorkflowCatalogReadinessOutput,
       formatCustomWorkflowRehearsalOutput,
       formatProductionWorkflowPilotRehearsalOutput,
+      formatLocalProductionWorkflowPilotReadinessOutput,
       formatProductionWorkflowOperationsSmokeOutput,
       formatProductionWorkflowOperationsStatusOutput,
       formatProductionWorkflowRecoveryRehearsalOutput,
       rehearseCustomWorkflowProductionForCli,
       rehearseProductionWorkflowPilotForCli,
+      getLocalProductionWorkflowPilotReadinessForCli,
       getProductionWorkflowOperationsStatusForCli,
       runProductionWorkflowOperationsSmokeForCli,
       rehearseProductionWorkflowRecoveryForCli,
@@ -320,6 +323,7 @@ describe('cli development mock-run fallback', () => {
       'github-draft-pr-chain',
       'remote-step-blocked',
     );
+    const localPilotReadiness = getLocalProductionWorkflowPilotReadinessForCli();
     const operationsStatus = getProductionWorkflowOperationsStatusForCli();
     const operationsSmoke = runProductionWorkflowOperationsSmokeForCli(
       'local-patch-review',
@@ -331,6 +335,8 @@ describe('cli development mock-run fallback', () => {
     );
     const rehearsalOutput = formatCustomWorkflowRehearsalOutput(productionRehearsal);
     const pilotOutput = formatProductionWorkflowPilotRehearsalOutput(pilotRehearsal);
+    const localPilotOutput =
+      formatLocalProductionWorkflowPilotReadinessOutput(localPilotReadiness);
     const operationsOutput = formatProductionWorkflowOperationsStatusOutput(operationsStatus);
     const operationsSmokeOutput = formatProductionWorkflowOperationsSmokeOutput(operationsSmoke);
     const recoveryOutput =
@@ -341,6 +347,7 @@ describe('cli development mock-run fallback', () => {
         productionRehearsal,
         staleHashRehearsal,
         pilotRehearsal,
+        localPilotReadiness,
         operationsStatus,
         operationsSmoke,
         recoveryRehearsal,
@@ -350,6 +357,7 @@ describe('cli development mock-run fallback', () => {
       readinessOutput,
       rehearsalOutput,
       pilotOutput,
+      localPilotOutput,
       operationsOutput,
       operationsSmokeOutput,
       recoveryOutput,
@@ -379,6 +387,8 @@ describe('cli development mock-run fallback', () => {
     });
     expect(pilotOutput).toContain('Production workflow pilot rehearsal');
     expect(pilotOutput).toContain('status: blocked');
+    expect(localPilotOutput).toContain('Local production workflow pilot readiness');
+    expect(localPilotOutput).toContain('localProductionPilotEnabled=false');
     expect(operationsOutput).toContain('Production workflow operations status');
     expect(operationsSmokeOutput).toContain('Production workflow operations smoke');
     expect(recoveryOutput).toContain('Production workflow recovery rehearsal');

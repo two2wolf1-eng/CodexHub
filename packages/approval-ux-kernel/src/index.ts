@@ -20,6 +20,8 @@ import {
   type BrowserObservationApprovalArtifactRecord,
   type CodexExecManualApprovalRecord,
   type ElectronCdpObservationApprovalArtifactRecord,
+  type LocalReviewPackageApprovalArtifactRecord,
+  type ProductionWorkflowRecoveryApprovalArtifact,
   type WorktreeApprovalArtifactRecord,
   type WorktreeCleanupApprovalArtifactRecord,
 } from '@codexhub/contracts';
@@ -29,6 +31,8 @@ export type ApprovalInboxSourceRecord =
   | CodexExecManualApprovalRecord
   | BrowserObservationApprovalArtifactRecord
   | ElectronCdpObservationApprovalArtifactRecord
+  | LocalReviewPackageApprovalArtifactRecord
+  | ProductionWorkflowRecoveryApprovalArtifact
   | WorktreeApprovalArtifactRecord
   | WorktreeCleanupApprovalArtifactRecord;
 
@@ -39,6 +43,8 @@ export interface ApprovalInboxProjectionInput {
   worktree?: readonly WorktreeApprovalArtifactRecord[];
   worktreeCleanup?: readonly WorktreeCleanupApprovalArtifactRecord[];
   m9Pilot?: readonly WorktreeApprovalArtifactRecord[];
+  reviewPackage?: readonly LocalReviewPackageApprovalArtifactRecord[];
+  productionWorkflowRecovery?: readonly ProductionWorkflowRecoveryApprovalArtifact[];
 }
 
 export interface ApprovalDecisionHistoryProjectionInput {
@@ -62,6 +68,8 @@ export function createApprovalInboxProjection(
       projectGenericApproval('worktree_cleanup', record),
     ),
     ...(input.m9Pilot ?? []).map((record) => projectGenericApproval('m9_pilot', record)),
+    ...(input.reviewPackage ?? []).map(projectReviewPackageApproval),
+    ...(input.productionWorkflowRecovery ?? []).map(projectProductionWorkflowRecoveryApproval),
   ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const typeBreakdown = items.reduce<Partial<Record<ApprovalUxType, number>>>(
     (accumulator, item) => ({
@@ -177,7 +185,10 @@ export function projectCodexApproval(record: CodexExecManualApprovalRecord): App
 }
 
 export function projectGenericApproval(
-  approvalType: Exclude<ApprovalUxType, 'codex'>,
+  approvalType: Exclude<
+    ApprovalUxType,
+    'codex' | 'review_package' | 'production_workflow_recovery'
+  >,
   record:
     | BrowserObservationApprovalArtifactRecord
     | ElectronCdpObservationApprovalArtifactRecord
@@ -230,6 +241,79 @@ export function projectGenericApproval(
     bodyStored: false,
     tokenStored: false,
     summary: `${approvalType} approval ${status}; decision is Supervisor-gated.`,
+  });
+}
+
+export function projectReviewPackageApproval(
+  record: LocalReviewPackageApprovalArtifactRecord,
+): ApprovalInboxItem {
+  const status = normalizeApprovalStatus(record.status);
+
+  return ApprovalInboxItemSchema.parse({
+    id: stableId(
+      'approval_inbox_item',
+      `review_package:${record.approvalRequestId}:${record.status}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: record.createdAt,
+    approvalType: 'review_package',
+    approvalRequestId: record.approvalRequestId,
+    approvalRecordId: record.id,
+    approvalArtifactIdHash: stableHash(record.approvalArtifactId),
+    status,
+    dryRunIdHash: stableHash(record.dryRunId),
+    targetHash: record.policyDecisionId,
+    riskLevel: 'high',
+    actionMode: 'write',
+    policyDecisionId: record.policyDecisionId,
+    evidenceRefIds: record.evidenceRefs.map((ref) => ref.id),
+    auditEventIds: record.auditEventIds,
+    canApprove: canApprove(status),
+    canDeny: canDeny(status),
+    canRevoke: canRevoke(status),
+    processBoundaryInvoked: record.processBoundaryInvoked,
+    externalProcessStarted: record.externalProcessStarted,
+    noRealWrite: !record.artifactWriteBoundaryInvoked,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `review_package approval ${status}; decision is Supervisor-gated.`,
+  });
+}
+
+export function projectProductionWorkflowRecoveryApproval(
+  record: ProductionWorkflowRecoveryApprovalArtifact,
+): ApprovalInboxItem {
+  const status = normalizeApprovalStatus(record.status);
+
+  return ApprovalInboxItemSchema.parse({
+    id: stableId(
+      'approval_inbox_item',
+      `production_workflow_recovery:${record.id}:${record.status}`,
+    ),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: record.createdAt,
+    approvalType: 'production_workflow_recovery',
+    approvalRequestId: record.id,
+    approvalRecordId: record.id,
+    approvalArtifactIdHash: stableHash(record.approvalArtifactId),
+    status,
+    dryRunIdHash: stableHash(record.dryRunId),
+    targetHash: record.templateHash,
+    riskLevel: 'critical',
+    actionMode: 'admin',
+    evidenceRefIds: [],
+    auditEventIds: [],
+    canApprove: canApprove(status),
+    canDeny: canDeny(status),
+    canRevoke: canRevoke(status),
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary: `production_workflow_recovery approval ${status}; decision is Supervisor-gated.`,
   });
 }
 

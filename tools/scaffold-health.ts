@@ -113,6 +113,8 @@ const requiredGovernanceFiles = [
   'docs/releases/m32.5-approval-boundary-failure-hardening.md',
   'docs/releases/m32.6-operator-ux-smoke-hardening.md',
   'docs/releases/m32.7-final-governance-debug-baseline.md',
+  'docs/releases/m33-local-production-pilot-enablement.md',
+  'docs/releases/m34-local-production-pilot-results.md',
   'docs/releases/m24.6-foundation-hardening.md',
   'docs/releases/m24.7-deep-governance-hardening.md',
   'docs/releases/m24.8-governance-meta-audit.md',
@@ -151,6 +153,8 @@ const requiredGovernanceFiles = [
   'docs/reviews/m0-m32-approval-boundary-failure-review.md',
   'docs/reviews/m0-m32-operator-ux-smoke-review.md',
   'docs/reviews/m0-m32-final-adversarial-debug-review.md',
+  'docs/reviews/m33-local-production-pilot-hardening-review.md',
+  'docs/reviews/m34-local-production-pilot-final-review.md',
   'docs/reviews/m0-m24-foundation-hardening-review.md',
   'docs/reviews/m0-m24-deep-governance-debug-review.md',
   'docs/reviews/m0-m24-governance-meta-audit-review.md',
@@ -182,6 +186,8 @@ const requiredGovernanceFiles = [
   'docs/runbooks/m30-remote-production-workflow-recovery-operator-runbook.md',
   'docs/runbooks/m31-production-recovery-dashboard-runbook.md',
   'docs/runbooks/m32-production-recovery-operator-acceptance.md',
+  'docs/runbooks/m33-local-production-pilot-operator-runbook.md',
+  'docs/runbooks/m34-local-production-pilot-acceptance.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
   'docs/checklists/m10-local-pilot-checklist.md',
 ];
@@ -391,6 +397,11 @@ const requiredContractExports = [
   'ProductionWorkflowRecoveryRunSchema',
   'ProductionWorkflowRecoveryTimelineEventSchema',
   'ProductionWorkflowRecoveryPublicSummarySchema',
+  'LocalProductionWorkflowPilotPlanSchema',
+  'LocalProductionWorkflowPilotRunSchema',
+  'LocalProductionWorkflowPilotStepSchema',
+  'LocalProductionWorkflowChildBoundarySummarySchema',
+  'LocalProductionWorkflowAcceptanceRunSchema',
 ];
 
 const projects = readNxProjects();

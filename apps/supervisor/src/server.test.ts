@@ -7040,6 +7040,7 @@ describe('supervisor GitHub branch publish control plane', () => {
       store,
       productionWorkflowRecoveryEnabled: true,
       productionWorkflowChildOrchestrationEnabled: true,
+      localProductionWorkflowPilotEnabled: true,
     });
 
     const missingTokenResponse = await server.inject({

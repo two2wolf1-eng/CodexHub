@@ -209,6 +209,7 @@ import {
   createCustomWorkflowCatalog,
   createCustomWorkflowPlan,
   createCustomWorkflowTemplateFixture,
+  createProductionWorkflowPilotPlan,
   createProductionWorkflowOperationsProjection,
   loadCustomWorkflowTemplatesFromDirectory,
   runCustomWorkflowFixtureRehearsal,
@@ -1541,6 +1542,56 @@ export function buildProgram(): Command {
         console.log(formatProductionWorkflowPilotRehearsalOutput(result, options));
       },
     );
+
+  const workflowProductionLocalPilotCommand = workflowProductionCommand
+    .command('local-pilot')
+    .description('Read local production workflow pilot metadata without execution');
+
+  workflowProductionLocalPilotCommand
+    .command('readiness')
+    .option('--json', 'Print full JSON output')
+    .description('Show local production pilot readiness metadata without execution')
+    .action((options: JsonCliOptions) => {
+      const result = getLocalProductionWorkflowPilotReadinessForCli();
+      console.log(formatLocalProductionWorkflowPilotReadinessOutput(result, options));
+    });
+
+  const workflowProductionLocalPilotRunsCommand = workflowProductionLocalPilotCommand
+    .command('runs')
+    .description('Read local production pilot run records from existing recovery metadata');
+
+  workflowProductionLocalPilotRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List local production pilot recovery runs from read-only Supervisor GET data')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listProductionWorkflowRecoveryRuns();
+      console.log(formatProductionWorkflowRecoveryListOutput('local-pilot runs', result, options));
+    });
+
+  workflowProductionLocalPilotRunsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description('Show one local production pilot recovery run summary')
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showProductionWorkflowRecoveryRun(runId);
+      console.log(formatProductionWorkflowRecoveryRunOutput(result, options));
+    });
+
+  workflowProductionLocalPilotCommand
+    .command('rehearse')
+    .requiredOption('--fixture', 'Use fixture-only local pilot rehearsal data')
+    .option('--scenario <scenario>', 'Fixture scenario', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description('Run a fixture-only local production pilot rehearsal without execution')
+    .action((options: JsonCliOptions & { scenario: string }) => {
+      const result = rehearseProductionWorkflowRecoveryForCli(
+        'local-patch-review',
+        options.scenario,
+      );
+      console.log(formatProductionWorkflowRecoveryRehearsalOutput(result, options));
+    });
 
   const workflowProductionOperationsCommand = workflowProductionCommand
     .command('operations')
@@ -5483,7 +5534,9 @@ function normalizeApprovalHistoryType(value: string | undefined): ApprovalUxType
     value === 'electron_cdp' ||
     value === 'worktree' ||
     value === 'worktree_cleanup' ||
-    value === 'm9_pilot'
+    value === 'm9_pilot' ||
+    value === 'review_package' ||
+    value === 'production_workflow_recovery'
   ) {
     return value;
   }
@@ -5781,6 +5834,47 @@ export function rehearseProductionWorkflowPilotForCli(
     supervisorPostAllowed: false,
     bodyStored: false,
     rawPathStored: false,
+  };
+}
+
+export function getLocalProductionWorkflowPilotReadinessForCli(): Record<string, unknown> {
+  const catalog = createCustomWorkflowCatalog(process.cwd());
+  const template =
+    catalog.templates.find((item) => item.templateId === 'local-patch-review') ??
+    createCustomWorkflowTemplateFixture({ templateId: 'local-patch-review' });
+  const plan = createProductionWorkflowPilotPlan({
+    template,
+    localProductionPilotEnabled:
+      process.env.CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED === 'true',
+    productionExecutionEnabled: false,
+    workflowApprovalApproved: false,
+  });
+  const catalogReadiness = catalog.readiness.find(
+    (item) => item.templateId === 'local-patch-review',
+  );
+
+  return {
+    templateId: 'local-patch-review',
+    templateHash: template.templateHash,
+    status: plan.status,
+    readiness: plan.status,
+    catalogReadiness,
+    plan,
+    localProductionPilotEnabled:
+      process.env.CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED === 'true',
+    requiredEnvFlags: [
+      'CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED',
+      'CODEXHUB_PRODUCTION_WORKFLOW_RECOVERY_ENABLED',
+      'CODEXHUB_PRODUCTION_WORKFLOW_CHILD_ORCHESTRATION_ENABLED',
+    ],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    supervisorPostAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Local production workflow pilot readiness is metadata-only.',
   };
 }
 
@@ -11176,6 +11270,35 @@ export function formatProductionWorkflowPilotRehearsalOutput(
     `bodyStored=${String(record?.bodyStored ?? false)}`,
     `rawPathStored=${String(record?.rawPathStored ?? false)}`,
     `summary: ${String(record?.summary ?? 'Production workflow pilot metadata summary.')}`,
+  ].join('\n');
+}
+
+export function formatLocalProductionWorkflowPilotReadinessOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const plan = result.plan as Record<string, unknown> | undefined;
+
+  return [
+    'Local production workflow pilot readiness',
+    `templateId: ${String(result.templateId ?? 'local-patch-review')}`,
+    `templateHash: ${String(result.templateHash ?? 'unavailable')}`,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `localProductionPilotEnabled=${String(result.localProductionPilotEnabled ?? false)}`,
+    `childRecordHashCount=${String(plan?.childRecordHashCount ?? 0)}`,
+    `blockers: ${String((plan?.blockReasons as unknown[] | undefined)?.length ?? 0)}`,
+    `directAdapterExecutionAllowed=${String(result.directAdapterExecutionAllowed ?? false)}`,
+    `supervisorPostAllowed=${String(result.supervisorPostAllowed ?? false)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    `rawPathStored=${String(result.rawPathStored ?? false)}`,
+    `summary: ${String(result.summary ?? 'Local production pilot readiness metadata summary.')}`,
   ].join('\n');
 }
 

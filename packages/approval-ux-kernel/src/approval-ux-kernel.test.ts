@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type {
   CodexExecManualApprovalRecord,
+  LocalReviewPackageApprovalArtifactRecord,
+  ProductionWorkflowRecoveryApprovalArtifact,
   WorktreeApprovalArtifactRecord,
 } from '@codexhub/contracts';
 import {
@@ -15,6 +17,8 @@ import {
   createApprovalInboxProjection,
   projectCodexApproval,
   projectGenericApproval,
+  projectProductionWorkflowRecoveryApproval,
+  projectReviewPackageApproval,
 } from './index';
 import {
   adversarialPublicOutputFixture,
@@ -28,19 +32,29 @@ describe('approval-ux-kernel', () => {
   it('projects heterogeneous approval records into a metadata-only inbox', () => {
     const codex = projectCodexApproval(createCodexApprovalRecord('pending'));
     const worktree = projectGenericApproval('worktree', createWorktreeApprovalRecord('approved'));
+    const reviewPackage = projectReviewPackageApproval(createReviewPackageApprovalRecord('requested'));
+    const recovery = projectProductionWorkflowRecoveryApproval(
+      createProductionWorkflowRecoveryApprovalRecord('approved'),
+    );
     const inbox = createApprovalInboxProjection({
       codex: [createCodexApprovalRecord('pending')],
       worktree: [createWorktreeApprovalRecord('approved')],
+      reviewPackage: [createReviewPackageApprovalRecord('requested')],
+      productionWorkflowRecovery: [createProductionWorkflowRecoveryApprovalRecord('approved')],
     });
-    const serialized = JSON.stringify({ codex, worktree, inbox });
+    const serialized = JSON.stringify({ codex, worktree, reviewPackage, recovery, inbox });
 
     expect(codex.canApprove).toBe(true);
     expect(codex.canDeny).toBe(true);
     expect(worktree.canRevoke).toBe(true);
-    expect(inbox.itemCount).toBe(2);
-    expect(inbox.requestedCount).toBe(1);
-    expect(inbox.approvedCount).toBe(1);
+    expect(inbox.itemCount).toBe(4);
+    expect(inbox.requestedCount).toBe(2);
+    expect(inbox.approvedCount).toBe(2);
     expect(ApprovalInboxProjectionSchema.parse(inbox).typeBreakdown.worktree).toBe(1);
+    expect(ApprovalInboxProjectionSchema.parse(inbox).typeBreakdown.review_package).toBe(1);
+    expect(
+      ApprovalInboxProjectionSchema.parse(inbox).typeBreakdown.production_workflow_recovery,
+    ).toBe(1);
     expect(serialized).not.toContain('raw prompt');
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('C:/');
@@ -263,4 +277,51 @@ function createWorktreeApprovalRecord(
     externalProcessStarted: false,
     summary: 'Worktree approval record.',
   } as unknown as WorktreeApprovalArtifactRecord;
+}
+
+function createReviewPackageApprovalRecord(
+  status: 'requested' | 'approved',
+): LocalReviewPackageApprovalArtifactRecord {
+  return {
+    id: `review_package_approval_record_${status}`,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'review_package_dry_run_1',
+    dryRunRecordId: 'review_package_dry_run_record_1',
+    approvalRequestId: 'review_package_approval_request_1',
+    approvalArtifactId: 'review_package_approval_artifact_1',
+    status,
+    approved: status === 'approved',
+    policyDecisionId: 'policy_review_package_1',
+    reasonHash: 'sha256:reason',
+    evidenceRefs: [{ id: 'evidence_review_package_1' } as never],
+    auditEventIds: ['audit_review_package_1'],
+    artifactWriteBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawPathStored: false,
+    bodyStored: false,
+    summary: 'Review package approval record.',
+  } as unknown as LocalReviewPackageApprovalArtifactRecord;
+}
+
+function createProductionWorkflowRecoveryApprovalRecord(
+  status: 'requested' | 'approved',
+): ProductionWorkflowRecoveryApprovalArtifact {
+  return {
+    id: `production_workflow_recovery_approval_record_${status}`,
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    dryRunId: 'production_workflow_recovery_dry_run_1',
+    templateId: 'local-patch-review',
+    templateHash: 'sha256:template',
+    approvalArtifactId: 'production_workflow_recovery_approval_artifact_1',
+    status,
+    approvedBy: status === 'approved' ? 'operator' : undefined,
+    reasonHash: 'sha256:reason',
+    childApprovalsIncluded: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: 'Production workflow recovery approval record.',
+  } as unknown as ProductionWorkflowRecoveryApprovalArtifact;
 }

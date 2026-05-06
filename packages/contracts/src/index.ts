@@ -976,6 +976,7 @@ export const ProductionWorkflowPilotReadinessSchema = createdEntityBaseSchema
     blockers: z.array(z.string().min(1)).default([]),
     approvalRequired: z.boolean(),
     childApprovalsRequired: z.number().int().nonnegative(),
+    localProductionPilotEnabled: z.boolean().default(false),
     productionExecutionEnabled: z.boolean().default(false),
     directAdapterExecutionAllowed: z.literal(false).default(false),
     bodyStored: z.literal(false).default(false),
@@ -1063,6 +1064,37 @@ export const ProductionWorkflowPilotRunSchema = createdEntityBaseSchema
 export type ProductionWorkflowPilotRun = z.infer<
   typeof ProductionWorkflowPilotRunSchema
 >;
+
+export const LocalProductionWorkflowChildBoundarySummarySchema = z
+  .object({
+    stepId: z.string().min(1),
+    childActionKind: z.string().min(1),
+    childControlPlane: z.string().min(1),
+    childRecordIdHash: z.string().min(1).optional(),
+    childApprovalRequired: z.boolean(),
+    childApprovalResolvedFromStore: z.boolean().default(false),
+    childHashBindingMatched: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type LocalProductionWorkflowChildBoundarySummary = z.infer<
+  typeof LocalProductionWorkflowChildBoundarySummarySchema
+>;
+export const LocalProductionWorkflowPilotStepSchema = ProductionWorkflowPilotStepSchema;
+export type LocalProductionWorkflowPilotStep = ProductionWorkflowPilotStep;
+export const LocalProductionWorkflowPilotPlanSchema = ProductionWorkflowPilotPlanSchema;
+export type LocalProductionWorkflowPilotPlan = ProductionWorkflowPilotPlan;
+export const LocalProductionWorkflowPilotRunSchema = ProductionWorkflowPilotRunSchema;
+export type LocalProductionWorkflowPilotRun = ProductionWorkflowPilotRun;
+export const LocalProductionWorkflowAcceptanceRunSchema = ProductionWorkflowPilotRunSchema;
+export type LocalProductionWorkflowAcceptanceRun = ProductionWorkflowPilotRun;
 
 export const ProductionWorkflowOperationStatusSchema = z.enum([
   'healthy',
@@ -1233,11 +1265,16 @@ export type ProductionWorkflowChildActionStatus = z.infer<
 
 export const ProductionWorkflowRecoveryScenarioSchema = z.enum([
   'all-pass',
+  'pilot-disabled',
   'workflow-approval-blocked',
   'child-dry-run-failed',
   'child-approval-blocked',
   'child-run-missing',
+  'worktree-failed',
+  'codex-patch-failed',
+  'nx-failed',
   'nx-verification-failed',
+  'review-export-blocked',
   'review-package-blocked',
   'branch-publish-failed',
   'draft-pr-failed',
@@ -8063,6 +8100,8 @@ export const ApprovalUxTypeSchema = z.enum([
   'worktree',
   'worktree_cleanup',
   'm9_pilot',
+  'review_package',
+  'production_workflow_recovery',
 ]);
 export type ApprovalUxType = z.infer<typeof ApprovalUxTypeSchema>;
 

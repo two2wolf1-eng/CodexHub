@@ -281,6 +281,8 @@ export interface CustomWorkflowReadOnlySummary {
   latestProductionPilotTemplateId: string;
   latestProductionPilotStatus: string;
   latestProductionPilotReadinessStatus: string;
+  localProductionPilotEnabled: false;
+  localProductionPilotRuntimeGate: string;
   productionPilotEvidenceRefCount: number;
   productionPilotAuditEventCount: number;
   productionPilotFixtureOnly: true;
@@ -1682,6 +1684,8 @@ export function createCustomWorkflowReadOnlySummary(input: {
     latestProductionPilotStatus: input.latestProductionPilotStatus ?? 'blocked',
     latestProductionPilotReadinessStatus:
       input.latestProductionPilotReadinessStatus ?? 'disabled',
+    localProductionPilotEnabled: false,
+    localProductionPilotRuntimeGate: 'CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED',
     productionPilotEvidenceRefCount: input.productionPilotEvidenceRefCount ?? 0,
     productionPilotAuditEventCount: input.productionPilotAuditEventCount ?? 0,
     productionPilotFixtureOnly: true,

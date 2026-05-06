@@ -5415,6 +5415,13 @@ function renderReadOnlyDashboardView(
               </span>
             </li>
             <li>
+              <strong>local pilot gate</strong>
+              <span>
+                {customWorkflowSummary.localProductionPilotRuntimeGate} enabled{' '}
+                {String(customWorkflowSummary.localProductionPilotEnabled)}
+              </span>
+            </li>
+            <li>
               <strong>pilot evidence</strong>
               <span>
                 {customWorkflowSummary.productionPilotEvidenceRefCount} evidence refs,{' '}

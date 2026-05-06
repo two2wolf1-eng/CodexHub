@@ -859,6 +859,21 @@ function createDefaultIntegrationInputs(): OperatorIntegrationInput[] {
       ],
     },
     {
+      name: 'local-production-workflow-pilot',
+      enabled: false,
+      riskLevel: 'critical',
+      approvalRequired: true,
+      processBoundary: true,
+      blockers: [
+        'disabled_by_default',
+        'local_production_workflow_pilot_disabled',
+        'child_approvals_remain_separate',
+      ],
+      safeEnableNotes: [
+        'Requires CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED plus recovery and child orchestration gates; child approvals must be decided separately.',
+      ],
+    },
+    {
       name: 'policy-backend',
       enabled: false,
       riskLevel: 'medium',

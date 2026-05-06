@@ -4308,6 +4308,67 @@ workflows:
       workflowApprovalDoesNotGrantChildAuthority: true
       childApprovalsRemainSeparate: true
       metadataOnlyPublicOutput: true
+  m33.local-production-pilot-enablement:
+    risk: critical
+    trigger:
+      type: local-production-workflow-pilot-enablement
+      entrypoint: workflow-kernel supervisor cli dashboard docs
+      localControlRequired: true
+    chain:
+      - readiness
+      - recovery-coordinator-local-binding
+      - cli-child-approval-decision
+      - dashboard-local-pilot-guidance
+      - hardening-review
+    runtimeGates:
+      - CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED
+      - CODEXHUB_PRODUCTION_WORKFLOW_RECOVERY_ENABLED
+      - CODEXHUB_PRODUCTION_WORKFLOW_CHILD_ORCHESTRATION_ENABLED
+    docs:
+      - docs/releases/m33-local-production-pilot-enablement.md
+      - docs/reviews/m33-local-production-pilot-hardening-review.md
+      - docs/runbooks/m33-local-production-pilot-operator-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      localPilotDefaultEnabled: false
+      childApprovalsRemainSeparate: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      cliApprovalDecisionOnlyMutation: true
+      dashboardChildApprovalButtonsAllowed: false
+      metadataOnlyPublicOutput: true
+  m34.local-production-pilot-acceptance:
+    risk: critical
+    trigger:
+      type: local-production-workflow-pilot-acceptance
+      entrypoint: workflow-kernel cli doctor audits docs
+      localControlRequired: false
+    scenarios:
+      - all-pass
+      - pilot-disabled
+      - workflow-approval-blocked
+      - child-approval-blocked
+      - worktree-failed
+      - codex-patch-failed
+      - nx-failed
+      - review-export-blocked
+      - resume-after-child-approval
+    docs:
+      - docs/releases/m34-local-production-pilot-results.md
+      - docs/reviews/m34-local-production-pilot-final-review.md
+      - docs/runbooks/m34-local-production-pilot-acceptance.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noAutomaticCleanup: true
+      noForceDelete: true
+      nxFailureBlocksReviewPackageExport: true
+      childApprovalConsumedByChildControlPlaneOnly: true
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

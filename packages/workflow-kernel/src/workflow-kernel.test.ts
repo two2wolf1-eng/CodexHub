@@ -305,17 +305,20 @@ describe('workflow-kernel custom workflows', () => {
     const plan = createProductionWorkflowPilotPlan({
       template: template!,
       childRecordHashes,
+      localProductionPilotEnabled: true,
       productionExecutionEnabled: true,
       workflowApprovalApproved: true,
     });
     const run = runProductionWorkflowPilot({
       template: template!,
       childRecordHashes,
+      localProductionPilotEnabled: true,
       productionExecutionEnabled: true,
       workflowApprovalApproved: true,
     });
     const missingChild = runProductionWorkflowPilot({
       template: template!,
+      localProductionPilotEnabled: true,
       productionExecutionEnabled: true,
       workflowApprovalApproved: true,
     });
@@ -327,6 +330,50 @@ describe('workflow-kernel custom workflows', () => {
     expect(missingChild.status).toBe('blocked');
     expect(missingChild.readiness.missingChildRecordCount).toBeGreaterThan(0);
     expect(findAdversarialPublicOutputRoundTripLeaks({ plan, run, missingChild })).toEqual([]);
+  });
+
+  it('rehearses local production workflow acceptance failure points without later unsafe steps', () => {
+    const template = findCustomWorkflowCatalogTemplate('local-patch-review');
+    expect(template).toBeTruthy();
+    const pilotDisabled = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'pilot-disabled',
+    });
+    const worktreeFailed = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'worktree-failed',
+    });
+    const codexFailed = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'codex-patch-failed',
+    });
+    const nxFailed = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'nx-failed',
+    });
+    const reviewBlocked = runProductionWorkflowRecoveryRehearsal({
+      template: template!,
+      scenario: 'review-export-blocked',
+    });
+
+    expect(pilotDisabled.status).toBe('blocked');
+    expect(pilotDisabled.blockReasons).toContain('local_production_workflow_pilot_disabled');
+    expect(worktreeFailed.status).toBe('failed');
+    expect(worktreeFailed.childActionStates.find((state) => state.childActionKind === 'worktree-create')?.status).toBe('failed');
+    expect(codexFailed.status).toBe('failed');
+    expect(codexFailed.childActionStates.find((state) => state.childActionKind === 'codex-patch')?.status).toBe('failed');
+    expect(nxFailed.status).toBe('failed');
+    expect(nxFailed.childActionStates.find((state) => state.childActionKind === 'nx-verification')?.status).toBe('failed');
+    expect(nxFailed.childActionStates.find((state) => state.childActionKind === 'review-package-export')?.status).toBe('skipped');
+    expect(reviewBlocked.status).toBe('blocked');
+    expect(reviewBlocked.childActionStates.find((state) => state.childActionKind === 'review-package-export')?.status).toBe('blocked');
+    expect(findAdversarialPublicOutputRoundTripLeaks({
+      pilotDisabled,
+      worktreeFailed,
+      codexFailed,
+      nxFailed,
+      reviewBlocked,
+    })).toEqual([]);
   });
 
   it('runs remote production workflow pilot and blocks failed remote child records', () => {
@@ -404,6 +451,7 @@ describe('workflow-kernel custom workflows', () => {
     expect(template).toBeTruthy();
     const plan = createProductionWorkflowRecoveryPlan({
       template: template!,
+      localProductionPilotEnabled: true,
       recoveryEnabled: true,
       childOrchestrationEnabled: true,
     });
@@ -438,6 +486,7 @@ describe('workflow-kernel custom workflows', () => {
     expect(template).toBeTruthy();
     const plan = createProductionWorkflowRecoveryPlan({
       template: template!,
+      localProductionPilotEnabled: true,
       recoveryEnabled: true,
       childOrchestrationEnabled: true,
     });
@@ -451,6 +500,7 @@ describe('workflow-kernel custom workflows', () => {
     });
     const waiting = runProductionWorkflowRecoveryCoordinator({
       template: template!,
+      localProductionPilotEnabled: true,
       recoveryEnabled: true,
       childOrchestrationEnabled: true,
       workflowApprovalApproved: true,
@@ -458,6 +508,7 @@ describe('workflow-kernel custom workflows', () => {
     });
     const completed = runProductionWorkflowRecoveryCoordinator({
       template: template!,
+      localProductionPilotEnabled: true,
       recoveryEnabled: true,
       childOrchestrationEnabled: true,
       workflowApprovalApproved: true,

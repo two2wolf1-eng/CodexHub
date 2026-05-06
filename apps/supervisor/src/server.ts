@@ -452,6 +452,7 @@ interface SupervisorServerOptions {
   customWorkflowEnabled?: boolean;
   productionWorkflowRecoveryEnabled?: boolean;
   productionWorkflowChildOrchestrationEnabled?: boolean;
+  localProductionWorkflowPilotEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
 }
@@ -4294,6 +4295,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const dryRunRecord = createProductionWorkflowRecoveryPlan({
       template: catalogTemplate,
       sourceRunIdHash: body?.sourceRunIdHash,
+      localProductionPilotEnabled: isLocalProductionWorkflowPilotEnabled(),
       recoveryEnabled: isProductionWorkflowRecoveryEnabled(),
       childOrchestrationEnabled: isProductionWorkflowChildOrchestrationEnabled(),
     });
@@ -4535,7 +4537,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
     if (
       !isProductionWorkflowRecoveryEnabled() ||
-      !isProductionWorkflowChildOrchestrationEnabled()
+      !isProductionWorkflowChildOrchestrationEnabled() ||
+      (dryRunRecord.templateId === 'local-patch-review' &&
+        !isLocalProductionWorkflowPilotEnabled())
     ) {
       return reply.code(409).send({
         error: 'production workflow recovery is disabled',
@@ -4558,6 +4562,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     const runRecord = runProductionWorkflowRecoveryCoordinator({
       template: catalogTemplate,
       dryRunId: dryRunRecord.dryRunId,
+      localProductionPilotEnabled: isLocalProductionWorkflowPilotEnabled(),
       recoveryEnabled: true,
       childOrchestrationEnabled: true,
       workflowApprovalApproved: true,
@@ -16818,6 +16823,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     );
   }
 
+  function isLocalProductionWorkflowPilotEnabled(): boolean {
+    return (
+      options.localProductionWorkflowPilotEnabled ??
+      process.env.CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED === 'true'
+    );
+  }
+
   function createRemoteSupersedeDryRunResponse(record: RemoteSupersedePlan) {
     return {
       recordId: record.id,
@@ -18230,6 +18242,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       electronCdp,
       worktree,
       worktreeCleanup,
+      reviewPackage,
+      productionWorkflowRecovery,
     ] = await Promise.all([
       store
         ? store.codexExecApprovals.listCodexExecApprovalRecords(100)
@@ -18238,6 +18252,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       listElectronCdpObservationApprovals({ limit: 100 }, store),
       listWorktreeApprovals({ limit: 100 }, store),
       listWorktreeCleanupApprovals({ limit: 100 }, store),
+      listReviewPackageApprovals({ limit: 100 }, store),
+      listProductionWorkflowRecoveryApprovals({ limit: 100 }, store),
     ]);
 
     return createApprovalInboxProjection({
@@ -18247,6 +18263,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       worktree,
       worktreeCleanup,
       m9Pilot: worktree.filter((record) => record.summary.toLowerCase().includes('m9')),
+      reviewPackage,
+      productionWorkflowRecovery,
     });
   }
 
@@ -18272,6 +18290,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
     if (input.approvalType === 'worktree_cleanup') {
       return recordWorktreeCleanupApprovalDecision(input, store);
+    }
+
+    if (input.approvalType === 'review_package') {
+      return recordReviewPackageApprovalDecision(input, store);
+    }
+
+    if (input.approvalType === 'production_workflow_recovery') {
+      return recordProductionWorkflowRecoveryApprovalDecision(input, store);
     }
 
     return undefined;
@@ -18532,6 +18558,100 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     );
 
     return createApprovalDecisionFromGenericRecord(input, approvalRecord.status, approvalRecord);
+  }
+
+  async function recordReviewPackageApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const approvalRequest = await resolveReviewPackageApprovalRecord(
+      input.approvalRequestId,
+      store,
+    );
+
+    if (!approvalRequest) {
+      return undefined;
+    }
+
+    const dryRunRecord = await resolveReviewPackageDryRunRecord(
+      approvalRequest.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return undefined;
+    }
+
+    const approvalRecord = createLocalReviewPackageApprovalRecord({
+      dryRunRecord,
+      baseRecord: approvalRequest,
+      status: input.decision,
+      decidedBy: 'approval-ux',
+      reason: input.reason,
+    });
+
+    await persistReviewPackageApprovalRecord(approvalRecord, store);
+    await persistEvidenceRefs(approvalRecord.evidenceRefs, store);
+    await persistAuditEvents(
+      approvalRecord.auditEventIds,
+      approvalRecord.evidenceRefs,
+      store,
+      approvalRecord.policyDecisionId,
+    );
+
+    return createApprovalDecisionResult({
+      approvalType: input.approvalType,
+      approvalRequestId: input.approvalRequestId,
+      decision: input.decision,
+      status: normalizeDecisionStatus(approvalRecord.status),
+      evidenceRefIds: approvalRecord.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: approvalRecord.auditEventIds,
+      summary: `review_package approval decision recorded as ${approvalRecord.status}.`,
+    });
+  }
+
+  async function recordProductionWorkflowRecoveryApprovalDecision(
+    input: ApprovalDecisionRequest,
+    store: CodexHubStore,
+  ) {
+    const approvalRequest = await resolveProductionWorkflowRecoveryApprovalRecord(
+      input.approvalRequestId,
+      store,
+    );
+
+    if (!approvalRequest) {
+      return undefined;
+    }
+
+    const dryRunRecord = await resolveProductionWorkflowRecoveryDryRunRecord(
+      approvalRequest.dryRunId,
+      store,
+    );
+
+    if (!dryRunRecord) {
+      return undefined;
+    }
+
+    const approvalRecord = createProductionWorkflowRecoveryApprovalArtifact({
+      dryRunId: dryRunRecord.dryRunId,
+      templateId: dryRunRecord.templateId,
+      templateHash: dryRunRecord.templateHash,
+      approvalArtifactId: approvalRequest.approvalArtifactId,
+      status: input.decision,
+      approvedBy: 'approval-ux',
+      reasonHash: hashLocalMetadata({ reason: input.reason }),
+      reasonSummary: 'Production workflow recovery decision reason hash stored.',
+    });
+
+    await persistProductionWorkflowRecoveryApprovalRecord(approvalRecord, store);
+
+    return createApprovalDecisionResult({
+      approvalType: input.approvalType,
+      approvalRequestId: input.approvalRequestId,
+      decision: input.decision,
+      status: normalizeDecisionStatus(approvalRecord.status),
+      summary: `production_workflow_recovery approval decision recorded as ${approvalRecord.status}.`,
+    });
   }
 
   function createApprovalDecisionFromGenericRecord(
