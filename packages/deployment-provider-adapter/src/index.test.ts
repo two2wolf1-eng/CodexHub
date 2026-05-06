@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import type { DeploymentOperationAction, DeploymentProvider } from '@codexhub/contracts';
 import {
   createDeploymentObservationPlan,
   createDeploymentObservationRun,
@@ -13,7 +17,34 @@ import {
   runDeploymentOperationAcceptanceRehearsal,
 } from './index';
 
+const sourceDir = dirname(fileURLToPath(import.meta.url));
+
 describe('deployment-provider-adapter', () => {
+  it('keeps deployment source free of arbitrary process, shell, and network passthrough', () => {
+    const source = readFileSync(join(sourceDir, 'index.ts'), 'utf8');
+    const forbiddenTerms = [
+      'node:child_process',
+      'child_process',
+      'spawn(',
+      'execFile(',
+      'exec(',
+      'execa',
+      'shell: true',
+      'fetch(',
+      'http://',
+      'https://',
+      'kubectl apply',
+      'helm upgrade',
+      'argocd app sync',
+      'terraform apply',
+      'tofu apply',
+      'docker compose up',
+      'rm -rf',
+    ];
+
+    expect(forbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+  });
+
   it('creates read-only deployment metadata without raw provider output', () => {
     const manifest = createDeploymentProviderManifest({ provider: 'terraform' });
     const readiness = createDeploymentReadiness({
@@ -126,5 +157,70 @@ describe('deployment-provider-adapter', () => {
     expect(serialized).not.toContain('prod cluster namespace path');
     expect(serialized).not.toContain('raw manifest body');
     expect(serialized).not.toContain('raw reason text');
+  });
+
+  it('keeps every governed deployment operation fixed-runner and non-destructive', () => {
+    const providers: DeploymentProvider[] = [
+      'docker',
+      'kubernetes',
+      'helm',
+      'argo-cd',
+      'terraform',
+      'opentofu',
+    ];
+    const actions: DeploymentOperationAction[] = ['deploy', 'apply', 'sync', 'rollback'];
+    const records = providers.flatMap((provider) =>
+      actions.map((action) => {
+        const rollbackPlan =
+          action === 'rollback'
+            ? createDeploymentRollbackPlan({
+                provider,
+                environment: 'prod',
+                target: `${provider} production target stays transient`,
+                sourceRun: `${provider} source run`,
+                rollbackArtifact: `${provider} rollback artifact`,
+              })
+            : undefined;
+        const plan = createDeploymentOperationPlan({
+          provider,
+          action,
+          environment: 'prod',
+          target: `${provider} production target stays transient`,
+          artifact: `${provider} operation artifact stays transient`,
+          rollbackPlan,
+          runnerMode: 'controlled-deployment-operation',
+        });
+        const run = createDeploymentOperationRun({
+          plan,
+          rollbackPlan,
+          approvalArtifactIds: ['approval_primary', 'approval_secondary'],
+          processBoundaryInvoked: true,
+          externalProcessStarted: true,
+        });
+
+        expect(plan.fixedRunner).toBe(true);
+        expect(plan.arbitraryCommandAllowed).toBe(false);
+        expect(plan.rawManifestStored).toBe(false);
+        expect(plan.rawPlanStored).toBe(false);
+        expect(plan.rawDiffStored).toBe(false);
+        expect(plan.rawLogStored).toBe(false);
+        expect(run.fixedRunner).toBe(true);
+        expect(run.noDelete).toBe(true);
+        expect(run.noDestroy).toBe(true);
+        expect(run.arbitraryCommandAllowed).toBe(false);
+        expect(run.rawManifestStored).toBe(false);
+        expect(run.rawPlanStored).toBe(false);
+        expect(run.rawDiffStored).toBe(false);
+        expect(run.rawLogStored).toBe(false);
+        expect(run.networkBoundaryInvoked).toBe(false);
+
+        return { plan, run, rollbackPlan };
+      }),
+    );
+    const serialized = JSON.stringify(records);
+
+    expect(serialized).not.toContain('production target stays transient');
+    expect(serialized).not.toContain('operation artifact stays transient');
+    expect(serialized).not.toContain('rollback artifact');
   });
 });

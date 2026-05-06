@@ -5617,3 +5617,31 @@ workflows:
       arbitraryGithubPassthroughAllowed: false
       releasePublishAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d10.deployment-platform-boundary-debug:
+    risk: critical
+    trigger:
+      type: deployment-platform-boundary-debug
+      entrypoint: deployment-provider-adapter platform-operations-kernel docs tools
+      localControlRequired: false
+    scope:
+      - deployment-fixed-runner-non-destructive-matrix
+      - deployment-no-arbitrary-shell-network-passthrough
+      - platform-backup-restore-migration-retention-audit-role-boundaries
+      - platform-metadata-only-local-operation-guards
+    docs:
+      - docs/releases/m47-d10-deployment-platform-boundary-debug.md
+      - docs/reviews/m47-d10-deployment-platform-boundary-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      arbitraryShellAllowed: false
+      arbitraryProviderPassthroughAllowed: false
+      networkBackupExportAllowed: false
+      rawDbExportAllowed: false
+      roleBypassAllowed: false
+      metadataOnlyPublicOutput: true

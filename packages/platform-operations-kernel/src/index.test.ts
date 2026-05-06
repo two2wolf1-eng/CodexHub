@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { DisasterRecoveryScenario } from '@codexhub/contracts';
 import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
@@ -18,7 +21,36 @@ import {
   rehearseDisasterRecovery,
 } from './index';
 
+const sourceDir = dirname(fileURLToPath(import.meta.url));
+
 describe('platform operations kernel', () => {
+  it('keeps platform operations source free of arbitrary shell, SQL, network export, and role bypass', () => {
+    const source = readFileSync(join(sourceDir, 'index.ts'), 'utf8');
+    const forbiddenTerms = [
+      'node:child_process',
+      'child_process',
+      'spawn(',
+      'execFile(',
+      'exec(',
+      'execa',
+      'shell: true',
+      'fetch(',
+      'http://',
+      'https://',
+      'SELECT *',
+      'DROP ',
+      'DELETE FROM',
+      'PRAGMA',
+      'networkExportAllowed: true',
+      'rawDbRowsStored: true',
+      'rawAuditBodyStored: true',
+      'localControlTokenReplacementAllowed: true',
+      'arbitraryBackupTargetAllowed: true',
+    ];
+
+    expect(forbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+  });
+
   it('creates metadata-only platform operation plans, runs, approvals, and rehearsals', () => {
     const now = () => '2026-05-07T00:00:00.000Z';
     const backupPlan = createPlatformBackupPlan({
@@ -110,6 +142,97 @@ describe('platform operations kernel', () => {
     expect(auditPlan.networkExportAllowed).toBe(false);
     expect(rolePlan.localControlTokenReplacementAllowed).toBe(false);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('keeps platform operation boundary flags non-networked and metadata-only', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const backupPlan = createPlatformBackupPlan({
+      scope: 'store-sqlite',
+      storeSnapshotSeed: 'raw database row body must hash only',
+      backupRootSeed: 'C:/sensitive/backup/path must hash only',
+      backupDirConfigured: true,
+      now,
+    });
+    const restorePlan = createPlatformRestorePlan({
+      mode: 'replace-active-store',
+      sourceBackupManifest: 'raw backup manifest body must hash only',
+      targetStoreSeed: 'target active store path must hash only',
+      replaceActiveStoreEnabled: true,
+      schedulerQuiesced: true,
+      backupManifestMatches: true,
+      now,
+    });
+    const migrationPlan = createStoreMigrationPlan({
+      builtInMigrationId: 'foundation_0003',
+      currentSchemaSeed: 'current schema body must hash only',
+      targetSchemaSeed: 'target schema body must hash only',
+      migrationEnabled: true,
+      now,
+    });
+    const retentionPlan = createRetentionPolicyPlan({
+      target: 'audit',
+      policySeed: 'delete raw audit rows only after backup',
+      deletionPlanned: true,
+      backupManifest: 'backup manifest hash binding only',
+      retentionEnabled: true,
+      now,
+    });
+    const auditPlan = createAuditExportPlan({
+      destinationSeed: 'local audit export path must hash only',
+      auditExportEnabled: true,
+      now,
+    });
+    const rolePlan = createOperatorRoleAssignmentPlan({
+      operatorIdentity: 'operator identity must hash only',
+      role: 'admin',
+      scopes: ['backup', 'restore'],
+      roleEnforcementEnabled: true,
+      now,
+    });
+    const runs = [
+      createPlatformBackupRun({ plan: backupPlan, boundaryReached: true, now }),
+      createPlatformRestoreRun({
+        plan: restorePlan,
+        boundaryReached: true,
+        approvalArtifactIds: ['approval_primary', 'approval_secondary'],
+        now,
+      }),
+      createStoreMigrationRun({ plan: migrationPlan, boundaryReached: true, now }),
+      createRetentionPolicyRun({ plan: retentionPlan, boundaryReached: true, now }),
+      createAuditExportRun({ plan: auditPlan, boundaryReached: true, now }),
+      createOperatorRoleAssignmentRun({ plan: rolePlan, boundaryReached: true, now }),
+    ];
+    const serialized = JSON.stringify([
+      backupPlan,
+      restorePlan,
+      migrationPlan,
+      retentionPlan,
+      auditPlan,
+      rolePlan,
+      ...runs,
+    ]);
+
+    for (const run of runs) {
+      if ('approvalConsumed' in run) {
+        expect(run.approvalConsumed).toBe(true);
+      }
+      expect(run.rawDbRowsStored).toBe(false);
+      expect(run.rawPathStored).toBe(false);
+      expect(run.rawAuditBodyStored).toBe(false);
+      expect(run.rawTokenStored).toBe(false);
+      expect(run.rawEnvStored).toBe(false);
+      expect(run.rawRequestBodyStored).toBe(false);
+      expect(run.rawResponseBodyStored).toBe(false);
+    }
+    expect(backupPlan.networkExportAllowed).toBe(false);
+    expect(backupPlan.arbitraryBackupTargetAllowed).toBe(false);
+    expect(auditPlan.networkExportAllowed).toBe(false);
+    expect(rolePlan.localControlTokenReplacementAllowed).toBe(false);
+    expect(serialized).not.toContain('raw database row body');
+    expect(serialized).not.toContain('C:/sensitive/backup/path');
+    expect(serialized).not.toContain('raw backup manifest body');
+    expect(serialized).not.toContain('local audit export path');
+    expect(serialized).not.toContain('operator identity');
   });
 
   it('blocks destructive retention without backup and active restore without gate', () => {
