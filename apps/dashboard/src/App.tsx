@@ -120,6 +120,21 @@ interface OverviewState {
   githubPrLifecycleDryRuns: GithubPrLifecycleControlSummary[];
   githubPrLifecycleApprovals: GithubPrLifecycleControlSummary[];
   githubPrLifecycleRuns: GithubPrLifecycleControlSummary[];
+  githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
+  githubPrLabelsApprovals: GithubPrManagementControlSummary[];
+  githubPrLabelsRuns: GithubPrManagementControlSummary[];
+  githubPrAssigneesDryRuns: GithubPrManagementControlSummary[];
+  githubPrAssigneesApprovals: GithubPrManagementControlSummary[];
+  githubPrAssigneesRuns: GithubPrManagementControlSummary[];
+  githubPrReviewersDryRuns: GithubPrManagementControlSummary[];
+  githubPrReviewersApprovals: GithubPrManagementControlSummary[];
+  githubPrReviewersRuns: GithubPrManagementControlSummary[];
+  githubPrMilestonesDryRuns: GithubPrManagementControlSummary[];
+  githubPrMilestonesApprovals: GithubPrManagementControlSummary[];
+  githubPrMilestonesRuns: GithubPrManagementControlSummary[];
+  githubPrCommentsDryRuns: GithubPrManagementControlSummary[];
+  githubPrCommentsApprovals: GithubPrManagementControlSummary[];
+  githubPrCommentsRuns: GithubPrManagementControlSummary[];
   githubRemoteSupersedeDryRuns: GithubRemoteSupersedeControlSummary[];
   githubRemoteSupersedeRuns: GithubRemoteSupersedeControlSummary[];
   githubRemoteCleanupDryRuns: GithubRemoteCleanupControlSummary[];
@@ -441,6 +456,46 @@ interface GithubPrLifecycleControlSummary {
   rawUrlStored?: boolean;
   rawResponseBodyStored?: boolean;
   bodyStored?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+interface GithubPrManagementControlSummary {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  managementKind?: string;
+  runnerMode?: string;
+  targetRef?: {
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+  };
+  prNumberHash?: string;
+  itemSummaryHash?: string;
+  payloadHash?: string;
+  itemCount?: number;
+  changed?: boolean;
+  responseBodyHashes?: string[];
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawCommentBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  removalAllowed?: boolean;
+  arbitraryEndpointAllowed?: boolean;
+  mergeAllowed?: boolean;
+  pushAllowed?: boolean;
+  updateRefAllowed?: boolean;
+  forceAllowed?: boolean;
   evidenceRefIds?: string[];
   auditEventIds?: string[];
   summary?: string;
@@ -847,6 +902,21 @@ export function App() {
     githubPrLifecycleDryRuns: [],
     githubPrLifecycleApprovals: [],
     githubPrLifecycleRuns: [],
+    githubPrLabelsDryRuns: [],
+    githubPrLabelsApprovals: [],
+    githubPrLabelsRuns: [],
+    githubPrAssigneesDryRuns: [],
+    githubPrAssigneesApprovals: [],
+    githubPrAssigneesRuns: [],
+    githubPrReviewersDryRuns: [],
+    githubPrReviewersApprovals: [],
+    githubPrReviewersRuns: [],
+    githubPrMilestonesDryRuns: [],
+    githubPrMilestonesApprovals: [],
+    githubPrMilestonesRuns: [],
+    githubPrCommentsDryRuns: [],
+    githubPrCommentsApprovals: [],
+    githubPrCommentsRuns: [],
     githubRemoteSupersedeDryRuns: [],
     githubRemoteSupersedeRuns: [],
     githubRemoteCleanupDryRuns: [],
@@ -994,6 +1064,11 @@ export function App() {
         (record) => record.networkBoundaryInvoked === true,
       ) ||
       overview.githubPrLifecycleRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubPrLabelsRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubPrAssigneesRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubPrReviewersRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubPrMilestonesRuns.some((record) => record.networkBoundaryInvoked === true) ||
+      overview.githubPrCommentsRuns.some((record) => record.networkBoundaryInvoked === true) ||
       overview.githubRemoteCleanupRuns.some((record) => record.networkBoundaryInvoked === true),
   });
   const githubBranchPublishAcceptanceRehearsalSummary =
@@ -1644,6 +1719,21 @@ export function App() {
           githubPrLifecycleDryRunsResponse,
           githubPrLifecycleApprovalsResponse,
           githubPrLifecycleRunsResponse,
+          githubPrLabelsDryRunsResponse,
+          githubPrLabelsApprovalsResponse,
+          githubPrLabelsRunsResponse,
+          githubPrAssigneesDryRunsResponse,
+          githubPrAssigneesApprovalsResponse,
+          githubPrAssigneesRunsResponse,
+          githubPrReviewersDryRunsResponse,
+          githubPrReviewersApprovalsResponse,
+          githubPrReviewersRunsResponse,
+          githubPrMilestonesDryRunsResponse,
+          githubPrMilestonesApprovalsResponse,
+          githubPrMilestonesRunsResponse,
+          githubPrCommentsDryRunsResponse,
+          githubPrCommentsApprovalsResponse,
+          githubPrCommentsRunsResponse,
           githubRemoteSupersedeDryRunsResponse,
           githubRemoteSupersedeRunsResponse,
           githubRemoteCleanupDryRunsResponse,
@@ -1751,6 +1841,66 @@ export function App() {
           ),
           getOptionalJson<{ records: GithubPrLifecycleControlSummary[] }>(
             '/api/github/pr-lifecycle/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-labels/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-labels/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-labels/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-assignees/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-assignees/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-assignees/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-reviewers/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-reviewers/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-reviewers/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-milestones/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-milestones/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-milestones/runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-comments/dry-runs',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-comments/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: GithubPrManagementControlSummary[] }>(
+            '/api/github/pr-comments/runs',
             { records: [] },
           ),
           getOptionalJson<{ records: GithubRemoteSupersedeControlSummary[] }>(
@@ -1934,6 +2084,21 @@ export function App() {
             githubPrLifecycleDryRuns: githubPrLifecycleDryRunsResponse.records,
             githubPrLifecycleApprovals: githubPrLifecycleApprovalsResponse.records,
             githubPrLifecycleRuns: githubPrLifecycleRunsResponse.records,
+            githubPrLabelsDryRuns: githubPrLabelsDryRunsResponse.records,
+            githubPrLabelsApprovals: githubPrLabelsApprovalsResponse.records,
+            githubPrLabelsRuns: githubPrLabelsRunsResponse.records,
+            githubPrAssigneesDryRuns: githubPrAssigneesDryRunsResponse.records,
+            githubPrAssigneesApprovals: githubPrAssigneesApprovalsResponse.records,
+            githubPrAssigneesRuns: githubPrAssigneesRunsResponse.records,
+            githubPrReviewersDryRuns: githubPrReviewersDryRunsResponse.records,
+            githubPrReviewersApprovals: githubPrReviewersApprovalsResponse.records,
+            githubPrReviewersRuns: githubPrReviewersRunsResponse.records,
+            githubPrMilestonesDryRuns: githubPrMilestonesDryRunsResponse.records,
+            githubPrMilestonesApprovals: githubPrMilestonesApprovalsResponse.records,
+            githubPrMilestonesRuns: githubPrMilestonesRunsResponse.records,
+            githubPrCommentsDryRuns: githubPrCommentsDryRunsResponse.records,
+            githubPrCommentsApprovals: githubPrCommentsApprovalsResponse.records,
+            githubPrCommentsRuns: githubPrCommentsRunsResponse.records,
             githubRemoteSupersedeDryRuns: githubRemoteSupersedeDryRunsResponse.records,
             githubRemoteSupersedeRuns: githubRemoteSupersedeRunsResponse.records,
             githubRemoteCleanupDryRuns: githubRemoteCleanupDryRunsResponse.records,
@@ -2015,6 +2180,21 @@ export function App() {
             githubPrLifecycleDryRuns: [],
             githubPrLifecycleApprovals: [],
             githubPrLifecycleRuns: [],
+            githubPrLabelsDryRuns: [],
+            githubPrLabelsApprovals: [],
+            githubPrLabelsRuns: [],
+            githubPrAssigneesDryRuns: [],
+            githubPrAssigneesApprovals: [],
+            githubPrAssigneesRuns: [],
+            githubPrReviewersDryRuns: [],
+            githubPrReviewersApprovals: [],
+            githubPrReviewersRuns: [],
+            githubPrMilestonesDryRuns: [],
+            githubPrMilestonesApprovals: [],
+            githubPrMilestonesRuns: [],
+            githubPrCommentsDryRuns: [],
+            githubPrCommentsApprovals: [],
+            githubPrCommentsRuns: [],
             githubRemoteSupersedeDryRuns: [],
             githubRemoteSupersedeRuns: [],
             githubRemoteCleanupDryRuns: [],
@@ -4279,6 +4459,41 @@ function renderReadOnlyDashboardView(
       createRemoteSupersedeAcceptanceRehearsalReadOnlySummary();
     const githubRemoteCleanupAcceptanceRehearsalSummary =
       createGithubRemoteCleanupAcceptanceRehearsalReadOnlySummary();
+    const prManagementFamilies = [
+      {
+        label: 'labels',
+        dryRuns: overview.githubPrLabelsDryRuns,
+        approvals: overview.githubPrLabelsApprovals,
+        runs: overview.githubPrLabelsRuns,
+      },
+      {
+        label: 'assignees',
+        dryRuns: overview.githubPrAssigneesDryRuns,
+        approvals: overview.githubPrAssigneesApprovals,
+        runs: overview.githubPrAssigneesRuns,
+      },
+      {
+        label: 'reviewers',
+        dryRuns: overview.githubPrReviewersDryRuns,
+        approvals: overview.githubPrReviewersApprovals,
+        runs: overview.githubPrReviewersRuns,
+      },
+      {
+        label: 'milestones',
+        dryRuns: overview.githubPrMilestonesDryRuns,
+        approvals: overview.githubPrMilestonesApprovals,
+        runs: overview.githubPrMilestonesRuns,
+      },
+      {
+        label: 'comments',
+        dryRuns: overview.githubPrCommentsDryRuns,
+        approvals: overview.githubPrCommentsApprovals,
+        runs: overview.githubPrCommentsRuns,
+      },
+    ];
+    const latestPrManagementRuns = prManagementFamilies.flatMap((family) =>
+      family.runs.slice(0, 3).map((run) => ({ family: family.label, run })),
+    );
 
     return (
       <section className="grid">
@@ -4668,6 +4883,60 @@ function renderReadOnlyDashboardView(
             <p>
               No GitHub PR lifecycle summaries are available. This view is read-only and only
               shows persisted ids, hashes, counts, statuses, evidence ids, and audit ids.
+            </p>
+          )}
+        </Panel>
+        <Panel title="GitHub PR Management">
+          <ul>
+            {prManagementFamilies.map((family) => (
+              <li key={family.label}>
+                <strong>{family.label}</strong>
+                <span>
+                  dry-runs {family.dryRuns.length}, approvals {family.approvals.length}, runs{' '}
+                  {family.runs.length}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {latestPrManagementRuns.length > 0 ? (
+            <ul>
+              {latestPrManagementRuns.slice(0, 10).map(({ family, run }) => (
+                <li key={`${family}-${run.runId ?? run.recordId ?? run.dryRunId}`} className="stacked">
+                  <strong>{run.runId ?? run.recordId ?? `${family}_pr_management_run`}</strong>
+                  <span>
+                    family {family}, status {run.status ?? 'unknown'}, runner{' '}
+                    {run.runnerMode ?? 'unknown'}
+                  </span>
+                  <span>
+                    owner {run.targetRef?.ownerHash ?? 'unavailable'}, repo{' '}
+                    {run.targetRef?.repoHash ?? 'unavailable'}, PR{' '}
+                    {run.prNumberHash ?? 'unavailable'}
+                  </span>
+                  <span>
+                    item hash {run.itemSummaryHash ?? 'unavailable'}, payload{' '}
+                    {run.payloadHash ?? 'unavailable'}, items {run.itemCount ?? 0}, changed{' '}
+                    {String(run.changed ?? false)}
+                  </span>
+                  <span>
+                    network {String(run.networkBoundaryInvoked ?? false)}, response hashes{' '}
+                    {run.responseBodyHashes?.length ?? 0}, evidence{' '}
+                    {run.evidenceRefIds?.length ?? 0}, audit {run.auditEventIds?.length ?? 0}
+                  </span>
+                  <span>
+                    noRealWrite {String(run.noRealWrite ?? false)}, removal{' '}
+                    {String(run.removalAllowed ?? false)}, arbitraryEndpoint{' '}
+                    {String(run.arbitraryEndpointAllowed ?? false)}, bodyStored{' '}
+                    {String(run.bodyStored ?? false)}
+                  </span>
+                  {run.summary ? <p>{run.summary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              No GitHub PR management run summaries are available. Labels, assignees,
+              reviewers, milestones, and comments remain independent approval-gated
+              control planes; this Dashboard section is read-only.
             </p>
           )}
         </Panel>

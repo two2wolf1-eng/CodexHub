@@ -20,6 +20,9 @@ import type {
   GithubPrLifecycleApprovalArtifactRecord,
   GithubPrLifecycleObservationPlan,
   GithubPrLifecycleObservationRun,
+  GithubPrManagementApprovalArtifactRecord,
+  GithubPrManagementPlan,
+  GithubPrManagementRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
   GithubRemoteCleanupApprovalArtifactRecord,
@@ -465,6 +468,37 @@ export interface GithubPrLifecycleRunRepository {
   ): Promise<GithubPrLifecycleObservationRun[]>;
 }
 
+export interface GithubPrManagementControlPlaneQuery {
+  dryRunId?: string;
+  status?: string;
+  limit?: number;
+}
+
+export interface GithubPrManagementDryRunRepository {
+  saveDryRun(record: GithubPrManagementPlan): Promise<GithubPrManagementPlan>;
+  getDryRun(id: string): Promise<GithubPrManagementPlan | undefined>;
+  listDryRuns(query?: GithubPrManagementControlPlaneQuery): Promise<GithubPrManagementPlan[]>;
+}
+
+export interface GithubPrManagementApprovalRepository {
+  saveApproval(
+    record: GithubPrManagementApprovalArtifactRecord,
+  ): Promise<GithubPrManagementApprovalArtifactRecord>;
+  getApproval(id: string): Promise<GithubPrManagementApprovalArtifactRecord | undefined>;
+  getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubPrManagementApprovalArtifactRecord | undefined>;
+  listApprovals(
+    query?: GithubPrManagementControlPlaneQuery,
+  ): Promise<GithubPrManagementApprovalArtifactRecord[]>;
+}
+
+export interface GithubPrManagementRunRepository {
+  saveRun(record: GithubPrManagementRun): Promise<GithubPrManagementRun>;
+  getRun(id: string): Promise<GithubPrManagementRun | undefined>;
+  listRuns(query?: GithubPrManagementControlPlaneQuery): Promise<GithubPrManagementRun[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -805,6 +839,21 @@ export interface CodexHubStore {
   githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
   githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
   githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
+  githubPrLabelsDryRuns: GithubPrManagementDryRunRepository;
+  githubPrLabelsApprovals: GithubPrManagementApprovalRepository;
+  githubPrLabelsRuns: GithubPrManagementRunRepository;
+  githubPrAssigneesDryRuns: GithubPrManagementDryRunRepository;
+  githubPrAssigneesApprovals: GithubPrManagementApprovalRepository;
+  githubPrAssigneesRuns: GithubPrManagementRunRepository;
+  githubPrReviewersDryRuns: GithubPrManagementDryRunRepository;
+  githubPrReviewersApprovals: GithubPrManagementApprovalRepository;
+  githubPrReviewersRuns: GithubPrManagementRunRepository;
+  githubPrMilestonesDryRuns: GithubPrManagementDryRunRepository;
+  githubPrMilestonesApprovals: GithubPrManagementApprovalRepository;
+  githubPrMilestonesRuns: GithubPrManagementRunRepository;
+  githubPrCommentsDryRuns: GithubPrManagementDryRunRepository;
+  githubPrCommentsApprovals: GithubPrManagementApprovalRepository;
+  githubPrCommentsRuns: GithubPrManagementRunRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

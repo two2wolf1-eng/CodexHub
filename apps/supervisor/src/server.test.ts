@@ -44,6 +44,31 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: false,
   },
   {
+    family: 'github-pr-labels',
+    prefix: '/api/github/pr-labels',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-pr-assignees',
+    prefix: '/api/github/pr-assignees',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-pr-reviewers',
+    prefix: '/api/github/pr-reviewers',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-pr-milestones',
+    prefix: '/api/github/pr-milestones',
+    approvalManagedExternally: false,
+  },
+  {
+    family: 'github-pr-comments',
+    prefix: '/api/github/pr-comments',
+    approvalManagedExternally: false,
+  },
+  {
     family: 'github-draft-prs',
     prefix: '/api/github/draft-prs',
     approvalManagedExternally: false,
@@ -281,6 +306,17 @@ describe('supervisor mock development API', () => {
       .filter((route): route is string => Boolean(route))
       .filter((route) =>
         lateStageSupervisorRoutePrefixes.some((prefix) => route.startsWith(prefix)),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerGithubPrManagementRoutes\('[^']+', '([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/runs`,
+          ]),
       )
       .sort();
     const coveredLateStageRoutes = [...lateStageSupervisorMutatingRoutes].sort();
@@ -5874,6 +5910,124 @@ describe('supervisor GitHub PR lifecycle control plane', () => {
     });
     expect(runResponse.json().blockReasons).toContain('github_pr_lifecycle_disabled');
     expect(fetchCalled).toBe(false);
+  });
+});
+
+describe('supervisor GitHub PR management control planes', () => {
+  it('runs label management through store-resolved approval and fixed endpoints', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-github-pr-labels-store-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const requested: Array<{ url: string; method?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method });
+      const method = init?.method ?? 'GET';
+
+      return {
+        ok: true,
+        status: method === 'POST' ? 201 : 200,
+        async text() {
+          return method === 'POST' ? '{"labels":["bug","m37"]}' : '{"ok":true}';
+        },
+      };
+    }) as unknown as typeof fetch;
+    const server = buildSupervisorServer({
+      store,
+      localControlKey: localControlToken,
+      githubProviderEnabled: true,
+      githubPrLabelsEnabled: true,
+      githubProviderCredential: 'ghp_secret',
+      githubProviderFetch: fetchImpl,
+    });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/m37',
+        prNumber: '42',
+        itemSummaries: ['bug', 'm37'],
+        payloadSummary: 'Apply approved labels from metadata summary.',
+      },
+    });
+    const approvalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/approval-requests',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRunResponse.json().dryRunId, reason: 'approve labels' },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalRequestId: approvalRequestResponse.json().approvalRequestId,
+        outcome: 'approved',
+      },
+    });
+    const forbiddenRawResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        rawLabelBody: 'bug,m37',
+      },
+    });
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/pr-labels/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRunResponse.json().dryRunId,
+        approvalArtifactId: approvalResponse.json().approvalArtifactId,
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/m37',
+        prNumber: '42',
+        itemSummaries: ['bug', 'm37'],
+        payloadSummary: 'Apply approved labels from metadata summary.',
+      },
+    });
+    const runsResponse = await server.inject({ method: 'GET', url: '/api/github/pr-labels/runs' });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(approvalResponse.json().status).toBe('approved');
+    expect(forbiddenRawResponse.statusCode).toBe(400);
+    expect(forbiddenRawResponse.json()).toMatchObject({
+      error: 'request body contains forbidden raw GitHub PR labels fields',
+      networkBoundaryInvoked: false,
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json()).toMatchObject({
+      status: 'completed',
+      managementKind: 'labels',
+      networkBoundaryInvoked: true,
+      bodyStored: false,
+      rawCommentBodyStored: false,
+      rawResponseBodyStored: false,
+    });
+    expect(runsResponse.json().count).toBe(1);
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'GET https://api.github.com/repos/octo-org/codexhub/issues/42/labels',
+      'POST https://api.github.com/repos/octo-org/codexhub/issues/42/labels',
+    ]);
+    expect(completedResponse.body).not.toContain('octo-org');
+    expect(completedResponse.body).not.toContain('codexhub/m37');
+    expect(completedResponse.body).not.toContain('ghp_secret');
+    expect(completedResponse.body).not.toContain('"bug"');
   });
 });
 

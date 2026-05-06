@@ -184,6 +184,16 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'github.pr_lifecycle_plan',
     'github.pr_lifecycle_summary',
     'github.pr_lifecycle_run',
+    'github.pr_labels_plan',
+    'github.pr_labels_run_summary',
+    'github.pr_assignees_plan',
+    'github.pr_assignees_run_summary',
+    'github.pr_reviewers_plan',
+    'github.pr_reviewers_run_summary',
+    'github.pr_milestones_plan',
+    'github.pr_milestones_run_summary',
+    'github.pr_comments_plan',
+    'github.pr_comments_run_summary',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -1452,6 +1462,8 @@ export type NxVerificationChildRecord = z.infer<typeof NxVerificationChildRecord
 export const ProductionWorkflowRecoveryScenarioSchema = z.enum([
   'all-pass',
   'pilot-disabled',
+  'missing-child-ref',
+  'hash-mismatch',
   'workflow-approval-blocked',
   'child-dry-run-failed',
   'child-approval-blocked',
@@ -5622,6 +5634,244 @@ export const GithubPrLifecycleAcceptanceRehearsalRunSchema = createdEntityBaseSc
   });
 export type GithubPrLifecycleAcceptanceRehearsalRun = z.infer<
   typeof GithubPrLifecycleAcceptanceRehearsalRunSchema
+>;
+
+export const GithubPrManagementKindSchema = z.enum([
+  'labels',
+  'assignees',
+  'reviewers',
+  'milestones',
+  'comments',
+]);
+export type GithubPrManagementKind = z.infer<typeof GithubPrManagementKindSchema>;
+
+export const GithubPrManagementRunnerModeSchema = z.enum([
+  'planning-only',
+  'controlled-github-pr-management',
+]);
+export type GithubPrManagementRunnerMode = z.infer<
+  typeof GithubPrManagementRunnerModeSchema
+>;
+
+export const GithubPrManagementPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    managementKind: GithubPrManagementKindSchema,
+    status: z.enum(['planned', 'blocked']),
+    runnerMode: GithubPrManagementRunnerModeSchema,
+    targetRef: GithubRemoteRefSummarySchema,
+    prNumberHash: z.string().min(1).optional(),
+    itemCount: z.number().int().nonnegative(),
+    payloadHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    policyDecision: PolicyDecisionSchema,
+    requiresApproval: z.literal(true),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryPlanned: z.boolean(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean().default(false),
+    fixedEndpointOnly: z.literal(true),
+    addOrSetOnly: z.literal(true),
+    mergeAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    arbitraryEndpointAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawCommentBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'blocked' && record.networkBoundaryPlanned) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked GitHub PR management plans cannot plan a network boundary',
+        path: ['networkBoundaryPlanned'],
+      });
+    }
+  });
+export type GithubPrManagementPlan = z.infer<typeof GithubPrManagementPlanSchema>;
+
+export const GithubPrManagementApprovalArtifactRecordSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    managementKind: GithubPrManagementKindSchema,
+    approvalRequestId: z.string().min(1),
+    approvalArtifactId: z.string().min(1),
+    status: GithubProviderApprovalStatusSchema,
+    approved: z.boolean(),
+    policyDecisionId: z.string().min(1),
+    requestedByHash: z.string().min(1).optional(),
+    decidedByHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawCommentBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.approved !== (record.status === 'approved')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved must match approved GitHub PR management approval status',
+        path: ['approved'],
+      });
+    }
+  });
+export type GithubPrManagementApprovalArtifactRecord = z.infer<
+  typeof GithubPrManagementApprovalArtifactRecordSchema
+>;
+
+export const GithubPrManagementSummarySchema = createdEntityBaseSchema
+  .extend({
+    managementKind: GithubPrManagementKindSchema,
+    targetRef: GithubRemoteRefSummarySchema,
+    prNumberHash: z.string().min(1).optional(),
+    itemCount: z.number().int().nonnegative(),
+    payloadHash: z.string().min(1).optional(),
+    responseBodyHashCount: z.number().int().nonnegative(),
+    changed: z.boolean(),
+    fixedEndpointOnly: z.literal(true),
+    addOrSetOnly: z.literal(true),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawCommentBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+  });
+export type GithubPrManagementSummary = z.infer<typeof GithubPrManagementSummarySchema>;
+
+export const GithubPrManagementRunSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    dryRunRecordId: z.string().min(1),
+    approvalArtifactId: z.string().min(1).optional(),
+    managementKind: GithubPrManagementKindSchema,
+    status: GithubControlPlaneRunStatusSchema,
+    plan: GithubPrManagementPlanSchema,
+    managementSummary: GithubPrManagementSummarySchema,
+    responseBodyHashes: z.array(z.string().min(1)).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefs: z.array(EvidenceRefSchema).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    networkBoundaryInvoked: z.boolean(),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.boolean().default(false),
+    fixedEndpointOnly: z.literal(true),
+    addOrSetOnly: z.literal(true),
+    mergeAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    arbitraryEndpointAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawCommentBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'completed' && !record.networkBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed GitHub PR management runs must invoke network boundary',
+        path: ['networkBoundaryInvoked'],
+      });
+    }
+  });
+export type GithubPrManagementRun = z.infer<typeof GithubPrManagementRunSchema>;
+
+export const GithubPrManagementAcceptanceScenarioSchema = z.enum([
+  'all-pass',
+  'provider-disabled',
+  'token-missing',
+  'approval-blocked',
+  'pr-not-found',
+  'github-write-failed',
+  'network-timeout',
+  'raw-body-rejected',
+]);
+export type GithubPrManagementAcceptanceScenario = z.infer<
+  typeof GithubPrManagementAcceptanceScenarioSchema
+>;
+
+export const GithubPrManagementAcceptanceRehearsalRunSchema = createdEntityBaseSchema
+  .extend({
+    managementKind: GithubPrManagementKindSchema,
+    scenario: GithubPrManagementAcceptanceScenarioSchema,
+    status: z.enum(['passed', 'failed', 'blocked', 'aborted']),
+    stepCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    evidenceRefCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    networkBoundaryInvoked: z.literal(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    noRealWrite: z.literal(true),
+    fixedEndpointOnly: z.literal(true),
+    addOrSetOnly: z.literal(true),
+    mergeAllowed: z.literal(false),
+    pushAllowed: z.literal(false),
+    updateRefAllowed: z.literal(false),
+    forceAllowed: z.literal(false),
+    rawUrlStored: z.literal(false),
+    rawResponseBodyStored: z.literal(false),
+    rawPrBodyStored: z.literal(false),
+    rawCommentBodyStored: z.literal(false),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectGithubRawMetadata(record.metadata, context, ['metadata']);
+
+    if (record.status === 'passed' && record.scenario !== 'all-pass') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only all-pass GitHub PR management rehearsals can pass',
+        path: ['status'],
+      });
+    }
+  });
+export type GithubPrManagementAcceptanceRehearsalRun = z.infer<
+  typeof GithubPrManagementAcceptanceRehearsalRunSchema
 >;
 
 export const GithubPublishDraftPrChainRunSchema = createdEntityBaseSchema

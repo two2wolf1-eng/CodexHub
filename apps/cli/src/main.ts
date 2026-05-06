@@ -153,6 +153,8 @@ import type {
   GithubBranchPublishAcceptanceScenario,
   GithubDraftPrAcceptanceScenario,
   GithubPrLifecycleAcceptanceScenario,
+  GithubPrManagementAcceptanceScenario,
+  GithubPrManagementKind,
   GithubPublishDraftPrAcceptanceScenario,
   GithubRemoteCleanupAcceptanceScenario,
   LocalRcAcceptanceRehearsalScenario,
@@ -180,6 +182,7 @@ import {
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
   runGithubPrLifecycleAcceptanceRehearsal,
+  runGithubPrManagementAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
   runGithubRemoteCleanupAcceptanceRehearsal,
   runRemoteSupersedeAcceptanceRehearsal,
@@ -270,6 +273,10 @@ const GITHUB_PR_LIFECYCLE_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
 ].join('-') as GithubPrLifecycleAcceptanceScenario;
+const GITHUB_PR_MANAGEMENT_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
+  ['to', 'ken'].join(''),
+  'missing',
+].join('-') as GithubPrManagementAcceptanceScenario;
 const GITHUB_REMOTE_CLEANUP_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO = [
   ['to', 'ken'].join(''),
   'missing',
@@ -683,6 +690,125 @@ interface GithubPrLifecycleApiRecord {
   evidenceRefIds?: string[];
   auditEventIds?: string[];
   summary?: string;
+}
+
+interface GithubPrManagementApiRecord {
+  recordId?: string;
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  runId?: string;
+  status?: string;
+  managementKind?: string;
+  runnerMode?: string;
+  actionMode?: string;
+  targetRef?: {
+    hostHash?: string;
+    ownerHash?: string;
+    repoHash?: string;
+    baseBranchHash?: string;
+    headBranchHash?: string;
+    rawOwnerStored?: boolean;
+    rawRepoStored?: boolean;
+    rawRefStored?: boolean;
+    rawUrlStored?: boolean;
+    rawPathStored?: boolean;
+    bodyStored?: boolean;
+  };
+  prNumberHash?: string;
+  itemSummaryHash?: string;
+  payloadHash?: string;
+  itemCount?: number;
+  changed?: boolean;
+  responseBodyHashes?: string[];
+  networkBoundaryPlanned?: boolean;
+  networkBoundaryInvoked?: boolean;
+  processBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  noRealWrite?: boolean;
+  rawUrlStored?: boolean;
+  rawResponseBodyStored?: boolean;
+  rawCommentBodyStored?: boolean;
+  rawPathStored?: boolean;
+  bodyStored?: boolean;
+  removalAllowed?: boolean;
+  arbitraryEndpointAllowed?: boolean;
+  mergeAllowed?: boolean;
+  pushAllowed?: boolean;
+  updateRefAllowed?: boolean;
+  forceAllowed?: boolean;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  summary?: string;
+}
+
+function registerGithubPrManagementReadOnlyCommands(
+  githubCommand: Command,
+  commandName: string,
+  managementKind: GithubPrManagementKind,
+): void {
+  const command = githubCommand
+    .command(commandName)
+    .description(`Read GitHub PR ${managementKind} management records from Supervisor GET endpoints`);
+
+  const dryRunsCommand = command
+    .command('dry-runs')
+    .description(`Read GitHub PR ${managementKind} dry-run records`);
+
+  dryRunsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description(`List GitHub PR ${managementKind} dry-runs without sending remote requests`)
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPrManagementDryRuns(managementKind);
+      console.log(formatGithubPrManagementDryRunsListOutput(result, options));
+    });
+
+  const approvalsCommand = command
+    .command('approvals')
+    .description(`Read GitHub PR ${managementKind} approval records`);
+
+  approvalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description(`List GitHub PR ${managementKind} approvals without making decisions`)
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPrManagementApprovals(managementKind);
+      console.log(formatGithubPrManagementApprovalsListOutput(result, options));
+    });
+
+  const runsCommand = command
+    .command('runs')
+    .description(`Read GitHub PR ${managementKind} run records`);
+
+  runsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description(`List GitHub PR ${managementKind} runs without sending remote requests`)
+    .action(async (options: JsonCliOptions) => {
+      const result = await listGithubPrManagementRuns(managementKind);
+      console.log(formatGithubPrManagementRunsListOutput(result, options));
+    });
+
+  runsCommand
+    .command('show')
+    .argument('<runId>')
+    .option('--json', 'Print full JSON output')
+    .description(`Show GitHub PR ${managementKind} run details without sending remote requests`)
+    .action(async (runId: string, options: JsonCliOptions) => {
+      const result = await showGithubPrManagementRun(managementKind, runId);
+      console.log(formatGithubPrManagementRunDetailOutput(result, options));
+    });
+
+  command
+    .command('rehearse')
+    .requiredOption('--fixture', 'Run the local fixture rehearsal only')
+    .option('--scenario <name>', 'Fixture scenario name', 'all-pass')
+    .option('--json', 'Print full JSON output')
+    .description(`Rehearse GitHub PR ${managementKind} management without network writes`)
+    .action((options: JsonCliOptions & { fixture?: boolean; scenario?: string }) => {
+      const result = runGithubPrManagementAcceptanceRehearsalForCli(managementKind, options);
+      console.log(formatGithubPrManagementAcceptanceRehearsalOutput(result, options));
+    });
 }
 
 interface GithubRemoteSupersedeApiRecord {
@@ -2343,6 +2469,12 @@ export function buildProgram(): Command {
       const result = runGithubPrLifecycleAcceptanceRehearsalForCli(options);
       console.log(formatGithubPrLifecycleAcceptanceRehearsalOutput(result, options));
     });
+
+  registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-labels', 'labels');
+  registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-assignees', 'assignees');
+  registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-reviewers', 'reviewers');
+  registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-milestones', 'milestones');
+  registerGithubPrManagementReadOnlyCommands(githubCommand, 'pr-comments', 'comments');
 
   const githubSupersedesCommand = githubCommand
     .command('supersedes')
@@ -4366,6 +4498,22 @@ export function runGithubPrLifecycleAcceptanceRehearsalForCli(options: {
   return runGithubPrLifecycleAcceptanceRehearsal({ scenario });
 }
 
+export function runGithubPrManagementAcceptanceRehearsalForCli(
+  managementKind: GithubPrManagementKind,
+  options: {
+    fixture?: boolean;
+    scenario?: string;
+  } = {},
+): ReturnType<typeof runGithubPrManagementAcceptanceRehearsal> {
+  if (!options.fixture) {
+    throw new Error(`GitHub PR ${managementKind} management acceptance rehearsal requires --fixture`);
+  }
+
+  const scenario = normalizeGithubPrManagementAcceptanceScenario(options.scenario);
+
+  return runGithubPrManagementAcceptanceRehearsal({ managementKind, scenario });
+}
+
 export function runRemoteSupersedeAcceptanceRehearsalForCli(options: {
   fixture?: boolean;
   scenario?: string;
@@ -5072,6 +5220,86 @@ export async function showGithubPrLifecycleRun(
       rawResponseBodyStored: false,
       bodyStored: false,
       note: 'No GitHub PR lifecycle request was attempted.',
+    };
+  }
+}
+
+export async function listGithubPrManagementDryRuns(
+  managementKind: GithubPrManagementKind,
+): Promise<Record<string, unknown>> {
+  return listGithubPrManagementCollection(
+    managementKind,
+    `/api/github/pr-${managementKind}/dry-runs`,
+    `GitHub PR ${managementKind} dry-runs are read from Supervisor GET endpoints only.`,
+    `GitHub PR ${managementKind} dry-run source is unavailable; no remote request was attempted.`,
+  );
+}
+
+export async function listGithubPrManagementApprovals(
+  managementKind: GithubPrManagementKind,
+): Promise<Record<string, unknown>> {
+  return listGithubPrManagementCollection(
+    managementKind,
+    `/api/github/pr-${managementKind}/approvals`,
+    `GitHub PR ${managementKind} approvals are read from Supervisor GET endpoints only.`,
+    `GitHub PR ${managementKind} approval source is unavailable; no approval decision was made.`,
+  );
+}
+
+export async function listGithubPrManagementRuns(
+  managementKind: GithubPrManagementKind,
+): Promise<Record<string, unknown>> {
+  return listGithubPrManagementCollection(
+    managementKind,
+    `/api/github/pr-${managementKind}/runs`,
+    `GitHub PR ${managementKind} runs are read from Supervisor GET endpoints only.`,
+    `GitHub PR ${managementKind} run source is unavailable; no remote request was attempted.`,
+  );
+}
+
+export async function showGithubPrManagementRun(
+  managementKind: GithubPrManagementKind,
+  runId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<Record<string, unknown>>(
+      `/api/github/pr-${managementKind}/runs/${encodeURIComponent(runId)}`,
+    );
+
+    return {
+      status: 'found',
+      managementKind,
+      run: response,
+      liveExecution: false,
+      networkBoundaryInvoked: response.networkBoundaryInvoked ?? false,
+      externalProcessStarted: false,
+      noRealWrite: response.noRealWrite ?? true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawCommentBodyStored: false,
+      bodyStored: false,
+      note: `GitHub PR ${managementKind} run detail is metadata-only and read from Supervisor GET.`,
+    };
+  } catch (error) {
+    return {
+      status: 'not_found',
+      managementKind,
+      runId,
+      message:
+        error instanceof Error ? error.message : `GitHub PR ${managementKind} run unavailable`,
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawCommentBodyStored: false,
+      bodyStored: false,
+      note: `No GitHub PR ${managementKind} request was attempted.`,
     };
   }
 }
@@ -6790,6 +7018,28 @@ function normalizeGithubPrLifecycleAcceptanceScenario(
   throw new Error(`Unsupported GitHub PR lifecycle acceptance fixture scenario: ${scenario}`);
 }
 
+function normalizeGithubPrManagementAcceptanceScenario(
+  scenario: string | undefined,
+): GithubPrManagementAcceptanceScenario {
+  if (scenario === undefined || scenario === 'all-pass') {
+    return 'all-pass';
+  }
+
+  if (
+    scenario === 'provider-disabled' ||
+    scenario === GITHUB_PR_MANAGEMENT_ACCEPTANCE_CREDENTIAL_MISSING_SCENARIO ||
+    scenario === 'approval-blocked' ||
+    scenario === 'pr-not-found' ||
+    scenario === 'github-write-failed' ||
+    scenario === 'network-timeout' ||
+    scenario === 'raw-body-rejected'
+  ) {
+    return scenario;
+  }
+
+  throw new Error(`Unsupported GitHub PR management acceptance fixture scenario: ${scenario}`);
+}
+
 function normalizeRemoteSupersedeAcceptanceScenario(
   scenario: string | undefined,
 ): RemoteSupersedeAcceptanceScenario {
@@ -7128,6 +7378,66 @@ async function listGithubPrLifecycleCollection(
       rawPathStored: false,
       rawUrlStored: false,
       rawResponseBodyStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
+async function listGithubPrManagementCollection(
+  managementKind: GithubPrManagementKind,
+  path: string,
+  note: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await getSupervisorJson<{
+      records: Array<Record<string, unknown>>;
+      count?: number;
+      degraded?: boolean;
+      notPersisted?: boolean;
+    }>(path);
+
+    return {
+      status: 'ready',
+      managementKind,
+      count: response.count ?? response.records.length,
+      records: response.records,
+      degraded: response.degraded ?? false,
+      notPersisted: response.notPersisted ?? false,
+      liveExecution: false,
+      networkBoundaryInvoked: response.records.some((record) => record.networkBoundaryInvoked),
+      externalProcessStarted: false,
+      noRealWrite: response.records.every((record) => record.noRealWrite !== false),
+      fixedEndpointOnly: true,
+      addOrSetOnly: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawCommentBodyStored: false,
+      bodyStored: false,
+      note,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      managementKind,
+      count: 0,
+      records: [],
+      message:
+        error instanceof Error ? error.message : `GitHub PR ${managementKind} source unavailable`,
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      fixedEndpointOnly: true,
+      addOrSetOnly: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      rawPrBodyStored: false,
+      rawCommentBodyStored: false,
       bodyStored: false,
       note: degradedNote,
     };
@@ -11989,6 +12299,118 @@ export function formatGithubPrLifecycleAcceptanceRehearsalOutput(
   ].join('\n');
 }
 
+export function formatGithubPrManagementDryRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPrManagementCollectionOutput(
+    'GitHub PR management dry-runs',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPrManagementApprovalsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPrManagementCollectionOutput(
+    'GitHub PR management approvals',
+    result,
+    options,
+  );
+}
+
+export function formatGithubPrManagementRunsListOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  return formatGithubPrManagementCollectionOutput('GitHub PR management runs', result, options);
+}
+
+export function formatGithubPrManagementRunDetailOutput(
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const run = result.run as GithubPrManagementApiRecord | undefined;
+
+  return [
+    'GitHub PR management run',
+    `status: ${String(result.status ?? 'unknown')}`,
+    `runId: ${run?.runId ?? result.runId ?? 'unknown'}`,
+    `dryRunId: ${run?.dryRunId ?? 'unknown'}`,
+    `kind: ${run?.managementKind ?? 'unknown'}`,
+    `runnerMode: ${run?.runnerMode ?? 'unknown'}`,
+    `runStatus: ${run?.status ?? 'unknown'}`,
+    run?.targetRef?.ownerHash ? `ownerHash: ${run.targetRef.ownerHash}` : undefined,
+    run?.targetRef?.repoHash ? `repoHash: ${run.targetRef.repoHash}` : undefined,
+    run?.prNumberHash ? `prNumberHash: ${run.prNumberHash}` : undefined,
+    run?.itemSummaryHash ? `itemSummaryHash: ${run.itemSummaryHash}` : undefined,
+    run?.payloadHash ? `payloadHash: ${run.payloadHash}` : undefined,
+    `itemCount=${String(run?.itemCount ?? 0)}`,
+    `changed=${String(run?.changed ?? false)}`,
+    `responseHashCount=${String(run?.responseBodyHashes?.length ?? 0)}`,
+    `networkBoundaryInvoked=${String(run?.networkBoundaryInvoked ?? false)}`,
+    `processBoundaryInvoked=${String(run?.processBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(run?.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(run?.noRealWrite ?? false)}`,
+    `removalAllowed=${String(run?.removalAllowed ?? false)}`,
+    `arbitraryEndpointAllowed=${String(run?.arbitraryEndpointAllowed ?? false)}`,
+    `mergeAllowed=${String(run?.mergeAllowed ?? false)}`,
+    `pushAllowed=${String(run?.pushAllowed ?? false)}`,
+    `updateRefAllowed=${String(run?.updateRefAllowed ?? false)}`,
+    `forceAllowed=${String(run?.forceAllowed ?? false)}`,
+    `rawUrlStored=${String(run?.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(run?.rawResponseBodyStored ?? false)}`,
+    `rawCommentBodyStored=${String(run?.rawCommentBodyStored ?? false)}`,
+    `bodyStored=${String(run?.bodyStored ?? false)}`,
+    `rawPathStored=${String(run?.rawPathStored ?? false)}`,
+    run?.summary ? `summary: ${run.summary}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+export function formatGithubPrManagementAcceptanceRehearsalOutput(
+  result: ReturnType<typeof runGithubPrManagementAcceptanceRehearsal>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    'GitHub PR management acceptance rehearsal',
+    `status: ${result.status}`,
+    `scenario: ${result.scenario}`,
+    `kind: ${result.managementKind}`,
+    `steps: ${result.stepCount}`,
+    `evidence: ${result.evidenceRefCount}`,
+    `audit: ${result.auditEventCount}`,
+    `blockers: ${result.blockerCount}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked)}`,
+    `processBoundaryInvoked=${String(result.processBoundaryInvoked)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted)}`,
+    `noRealWrite=${String(result.noRealWrite)}`,
+    `fixedEndpointOnly=${String(result.fixedEndpointOnly)}`,
+    `addOrSetOnly=${String(result.addOrSetOnly)}`,
+    `mergeAllowed=${String(result.mergeAllowed)}`,
+    `pushAllowed=${String(result.pushAllowed)}`,
+    `updateRefAllowed=${String(result.updateRefAllowed)}`,
+    `forceAllowed=${String(result.forceAllowed)}`,
+    `rawUrlStored=${String(result.rawUrlStored)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored)}`,
+    `rawPrBodyStored=${String(result.rawPrBodyStored)}`,
+    `rawCommentBodyStored=${String(result.rawCommentBodyStored)}`,
+    `bodyStored=${String(result.bodyStored)}`,
+    `rawPathStored=${String(result.rawPathStored)}`,
+  ].join('\n');
+}
+
 export function formatGithubRemoteSupersedeDryRunsListOutput(
   result: Record<string, unknown>,
   options: JsonCliOptions = {},
@@ -12858,6 +13280,52 @@ function formatGithubPrLifecycleCollectionOutput(
           `state=${record.prStateSummary ?? 'unknown'}`,
           `status=${record.combinedStatusState ?? 'unknown'}`,
           `checks=${String(record.checkRunCount ?? 0)}`,
+          `network=${String(record.networkBoundaryInvoked ?? false)}`,
+          `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
+          `evidence=${record.evidenceRefIds?.length ?? 0}`,
+          `audit=${record.auditEventIds?.length ?? 0}`,
+        ].join(' '),
+      ),
+  ].join('\n');
+}
+
+function formatGithubPrManagementCollectionOutput(
+  title: string,
+  result: Record<string, unknown>,
+  options: JsonCliOptions = {},
+): string {
+  if (options.json) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const records = (result.records as GithubPrManagementApiRecord[] | undefined) ?? [];
+
+  return [
+    title,
+    `status: ${String(result.status ?? 'unknown')}`,
+    `count: ${records.length}`,
+    `liveExecution=${String(result.liveExecution ?? false)}`,
+    `networkBoundaryInvoked=${String(result.networkBoundaryInvoked ?? false)}`,
+    `externalProcessStarted=${String(result.externalProcessStarted ?? false)}`,
+    `noRealWrite=${String(result.noRealWrite ?? true)}`,
+    `rawUrlStored=${String(result.rawUrlStored ?? false)}`,
+    `rawResponseBodyStored=${String(result.rawResponseBodyStored ?? false)}`,
+    `rawCommentBodyStored=${String(result.rawCommentBodyStored ?? false)}`,
+    `bodyStored=${String(result.bodyStored ?? false)}`,
+    records.length > 0 ? 'items:' : 'items: none',
+    ...records
+      .slice(0, 12)
+      .map((record) =>
+        [
+          `- ${record.runId ?? record.approvalArtifactId ?? record.recordId ?? 'unknown'}`,
+          record.status ?? 'unknown',
+          `kind=${record.managementKind ?? 'unknown'}`,
+          `runner=${record.runnerMode ?? 'unknown'}`,
+          `owner=${record.targetRef?.ownerHash ?? 'unavailable'}`,
+          `repo=${record.targetRef?.repoHash ?? 'unavailable'}`,
+          `pr=${record.prNumberHash ?? 'unavailable'}`,
+          `items=${String(record.itemCount ?? 0)}`,
+          `changed=${String(record.changed ?? false)}`,
           `network=${String(record.networkBoundaryInvoked ?? false)}`,
           `responseHashes=${String(record.responseBodyHashes?.length ?? 0)}`,
           `evidence=${record.evidenceRefIds?.length ?? 0}`,

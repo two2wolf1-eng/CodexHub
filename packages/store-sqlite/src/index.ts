@@ -27,6 +27,9 @@ import type {
   GithubPrLifecycleApprovalArtifactRecord,
   GithubPrLifecycleObservationPlan,
   GithubPrLifecycleObservationRun,
+  GithubPrManagementApprovalArtifactRecord,
+  GithubPrManagementPlan,
+  GithubPrManagementRun,
   GithubPublishDraftPrChainPlan,
   GithubPublishDraftPrChainRun,
   GithubRemoteCleanupApprovalArtifactRecord,
@@ -131,6 +134,10 @@ import type {
   GithubPrLifecycleControlPlaneQuery,
   GithubPrLifecycleDryRunRepository,
   GithubPrLifecycleRunRepository,
+  GithubPrManagementApprovalRepository,
+  GithubPrManagementControlPlaneQuery,
+  GithubPrManagementDryRunRepository,
+  GithubPrManagementRunRepository,
   GithubPublishDraftPrChainControlPlaneQuery,
   GithubPublishDraftPrChainDryRunRepository,
   GithubPublishDraftPrChainRunRepository,
@@ -258,6 +265,21 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly githubPrLifecycleDryRuns: GithubPrLifecycleDryRunRepository;
   readonly githubPrLifecycleApprovals: GithubPrLifecycleApprovalRepository;
   readonly githubPrLifecycleRuns: GithubPrLifecycleRunRepository;
+  readonly githubPrLabelsDryRuns: GithubPrManagementDryRunRepository;
+  readonly githubPrLabelsApprovals: GithubPrManagementApprovalRepository;
+  readonly githubPrLabelsRuns: GithubPrManagementRunRepository;
+  readonly githubPrAssigneesDryRuns: GithubPrManagementDryRunRepository;
+  readonly githubPrAssigneesApprovals: GithubPrManagementApprovalRepository;
+  readonly githubPrAssigneesRuns: GithubPrManagementRunRepository;
+  readonly githubPrReviewersDryRuns: GithubPrManagementDryRunRepository;
+  readonly githubPrReviewersApprovals: GithubPrManagementApprovalRepository;
+  readonly githubPrReviewersRuns: GithubPrManagementRunRepository;
+  readonly githubPrMilestonesDryRuns: GithubPrManagementDryRunRepository;
+  readonly githubPrMilestonesApprovals: GithubPrManagementApprovalRepository;
+  readonly githubPrMilestonesRuns: GithubPrManagementRunRepository;
+  readonly githubPrCommentsDryRuns: GithubPrManagementDryRunRepository;
+  readonly githubPrCommentsApprovals: GithubPrManagementApprovalRepository;
+  readonly githubPrCommentsRuns: GithubPrManagementRunRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -340,6 +362,66 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.githubPrLifecycleDryRuns = new SqliteGithubPrLifecycleDryRunRepository(database);
     this.githubPrLifecycleApprovals = new SqliteGithubPrLifecycleApprovalRepository(database);
     this.githubPrLifecycleRuns = new SqliteGithubPrLifecycleRunRepository(database);
+    this.githubPrLabelsDryRuns = new SqliteGithubPrManagementDryRunRepository(
+      database,
+      'github_pr_labels_dry_runs',
+    );
+    this.githubPrLabelsApprovals = new SqliteGithubPrManagementApprovalRepository(
+      database,
+      'github_pr_labels_approvals',
+    );
+    this.githubPrLabelsRuns = new SqliteGithubPrManagementRunRepository(
+      database,
+      'github_pr_labels_runs',
+    );
+    this.githubPrAssigneesDryRuns = new SqliteGithubPrManagementDryRunRepository(
+      database,
+      'github_pr_assignees_dry_runs',
+    );
+    this.githubPrAssigneesApprovals = new SqliteGithubPrManagementApprovalRepository(
+      database,
+      'github_pr_assignees_approvals',
+    );
+    this.githubPrAssigneesRuns = new SqliteGithubPrManagementRunRepository(
+      database,
+      'github_pr_assignees_runs',
+    );
+    this.githubPrReviewersDryRuns = new SqliteGithubPrManagementDryRunRepository(
+      database,
+      'github_pr_reviewers_dry_runs',
+    );
+    this.githubPrReviewersApprovals = new SqliteGithubPrManagementApprovalRepository(
+      database,
+      'github_pr_reviewers_approvals',
+    );
+    this.githubPrReviewersRuns = new SqliteGithubPrManagementRunRepository(
+      database,
+      'github_pr_reviewers_runs',
+    );
+    this.githubPrMilestonesDryRuns = new SqliteGithubPrManagementDryRunRepository(
+      database,
+      'github_pr_milestones_dry_runs',
+    );
+    this.githubPrMilestonesApprovals = new SqliteGithubPrManagementApprovalRepository(
+      database,
+      'github_pr_milestones_approvals',
+    );
+    this.githubPrMilestonesRuns = new SqliteGithubPrManagementRunRepository(
+      database,
+      'github_pr_milestones_runs',
+    );
+    this.githubPrCommentsDryRuns = new SqliteGithubPrManagementDryRunRepository(
+      database,
+      'github_pr_comments_dry_runs',
+    );
+    this.githubPrCommentsApprovals = new SqliteGithubPrManagementApprovalRepository(
+      database,
+      'github_pr_comments_approvals',
+    );
+    this.githubPrCommentsRuns = new SqliteGithubPrManagementRunRepository(
+      database,
+      'github_pr_comments_runs',
+    );
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -1763,6 +1845,123 @@ class SqliteGithubPrLifecycleRunRepository implements GithubPrLifecycleRunReposi
     return listObservationControlPlaneRecords<GithubPrLifecycleObservationRun>(
       this.database,
       'github_pr_lifecycle_runs',
+      query,
+    );
+  }
+}
+
+class SqliteGithubPrManagementDryRunRepository implements GithubPrManagementDryRunRepository {
+  private readonly repository: JsonEntityRepository<GithubPrManagementPlan>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<GithubPrManagementPlan>(
+      database,
+      tableName,
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: GithubPrManagementPlan): Promise<GithubPrManagementPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<GithubPrManagementPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: GithubPrManagementControlPlaneQuery = {},
+  ): Promise<GithubPrManagementPlan[]> {
+    return listObservationControlPlaneRecords<GithubPrManagementPlan>(
+      this.database,
+      this.tableName,
+      query,
+    );
+  }
+}
+
+class SqliteGithubPrManagementApprovalRepository
+  implements GithubPrManagementApprovalRepository
+{
+  private readonly repository: JsonEntityRepository<GithubPrManagementApprovalArtifactRecord>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<GithubPrManagementApprovalArtifactRecord>(
+      database,
+      tableName,
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(
+    record: GithubPrManagementApprovalArtifactRecord,
+  ): Promise<GithubPrManagementApprovalArtifactRecord> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(
+    id: string,
+  ): Promise<GithubPrManagementApprovalArtifactRecord | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(
+    approvalArtifactId: string,
+  ): Promise<GithubPrManagementApprovalArtifactRecord | undefined> {
+    const rows = this.database
+      .prepare(`SELECT payload FROM ${this.tableName} ORDER BY recorded_at DESC, id DESC`)
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as GithubPrManagementApprovalArtifactRecord)
+      .find((record) => record.approvalArtifactId === approvalArtifactId);
+  }
+
+  async listApprovals(
+    query: GithubPrManagementControlPlaneQuery = {},
+  ): Promise<GithubPrManagementApprovalArtifactRecord[]> {
+    return listObservationControlPlaneRecords<GithubPrManagementApprovalArtifactRecord>(
+      this.database,
+      this.tableName,
+      query,
+    );
+  }
+}
+
+class SqliteGithubPrManagementRunRepository implements GithubPrManagementRunRepository {
+  private readonly repository: JsonEntityRepository<GithubPrManagementRun>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<GithubPrManagementRun>(
+      database,
+      tableName,
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRun(record: GithubPrManagementRun): Promise<GithubPrManagementRun> {
+    return this.repository.create(record);
+  }
+
+  async getRun(id: string): Promise<GithubPrManagementRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRuns(
+    query: GithubPrManagementControlPlaneQuery = {},
+  ): Promise<GithubPrManagementRun[]> {
+    return listObservationControlPlaneRecords<GithubPrManagementRun>(
+      this.database,
+      this.tableName,
       query,
     );
   }
@@ -3395,6 +3594,96 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS github_pr_lifecycle_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_labels_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_labels_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_labels_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_assignees_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_assignees_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_assignees_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_reviewers_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_reviewers_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_reviewers_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_milestones_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_milestones_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_milestones_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_comments_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_comments_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS github_pr_comments_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

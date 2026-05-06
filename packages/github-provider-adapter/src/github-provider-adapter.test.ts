@@ -5,6 +5,8 @@ import {
   GithubDraftPrPlanSchema,
   GithubMetadataDryRunRecordSchema,
   GithubPrLifecycleObservationPlanSchema,
+  GithubPrManagementPlanSchema,
+  GithubPrManagementRunSchema,
   GithubPublishDraftPrChainPlanSchema,
   GithubRemoteCleanupPlanSchema,
   GithubRemoteCleanupRunSchema,
@@ -23,6 +25,8 @@ import {
   createGithubMetadataDryRunRecord,
   createGithubPrLifecycleApprovalRecord,
   createGithubPrLifecycleObservationPlan,
+  createGithubPrManagementApprovalRecord,
+  createGithubPrManagementPlan,
   createGithubProviderManifest,
   createGithubRemoteCleanupApprovalRecord,
   createGithubRemoteCleanupPlan,
@@ -37,11 +41,13 @@ import {
   executeGithubDraftPrCreation,
   executeGithubMetadataObservation,
   executeGithubPrLifecycleObservation,
+  executeGithubPrManagement,
   executeGithubRemoteCleanup,
   readGithubTokenReadiness,
   runGithubBranchPublishAcceptanceRehearsal,
   runGithubDraftPrAcceptanceRehearsal,
   runGithubPrLifecycleAcceptanceRehearsal,
+  runGithubPrManagementAcceptanceRehearsal,
   runGithubRemoteCleanupAcceptanceRehearsal,
   runGithubPublishDraftPrAcceptanceRehearsal,
   runRemoteSupersedeAcceptanceRehearsal,
@@ -1641,5 +1647,113 @@ describe('github-provider-adapter M15a foundation', () => {
     expect(serialized).not.toContain('octo-org');
     expect(serialized).not.toContain('codexhub/m20-r1');
     expect(serialized).not.toContain('https://api.github.com');
+  });
+});
+
+describe('github-provider-adapter M37 PR management', () => {
+  it('plans and executes label management through fixed approval-gated endpoints', async () => {
+    const dryRunRecord = createGithubPrManagementPlan({
+      managementKind: 'labels',
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      headBranch: 'codexhub/m37',
+      prNumber: '42',
+      itemSummaries: ['bug', 'm37'],
+      payloadSummary: 'Apply approved labels from metadata summary.',
+      runnerMode: 'controlled-github-pr-management',
+      now: fixedNow,
+    });
+    const approvalRecord = createGithubPrManagementApprovalRecord({
+      dryRunRecord,
+      status: 'approved',
+      now: fixedNow,
+    });
+    const authority = {
+      ...allowedAuthority,
+      policyDecisionId: dryRunRecord.policyDecision.id,
+      approvalArtifactId: approvalRecord.approvalArtifactId,
+    };
+    const requested: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method, body: init?.body as string | undefined });
+      const method = init?.method ?? 'GET';
+      const body = method === 'POST' ? '{"labels":["bug","m37"]}' : '{"ok":true}';
+
+      return {
+        ok: true,
+        status: method === 'POST' ? 201 : 200,
+        async text() {
+          return body;
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const run = await executeGithubPrManagement({
+      dryRunRecord,
+      approvalRecord,
+      authority,
+      enabled: true,
+      runtime: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/m37',
+        managementKind: 'labels',
+        prNumber: '42',
+        itemSummaries: ['bug', 'm37'],
+        payloadSummary: 'Apply approved labels from metadata summary.',
+        token: 'ghp_secret',
+      },
+      fetchImpl,
+      now: fixedNow,
+    });
+    const serialized = JSON.stringify({ dryRunRecord, run });
+
+    expect(GithubPrManagementPlanSchema.parse(dryRunRecord).status).toBe('planned');
+    expect(GithubPrManagementRunSchema.parse(run).status).toBe('completed');
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(run.managementSummary.changed).toBe(true);
+    expect(requested.map((request) => `${request.method ?? 'GET'} ${request.url}`)).toEqual([
+      'GET https://api.github.com/repos/octo-org/codexhub',
+      'GET https://api.github.com/repos/octo-org/codexhub/pulls/42',
+      'GET https://api.github.com/repos/octo-org/codexhub/issues/42/labels',
+      'POST https://api.github.com/repos/octo-org/codexhub/issues/42/labels',
+    ]);
+    expect(requested.at(3)?.body).toBe('{"labels":["bug","m37"]}');
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('octo-org');
+    expect(serialized).not.toContain('codexhub/m37');
+    expect(serialized).not.toContain('"bug"');
+    expect(serialized).not.toContain('https://api.github.com');
+  });
+
+  it('runs PR management rehearsals without invoking network boundaries', () => {
+    const passed = runGithubPrManagementAcceptanceRehearsal({
+      managementKind: 'comments',
+      scenario: 'all-pass',
+      now: fixedNow,
+    });
+    const blocked = runGithubPrManagementAcceptanceRehearsal({
+      managementKind: 'comments',
+      scenario: 'approval-blocked',
+      now: fixedNow,
+    });
+    const failed = runGithubPrManagementAcceptanceRehearsal({
+      managementKind: 'comments',
+      scenario: 'github-write-failed',
+      now: fixedNow,
+    });
+
+    expect(passed.status).toBe('passed');
+    expect(blocked.status).toBe('blocked');
+    expect(failed.status).toBe('failed');
+    expect(passed.networkBoundaryInvoked).toBe(false);
+    expect(passed.noRealWrite).toBe(true);
+    expect(passed.fixedEndpointOnly).toBe(true);
+    expect(passed.addOrSetOnly).toBe(true);
+    expect(passed.mergeAllowed).toBe(false);
+    expect(passed.pushAllowed).toBe(false);
+    expect(JSON.stringify({ passed, blocked, failed })).not.toContain('ghp_');
   });
 });

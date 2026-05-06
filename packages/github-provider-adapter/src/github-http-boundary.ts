@@ -71,6 +71,34 @@ export interface GithubPrLifecycleHttpBoundaryRequest extends GithubHttpBoundary
   commitSha?: string;
 }
 
+export type GithubPrManagementBoundaryKind =
+  | 'labels'
+  | 'assignees'
+  | 'reviewers'
+  | 'milestones'
+  | 'comments';
+
+export interface GithubPrManagementHttpBoundaryRequest extends GithubHttpBoundaryRequest {
+  baseBranch: string;
+  headBranch: string;
+  managementKind: GithubPrManagementBoundaryKind;
+  prNumber: string;
+  itemSummaries: string[];
+  payloadSummary?: string;
+}
+
+export interface GithubPrManagementHttpBoundaryResult {
+  status: 'completed' | 'failed' | 'aborted';
+  networkBoundaryInvoked: boolean;
+  responseBodyHashes: string[];
+  prNumberHash?: string;
+  payloadHash?: string;
+  itemCount: number;
+  changed: boolean;
+  blockReasons: string[];
+  summary: string;
+}
+
 export interface GithubPrLifecycleHttpBoundaryResult {
   status: 'completed' | 'failed' | 'aborted';
   networkBoundaryInvoked: boolean;
@@ -313,6 +341,121 @@ export async function runGithubPrLifecycleHttpBoundary(
   } catch {
     return {
       ...createFailedPrLifecycleBoundaryResult(true, ['network_error']),
+      responseBodyHashes,
+    };
+  }
+}
+
+export async function runGithubPrManagementHttpBoundary(
+  request: GithubPrManagementHttpBoundaryRequest,
+): Promise<GithubPrManagementHttpBoundaryResult> {
+  const fetchImpl = request.fetchImpl ?? globalThis.fetch;
+
+  if (!fetchImpl) {
+    return createFailedPrManagementBoundaryResult(false, request, ['fetch_unavailable']);
+  }
+
+  const responseBodyHashes: string[] = [];
+  const blockReasons: string[] = [];
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const prNumber = encodePathSegment(request.prNumber);
+  const payloadHash = `sha256:${hashText(
+    JSON.stringify({
+      managementKind: request.managementKind,
+      itemSummaries: request.itemSummaries,
+      payloadSummary: request.payloadSummary ?? '',
+    }),
+  )}`;
+
+  try {
+    const repoMetadata = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}`,
+    );
+    responseBodyHashes.push(repoMetadata.bodyHash);
+    if (!repoMetadata.ok) {
+      blockReasons.push(`repo_metadata_http_${repoMetadata.status}`);
+    }
+
+    const pullRequest = await fetchFixedGithubGet(
+      fetchImpl,
+      request,
+      `/repos/${owner}/${repo}/pulls/${prNumber}`,
+    );
+    responseBodyHashes.push(pullRequest.bodyHash);
+    if (!pullRequest.ok) {
+      blockReasons.push(`pull_request_metadata_http_${pullRequest.status}`);
+    }
+
+    if (request.managementKind === 'labels') {
+      const labels = await fetchFixedGithubGet(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/issues/${prNumber}/labels`,
+      );
+      responseBodyHashes.push(labels.bodyHash);
+      if (!labels.ok) {
+        blockReasons.push(`issue_labels_http_${labels.status}`);
+      }
+    }
+
+    if (request.managementKind === 'milestones') {
+      const milestone = request.itemSummaries[0];
+      if (!milestone) {
+        blockReasons.push('milestone_number_missing');
+      } else {
+        const milestoneMetadata = await fetchFixedGithubGet(
+          fetchImpl,
+          request,
+          `/repos/${owner}/${repo}/milestones/${encodePathSegment(milestone)}`,
+        );
+        responseBodyHashes.push(milestoneMetadata.bodyHash);
+        if (!milestoneMetadata.ok) {
+          blockReasons.push(`milestone_metadata_http_${milestoneMetadata.status}`);
+        }
+      }
+    }
+
+    if (blockReasons.length > 0) {
+      return {
+        status: 'failed',
+        networkBoundaryInvoked: true,
+        responseBodyHashes,
+        prNumberHash: `sha256:${hashText(request.prNumber)}`,
+        payloadHash,
+        itemCount: request.itemSummaries.length,
+        changed: false,
+        blockReasons,
+        summary: `GitHub PR ${request.managementKind} preflight failed: ${blockReasons.join(', ')}.`,
+      };
+    }
+
+    const writeResponse = await executeFixedGithubPrManagementWrite(fetchImpl, request);
+    responseBodyHashes.push(writeResponse.bodyHash);
+    if (!writeResponse.ok) {
+      blockReasons.push(`pr_${request.managementKind}_write_http_${writeResponse.status}`);
+    }
+
+    return {
+      status: writeResponse.ok ? 'completed' : 'failed',
+      networkBoundaryInvoked: true,
+      responseBodyHashes,
+      prNumberHash: `sha256:${hashText(request.prNumber)}`,
+      payloadHash,
+      itemCount: request.itemSummaries.length,
+      changed: writeResponse.ok,
+      blockReasons,
+      summary: writeResponse.ok
+        ? `GitHub PR ${request.managementKind} fixed endpoint boundary completed with hash-only summaries.`
+        : `GitHub PR ${request.managementKind} fixed endpoint boundary failed: ${blockReasons.join(', ')}.`,
+    };
+  } catch {
+    return {
+      ...createFailedPrManagementBoundaryResult(true, request, [
+        `github_pr_${request.managementKind}_network_failure`,
+      ]),
       responseBodyHashes,
     };
   }
@@ -919,6 +1062,74 @@ async function fetchFixedGithubPostDraftPullRequest(
   };
 }
 
+async function executeFixedGithubPrManagementWrite(
+  fetchImpl: typeof fetch,
+  request: GithubPrManagementHttpBoundaryRequest,
+): Promise<{
+  ok: boolean;
+  status: number;
+  bodyHash: string;
+  bodyText: string;
+}> {
+  const owner = encodePathSegment(request.owner);
+  const repo = encodePathSegment(request.repo);
+  const prNumber = encodePathSegment(request.prNumber);
+
+  switch (request.managementKind) {
+    case 'labels':
+      return fetchFixedGithubPostJson(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/issues/${prNumber}/labels`,
+        { labels: request.itemSummaries },
+      );
+    case 'assignees':
+      return fetchFixedGithubPostJson(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/issues/${prNumber}/assignees`,
+        { assignees: request.itemSummaries },
+      );
+    case 'reviewers':
+      return fetchFixedGithubPostJson(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/pulls/${prNumber}/requested_reviewers`,
+        { reviewers: request.itemSummaries },
+      );
+    case 'milestones': {
+      const milestone = Number.parseInt(request.itemSummaries[0] ?? '', 10);
+      return fetchFixedGithubPatchJson(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/issues/${prNumber}`,
+        { milestone: Number.isFinite(milestone) ? milestone : undefined },
+      );
+    }
+    case 'comments':
+      return fetchFixedGithubPostJson(
+        fetchImpl,
+        request,
+        `/repos/${owner}/${repo}/issues/${prNumber}/comments`,
+        { body: createFixedPrManagementComment(request) },
+      );
+  }
+}
+
+function createFixedPrManagementComment(request: GithubPrManagementHttpBoundaryRequest): string {
+  const summary = request.payloadSummary ?? 'CodexHub governed PR lifecycle update.';
+  const itemCount = request.itemSummaries.length;
+
+  return [
+    'CodexHub governed PR update',
+    '',
+    `Summary: ${summary}`,
+    `Metadata item count: ${itemCount}`,
+    '',
+    'This comment was generated from approved metadata summaries; raw prompt, diff, PR body, and response bodies are not persisted by CodexHub.',
+  ].join('\n');
+}
+
 function createFailedBoundaryResult(
   networkBoundaryInvoked: boolean,
   blockReasons: string[],
@@ -959,6 +1170,30 @@ function createFailedBranchPublishBoundaryResult(
     created: false,
     blockReasons,
     summary: `GitHub branch publish HTTP boundary failed: ${blockReasons.join(', ')}.`,
+  };
+}
+
+function createFailedPrManagementBoundaryResult(
+  networkBoundaryInvoked: boolean,
+  request: GithubPrManagementHttpBoundaryRequest,
+  blockReasons: string[],
+): GithubPrManagementHttpBoundaryResult {
+  return {
+    status: 'failed',
+    networkBoundaryInvoked,
+    responseBodyHashes: [],
+    prNumberHash: request.prNumber ? `sha256:${hashText(request.prNumber)}` : undefined,
+    payloadHash: `sha256:${hashText(
+      JSON.stringify({
+        managementKind: request.managementKind,
+        itemSummaries: request.itemSummaries,
+        payloadSummary: request.payloadSummary ?? '',
+      }),
+    )}`,
+    itemCount: request.itemSummaries.length,
+    changed: false,
+    blockReasons,
+    summary: `GitHub PR ${request.managementKind} HTTP boundary failed: ${blockReasons.join(', ')}.`,
   };
 }
 

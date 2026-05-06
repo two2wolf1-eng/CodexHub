@@ -4393,6 +4393,77 @@ workflows:
       childApprovalsRemainSeparate: true
       nxFailureBlocksReviewPackageExport: true
       metadataOnlyPublicOutput: true
+  m36.local-pilot-live-acceptance:
+    risk: critical
+    trigger:
+      type: local-production-pilot-live-acceptance
+      entrypoint: readiness workflow-kernel supervisor dashboard cli docs
+      localControlRequired: true
+    chain:
+      - operator-readiness-smoke
+      - store-resolved-child-record-rehearsal
+      - conditional-live-local-pilot-smoke
+      - acceptance-hardening-review
+    runtimeGates:
+      - CODEXHUB_LOCAL_PRODUCTION_WORKFLOW_PILOT_ENABLED
+      - CODEXHUB_PRODUCTION_WORKFLOW_RECOVERY_ENABLED
+      - CODEXHUB_PRODUCTION_WORKFLOW_CHILD_ORCHESTRATION_ENABLED
+    docs:
+      - docs/releases/m36-local-pilot-live-acceptance.md
+      - docs/reviews/m36-local-pilot-live-acceptance-review.md
+      - docs/runbooks/m36-local-pilot-live-acceptance-runbook.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewLiveBoundary: true
+      conditionalLiveSmokeOnly: true
+      blockedReadinessIsAcceptedWhenRuntimeMissing: true
+      childRecordRefsRequired: true
+      childApprovalsRemainSeparate: true
+      workflowApprovalDoesNotGrantChildAuthority: true
+      nxFailureBlocksReviewPackageExport: true
+      metadataOnlyPublicOutput: true
+  m37.github-pr-production-lifecycle:
+    risk: critical
+    trigger:
+      type: github-pr-production-lifecycle
+      entrypoint: contracts store github-provider supervisor dashboard cli docs
+      localControlRequired: true
+    controlPlanes:
+      - /api/github/pr-labels/*
+      - /api/github/pr-assignees/*
+      - /api/github/pr-reviewers/*
+      - /api/github/pr-milestones/*
+      - /api/github/pr-comments/*
+    requiredEnv:
+      - CODEXHUB_GITHUB_PROVIDER_ENABLED
+      - CODEXHUB_GITHUB_PR_LABELS_ENABLED
+      - CODEXHUB_GITHUB_PR_ASSIGNEES_ENABLED
+      - CODEXHUB_GITHUB_PR_REVIEWERS_ENABLED
+      - CODEXHUB_GITHUB_PR_MILESTONES_ENABLED
+      - CODEXHUB_GITHUB_PR_COMMENTS_ENABLED
+    docs:
+      - docs/releases/m37-github-pr-production-lifecycle.md
+      - docs/reviews/m37-github-pr-production-lifecycle-review.md
+      - docs/runbooks/m37-github-pr-production-lifecycle-runbook.md
+    safety:
+      fixedGithubEndpointsOnly: true
+      independentDryRunApprovalRunPerFamily: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawBodyStorageAllowed: false
+      tokenStorageAllowed: false
+      mergeAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      labelRemovalAllowed: false
+      assigneeRemovalAllowed: false
+      reviewerDismissalAllowed: false
+      milestoneClearingAllowed: false
+      commentEditDeleteAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+      metadataOnlyPublicOutput: true
   m32_2.deep-governance-debug-hardening:
     risk: critical
     trigger:

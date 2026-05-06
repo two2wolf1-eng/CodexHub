@@ -315,11 +315,22 @@ integrations:
     prLifecycleObservationEnabled: false
     remoteSupersedeProjectionEnabled: true
     remoteCleanupEnabled: false
+    prManagementEnabled: false
+    prLabelsEnabled: false
+    prAssigneesEnabled: false
+    prReviewersEnabled: false
+    prMilestonesEnabled: false
+    prCommentsEnabled: false
     enablementEnv: CODEXHUB_GITHUB_PROVIDER_ENABLED
     draftPrEnablementEnv: CODEXHUB_GITHUB_DRAFT_PR_ENABLED
     branchPublishEnablementEnv: CODEXHUB_GITHUB_BRANCH_PUBLISH_ENABLED
     prLifecycleObservationEnablementEnv: CODEXHUB_GITHUB_PR_LIFECYCLE_OBSERVER_ENABLED
     remoteCleanupEnablementEnv: CODEXHUB_GITHUB_REMOTE_CLEANUP_ENABLED
+    prLabelsEnablementEnv: CODEXHUB_GITHUB_PR_LABELS_ENABLED
+    prAssigneesEnablementEnv: CODEXHUB_GITHUB_PR_ASSIGNEES_ENABLED
+    prReviewersEnablementEnv: CODEXHUB_GITHUB_PR_REVIEWERS_ENABLED
+    prMilestonesEnablementEnv: CODEXHUB_GITHUB_PR_MILESTONES_ENABLED
+    prCommentsEnablementEnv: CODEXHUB_GITHUB_PR_COMMENTS_ENABLED
     supervisorControlPlane:
       enabledByDefault: false
       localControlRequiredForPost: true
@@ -369,6 +380,47 @@ integrations:
         - POST /api/github/remote-cleanups/runs
         - GET /api/github/remote-cleanups/runs
         - GET /api/github/remote-cleanups/runs/:id
+      prManagementRoutes:
+        - POST /api/github/pr-labels/dry-runs
+        - GET /api/github/pr-labels/dry-runs
+        - POST /api/github/pr-labels/approval-requests
+        - POST /api/github/pr-labels/manual-approvals
+        - GET /api/github/pr-labels/approvals
+        - POST /api/github/pr-labels/runs
+        - GET /api/github/pr-labels/runs
+        - GET /api/github/pr-labels/runs/:id
+        - POST /api/github/pr-assignees/dry-runs
+        - GET /api/github/pr-assignees/dry-runs
+        - POST /api/github/pr-assignees/approval-requests
+        - POST /api/github/pr-assignees/manual-approvals
+        - GET /api/github/pr-assignees/approvals
+        - POST /api/github/pr-assignees/runs
+        - GET /api/github/pr-assignees/runs
+        - GET /api/github/pr-assignees/runs/:id
+        - POST /api/github/pr-reviewers/dry-runs
+        - GET /api/github/pr-reviewers/dry-runs
+        - POST /api/github/pr-reviewers/approval-requests
+        - POST /api/github/pr-reviewers/manual-approvals
+        - GET /api/github/pr-reviewers/approvals
+        - POST /api/github/pr-reviewers/runs
+        - GET /api/github/pr-reviewers/runs
+        - GET /api/github/pr-reviewers/runs/:id
+        - POST /api/github/pr-milestones/dry-runs
+        - GET /api/github/pr-milestones/dry-runs
+        - POST /api/github/pr-milestones/approval-requests
+        - POST /api/github/pr-milestones/manual-approvals
+        - GET /api/github/pr-milestones/approvals
+        - POST /api/github/pr-milestones/runs
+        - GET /api/github/pr-milestones/runs
+        - GET /api/github/pr-milestones/runs/:id
+        - POST /api/github/pr-comments/dry-runs
+        - GET /api/github/pr-comments/dry-runs
+        - POST /api/github/pr-comments/approval-requests
+        - POST /api/github/pr-comments/manual-approvals
+        - GET /api/github/pr-comments/approvals
+        - POST /api/github/pr-comments/runs
+        - GET /api/github/pr-comments/runs
+        - GET /api/github/pr-comments/runs/:id
     readOnlyUx:
       stage: m19d
       dashboardRoute: "#/github"
@@ -405,6 +457,31 @@ integrations:
         - codexhub github remote-cleanups runs list
         - codexhub github remote-cleanups runs show <runId>
         - codexhub github remote-cleanups rehearse --fixture --scenario <name>
+        - codexhub github pr-labels dry-runs list
+        - codexhub github pr-labels approvals list
+        - codexhub github pr-labels runs list
+        - codexhub github pr-labels runs show <runId>
+        - codexhub github pr-labels rehearse --fixture --scenario <name>
+        - codexhub github pr-assignees dry-runs list
+        - codexhub github pr-assignees approvals list
+        - codexhub github pr-assignees runs list
+        - codexhub github pr-assignees runs show <runId>
+        - codexhub github pr-assignees rehearse --fixture --scenario <name>
+        - codexhub github pr-reviewers dry-runs list
+        - codexhub github pr-reviewers approvals list
+        - codexhub github pr-reviewers runs list
+        - codexhub github pr-reviewers runs show <runId>
+        - codexhub github pr-reviewers rehearse --fixture --scenario <name>
+        - codexhub github pr-milestones dry-runs list
+        - codexhub github pr-milestones approvals list
+        - codexhub github pr-milestones runs list
+        - codexhub github pr-milestones runs show <runId>
+        - codexhub github pr-milestones rehearse --fixture --scenario <name>
+        - codexhub github pr-comments dry-runs list
+        - codexhub github pr-comments approvals list
+        - codexhub github pr-comments runs list
+        - codexhub github pr-comments runs show <runId>
+        - codexhub github pr-comments rehearse --fixture --scenario <name>
       localControlRequired: false
       supervisorPostAllowed: false
       adapterExecuteAllowed: false
@@ -453,6 +530,52 @@ integrations:
       noPush: true
       noCreateRef: true
       noMerge: true
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    prManagement:
+      stage: m37
+      helper: executeGithubPrManagement
+      supervisorControlPlaneAdded: true
+      routePrefixes:
+        - /api/github/pr-labels
+        - /api/github/pr-assignees
+        - /api/github/pr-reviewers
+        - /api/github/pr-milestones
+        - /api/github/pr-comments
+      enabledByDefault: false
+      requiredEnvFlags:
+        provider: CODEXHUB_GITHUB_PROVIDER_ENABLED
+        labels: CODEXHUB_GITHUB_PR_LABELS_ENABLED
+        assignees: CODEXHUB_GITHUB_PR_ASSIGNEES_ENABLED
+        reviewers: CODEXHUB_GITHUB_PR_REVIEWERS_ENABLED
+        milestones: CODEXHUB_GITHUB_PR_MILESTONES_ENABLED
+        comments: CODEXHUB_GITHUB_PR_COMMENTS_ENABLED
+      tokenEnv: CODEXHUB_GITHUB_TOKEN
+      persistedApprovalRequired: true
+      executionAuthorityRequired: true
+      hashBoundRemoteRefsRequired: true
+      approvalConsumedAfterNetworkBoundary: true
+      fixedEndpointOnly: true
+      addOrSetOnly: true
+      labelRemovalAllowed: false
+      assigneeRemovalAllowed: false
+      reviewerDismissalAllowed: false
+      milestoneClearingAllowed: false
+      commentEditDeleteAllowed: false
+      mergeAllowed: false
+      pushAllowed: false
+      updateRefAllowed: false
+      forceAllowed: false
+      arbitraryGithubPassthroughAllowed: false
+      rawCommentBodyStorage: forbidden
+      rawRequestBodyStorage: forbidden
+      rawResponseBodyStorage: forbidden
+      output: ids-hashes-counts-statuses-evidence-audit-boundaries
+    prManagementReadOnlyUx:
+      stage: m37
+      dashboardRoute: "#/github"
+      supervisorMethods: GET-only
+      localControlKeyRead: false
+      adapterExecuteAllowed: false
       output: ids-hashes-counts-statuses-evidence-audit-boundaries
     draftPrReadOnlyUx:
       stage: m16c
@@ -1512,6 +1635,8 @@ integrations:
       workflowApprovalDoesNotGrantChildAuthority: true
       localProductionChildRecordBindingRequired: true
       localProductionChildRecordBindingSource: store-resolved-ids-and-hashes
+      localProductionLiveAcceptanceEnabled: false
+      localProductionLiveAcceptanceConditionalSmoke: true
       requestBodyChildStateTrusted: false
       builtInProductionTemplates:
         - local-patch-review
@@ -1660,6 +1785,8 @@ integrations:
       localProductionPilotRuntimeGated: true
       localProductionPilotTemplateId: local-patch-review
       localProductionPilotChildRecordsStoreResolved: true
+      localProductionPilotLiveAcceptanceConditional: true
+      localProductionPilotLiveAcceptanceBlockedIsAcceptableWhenRuntimeMissing: true
       childRecordRefsHashBound: true
       requestBodyChildApprovalStateTrusted: false
       localProductionPilotChildBoundary:

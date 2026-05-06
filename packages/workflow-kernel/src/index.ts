@@ -2013,6 +2013,7 @@ export function runProductionWorkflowRecoveryRehearsal(
     plan.childActionPlans.map((action) => [action.actionId, true]),
   );
   const childRunStatuses: Record<string, ProductionWorkflowChildActionRuntimeStatus> = {};
+  const childRecordResolutions: ProductionWorkflowChildRecordResolution[] = [];
   let workflowApprovalApproved = true;
   let localProductionPilotEnabled = true;
   let recoveryEnabled = true;
@@ -2022,6 +2023,28 @@ export function runProductionWorkflowRecoveryRehearsal(
     case 'pilot-disabled':
       localProductionPilotEnabled = false;
       break;
+    case 'missing-child-ref': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'codex-patch',
+      );
+      if (target) {
+        childRecordResolutions.push(
+          createFixtureProductionWorkflowChildRecordResolution(target, 'missing'),
+        );
+      }
+      break;
+    }
+    case 'hash-mismatch': {
+      const target = plan.childActionPlans.find(
+        (action) => action.childActionKind === 'nx-verification',
+      );
+      if (target) {
+        childRecordResolutions.push(
+          createFixtureProductionWorkflowChildRecordResolution(target, 'hash_mismatch'),
+        );
+      }
+      break;
+    }
     case 'workflow-approval-blocked':
       workflowApprovalApproved = false;
       break;
@@ -2150,10 +2173,47 @@ export function runProductionWorkflowRecoveryRehearsal(
     approvalArtifact: approval,
     childApprovalApproved,
     childRunStatuses,
+    childRecordResolutions,
     resumeFromStepId:
       scenario === 'resume-after-child-approval'
         ? plan.childActionPlans[0]?.stepId
         : undefined,
+  });
+}
+
+function createFixtureProductionWorkflowChildRecordResolution(
+  action: ProductionWorkflowChildActionPlan,
+  status: ProductionWorkflowChildRecordResolution['status'],
+): ProductionWorkflowChildRecordResolution {
+  const actualRecordHash = status === 'hash_mismatch' ? 'sha256:actual-fixture' : undefined;
+  const expectedRecordHash = status === 'hash_mismatch' ? 'sha256:expected-fixture' : undefined;
+
+  return ProductionWorkflowChildRecordResolutionSchema.parse({
+    actionId: action.actionId,
+    stepId: action.stepId,
+    childActionKind: action.childActionKind,
+    childControlPlane: action.childControlPlane,
+    status,
+    expectedRecordHash,
+    actualRecordHash,
+    hashMatched: false,
+    childApprovalRequired: action.requiresChildApproval,
+    childApprovalResolvedFromStore: false,
+    childRunResolvedFromStore: false,
+    blockReasons:
+      status === 'missing'
+        ? [`production_workflow_child_record_missing:${action.stepId}`]
+        : [`production_workflow_child_record_hash_mismatch:${action.stepId}`],
+    evidenceRefIds: [],
+    auditEventIds: [],
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    directAdapterExecutionAllowed: false,
+    childAdapterExecuteAllowed: false,
+    bodyStored: false,
+    rawPathStored: false,
+    summary: `Fixture child record resolution is ${status}.`,
   });
 }
 
