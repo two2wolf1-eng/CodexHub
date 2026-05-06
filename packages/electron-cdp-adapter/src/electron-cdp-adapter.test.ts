@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   validateCapabilityExecutionEnvelope,
   validateCapabilityManifest,
@@ -30,8 +31,38 @@ const authority: ExecutionAuthority = {
   allowed: true,
   constraints: ['fixture-only', 'metadata-only'],
 };
+const sourceDir = new URL('.', import.meta.url);
 
 describe('electron-cdp-adapter', () => {
+  it('keeps Electron main inspector constrained to named snippet hash execution', () => {
+    const source = readFileSync(new URL('./main-inspector-boundary.ts', sourceDir), 'utf8');
+    const forbiddenTerms = [
+      'eval(',
+      'new Function',
+      'Function(',
+      'Page.',
+      'DOM.',
+      'Input.',
+      'Browser.',
+      'process.env',
+      'child_process',
+      'execFile(',
+      'spawn(',
+      'shell: true',
+      'fetch(',
+      'http://',
+      'https://',
+      'rawJavascriptStored: true',
+      'rawOutputStored: true',
+      'rawPathStored: true',
+    ];
+
+    expect(forbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+    expect(source).toContain('lookupSnippetHash(input.allowedSnippetHashes, input.snippetId)');
+    expect(source).toContain('snippetSourceHash');
+    expect(source).toContain('isLoopbackElectronEndpointHost(endpoint.hostname)');
+  });
+
   it('declares a fixture-only Electron capability manifest', () => {
     const manifest = createElectronCdpAdapterManifest();
     const validation = validateCapabilityManifest(manifest);
@@ -676,6 +707,78 @@ describe('electron-cdp-adapter', () => {
     expect(result.mainInspectorInvoked).toBe(true);
     expect(result.rawJavascriptStored).toBe(false);
     expect(serialized).not.toContain(snippetSource);
+  });
+
+  it('blocks Electron main inspector when endpoint, snippet hash, or allowlist binding fails', async () => {
+    const endpointUrl = 'http://127.0.0.1:9222/devtools/page/1';
+    const snippetSource = '(() => 1)()';
+    const snippetSourceHash = `sha256:${hashText(snippetSource)}`;
+    const mismatchedEndpoint = await runElectronMainInspectorBoundary({
+      endpointUrl,
+      endpointHash: `sha256:${hashText('http://127.0.0.1:9222/devtools/page/other')}`,
+      targetIdHash: 'sha256:target',
+      snippetId: 'safe-snippet',
+      snippetSource,
+      snippetSourceHash,
+      allowedSnippetHashes: { 'safe-snippet': snippetSourceHash },
+      runtimeRunner: async () => {
+        throw new Error('runner must not be reached on endpoint mismatch');
+      },
+    });
+    const nonLoopback = await runElectronMainInspectorBoundary({
+      endpointUrl: 'http://192.168.1.20:9222/devtools/page/1',
+      endpointHash: `sha256:${hashText('http://192.168.1.20:9222/devtools/page/1')}`,
+      targetIdHash: 'sha256:target',
+      snippetId: 'safe-snippet',
+      snippetSource,
+      snippetSourceHash,
+      allowedSnippetHashes: { 'safe-snippet': snippetSourceHash },
+      runtimeRunner: async () => {
+        throw new Error('runner must not be reached on non-loopback endpoint');
+      },
+    });
+    const snippetMismatch = await runElectronMainInspectorBoundary({
+      endpointUrl,
+      endpointHash: `sha256:${hashText(endpointUrl)}`,
+      targetIdHash: 'sha256:target',
+      snippetId: 'safe-snippet',
+      snippetSource,
+      snippetSourceHash: `sha256:${hashText('(() => 2)()')}`,
+      allowedSnippetHashes: { 'safe-snippet': snippetSourceHash },
+      runtimeRunner: async () => {
+        throw new Error('runner must not be reached on snippet mismatch');
+      },
+    });
+    const notAllowlisted = await runElectronMainInspectorBoundary({
+      endpointUrl,
+      endpointHash: `sha256:${hashText(endpointUrl)}`,
+      targetIdHash: 'sha256:target',
+      snippetId: 'unsafe-snippet',
+      snippetSource,
+      snippetSourceHash,
+      allowedSnippetHashes: { 'safe-snippet': snippetSourceHash },
+      runtimeRunner: async () => {
+        throw new Error('runner must not be reached when snippet is not allowlisted');
+      },
+    });
+    const serialized = JSON.stringify([
+      mismatchedEndpoint,
+      nonLoopback,
+      snippetMismatch,
+      notAllowlisted,
+    ]);
+
+    expect(mismatchedEndpoint.status).toBe('blocked');
+    expect(nonLoopback.status).toBe('blocked');
+    expect(snippetMismatch.status).toBe('blocked');
+    expect(notAllowlisted.status).toBe('blocked');
+    for (const result of [mismatchedEndpoint, nonLoopback, snippetMismatch, notAllowlisted]) {
+      expect(result.mainInspectorInvoked).toBe(false);
+      expect(result.rawJavascriptStored).toBe(false);
+      expect(result.rawOutputStored).toBe(false);
+    }
+    expect(serialized).not.toContain(snippetSource);
+    expect(serialized).not.toContain('192.168.1.20');
   });
 });
 

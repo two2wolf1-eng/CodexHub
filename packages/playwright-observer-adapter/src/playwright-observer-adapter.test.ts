@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   validateCapabilityExecutionEnvelope,
@@ -20,6 +21,7 @@ import {
 } from './index';
 
 const createdAt = '2026-05-03T00:00:00.000Z';
+const sourceDir = new URL('.', import.meta.url);
 
 function sha256Ref(value: string): string {
   return `sha256:${hashText(value)}`;
@@ -46,6 +48,36 @@ function createProfileRef() {
 }
 
 describe('playwright-observer-adapter', () => {
+  it('keeps controlled browser actions limited to fixed click and type operations', () => {
+    const source = readFileSync(new URL('./action-boundary.ts', sourceDir), 'utf8');
+    const forbiddenTerms = [
+      'page.evaluate',
+      '.evaluate(',
+      'keyboard.',
+      '.press(',
+      '.check(',
+      '.setInputFiles(',
+      '.dragTo(',
+      '.route(',
+      '.screenshot(',
+      'storageState',
+      'localStorage',
+      'sessionStorage',
+      'document.cookie',
+      'process.env',
+      'child_process',
+      'execFile(',
+      'spawn(',
+      'shell: true',
+    ];
+
+    expect(forbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+    expect(source).toContain("if (input.actionKind === 'click')");
+    expect(source).toContain('locator.click({ timeout:');
+    expect(source).toContain('locator.fill(input.typedText ??');
+    expect(source).toContain('isAllowedReadOnlyTargetUrl(page.url())');
+  });
+
   it('creates a browser capability manifest with an audited controlled boundary', () => {
     const manifest = CapabilityManifestSchema.parse(createPlaywrightObserverAdapterManifest());
 

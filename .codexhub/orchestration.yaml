@@ -5673,3 +5673,32 @@ workflows:
       repoRootMutationAllowed: false
       multiAgentBypassAllowed: false
       metadataOnlyPublicOutput: true
+  m47_d12.controlled-write-boundary-debug:
+    risk: critical
+    trigger:
+      type: controlled-write-boundary-debug
+      entrypoint: playwright-observer-adapter electron-cdp-adapter mcp-tool-contracts docs tools
+      localControlRequired: false
+    scope:
+      - browser-action-click-type-fixed-boundary
+      - browser-no-generic-automation-storage-or-screenshot-drift
+      - electron-main-inspector-named-snippet-hash-binding
+      - electron-no-generic-cdp-runtime-evaluate-passthrough
+      - mcp-controlled-worktree-patch-manifest-plan-only
+      - mcp-no-process-filesystem-network-passthrough
+    docs:
+      - docs/releases/m47-d12-controlled-write-boundary-debug.md
+      - docs/reviews/m47-d12-controlled-write-boundary-review.md
+    safety:
+      noNewRoute: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      genericBrowserAutomationAllowed: false
+      genericCdpPassthroughAllowed: false
+      genericMcpWritePassthroughAllowed: false
+      repoRootMutationAllowed: false
+      metadataOnlyPublicOutput: true

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CapabilityAuditEventSchema,
@@ -17,6 +18,8 @@ import {
   planControlledWorktreePatchTool,
 } from './index';
 import { hashUnknown } from './metadata';
+
+const sourceDir = new URL('.', import.meta.url);
 
 describe('mcp-tool-contracts', () => {
   it('declares a read-only MCP capability manifest', () => {
@@ -142,6 +145,51 @@ describe('mcp-tool-contracts', () => {
     expect(manifest.approvalPolicy).toBe('required');
     expect(plan.toolName).toBe('workspace.applyPatchToControlledWorktree');
     expect(plan.repoRootMutationAllowed).toBe(false);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
+  });
+
+  it('keeps MCP write registry as manifest-only controlled worktree planning', () => {
+    const source = readFileSync(new URL('./write-registry.ts', sourceDir), 'utf8');
+    const forbiddenTerms = [
+      'node:fs',
+      'node:child_process',
+      'child_process',
+      'spawn(',
+      'execFile(',
+      'execa',
+      'shell: true',
+      'fetch(',
+      'http://',
+      'https://',
+      'process.env',
+      'applyPatch(',
+      'writeFile',
+      'rmSync',
+      'unlink',
+      'repoRootMutationAllowed: true',
+      'rawPatchStored: true',
+      'rawPathStored: true',
+    ];
+    const enabledManifest = createControlledWorktreePatchToolManifest(true);
+    const blockedPlan = planControlledWorktreePatchTool({
+      worktreePathHash: hashUnknown('C:\\Users\\Thomas\\CodexHub'),
+      patchHash: hashUnknown('diff --git a/private b/private'),
+      changedFileCount: 1,
+      blockReasons: ['repo_root_blocked', 'path_traversal_blocked'],
+    });
+    const serialized = JSON.stringify({ enabledManifest, blockedPlan });
+
+    expect(forbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+    expect(enabledManifest.name).toBe('workspace.applyPatchToControlledWorktree');
+    expect(enabledManifest.directExecutionAllowed).toBe(true);
+    expect(enabledManifest.controlledWorktreeOnly).toBe(true);
+    expect(enabledManifest.repoRootMutationAllowed).toBe(false);
+    expect(blockedPlan.status).toBe('blocked');
+    expect(blockedPlan.directExecutionPlanned).toBe(true);
+    expect(blockedPlan.repoRootMutationAllowed).toBe(false);
+    expect(blockedPlan.rawPatchStored).toBe(false);
+    expect(blockedPlan.rawPathStored).toBe(false);
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
   });
