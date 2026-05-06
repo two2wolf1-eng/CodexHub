@@ -28,6 +28,12 @@ export const adversarialPublicOutputTerms = [
   'raw selector fixture',
   'raw typed text fixture',
   'raw controlled patch fixture',
+  'raw command fixture',
+  'raw argv fixture',
+  'raw SQL fixture',
+  'raw database row fixture',
+  'raw backup body fixture',
+  'raw audit body fixture',
 ] as const;
 
 export const adversarialPublicOutputFixture = adversarialPublicOutputTerms.join(' ');

@@ -14188,6 +14188,13 @@ describe('contracts schemas', () => {
     expect(() =>
       ExternalAgentRunSchema.parse({
         ...agentRun,
+        id: 'external_agent_raw_command',
+        metadata: { command: 'raw command fixture', argv: 'raw argv fixture' },
+      }),
+    ).toThrow();
+    expect(() =>
+      ExternalAgentRunSchema.parse({
+        ...agentRun,
         id: 'external_agent_boundary_without_consumption',
         approvalConsumed: false,
       }),
@@ -14513,6 +14520,17 @@ describe('contracts schemas', () => {
         ...migrationPlan,
         id: 'store_migration_raw_sql',
         metadata: { sql: 'drop table audit_events' },
+      }),
+    ).toThrow();
+    expect(() =>
+      AuditExportRunSchema.parse({
+        ...auditExportRun,
+        id: 'audit_export_raw_body',
+        metadata: {
+          rawDbRows: 'raw database row fixture',
+          rawAuditBody: 'raw audit body fixture',
+          rawBackupBody: 'raw backup body fixture',
+        },
       }),
     ).toThrow();
     expect(() =>
