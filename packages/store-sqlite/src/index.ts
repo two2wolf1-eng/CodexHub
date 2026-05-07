@@ -4,13 +4,26 @@ import { dirname, join, parse, resolve } from 'node:path';
 import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
+  AccountPool,
+  BusinessMembershipMirror,
+  BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
   BrowserActionApprovalArtifact,
   BrowserActionPlan,
   BrowserActionRun,
+  ChatGptSessionHealth,
+  ChromeProfileBinding,
+  ClientPool,
+  CodexAccountBinding,
+  CodexAppServerSession,
+  CodexClientInstance,
+  CodexRecoveryRun,
   CodexPatchChildRecord,
+  CodexTaskDiagnosis,
+  CodexTaskIntent,
+  CodexTaskRun,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
@@ -162,9 +175,13 @@ import type {
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
+  EvidenceBundle,
   EvidenceRef,
+  HumanCheckpoint,
+  Lease,
   MockDevelopmentRun,
   Observation,
+  QuotaSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
 import type {
@@ -283,6 +300,8 @@ import type {
   ProductionWorkflowRecoveryDryRunRepository,
   ProductionWorkflowRecoveryRunRepository,
   LocalProductionWorkflowChildRecordQuery,
+  M51MetadataRecordQuery,
+  MetadataEntityRepository,
   NxVerificationChildRecordRepository,
   OperatorRoleAssignmentPlanRepository,
   OperatorRoleAssignmentRunRepository,
@@ -562,6 +581,23 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexExecRealReadOnlyAdapterApprovalAuthorityTraces: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRepository;
   readonly codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
   readonly codexExecRealReadOnlyAdapterPilotSourcePreparations: CodexExecRealReadOnlyAdapterPilotSourcePreparationRepository;
+  readonly businessWorkspaces: MetadataEntityRepository<BusinessWorkspace>;
+  readonly businessMembershipMirrors: MetadataEntityRepository<BusinessMembershipMirror>;
+  readonly chromeProfileBindings: MetadataEntityRepository<ChromeProfileBinding>;
+  readonly chatGptSessionHealth: MetadataEntityRepository<ChatGptSessionHealth>;
+  readonly humanCheckpoints: MetadataEntityRepository<HumanCheckpoint>;
+  readonly codexClientInstances: MetadataEntityRepository<CodexClientInstance>;
+  readonly codexAppServerSessions: MetadataEntityRepository<CodexAppServerSession>;
+  readonly codexAccountBindings: MetadataEntityRepository<CodexAccountBinding>;
+  readonly codexTaskIntents: MetadataEntityRepository<CodexTaskIntent>;
+  readonly codexTaskRuns: MetadataEntityRepository<CodexTaskRun>;
+  readonly codexTaskDiagnoses: MetadataEntityRepository<CodexTaskDiagnosis>;
+  readonly codexRecoveryRuns: MetadataEntityRepository<CodexRecoveryRun>;
+  readonly accountPools: MetadataEntityRepository<AccountPool>;
+  readonly clientPools: MetadataEntityRepository<ClientPool>;
+  readonly poolLeases: MetadataEntityRepository<Lease>;
+  readonly quotaSnapshots: MetadataEntityRepository<QuotaSnapshot>;
+  readonly evidenceBundles: MetadataEntityRepository<EvidenceBundle>;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -898,6 +934,68 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteCodexExecRealReadOnlyAdapterPilotPrerequisiteRepository(database);
     this.codexExecRealReadOnlyAdapterPilotSourcePreparations =
       new SqliteCodexExecRealReadOnlyAdapterPilotSourcePreparationRepository(database);
+    this.businessWorkspaces = new SqliteMetadataEntityRepository<BusinessWorkspace>(
+      database,
+      'business_workspaces',
+    );
+    this.businessMembershipMirrors = new SqliteMetadataEntityRepository<BusinessMembershipMirror>(
+      database,
+      'business_membership_mirrors',
+    );
+    this.chromeProfileBindings = new SqliteMetadataEntityRepository<ChromeProfileBinding>(
+      database,
+      'chrome_profile_bindings',
+    );
+    this.chatGptSessionHealth = new SqliteMetadataEntityRepository<ChatGptSessionHealth>(
+      database,
+      'chatgpt_session_health',
+    );
+    this.humanCheckpoints = new SqliteMetadataEntityRepository<HumanCheckpoint>(
+      database,
+      'human_checkpoints',
+    );
+    this.codexClientInstances = new SqliteMetadataEntityRepository<CodexClientInstance>(
+      database,
+      'codex_client_instances',
+    );
+    this.codexAppServerSessions = new SqliteMetadataEntityRepository<CodexAppServerSession>(
+      database,
+      'codex_app_server_sessions',
+    );
+    this.codexAccountBindings = new SqliteMetadataEntityRepository<CodexAccountBinding>(
+      database,
+      'codex_account_bindings',
+    );
+    this.codexTaskIntents = new SqliteMetadataEntityRepository<CodexTaskIntent>(
+      database,
+      'codex_task_intents',
+    );
+    this.codexTaskRuns = new SqliteMetadataEntityRepository<CodexTaskRun>(
+      database,
+      'codex_task_runs',
+    );
+    this.codexTaskDiagnoses = new SqliteMetadataEntityRepository<CodexTaskDiagnosis>(
+      database,
+      'codex_task_diagnoses',
+    );
+    this.codexRecoveryRuns = new SqliteMetadataEntityRepository<CodexRecoveryRun>(
+      database,
+      'codex_recovery_runs',
+    );
+    this.accountPools = new SqliteMetadataEntityRepository<AccountPool>(
+      database,
+      'account_pools',
+    );
+    this.clientPools = new SqliteMetadataEntityRepository<ClientPool>(database, 'client_pools');
+    this.poolLeases = new SqliteMetadataEntityRepository<Lease>(database, 'pool_leases');
+    this.quotaSnapshots = new SqliteMetadataEntityRepository<QuotaSnapshot>(
+      database,
+      'quota_snapshots',
+    );
+    this.evidenceBundles = new SqliteMetadataEntityRepository<EvidenceBundle>(
+      database,
+      'evidence_bundles',
+    );
   }
 
   async close(): Promise<void> {
@@ -5706,6 +5804,54 @@ class SqliteCodexExecRealReadOnlyAdapterPilotSourcePreparationRepository
   }
 }
 
+class SqliteMetadataEntityRepository<T extends PersistedEntity>
+  implements MetadataEntityRepository<T>
+{
+  private readonly repository: JsonEntityRepository<T>;
+
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly tableName: string,
+  ) {
+    this.repository = new JsonEntityRepository<T>(
+      database,
+      tableName,
+      metadataEntityTimestamp,
+    );
+  }
+
+  async saveRecord(record: T): Promise<T> {
+    return this.repository.create(record);
+  }
+
+  async getRecord(id: string): Promise<T | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRecords(query: M51MetadataRecordQuery = {}): Promise<T[]> {
+    const rows = this.database
+      .prepare(`SELECT payload FROM ${this.tableName} ORDER BY recorded_at DESC, id DESC`)
+      .all() as unknown as PayloadRow[];
+
+    return rows
+      .map((row) => JSON.parse(row.payload) as T)
+      .filter((record) => {
+        const status = (record as { status?: string }).status;
+        if (query.status && status !== query.status) {
+          return false;
+        }
+
+        const metadata = (record as { metadata?: Record<string, unknown> }).metadata;
+        if (query.dryRunId && !metadataMatchesDryRun(metadata, query.dryRunId)) {
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, normalizeLimit(query.limit));
+  }
+}
+
 class JsonEntityRepository<T extends PersistedEntity> {
   constructor(
     private readonly database: SqliteDatabase,
@@ -6792,6 +6938,108 @@ function initializeDatabase(database: SqliteDatabase): void {
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS business_workspaces (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_membership_mirrors (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS chrome_profile_bindings (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS chatgpt_session_health (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS human_checkpoints (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_client_instances (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_sessions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_account_bindings (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_intents (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_diagnoses (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_recovery_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS account_pools (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS client_pools (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pool_leases (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quota_snapshots (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS evidence_bundles (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
   `);
   database
     .prepare('INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)')
@@ -6804,6 +7052,10 @@ function normalizeLimit(limit: number | undefined): number {
   }
 
   return Math.min(200, Math.max(1, Math.trunc(limit)));
+}
+
+function metadataEntityTimestamp(entity: PersistedEntity): string {
+  return entity.observedAt ?? entity.createdAt ?? '1970-01-01T00:00:00.000Z';
 }
 
 function listBrowserObservationRecords<T extends { dryRunId?: string; status?: string }>(

@@ -1,12 +1,25 @@
 import type {
   AuditEvent,
+  AccountPool,
+  BusinessMembershipMirror,
+  BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
   BrowserObservationControlPlaneRun,
   BrowserObservationDryRunRecord,
   BrowserActionApprovalArtifact,
   BrowserActionPlan,
   BrowserActionRun,
+  ChatGptSessionHealth,
+  ChromeProfileBinding,
+  ClientPool,
+  CodexAccountBinding,
+  CodexAppServerSession,
+  CodexClientInstance,
+  CodexRecoveryRun,
   CodexPatchChildRecord,
+  CodexTaskDiagnosis,
+  CodexTaskIntent,
+  CodexTaskRun,
   CodexExecLiveRunRecord,
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
@@ -158,9 +171,13 @@ import type {
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
+  EvidenceBundle,
   EvidenceRef,
+  HumanCheckpoint,
+  Lease,
   MockDevelopmentRun,
   Observation,
+  QuotaSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
 
@@ -225,6 +242,7 @@ export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ProductionWorkflowRecoveryControlPlaneQuery = WorktreeControlPlaneQuery;
 export type LocalProductionWorkflowChildRecordQuery = WorktreeControlPlaneQuery;
+export type M51MetadataRecordQuery = WorktreeControlPlaneQuery;
 
 export interface WorkflowRunRepository {
   create(run: WorkflowRun): Promise<WorkflowRun>;
@@ -263,6 +281,12 @@ export interface CodexReplayRepository {
   saveCodexReplay(record: CodexReplayRecord): Promise<CodexReplayRecord>;
   listCodexReplays(limit?: number): Promise<CodexReplayRecord[]>;
   getCodexReplay(id: string): Promise<CodexReplayRecord | undefined>;
+}
+
+export interface MetadataEntityRepository<T> {
+  saveRecord(record: T): Promise<T>;
+  getRecord(id: string): Promise<T | undefined>;
+  listRecords(query?: M51MetadataRecordQuery): Promise<T[]>;
 }
 
 export interface CodexExecLiveRunRepository {
@@ -1675,6 +1699,23 @@ export interface CodexHubStore {
   codexExecRealReadOnlyAdapterApprovalAuthorityTraces: CodexExecRealReadOnlyAdapterApprovalAuthorityTraceRepository;
   codexExecRealReadOnlyAdapterPilotPrerequisites: CodexExecRealReadOnlyAdapterPilotPrerequisiteRepository;
   codexExecRealReadOnlyAdapterPilotSourcePreparations: CodexExecRealReadOnlyAdapterPilotSourcePreparationRepository;
+  businessWorkspaces: MetadataEntityRepository<BusinessWorkspace>;
+  businessMembershipMirrors: MetadataEntityRepository<BusinessMembershipMirror>;
+  chromeProfileBindings: MetadataEntityRepository<ChromeProfileBinding>;
+  chatGptSessionHealth: MetadataEntityRepository<ChatGptSessionHealth>;
+  humanCheckpoints: MetadataEntityRepository<HumanCheckpoint>;
+  codexClientInstances: MetadataEntityRepository<CodexClientInstance>;
+  codexAppServerSessions: MetadataEntityRepository<CodexAppServerSession>;
+  codexAccountBindings: MetadataEntityRepository<CodexAccountBinding>;
+  codexTaskIntents: MetadataEntityRepository<CodexTaskIntent>;
+  codexTaskRuns: MetadataEntityRepository<CodexTaskRun>;
+  codexTaskDiagnoses: MetadataEntityRepository<CodexTaskDiagnosis>;
+  codexRecoveryRuns: MetadataEntityRepository<CodexRecoveryRun>;
+  accountPools: MetadataEntityRepository<AccountPool>;
+  clientPools: MetadataEntityRepository<ClientPool>;
+  poolLeases: MetadataEntityRepository<Lease>;
+  quotaSnapshots: MetadataEntityRepository<QuotaSnapshot>;
+  evidenceBundles: MetadataEntityRepository<EvidenceBundle>;
   close(): Promise<void>;
 }
 
