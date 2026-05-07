@@ -304,7 +304,7 @@ export async function runExternalAgentPatchWithRunner(input: {
   now?: () => string;
 }): Promise<ExternalAgentRun> {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.approval.approved && input.plan.status === 'planned';
+  const boundaryReached = shouldReachExternalAgentBoundary(input);
 
   if (!boundaryReached) {
     return ExternalAgentRunSchema.parse({
@@ -387,6 +387,28 @@ export async function runExternalAgentPatchWithRunner(input: {
     auditEventIds: input.plan.auditEventIds,
     summary: 'External agent run used injected fixed boundary runner.',
   });
+}
+
+function shouldReachExternalAgentBoundary(input: {
+  plan: ExternalAgentPatchPlan;
+  readiness: ExternalAgentReadiness;
+  approval: ExternalAgentApprovalArtifact;
+}): boolean {
+  return (
+    input.plan.status === 'planned' &&
+    input.readiness.provider === input.plan.provider &&
+    input.readiness.externalAgentsEnabled &&
+    input.readiness.providerEnabled &&
+    input.readiness.cliConfigured &&
+    input.readiness.worktreeResolved &&
+    input.readiness.blockerCount === 0 &&
+    input.readiness.worktreeRecordHash === input.plan.sourceWorktreeRecordHash &&
+    input.approval.approved &&
+    input.approval.status === 'approved' &&
+    input.approval.dryRunId === input.plan.dryRunId &&
+    input.approval.dryRunRecordId === input.plan.id &&
+    input.approval.expectedPlanHash === hashText(JSON.stringify(input.plan))
+  );
 }
 
 export function rehearseExternalAgent(input: {

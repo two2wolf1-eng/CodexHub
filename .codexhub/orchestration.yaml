@@ -6359,3 +6359,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d17.runtime-external-agent-audit:
+    risk: critical
+    trigger:
+      type: runtime-external-agent-audit
+      entrypoint: runtime external-agent tests docs
+      localControlRequired: false
+    scope:
+      - runtime-queue-lock-lease-checkpoint
+      - external-agent-fixed-argv-boundary
+      - readiness-and-approval-plan-hash-binding
+      - controlled-sibling-worktree-only
+      - no-raw-prompt-diff-patch-path-output
+    docs:
+      - docs/releases/m48-d17-runtime-external-agent-audit.md
+      - docs/reviews/m48-d17-runtime-external-agent-audit-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true

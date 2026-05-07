@@ -182,6 +182,92 @@ describe('external-agent-adapter', () => {
     expect(rehearsal.status).toBe('blocked');
   });
 
+  it('blocks external agent runs when readiness is blocked or approval is stale', async () => {
+    const ready = createExternalAgentReadiness({
+      provider: 'codex-cli',
+      externalAgentsEnabled: true,
+      providerEnabled: true,
+      cliConfigured: true,
+      cliExecutable: 'codex',
+      worktreeRecordId: 'worktree_run_3',
+      worktreeResolved: true,
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const blockedReadiness = createExternalAgentReadiness({
+      provider: 'codex-cli',
+      externalAgentsEnabled: false,
+      providerEnabled: false,
+      cliConfigured: true,
+      cliExecutable: 'codex',
+      worktreeRecordId: 'worktree_run_3',
+      worktreeResolved: true,
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const plan = planExternalAgentPatch({
+      provider: 'codex-cli',
+      worktreeRecordId: 'worktree_run_3',
+      worktreePath: 'C:/controlled-worktrees/codexhub-agent-3',
+      prompt: 'transient prompt',
+      instructions: 'transient instructions',
+      enabled: true,
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const stalePlan = planExternalAgentPatch({
+      provider: 'codex-cli',
+      worktreeRecordId: 'worktree_run_3',
+      worktreePath: 'C:/controlled-worktrees/codexhub-agent-3',
+      prompt: 'different transient prompt',
+      instructions: 'transient instructions',
+      enabled: true,
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const approval = createExternalAgentApprovalArtifact({
+      plan,
+      status: 'approved',
+      decidedBy: 'operator-3',
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const staleApproval = createExternalAgentApprovalArtifact({
+      plan: stalePlan,
+      status: 'approved',
+      decidedBy: 'operator-3',
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    let runnerInvocations = 0;
+    const runner = {
+      async run() {
+        runnerInvocations += 1;
+        return { status: 'completed' as const, patchHash: 'sha256:patch' };
+      },
+    };
+    const readinessBlocked = await runExternalAgentPatchWithRunner({
+      plan,
+      readiness: blockedReadiness,
+      approval,
+      runner,
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const staleApprovalBlocked = await runExternalAgentPatchWithRunner({
+      plan,
+      readiness: ready,
+      approval: staleApproval,
+      runner,
+      now: () => '2026-05-07T00:00:00.000Z',
+    });
+    const serialized = JSON.stringify([readinessBlocked, staleApprovalBlocked]);
+
+    expect(runnerInvocations).toBe(0);
+    expect(readinessBlocked.status).toBe('blocked');
+    expect(readinessBlocked.boundaryReached).toBe(false);
+    expect(readinessBlocked.approvalConsumed).toBe(false);
+    expect(staleApprovalBlocked.status).toBe('blocked');
+    expect(staleApprovalBlocked.boundaryReached).toBe(false);
+    expect(staleApprovalBlocked.approvalConsumed).toBe(false);
+    expect(serialized).not.toContain('transient prompt');
+    expect(serialized).not.toContain('different transient prompt');
+    expect(serialized).not.toContain('C:/controlled-worktrees');
+  });
+
   it('blocks repo-root and command-passthrough rehearsals while preserving metadata-only patch summaries', async () => {
     const plan = planExternalAgentPatch({
       provider: 'codex-cli',
