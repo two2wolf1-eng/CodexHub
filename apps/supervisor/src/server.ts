@@ -371,6 +371,14 @@ import type {
   McpWriteToolApprovalArtifact,
   McpWriteToolPlan,
   McpWriteToolRun,
+  ProductionGaApprovalArtifact,
+  ProductionGaE2ERehearsalRun,
+  ProductionGaE2EScenario,
+  ProductionGaReadinessPlan,
+  ProductionGaReleaseCandidateSignoffPlan,
+  ProductionGaResidualRiskRegister,
+  ProductionGaStatus,
+  ProductionGaThreatModel,
 } from '@codexhub/contracts';
 import {
   ApprovalDecisionRequestSchema,
@@ -583,6 +591,20 @@ import {
   createStoreMigrationPlan,
   createStoreMigrationRun,
 } from '@codexhub/platform-operations-kernel';
+import {
+  createProductionGaApprovalArtifact,
+  createProductionGaCapabilityMatrix,
+  createProductionGaE2ERehearsalPlan,
+  createProductionGaE2ERehearsalRun,
+  createProductionGaOperatorTrainingCompletion,
+  createProductionGaOperatorTrainingPlan,
+  createProductionGaReadinessPlan,
+  createProductionGaReleaseCandidateSignoffPlan,
+  createProductionGaResidualRiskRegister,
+  createProductionGaSignoffRun,
+  createProductionGaThreatModel,
+  summarizeProductionGaReadiness,
+} from '@codexhub/production-ga-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -4104,6 +4126,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerPlatformOperationRoutes('retention', '/api/platform/retention');
   registerPlatformOperationRoutes('audit-exports', '/api/platform/audit-exports');
   registerPlatformOperationRoutes('operator-roles', '/api/platform/operator-roles');
+  registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
   registerGithubPrManagementRoutes('assignees', '/api/github/pr-assignees');
@@ -20333,6 +20356,44 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     | AuditExportRun
     | OperatorRoleAssignmentRun;
 
+  type ProductionGaRequestBody = {
+    dryRunId?: string;
+    signoffPlanId?: string;
+    approvalArtifactId?: string;
+    approvalArtifactIds?: string[];
+    approvalRequestId?: string;
+    requestedBy?: string;
+    decidedBy?: string;
+    approver?: string;
+    reason?: string;
+    decision?: 'approved' | 'denied' | 'revoked';
+    outcome?: 'approved' | 'denied' | 'revoked';
+    scenario?: ProductionGaE2EScenario;
+    status?: ProductionGaStatus;
+    matrixStatus?: ProductionGaStatus;
+    threatModelStatus?: ProductionGaStatus;
+    trainingStatus?: ProductionGaStatus;
+    e2eFixtureStatus?: ProductionGaStatus;
+    conditionalLiveStatus?: ProductionGaStatus;
+    unresolvedCriticalRiskCount?: number;
+    completedModuleCount?: number;
+    operatorIdentity?: string;
+    moduleIds?: string[];
+    blockReasons?: string[];
+    liveSmokeMode?: 'disabled' | 'conditional';
+    liveSmokeStatus?: 'not_configured' | 'readiness_blocked' | 'completed';
+    approvalArtifact?: unknown;
+    authority?: unknown;
+    executionAuthority?: unknown;
+    childArtifacts?: unknown;
+    rawE2EPayload?: unknown;
+    e2ePayload?: unknown;
+    rawDocs?: unknown;
+    rawPath?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   function normalizeRuntimeJobKind(value: RuntimeJobKind | undefined): RuntimeJobKind {
     return value === 'external-agent' || value === 'platform-operation' || value === 'workflow'
       ? value
@@ -20877,6 +20938,516 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       case 'operator-roles':
         return store.operatorRoleAssignmentRuns.getRun(id);
     }
+  }
+
+  const productionGaTrainingModuleIds = [
+    'governance-basics',
+    'approvals-authority',
+    'evidence-audit-review',
+    'github-lifecycle',
+    'release-deploy-rollback',
+    'secrets-handling',
+    'runtime-external-agent-safety',
+    'incident-disaster-recovery',
+  ];
+  const productionGaScenarios: readonly ProductionGaE2EScenario[] = [
+    'all-pass',
+    'patch-blocked',
+    'verification-failed',
+    'pr-blocked',
+    'merge-blocked',
+    'release-blocked',
+    'deploy-blocked',
+    'observe-blocked',
+    'rollback-plan-missing',
+    'rollback-failed',
+    'child-hash-mismatch',
+    'approval-blocked',
+    'live-env-not-configured',
+    'evidence-missing',
+    'audit-gap',
+  ];
+  const productionGaStatuses: readonly ProductionGaStatus[] = [
+    'ready',
+    'conditionally_ready',
+    'blocked',
+    'failed',
+  ];
+
+  function normalizeProductionGaScenario(
+    scenario: ProductionGaRequestBody['scenario'],
+  ): ProductionGaE2EScenario {
+    return scenario && productionGaScenarios.includes(scenario) ? scenario : 'all-pass';
+  }
+
+  function normalizeProductionGaStatus(
+    status: ProductionGaRequestBody['status'],
+    fallback: ProductionGaStatus,
+  ): ProductionGaStatus {
+    return status && productionGaStatuses.includes(status) ? status : fallback;
+  }
+
+  function hasForbiddenProductionGaBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'approvalArtifact',
+      'executionAuthority',
+      'authority',
+      'childArtifact',
+      'childArtifacts',
+      'rawE2EPayload',
+      'e2ePayload',
+      'rawDocs',
+      'rawDocument',
+      'documentBody',
+      'rawPath',
+      'path',
+      'requestBody',
+      'responseBody',
+    ]);
+
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenProductionGaBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        forbiddenKeys.has(key) ||
+        hasForbiddenGithubRawBody(nestedValue) ||
+        hasForbiddenRuntimeExternalAgentBody(nestedValue) ||
+        hasForbiddenProductionGaBody(nestedValue),
+    );
+  }
+
+  function createDefaultProductionGaThreatModel(
+    unresolvedCriticalRiskCount = 0,
+  ): ProductionGaThreatModel {
+    return createProductionGaThreatModel({
+      assetSeeds: ['store', 'approval-records', 'evidence-audit', 'operator-workflows'],
+      trustBoundarySeeds: ['supervisor-local-control', 'store-resolved-child-records'],
+      liveBoundarySeeds: ['github', 'deployment', 'browser-electron-mcp', 'external-agents'],
+      authorityModelSeed: 'security-kernel-final-authority',
+      approvalModelSeed: 'store-resolved-two-approval-ga-signoff',
+      evidenceAuditModelSeed: 'evidence-audit-remain-authoritative',
+      rollbackModelSeed: 'platform-operations-disaster-recovery-runbook',
+      residualRiskCount: unresolvedCriticalRiskCount,
+      unresolvedCriticalRiskCount,
+    });
+  }
+
+  function createProductionGaReadinessPlanRecord(
+    body: ProductionGaRequestBody | undefined,
+  ): {
+    plan: ProductionGaReadinessPlan;
+    threatModel: ProductionGaThreatModel;
+    residualRiskRegister: ProductionGaResidualRiskRegister;
+  } {
+    const unresolvedCriticalRiskCount = Math.max(0, body?.unresolvedCriticalRiskCount ?? 0);
+    const productionGaEnabled = process.env.CODEXHUB_PRODUCTION_GA_ENABLED === 'true';
+    const matrix = createProductionGaCapabilityMatrix();
+    const threatModel = createDefaultProductionGaThreatModel(unresolvedCriticalRiskCount);
+    const residualRiskRegister = createProductionGaResidualRiskRegister({
+      risks:
+        unresolvedCriticalRiskCount > 0
+          ? [{ severity: 'critical' as const, resolved: false }]
+          : [],
+      mitigationSeed: 'production-ga-metadata-only-risk-register',
+    });
+    const plan = createProductionGaReadinessPlan({
+      matrix,
+      threatModel,
+      trainingModuleCount: productionGaTrainingModuleIds.length,
+      blockReasons: [
+        ...(body?.blockReasons ?? []),
+        ...(productionGaEnabled ? [] : ['production_ga_disabled']),
+        ...(unresolvedCriticalRiskCount > 0 ? ['unresolved_critical_risk'] : []),
+      ],
+    });
+
+    return { plan, threatModel, residualRiskRegister };
+  }
+
+  async function resolveProductionGaDryRunRecord(
+    store: CodexHubStore,
+    id: string,
+  ): Promise<ProductionGaReadinessPlan | undefined> {
+    const directRecord = await store.productionGaDryRuns.getDryRun(id);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.productionGaDryRuns.listDryRuns({ dryRunId: id, limit: 1 }))[0];
+  }
+
+  async function resolveProductionGaSignoffPlanRecord(
+    store: CodexHubStore,
+    id: string,
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan | undefined> {
+    const directRecord = await store.productionGaSignoffPlans.getSignoffPlan(id);
+    if (directRecord) {
+      return directRecord;
+    }
+
+    return (await store.productionGaSignoffPlans.listSignoffPlans({ dryRunId: id, limit: 1 }))[0];
+  }
+
+  function createProductionGaApprovalRecord(
+    dryRunRecord: ProductionGaReadinessPlan,
+    body: ProductionGaRequestBody | undefined,
+    decision: 'approved' | 'denied' | 'revoked',
+  ): ProductionGaApprovalArtifact {
+    return createProductionGaApprovalArtifact({
+      dryRunId: dryRunRecord.dryRunId,
+      approver:
+        body?.decidedBy ?? body?.requestedBy ?? body?.approver ?? foundationId('production_ga_operator'),
+      decision,
+      reason: body?.reason,
+    });
+  }
+
+  function createProductionGaRehearsalRunRecord(
+    body: ProductionGaRequestBody | undefined,
+  ): ProductionGaE2ERehearsalRun {
+    const scenario = normalizeProductionGaScenario(body?.scenario);
+    const plan = createProductionGaE2ERehearsalPlan({
+      scenario,
+      liveSmokeMode: body?.liveSmokeMode ?? 'conditional',
+    });
+    const status =
+      scenario === 'all-pass'
+        ? normalizeProductionGaStatus(body?.status, 'ready')
+        : normalizeProductionGaStatus(body?.status, 'blocked');
+
+    return createProductionGaE2ERehearsalRun({
+      plan,
+      status,
+      liveSmokeStatus: body?.liveSmokeStatus ?? 'readiness_blocked',
+      liveSmokeBlockerCount: body?.liveSmokeStatus === 'completed' ? 0 : 1,
+    });
+  }
+
+  async function createProductionGaSignoffPlanRecord(
+    store: CodexHubStore,
+    body: ProductionGaRequestBody | undefined,
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan> {
+    if (body?.signoffPlanId) {
+      const existingPlan = await resolveProductionGaSignoffPlanRecord(store, body.signoffPlanId);
+      if (existingPlan) {
+        return existingPlan;
+      }
+    }
+
+    const dryRunRecord = body?.dryRunId
+      ? await resolveProductionGaDryRunRecord(store, body.dryRunId)
+      : undefined;
+    if (!dryRunRecord) {
+      throw new Error('production GA dry-run was not found');
+    }
+
+    const matrix = createProductionGaCapabilityMatrix();
+    const threatModel = createDefaultProductionGaThreatModel(
+      body?.unresolvedCriticalRiskCount ?? 0,
+    );
+    const readinessSummary = summarizeProductionGaReadiness({
+      plan: dryRunRecord,
+      matrixStatus: body?.matrixStatus,
+      threatModelStatus: body?.threatModelStatus,
+      trainingStatus: body?.trainingStatus,
+      e2eFixtureStatus: body?.e2eFixtureStatus,
+      conditionalLiveStatus: body?.conditionalLiveStatus,
+      unresolvedCriticalRiskCount: body?.unresolvedCriticalRiskCount,
+      blockerCount: dryRunRecord.blockReasons.length,
+    });
+    const rehearsalRun =
+      body?.scenario || body?.status || body?.liveSmokeStatus
+        ? createProductionGaRehearsalRunRecord(body)
+        : createProductionGaE2ERehearsalRun({
+            plan: createProductionGaE2ERehearsalPlan({ scenario: 'all-pass' }),
+            status: 'ready',
+          });
+    const signoffPlan = createProductionGaReleaseCandidateSignoffPlan({
+      matrix,
+      threatModel,
+      readinessSummary,
+      e2eRehearsalRun: rehearsalRun,
+      unresolvedCriticalRiskCount: body?.unresolvedCriticalRiskCount,
+      blockReasons: body?.blockReasons ?? dryRunRecord.blockReasons,
+    });
+    await store.productionGaSignoffPlans.saveSignoffPlan(signoffPlan);
+    await store.productionGaE2ERehearsalRuns.saveRehearsalRun(rehearsalRun);
+    return signoffPlan;
+  }
+
+  async function resolveProductionGaApprovals(
+    store: CodexHubStore,
+    body: ProductionGaRequestBody | undefined,
+  ): Promise<ProductionGaApprovalArtifact[]> {
+    const approvalIds = [
+      ...(body?.approvalArtifactIds ?? []),
+      ...(body?.approvalArtifactId ? [body.approvalArtifactId] : []),
+    ];
+    const approvals = await Promise.all(
+      approvalIds.map((id) => store.productionGaApprovals.getApprovalByArtifactId(id)),
+    );
+
+    return approvals.filter((approval): approval is ProductionGaApprovalArtifact => Boolean(approval));
+  }
+
+  function createProductionGaSignoffBlockedResponse(reason: string, approvalCount = 0) {
+    return {
+      status: 'blocked',
+      reason,
+      requiredApprovalCount: 2,
+      approvalCount,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+      remoteProviderBoundaryInvoked: false,
+      childAdapterInvokedDirectly: false,
+      summary: 'Production GA signoff blocked before any child control-plane coordination.',
+    };
+  }
+
+  function registerProductionGaRoutes(prefix: string): void {
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-ga'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const { plan, threatModel, residualRiskRegister } = createProductionGaReadinessPlanRecord(body);
+      await store.productionGaDryRuns.saveDryRun(plan);
+      await store.productionGaThreatModels.saveThreatModel(threatModel);
+      await store.productionGaResidualRiskRegisters.saveResidualRiskRegister(residualRiskRegister);
+      return plan;
+    });
+
+    server.get(`${prefix}/dry-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.productionGaDryRuns.listDryRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-ga'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await resolveProductionGaDryRunRecord(store, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'production GA dry-run was not found' });
+      }
+      const approval = createProductionGaApprovalRecord(dryRunRecord, body, 'denied');
+      await store.productionGaApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.post(`${prefix}/manual-approvals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-ga'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const dryRunRecord = body?.dryRunId
+        ? await resolveProductionGaDryRunRecord(store, body.dryRunId)
+        : undefined;
+      if (!dryRunRecord) {
+        return reply.code(404).send({ error: 'production GA dry-run was not found' });
+      }
+      const approval = createProductionGaApprovalRecord(
+        dryRunRecord,
+        body,
+        body?.decision ?? body?.outcome ?? 'approved',
+      );
+      await store.productionGaApprovals.saveApproval(approval);
+      return approval;
+    });
+
+    server.get(`${prefix}/approvals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.productionGaApprovals.listApprovals(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/signoffs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-ga'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      let signoffPlan: ProductionGaReleaseCandidateSignoffPlan;
+      try {
+        signoffPlan = await createProductionGaSignoffPlanRecord(store, body);
+      } catch {
+        return reply.code(404).send({ error: 'production GA dry-run was not found' });
+      }
+      const approvals = await resolveProductionGaApprovals(store, body);
+      const approvedApprovals = approvals.filter((approval) => approval.approved);
+      const distinctApproverCount = new Set(
+        approvedApprovals.map((approval) => approval.approverHash),
+      ).size;
+      if (approvedApprovals.length < 2) {
+        return reply
+          .code(409)
+          .send(createProductionGaSignoffBlockedResponse('two_ga_approvals_required', approvals.length));
+      }
+      if (distinctApproverCount < 2) {
+        return reply
+          .code(409)
+          .send(
+            createProductionGaSignoffBlockedResponse(
+              'distinct_ga_approver_hashes_required',
+              approvals.length,
+            ),
+          );
+      }
+      const run = createProductionGaSignoffRun({
+        signoffPlan,
+        approvals: approvedApprovals,
+        foundationGateStatus: body?.status,
+        matrixStatus: body?.matrixStatus,
+        threatModelStatus: body?.threatModelStatus,
+        trainingStatus: body?.trainingStatus,
+        e2eFixtureStatus: body?.e2eFixtureStatus,
+        conditionalLiveStatus: body?.conditionalLiveStatus,
+        unresolvedCriticalRiskCount: body?.unresolvedCriticalRiskCount,
+      });
+      await store.productionGaSignoffRuns.saveRun(run);
+      return run;
+    });
+
+    server.get(`${prefix}/signoffs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.productionGaSignoffRuns.listRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/signoffs/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record =
+        params.id && store ? await store.productionGaSignoffRuns.getRun(params.id) : undefined;
+      return record ?? reply.code(404).send({ error: 'production GA signoff was not found' });
+    });
+
+    server.post(`${prefix}/rehearsals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-ga'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const run = createProductionGaRehearsalRunRecord(body);
+      await store.productionGaE2ERehearsalRuns.saveRehearsalRun(run);
+      return run;
+    });
+
+    server.get(`${prefix}/rehearsals`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.productionGaE2ERehearsalRuns.listRehearsalRuns(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/rehearsals/:id`, async (request, reply) => {
+      const store = await getStore();
+      const params = request.params as { id?: string };
+      const record =
+        params.id && store
+          ? await store.productionGaE2ERehearsalRuns.getRehearsalRun(params.id)
+          : undefined;
+      return record ?? reply.code(404).send({ error: 'production GA rehearsal was not found' });
+    });
+
+    server.post(`${prefix}/training-completions`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-ga'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const trainingPlan = createProductionGaOperatorTrainingPlan({
+        moduleIds: body?.moduleIds?.length ? body.moduleIds : productionGaTrainingModuleIds,
+      });
+      const completion = createProductionGaOperatorTrainingCompletion({
+        trainingPlan,
+        operatorIdentity: body?.operatorIdentity ?? 'production-ga-operator',
+        completedModuleCount: body?.completedModuleCount,
+      });
+      await store.productionGaTrainingCompletions.saveTrainingCompletion(completion);
+      return completion;
+    });
+
+    server.get(`${prefix}/training-completions`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store
+        ? await store.productionGaTrainingCompletions.listTrainingCompletions(query)
+        : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/capability-matrix/latest`, async () => createProductionGaCapabilityMatrix());
+
+    server.get(`${prefix}/threat-model/latest`, async () => {
+      const store = await getStore();
+      const records = store ? await store.productionGaThreatModels.listThreatModels({ limit: 1 }) : [];
+      return records[0] ?? createDefaultProductionGaThreatModel();
+    });
   }
 
   function registerRuntimeJobRoutes(prefix: string): void {

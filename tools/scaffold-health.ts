@@ -167,6 +167,7 @@ const requiredGovernanceFiles = [
   'docs/releases/m47-d20-final-governance-baseline.md',
   'docs/releases/m48a-production-ga-contracts.md',
   'docs/releases/m48b-production-ga-kernel-store.md',
+  'docs/releases/m48c-production-ga-control-plane.md',
   'docs/releases/m24.6-foundation-hardening.md',
   'docs/releases/m24.7-deep-governance-hardening.md',
   'docs/releases/m24.8-governance-meta-audit.md',
@@ -253,6 +254,7 @@ const requiredGovernanceFiles = [
   'docs/reviews/m0-m47-final-governance-baseline-review.md',
   'docs/reviews/m48a-production-ga-contracts-review.md',
   'docs/reviews/m48b-production-ga-kernel-store-review.md',
+  'docs/reviews/m48c-production-ga-control-plane-review.md',
   'docs/reviews/m0-m24-foundation-hardening-review.md',
   'docs/reviews/m0-m24-deep-governance-debug-review.md',
   'docs/reviews/m0-m24-governance-meta-audit-review.md',
@@ -303,6 +305,7 @@ const requiredGovernanceFiles = [
   'docs/runbooks/m47-final-governance-baseline-runbook.md',
   'docs/runbooks/m48a-production-ga-contracts-runbook.md',
   'docs/runbooks/m48b-production-ga-kernel-store-runbook.md',
+  'docs/runbooks/m48c-production-ga-control-plane-runbook.md',
   'docs/checklists/m8a-operator-readiness-checklist.md',
   'docs/checklists/m10-local-pilot-checklist.md',
 ];

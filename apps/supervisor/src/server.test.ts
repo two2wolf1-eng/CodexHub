@@ -229,6 +229,19 @@ const lateStageSupervisorControlPlaneMatrix = [
     prefix: '/api/platform/operator-roles',
     approvalManagedExternally: false,
   },
+  {
+    family: 'production-ga',
+    prefix: '/api/production-ga',
+    approvalManagedExternally: true,
+    routeSuffixes: [
+      '/dry-runs',
+      '/approval-requests',
+      '/manual-approvals',
+      '/signoffs',
+      '/rehearsals',
+      '/training-completions',
+    ],
+  },
 ] as const;
 function getLateStageMutatingRoutes(
   entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
@@ -266,6 +279,7 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/runtime/',
   '/api/agents/',
   '/api/platform/',
+  '/api/production-ga',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -696,6 +710,19 @@ describe('supervisor mock development API', () => {
             `${prefix}/runs`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerProductionGaRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/manual-approvals`,
+            `${prefix}/signoffs`,
+            `${prefix}/rehearsals`,
+            `${prefix}/training-completions`,
+          ]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -797,6 +824,18 @@ describe('supervisor mock development API', () => {
         helperName: 'registerPlatformOperationRoutes',
         variableName: 'prefix',
         suffixes: standardApprovalSuffixes,
+      },
+      {
+        helperName: 'registerProductionGaRoutes',
+        variableName: 'prefix',
+        suffixes: [
+          '/dry-runs',
+          '/approval-requests',
+          '/manual-approvals',
+          '/signoffs',
+          '/rehearsals',
+          '/training-completions',
+        ],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -941,6 +980,111 @@ describe('supervisor mock development API', () => {
 
     await server.close();
     await store.close();
+  });
+
+  it('requires two distinct store-resolved approvals for production GA signoff', async () => {
+    const originalProductionGaEnabled = process.env.CODEXHUB_PRODUCTION_GA_ENABLED;
+    process.env.CODEXHUB_PRODUCTION_GA_ENABLED = 'true';
+
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-production-ga-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/dry-runs',
+      headers: localControlHeaders,
+      payload: {},
+    });
+    const dryRun = dryRunResponse.json();
+    const firstApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        decidedBy: 'operator-a',
+        reason: 'ga signoff fixture one',
+      },
+    });
+    const secondApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        decidedBy: 'operator-b',
+        reason: 'ga signoff fixture two',
+      },
+    });
+    const singleApprovalSignoffResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/signoffs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [firstApprovalResponse.json().id],
+      },
+    });
+    const signoffResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/signoffs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [firstApprovalResponse.json().id, secondApprovalResponse.json().id],
+      },
+    });
+    const forgedPayloadResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/signoffs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifact: { id: 'caller_supplied_ga_artifact' },
+        executionAuthority: { allowed: true },
+        childArtifacts: [{ id: 'caller_supplied_child' }],
+        rawE2EPayload: 'raw patch verify pr merge release deploy observe rollback payload',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    if (originalProductionGaEnabled === undefined) {
+      delete process.env.CODEXHUB_PRODUCTION_GA_ENABLED;
+    } else {
+      process.env.CODEXHUB_PRODUCTION_GA_ENABLED = originalProductionGaEnabled;
+    }
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun.blockReasons).toEqual([]);
+    expect(firstApprovalResponse.statusCode).toBe(200);
+    expect(secondApprovalResponse.statusCode).toBe(200);
+    expect(firstApprovalResponse.json().approved).toBe(true);
+    expect(secondApprovalResponse.json().approved).toBe(true);
+    expect(firstApprovalResponse.body).not.toContain('ga signoff fixture one');
+    expect(singleApprovalSignoffResponse.statusCode).toBe(409);
+    expect(singleApprovalSignoffResponse.json()).toMatchObject({
+      status: 'blocked',
+      reason: 'two_ga_approvals_required',
+      childAdapterInvokedDirectly: false,
+    });
+    expect(signoffResponse.statusCode).toBe(200);
+    expect(signoffResponse.json()).toMatchObject({
+      status: 'conditionally_ready',
+      approvalConsumedCount: 2,
+      childAdapterInvokedDirectly: false,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+      remoteProviderBoundaryInvoked: false,
+    });
+    expect(signoffResponse.json().approverHashes).toHaveLength(2);
+    expect(new Set(signoffResponse.json().approverHashes).size).toBe(2);
+    expect(forgedPayloadResponse.statusCode).toBe(400);
+    expect(forgedPayloadResponse.body).not.toContain('caller_supplied_ga_artifact');
+    expect(forgedPayloadResponse.body).not.toContain('caller_supplied_child');
+    expect(forgedPayloadResponse.body).not.toContain('raw patch verify pr merge');
   });
 
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {
