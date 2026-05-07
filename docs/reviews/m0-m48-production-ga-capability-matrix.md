@@ -30,3 +30,7 @@
 - No live boundary allowlist expands in M48.
 - Conditional live smoke may report `readiness_blocked` only for environment-only blockers.
 - No unresolved critical residual risk is signoff eligible.
+
+## Final GA Closeout
+
+M48 final release keeps this matrix as the production capability baseline. Any new provider, route family, store repository, live boundary, or authority model change must update this matrix before it can be included in a future GA signoff.

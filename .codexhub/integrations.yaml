@@ -2801,3 +2801,40 @@ integrations:
       runtimeAgentBypassForbidden: true
       platformOperationBypassForbidden: true
       finalBaselineDocsRequired: true
+  production-ga-release:
+    enabled: false
+    adapter: production-ga-kernel
+    provider: codexhub-ga-signoff
+    providerType: builtin
+    mode: governed-signoff
+    stage: m48-production-ga-release
+    supervisorRouteFamily: /api/production-ga
+    runtimeGate: CODEXHUB_PRODUCTION_GA_ENABLED
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: write
+    defaultRisk: critical
+    productDefaultEnabled: false
+    approval:
+      required: true
+      requiredApprovalCount: 2
+      approverHashesMustDiffer: true
+      childApprovalsRemainSeparate: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+    output:
+      metadataOnly: true
+      rawE2ePayloadStored: false
+      rawDocsStored: false
+      rawTokenEnvStored: false
+    safety:
+      noNewExecutionProvider: true
+      noNewLiveBoundary: true
+      childAdapterDirectExecutionAllowed: false
+      gaApprovalCanGrantChildAuthority: false
+      conditionalLiveSmokeEnvironmentBlockerOnly: true
+      unresolvedCriticalRiskBlocksSignoff: true
+      fixtureE2eRequired: true
+      cliReadOnly: true
+      dashboardTokenMemoryOnly: true

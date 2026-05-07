@@ -5932,3 +5932,36 @@ workflows:
       noOpenPullRequest: true
       documentationOnlyCloseout: true
       metadataOnlyPublicOutput: true
+  m48.production-ga-release:
+    risk: critical
+    trigger:
+      type: production-ga-release
+      entrypoint: production-ga-kernel supervisor dashboard cli docs tools
+      localControlRequired: true
+    scope:
+      - production-ga-contracts-kernel-store
+      - production-ga-supervisor-control-plane
+      - full-m0-m48-capability-matrix
+      - production-ga-threat-model
+      - operator-training
+      - e2e-rehearsal-chain
+      - release-candidate-signoff
+      - ga-audit-hardening
+      - final-foundation-gate-closeout
+    docs:
+      - docs/releases/m48-production-ga-release.md
+      - docs/reviews/m48-production-ga-final-review.md
+      - docs/reviews/m0-m48-production-ga-capability-matrix.md
+      - docs/threat-model/m48-production-ga-threat-model.md
+      - docs/training/m48-production-ga-operator-training.md
+      - docs/runbooks/m48-production-ga-operator-runbook.md
+    safety:
+      noNewExecutionProvider: true
+      noNewLiveBoundary: true
+      noChildAdapterExecutionFromGa: true
+      gaApprovalSubstitutesChildApproval: false
+      twoDistinctGaApprovalsRequired: true
+      conditionalLiveSmokeEnvironmentBlockerOnly: true
+      metadataOnlyPublicOutput: true
+      noPush: true
+      noOpenPullRequest: true

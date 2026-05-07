@@ -52,3 +52,7 @@ Public output is metadata-only: ids, hashes, counts, statuses, summaries, eviden
 - Conditional live smoke may be readiness-blocked when local or remote runtime prerequisites are absent.
 - Operator training evidence must be complete or explicitly blocked for non-critical reasons before GA signoff.
 - Future capability additions must update this threat model before becoming signoff eligible.
+
+## Final GA Closeout
+
+The M48 GA layer is a signoff and aggregation boundary. It must not be extended into a child execution boundary without a new milestone, updated threat model, focused tests, audits, and operator training.

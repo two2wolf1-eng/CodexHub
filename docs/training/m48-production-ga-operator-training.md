@@ -35,3 +35,7 @@ Operators must know backup, restore rehearsal, store migration, retention, audit
 ## Completion Evidence
 
 Training completion records only operator hash, module hashes, completion counts, status, evidence refs, and audit ids.
+
+## Final GA Closeout
+
+Operators should refresh this training before any future milestone that adds a provider, live boundary, deployment behavior, policy authority behavior, telemetry behavior, or external-agent capability.
