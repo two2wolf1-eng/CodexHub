@@ -537,10 +537,12 @@ import {
   CodexAppServerWireMessageSummarySchema,
   CodexClientInstanceSchema,
   CodexClientSchedulingProjectionSchema,
+  CodexRecoveryKindSchema,
   CodexRecoveryRunSchema,
   CodexSchedulerPreflightCheckSchema,
   CodexSchedulerSelectionSummarySchema,
   CodexTaskApprovalStatusSchema,
+  CodexTaskDiagnosisKindSchema,
   CodexTaskDiagnosisSchema,
   CodexTaskDispatchModeSchema,
   CodexTaskEventStreamStatusSchema,
@@ -16042,6 +16044,96 @@ describe('contracts schemas', () => {
       CodexTaskIntentSchema.parse({
         ...intent,
         id: 'codex_task_intent_m57_raw_body',
+        metadata: { body: adversarialPublicOutputFixture },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M58 diagnosis and recovery contracts with dry-run approval gates', () => {
+    expect(CodexTaskDiagnosisKindSchema.options).toEqual(
+      expect.arrayContaining([
+        'completed',
+        'failed_quota',
+        'failed_auth',
+        'waiting_approval',
+        'tool_stuck',
+        'model_stalled',
+        'desktop_ui_frozen',
+      ]),
+    );
+    expect(CodexRecoveryKindSchema.options).toEqual(
+      expect.arrayContaining([
+        'wait',
+        'login_recover',
+        'switch_account',
+        'reconnect_app_server',
+        'restart_desktop',
+        'interrupt_turn',
+        'clean_background_terminals',
+        'resume',
+        'fork',
+        'transfer',
+      ]),
+    );
+
+    const diagnosis = CodexTaskDiagnosisSchema.parse({
+      id: 'codex_task_diagnosis_m58_1',
+      schemaVersion,
+      observedAt: createdAt,
+      taskRunId: 'codex_task_run_m58_1',
+      diagnosisKind: 'desktop_ui_frozen',
+      status: 'actionable',
+      confidence: 0.85,
+      recommendedRecoveryKind: 'restart_desktop',
+      evidenceRefIds: ['evidence_m58_diagnosis'],
+      auditEventIds: ['audit_m58_diagnosis'],
+      summary: 'Desktop UI frozen diagnosis is metadata-only.',
+    });
+    const recovery = CodexRecoveryRunSchema.parse({
+      id: 'codex_recovery_run_m58_1',
+      schemaVersion,
+      createdAt,
+      taskRunId: diagnosis.taskRunId,
+      diagnosisId: diagnosis.id,
+      recoveryKind: 'restart_desktop',
+      status: 'needs_human',
+      recoveryPlanHash: 'sha256:recovery-plan',
+      recoveryPlanSummaryHash: 'sha256:recovery-plan-summary',
+      actionCount: 1,
+      riskLevel: 'high',
+      highRisk: true,
+      dryRunId: 'recovery_dry_run_m58_1',
+      approvalRequired: true,
+      approvalStatus: 'waiting',
+      liveActionRequested: true,
+      approvalArtifactId: 'approval_artifact_m58_1',
+      evidenceRefIds: ['evidence_m58_recovery'],
+      auditEventIds: ['audit_m58_recovery'],
+      summary: 'High-risk recovery remains disabled after dry-run and approval capture.',
+    });
+
+    expect(recovery.dryRunRequired).toBe(true);
+    expect(recovery.liveActionAllowed).toBe(false);
+    expect(recovery.executionDisabled).toBe(true);
+    expect(JSON.stringify([diagnosis, recovery])).not.toContain(adversarialPublicOutputFixture);
+    expect(() =>
+      CodexRecoveryRunSchema.parse({
+        ...recovery,
+        id: 'codex_recovery_run_m58_missing_approval',
+        approvalRequired: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexRecoveryRunSchema.parse({
+        ...recovery,
+        id: 'codex_recovery_run_m58_missing_dry_run',
+        dryRunId: undefined,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexRecoveryRunSchema.parse({
+        ...recovery,
+        id: 'codex_recovery_run_m58_raw_body',
         metadata: { body: adversarialPublicOutputFixture },
       }),
     ).toThrow();

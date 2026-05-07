@@ -18008,11 +18008,15 @@ export type CodexTaskEventStreamStatus = z.infer<
 
 export const CodexTaskDiagnosisKindSchema = z.enum([
   'healthy',
+  'completed',
   'failed_quota',
   'failed_auth',
+  'waiting_approval',
   'workspace_mismatch',
   'client_unavailable',
   'tool_stuck',
+  'model_stalled',
+  'desktop_ui_frozen',
   'app_server_unresponsive',
   'unknown',
   'needs_manual_review',
@@ -18021,13 +18025,21 @@ export type CodexTaskDiagnosisKind = z.infer<typeof CodexTaskDiagnosisKindSchema
 
 export const CodexRecoveryKindSchema = z.enum([
   'none',
+  'wait',
   'wait_for_quota',
+  'login_recover',
   'human_checkpoint',
   'switch_account',
   'switch_client',
+  'reconnect_app_server',
   'restart_client',
+  'restart_desktop',
   'resume_thread',
+  'resume',
+  'fork',
+  'transfer',
   'interrupt_turn',
+  'clean_background_terminals',
   'manual_review',
 ]);
 export type CodexRecoveryKind = z.infer<typeof CodexRecoveryKindSchema>;
@@ -18584,14 +18596,46 @@ export const CodexRecoveryRunSchema = createdEntityBaseSchema
     diagnosisId: z.string().min(1).optional(),
     recoveryKind: CodexRecoveryKindSchema,
     status: CodexTaskStatusSchema,
+    recoveryPlanHash: z.string().min(1).optional(),
+    recoveryPlanSummaryHash: z.string().min(1).optional(),
+    actionCount: z.number().int().nonnegative().default(0),
+    riskLevel: RiskLevelSchema.default('medium'),
+    highRisk: z.boolean().default(false),
     dryRunId: z.string().min(1).optional(),
+    dryRunRequired: z.literal(true).default(true),
     approvalArtifactId: z.string().min(1).optional(),
     approvalRequired: z.boolean().default(false),
+    approvalStatus: CodexTaskApprovalStatusSchema.default('required'),
+    liveActionRequested: z.boolean().default(false),
+    liveActionAllowed: z.literal(false).default(false),
     executionDisabled: z.literal(true).default(true),
     summary: z.string().min(1),
   })
   .strict()
-  .superRefine(rejectCustomWorkflowRawMetadata);
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.highRisk && !record.approvalRequired) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'high-risk recovery requires approval',
+        path: ['approvalRequired'],
+      });
+    }
+    if (record.highRisk && !record.dryRunId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'high-risk recovery requires a dry-run id',
+        path: ['dryRunId'],
+      });
+    }
+    if (record.liveActionRequested && !record.approvalArtifactId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live recovery action requires an approval artifact id',
+        path: ['approvalArtifactId'],
+      });
+    }
+  });
 export type CodexRecoveryRun = z.infer<typeof CodexRecoveryRunSchema>;
 
 export const AccountPoolSchema = observedEntityBaseSchema
