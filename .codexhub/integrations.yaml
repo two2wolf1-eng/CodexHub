@@ -2871,3 +2871,49 @@ integrations:
       uiCliMcpDirectAdapterExecuteAllowed: false
       dashboardTokenPersistenceAllowed: false
       cliGenericGaPostAllowed: false
+  m48-deep-debug-baseline:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-hardening
+    providerType: builtin
+    mode: review-only
+    stage: m48-d25-final-deep-governance-baseline
+    debugRoundsCompleted: 25
+    finalRelease: docs/releases/m48-d25-final-deep-governance-baseline.md
+    finalReview: docs/reviews/m48-d25-final-deep-governance-review.md
+    finalRunbook: docs/runbooks/m48-d25-final-deep-debug-runbook.md
+    finalMatrix: docs/reviews/m0-m48-production-ga-capability-matrix.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    reviewedCapabilityChains:
+      - contracts-public-projections
+      - store-round-trips
+      - supervisor-route-gates
+      - approval-boundary-semantics
+      - github-fixed-boundaries
+      - deployment-platform-boundaries
+      - secrets-policy-telemetry-boundaries
+      - browser-electron-mcp-controlled-writes
+      - runtime-external-agent-boundaries
+      - dashboard-cli-mcp-operator-surfaces
+      - rehearsal-and-degraded-state-matrices
+      - adversarial-static-audit-sentinels
+      - production-ga-release
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWriteSmoke: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyReviewDocs: true
+      gaApprovalCanGrantChildAuthority: false
+      childApprovalsRemainSeparate: true
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      dashboardTokenPersistenceAllowed: false
+      cliGenericPostAllowed: false
+      mcpMutationBypassAllowed: false

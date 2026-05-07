@@ -38,3 +38,18 @@ M48 final release keeps this matrix as the production capability baseline. Any n
 ## M48-D5 Debug Baseline
 
 The M48-D1 through M48-D5 debug series keeps this matrix unchanged as product capability: no provider, route, store repository, or live boundary was added. The final D5 baseline strengthens static audit sentinels for GA aggregation so direct child adapter imports, generic GA route passthrough, raw E2E payloads, child authority payloads, token/env reads, Dashboard token persistence, and CLI GA generic POST helpers remain blocked before future GA signoff changes are accepted.
+
+## M48-D25 Deep Governance Baseline
+
+The M48-D6 through M48-D25 debug series also keeps this matrix unchanged as product capability. It hardens the evidence around the existing capability set instead of adding new automation.
+
+| Debug Range | Coverage | Capability Change |
+| --- | --- | --- |
+| D6-D9 | Baseline registration, contracts, kernel projections, store round trips | None |
+| D10-D12 | Supervisor route drift, route gates, approval consumption | None |
+| D13-D18 | GitHub, deployment, secrets, policy/telemetry, controlled write, runtime/external agent, platform boundaries | None |
+| D19-D21 | Dashboard, CLI, and MCP operator surfaces | None |
+| D22-D24 | Rehearsal matrices, degraded-state smoke, adversarial static audit sentinels | None |
+| D25 | Final release/review/runbook and matrix registration | None |
+
+Any M49+ milestone that adds a route, provider, store repository, live boundary, or new authority path must add a new matrix row and cannot inherit M48 GA readiness by implication.
