@@ -158,6 +158,9 @@ import {
   ElectronCdpForbiddenActionSchema,
   ElectronCdpNetworkMetadataSummarySchema,
   ElectronCdpControlPlaneApprovalStatusSchema,
+  CodexDesktopDiagnosticHintSchema,
+  CodexDesktopHealthSnapshotSchema,
+  CodexDesktopHealthStatusSchema,
   ElectronCdpObservationApprovalArtifactRecordSchema,
   ElectronCdpObservationCapabilitySchema,
   ElectronCdpObservationControlPlaneRunSchema,
@@ -173,6 +176,9 @@ import {
   ElectronProcessSummarySchema,
   ElectronTargetSummarySchema,
   ElectronTargetTypeSchema,
+  OsProcessMetadataSummarySchema,
+  OsProcessObservationStatusSchema,
+  OsProcessObservedKindSchema,
   OrchestrationRunSchema,
   OrchestrationRunStatusSchema,
   OrchestrationTimelineEventSchema,
@@ -1170,6 +1176,15 @@ describe('contracts schemas', () => {
       'blocked',
       'aborted',
     ]);
+    expect(OsProcessObservedKindSchema.options).toContain('codex-desktop');
+    expect(OsProcessObservationStatusSchema.options).toContain('observed');
+    expect(CodexDesktopHealthStatusSchema.options).toEqual([
+      'ready',
+      'degraded',
+      'blocked',
+      'unknown',
+    ]);
+    expect(CodexDesktopDiagnosticHintSchema.options).toContain('desktop_ui_frozen');
 
     const processSummary = ElectronProcessSummarySchema.parse({
       id: 'electron_process_summary_1',
@@ -1185,6 +1200,28 @@ describe('contracts schemas', () => {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       summary: 'Electron process metadata stores hashes only.',
+    });
+    const osProcessSummary = OsProcessMetadataSummarySchema.parse({
+      id: 'os_process_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      observedKind: 'codex-desktop',
+      processNameHash: 'sha256:codex',
+      processIdHash: 'sha256:pid',
+      executablePathHash: 'sha256:exe-path',
+      commandLineHash: 'sha256:argv',
+      allowlistMatched: true,
+      status: 'observed',
+      cpuSampleCount: 1,
+      cpuPercentRounded: 2.5,
+      memoryBytesRounded: 128_000_000,
+      durationMs: 4_000,
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'OS process observer stores hashes and rounded metrics only.',
     });
     const endpoint = ElectronDebugEndpointSummarySchema.parse({
       id: 'electron_endpoint_summary_1',
@@ -1308,6 +1345,35 @@ describe('contracts schemas', () => {
       externalProcessStarted: false,
       summary: 'Fixture Electron/CDP observation completed.',
     });
+    const desktopHealth = CodexDesktopHealthSnapshotSchema.parse({
+      id: 'codex_desktop_health_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'degraded',
+      processSummary,
+      osProcessSummary,
+      debugEndpoint: endpoint,
+      targetCount: 1,
+      consoleErrorCount: 1,
+      networkFailedRequestCount: 0,
+      appServerResponsive: false,
+      desktopUiResponsive: false,
+      quotaAvailable: false,
+      loggedIn: true,
+      accountMatched: true,
+      workspaceMatched: true,
+      diagnosticHints: [
+        'desktop_ui_frozen',
+        'app_server_unresponsive',
+        'quota_depleted',
+      ],
+      rawPathStored: false,
+      bodyStored: false,
+      noRealWrite: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      summary: 'Codex Desktop health uses diagnosis hints only.',
+    });
     const evidence = EvidenceRefSchema.parse({
       id: 'electron_evidence_summary_1',
       schemaVersion,
@@ -1337,8 +1403,21 @@ describe('contracts schemas', () => {
     expect(plan.runtimeEvaluateAllowed).toBe(false);
     expect(plan.genericCommandPassthrough).toBe(false);
     expect(target.urlHash).toBe('sha256:url');
-    expect(JSON.stringify(run)).not.toContain('C:\\');
+    expect(desktopHealth.diagnosticHints).toContain('desktop_ui_frozen');
+    expect(JSON.stringify({ run, desktopHealth })).not.toContain('C:\\');
     expect(JSON.stringify(run)).not.toContain('Runtime.evaluate');
+    expect(() =>
+      OsProcessMetadataSummarySchema.parse({
+        ...osProcessSummary,
+        executablePath: 'C:\\Users\\Thomas\\AppData\\Local\\Codex\\Codex.exe',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexDesktopHealthSnapshotSchema.parse({
+        ...desktopHealth,
+        rawPath: 'C:\\Users\\Thomas\\AppData\\Local\\Codex\\Codex.exe',
+      }),
+    ).toThrow();
     expect(() =>
       ElectronProcessSummarySchema.parse({
         ...processSummary,

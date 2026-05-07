@@ -142,6 +142,8 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'electron.observation_plan',
     'electron.observation_summary',
     'electron.run_summary',
+    'electron.codex_desktop_health',
+    'os.process_summary',
     'worktree.plan',
     'worktree.run_summary',
     'worktree.cleanup_plan',
@@ -2176,6 +2178,51 @@ export const ElectronTargetTypeSchema = z.enum([
 ]);
 export type ElectronTargetType = z.infer<typeof ElectronTargetTypeSchema>;
 
+export const OsProcessObservationStatusSchema = z.enum([
+  'observed',
+  'not_found',
+  'blocked',
+  'unknown',
+]);
+export type OsProcessObservationStatus = z.infer<
+  typeof OsProcessObservationStatusSchema
+>;
+
+export const OsProcessObservedKindSchema = z.enum([
+  'codex-desktop',
+  'electron',
+  'codex-app-server',
+  'chrome',
+  'node',
+  'unknown',
+]);
+export type OsProcessObservedKind = z.infer<typeof OsProcessObservedKindSchema>;
+
+export const CodexDesktopHealthStatusSchema = z.enum([
+  'ready',
+  'degraded',
+  'blocked',
+  'unknown',
+]);
+export type CodexDesktopHealthStatus = z.infer<
+  typeof CodexDesktopHealthStatusSchema
+>;
+
+export const CodexDesktopDiagnosticHintSchema = z.enum([
+  'desktop_ui_frozen',
+  'app_server_unresponsive',
+  'quota_depleted',
+  'codex_logged_out',
+  'wrong_account',
+  'workspace_mismatch',
+  'no_cdp_endpoint',
+  'no_process',
+  'unknown',
+]);
+export type CodexDesktopDiagnosticHint = z.infer<
+  typeof CodexDesktopDiagnosticHintSchema
+>;
+
 export const ElectronCdpObservationCapabilitySchema = z.enum([
   'process_summary',
   'debug_endpoint_summary',
@@ -2278,6 +2325,32 @@ export const ElectronCdpCommandAllowlistDecisionSchema = createdEntityBaseSchema
   .strict();
 export type ElectronCdpCommandAllowlistDecision = z.infer<
   typeof ElectronCdpCommandAllowlistDecisionSchema
+>;
+
+export const OsProcessMetadataSummarySchema = observedEntityBaseSchema
+  .extend({
+    observedKind: OsProcessObservedKindSchema,
+    processNameHash: z.string().min(1),
+    processIdHash: z.string().min(1).optional(),
+    parentProcessIdHash: z.string().min(1).optional(),
+    executablePathHash: z.string().min(1).optional(),
+    commandLineHash: z.string().min(1).optional(),
+    allowlistMatched: z.boolean().default(false),
+    status: OsProcessObservationStatusSchema,
+    cpuSampleCount: z.number().int().nonnegative().default(0),
+    cpuPercentRounded: z.number().nonnegative().max(100).optional(),
+    memoryBytesRounded: z.number().int().nonnegative().optional(),
+    durationMs: z.number().int().nonnegative().optional(),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type OsProcessMetadataSummary = z.infer<
+  typeof OsProcessMetadataSummarySchema
 >;
 
 export const ElectronProcessSummarySchema = createdEntityBaseSchema
@@ -2441,6 +2514,36 @@ export const ElectronCdpObservationSummarySchema = observedEntityBaseSchema
   .strict();
 export type ElectronCdpObservationSummary = z.infer<
   typeof ElectronCdpObservationSummarySchema
+>;
+
+export const CodexDesktopHealthSnapshotSchema = observedEntityBaseSchema
+  .extend({
+    status: CodexDesktopHealthStatusSchema,
+    processSummary: ElectronProcessSummarySchema.optional(),
+    osProcessSummary: OsProcessMetadataSummarySchema.optional(),
+    debugEndpoint: ElectronDebugEndpointSummarySchema.optional(),
+    targetCount: z.number().int().nonnegative().default(0),
+    consoleErrorCount: z.number().int().nonnegative().default(0),
+    networkFailedRequestCount: z.number().int().nonnegative().default(0),
+    appServerResponsive: z.boolean().default(false),
+    desktopUiResponsive: z.boolean().default(false),
+    quotaAvailable: z.boolean().default(false),
+    loggedIn: z.boolean().default(false),
+    accountMatched: z.boolean().default(false),
+    workspaceMatched: z.boolean().default(false),
+    diagnosticHints: z.array(CodexDesktopDiagnosticHintSchema).default([]),
+    rawPathStored: z.literal(false),
+    bodyStored: z.literal(false),
+    noRealWrite: z.literal(true),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.literal(false),
+    externalProcessStarted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict();
+export type CodexDesktopHealthSnapshot = z.infer<
+  typeof CodexDesktopHealthSnapshotSchema
 >;
 
 export const ElectronCdpObservationRunStatusSchema = z.enum([
