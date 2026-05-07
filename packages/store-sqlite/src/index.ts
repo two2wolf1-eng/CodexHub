@@ -17,7 +17,13 @@ import type {
   ChromeProfileBinding,
   ClientPool,
   CodexAccountBinding,
+  CodexAppServerApprovalBridgeRecord,
+  CodexAppServerEventSummary,
+  CodexAppServerProtocolDriftReport,
   CodexAppServerSession,
+  CodexAppServerThreadMirror,
+  CodexAppServerTurnMirror,
+  CodexAppServerWireMessageSummary,
   CodexClientInstance,
   CodexRecoveryRun,
   CodexPatchChildRecord,
@@ -588,6 +594,12 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly humanCheckpoints: MetadataEntityRepository<HumanCheckpoint>;
   readonly codexClientInstances: MetadataEntityRepository<CodexClientInstance>;
   readonly codexAppServerSessions: MetadataEntityRepository<CodexAppServerSession>;
+  readonly codexAppServerWireMessageSummaries: MetadataEntityRepository<CodexAppServerWireMessageSummary>;
+  readonly codexAppServerThreadMirrors: MetadataEntityRepository<CodexAppServerThreadMirror>;
+  readonly codexAppServerTurnMirrors: MetadataEntityRepository<CodexAppServerTurnMirror>;
+  readonly codexAppServerEventSummaries: MetadataEntityRepository<CodexAppServerEventSummary>;
+  readonly codexAppServerApprovalBridgeRecords: MetadataEntityRepository<CodexAppServerApprovalBridgeRecord>;
+  readonly codexAppServerProtocolDriftReports: MetadataEntityRepository<CodexAppServerProtocolDriftReport>;
   readonly codexAccountBindings: MetadataEntityRepository<CodexAccountBinding>;
   readonly codexTaskIntents: MetadataEntityRepository<CodexTaskIntent>;
   readonly codexTaskRuns: MetadataEntityRepository<CodexTaskRun>;
@@ -962,6 +974,36 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'codex_app_server_sessions',
     );
+    this.codexAppServerWireMessageSummaries =
+      new SqliteMetadataEntityRepository<CodexAppServerWireMessageSummary>(
+        database,
+        'codex_app_server_wire_message_summaries',
+      );
+    this.codexAppServerThreadMirrors =
+      new SqliteMetadataEntityRepository<CodexAppServerThreadMirror>(
+        database,
+        'codex_app_server_thread_mirrors',
+      );
+    this.codexAppServerTurnMirrors =
+      new SqliteMetadataEntityRepository<CodexAppServerTurnMirror>(
+        database,
+        'codex_app_server_turn_mirrors',
+      );
+    this.codexAppServerEventSummaries =
+      new SqliteMetadataEntityRepository<CodexAppServerEventSummary>(
+        database,
+        'codex_app_server_event_summaries',
+      );
+    this.codexAppServerApprovalBridgeRecords =
+      new SqliteMetadataEntityRepository<CodexAppServerApprovalBridgeRecord>(
+        database,
+        'codex_app_server_approval_bridge_records',
+      );
+    this.codexAppServerProtocolDriftReports =
+      new SqliteMetadataEntityRepository<CodexAppServerProtocolDriftReport>(
+        database,
+        'codex_app_server_protocol_drift_reports',
+      );
     this.codexAccountBindings = new SqliteMetadataEntityRepository<CodexAccountBinding>(
       database,
       'codex_account_bindings',
@@ -6976,6 +7018,42 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_app_server_sessions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_wire_message_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_thread_mirrors (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_turn_mirrors (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_event_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_approval_bridge_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_app_server_protocol_drift_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

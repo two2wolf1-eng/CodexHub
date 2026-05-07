@@ -13,7 +13,13 @@ import type {
   ChromeProfileBinding,
   ClientPool,
   CodexAccountBinding,
+  CodexAppServerApprovalBridgeRecord,
+  CodexAppServerEventSummary,
+  CodexAppServerProtocolDriftReport,
   CodexAppServerSession,
+  CodexAppServerThreadMirror,
+  CodexAppServerTurnMirror,
+  CodexAppServerWireMessageSummary,
   CodexClientInstance,
   CodexRecoveryRun,
   CodexPatchChildRecord,
@@ -1706,6 +1712,12 @@ export interface CodexHubStore {
   humanCheckpoints: MetadataEntityRepository<HumanCheckpoint>;
   codexClientInstances: MetadataEntityRepository<CodexClientInstance>;
   codexAppServerSessions: MetadataEntityRepository<CodexAppServerSession>;
+  codexAppServerWireMessageSummaries: MetadataEntityRepository<CodexAppServerWireMessageSummary>;
+  codexAppServerThreadMirrors: MetadataEntityRepository<CodexAppServerThreadMirror>;
+  codexAppServerTurnMirrors: MetadataEntityRepository<CodexAppServerTurnMirror>;
+  codexAppServerEventSummaries: MetadataEntityRepository<CodexAppServerEventSummary>;
+  codexAppServerApprovalBridgeRecords: MetadataEntityRepository<CodexAppServerApprovalBridgeRecord>;
+  codexAppServerProtocolDriftReports: MetadataEntityRepository<CodexAppServerProtocolDriftReport>;
   codexAccountBindings: MetadataEntityRepository<CodexAccountBinding>;
   codexTaskIntents: MetadataEntityRepository<CodexTaskIntent>;
   codexTaskRuns: MetadataEntityRepository<CodexTaskRun>;
