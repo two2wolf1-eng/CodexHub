@@ -2951,3 +2951,49 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m49-real-capability-boundary-convergence:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-planning
+    providerType: builtin
+    mode: planning-only
+    stage: m49.1-real-capability-boundary-convergence
+    matrix: docs/real-capability-matrix.md
+    boundaries: docs/security-boundaries.md
+    release: docs/releases/m49.1-real-capability-boundary-convergence.md
+    review: docs/reviews/m49.1-real-capability-boundary-convergence-review.md
+    runbook: docs/runbooks/m49.1-real-capability-boundary-convergence-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    capabilityInventory:
+      browser: available-readonly
+      electron: available-readonly
+      codexAppServer: missing-real-adapter
+      chatgptBusiness: missing-real-adapter
+      git: available-dry-run
+      worktree: available-dry-run
+      github: available-dry-run
+      approval: requires-approval
+      policy: available-readonly
+      evidence: available-readonly
+      audit: available-readonly
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewPackage: true
+      noNewLiveBoundary: true
+      documentationAndRegistrationOnly: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

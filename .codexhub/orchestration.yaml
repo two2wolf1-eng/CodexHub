@@ -6608,3 +6608,38 @@ workflows:
       noCodexAppServerProcessLaunch: true
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
+  m49_1.real-capability-boundary-convergence:
+    risk: critical
+    trigger:
+      type: real-capability-boundary-convergence
+      entrypoint: docs orchestration integrations scaffold-health
+      localControlRequired: false
+    scope:
+      - real-capability-matrix
+      - security-boundary-convergence
+      - future-enable-order
+      - first-codex-development-task-queue
+      - m50-entry-gate
+    docs:
+      - docs/real-capability-matrix.md
+      - docs/security-boundaries.md
+      - docs/releases/m49.1-real-capability-boundary-convergence.md
+      - docs/reviews/m49.1-real-capability-boundary-convergence-review.md
+      - docs/runbooks/m49.1-real-capability-boundary-convergence-runbook.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewPackage: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      documentationAndRegistrationOnly: true
+      metadataOnlyPublicOutput: true
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

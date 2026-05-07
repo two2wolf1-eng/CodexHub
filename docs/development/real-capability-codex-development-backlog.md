@@ -91,6 +91,10 @@ Deliverables:
 - `docs/real-capability-matrix.md`
 - `docs/security-boundaries.md`
 - Policy planning note for `packages/security-kernel/src/real-capability-policy.ts`
+- M49.1 release, review, and runbook:
+  - `docs/releases/m49.1-real-capability-boundary-convergence.md`
+  - `docs/reviews/m49.1-real-capability-boundary-convergence-review.md`
+  - `docs/runbooks/m49.1-real-capability-boundary-convergence-runbook.md`
 
 Tasks:
 
@@ -99,6 +103,14 @@ Tasks:
 | M49.1 Real capability matrix | Classify Browser, Electron, Codex App Server, ChatGPT Business, Git, Worktree, GitHub, Approval, Policy, Evidence, Audit. | Each capability is one of `available-readonly`, `available-dry-run`, `missing-real-adapter`, `requires-approval`, or `forbidden`. |
 | M49.2 Safety boundary convergence | Define read, dry-run, write, admin, approval, evidence, audit, and default-disabled rules. | Every future real adapter has a documented policy gate and sensitive-output prohibition. |
 | M49.3 Implementation queue validation | Convert this backlog into issue-ready tasks. | P0/P1 issues have scope, non-scope, acceptance, and verification gates. |
+
+M49.1 status:
+
+- Complete as a documentation and registration-only hardening round.
+- `docs/real-capability-matrix.md` is the M50 entry matrix.
+- `docs/security-boundaries.md` is the M50 route and sensitive-output boundary.
+- M50 may begin with Supervisor control-plane shells only; live adapters remain
+  out of scope.
 
 Non-scope:
 
