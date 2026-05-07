@@ -6115,3 +6115,28 @@ workflows:
       noOpenPullRequest: true
       documentationAndRegistrationOnly: true
       metadataOnlyPublicOutput: true
+  m48_d7.contract-schema-fuzz:
+    risk: critical
+    trigger:
+      type: contract-schema-fuzz
+      entrypoint: contracts-test docs scaffold-health
+      localControlRequired: false
+    scope:
+      - production-ga-contracts
+      - production-workflow-recovery-contracts
+      - controlled-write-contracts
+      - runtime-external-agent-contracts
+      - platform-operations-contracts
+    docs:
+      - docs/releases/m48-d7-contract-schema-fuzz.md
+      - docs/reviews/m48-d7-contract-schema-fuzz-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      testsAndDocsOnly: true
+      metadataOnlyPublicOutput: true
