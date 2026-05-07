@@ -176,6 +176,71 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('indexedDB');
   });
 
+  it('keeps M48-D23 degraded smoke matrix explicit for GA operator routes', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const degradedSmokeRoutes = [
+      { view: 'governance', firstPanel: 'Unified Governance Projection' },
+      { view: 'readiness', firstPanel: 'Operator Readiness' },
+      { view: 'github', firstPanel: 'GitHub Provider Readiness' },
+      { view: 'workflows', firstPanel: 'Custom Workflow Templates' },
+      { view: 'deployments', firstPanel: 'Deployment Observations' },
+      { view: 'secrets', firstPanel: 'Secrets Governance' },
+      { view: 'policy-telemetry', firstPanel: 'Policy Backend' },
+      { view: 'runtime', firstPanel: 'Runtime Scheduler' },
+      { view: 'operations', firstPanel: 'Platform Operations' },
+      { view: 'production-ga', firstPanel: 'Production GA Readiness' },
+    ] as const;
+
+    expect(degradedSmokeRoutes.map(({ view }) => view)).toEqual([
+      'governance',
+      'readiness',
+      'github',
+      'workflows',
+      'deployments',
+      'secrets',
+      'policy-telemetry',
+      'runtime',
+      'operations',
+      'production-ga',
+    ]);
+
+    const smokeMatrix = degradedSmokeRoutes.map(({ view, firstPanel }) => {
+      const routeMarker = `activeView === '${view}'`;
+      const routeStart = appSource.indexOf(routeMarker);
+      expect(routeStart, `${view} route marker`).toBeGreaterThanOrEqual(0);
+      const routeWindow = appSource.slice(routeStart, routeStart + 9000);
+
+      expect(routeWindow).toContain(`<Panel title="${firstPanel}"`);
+      expect(routeWindow).not.toContain('throw new Error');
+      expect(routeWindow).not.toContain('localStorage');
+      expect(routeWindow).not.toContain('sessionStorage');
+      expect(routeWindow).not.toContain('indexedDB');
+      expect(routeWindow).not.toContain('adapter.execute');
+      expect(routeWindow).not.toContain('executeAdapter');
+
+      return {
+        view,
+        route: getDashboardHash(view),
+        firstPanel,
+        degradedState: summarizeDegradedState('degraded', 'Supervisor unavailable'),
+        reloadSafe: true,
+        unsupportedPostAttempted: false,
+        localControlPersisted: false,
+        adapterExecuteInvoked: false,
+      };
+    });
+    const serialized = JSON.stringify(smokeMatrix);
+
+    expect(smokeMatrix).toHaveLength(10);
+    expect(serialized).toContain('#/production-ga');
+    expect(serialized).toContain('Supervisor unavailable');
+    expectNoForbiddenRawOutputTerms(serialized);
+    expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
+    expect(serialized).not.toContain('localStorage');
+    expect(serialized).not.toContain('sessionStorage');
+    expect(serialized).not.toContain('indexedDB');
+  });
+
   it('keeps approval UX token handling in component memory only', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 

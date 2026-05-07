@@ -6502,3 +6502,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d23.operator-degraded-state-smoke:
+    risk: high
+    trigger:
+      type: operator-degraded-state-smoke
+      entrypoint: dashboard tests docs
+      localControlRequired: false
+    scope:
+      - governance-readiness-github-workflows-deployments-secrets-policy-telemetry-runtime-operations-production-ga
+      - degraded-safe-route-matrix
+      - no-token-persistence
+      - no-adapter-execute-signal
+      - metadata-only-public-output
+    docs:
+      - docs/releases/m48-d23-operator-degraded-state-smoke.md
+      - docs/reviews/m48-d23-operator-degraded-state-smoke-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
