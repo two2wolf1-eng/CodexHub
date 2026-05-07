@@ -416,7 +416,6 @@ import {
   CustomWorkflowRunSchema,
   CodexRecoveryRunSchema,
   CodexTaskIntentSchema,
-  CodexTaskRunSchema,
   ProductionWorkflowChildActionStateRecordSchema,
   ProductionWorkflowChildRecordRefSchema,
   ProductionWorkflowChildRecordResolutionSchema,
@@ -475,6 +474,7 @@ import {
   createReworkLoopPlan,
   executeReworkLoop,
   type MockDevelopmentOrchestrationResult,
+  prepareCodexTaskDispatchPreflight,
   runM11ProductionPilotNarrowPath,
   runM9LocalPilot,
   runMockDevelopmentOrchestration,
@@ -2611,32 +2611,123 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       schemaVersion: SchemaVersionSchema.value,
       createdAt,
       intentHash: requestHash,
+      titleHash: hashSupervisorMetadata({ title: body?.title ?? body?.taskTitle ?? '' }),
+      instructionHash: requestHash,
       promptHash: requestHash,
       promptLength,
+      repoHash: hashSupervisorMetadata({ repo: body?.repo ?? body?.repository ?? '' }),
+      worktreeHash: hashSupervisorMetadata({
+        worktree: body?.worktree ?? body?.worktreeRef ?? 'isolated-worktree-required',
+      }),
+      verificationHash: hashSupervisorMetadata({
+        verification: body?.verification ?? body?.verify ?? '',
+      }),
+      selectionPolicyHash: hashSupervisorMetadata({
+        selectionPolicy: body?.selectionPolicy ?? 'supervisor-governed',
+      }),
+      requestedByHash: hashSupervisorMetadata({ requestedBy: body?.requestedBy ?? 'local' }),
+      isolatedWorktreeRequired: true,
+      repoRootWriteAllowed: false,
+      dryRunRequired: true,
+      approvalRequired: true,
+      appServerDispatchRequested: true,
+      liveDispatchRequested: true,
       status: 'planned',
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
-      summary: 'Task intent recorded metadata only; raw prompt/body was not stored.',
+      summary:
+        'Task intent recorded metadata only for governed App Server dispatch preflight; raw prompt/body was not stored.',
     });
-    const taskRun = CodexTaskRunSchema.parse({
-      id: foundationId('codex_task_run'),
-      schemaVersion: SchemaVersionSchema.value,
+    const [
+      accountBindings,
+      quotaSnapshots,
+      clients,
+      appServerSessions,
+      protocolDriftReports,
+      existingLeases,
+    ] = await Promise.all([
+      store.codexAccountBindings.listRecords({ limit: 50 }),
+      store.quotaSnapshots.listRecords({ limit: 50 }),
+      store.codexClientInstances.listRecords({ limit: 50 }),
+      store.codexAppServerSessions.listRecords({ limit: 50 }),
+      store.codexAppServerProtocolDriftReports.listRecords({ limit: 50 }),
+      store.poolLeases.listRecords({ limit: 50 }),
+    ]);
+    const selectedAccountBinding = accountBindings[0];
+    const selectedQuotaSnapshot = selectedAccountBinding
+      ? findM56QuotaSnapshotForAccount(selectedAccountBinding, quotaSnapshots)
+      : undefined;
+    const selectedClient = clients[0];
+    const accountProjection = selectedAccountBinding
+      ? scoreCodexAccount({
+          accountBinding: selectedAccountBinding,
+          quotaSnapshot: selectedQuotaSnapshot,
+          activeLeaseCount: countM56ActiveLeases(
+            existingLeases,
+            'account',
+            selectedAccountBinding.codexAccountHash,
+          ),
+          evidenceRefIds: trace.evidenceRefIds,
+          auditEventIds: trace.auditEventIds,
+        })
+      : undefined;
+    const clientProjection = selectedClient
+      ? scoreCodexClient({
+          clientInstance: selectedClient,
+          activeLeaseCount: countM56ActiveLeases(
+            existingLeases,
+            'client',
+            selectedClient.clientInstanceHash,
+          ),
+          evidenceRefIds: trace.evidenceRefIds,
+          auditEventIds: trace.auditEventIds,
+        })
+      : undefined;
+    const appServerSession =
+      appServerSessions.find(
+        (session) =>
+          session.initialized &&
+          session.status === 'initialized' &&
+          (!selectedClient || session.clientInstanceId === selectedClient.id),
+      ) ?? appServerSessions[0];
+    const protocolDriftReport =
+      protocolDriftReports.find(
+        (report) => report.status === 'compatible' && report.liveDispatchBlocked === false,
+      ) ?? protocolDriftReports[0];
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntent,
+      accountProjection,
+      clientProjection,
+      quotaSnapshot: selectedQuotaSnapshot,
+      appServerSession,
+      protocolDriftReport,
+      existingLeases,
+      dryRunId: foundationId('codex_task_dry_run_shell'),
+      policyApproved: true,
+      canaryGateStatus: 'blocked',
+      profileKey: hashSupervisorMetadata({ requestHash, target: 'profile' }),
+      threadKey: hashSupervisorMetadata({ requestHash, target: 'thread' }),
+      worktreeKey: hashSupervisorMetadata({ requestHash, target: 'worktree' }),
+      taskKey: hashSupervisorMetadata({ requestHash, target: 'task' }),
+      quotaKey: hashSupervisorMetadata({ requestHash, target: 'quota' }),
       createdAt,
-      intentId: taskIntent.id,
-      status: 'queued',
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
-      summary: 'Task run queued as a metadata shell only; no live dispatch occurred.',
     });
     await store.codexTaskIntents.saveRecord(taskIntent);
-    await store.codexTaskRuns.saveRecord(taskRun);
+    await Promise.all(preflight.leaseBundle.leases.map((lease) => store.poolLeases.saveRecord(lease)));
+    await store.codexTaskRuns.saveRecord(preflight.taskRun);
+    if (preflight.diagnosis) {
+      await store.codexTaskDiagnoses.saveRecord(preflight.diagnosis);
+    }
 
     return reply.code(202).send({
       id: foundationId('supervisor_task_create_shell'),
       schemaVersion: SchemaVersionSchema.value,
       observedAt: foundationTimestamp(),
       status: 'task-intent-recorded',
-      summary: 'Task create shell accepted metadata only; no Codex dispatch was executed.',
+      summary:
+        'Task create shell accepted metadata only and recorded orchestrator preflight; no adapter dispatch was executed.',
       requestHash,
       taskIntentHash: hashSupervisorMetadata({
         id: taskIntent.id,
@@ -2644,10 +2735,36 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         summary: taskIntent.summary,
       }),
       taskRunHash: hashSupervisorMetadata({
-        id: taskRun.id,
-        status: taskRun.status,
-        summary: taskRun.summary,
+        id: preflight.taskRun.id,
+        status: preflight.taskRun.status,
+        preflightStatus: preflight.taskRun.preflightStatus,
+        dispatchAllowed: preflight.taskRun.dispatchAllowed,
+        summary: preflight.taskRun.summary,
       }),
+      schedulerSelectionHash: hashSupervisorMetadata({
+        id: preflight.schedulerSelection.id,
+        status: preflight.schedulerSelection.status,
+        checkCount: preflight.schedulerSelection.checkCount,
+        readyCheckCount: preflight.schedulerSelection.readyCheckCount,
+        blockedCheckCount: preflight.schedulerSelection.blockedCheckCount,
+        pendingCheckCount: preflight.schedulerSelection.pendingCheckCount,
+      }),
+      diagnosisHash: preflight.diagnosis
+        ? hashSupervisorMetadata({
+            id: preflight.diagnosis.id,
+            status: preflight.diagnosis.status,
+            diagnosisKind: preflight.diagnosis.diagnosisKind,
+          })
+        : undefined,
+      leaseBundleHash: hashSupervisorMetadata({
+        id: preflight.leaseBundle.id,
+        status: preflight.leaseBundle.status,
+        requestedCount: preflight.leaseBundle.requestedCount,
+        blockedCount: preflight.leaseBundle.blockedCount,
+      }),
+      preflightStatus: preflight.taskRun.preflightStatus,
+      dispatchAllowed: preflight.taskRun.dispatchAllowed,
+      directAdapterExecutionAllowed: false,
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
       liveExecution: false,

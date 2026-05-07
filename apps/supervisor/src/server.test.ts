@@ -26,6 +26,8 @@ import type {
 import {
   BusinessWorkspaceSchema,
   CodexAccountBindingSchema,
+  CodexAppServerProtocolDriftReportSchema,
+  CodexAppServerSessionSchema,
   CodexClientInstanceSchema,
   CodexTaskIntentSchema,
   CodexTaskRunSchema,
@@ -747,6 +749,137 @@ describe('supervisor mock development API', () => {
     expect(tasksResponse.body).not.toContain('scheduler-prompt');
   });
 
+  it('records M57.8 task dispatch preflight through orchestrator without trusting request approval', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m57-task-preflight-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const accountBinding = CodexAccountBindingSchema.parse({
+      id: 'codex_account_binding_m57_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      codexAccountHash: 'sha256:m57-supervisor-account',
+      workspaceIdHash: 'sha256:m57-supervisor-workspace',
+      status: 'matched',
+      summary: 'M57 Supervisor account binding is ready.',
+    });
+    const quotaSnapshot = QuotaSnapshotSchema.parse({
+      id: 'quota_snapshot_m57_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      subjectKind: 'codex-account',
+      subjectHash: accountBinding.codexAccountHash,
+      status: 'available',
+      limitCount: 10,
+      usedCount: 1,
+      remainingCount: 9,
+      summary: 'M57 Supervisor quota is available.',
+    });
+    const client = CodexClientInstanceSchema.parse({
+      id: 'codex_client_m57_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      clientKind: 'codex-app-server',
+      clientInstanceHash: 'sha256:m57-supervisor-client',
+      status: 'available',
+      activeTaskCount: 0,
+      summary: 'M57 Supervisor client is available.',
+    });
+    const appServerSession = CodexAppServerSessionSchema.parse({
+      id: 'codex_app_server_session_m57_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      clientInstanceId: client.id,
+      appServerSessionHash: 'sha256:m57-supervisor-session',
+      status: 'initialized',
+      initialized: true,
+      protocolDriftDetected: false,
+      summary: 'M57 Supervisor App Server session is initialized.',
+    });
+    const driftReport = CodexAppServerProtocolDriftReportSchema.parse({
+      id: 'codex_app_server_protocol_drift_m57_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      baselineKind: 'generate-json-schema',
+      baselineHash: 'sha256:m57-baseline',
+      observedSchemaHash: 'sha256:m57-observed',
+      status: 'compatible',
+      driftCount: 0,
+      missingMethodCount: 0,
+      changedMethodCount: 0,
+      unknownMethodCount: 0,
+      liveDispatchBlocked: false,
+      generatedSchemaRequired: true,
+      rawSchemaStored: false,
+      summary: 'M57 Supervisor protocol drift is compatible.',
+    });
+
+    await store.codexAccountBindings.saveRecord(accountBinding);
+    await store.quotaSnapshots.saveRecord(quotaSnapshot);
+    await store.codexClientInstances.saveRecord(client);
+    await store.codexAppServerSessions.saveRecord(appServerSession);
+    await store.codexAppServerProtocolDriftReports.saveRecord(driftReport);
+
+    const server = buildSupervisorServer({ store });
+    const response = await server.inject({
+      method: 'POST',
+      url: '/tasks',
+      headers: localControlHeaders,
+      payload: {
+        prompt: 'private M57 task prompt',
+        rawPath: process.cwd(),
+        approvalArtifactId: 'forged-request-body-approval',
+        canaryGateStatus: 'passed',
+      },
+    });
+    const taskRuns = await store.codexTaskRuns.listRecords({ limit: 10 });
+    const taskDiagnoses = await store.codexTaskDiagnoses.listRecords({ limit: 10 });
+    const leases = await store.poolLeases.listRecords({ limit: 10 });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      status: 'task-intent-recorded',
+      preflightStatus: 'waiting_approval',
+      dispatchAllowed: false,
+      directAdapterExecutionAllowed: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(taskRuns).toHaveLength(1);
+    expect(taskRuns[0]).toMatchObject({
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'waiting_approval',
+      approvalStatus: 'waiting',
+      protocolDriftStatus: 'compatible',
+      canaryGateStatus: 'blocked',
+      dispatchAllowed: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+    });
+    expect(taskDiagnoses).toHaveLength(1);
+    expect(taskDiagnoses[0]).toMatchObject({
+      diagnosisKind: 'needs_manual_review',
+      taskRunId: taskRuns[0].id,
+    });
+    expect(leases.length).toBeGreaterThan(0);
+    expect(response.body).not.toContain('private M57 task prompt');
+    expect(response.body).not.toContain('forged-request-body-approval');
+    expect(response.body).not.toContain(process.cwd());
+    expect(JSON.stringify([...taskRuns, ...taskDiagnoses, ...leases])).not.toContain(
+      'private M57 task prompt',
+    );
+    expect(JSON.stringify([...taskRuns, ...taskDiagnoses, ...leases])).not.toContain(
+      'forged-request-body-approval',
+    );
+    expect(JSON.stringify([...taskRuns, ...taskDiagnoses, ...leases])).not.toContain(
+      process.cwd(),
+    );
+  });
+
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
@@ -800,6 +933,8 @@ describe('supervisor mock development API', () => {
     const auditEvents = await store.auditEvents.listAuditEvents({ limit: 10 });
     const taskIntents = await store.codexTaskIntents.listRecords({ limit: 10 });
     const taskRuns = await store.codexTaskRuns.listRecords({ limit: 10 });
+    const taskDiagnoses = await store.codexTaskDiagnoses.listRecords({ limit: 10 });
+    const taskLeases = await store.poolLeases.listRecords({ limit: 10 });
     const recoveryRuns = await store.codexRecoveryRuns.listRecords({ limit: 10 });
 
     await server.close();
@@ -826,6 +961,12 @@ describe('supervisor mock development API', () => {
       requestHash: expect.stringMatching(/^sha256:/),
       taskIntentHash: expect.stringMatching(/^sha256:/),
       taskRunHash: expect.stringMatching(/^sha256:/),
+      schedulerSelectionHash: expect.stringMatching(/^sha256:/),
+      diagnosisHash: expect.stringMatching(/^sha256:/),
+      leaseBundleHash: expect.stringMatching(/^sha256:/),
+      preflightStatus: 'waiting_approval',
+      dispatchAllowed: false,
+      directAdapterExecutionAllowed: false,
       liveExecution: false,
       externalProcessStarted: false,
       executionDisabled: true,
@@ -842,6 +983,8 @@ describe('supervisor mock development API', () => {
     });
     expect(taskIntents).toHaveLength(1);
     expect(taskRuns).toHaveLength(1);
+    expect(taskDiagnoses).toHaveLength(1);
+    expect(taskLeases.length).toBeGreaterThan(0);
     expect(recoveryRuns).toHaveLength(1);
     expect(taskIntents[0]).toMatchObject({
       status: 'planned',
@@ -850,9 +993,19 @@ describe('supervisor mock development API', () => {
       liveExecution: false,
     });
     expect(taskRuns[0]).toMatchObject({
-      status: 'queued',
+      status: 'needs_human',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'waiting_approval',
+      approvalStatus: 'waiting',
+      dispatchAllowed: false,
       liveExecution: false,
       externalProcessStarted: false,
+    });
+    expect(taskDiagnoses[0]).toMatchObject({
+      status: 'actionable',
+      taskRunId: taskRuns[0].id,
+      rawPromptStored: false,
+      rawBodyStored: false,
     });
     expect(recoveryRuns[0]).toMatchObject({
       status: 'needs_human',
@@ -890,18 +1043,17 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(evidenceRefs)).not.toContain('private task instructions');
     expect(JSON.stringify(evidenceRefs)).not.toContain(process.cwd());
     expect(JSON.stringify(auditEvents)).not.toContain('private shell body');
-    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
-      'private task instructions',
-    );
-    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
-      'private shell body',
-    );
-    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
-      'private recovery reason',
-    );
-    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
-      process.cwd(),
-    );
+    const taskShellRecords = [
+      ...taskIntents,
+      ...taskRuns,
+      ...taskDiagnoses,
+      ...taskLeases,
+      ...recoveryRuns,
+    ];
+    expect(JSON.stringify(taskShellRecords)).not.toContain('private task instructions');
+    expect(JSON.stringify(taskShellRecords)).not.toContain('private shell body');
+    expect(JSON.stringify(taskShellRecords)).not.toContain('private recovery reason');
+    expect(JSON.stringify(taskShellRecords)).not.toContain(process.cwd());
   });
 
   it('keeps M50.3 mutation shells store-required and guarded before route logic', async () => {
