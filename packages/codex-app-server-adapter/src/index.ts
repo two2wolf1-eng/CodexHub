@@ -8,6 +8,12 @@ import {
   CodexAppServerMethodSchema,
   type CodexAppServerSession,
   CodexAppServerSessionSchema,
+  type CodexAppServerThreadMirror,
+  CodexAppServerThreadMirrorSchema,
+  type CodexAppServerTurnMirror,
+  CodexAppServerTurnMirrorSchema,
+  type CodexAppServerEventSummary,
+  CodexAppServerEventSummarySchema,
   type CodexAppServerWireMessageSummary,
   CodexAppServerWireMessageSummarySchema,
   type QuotaSnapshot,
@@ -205,6 +211,83 @@ export interface CodexAppServerRateLimitsReadResult {
   rawBodyStored: false;
 }
 
+export interface CodexAppServerThreadOperationInput {
+  requestId?: JsonRpcScalarId;
+  taskRunId?: string;
+  fallbackThreadKey?: string;
+  pathHash?: string;
+  permissionProfileHash?: string;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexAppServerThreadOperationResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: CodexAppServerReadStatus;
+  method: 'thread/start' | 'thread/resume';
+  blockReasons: string[];
+  threadMirror?: CodexAppServerThreadMirror;
+  wireSummaries: CodexAppServerWireMessageSummary[];
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+}
+
+export interface CodexAppServerTurnStartInput {
+  requestId?: JsonRpcScalarId;
+  threadMirrorId: string;
+  threadKey: string;
+  taskRunId?: string;
+  inputSummaryHash?: string;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexAppServerTurnStartResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: CodexAppServerReadStatus;
+  blockReasons: string[];
+  turnMirror?: CodexAppServerTurnMirror;
+  wireSummaries: CodexAppServerWireMessageSummary[];
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+}
+
+export interface CodexAppServerEventIngestionInput {
+  threadMirrorId?: string;
+  turnMirrorId?: string;
+  sequenceNumber?: number;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexAppServerEventIngestionResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: CodexAppServerReadStatus;
+  blockReasons: string[];
+  eventSummary?: CodexAppServerEventSummary;
+  wireSummaries: CodexAppServerWireMessageSummary[];
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+}
+
 export interface CodexAppServerSessionController {
   readonly sessionId: string;
   readonly initialized: boolean;
@@ -213,6 +296,16 @@ export interface CodexAppServerSessionController {
   readRateLimits(
     input?: CodexAppServerRateLimitsReadInput,
   ): Promise<CodexAppServerRateLimitsReadResult>;
+  startThread(
+    input?: CodexAppServerThreadOperationInput,
+  ): Promise<CodexAppServerThreadOperationResult>;
+  resumeThread(
+    input?: CodexAppServerThreadOperationInput,
+  ): Promise<CodexAppServerThreadOperationResult>;
+  startTurn(input: CodexAppServerTurnStartInput): Promise<CodexAppServerTurnStartResult>;
+  ingestNextEvent(
+    input?: CodexAppServerEventIngestionInput,
+  ): Promise<CodexAppServerEventIngestionResult>;
   assertInitialized(method: CodexAppServerMethod): CodexAppServerInitializeResult | undefined;
   close(): Promise<void>;
 }
@@ -679,6 +772,196 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     };
   }
 
+  async startThread(
+    input: CodexAppServerThreadOperationInput = {},
+  ): Promise<CodexAppServerThreadOperationResult> {
+    return this.threadOperation('thread/start', input);
+  }
+
+  async resumeThread(
+    input: CodexAppServerThreadOperationInput = {},
+  ): Promise<CodexAppServerThreadOperationResult> {
+    return this.threadOperation('thread/resume', input);
+  }
+
+  async startTurn(input: CodexAppServerTurnStartInput): Promise<CodexAppServerTurnStartResult> {
+    const observedAt = input.observedAt ?? this.input.observedAt ?? foundationTimestamp();
+    const blocked = this.blockedReadResult('turn', observedAt, 'turn/start');
+    if (blocked) {
+      return blocked;
+    }
+
+    const exchange = await this.requestResponseExchange({
+      method: 'turn/start',
+      requestId: input.requestId ?? 'turn_start_1',
+      observedAt,
+      summary: 'Turn start request uses fixture JSONL transport.',
+      responseSummary: 'Turn start response stored as metadata-only wire summary.',
+      evidenceRefIds: input.evidenceRefIds ?? this.input.evidenceRefIds,
+      auditEventIds: input.auditEventIds ?? this.input.auditEventIds,
+    });
+
+    if (!exchange.responseLine) {
+      return {
+        id: foundationId('codex_app_server_turn_start_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['turn_start_response_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const payload = extractResponsePayload(exchange.responseLine);
+    const turnKey = firstString(payload?.turnId, payload?.turn, payload?.id);
+
+    if (!turnKey) {
+      return {
+        id: foundationId('codex_app_server_turn_start_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['turn_id_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const turnMirror = CodexAppServerTurnMirrorSchema.parse({
+      id: foundationId('codex_app_server_turn'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      appServerSessionId: this.sessionId,
+      threadMirrorId: input.threadMirrorId,
+      taskRunId: input.taskRunId,
+      threadIdHash: hashRef(input.threadKey),
+      turnIdHash: hashRef(turnKey),
+      status: turnStatus(payload?.status),
+      itemCount: optionalNonnegativeInteger(payload?.itemCount) ?? 0,
+      eventCount: optionalNonnegativeInteger(payload?.eventCount) ?? 0,
+      inputSummaryHash: input.inputSummaryHash,
+      outputSummaryHash: firstHash(payload?.outputSummaryHash),
+      approvalPendingCount: optionalNonnegativeInteger(payload?.approvalPendingCount) ?? 0,
+      failureSummaryHash: firstHash(payload?.failureSummaryHash),
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
+      summary: 'Codex App Server turn start projected as hashed turn mirror.',
+    });
+
+    return {
+      id: foundationId('codex_app_server_turn_start_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'completed',
+      blockReasons: [],
+      turnMirror,
+      wireSummaries: exchange.wireSummaries,
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
+    };
+  }
+
+  async ingestNextEvent(
+    input: CodexAppServerEventIngestionInput = {},
+  ): Promise<CodexAppServerEventIngestionResult> {
+    const observedAt = input.observedAt ?? this.input.observedAt ?? foundationTimestamp();
+    const blocked = this.blockedReadResult('event', observedAt, 'unknown');
+    if (blocked) {
+      return blocked;
+    }
+
+    const eventLine = await this.input.transport.receiveLine();
+    if (!eventLine) {
+      return {
+        id: foundationId('codex_app_server_event_ingestion_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['event_stream_empty'],
+        wireSummaries: [],
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const decoded = decodeCodexAppServerJsonlMessage(eventLine);
+    const payload = extractMessagePayload(eventLine);
+    const eventWireSummary = createWireSummary({
+      line: eventLine,
+      decoded: {
+        ...decoded,
+        method: decoded.method === 'unknown' ? safeMethod(firstString(payload?.method) ?? '') : decoded.method,
+      },
+      appServerSessionId: this.sessionId,
+      observedAt,
+      status: 'received',
+      evidenceRefIds: input.evidenceRefIds ?? this.input.evidenceRefIds,
+      auditEventIds: input.auditEventIds ?? this.input.auditEventIds,
+      initializedObserved: true,
+      summary: 'Event stream item received as metadata-only wire summary.',
+    });
+    const method = eventWireSummary.method;
+    const threadKey = firstString(payload?.threadId, payload?.thread);
+    const turnKey = firstString(payload?.turnId, payload?.turn);
+    const itemKey = firstString(payload?.itemId, payload?.item);
+    const eventSummary = CodexAppServerEventSummarySchema.parse({
+      id: foundationId('codex_app_server_event'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      appServerSessionId: this.sessionId,
+      threadMirrorId: input.threadMirrorId,
+      turnMirrorId: input.turnMirrorId,
+      method,
+      eventHash: decoded.messageHash,
+      threadIdHash: threadKey ? hashRef(threadKey) : undefined,
+      turnIdHash: turnKey ? hashRef(turnKey) : undefined,
+      itemIdHash: itemKey ? hashRef(itemKey) : undefined,
+      status: eventStatus(payload?.status, method),
+      sequenceNumber: Math.max(0, Math.trunc(input.sequenceNumber ?? 0)),
+      deltaCount: optionalNonnegativeInteger(payload?.deltaCount) ?? 0,
+      payloadByteCount: decoded.payloadByteCount,
+      itemKindHash: firstString(payload?.itemKind) ? hashRef(String(payload?.itemKind)) : undefined,
+      terminal: Boolean(payload?.terminal) || method === 'turn/completed',
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
+      summary: 'Codex App Server event projected as hash-only event summary.',
+    });
+
+    return {
+      id: foundationId('codex_app_server_event_ingestion_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'completed',
+      blockReasons: [],
+      eventSummary,
+      wireSummaries: [eventWireSummary],
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
+    };
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     await this.input.transport.close();
@@ -730,10 +1013,16 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
   }
 
   private blockedReadResult(
-    kind: 'account' | 'rateLimits',
+    kind: 'account' | 'rateLimits' | 'thread' | 'turn' | 'event',
     observedAt: string,
     method: CodexAppServerMethod,
-  ): CodexAppServerAccountReadResult | CodexAppServerRateLimitsReadResult | undefined {
+  ):
+    | CodexAppServerAccountReadResult
+    | CodexAppServerRateLimitsReadResult
+    | CodexAppServerThreadOperationResult
+    | CodexAppServerTurnStartResult
+    | CodexAppServerEventIngestionResult
+    | undefined {
     if (this.closed) {
       return this.createBlockedReadResult(kind, observedAt, ['transport_closed']);
     }
@@ -746,10 +1035,15 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
   }
 
   private createBlockedReadResult(
-    kind: 'account' | 'rateLimits',
+    kind: 'account' | 'rateLimits' | 'thread' | 'turn' | 'event',
     observedAt: string,
     blockReasons: string[],
-  ): CodexAppServerAccountReadResult | CodexAppServerRateLimitsReadResult {
+  ):
+    | CodexAppServerAccountReadResult
+    | CodexAppServerRateLimitsReadResult
+    | CodexAppServerThreadOperationResult
+    | CodexAppServerTurnStartResult
+    | CodexAppServerEventIngestionResult {
     const common = {
       schemaVersion: SchemaVersionSchema.value,
       observedAt,
@@ -763,15 +1057,141 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
       rawBodyStored: false as const,
     };
 
-    return kind === 'account'
-      ? {
-          id: foundationId('codex_app_server_account_read_result'),
-          ...common,
-        }
-      : {
-          id: foundationId('codex_app_server_rate_limits_read_result'),
-          ...common,
-        };
+    if (kind === 'account') {
+      return {
+        id: foundationId('codex_app_server_account_read_result'),
+        ...common,
+      };
+    }
+
+    if (kind === 'rateLimits') {
+      return {
+        id: foundationId('codex_app_server_rate_limits_read_result'),
+        ...common,
+      };
+    }
+
+    if (kind === 'thread') {
+      return {
+        id: foundationId('codex_app_server_thread_operation_result'),
+        method: 'thread/start',
+        ...common,
+      };
+    }
+
+    if (kind === 'turn') {
+      return {
+        id: foundationId('codex_app_server_turn_start_result'),
+        ...common,
+      };
+    }
+
+    return {
+      id: foundationId('codex_app_server_event_ingestion_result'),
+      ...common,
+    };
+  }
+
+  private async threadOperation(
+    method: 'thread/start' | 'thread/resume',
+    input: CodexAppServerThreadOperationInput,
+  ): Promise<CodexAppServerThreadOperationResult> {
+    const observedAt = input.observedAt ?? this.input.observedAt ?? foundationTimestamp();
+    const blocked = this.blockedReadResult('thread', observedAt, method);
+    if (blocked) {
+      return {
+        ...blocked,
+        method,
+      };
+    }
+
+    const exchange = await this.requestResponseExchange({
+      method,
+      requestId: input.requestId ?? `${method.replace('/', '_')}_1`,
+      observedAt,
+      summary: `${method} request uses fixture JSONL transport.`,
+      responseSummary: `${method} response stored as metadata-only wire summary.`,
+      evidenceRefIds: input.evidenceRefIds ?? this.input.evidenceRefIds,
+      auditEventIds: input.auditEventIds ?? this.input.auditEventIds,
+    });
+
+    if (!exchange.responseLine) {
+      return {
+        id: foundationId('codex_app_server_thread_operation_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        method,
+        blockReasons: [`${method.replace('/', '_')}_response_missing`],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const payload = extractResponsePayload(exchange.responseLine);
+    const threadKey = firstString(payload?.threadId, payload?.thread, payload?.id, input.fallbackThreadKey);
+
+    if (!threadKey) {
+      return {
+        id: foundationId('codex_app_server_thread_operation_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        method,
+        blockReasons: ['thread_id_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const threadMirror = CodexAppServerThreadMirrorSchema.parse({
+      id: foundationId('codex_app_server_thread'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      appServerSessionId: this.sessionId,
+      taskRunId: input.taskRunId,
+      threadIdHash: hashRef(threadKey),
+      status: threadStatus(payload?.status),
+      ephemeral: optionalBoolean(payload?.ephemeral) ?? false,
+      pathHash: input.pathHash,
+      turnCount: optionalNonnegativeInteger(payload?.turnCount) ?? 0,
+      activeTurnIdHash: firstString(payload?.activeTurnId)
+        ? hashRef(String(payload?.activeTurnId))
+        : undefined,
+      subscribed: optionalBoolean(payload?.subscribed) ?? false,
+      permissionProfileHash: input.permissionProfileHash,
+      workspaceTrustMutationAllowed: false,
+      workspaceTrustMutationObserved: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
+      summary: `Codex App Server ${method} projected as hashed thread mirror.`,
+    });
+
+    return {
+      id: foundationId('codex_app_server_thread_operation_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'completed',
+      method,
+      blockReasons: [],
+      threadMirror,
+      wireSummaries: exchange.wireSummaries,
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
+    };
   }
 
   private async requestResponseExchange(input: {
@@ -959,6 +1379,14 @@ function extractResponsePayload(line: string): Record<string, unknown> | undefin
     : undefined;
 }
 
+function extractMessagePayload(line: string): Record<string, unknown> {
+  const parsed = JSON.parse(line.trim()) as Record<string, unknown>;
+  const payload = parsed.params ?? parsed.result;
+  return payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {};
+}
+
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value === 'string' && value.length > 0) {
@@ -967,6 +1395,14 @@ function firstString(...values: unknown[]): string | undefined {
   }
 
   return undefined;
+}
+
+function firstHash(value: unknown): string | undefined {
+  return typeof value === 'string' && value.startsWith('sha256:') ? value : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function accountStatus(value: unknown): CodexAccountBinding['status'] {
@@ -987,6 +1423,69 @@ function accountStatus(value: unknown): CodexAccountBinding['status'] {
   }
 
   return 'unverified';
+}
+
+function threadStatus(value: unknown): CodexAppServerThreadMirror['status'] {
+  if (
+    value === 'not_loaded' ||
+    value === 'loaded' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'interrupted' ||
+    value === 'failed' ||
+    value === 'closed' ||
+    value === 'blocked'
+  ) {
+    return value;
+  }
+
+  return 'unknown';
+}
+
+function turnStatus(value: unknown): CodexAppServerTurnMirror['status'] {
+  if (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'interrupted' ||
+    value === 'declined' ||
+    value === 'blocked'
+  ) {
+    return value;
+  }
+
+  return 'unknown';
+}
+
+function eventStatus(
+  value: unknown,
+  method: CodexAppServerMethod,
+): CodexAppServerEventSummary['status'] {
+  if (
+    value === 'started' ||
+    value === 'delta' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'resolved' ||
+    value === 'blocked'
+  ) {
+    return value;
+  }
+
+  if (method.includes('/delta')) {
+    return 'delta';
+  }
+
+  if (method.includes('/completed')) {
+    return 'completed';
+  }
+
+  if (method.includes('/started')) {
+    return 'started';
+  }
+
+  return 'unknown';
 }
 
 function quotaStatus(value: unknown): QuotaSnapshotStatus {

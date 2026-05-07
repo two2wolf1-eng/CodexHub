@@ -5,7 +5,10 @@ import {
 } from '@codexhub/capability-adapter-kernel';
 import {
   CodexAccountBindingSchema,
+  CodexAppServerEventSummarySchema,
   CodexAppServerSessionSchema,
+  CodexAppServerThreadMirrorSchema,
+  CodexAppServerTurnMirrorSchema,
   CodexAppServerWireMessageSummarySchema,
   QuotaSnapshotSchema,
 } from '@codexhub/contracts';
@@ -212,6 +215,113 @@ describe('codex-app-server-adapter', () => {
     expect(serialized).not.toContain('2026-05-08T00:00:00.000Z');
     expect(serialized).not.toContain('account-private-request');
     expect(serialized).not.toContain('rate-private-request');
+  });
+
+  it('starts/resumes threads, starts turns, and ingests events by metadata only', async () => {
+    const transport = createInMemoryCodexAppServerJsonlTransport([
+      { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+      {
+        jsonrpc: '2.0',
+        id: 'thread-start-private-request',
+        result: {
+          threadId: 'private-thread-id',
+          status: 'loaded',
+          ephemeral: true,
+          turnCount: 0,
+          activeTurnId: 'private-active-turn-id',
+          subscribed: true,
+        },
+      },
+      {
+        jsonrpc: '2.0',
+        id: 'thread-resume-private-request',
+        result: {
+          threadId: 'private-thread-id',
+          status: 'running',
+          turnCount: 1,
+        },
+      },
+      {
+        jsonrpc: '2.0',
+        id: 'turn-start-private-request',
+        result: {
+          turnId: 'private-turn-id',
+          status: 'running',
+          itemCount: 1,
+          eventCount: 1,
+          approvalPendingCount: 0,
+        },
+      },
+      {
+        jsonrpc: '2.0',
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'private-thread-id',
+          turnId: 'private-turn-id',
+          itemId: 'private-item-id',
+          itemKind: 'agent-message',
+          status: 'delta',
+          deltaCount: 1,
+          delta: 'private model output body',
+        },
+      },
+    ]);
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_1',
+      transport,
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+
+    await controller.initialize({ requestId: 'initialize-private-id' });
+    const startedThread = await controller.startThread({
+      requestId: 'thread-start-private-request',
+      taskRunId: 'codex_task_run_1',
+      pathHash: 'sha256:path',
+      permissionProfileHash: 'sha256:permission-profile',
+    });
+    const resumedThread = await controller.resumeThread({
+      requestId: 'thread-resume-private-request',
+      taskRunId: 'codex_task_run_1',
+    });
+    const startedTurn = await controller.startTurn({
+      requestId: 'turn-start-private-request',
+      threadMirrorId: startedThread.threadMirror?.id ?? 'codex_app_server_thread_1',
+      threadKey: 'private-thread-id',
+      taskRunId: 'codex_task_run_1',
+      inputSummaryHash: 'sha256:input-summary',
+    });
+    const event = await controller.ingestNextEvent({
+      threadMirrorId: startedThread.threadMirror?.id,
+      turnMirrorId: startedTurn.turnMirror?.id,
+      sequenceNumber: 7,
+    });
+    const serialized = JSON.stringify([startedThread, resumedThread, startedTurn, event]);
+
+    expect(startedThread.status).toBe('completed');
+    expect(startedThread.method).toBe('thread/start');
+    expect(startedThread.threadMirror?.threadIdHash).toMatch(/^sha256:/);
+    expect(startedThread.threadMirror?.workspaceTrustMutationObserved).toBe(false);
+    expect(CodexAppServerThreadMirrorSchema.safeParse(startedThread.threadMirror).success).toBe(
+      true,
+    );
+    expect(resumedThread.method).toBe('thread/resume');
+    expect(resumedThread.threadMirror?.status).toBe('running');
+    expect(startedTurn.status).toBe('completed');
+    expect(startedTurn.turnMirror?.turnIdHash).toMatch(/^sha256:/);
+    expect(startedTurn.turnMirror?.inputSummaryHash).toBe('sha256:input-summary');
+    expect(CodexAppServerTurnMirrorSchema.safeParse(startedTurn.turnMirror).success).toBe(true);
+    expect(event.status).toBe('completed');
+    expect(event.eventSummary?.method).toBe('item/agentMessage/delta');
+    expect(event.eventSummary?.status).toBe('delta');
+    expect(event.eventSummary?.sequenceNumber).toBe(7);
+    expect(CodexAppServerEventSummarySchema.safeParse(event.eventSummary).success).toBe(true);
+    expect(serialized).not.toContain('private-thread-id');
+    expect(serialized).not.toContain('private-turn-id');
+    expect(serialized).not.toContain('private-active-turn-id');
+    expect(serialized).not.toContain('private-item-id');
+    expect(serialized).not.toContain('private model output body');
+    expect(serialized).not.toContain('thread-start-private-request');
+    expect(serialized).not.toContain('turn-start-private-request');
   });
 
   it('blocks account and rate-limit reads before initialize', async () => {
