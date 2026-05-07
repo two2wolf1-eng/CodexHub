@@ -362,6 +362,17 @@ function expectNoCallerSuppliedAuthorityPayloadLeak(body: string): void {
   }
 }
 
+function expectMetadataEvidenceAndAuditTrace(record: {
+  evidenceRefs?: unknown[];
+  evidenceRefIds?: unknown[];
+  auditEventIds?: unknown[];
+}): void {
+  const evidenceCount = (record.evidenceRefs?.length ?? 0) + (record.evidenceRefIds?.length ?? 0);
+
+  expect(evidenceCount).toBeGreaterThan(0);
+  expect(record.auditEventIds?.length ?? 0).toBeGreaterThan(0);
+}
+
 afterEach(() => {
   rmSync(symlinkEscapeAbsolutePath, { force: true });
 });
@@ -7231,10 +7242,13 @@ describe('supervisor GitHub PR management control planes', () => {
       processBoundaryInvoked: false,
       externalProcessStarted: false,
     });
+    expectMetadataEvidenceAndAuditTrace(boundaryFailedResponse.json());
     expect(reusedApprovalResponse.statusCode).toBe(200);
     expect(reusedApprovalResponse.json()).toMatchObject({
       status: 'blocked',
       networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
     });
     expect(
       approvalsAfterFailureResponse
@@ -7756,10 +7770,12 @@ describe('supervisor deployment and secrets governance control planes', () => {
       processBoundaryInvoked: true,
       externalProcessStarted: true,
     });
+    expectMetadataEvidenceAndAuditTrace(boundaryFailedResponse.json());
     expect(reusedApprovalResponse.statusCode).toBe(200);
     expect(reusedApprovalResponse.json()).toMatchObject({
       status: 'blocked',
       processBoundaryInvoked: false,
+      externalProcessStarted: false,
     });
     expect(
       approvalsAfterFailureResponse
@@ -7916,8 +7932,12 @@ describe('supervisor deployment and secrets governance control planes', () => {
           status: 'completed',
           ...testCase.completedBoundary,
         });
+        expectMetadataEvidenceAndAuditTrace(completedResponse.json());
         expect(reusedApprovalResponse.statusCode).toBe(200);
         expect(reusedApprovalResponse.json()).toMatchObject({ status: 'blocked' });
+        for (const boundaryKey of Object.keys(testCase.completedBoundary)) {
+          expect(reusedApprovalResponse.json()[boundaryKey]).toBe(false);
+        }
         expect(
           approvalsAfterCompletedResponse
             .json()

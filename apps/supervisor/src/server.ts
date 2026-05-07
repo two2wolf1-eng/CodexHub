@@ -22396,6 +22396,19 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       bodyStored: false,
       summary: 'Backend decision is advisory; CodexHub security-kernel remains authority.',
     });
+    const evidenceRefs = completed
+      ? [
+          createMetadataEvidenceRef(
+            'policy.real_backend_summary',
+            'Real policy backend evaluation completed with metadata-only evidence.',
+            {
+              backendKind: dryRunRecord.backendKind,
+              dryRunId: dryRunRecord.dryRunId,
+              runtimeMode: dryRunRecord.runtimeMode,
+            },
+          ),
+        ]
+      : [];
 
     return RealPolicyBackendEvaluationRunSchema.parse({
       id: foundationId('real_policy_backend_run'),
@@ -22405,7 +22418,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       plan: dryRunRecord,
       readiness,
       advisoryDecision,
-      evidenceRefs: [],
+      evidenceRefs,
       auditEventIds: [foundationId('audit_real_policy_backend_run')],
       processBoundaryInvoked: completed && dryRunRecord.runtimeMode === 'local-cli',
       externalProcessStarted: completed && dryRunRecord.runtimeMode === 'local-cli',
@@ -22572,6 +22585,21 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
             summary: 'OTLP HTTP export boundary completed without storing spans.',
           })
         : undefined;
+    const evidenceRefs = completed
+      ? [
+          createMetadataEvidenceRef(
+            dryRunRecord.exporterKind === 'otlp-http'
+              ? 'telemetry.network_export_summary'
+              : 'telemetry.local_export_summary',
+            'Real telemetry export completed with hash/count evidence.',
+            {
+              dryRunId: dryRunRecord.dryRunId,
+              exporterKind: dryRunRecord.exporterKind,
+              spanCount: dryRunRecord.spanCount,
+            },
+          ),
+        ]
+      : [];
 
     return RealTelemetryExportRunSchema.parse({
       id: foundationId('real_telemetry_export_run'),
@@ -22582,7 +22610,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       readiness,
       localExportSummary,
       networkExportSummary,
-      evidenceRefs: [],
+      evidenceRefs,
       auditEventIds: [foundationId('audit_real_telemetry_export_run')],
       processBoundaryInvoked: false,
       externalProcessStarted: false,
@@ -22775,7 +22803,19 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         status: completed ? 'completed' : 'blocked',
         plan,
         stepSummaries: [step],
-        evidenceRefs: [],
+        evidenceRefs: completed
+          ? [
+              createMetadataEvidenceRef(
+                'browser.action_summary',
+                'Browser action completed with metadata-only evidence.',
+                {
+                  actionKind: plan.actionKind,
+                  dryRunId: plan.dryRunId,
+                  selectorHash: plan.selectorHash,
+                },
+              ),
+            ]
+          : [],
         auditEventIds: [foundationId('audit_browser_action_run')],
         processBoundaryInvoked: completed,
         externalProcessStarted: completed,
@@ -22798,7 +22838,19 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         status: completed ? 'completed' : 'blocked',
         plan: dryRunRecord,
         resultHash: completed ? hashLocalMetadata(dryRunRecord) : undefined,
-        evidenceRefs: [],
+        evidenceRefs: completed
+          ? [
+              createMetadataEvidenceRef(
+                'electron.main_inspector_summary',
+                'Electron main inspector completed with metadata-only evidence.',
+                {
+                  dryRunId: dryRunRecord.dryRunId,
+                  snippetId: (dryRunRecord as ElectronMainInspectorPlan).snippetId,
+                  targetIdHash: (dryRunRecord as ElectronMainInspectorPlan).targetIdHash,
+                },
+              ),
+            ]
+          : [],
         auditEventIds: [foundationId('audit_electron_main_inspector_run')],
         cdpHttpBoundaryInvoked: completed,
         cdpWebSocketBoundaryInvoked: completed,
@@ -22821,7 +22873,19 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       plan: dryRunRecord,
       appliedFileCount: completed ? (dryRunRecord as McpWriteToolPlan).changedFileCount : 0,
       resultHash: completed ? hashLocalMetadata(dryRunRecord) : undefined,
-      evidenceRefs: [],
+      evidenceRefs: completed
+        ? [
+            createMetadataEvidenceRef(
+              'mcp.write_tool_summary',
+              'MCP controlled-worktree patch completed with metadata-only evidence.',
+              {
+                changedFileCount: (dryRunRecord as McpWriteToolPlan).changedFileCount,
+                dryRunId: dryRunRecord.dryRunId,
+                patchHash: (dryRunRecord as McpWriteToolPlan).patchHash,
+              },
+            ),
+          ]
+        : [],
       auditEventIds: [foundationId('audit_mcp_write_tool_run')],
       directExecutionInvoked: completed,
       processBoundaryInvoked: false,
@@ -29473,6 +29537,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   function hashLocalMetadata(value: unknown): string {
     return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  }
+
+  function createMetadataEvidenceRef(
+    kind: EvidenceRef['kind'],
+    summary: string,
+    seed: unknown,
+  ): EvidenceRef {
+    return {
+      id: foundationId('evidence_metadata'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      kind,
+      summary,
+      hash: hashLocalMetadata(seed),
+      redacted: true,
+      labels: ['metadata-only'],
+    };
   }
 
   function approvalActionForOutcome(
