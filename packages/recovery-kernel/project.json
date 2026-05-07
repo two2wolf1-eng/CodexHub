@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "recovery-kernel",
+  "projectType": "library",
+  "sourceRoot": "packages/recovery-kernel/src",
+  "implicitDependencies": ["contracts"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json",
+        "cwd": "packages/recovery-kernel"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "packages/recovery-kernel"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "packages/recovery-kernel"
+      }
+    }
+  }
+}

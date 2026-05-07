@@ -590,6 +590,12 @@ importers:
         specifier: workspace:*
         version: link:../evidence-kernel
 
+  packages/recovery-kernel:
+    dependencies:
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/release-candidate-kernel:
     dependencies:
       '@codexhub/contracts':
