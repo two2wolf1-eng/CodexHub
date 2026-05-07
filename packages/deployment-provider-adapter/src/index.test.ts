@@ -34,11 +34,23 @@ describe('deployment-provider-adapter', () => {
       'http://',
       'https://',
       'kubectl apply',
+      'kubectl delete',
+      'kubectl scale',
+      'kubectl rollout restart',
       'helm upgrade',
+      'helm uninstall',
+      'helm rollback',
       'argocd app sync',
+      'argocd app delete',
+      'argocd app rollback',
       'terraform apply',
+      'terraform destroy',
       'tofu apply',
+      'tofu destroy',
       'docker compose up',
+      'docker push',
+      'docker rm',
+      'docker kill',
       'rm -rf',
     ];
 
@@ -222,5 +234,94 @@ describe('deployment-provider-adapter', () => {
     expect(serialized).not.toContain('production target stays transient');
     expect(serialized).not.toContain('operation artifact stays transient');
     expect(serialized).not.toContain('rollback artifact');
+  });
+
+  it('keeps adversarial deployment operation content out of public projections', () => {
+    const rawInputs = {
+      target: 'https://cluster.example.internal/raw/namespace/path',
+      manifest: 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: raw-manifest-body',
+      plan: 'terraform plan raw output with + aws_instance.example',
+      diff: '--- raw diff body\n+++ mutated deployment payload',
+      log: 'kubectl apply raw log output with pod name',
+      rollback: 'raw rollback plan body with previous manifest',
+      reason: 'operator raw approval reason text',
+    };
+    const readiness = createDeploymentOperationReadiness({
+      provider: 'terraform',
+      action: 'apply',
+      environment: 'prod',
+      operatorEnabled: true,
+      providerWriteEnabled: true,
+      prodWriteEnabled: true,
+      toolConfigured: true,
+      target: rawInputs.target,
+      artifact: `${rawInputs.manifest}\n${rawInputs.plan}\n${rawInputs.diff}\n${rawInputs.log}`,
+    });
+    const plan = createDeploymentOperationPlan({
+      provider: 'terraform',
+      action: 'apply',
+      environment: 'prod',
+      target: rawInputs.target,
+      artifact: `${rawInputs.manifest}\n${rawInputs.plan}\n${rawInputs.diff}\n${rawInputs.log}`,
+      runnerMode: 'controlled-deployment-operation',
+    });
+    const approval = createDeploymentOperationApprovalRecord({
+      dryRunRecord: plan,
+      status: 'approved',
+      approvalSlot: 'primary',
+      decidedBy: 'operator-a',
+      reason: rawInputs.reason,
+    });
+    const run = createDeploymentOperationRun({
+      plan,
+      approvalArtifactIds: [approval.approvalArtifactId],
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      blockReasons: ['fixture_boundary_failure'],
+    });
+    const rollbackPlan = createDeploymentRollbackPlan({
+      provider: 'terraform',
+      environment: 'prod',
+      target: rawInputs.target,
+      sourceRun: run.id,
+      rollbackArtifact: rawInputs.rollback,
+      approvedRollbackArtifact: rawInputs.rollback,
+    });
+    const observationPlan = createDeploymentObservationPlan({
+      provider: 'terraform',
+      target: rawInputs.target,
+      requestedObservationKinds: ['status', 'plan', 'diff', 'drift'],
+      runnerMode: 'controlled-deployment-readonly',
+    });
+    const observationRun = createDeploymentObservationRun({
+      plan: observationPlan,
+      status: 'completed',
+      driftDetected: true,
+      changedResourceCount: 3,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+    });
+    const serialized = JSON.stringify([
+      readiness,
+      plan,
+      approval,
+      run,
+      rollbackPlan,
+      observationPlan,
+      observationRun,
+    ]);
+
+    for (const rawValue of Object.values(rawInputs)) {
+      expect(serialized).not.toContain(rawValue);
+    }
+    expect(serialized).not.toContain('cluster.example.internal');
+    expect(serialized).not.toContain('raw-manifest-body');
+    expect(serialized).not.toContain('raw diff body');
+    expect(serialized).not.toContain('raw log output');
+    expect(run.rawManifestStored).toBe(false);
+    expect(run.rawPlanStored).toBe(false);
+    expect(run.rawDiffStored).toBe(false);
+    expect(run.rawLogStored).toBe(false);
+    expect(rollbackPlan.destroyAllowed).toBe(false);
   });
 });
