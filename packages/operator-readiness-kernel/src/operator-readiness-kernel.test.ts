@@ -129,6 +129,59 @@ describe('operator-readiness-kernel', () => {
     expect(report.bodyStored).toBe(false);
   });
 
+  it('keeps M48-D8 late-stage readiness blockers metadata-only after round-trip', () => {
+    const report = createOperatorReadinessReport({
+      storeAvailable: true,
+      processBoundaryAllowlistPassed: true,
+      noLiveAuditPassed: true,
+      configs: [
+        {
+          name: 'runtime-external-agent',
+          kind: 'integration',
+          text: adversarialPublicOutputFixture,
+          itemCount: 2,
+        },
+        {
+          name: 'platform-operations',
+          kind: 'integration',
+          text: adversarialPublicOutputFixture,
+          itemCount: 3,
+        },
+      ],
+      integrations: [
+        {
+          name: 'runtime-external-agent',
+          enabled: false,
+          riskLevel: 'critical',
+          approvalRequired: true,
+          processBoundary: true,
+          blockers: ['runtime_scheduler_disabled', 'external_agents_disabled'],
+        },
+        {
+          name: 'platform-operations',
+          enabled: false,
+          riskLevel: 'critical',
+          approvalRequired: true,
+          processBoundary: true,
+          blockers: ['backup_dir_missing', 'operator_role_missing'],
+        },
+      ],
+      localControlKeys: [
+        { name: 'runtime', configured: true, value: adversarialPublicOutputFixture },
+        { name: 'operations', configured: true, value: adversarialPublicOutputFixture },
+      ],
+    });
+    const checklist = createM11PilotEnablementChecklist({ readinessReport: report });
+    const runbook = createM11PilotEnablementRunbookSummary({ checklist });
+    const serialized = JSON.stringify({ report, checklist, runbook });
+
+    expect(report.status).toBe('warn');
+    expect(report.configHashes).toHaveLength(2);
+    expect(report.configuredLocalControlKeyCount).toBe(2);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks({ report, checklist, runbook })).toEqual([]);
+  });
+
   it('reports store and audit failures as blockers', () => {
     const report = createOperatorReadinessReport({
       storeAvailable: false,

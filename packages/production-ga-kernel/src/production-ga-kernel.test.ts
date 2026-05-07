@@ -25,6 +25,8 @@ import {
 const sourceDir = dirname(fileURLToPath(import.meta.url));
 
 describe('production-ga-kernel', () => {
+  const sha256HexPattern = /^[a-f0-9]{64}$/;
+
   it('keeps GA aggregation free of direct adapter and boundary execution', () => {
     const source = readFileSync(join(sourceDir, 'index.ts'), 'utf8');
     const forbiddenTerms = [
@@ -149,6 +151,58 @@ describe('production-ga-kernel', () => {
     expect(signoff.approvalConsumedCount).toBe(2);
     expect(signoff.childAdapterInvokedDirectly).toBe(false);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('keeps M48-D8 upstream kernel projection seeds hash-only', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const upstreamProjectionSeeds = [
+      `governance:${adversarialPublicOutputFixture}`,
+      `readiness:${adversarialPublicOutputFixture}`,
+      `workflow:${adversarialPublicOutputFixture}`,
+      `runtime:${adversarialPublicOutputFixture}`,
+      `platform:${adversarialPublicOutputFixture}`,
+    ];
+    const matrix = createProductionGaCapabilityMatrix({
+      matrixSeed: JSON.stringify(upstreamProjectionSeeds),
+      now,
+    });
+    const threatModel = createProductionGaThreatModel({
+      assetSeeds: upstreamProjectionSeeds,
+      trustBoundarySeeds: upstreamProjectionSeeds,
+      liveBoundarySeeds: [],
+      authorityModelSeed: upstreamProjectionSeeds.join(':authority:'),
+      approvalModelSeed: upstreamProjectionSeeds.join(':approval:'),
+      evidenceAuditModelSeed: upstreamProjectionSeeds.join(':evidence:'),
+      rollbackModelSeed: upstreamProjectionSeeds.join(':rollback:'),
+      now,
+    });
+    const readinessPlan = createProductionGaReadinessPlan({ matrix, threatModel, now });
+    const readiness = summarizeProductionGaReadiness({ plan: readinessPlan, now });
+    const rehearsalPlan = createProductionGaE2ERehearsalPlan({
+      scenario: 'all-pass',
+      chainSeeds: upstreamProjectionSeeds,
+      childControlPlaneRecordSeeds: upstreamProjectionSeeds,
+      now,
+    });
+    const rehearsalRun = createProductionGaE2ERehearsalRun({
+      plan: rehearsalPlan,
+      timelineSeeds: upstreamProjectionSeeds,
+      now,
+    });
+    const bundle = createProductionGaEvidenceBundleSummary({
+      gateSeeds: upstreamProjectionSeeds,
+      now,
+    });
+    const records = [matrix, threatModel, readinessPlan, readiness, rehearsalPlan, rehearsalRun, bundle];
+    const serialized = JSON.stringify(records);
+
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(matrix.matrixHash).toMatch(sha256HexPattern);
+    expect(threatModel.authorityModelHash).toMatch(sha256HexPattern);
+    expect(rehearsalPlan.chainHash).toMatch(sha256HexPattern);
+    expect(rehearsalRun.timelineHash).toMatch(sha256HexPattern);
+    expect(bundle.bundleHash).toMatch(sha256HexPattern);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
 

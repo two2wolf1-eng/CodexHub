@@ -155,4 +155,60 @@ describe('governance-projection-kernel', () => {
     expect(result.projections.every((projection) => projection.bodyStored === false)).toBe(true);
     expect(result.projections.every((projection) => projection.rawPathStored === false)).toBe(true);
   });
+
+  it('keeps M48-D8 multi-surface projection summaries hash-only after round-trip', () => {
+    const result = createGovernanceProjection([
+      {
+        id: `github:${adversarialPublicOutputFixture}`,
+        source: 'github_pr_lifecycle_run',
+        title: `github title ${adversarialPublicOutputFixture}`,
+        status: 'completed',
+        evidenceRefIds: ['evidence_github_d8'],
+        auditEventIds: ['audit_github_d8'],
+        networkBoundaryInvoked: true,
+      },
+      {
+        id: `workflow:${adversarialPublicOutputFixture}`,
+        source: 'custom_workflow_run',
+        title: `workflow title ${adversarialPublicOutputFixture}`,
+        status: 'blocked',
+        evidenceRefIds: ['evidence_workflow_d8'],
+        auditEventIds: ['audit_workflow_d8'],
+      },
+      {
+        id: `policy:${adversarialPublicOutputFixture}`,
+        source: 'policy_backend_projection',
+        title: `policy title ${adversarialPublicOutputFixture}`,
+        status: 'passed',
+        evidenceRefIds: ['evidence_policy_d8'],
+        auditEventIds: ['audit_policy_d8'],
+      },
+      {
+        id: `telemetry:${adversarialPublicOutputFixture}`,
+        source: 'telemetry_projection',
+        title: `telemetry title ${adversarialPublicOutputFixture}`,
+        status: 'passed',
+        evidenceRefIds: ['evidence_telemetry_d8'],
+        auditEventIds: ['audit_telemetry_d8'],
+      },
+      {
+        id: `verification:${adversarialPublicOutputFixture}`,
+        source: 'nx_verification',
+        title: `verification title ${adversarialPublicOutputFixture}`,
+        status: 'failed',
+        evidenceRefIds: ['evidence_verification_d8'],
+        auditEventIds: ['audit_verification_d8'],
+      },
+    ]);
+    const serialized = JSON.stringify(result);
+
+    expect(result.summary.runCount).toBe(5);
+    expect(result.summary.sourceBreakdown.github).toBe(1);
+    expect(result.summary.sourceBreakdown.orchestrator).toBe(1);
+    expect(result.summary.sourceBreakdown.policy).toBe(1);
+    expect(result.summary.sourceBreakdown.telemetry).toBe(1);
+    expect(result.summary.sourceBreakdown.verification).toBe(1);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(result)).toEqual([]);
+  });
 });
