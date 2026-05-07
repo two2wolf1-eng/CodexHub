@@ -155,6 +155,12 @@ import type {
   CodexExecRealReadOnlyAdapterExecutableResolution,
   CodexExecRealReadOnlyAdapterProcessRunner,
 } from '@codexhub/codex-kernel';
+import {
+  createAccountPoolScoringProjection,
+  createClientPoolScoringProjection,
+  scoreCodexAccount,
+  scoreCodexClient,
+} from '@codexhub/codex-scheduler-kernel';
 import type {
   AuditEvent,
   BrowserObservationApprovalArtifactRecord,
@@ -232,6 +238,8 @@ import type {
   CodexExecTimelineFilter,
   CodexReplaySummary,
   CodexReplayRecord,
+  CodexAccountBinding,
+  CodexClientInstance,
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
@@ -241,6 +249,8 @@ import type {
   ElectronCdpObservationRunStatus,
   ElectronDebugEndpointSummary,
   EvidenceRef,
+  Lease,
+  QuotaSnapshot,
   GithubActionsDispatchApprovalArtifact,
   GithubActionsDispatchPlan,
   GithubActionsDispatchRun,
@@ -31426,6 +31436,36 @@ type M51ProjectionRecord = {
 
 type M51ProjectionItem = ReturnType<typeof projectM51ProjectionRecord>;
 
+type M56SchedulerProjection = {
+  status: 'ready' | 'blocked' | 'pending' | 'unknown';
+  summary: string;
+  poolHash?: string;
+  readyCount: number;
+  blockedCount: number;
+  pendingCount: number;
+  itemCount: number;
+  activeLeaseCount: number;
+  blockedLeaseCount: number;
+  preflightReady: boolean;
+  dispatchAllowed: false;
+  directAdapterExecutionAllowed: false;
+  items: Array<{
+    kind: string;
+    recordHash: string;
+    status: string;
+    schedulerStatus: string;
+    score: number;
+    activeLeaseCount: number;
+    quotaStatus?: string;
+    blockReasons: string[];
+    evidenceRefIds: string[];
+    auditEventIds: string[];
+    summary: string;
+  }>;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+};
+
 async function createM51AccountsProjection(store: CodexHubStore | undefined) {
   if (!store) {
     return createM51MetadataProjection({
@@ -31465,6 +31505,7 @@ async function createM51AccountsProjection(store: CodexHubStore | undefined) {
     surface: 'accounts',
     summary: 'Account metadata projection is available read-only from the M51 store.',
     storeAvailable: true,
+    scheduler: createM56AccountSchedulerProjection(accountBindings, quotaSnapshots, leases),
     counts: {
       workspaces: workspaces.length,
       memberships: memberships.length,
@@ -31518,6 +31559,7 @@ async function createM51ClientsProjection(store: CodexHubStore | undefined) {
     surface: 'clients',
     summary: 'Client metadata projection is available read-only from the M51 store.',
     storeAvailable: true,
+    scheduler: createM56ClientSchedulerProjection(clients, leases),
     counts: {
       clients: clients.length,
       appServerSessions: appServerSessions.length,
@@ -31545,12 +31587,26 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
     });
   }
 
-  const [intents, runs, diagnoses, recoveries, evidenceBundles] = await Promise.all([
+  const [
+    intents,
+    runs,
+    diagnoses,
+    recoveries,
+    evidenceBundles,
+    accountBindings,
+    quotaSnapshots,
+    clients,
+    leases,
+  ] = await Promise.all([
     store.codexTaskIntents.listRecords({ limit: 50 }),
     store.codexTaskRuns.listRecords({ limit: 50 }),
     store.codexTaskDiagnoses.listRecords({ limit: 50 }),
     store.codexRecoveryRuns.listRecords({ limit: 50 }),
     store.evidenceBundles.listRecords({ limit: 50 }),
+    store.codexAccountBindings.listRecords({ limit: 50 }),
+    store.quotaSnapshots.listRecords({ limit: 50 }),
+    store.codexClientInstances.listRecords({ limit: 50 }),
+    store.poolLeases.listRecords({ limit: 50 }),
   ]);
 
   return createM51MetadataProjection({
@@ -31558,12 +31614,22 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
     surface: 'tasks',
     summary: 'Task metadata projection is available read-only from the M51 store.',
     storeAvailable: true,
+    scheduler: createM56TaskSchedulerProjection({
+      taskCount: intents.length + runs.length,
+      accountBindings,
+      quotaSnapshots,
+      clients,
+      leases,
+    }),
     counts: {
       intents: intents.length,
       runs: runs.length,
       diagnoses: diagnoses.length,
       recoveries: recoveries.length,
       evidenceBundles: evidenceBundles.length,
+      schedulerAccounts: accountBindings.length,
+      schedulerClients: clients.length,
+      schedulerLeases: leases.length,
     },
     items: [
       ...intents.map((record) => projectM51ProjectionRecord('task-intent', record)),
@@ -31575,6 +31641,271 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
   });
 }
 
+function createM56AccountSchedulerProjection(
+  accountBindings: CodexAccountBinding[],
+  quotaSnapshots: QuotaSnapshot[],
+  leases: Lease[],
+): M56SchedulerProjection {
+  const projections = accountBindings.map((accountBinding) =>
+    scoreCodexAccount({
+      accountBinding,
+      quotaSnapshot: findM56QuotaSnapshotForAccount(accountBinding, quotaSnapshots),
+      activeLeaseCount: countM56ActiveLeases(
+        leases,
+        'account',
+        accountBinding.codexAccountHash,
+      ),
+    }),
+  );
+  const pool = createAccountPoolScoringProjection({
+    poolKey: 'supervisor-accounts',
+    projections,
+  });
+  const items = projections.map((projection) => ({
+    kind: 'account-scheduler',
+    recordHash: hashSupervisorMetadata({
+      surface: 'accounts',
+      status: projection.schedulingStatus,
+      score: projection.score,
+      quotaStatus: projection.quotaStatus,
+      activeLeaseCount: projection.activeLeaseCount,
+    }),
+    status: projection.schedulingStatus,
+    schedulerStatus: projection.schedulingStatus,
+    score: projection.score,
+    activeLeaseCount: projection.activeLeaseCount,
+    quotaStatus: projection.quotaStatus,
+    blockReasons: projection.blockReasons,
+    evidenceRefIds: projection.evidenceRefIds,
+    auditEventIds: projection.auditEventIds,
+    summary: projection.summary,
+  }));
+
+  return createM56SchedulerProjectionSummary({
+    surface: 'accounts',
+    poolHash: pool.poolHash,
+    readyCount: pool.readyCount,
+    blockedCount: pool.blockedCount,
+    itemCount: projections.length,
+    activeLeaseCount: countM56ActiveLeasesForKinds(leases, ['account', 'quota']),
+    blockedLeaseCount: countM56BlockedLeasesForKinds(leases, ['account', 'quota']),
+    items,
+  });
+}
+
+function createM56ClientSchedulerProjection(
+  clients: CodexClientInstance[],
+  leases: Lease[],
+): M56SchedulerProjection {
+  const projections = clients.map((client) =>
+    scoreCodexClient({
+      clientInstance: client,
+      activeLeaseCount: countM56ActiveLeases(leases, 'client', client.clientInstanceHash),
+    }),
+  );
+  const pool = createClientPoolScoringProjection({
+    poolKey: 'supervisor-clients',
+    projections,
+  });
+  const items = projections.map((projection) => ({
+    kind: 'client-scheduler',
+    recordHash: hashSupervisorMetadata({
+      surface: 'clients',
+      status: projection.schedulingStatus,
+      score: projection.score,
+      activeLeaseCount: projection.activeLeaseCount,
+    }),
+    status: projection.schedulingStatus,
+    schedulerStatus: projection.schedulingStatus,
+    score: projection.score,
+    activeLeaseCount: projection.activeLeaseCount,
+    blockReasons: projection.blockReasons,
+    evidenceRefIds: projection.evidenceRefIds,
+    auditEventIds: projection.auditEventIds,
+    summary: projection.summary,
+  }));
+
+  return createM56SchedulerProjectionSummary({
+    surface: 'clients',
+    poolHash: pool.poolHash,
+    readyCount: pool.readyCount,
+    blockedCount: pool.blockedCount,
+    itemCount: projections.length,
+    activeLeaseCount: countM56ActiveLeasesForKinds(leases, ['client', 'profile', 'thread']),
+    blockedLeaseCount: countM56BlockedLeasesForKinds(leases, ['client', 'profile', 'thread']),
+    items,
+  });
+}
+
+function createM56TaskSchedulerProjection(input: {
+  taskCount: number;
+  accountBindings: CodexAccountBinding[];
+  quotaSnapshots: QuotaSnapshot[];
+  clients: CodexClientInstance[];
+  leases: Lease[];
+}): M56SchedulerProjection {
+  const accountScheduler = createM56AccountSchedulerProjection(
+    input.accountBindings,
+    input.quotaSnapshots,
+    input.leases,
+  );
+  const clientScheduler = createM56ClientSchedulerProjection(input.clients, input.leases);
+  const activeLeaseCount = countM56ActiveLeasesForKinds(input.leases, [
+    'account',
+    'client',
+    'profile',
+    'thread',
+    'worktree',
+    'task',
+    'quota',
+  ]);
+  const blockedLeaseCount = countM56BlockedLeasesForKinds(input.leases, [
+    'account',
+    'client',
+    'profile',
+    'thread',
+    'worktree',
+    'task',
+    'quota',
+  ]);
+  const readyCount =
+    input.taskCount > 0 &&
+    accountScheduler.readyCount > 0 &&
+    clientScheduler.readyCount > 0 &&
+    blockedLeaseCount === 0
+      ? input.taskCount
+      : 0;
+  const blockedCount =
+    input.taskCount > 0 &&
+    (accountScheduler.blockedCount > 0 ||
+      clientScheduler.blockedCount > 0 ||
+      blockedLeaseCount > 0)
+      ? input.taskCount
+      : 0;
+  const status =
+    input.taskCount === 0
+      ? 'pending'
+      : readyCount > 0
+        ? 'ready'
+        : blockedCount > 0
+          ? 'blocked'
+          : 'pending';
+  const evidenceRefIds = dedupeStrings([
+    ...accountScheduler.evidenceRefIds,
+    ...clientScheduler.evidenceRefIds,
+  ]);
+  const auditEventIds = dedupeStrings([
+    ...accountScheduler.auditEventIds,
+    ...clientScheduler.auditEventIds,
+  ]);
+
+  return {
+    status,
+    summary:
+      status === 'ready'
+        ? 'Task scheduler preflight has ready account and client metadata.'
+        : 'Task scheduler preflight is pending or blocked by metadata readiness.',
+    readyCount,
+    blockedCount,
+    pendingCount: Math.max(input.taskCount - readyCount - blockedCount, 0),
+    itemCount: input.taskCount,
+    activeLeaseCount,
+    blockedLeaseCount,
+    preflightReady: status === 'ready',
+    dispatchAllowed: false,
+    directAdapterExecutionAllowed: false,
+    items: [],
+    evidenceRefIds,
+    auditEventIds,
+  };
+}
+
+function createM56SchedulerProjectionSummary(input: {
+  surface: string;
+  poolHash: string;
+  readyCount: number;
+  blockedCount: number;
+  itemCount: number;
+  activeLeaseCount: number;
+  blockedLeaseCount: number;
+  items: M56SchedulerProjection['items'];
+}): M56SchedulerProjection {
+  const pendingCount = Math.max(input.itemCount - input.readyCount - input.blockedCount, 0);
+  const status =
+    input.itemCount === 0
+      ? 'unknown'
+      : input.readyCount > 0
+        ? 'ready'
+        : input.blockedCount > 0
+          ? 'blocked'
+          : 'pending';
+  const evidenceRefIds = dedupeStrings(input.items.flatMap((item) => item.evidenceRefIds));
+  const auditEventIds = dedupeStrings(input.items.flatMap((item) => item.auditEventIds));
+
+  return {
+    status,
+    summary: `Supervisor ${input.surface} scheduler projection is metadata-only.`,
+    poolHash: input.poolHash,
+    readyCount: input.readyCount,
+    blockedCount: input.blockedCount,
+    pendingCount,
+    itemCount: input.itemCount,
+    activeLeaseCount: input.activeLeaseCount,
+    blockedLeaseCount: input.blockedLeaseCount,
+    preflightReady: status === 'ready',
+    dispatchAllowed: false,
+    directAdapterExecutionAllowed: false,
+    items: input.items,
+    evidenceRefIds,
+    auditEventIds,
+  };
+}
+
+function findM56QuotaSnapshotForAccount(
+  accountBinding: CodexAccountBinding,
+  quotaSnapshots: QuotaSnapshot[],
+): QuotaSnapshot | undefined {
+  return quotaSnapshots.find(
+    (quotaSnapshot) =>
+      quotaSnapshot.subjectHash === accountBinding.codexAccountHash ||
+      (accountBinding.workspaceIdHash &&
+        quotaSnapshot.subjectHash === accountBinding.workspaceIdHash),
+  );
+}
+
+function countM56ActiveLeases(
+  leases: Lease[],
+  targetKind: Lease['targetKind'],
+  targetIdHash: string,
+): number {
+  return leases.filter(
+    (lease) =>
+      lease.targetKind === targetKind &&
+      lease.targetIdHash === targetIdHash &&
+      (lease.status === 'requested' || lease.status === 'active'),
+  ).length;
+}
+
+function countM56ActiveLeasesForKinds(
+  leases: Lease[],
+  targetKinds: Lease['targetKind'][],
+): number {
+  return leases.filter(
+    (lease) =>
+      targetKinds.includes(lease.targetKind) &&
+      (lease.status === 'requested' || lease.status === 'active'),
+  ).length;
+}
+
+function countM56BlockedLeasesForKinds(
+  leases: Lease[],
+  targetKinds: Lease['targetKind'][],
+): number {
+  return leases.filter(
+    (lease) => targetKinds.includes(lease.targetKind) && lease.status === 'blocked',
+  ).length;
+}
+
 function createM51MetadataProjection(input: {
   idPrefix: string;
   surface: string;
@@ -31582,9 +31913,16 @@ function createM51MetadataProjection(input: {
   counts: Record<string, number>;
   items: M51ProjectionItem[];
   storeAvailable: boolean;
+  scheduler?: M56SchedulerProjection;
 }) {
-  const evidenceRefIds = dedupeStrings(input.items.flatMap((item) => item.evidenceRefIds));
-  const auditEventIds = dedupeStrings(input.items.flatMap((item) => item.auditEventIds));
+  const evidenceRefIds = dedupeStrings([
+    ...input.items.flatMap((item) => item.evidenceRefIds),
+    ...(input.scheduler?.evidenceRefIds ?? []),
+  ]);
+  const auditEventIds = dedupeStrings([
+    ...input.items.flatMap((item) => item.auditEventIds),
+    ...(input.scheduler?.auditEventIds ?? []),
+  ]);
 
   return {
     id: foundationId(input.idPrefix),
@@ -31596,6 +31934,7 @@ function createM51MetadataProjection(input: {
     items: input.items,
     count: input.items.length,
     counts: input.counts,
+    scheduler: input.scheduler,
     evidenceRefIds,
     auditEventIds,
     liveExecution: false,

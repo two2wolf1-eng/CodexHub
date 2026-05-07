@@ -235,6 +235,9 @@ importers:
       '@codexhub/codex-kernel':
         specifier: workspace:*
         version: link:../../packages/codex-kernel
+      '@codexhub/codex-scheduler-kernel':
+        specifier: workspace:*
+        version: link:../../packages/codex-scheduler-kernel
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

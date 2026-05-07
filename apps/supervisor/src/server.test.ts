@@ -25,9 +25,11 @@ import type {
 } from '@codexhub/contracts';
 import {
   BusinessWorkspaceSchema,
+  CodexAccountBindingSchema,
   CodexClientInstanceSchema,
   CodexTaskIntentSchema,
   CodexTaskRunSchema,
+  QuotaSnapshotSchema,
 } from '@codexhub/contracts';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
@@ -633,6 +635,116 @@ describe('supervisor mock development API', () => {
         evidenceRefIds: [evidenceRef.id],
       },
     });
+  });
+
+  it('exposes M56 scheduler-ready account, client, and task projections', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m56-scheduler-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const accountBinding = CodexAccountBindingSchema.parse({
+      id: 'codex_account_binding_scheduler_1',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      codexAccountHash: 'sha256:scheduler-account',
+      workspaceIdHash: 'sha256:scheduler-workspace',
+      status: 'matched',
+      summary: 'Scheduler account binding test record.',
+    });
+    const quotaSnapshot = QuotaSnapshotSchema.parse({
+      id: 'quota_snapshot_scheduler_1',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      subjectKind: 'codex-account',
+      subjectHash: accountBinding.codexAccountHash,
+      status: 'available',
+      limitCount: 10,
+      usedCount: 1,
+      remainingCount: 9,
+      summary: 'Scheduler quota snapshot test record.',
+    });
+    const client = CodexClientInstanceSchema.parse({
+      id: 'codex_client_scheduler_1',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: createdAt,
+      clientKind: 'codex-app-server',
+      clientInstanceHash: 'sha256:scheduler-client',
+      status: 'available',
+      activeTaskCount: 0,
+      summary: 'Scheduler client test record.',
+    });
+    const taskIntent = CodexTaskIntentSchema.parse({
+      id: 'codex_task_intent_scheduler_1',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      intentHash: 'sha256:scheduler-intent',
+      promptHash: 'sha256:scheduler-prompt',
+      promptLength: 8,
+      status: 'planned',
+      summary: 'Scheduler task intent test record.',
+    });
+
+    await store.codexAccountBindings.saveRecord(accountBinding);
+    await store.quotaSnapshots.saveRecord(quotaSnapshot);
+    await store.codexClientInstances.saveRecord(client);
+    await store.codexTaskIntents.saveRecord(taskIntent);
+
+    const server = buildSupervisorServer({ store });
+    const [accountsResponse, clientsResponse, tasksResponse] = await Promise.all([
+      server.inject({ method: 'GET', url: '/accounts' }),
+      server.inject({ method: 'GET', url: '/clients' }),
+      server.inject({ method: 'GET', url: '/tasks' }),
+    ]);
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(accountsResponse.statusCode).toBe(200);
+    expect(clientsResponse.statusCode).toBe(200);
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(accountsResponse.json().scheduler).toMatchObject({
+      status: 'ready',
+      readyCount: 1,
+      blockedCount: 0,
+      preflightReady: true,
+      dispatchAllowed: false,
+      directAdapterExecutionAllowed: false,
+      items: [
+        expect.objectContaining({
+          kind: 'account-scheduler',
+          schedulerStatus: 'account_ready',
+          quotaStatus: 'available',
+          score: 100,
+        }),
+      ],
+    });
+    expect(clientsResponse.json().scheduler).toMatchObject({
+      status: 'ready',
+      readyCount: 1,
+      blockedCount: 0,
+      preflightReady: true,
+      dispatchAllowed: false,
+      directAdapterExecutionAllowed: false,
+      items: [
+        expect.objectContaining({
+          kind: 'client-scheduler',
+          schedulerStatus: 'client_ready',
+          score: 100,
+        }),
+      ],
+    });
+    expect(tasksResponse.json().scheduler).toMatchObject({
+      status: 'ready',
+      itemCount: 1,
+      readyCount: 1,
+      blockedCount: 0,
+      preflightReady: true,
+      dispatchAllowed: false,
+      directAdapterExecutionAllowed: false,
+    });
+    expect(accountsResponse.body).not.toContain('scheduler-account');
+    expect(clientsResponse.body).not.toContain('scheduler-client');
+    expect(tasksResponse.body).not.toContain('scheduler-prompt');
   });
 
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {

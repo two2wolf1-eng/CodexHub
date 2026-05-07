@@ -7,6 +7,7 @@
     "@codexhub/approval-ux-kernel": "workspace:*",
     "@codexhub/browser-profile-kernel": "workspace:*",
     "@codexhub/codex-kernel": "workspace:*",
+    "@codexhub/codex-scheduler-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/deployment-provider-adapter": "workspace:*",
     "@codexhub/electron-cdp-adapter": "workspace:*",
