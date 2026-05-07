@@ -6335,3 +6335,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d16.controlled-write-boundary-audit:
+    risk: critical
+    trigger:
+      type: controlled-write-boundary-audit
+      entrypoint: browser electron mcp controlled-write tests docs
+      localControlRequired: false
+    scope:
+      - browser-click-type-fixed-boundary
+      - electron-main-inspector-named-snippet-boundary
+      - mcp-controlled-worktree-patch-planning
+      - no-generic-browser-cdp-mcp-passthrough
+      - no-raw-selector-text-js-patch-path-output
+    docs:
+      - docs/releases/m48-d16-controlled-write-boundary-audit.md
+      - docs/reviews/m48-d16-controlled-write-boundary-audit-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true

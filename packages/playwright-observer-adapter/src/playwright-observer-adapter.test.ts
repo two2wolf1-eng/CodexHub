@@ -703,4 +703,99 @@ describe('playwright-observer-adapter', () => {
     expect(result.rawSelectorStored).toBe(false);
     expect(JSON.stringify(result)).not.toContain(selector);
   });
+
+  it('blocks controlled browser type actions on typed text hash mismatch before launching', async () => {
+    const targetUrl = 'http://127.0.0.1:3000/workflows';
+    const selector = '#operator-token';
+    const typedText = 'private typed value';
+    let loadCount = 0;
+    const result = await runControlledBrowserActionBoundary({
+      actionKind: 'type',
+      targetUrl,
+      targetUrlHash: sha256Ref(targetUrl),
+      selector,
+      selectorHash: sha256Ref(selector),
+      typedText,
+      typedTextHash: sha256Ref('different typed value'),
+      loadPlaywright: async () => {
+        loadCount += 1;
+        throw new Error('loader must not run before typed text hash binding passes');
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('blocked');
+    expect(result.browserActionInvoked).toBe(false);
+    expect(result.processBoundaryInvoked).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(loadCount).toBe(0);
+    expect(result.rawTypedTextStored).toBe(false);
+    expect(serialized).not.toContain(typedText);
+    expect(serialized).not.toContain(selector);
+    expect(serialized).not.toContain(targetUrl);
+  });
+
+  it('runs controlled browser type actions with fixed fill and metadata-only output', async () => {
+    const targetUrl = 'http://127.0.0.1:3000/workflows';
+    const selector = '#operator-note';
+    const typedText = 'private operator note';
+    let filledValue = '';
+    const result = await runControlledBrowserActionBoundary({
+      actionKind: 'type',
+      targetUrl,
+      targetUrlHash: sha256Ref(targetUrl),
+      selector,
+      selectorHash: sha256Ref(selector),
+      typedText,
+      typedTextHash: sha256Ref(typedText),
+      loadPlaywright: async () => ({
+        chromium: {
+          async launch() {
+            return {
+              async newContext() {
+                return {
+                  async newPage() {
+                    return {
+                      async goto() {
+                        return undefined;
+                      },
+                      url() {
+                        return targetUrl;
+                      },
+                      locator() {
+                        return {
+                          async click() {
+                            return undefined;
+                          },
+                          async fill(value: string) {
+                            filledValue = value;
+                          },
+                        };
+                      },
+                    };
+                  },
+                  async close() {
+                    return undefined;
+                  },
+                };
+              },
+              async close() {
+                return undefined;
+              },
+            };
+          },
+        },
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.browserActionInvoked).toBe(true);
+    expect(filledValue).toBe(typedText);
+    expect(result.rawSelectorStored).toBe(false);
+    expect(result.rawTypedTextStored).toBe(false);
+    expect(serialized).not.toContain(typedText);
+    expect(serialized).not.toContain(selector);
+    expect(serialized).not.toContain(targetUrl);
+  });
 });

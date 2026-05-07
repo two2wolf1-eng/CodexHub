@@ -77,11 +77,7 @@ export async function runElectronMainInspectorBoundary(
     rawOutputStored: false,
     rawPathStored: false,
     bodyStored: false,
-    summary:
-      result.summary ??
-      (result.status === 'completed'
-        ? 'Electron main inspector fixed snippet completed with metadata-only result.'
-        : 'Electron main inspector fixed snippet failed with metadata-only result.'),
+    summary: createInspectorBoundarySummary(result.status),
   };
 }
 
@@ -104,6 +100,18 @@ function createBlockedInspectorResult(summary: string): ElectronMainInspectorBou
     bodyStored: false,
     summary,
   };
+}
+
+function createInspectorBoundarySummary(status: 'completed' | 'failed' | 'blocked'): string {
+  if (status === 'completed') {
+    return 'Electron main inspector fixed snippet completed with metadata-only result.';
+  }
+
+  if (status === 'blocked') {
+    return 'Electron main inspector fixed snippet blocked with metadata-only result.';
+  }
+
+  return 'Electron main inspector fixed snippet failed with metadata-only result.';
 }
 
 function lookupSnippetHash(

@@ -164,7 +164,15 @@ describe('mcp-tool-contracts', () => {
       'https://',
       'process.env',
       'applyPatch(',
+      'git apply',
+      'patch -p',
+      'readFile',
       'writeFile',
+      'appendFile',
+      'createWriteStream',
+      'mkdir',
+      'rename',
+      'copyFile',
       'rmSync',
       'unlink',
       'repoRootMutationAllowed: true',
@@ -192,5 +200,34 @@ describe('mcp-tool-contracts', () => {
     expect(blockedPlan.rawPathStored).toBe(false);
     expect(serialized).not.toContain('diff --git');
     expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
+  });
+
+  it('keeps controlled MCP write plans hash-bound without exposing raw patch or path metadata', () => {
+    const rawPatch = [
+      'diff --git a/src/private.ts b/src/private.ts',
+      '+const token = "hidden";',
+    ].join('\n');
+    const rawWorktreePath = 'C:\\Users\\Thomas\\CodexHub DevOps Platform\\worktrees\\agent-1';
+    const plan = planControlledWorktreePatchTool({
+      dryRunId: 'mcp_write_dry_run_1',
+      worktreePathHash: hashUnknown(rawWorktreePath),
+      patchHash: hashUnknown(rawPatch),
+      changedFileCount: 1,
+      blockReasons: ['path_traversal_blocked'],
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.status).toBe('blocked');
+    expect(plan.toolName).toBe('workspace.applyPatchToControlledWorktree');
+    expect(plan.directExecutionPlanned).toBe(true);
+    expect(plan.controlledWorktreeOnly).toBe(true);
+    expect(plan.repoRootMutationAllowed).toBe(false);
+    expect(plan.rawPatchStored).toBe(false);
+    expect(plan.rawPathStored).toBe(false);
+    expect(plan.patchHash).toMatch(/^sha256:/);
+    expect(plan.worktreePathHash).toMatch(/^sha256:/);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('hidden');
+    expect(serialized).not.toContain('CodexHub DevOps Platform');
   });
 });

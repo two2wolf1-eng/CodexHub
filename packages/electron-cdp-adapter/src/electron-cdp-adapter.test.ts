@@ -709,6 +709,38 @@ describe('electron-cdp-adapter', () => {
     expect(serialized).not.toContain(snippetSource);
   });
 
+  it('does not trust raw Electron main inspector runner summaries', async () => {
+    const endpointUrl = 'http://127.0.0.1:9222/devtools/page/1';
+    const snippetSource = '(() => "private-token-from-snippet")()';
+    const snippetSourceHash = `sha256:${hashText(snippetSource)}`;
+    const result = await runElectronMainInspectorBoundary({
+      endpointUrl,
+      endpointHash: `sha256:${hashText(endpointUrl)}`,
+      targetIdHash: 'sha256:target',
+      snippetId: 'safe-snippet',
+      snippetSource,
+      snippetSourceHash,
+      allowedSnippetHashes: { 'safe-snippet': snippetSourceHash },
+      runtimeRunner: async () => ({
+        status: 'completed',
+        summary:
+          'Raw runner output included private-token-from-snippet and C:\\Users\\Thomas\\CodexHub',
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.mainInspectorInvoked).toBe(true);
+    expect(result.summary).toBe(
+      'Electron main inspector fixed snippet completed with metadata-only result.',
+    );
+    expect(result.rawJavascriptStored).toBe(false);
+    expect(result.rawOutputStored).toBe(false);
+    expect(serialized).not.toContain('private-token-from-snippet');
+    expect(serialized).not.toContain('C:\\Users\\Thomas');
+    expect(serialized).not.toContain(snippetSource);
+  });
+
   it('blocks Electron main inspector when endpoint, snippet hash, or allowlist binding fails', async () => {
     const endpointUrl = 'http://127.0.0.1:9222/devtools/page/1';
     const snippetSource = '(() => 1)()';
