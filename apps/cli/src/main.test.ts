@@ -176,6 +176,53 @@ describe('cli development mock-run fallback', () => {
     }
   });
 
+  it('keeps CLI mutating POST calls owned by reviewed exact command helpers', () => {
+    const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const postMatches = [...cliSource.matchAll(/method:\s*['"]POST['"]/g)];
+    const reviewedPostOwners = [
+      'postControlledWriteCliMutation',
+      'decideApproval',
+      'dryRunWorkflow',
+      'mockRunDevelopment',
+      'replayCodexFixture',
+      'dryRunCodexExec',
+      'requestCodexExecApproval',
+      'decideCodexExecApproval',
+      'preflightCodexExec',
+      'evaluateCodexExecGate',
+      'createCodexExecAdrDecision',
+      'simulateReadOnlyAdapterPreflightCommand',
+      'createReadOnlyAdapterSimulatorReviewCommand',
+      'createReadOnlyAdapterImplementationPlanReviewCommand',
+      'createReadOnlyAdapterSkeletonReviewCommand',
+      'runReadOnlyAdapterFixtureBoundaryCommand',
+      'createReadOnlyAdapterFinalReadinessCommand',
+      'createRealReadOnlyAdapterReadinessCommand',
+      'createRealReadOnlyAdapterReadinessReviewCommand',
+      'attemptRealReadOnlyAdapterCommand',
+      'traceRealReadOnlyAdapterApprovalAuthorityCommand',
+      'prepareRealReadOnlyAdapterPolicySourceCommand',
+      'prepareRealReadOnlyAdapterPilotSourceCommand',
+      'checkRealReadOnlyAdapterPilotPrerequisitesCommand',
+      'createCodexExecReportReview',
+    ];
+    const ownerRegex = /\n(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(/g;
+    const postOwners = postMatches.map((match) => {
+      const prefix = cliSource.slice(0, match.index ?? 0);
+      const ownerMatches = [...prefix.matchAll(ownerRegex)];
+
+      return ownerMatches.at(-1)?.[1] ?? '<missing-owner>';
+    });
+
+    expect(postOwners).toEqual(reviewedPostOwners);
+    expect(new Set(postOwners).size).toBe(postOwners.length);
+    expect(cliSource).not.toContain('postJson(');
+    expect(cliSource).not.toContain('postSupervisor(');
+    expect(cliSource).not.toContain('genericPost');
+    expect(cliSource).not.toContain('mutationRoutePrefix');
+    expect(cliSource).not.toContain('route.startsWith');
+  });
+
   it('keeps registered read-only CLI command families free of local-control mutation helpers', () => {
     const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
     const readOnlyRegistrations = [

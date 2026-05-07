@@ -6431,3 +6431,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d20.cli-mutation-surface:
+    risk: critical
+    trigger:
+      type: cli-mutation-surface
+      entrypoint: cli tests docs
+      localControlRequired: false
+    scope:
+      - exact-cli-post-owner-allowlist
+      - no-token-options
+      - read-only-command-groups-do-not-read-local-control-token
+      - no-generic-post-helper
+      - no-direct-adapter-execute
+    docs:
+      - docs/releases/m48-d20-cli-mutation-surface.md
+      - docs/reviews/m48-d20-cli-mutation-surface-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
