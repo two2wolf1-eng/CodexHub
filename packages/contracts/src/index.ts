@@ -274,6 +274,18 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'platform.operator_role_plan',
     'platform.operator_role_summary',
     'platform.disaster_recovery_rehearsal',
+    'production_ga.capability_matrix',
+    'production_ga.threat_model',
+    'production_ga.readiness_plan',
+    'production_ga.readiness_summary',
+    'production_ga.e2e_rehearsal_plan',
+    'production_ga.e2e_rehearsal_run',
+    'production_ga.operator_training_plan',
+    'production_ga.operator_training_completion',
+    'production_ga.release_candidate_signoff_plan',
+    'production_ga.signoff_run',
+    'production_ga.residual_risk_register',
+    'production_ga.evidence_bundle_summary',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -490,6 +502,22 @@ const customWorkflowForbiddenMetadataKeys = new Set([
   'rawBackupBody',
   'auditBody',
   'rawAuditBody',
+  'releaseBody',
+  'rawReleaseBody',
+  'changelogBody',
+  'rawChangelogBody',
+  'deployPayload',
+  'rawDeployPayload',
+  'log',
+  'rawLog',
+  'trace',
+  'rawTrace',
+  'span',
+  'rawSpan',
+  'patch',
+  'rawPatch',
+  'fileContent',
+  'rawFileContent',
 ]);
 
 function rejectCustomWorkflowRawMetadata(value: unknown, ctx: z.RefinementCtx) {
@@ -17369,6 +17397,345 @@ export const DisasterRecoveryRehearsalRunSchema = createdEntityBaseSchema
     rejectGithubRawMetadata(record.metadata, context, ['metadata']);
   });
 export type DisasterRecoveryRehearsalRun = z.infer<typeof DisasterRecoveryRehearsalRunSchema>;
+
+export const ProductionGaSurfaceSchema = z.enum([
+  'local-patch-review-rc',
+  'github-pr-lifecycle',
+  'github-merge-actions-release',
+  'deployment-observe-apply-rollback',
+  'secrets-governance',
+  'policy-telemetry',
+  'browser-electron-mcp-controlled-write',
+  'runtime-external-agents',
+  'platform-operations',
+]);
+export type ProductionGaSurface = z.infer<typeof ProductionGaSurfaceSchema>;
+
+export const ProductionGaStatusSchema = z.enum([
+  'ready',
+  'conditionally_ready',
+  'blocked',
+  'failed',
+]);
+export type ProductionGaStatus = z.infer<typeof ProductionGaStatusSchema>;
+
+export const ProductionGaE2EScenarioSchema = z.enum([
+  'all-pass',
+  'patch-blocked',
+  'verification-failed',
+  'pr-blocked',
+  'merge-blocked',
+  'release-blocked',
+  'deploy-blocked',
+  'observe-blocked',
+  'rollback-plan-missing',
+  'rollback-failed',
+  'child-hash-mismatch',
+  'approval-blocked',
+  'live-env-not-configured',
+  'evidence-missing',
+  'audit-gap',
+]);
+export type ProductionGaE2EScenario = z.infer<typeof ProductionGaE2EScenarioSchema>;
+
+const productionGaEvidenceAuditSchema = z.object({
+  evidenceRefIds: z.array(z.string().min(1)).default([]),
+  auditEventIds: z.array(z.string().min(1)).default([]),
+});
+
+const productionGaBoundarySchema = z.object({
+  processBoundaryInvoked: z.boolean().default(false),
+  networkBoundaryInvoked: z.boolean().default(false),
+  remoteProviderBoundaryInvoked: z.boolean().default(false),
+  childAdapterInvokedDirectly: z.literal(false).default(false),
+});
+
+export const ProductionGaCapabilityMatrixSchema = createdEntityBaseSchema
+  .extend({
+    matrixHash: z.string().min(1),
+    surfaceCount: z.number().int().positive(),
+    surfaces: z.array(ProductionGaSurfaceSchema),
+    readySurfaceCount: z.number().int().nonnegative(),
+    blockedSurfaceCount: z.number().int().nonnegative(),
+    defaultDisabledSurfaceCount: z.number().int().nonnegative(),
+    criticalRiskSurfaceCount: z.number().int().nonnegative(),
+    liveBoundaryAllowlistExpanded: z.literal(false),
+    childAdapterDirectExecutionAllowed: z.literal(false),
+    publicOutputMetadataOnly: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.surfaceCount !== record.surfaces.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production GA surfaceCount must match surfaces length',
+        path: ['surfaceCount'],
+      });
+    }
+  });
+export type ProductionGaCapabilityMatrix = z.infer<
+  typeof ProductionGaCapabilityMatrixSchema
+>;
+
+export const ProductionGaThreatModelSchema = createdEntityBaseSchema
+  .extend({
+    threatModelHash: z.string().min(1),
+    assetCount: z.number().int().nonnegative(),
+    trustBoundaryCount: z.number().int().nonnegative(),
+    liveBoundaryCount: z.number().int().nonnegative(),
+    authorityModelHash: z.string().min(1),
+    approvalModelHash: z.string().min(1),
+    evidenceAuditModelHash: z.string().min(1),
+    rollbackModelHash: z.string().min(1),
+    residualRiskCount: z.number().int().nonnegative(),
+    unresolvedCriticalRiskCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaThreatModel = z.infer<typeof ProductionGaThreatModelSchema>;
+
+export const ProductionGaReadinessPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    matrixHash: z.string().min(1),
+    threatModelHash: z.string().min(1),
+    requiredApprovalCount: z.literal(2),
+    requiredDistinctApproverHashes: z.literal(true),
+    requiredFoundationGateCount: z.number().int().positive(),
+    requiredTrainingModuleCount: z.number().int().nonnegative(),
+    e2eFixtureRequired: z.literal(true),
+    conditionalLiveSmokeAllowed: z.literal(true),
+    childAdapterDirectExecutionAllowed: z.literal(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaReadinessPlan = z.infer<typeof ProductionGaReadinessPlanSchema>;
+
+export const ProductionGaReadinessSummarySchema = createdEntityBaseSchema
+  .merge(productionGaEvidenceAuditSchema)
+  .extend({
+    readinessPlanId: z.string().min(1),
+    status: ProductionGaStatusSchema,
+    matrixStatus: ProductionGaStatusSchema,
+    threatModelStatus: ProductionGaStatusSchema,
+    trainingStatus: ProductionGaStatusSchema,
+    e2eFixtureStatus: ProductionGaStatusSchema,
+    conditionalLiveStatus: ProductionGaStatusSchema,
+    unresolvedCriticalRiskCount: z.number().int().nonnegative(),
+    blockerCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaReadinessSummary = z.infer<
+  typeof ProductionGaReadinessSummarySchema
+>;
+
+export const ProductionGaE2ERehearsalPlanSchema = createdEntityBaseSchema
+  .extend({
+    scenario: ProductionGaE2EScenarioSchema,
+    chainHash: z.string().min(1),
+    stepCount: z.number().int().positive(),
+    fixtureRequired: z.literal(true),
+    liveSmokeMode: z.enum(['disabled', 'conditional']),
+    childControlPlaneRecordCount: z.number().int().nonnegative(),
+    rawPayloadAccepted: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaE2ERehearsalPlan = z.infer<
+  typeof ProductionGaE2ERehearsalPlanSchema
+>;
+
+export const ProductionGaE2ERehearsalRunSchema = createdEntityBaseSchema
+  .merge(productionGaBoundarySchema)
+  .merge(productionGaEvidenceAuditSchema)
+  .extend({
+    rehearsalPlanId: z.string().min(1),
+    scenario: ProductionGaE2EScenarioSchema,
+    status: ProductionGaStatusSchema,
+    completedStepCount: z.number().int().nonnegative(),
+    blockedStepCount: z.number().int().nonnegative(),
+    failedStepCount: z.number().int().nonnegative(),
+    liveSmokeStatus: z.enum(['not_configured', 'readiness_blocked', 'completed']),
+    liveSmokeBlockerCount: z.number().int().nonnegative(),
+    timelineHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaE2ERehearsalRun = z.infer<
+  typeof ProductionGaE2ERehearsalRunSchema
+>;
+
+export const ProductionGaOperatorTrainingPlanSchema = createdEntityBaseSchema
+  .extend({
+    trainingPlanHash: z.string().min(1),
+    moduleCount: z.number().int().positive(),
+    moduleIdHashes: z.array(z.string().min(1)),
+    requiredForGa: z.literal(true),
+    rawOperatorIdentityStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.moduleCount !== record.moduleIdHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production GA moduleCount must match moduleIdHashes length',
+        path: ['moduleCount'],
+      });
+    }
+  });
+export type ProductionGaOperatorTrainingPlan = z.infer<
+  typeof ProductionGaOperatorTrainingPlanSchema
+>;
+
+export const ProductionGaOperatorTrainingCompletionSummarySchema =
+  createdEntityBaseSchema
+    .merge(productionGaEvidenceAuditSchema)
+    .extend({
+      trainingPlanHash: z.string().min(1),
+      operatorHash: z.string().min(1),
+      completedModuleCount: z.number().int().nonnegative(),
+      requiredModuleCount: z.number().int().nonnegative(),
+      status: ProductionGaStatusSchema,
+      rawOperatorIdentityStored: z.literal(false),
+      summary: z.string().min(1),
+    })
+    .strict()
+    .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaOperatorTrainingCompletionSummary = z.infer<
+  typeof ProductionGaOperatorTrainingCompletionSummarySchema
+>;
+
+export const ProductionGaReleaseCandidateSignoffPlanSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    matrixHash: z.string().min(1),
+    threatModelHash: z.string().min(1),
+    readinessSummaryId: z.string().min(1),
+    e2eRehearsalRunId: z.string().min(1),
+    requiredApprovalCount: z.literal(2),
+    requiredDistinctApproverHashes: z.literal(true),
+    unresolvedCriticalRiskCount: z.number().int().nonnegative(),
+    conditionalLiveSmokeAllowed: z.literal(true),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaReleaseCandidateSignoffPlan = z.infer<
+  typeof ProductionGaReleaseCandidateSignoffPlanSchema
+>;
+
+export const ProductionGaApprovalArtifactSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    approverHash: z.string().min(1),
+    decision: z.enum(['approved', 'denied', 'revoked']),
+    approved: z.boolean(),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    usedAt: IsoDateTimeSchema.optional(),
+    requestBodyStored: z.literal(false),
+    rawReasonStored: z.literal(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.decision === 'approved' && !record.approved) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'approved GA artifacts must set approved=true',
+        path: ['approved'],
+      });
+    }
+  });
+export type ProductionGaApprovalArtifact = z.infer<
+  typeof ProductionGaApprovalArtifactSchema
+>;
+
+export const ProductionGaSignoffRunSchema = createdEntityBaseSchema
+  .merge(productionGaBoundarySchema)
+  .merge(productionGaEvidenceAuditSchema)
+  .extend({
+    signoffPlanId: z.string().min(1),
+    status: ProductionGaStatusSchema,
+    approvalArtifactIds: z.array(z.string().min(1)),
+    approverHashes: z.array(z.string().min(1)),
+    approvalConsumedCount: z.number().int().nonnegative(),
+    foundationGateStatus: ProductionGaStatusSchema,
+    matrixStatus: ProductionGaStatusSchema,
+    threatModelStatus: ProductionGaStatusSchema,
+    trainingStatus: ProductionGaStatusSchema,
+    e2eFixtureStatus: ProductionGaStatusSchema,
+    conditionalLiveStatus: ProductionGaStatusSchema,
+    unresolvedCriticalRiskCount: z.number().int().nonnegative(),
+    signoffHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.approvalArtifactIds.length < 2 || new Set(record.approverHashes).size < 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production GA signoff requires two distinct approvals',
+        path: ['approvalArtifactIds'],
+      });
+    }
+    if (record.unresolvedCriticalRiskCount > 0 && record.status !== 'blocked') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'unresolved critical risks must block Production GA signoff',
+        path: ['status'],
+      });
+    }
+  });
+export type ProductionGaSignoffRun = z.infer<typeof ProductionGaSignoffRunSchema>;
+
+export const ProductionGaResidualRiskRegisterSchema = createdEntityBaseSchema
+  .extend({
+    registerHash: z.string().min(1),
+    riskCount: z.number().int().nonnegative(),
+    criticalRiskCount: z.number().int().nonnegative(),
+    unresolvedCriticalRiskCount: z.number().int().nonnegative(),
+    acceptedNonCriticalRiskCount: z.number().int().nonnegative(),
+    mitigationSummaryHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaResidualRiskRegister = z.infer<
+  typeof ProductionGaResidualRiskRegisterSchema
+>;
+
+export const ProductionGaEvidenceBundleSummarySchema = createdEntityBaseSchema
+  .merge(productionGaEvidenceAuditSchema)
+  .extend({
+    bundleHash: z.string().min(1),
+    gateCount: z.number().int().nonnegative(),
+    passedGateCount: z.number().int().nonnegative(),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    missingEvidenceCount: z.number().int().nonnegative(),
+    metadataOnly: z.literal(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ProductionGaEvidenceBundleSummary = z.infer<
+  typeof ProductionGaEvidenceBundleSummarySchema
+>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();
