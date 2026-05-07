@@ -12,6 +12,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@codexhub/codex-app-server-adapter": "workspace:*",
     "@codexhub/codex-exec-adapter": "workspace:*",
     "@codexhub/codex-scheduler-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",

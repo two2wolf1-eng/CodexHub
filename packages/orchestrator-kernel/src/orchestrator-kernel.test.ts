@@ -15,6 +15,10 @@ import {
   type QuotaSnapshot,
 } from '@codexhub/contracts';
 import { createSchedulerLease } from '@codexhub/codex-scheduler-kernel';
+import {
+  createCodexAppServerSessionController,
+  createInMemoryCodexAppServerJsonlTransport,
+} from '@codexhub/codex-app-server-adapter';
 import { hashText } from '@codexhub/evidence-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import {
@@ -38,6 +42,7 @@ import {
   runM10PilotAcceptanceRehearsal,
   runMockDevelopmentOrchestration,
   prepareCodexTaskDispatchPreflight,
+  runCodexTaskDispatchLifecycle,
 } from './index';
 
 describe('orchestrator-kernel mock development orchestration', () => {
@@ -1752,6 +1757,125 @@ describe('orchestrator-kernel M57 codex task dispatch preflight', () => {
     expect(preflight.taskRun.protocolDriftStatus).toBe('incompatible');
     expect(preflight.taskRun.liveExecution).toBe(false);
   });
+
+  it('runs App Server initialize, thread, turn, and terminal event before marking task completed', async () => {
+    const preflight = readyCodexTaskPreflightFixture();
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_instance_m57',
+      transport: createInMemoryCodexAppServerJsonlTransport([
+        { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+        {
+          jsonrpc: '2.0',
+          id: 'thread-private-id',
+          result: {
+            threadId: 'private-thread-id',
+            status: 'running',
+            turnCount: 0,
+          },
+        },
+        {
+          jsonrpc: '2.0',
+          id: 'turn-private-id',
+          result: {
+            turnId: 'private-turn-id',
+            status: 'running',
+            itemCount: 1,
+            eventCount: 0,
+          },
+        },
+        {
+          jsonrpc: '2.0',
+          method: 'turn/completed',
+          params: {
+            threadId: 'private-thread-id',
+            turnId: 'private-turn-id',
+            status: 'completed',
+            terminal: true,
+          },
+        },
+      ]),
+      observedAt: m57ObservedAt,
+    });
+    const lifecycle = await runCodexTaskDispatchLifecycle({
+      preflight,
+      appServer: controller,
+      initializeRequestId: 'initialize-private-id',
+      threadRequestId: 'thread-private-id',
+      turnRequestId: 'turn-private-id',
+      threadKeyForTurn: 'private-thread-id',
+      turnInputSummaryHash: m57Hash('turn-input-summary'),
+      liveBoundaryInvoked: true,
+      externalProcessStarted: true,
+      observedAt: m57ObservedAt,
+      evidenceRefIds: ['evidence_lifecycle'],
+      auditEventIds: ['audit_lifecycle'],
+    });
+    const serialized = JSON.stringify(lifecycle);
+
+    expect(lifecycle.status).toBe('completed');
+    expect(lifecycle.taskRun.status).toBe('completed');
+    expect(lifecycle.taskRun.liveExecution).toBe(true);
+    expect(lifecycle.taskRun.processBoundaryInvoked).toBe(true);
+    expect(lifecycle.taskRun.externalProcessStarted).toBe(true);
+    expect(lifecycle.taskRun.eventStreamStatus).toBe('completed');
+    expect(lifecycle.taskRun.eventCount).toBe(1);
+    expect(lifecycle.taskRun.threadMirrorId).toMatch(/^codex_app_server_thread_/);
+    expect(lifecycle.taskRun.turnMirrorId).toMatch(/^codex_app_server_turn_/);
+    expect(lifecycle.diagnosis).toBeUndefined();
+    expect(lifecycle.successRequiresTerminalEvent).toBe(true);
+    expect(serialized).not.toContain('private-thread-id');
+    expect(serialized).not.toContain('private-turn-id');
+    expect(serialized).not.toContain('initialize-private-id');
+    expect(serialized).not.toContain('turn-private-id');
+  });
+
+  it('keeps blocked preflight out of the App Server lifecycle', async () => {
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntentFixture(),
+      accountProjection: accountProjectionFixture(),
+      clientProjection: clientProjectionFixture(),
+      quotaSnapshot: quotaSnapshotFixture(),
+      appServerSession: appServerSessionFixture(),
+      protocolDriftReport: protocolDriftReportFixture(),
+      dryRunId: 'dry_run_m57',
+      policyApproved: true,
+      canaryGateStatus: 'passed',
+      profileKey: 'Default',
+      threadKey: 'new-thread-m57',
+      worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      taskKey: 'codex-task-m57',
+      quotaKey: 'quota-window-m57',
+      createdAt: m57ObservedAt,
+    });
+    const lifecycle = await runCodexTaskDispatchLifecycle({ preflight });
+
+    expect(lifecycle.status).toBe('needs_human');
+    expect(lifecycle.initializeResult).toBeUndefined();
+    expect(lifecycle.eventResults).toHaveLength(0);
+    expect(lifecycle.diagnosis?.diagnosisKind).toBe('needs_manual_review');
+  });
+
+  it('writes diagnosis when App Server initialize fails instead of reporting success', async () => {
+    const preflight = readyCodexTaskPreflightFixture();
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_instance_m57',
+      transport: createInMemoryCodexAppServerJsonlTransport(),
+      observedAt: m57ObservedAt,
+    });
+    const lifecycle = await runCodexTaskDispatchLifecycle({
+      preflight,
+      appServer: controller,
+      initializeRequestId: 'missing-initialize-response',
+      observedAt: m57ObservedAt,
+    });
+
+    expect(lifecycle.status).toBe('failed');
+    expect(lifecycle.taskRun.status).toBe('failed');
+    expect(lifecycle.taskRun.failureDiagnosisId).toBe(lifecycle.diagnosis?.id);
+    expect(lifecycle.diagnosis?.diagnosisKind).toBe('app_server_unresponsive');
+    expect(lifecycle.taskRun.eventStreamStatus).toBe('failed');
+    expect(JSON.stringify(lifecycle)).not.toContain('missing-initialize-response');
+  });
 });
 
 function createApprovalStore(): CodexHubStore & {
@@ -1913,6 +2037,27 @@ function taskIntentFixture(overrides: Partial<CodexTaskIntent> = {}): CodexTaskI
     summary: 'M57 task intent stores only hash metadata for dispatch preflight.',
     ...overrides,
   };
+}
+
+function readyCodexTaskPreflightFixture() {
+  return prepareCodexTaskDispatchPreflight({
+    intent: taskIntentFixture(),
+    accountProjection: accountProjectionFixture(),
+    clientProjection: clientProjectionFixture(),
+    quotaSnapshot: quotaSnapshotFixture(),
+    appServerSession: appServerSessionFixture(),
+    protocolDriftReport: protocolDriftReportFixture(),
+    dryRunId: 'dry_run_m57',
+    approvalArtifactId: 'approval_m57',
+    policyApproved: true,
+    canaryGateStatus: 'passed',
+    profileKey: 'Default',
+    threadKey: 'new-thread-m57',
+    worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+    taskKey: 'codex-task-m57',
+    quotaKey: 'quota-window-m57',
+    createdAt: m57ObservedAt,
+  });
 }
 
 function accountProjectionFixture(

@@ -36,6 +36,14 @@ import {
   type CodexSchedulerLeaseBundle,
   type SchedulerLeaseRequest,
 } from '@codexhub/codex-scheduler-kernel';
+import type {
+  CodexAppServerEventIngestionResult,
+  CodexAppServerInitializeResult,
+  CodexAppServerSessionController,
+  CodexAppServerThreadOperationResult,
+  CodexAppServerTurnStartResult,
+  JsonRpcScalarId,
+} from '@codexhub/codex-app-server-adapter';
 import { MetadataOnlyEvidenceCollector, hashText } from '@codexhub/evidence-kernel';
 import { DefaultPolicyEngine, type PolicyEngine } from '@codexhub/security-kernel';
 import { MockSkillRegistry, type SkillRegistry } from '@codexhub/skill-registry';
@@ -213,6 +221,39 @@ export interface CodexTaskOrchestratorPreflightResult {
   metadataOnly: true;
   liveExecution: false;
   externalProcessStarted: false;
+}
+
+export interface CodexTaskDispatchLifecycleInput {
+  preflight: CodexTaskOrchestratorPreflightResult;
+  appServer?: CodexAppServerSessionController;
+  initializeRequestId?: JsonRpcScalarId;
+  threadRequestId?: JsonRpcScalarId;
+  turnRequestId?: JsonRpcScalarId;
+  threadMode?: 'start' | 'resume';
+  threadKeyForTurn?: string;
+  turnInputSummaryHash?: string;
+  maxEvents?: number;
+  observedAt?: string;
+  liveBoundaryInvoked?: boolean;
+  externalProcessStarted?: boolean;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexTaskDispatchLifecycleResult {
+  status: CodexTaskRun['status'];
+  taskRun: CodexTaskRun;
+  diagnosis?: CodexTaskDiagnosis;
+  initializeResult?: CodexAppServerInitializeResult;
+  threadResult?: CodexAppServerThreadOperationResult;
+  turnResult?: CodexAppServerTurnStartResult;
+  eventResults: CodexAppServerEventIngestionResult[];
+  metadataOnly: true;
+  rawPromptStored: false;
+  rawDiffStored: false;
+  rawPathStored: false;
+  rawBodyStored: false;
+  successRequiresTerminalEvent: true;
 }
 
 export interface PlanningResult {
@@ -455,6 +496,207 @@ export function prepareCodexTaskDispatchPreflight(
     metadataOnly: true,
     liveExecution: false,
     externalProcessStarted: false,
+  };
+}
+
+export async function runCodexTaskDispatchLifecycle(
+  input: CodexTaskDispatchLifecycleInput,
+): Promise<CodexTaskDispatchLifecycleResult> {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const evidenceRefIds = [...(input.evidenceRefIds ?? input.preflight.taskRun.evidenceRefIds)];
+  const auditEventIds = [...(input.auditEventIds ?? input.preflight.taskRun.auditEventIds)];
+
+  if (!input.preflight.dispatchReady || !input.preflight.taskRun.dispatchAllowed) {
+    return {
+      status: input.preflight.taskRun.status,
+      taskRun: input.preflight.taskRun,
+      diagnosis: input.preflight.diagnosis,
+      eventResults: [],
+      metadataOnly: true,
+      rawPromptStored: false,
+      rawDiffStored: false,
+      rawPathStored: false,
+      rawBodyStored: false,
+      successRequiresTerminalEvent: true,
+    };
+  }
+
+  if (!input.appServer) {
+    return createLifecycleFailureResult({
+      input,
+      observedAt,
+      evidenceRefIds,
+      auditEventIds,
+      diagnosisKind: 'app_server_unresponsive',
+      recommendedRecoveryKind: 'restart_client',
+      summary: 'Codex task dispatch failed because no App Server controller was provided.',
+      initializeResult: undefined,
+      threadResult: undefined,
+      turnResult: undefined,
+      eventResults: [],
+    });
+  }
+
+  const initializeResult = await input.appServer.initialize({
+    requestId: input.initializeRequestId,
+  });
+  if (initializeResult.status !== 'initialized') {
+    return createLifecycleFailureResult({
+      input,
+      observedAt,
+      evidenceRefIds,
+      auditEventIds,
+      diagnosisKind: 'app_server_unresponsive',
+      recommendedRecoveryKind: 'restart_client',
+      summary: 'Codex task dispatch failed because App Server initialization did not complete.',
+      initializeResult,
+      threadResult: undefined,
+      turnResult: undefined,
+      eventResults: [],
+    });
+  }
+
+  const threadResult =
+    input.threadMode === 'resume'
+      ? await input.appServer.resumeThread({
+          requestId: input.threadRequestId,
+          taskRunId: input.preflight.taskRun.id,
+          observedAt,
+          evidenceRefIds,
+          auditEventIds,
+        })
+      : await input.appServer.startThread({
+          requestId: input.threadRequestId,
+          taskRunId: input.preflight.taskRun.id,
+          observedAt,
+          evidenceRefIds,
+          auditEventIds,
+        });
+  if (threadResult.status !== 'completed' || !threadResult.threadMirror) {
+    return createLifecycleFailureResult({
+      input,
+      observedAt,
+      evidenceRefIds,
+      auditEventIds,
+      diagnosisKind: 'tool_stuck',
+      recommendedRecoveryKind: 'manual_review',
+      summary: 'Codex task dispatch failed while creating or resuming the App Server thread.',
+      initializeResult,
+      threadResult,
+      turnResult: undefined,
+      eventResults: [],
+    });
+  }
+
+  const turnResult = await input.appServer.startTurn({
+    requestId: input.turnRequestId,
+    threadMirrorId: threadResult.threadMirror.id,
+    threadKey: input.threadKeyForTurn ?? threadResult.threadMirror.threadIdHash,
+    taskRunId: input.preflight.taskRun.id,
+    inputSummaryHash: input.turnInputSummaryHash,
+    observedAt,
+    evidenceRefIds,
+    auditEventIds,
+  });
+  if (turnResult.status !== 'completed' || !turnResult.turnMirror) {
+    return createLifecycleFailureResult({
+      input,
+      observedAt,
+      evidenceRefIds,
+      auditEventIds,
+      diagnosisKind: 'tool_stuck',
+      recommendedRecoveryKind: 'manual_review',
+      summary: 'Codex task dispatch failed while starting the App Server turn.',
+      initializeResult,
+      threadResult,
+      turnResult,
+      eventResults: [],
+    });
+  }
+
+  const eventResults = await ingestCodexTaskEvents({
+    appServer: input.appServer,
+    threadMirrorId: threadResult.threadMirror.id,
+    turnMirrorId: turnResult.turnMirror.id,
+    maxEvents: input.maxEvents ?? 10,
+    observedAt,
+    evidenceRefIds,
+    auditEventIds,
+  });
+  const terminalEvent = eventResults.find((result) => result.eventSummary?.terminal);
+  const failedEvent = eventResults.find(
+    (result) => result.status === 'failed' || result.eventSummary?.status === 'failed',
+  );
+
+  if (failedEvent) {
+    return createLifecycleFailureResult({
+      input,
+      observedAt,
+      evidenceRefIds,
+      auditEventIds,
+      diagnosisKind: 'tool_stuck',
+      recommendedRecoveryKind: 'manual_review',
+      summary: 'Codex task dispatch failed because the event stream reported failure.',
+      initializeResult,
+      threadResult,
+      turnResult,
+      eventResults,
+    });
+  }
+
+  if (!terminalEvent) {
+    return createLifecycleFailureResult({
+      input,
+      observedAt,
+      evidenceRefIds,
+      auditEventIds,
+      diagnosisKind: 'tool_stuck',
+      recommendedRecoveryKind: 'manual_review',
+      summary: 'Codex task dispatch did not reach a terminal event before the event limit.',
+      initializeResult,
+      threadResult,
+      turnResult,
+      eventResults,
+      taskStatus: 'running',
+      eventStreamStatus: 'stalled',
+    });
+  }
+
+  const completedTaskRun = CodexTaskRunSchema.parse({
+    ...input.preflight.taskRun,
+    status: 'completed',
+    appServerSessionId: initializeResult.appServerSession.id,
+    threadMirrorId: threadResult.threadMirror.id,
+    turnMirrorId: turnResult.turnMirror.id,
+    threadHash: threadResult.threadMirror.threadIdHash,
+    turnHash: turnResult.turnMirror.turnIdHash,
+    turnCount: 1,
+    eventCount: eventResults.length,
+    eventStreamStatus: 'completed',
+    dispatchStartedAt: observedAt,
+    completedAt: observedAt,
+    liveExecution: input.liveBoundaryInvoked === true,
+    processBoundaryInvoked: input.liveBoundaryInvoked === true,
+    externalProcessStarted: input.externalProcessStarted === true,
+    noRealWrite: true,
+    evidenceRefIds,
+    auditEventIds,
+    summary: 'Codex task run completed after a terminal App Server event.',
+  });
+
+  return {
+    status: 'completed',
+    taskRun: completedTaskRun,
+    initializeResult,
+    threadResult,
+    turnResult,
+    eventResults,
+    metadataOnly: true,
+    rawPromptStored: false,
+    rawDiffStored: false,
+    rawPathStored: false,
+    rawBodyStored: false,
+    successRequiresTerminalEvent: true,
   };
 }
 
@@ -1769,6 +2011,110 @@ function inferCodexTaskPreflightDiagnosis(input: {
     confidence: 0.4,
     recommendedRecoveryKind: 'manual_review',
     summary: 'Preflight blocked for an unknown metadata-only reason.',
+  };
+}
+
+async function ingestCodexTaskEvents(input: {
+  appServer: CodexAppServerSessionController;
+  threadMirrorId: string;
+  turnMirrorId: string;
+  maxEvents: number;
+  observedAt: string;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+}): Promise<CodexAppServerEventIngestionResult[]> {
+  const eventResults: CodexAppServerEventIngestionResult[] = [];
+  const maxEvents = Math.max(0, Math.trunc(input.maxEvents));
+
+  for (let index = 0; index < maxEvents; index += 1) {
+    const eventResult = await input.appServer.ingestNextEvent({
+      threadMirrorId: input.threadMirrorId,
+      turnMirrorId: input.turnMirrorId,
+      sequenceNumber: index + 1,
+      observedAt: input.observedAt,
+      evidenceRefIds: input.evidenceRefIds,
+      auditEventIds: input.auditEventIds,
+    });
+
+    if (eventResult.status === 'failed' && eventResult.blockReasons.includes('event_stream_empty')) {
+      break;
+    }
+
+    eventResults.push(eventResult);
+
+    if (eventResult.eventSummary?.terminal || eventResult.status === 'failed') {
+      break;
+    }
+  }
+
+  return eventResults;
+}
+
+function createLifecycleFailureResult(input: {
+  input: CodexTaskDispatchLifecycleInput;
+  observedAt: string;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+  diagnosisKind: CodexTaskDiagnosis['diagnosisKind'];
+  recommendedRecoveryKind: CodexTaskDiagnosis['recommendedRecoveryKind'];
+  summary: string;
+  initializeResult?: CodexAppServerInitializeResult;
+  threadResult?: CodexAppServerThreadOperationResult;
+  turnResult?: CodexAppServerTurnStartResult;
+  eventResults: CodexAppServerEventIngestionResult[];
+  taskStatus?: CodexTaskRun['status'];
+  eventStreamStatus?: CodexTaskRun['eventStreamStatus'];
+}): CodexTaskDispatchLifecycleResult {
+  const diagnosis = CodexTaskDiagnosisSchema.parse({
+    id: foundationId('codex_task_diagnosis'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: input.observedAt,
+    taskRunId: input.input.preflight.taskRun.id,
+    diagnosisKind: input.diagnosisKind,
+    status: input.taskStatus === 'running' ? 'actionable' : 'blocked',
+    confidence: 0.8,
+    recommendedRecoveryKind: input.recommendedRecoveryKind,
+    evidenceRefIds: input.evidenceRefIds,
+    auditEventIds: input.auditEventIds,
+    summary: input.summary,
+  });
+  const taskRun = CodexTaskRunSchema.parse({
+    ...input.input.preflight.taskRun,
+    status: input.taskStatus ?? 'failed',
+    appServerSessionId: input.initializeResult?.appServerSession.id,
+    threadMirrorId: input.threadResult?.threadMirror?.id,
+    turnMirrorId: input.turnResult?.turnMirror?.id,
+    threadHash: input.threadResult?.threadMirror?.threadIdHash,
+    turnHash: input.turnResult?.turnMirror?.turnIdHash,
+    turnCount: input.turnResult?.turnMirror ? 1 : 0,
+    eventCount: input.eventResults.length,
+    eventStreamStatus: input.eventStreamStatus ?? 'failed',
+    dispatchStartedAt: input.observedAt,
+    completedAt: input.taskStatus === 'running' ? undefined : input.observedAt,
+    failureDiagnosisId: diagnosis.id,
+    liveExecution: input.input.liveBoundaryInvoked === true,
+    processBoundaryInvoked: input.input.liveBoundaryInvoked === true,
+    externalProcessStarted: input.input.externalProcessStarted === true,
+    noRealWrite: true,
+    evidenceRefIds: input.evidenceRefIds,
+    auditEventIds: input.auditEventIds,
+    summary: input.summary,
+  });
+
+  return {
+    status: taskRun.status,
+    taskRun,
+    diagnosis,
+    initializeResult: input.initializeResult,
+    threadResult: input.threadResult,
+    turnResult: input.turnResult,
+    eventResults: input.eventResults,
+    metadataOnly: true,
+    rawPromptStored: false,
+    rawDiffStored: false,
+    rawPathStored: false,
+    rawBodyStored: false,
+    successRequiresTerminalEvent: true,
   };
 }
 

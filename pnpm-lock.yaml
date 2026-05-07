@@ -484,6 +484,9 @@ importers:
 
   packages/orchestrator-kernel:
     dependencies:
+      '@codexhub/codex-app-server-adapter':
+        specifier: workspace:*
+        version: link:../codex-app-server-adapter
       '@codexhub/codex-exec-adapter':
         specifier: workspace:*
         version: link:../codex-exec-adapter
