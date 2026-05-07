@@ -174,6 +174,22 @@ M50.2 status:
   - `docs/reviews/m50.2-supervisor-route-gate-hardening-review.md`
   - `docs/runbooks/m50.2-supervisor-route-gate-hardening-runbook.md`
 
+M50.3 status:
+
+- Complete as a Supervisor mutation-shell round.
+- Added guarded root-level `POST /workflows/:workflowId/dry-run`,
+  `POST /approvals/:approvalId/decision`, `POST /tasks`, and
+  `POST /tasks/:taskId/recover`.
+- Accepted shells create metadata-only evidence and audit traces when the store
+  is available.
+- Task create and task recovery intentionally return `missing-contracts-store`
+  until M51 shared contracts and store models exist.
+- Request-body approval artifacts and execution authority remain untrusted.
+- Release, review, and runbook:
+  - `docs/releases/m50.3-supervisor-mutation-shells.md`
+  - `docs/reviews/m50.3-supervisor-mutation-shells-review.md`
+  - `docs/runbooks/m50.3-supervisor-mutation-shells-runbook.md`
+
 Non-scope:
 
 - No direct adapter execution from routes.

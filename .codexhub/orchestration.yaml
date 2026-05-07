@@ -6722,3 +6722,42 @@ workflows:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50_3.supervisor-mutation-shells:
+    risk: critical
+    trigger:
+      type: supervisor-mutation-shells
+      entrypoint: apps/supervisor docs orchestration integrations scaffold-health
+      localControlRequired: false
+    scope:
+      - workflow-dry-run-shell
+      - approval-decision-shell
+      - task-create-shell-blocked-until-m51
+      - task-recovery-shell-blocked-until-m51
+      - metadata-only-evidence-audit-trace
+      - request-body-authority-rejection
+    docs:
+      - docs/releases/m50.3-supervisor-mutation-shells.md
+      - docs/reviews/m50.3-supervisor-mutation-shells-review.md
+      - docs/runbooks/m50.3-supervisor-mutation-shells-runbook.md
+    safety:
+      mutationShellOnly: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewPackage: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      directAdapterExecutionAllowed: false
+      taskMutationBlockedUntilM51: true
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

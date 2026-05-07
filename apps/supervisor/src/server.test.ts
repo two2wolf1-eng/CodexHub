@@ -537,6 +537,118 @@ describe('supervisor mock development API', () => {
     });
   });
 
+  it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+    const privatePayload = {
+      rawPrompt: 'private task instructions',
+      rawPath: process.cwd(),
+      body: 'private shell body',
+    };
+
+    const workflowResponse = await server.inject({
+      method: 'POST',
+      url: '/workflows/development.bootstrap/dry-run',
+      headers: localControlHeaders,
+      payload: { input: privatePayload },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/approvals/approval-fixture/decision',
+      headers: localControlHeaders,
+      payload: { decision: 'approved', reason: 'private decision reason' },
+    });
+    const taskCreateResponse = await server.inject({
+      method: 'POST',
+      url: '/tasks',
+      headers: localControlHeaders,
+      payload: privatePayload,
+    });
+    const taskRecoverResponse = await server.inject({
+      method: 'POST',
+      url: '/tasks/task-fixture/recover',
+      headers: localControlHeaders,
+      payload: { reason: 'private recovery reason', ...privatePayload },
+    });
+    const rejectedShellResponses = await Promise.all(
+      [
+        '/workflows/development.bootstrap/dry-run',
+        '/approvals/approval-fixture/decision',
+        '/tasks',
+        '/tasks/task-fixture/recover',
+      ].map((url) =>
+        server.inject({
+          method: 'POST',
+          url,
+          headers: localControlHeaders,
+          payload: { authority: { id: 'forged-authority' } },
+        }),
+      ),
+    );
+    const evidenceRefs = await store.evidenceRefs.listEvidenceRefs({ limit: 10 });
+    const auditEvents = await store.auditEvents.listAuditEvents({ limit: 10 });
+
+    await server.close();
+    await store.close();
+
+    expect(workflowResponse.statusCode).toBe(202);
+    expect(workflowResponse.json()).toMatchObject({
+      status: 'dry-run-shell-recorded',
+      requestHash: expect.stringMatching(/^sha256:/),
+      evidenceRefIds: expect.arrayContaining([expect.any(String)]),
+      auditEventIds: expect.arrayContaining([expect.any(String)]),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(approvalResponse.statusCode).toBe(202);
+    expect(approvalResponse.json()).toMatchObject({
+      status: 'decision-shell-recorded',
+      approvalIdHash: expect.stringMatching(/^sha256:/),
+    });
+    expect(taskCreateResponse.statusCode).toBe(409);
+    expect(taskCreateResponse.json()).toMatchObject({
+      status: 'missing-contracts-store',
+      requestHash: expect.stringMatching(/^sha256:/),
+    });
+    expect(taskRecoverResponse.statusCode).toBe(409);
+    expect(taskRecoverResponse.json()).toMatchObject({
+      status: 'missing-contracts-store',
+      taskIdHash: expect.stringMatching(/^sha256:/),
+    });
+
+    for (const response of [
+      workflowResponse,
+      approvalResponse,
+      taskCreateResponse,
+      taskRecoverResponse,
+      ...rejectedShellResponses,
+    ]) {
+      expect(response.body).not.toContain('private task instructions');
+      expect(response.body).not.toContain('private shell body');
+      expect(response.body).not.toContain('private decision reason');
+      expect(response.body).not.toContain('private recovery reason');
+      expect(response.body).not.toContain(process.cwd());
+      expect(response.body).not.toContain('forged-authority');
+    }
+
+    for (const response of rejectedShellResponses) {
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        status: 'blocked',
+        evidenceRefIds: [],
+        auditEventIds: [],
+      });
+    }
+
+    expect(evidenceRefs.length).toBeGreaterThanOrEqual(4);
+    expect(auditEvents.length).toBeGreaterThanOrEqual(4);
+    expect(JSON.stringify(evidenceRefs)).not.toContain('private task instructions');
+    expect(JSON.stringify(evidenceRefs)).not.toContain(process.cwd());
+    expect(JSON.stringify(auditEvents)).not.toContain('private shell body');
+  });
+
   it('protects mutating local API routes with trusted origins and a local token', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-api-guard-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

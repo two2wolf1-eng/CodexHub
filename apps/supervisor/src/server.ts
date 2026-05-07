@@ -2496,6 +2496,172 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   });
 
+  server.post('/workflows/:workflowId/dry-run', async (request, reply) => {
+    const params = request.params as { workflowId?: string };
+    const body = request.body as Record<string, unknown> | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createM50RejectedAuthorityShellResponse('workflow-dry-run'));
+    }
+
+    const workflowHash = hashSupervisorMetadata({ workflowId: params.workflowId ?? '' });
+    const requestHash = hashSupervisorMetadata({
+      surface: 'workflow-dry-run',
+      workflowHash,
+      body: body ?? {},
+    });
+    const trace = await createM50MutationShellTrace({
+      surface: 'workflow-dry-run',
+      requestHash,
+      status: 'dry-run-shell-recorded',
+      summary: 'Workflow dry-run shell recorded metadata only; no adapter was executed.',
+    });
+
+    if (!trace.storeAvailable) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('workflow-dry-run', requestHash));
+    }
+
+    return reply.code(202).send({
+      id: foundationId('supervisor_workflow_dry_run_shell'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'dry-run-shell-recorded',
+      summary: 'Workflow dry-run shell accepted metadata only; no adapter was executed.',
+      workflowHash,
+      requestHash,
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+  });
+
+  server.post('/approvals/:approvalId/decision', async (request, reply) => {
+    const params = request.params as { approvalId?: string };
+    const body = request.body as Record<string, unknown> | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createM50RejectedAuthorityShellResponse('approval-decision'));
+    }
+
+    const approvalIdHash = hashSupervisorMetadata({ approvalId: params.approvalId ?? '' });
+    const requestHash = hashSupervisorMetadata({
+      surface: 'approval-decision',
+      approvalIdHash,
+      body: body ?? {},
+    });
+    const trace = await createM50MutationShellTrace({
+      surface: 'approval-decision',
+      requestHash,
+      status: 'decision-shell-recorded',
+      summary: 'Approval decision shell recorded metadata only; no approval authority was trusted from the request body.',
+    });
+
+    if (!trace.storeAvailable) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('approval-decision', requestHash));
+    }
+
+    return reply.code(202).send({
+      id: foundationId('supervisor_approval_decision_shell'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'decision-shell-recorded',
+      summary:
+        'Approval decision shell accepted metadata only; store-resolved authority remains future work.',
+      approvalIdHash,
+      requestHash,
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+  });
+
+  server.post('/tasks', async (request, reply) => {
+    const body = request.body as Record<string, unknown> | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createM50RejectedAuthorityShellResponse('task-create'));
+    }
+
+    const requestHash = hashSupervisorMetadata({ surface: 'task-create', body: body ?? {} });
+    const trace = await createM50MutationShellTrace({
+      surface: 'task-create',
+      requestHash,
+      status: 'missing-contracts-store',
+      summary: 'Task create shell is blocked until M51 task contracts and store models exist.',
+    });
+
+    if (!trace.storeAvailable) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('task-create', requestHash));
+    }
+
+    return reply.code(409).send({
+      id: foundationId('supervisor_task_create_shell'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'missing-contracts-store',
+      summary: 'Task create shell is blocked until M51 task contracts and store models exist.',
+      requestHash,
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+  });
+
+  server.post('/tasks/:taskId/recover', async (request, reply) => {
+    const params = request.params as { taskId?: string };
+    const body = request.body as Record<string, unknown> | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createM50RejectedAuthorityShellResponse('task-recover'));
+    }
+
+    const taskIdHash = hashSupervisorMetadata({ taskId: params.taskId ?? '' });
+    const requestHash = hashSupervisorMetadata({
+      surface: 'task-recover',
+      taskIdHash,
+      body: body ?? {},
+    });
+    const trace = await createM50MutationShellTrace({
+      surface: 'task-recover',
+      requestHash,
+      status: 'missing-contracts-store',
+      summary: 'Task recovery shell is blocked until M51 task and recovery contracts exist.',
+    });
+
+    if (!trace.storeAvailable) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('task-recover', requestHash));
+    }
+
+    return reply.code(409).send({
+      id: foundationId('supervisor_task_recover_shell'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'missing-contracts-store',
+      summary: 'Task recovery shell is blocked until M51 task and recovery contracts exist.',
+      taskIdHash,
+      requestHash,
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+  });
+
   server.post('/api/workflows/dry-run', async (request) => {
     const body = request.body as
       | { workflowName?: string; input?: Record<string, unknown> }
@@ -28902,6 +29068,68 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  async function createM50MutationShellTrace(input: {
+    surface: string;
+    requestHash: string;
+    status: string;
+    summary: string;
+  }): Promise<{
+    storeAvailable: boolean;
+    evidenceRefIds: string[];
+    auditEventIds: string[];
+  }> {
+    const store = await getStore();
+
+    if (!store) {
+      return {
+        storeAvailable: false,
+        evidenceRefIds: [],
+        auditEventIds: [],
+      };
+    }
+
+    const metadata = {
+      surfaceHash: hashSupervisorMetadata({ surface: input.surface }),
+      requestHash: input.requestHash,
+      rawBodyStored: false,
+      rawPathStored: false,
+      directAdapterExecution: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+    const evidenceRef: EvidenceRef = {
+      id: foundationId('evidence'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      kind: 'audit',
+      summary: input.summary,
+      hash: hashSupervisorMetadata(metadata),
+      redacted: true,
+      labels: ['m50.supervisor.mutation_shell'],
+      metadata,
+    };
+    const auditEvent: AuditEvent = {
+      id: foundationId('audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      actor: 'codexhub-supervisor',
+      action: ['m50', input.surface, 'shell'].join('.'),
+      outcome: input.status,
+      evidenceRefs: [evidenceRef],
+      metadata,
+    };
+
+    await store.evidenceRefs.create(evidenceRef);
+    await store.auditEvents.append(auditEvent);
+
+    return {
+      storeAvailable: true,
+      evidenceRefIds: [evidenceRef.id],
+      auditEventIds: [auditEvent.id],
+    };
+  }
+
   async function buildApprovalInboxProjection(store: CodexHubStore | undefined) {
     const [
       codex,
@@ -31158,6 +31386,34 @@ function createM50NotFoundProjection(surface: 'audit' | 'evidence') {
   return {
     status: 'not-found',
     summary: `${surface} record was not found or is not persisted.`,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function createM50RejectedAuthorityShellResponse(surface: string) {
+  return {
+    status: 'blocked',
+    summary:
+      'M50 Supervisor shell rejected request-body authority; approval authority must be store-resolved.',
+    surfaceHash: hashSupervisorMetadata({ surface }),
+    evidenceRefIds: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function createM50StoreUnavailableShellResponse(surface: string, requestHash: string) {
+  return {
+    status: 'store-unavailable',
+    summary: 'M50 Supervisor shell requires the store to record evidence and audit trace.',
+    surfaceHash: hashSupervisorMetadata({ surface }),
+    requestHash,
     evidenceRefIds: [],
     auditEventIds: [],
     liveExecution: false,

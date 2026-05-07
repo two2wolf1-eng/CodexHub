@@ -3080,3 +3080,53 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50-supervisor-mutation-shells:
+    enabled: false
+    adapter: supervisor-control-plane
+    provider: codexhub-supervisor
+    providerType: builtin
+    mode: mutation-shell-only
+    stage: m50.3-supervisor-mutation-shells
+    release: docs/releases/m50.3-supervisor-mutation-shells.md
+    review: docs/reviews/m50.3-supervisor-mutation-shells-review.md
+    runbook: docs/runbooks/m50.3-supervisor-mutation-shells-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: dry-run
+    defaultRisk: critical
+    routes:
+      - POST /workflows/:workflowId/dry-run
+      - POST /approvals/:approvalId/decision
+      - POST /tasks
+      - POST /tasks/:taskId/recover
+    guardChecks:
+      - trusted-host
+      - trusted-origin
+      - local-control-token
+      - request-body-authority-rejection
+    output:
+      ids: true
+      hashes: true
+      summaries: true
+      statuses: true
+      evidenceRefs: true
+      auditIds: true
+      rawBodyStored: false
+      rawPathStored: false
+    safety:
+      mutationShellOnly: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      directAdapterExecutionAllowed: false
+      taskMutationBlockedUntilM51: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true
