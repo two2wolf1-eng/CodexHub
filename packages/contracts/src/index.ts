@@ -18046,6 +18046,57 @@ export const QuotaSnapshotStatusSchema = z.enum([
 ]);
 export type QuotaSnapshotStatus = z.infer<typeof QuotaSnapshotStatusSchema>;
 
+export const CodexAccountSchedulingStatusSchema = z.enum([
+  'account_ready',
+  'quota_depleted',
+  'wrong_account',
+  'workspace_mismatch',
+  'removed',
+  'pending',
+  'unknown',
+]);
+export type CodexAccountSchedulingStatus = z.infer<
+  typeof CodexAccountSchedulingStatusSchema
+>;
+
+export const CodexClientSchedulingStatusSchema = z.enum([
+  'client_ready',
+  'desktop_ui_frozen',
+  'app_server_unresponsive',
+  'codex_logged_out',
+  'removed',
+  'pending',
+  'unknown',
+]);
+export type CodexClientSchedulingStatus = z.infer<
+  typeof CodexClientSchedulingStatusSchema
+>;
+
+export const CodexSchedulerPreflightStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'pending',
+  'unknown',
+]);
+export type CodexSchedulerPreflightStatus = z.infer<
+  typeof CodexSchedulerPreflightStatusSchema
+>;
+
+export const CodexSchedulerPreflightCheckKindSchema = z.enum([
+  'account',
+  'client',
+  'profile',
+  'thread',
+  'worktree',
+  'task',
+  'quota',
+  'policy',
+  'approval',
+]);
+export type CodexSchedulerPreflightCheckKind = z.infer<
+  typeof CodexSchedulerPreflightCheckKindSchema
+>;
+
 export const CodexAppServerTransportKindSchema = z.enum([
   'stdio-jsonl',
   'websocket-loopback',
@@ -18541,6 +18592,113 @@ export const QuotaSnapshotSchema = observedEntityBaseSchema
     }
   });
 export type QuotaSnapshot = z.infer<typeof QuotaSnapshotSchema>;
+
+export const CodexAccountSchedulingProjectionSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    accountBindingId: z.string().min(1),
+    accountHash: z.string().min(1),
+    schedulingStatus: CodexAccountSchedulingStatusSchema,
+    score: z.number().int().nonnegative().max(100).default(0),
+    quotaSnapshotId: z.string().min(1).optional(),
+    quotaStatus: QuotaSnapshotStatusSchema.optional(),
+    activeLeaseCount: z.number().int().nonnegative().default(0),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAccountSchedulingProjection = z.infer<
+  typeof CodexAccountSchedulingProjectionSchema
+>;
+
+export const CodexClientSchedulingProjectionSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    clientInstanceId: z.string().min(1),
+    clientHash: z.string().min(1),
+    schedulingStatus: CodexClientSchedulingStatusSchema,
+    score: z.number().int().nonnegative().max(100).default(0),
+    activeLeaseCount: z.number().int().nonnegative().default(0),
+    diagnosticHints: z.array(CodexDesktopDiagnosticHintSchema).default([]),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexClientSchedulingProjection = z.infer<
+  typeof CodexClientSchedulingProjectionSchema
+>;
+
+export const CodexSchedulerPreflightCheckSchema = z
+  .object({
+    checkKind: CodexSchedulerPreflightCheckKindSchema,
+    status: CodexSchedulerPreflightStatusSchema,
+    targetIdHash: z.string().min(1).optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexSchedulerPreflightCheck = z.infer<
+  typeof CodexSchedulerPreflightCheckSchema
+>;
+
+export const CodexSchedulerSelectionSummarySchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    selectionHash: z.string().min(1),
+    taskIntentId: z.string().min(1).optional(),
+    status: CodexSchedulerPreflightStatusSchema,
+    accountBindingId: z.string().min(1).optional(),
+    clientInstanceId: z.string().min(1).optional(),
+    profileBindingId: z.string().min(1).optional(),
+    threadHash: z.string().min(1).optional(),
+    worktreeHash: z.string().min(1).optional(),
+    quotaSnapshotId: z.string().min(1).optional(),
+    checkCount: z.number().int().nonnegative().default(0),
+    readyCheckCount: z.number().int().nonnegative().default(0),
+    blockedCheckCount: z.number().int().nonnegative().default(0),
+    pendingCheckCount: z.number().int().nonnegative().default(0),
+    checks: z.array(CodexSchedulerPreflightCheckSchema).default([]),
+    dispatchAllowed: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    const classifiedCheckCount =
+      record.readyCheckCount + record.blockedCheckCount + record.pendingCheckCount;
+    if (classifiedCheckCount > record.checkCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'scheduler check counts must not exceed check count',
+        path: ['checkCount'],
+      });
+    }
+    if (record.checks.length !== record.checkCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'scheduler check count must match checks length',
+        path: ['checks'],
+      });
+    }
+    if (record.dispatchAllowed && record.status !== 'ready') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'dispatch can only be allowed when scheduler status is ready',
+        path: ['dispatchAllowed'],
+      });
+    }
+  });
+export type CodexSchedulerSelectionSummary = z.infer<
+  typeof CodexSchedulerSelectionSummarySchema
+>;
 
 export const EvidenceBundleSchema = createdEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)

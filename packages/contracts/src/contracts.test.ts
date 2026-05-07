@@ -527,6 +527,7 @@ import {
   ChromeProfileBindingSchema,
   ClientPoolSchema,
   CodexAccountBindingSchema,
+  CodexAccountSchedulingProjectionSchema,
   CodexAppServerApprovalBridgeRecordSchema,
   CodexAppServerEventSummarySchema,
   CodexAppServerProtocolDriftReportSchema,
@@ -535,7 +536,10 @@ import {
   CodexAppServerTurnMirrorSchema,
   CodexAppServerWireMessageSummarySchema,
   CodexClientInstanceSchema,
+  CodexClientSchedulingProjectionSchema,
   CodexRecoveryRunSchema,
+  CodexSchedulerPreflightCheckSchema,
+  CodexSchedulerSelectionSummarySchema,
   CodexTaskDiagnosisSchema,
   CodexTaskIntentSchema,
   CodexTaskRunSchema,
@@ -15825,6 +15829,73 @@ describe('contracts schemas', () => {
       auditEventIds: ['audit_quota'],
       summary: 'Quota snapshot stores counts and hashed reset metadata.',
     });
+    const accountScheduling = CodexAccountSchedulingProjectionSchema.parse({
+      id: 'codex_account_scheduling_1',
+      schemaVersion,
+      observedAt: createdAt,
+      accountBindingId: accountBinding.id,
+      accountHash: accountBinding.codexAccountHash,
+      schedulingStatus: 'account_ready',
+      score: 95,
+      quotaSnapshotId: quota.id,
+      quotaStatus: quota.status,
+      activeLeaseCount: 0,
+      evidenceRefIds: ['evidence_account_schedule'],
+      auditEventIds: ['audit_account_schedule'],
+      summary: 'Account scheduling projection is ready with quota metadata only.',
+    });
+    const clientScheduling = CodexClientSchedulingProjectionSchema.parse({
+      id: 'codex_client_scheduling_1',
+      schemaVersion,
+      observedAt: createdAt,
+      clientInstanceId: client.id,
+      clientHash: client.clientInstanceHash,
+      schedulingStatus: 'client_ready',
+      score: 92,
+      activeLeaseCount: 0,
+      diagnosticHints: [],
+      evidenceRefIds: ['evidence_client_schedule'],
+      auditEventIds: ['audit_client_schedule'],
+      summary: 'Client scheduling projection is ready with health hints only.',
+    });
+    const accountPreflightCheck = CodexSchedulerPreflightCheckSchema.parse({
+      checkKind: 'account',
+      status: 'ready',
+      targetIdHash: accountBinding.codexAccountHash,
+      evidenceRefIds: ['evidence_account_preflight'],
+      auditEventIds: ['audit_account_preflight'],
+      summary: 'Account preflight uses the selected account hash.',
+    });
+    const clientPreflightCheck = CodexSchedulerPreflightCheckSchema.parse({
+      checkKind: 'client',
+      status: 'ready',
+      targetIdHash: client.clientInstanceHash,
+      evidenceRefIds: ['evidence_client_preflight'],
+      auditEventIds: ['audit_client_preflight'],
+      summary: 'Client preflight uses the selected client hash.',
+    });
+    const schedulerSelection = CodexSchedulerSelectionSummarySchema.parse({
+      id: 'codex_scheduler_selection_1',
+      schemaVersion,
+      observedAt: createdAt,
+      selectionHash: 'sha256:scheduler-selection',
+      taskIntentId: intent.id,
+      status: 'ready',
+      accountBindingId: accountBinding.id,
+      clientInstanceId: client.id,
+      threadHash: 'sha256:thread-target',
+      worktreeHash: 'sha256:worktree-target',
+      quotaSnapshotId: quota.id,
+      checkCount: 2,
+      readyCheckCount: 2,
+      blockedCheckCount: 0,
+      pendingCheckCount: 0,
+      checks: [accountPreflightCheck, clientPreflightCheck],
+      dispatchAllowed: true,
+      evidenceRefIds: ['evidence_scheduler_selection'],
+      auditEventIds: ['audit_scheduler_selection'],
+      summary: 'Scheduler selection stores hashes, counts, and check summaries only.',
+    });
     const evidenceBundle = EvidenceBundleSchema.parse({
       id: 'evidence_bundle_1',
       schemaVersion,
@@ -15854,11 +15925,14 @@ describe('contracts schemas', () => {
       clientPool,
       lease,
       quota,
+      accountScheduling,
+      clientScheduling,
+      schedulerSelection,
       evidenceBundle,
     ];
     const serialized = JSON.stringify(records);
 
-    expect(records).toHaveLength(17);
+    expect(records).toHaveLength(20);
     expect(profileBinding.rawPathStored).toBe(false);
     expect(sessionHealth.storageRead).toBe(false);
     expect(checkpoint.sensitiveInputStored).toBe(false);
@@ -15866,6 +15940,9 @@ describe('contracts schemas', () => {
     expect(recovery.executionDisabled).toBe(true);
     expect(lease.leaseSecretStored).toBe(false);
     expect(quota.ambiguous).toBe(false);
+    expect(accountScheduling.schedulingStatus).toBe('account_ready');
+    expect(clientScheduling.schedulingStatus).toBe('client_ready');
+    expect(schedulerSelection.dispatchAllowed).toBe(true);
     expect(evidenceBundle.evidenceCount).toBe(evidenceBundle.evidenceRefIds.length);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
@@ -15936,6 +16013,22 @@ describe('contracts schemas', () => {
         evidenceCount: 2,
         auditEventCount: 0,
         summary: 'Evidence count mismatch.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexSchedulerSelectionSummarySchema.parse({
+        id: 'codex_scheduler_selection_raw_1',
+        schemaVersion,
+        observedAt: createdAt,
+        selectionHash: 'sha256:scheduler-selection',
+        status: 'ready',
+        checkCount: 0,
+        checks: [],
+        dispatchAllowed: true,
+        summary: 'Unsafe scheduler selection.',
+        metadata: {
+          rawPath: adversarialPublicOutputFixture,
+        },
       }),
     ).toThrow();
   });

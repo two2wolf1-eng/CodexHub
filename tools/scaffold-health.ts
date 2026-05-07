@@ -814,6 +814,10 @@ const requiredContractExports = [
   'ClientPoolSchema',
   'LeaseSchema',
   'QuotaSnapshotSchema',
+  'CodexAccountSchedulingProjectionSchema',
+  'CodexClientSchedulingProjectionSchema',
+  'CodexSchedulerPreflightCheckSchema',
+  'CodexSchedulerSelectionSummarySchema',
   'EvidenceBundleSchema',
 ];
 
