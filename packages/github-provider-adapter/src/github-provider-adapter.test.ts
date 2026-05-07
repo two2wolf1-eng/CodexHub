@@ -3,8 +3,14 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  runGithubActionsDispatchHttpBoundary,
+  runGithubActionsObservationHttpBoundary,
+  runGithubActionsRunControlHttpBoundary,
+  runGithubMergeHttpBoundary,
+  runGithubPrManagementHttpBoundary,
   runGithubReleaseDraftHttpBoundary,
   runGithubReleaseTagHttpBoundary,
+  runGithubRemoteCleanupHttpBoundary,
 } from './github-http-boundary';
 import {
   CapabilityManifestSchema,
@@ -122,6 +128,16 @@ function sourceFileLabel(filePath: string): string {
   return relative(githubProviderSourceDir, filePath).split(sep).join('/');
 }
 
+function expectGithubCallSequence(
+  calls: Array<{ url: string; method: string }>,
+  expected: Array<{ method: string; suffix: string }>,
+): void {
+  expect(calls.map((call) => ({ method: call.method, suffix: new URL(call.url).pathname }))).toEqual(
+    expected,
+  );
+  expect(calls.every((call) => call.url.startsWith('https://api.github.com/'))).toBe(true);
+}
+
 describe('GitHub HTTP boundary source guard', () => {
   it('keeps direct GitHub endpoint construction inside the reviewed boundary file', () => {
     const endpointConstructionTerms = [
@@ -205,6 +221,226 @@ describe('GitHub HTTP boundary source guard', () => {
     expect(boundarySource).toContain('/pulls/${prNumber}/merge');
     expect(boundarySource).toContain('/actions/workflows/${workflowId}/dispatches');
     expect(boundarySource).toContain('/releases');
+  });
+
+  it('keeps PR management write endpoints fixed per family', async () => {
+    const cases = [
+      {
+        kind: 'labels' as const,
+        items: ['ready-for-review'],
+        expected: [
+          { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/issues/17/labels' },
+          { method: 'POST', suffix: '/repos/octo-org/codexhub/issues/17/labels' },
+        ],
+      },
+      {
+        kind: 'assignees' as const,
+        items: ['octocat'],
+        expected: [
+          { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+          { method: 'POST', suffix: '/repos/octo-org/codexhub/issues/17/assignees' },
+        ],
+      },
+      {
+        kind: 'reviewers' as const,
+        items: ['reviewer-a'],
+        expected: [
+          { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+          { method: 'POST', suffix: '/repos/octo-org/codexhub/pulls/17/requested_reviewers' },
+        ],
+      },
+      {
+        kind: 'milestones' as const,
+        items: ['42'],
+        expected: [
+          { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/milestones/42' },
+          { method: 'PATCH', suffix: '/repos/octo-org/codexhub/issues/17' },
+        ],
+      },
+      {
+        kind: 'comments' as const,
+        items: ['generated-comment-summary'],
+        expected: [
+          { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+          { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+          { method: 'POST', suffix: '/repos/octo-org/codexhub/issues/17/comments' },
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const calls: Array<{ url: string; method: string }> = [];
+      const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), method: init?.method ?? 'GET' });
+        return new Response(JSON.stringify({ ok: true }), { status: init?.method ? 201 : 200 });
+      }) as typeof fetch;
+
+      const result = await runGithubPrManagementHttpBoundary({
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/test',
+        managementKind: testCase.kind,
+        prNumber: '17',
+        itemSummaries: testCase.items,
+        payloadSummary: `${testCase.kind} generated payload summary`,
+        token: 'ghp_secret',
+        fetchImpl,
+      });
+
+      expect(result.status).toBe('completed');
+      expectGithubCallSequence(calls, testCase.expected);
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain('ghp_secret');
+      expect(serialized).not.toContain(`${testCase.kind} generated payload summary`);
+      if (testCase.kind !== 'milestones') {
+        expect(serialized).not.toContain(testCase.items[0]);
+      }
+    }
+  });
+
+  it('keeps merge and GitHub Actions endpoints fixed with metadata-only results', async () => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        method: init?.method ?? 'GET',
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      const path = new URL(String(url)).pathname;
+      const body = path.endsWith('/pulls/17')
+        ? { state: 'open', head: { sha: 'head-sha-123' } }
+        : path.endsWith('/commits/head-sha-123/status')
+          ? { statuses: [{ state: 'success' }] }
+          : path.endsWith('/commits/head-sha-123/check-runs')
+            ? { check_runs: [{ status: 'completed', conclusion: 'success' }] }
+            : path.endsWith('/pulls/17/reviews')
+              ? [{ state: 'APPROVED' }]
+              : path.endsWith('/pulls/17/merge')
+                ? { sha: 'merge-sha-123' }
+                : path.endsWith('/actions/runs/123')
+                  ? { id: 123, status: 'completed', conclusion: 'success', name: 'ci' }
+                  : path.endsWith('/actions/runs/123/jobs')
+                    ? { jobs: [{ id: 1, name: 'test', status: 'completed', conclusion: 'success' }] }
+                    : path.endsWith('/actions/runs/123/logs')
+                      ? 'raw transient log text'
+                      : { ok: true };
+      return new Response(JSON.stringify(body), { status: init?.method ? 201 : 200 });
+    }) as typeof fetch;
+
+    const merge = await runGithubMergeHttpBoundary({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      baseBranch: 'main',
+      prNumber: '17',
+      expectedHeadSha: 'head-sha-123',
+      mergeStrategy: 'squash',
+      token: 'ghp_secret',
+      fetchImpl,
+    });
+    const observation = await runGithubActionsObservationHttpBoundary({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      workflowRunId: '123',
+      logByteCap: 4096,
+      token: 'ghp_secret',
+      fetchImpl,
+    });
+    const rerun = await runGithubActionsRunControlHttpBoundary({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      controlKind: 'rerun',
+      workflowRunId: '123',
+      token: 'ghp_secret',
+      fetchImpl,
+    });
+    const cancel = await runGithubActionsRunControlHttpBoundary({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      controlKind: 'cancel',
+      workflowRunId: '123',
+      token: 'ghp_secret',
+      fetchImpl,
+    });
+    const dispatch = await runGithubActionsDispatchHttpBoundary({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      workflowId: 'build.yml',
+      ref: 'main',
+      token: 'ghp_secret',
+      fetchImpl,
+    });
+
+    expect([merge.status, observation.status, rerun.status, cancel.status, dispatch.status]).toEqual([
+      'completed',
+      'completed',
+      'completed',
+      'completed',
+      'completed',
+    ]);
+    expectGithubCallSequence(calls, [
+      { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/branches/main/protection' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/commits/head-sha-123/status' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/commits/head-sha-123/check-runs' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17/reviews' },
+      { method: 'PUT', suffix: '/repos/octo-org/codexhub/pulls/17/merge' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/runs' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/runs/123' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/runs/123/jobs' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/runs/123/logs' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/runs/123' },
+      { method: 'POST', suffix: '/repos/octo-org/codexhub/actions/runs/123/rerun' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/runs/123' },
+      { method: 'POST', suffix: '/repos/octo-org/codexhub/actions/runs/123/cancel' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/actions/workflows/build.yml' },
+      { method: 'POST', suffix: '/repos/octo-org/codexhub/actions/workflows/build.yml/dispatches' },
+    ]);
+    const dispatchBody = calls.at(-1)?.body ?? '';
+    expect(JSON.parse(dispatchBody)).toEqual({ ref: 'main' });
+    const serialized = JSON.stringify([merge, observation, rerun, cancel, dispatch]);
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('raw transient log text');
+  });
+
+  it('keeps remote cleanup constrained to codexhub branch close and ref delete endpoints', async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET' });
+      return new Response(JSON.stringify({ ok: true }), { status: init?.method ? 200 : 200 });
+    }) as typeof fetch;
+
+    const result = await runGithubRemoteCleanupHttpBoundary({
+      owner: 'octo-org',
+      repo: 'codexhub',
+      oldBranchName: 'codexhub/old-pilot',
+      oldPrNumber: '17',
+      token: 'ghp_secret',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('completed');
+    expectGithubCallSequence(calls, [
+      { method: 'GET', suffix: '/repos/octo-org/codexhub' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/pulls/17' },
+      { method: 'GET', suffix: '/repos/octo-org/codexhub/git/ref/heads/codexhub%2Fold-pilot' },
+      { method: 'PATCH', suffix: '/repos/octo-org/codexhub/pulls/17' },
+      { method: 'DELETE', suffix: '/repos/octo-org/codexhub/git/refs/heads/codexhub%2Fold-pilot' },
+    ]);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('ghp_secret');
+    expect(serialized).not.toContain('codexhub/old-pilot');
   });
 });
 
