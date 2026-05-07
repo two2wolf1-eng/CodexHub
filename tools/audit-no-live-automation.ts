@@ -534,6 +534,12 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/browser-profile-kernel/src/index.ts',
+    terms: [['sess', 'ion'].join('')],
+    reason: 'M53 metadata health model names only; no browser storage or credential read path',
+  },
+  {
+    scope: 'production-source',
     filePrefix: 'packages/github-provider-adapter/src/',
     terms: sensitiveConceptTerms,
     reason: 'GitHub provider token readiness exposes configured/hash-only metadata',
