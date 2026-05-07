@@ -9,6 +9,8 @@ import {
 import {
   createAccountPoolScoringProjection,
   createClientPoolScoringProjection,
+  createSchedulerLease,
+  createSchedulerLeaseBundle,
   scoreCodexAccount,
   scoreCodexClient,
 } from './index';
@@ -277,5 +279,68 @@ describe('codex scheduler kernel scoring', () => {
     );
     expect(accountPool.entries[1]?.blockReasons).toEqual(['account:wrong_account']);
     expect(clientPool.entries[1]?.blockReasons).toEqual(['client:removed']);
+  });
+
+  it('creates hash-only lease bundles for scheduler targets', () => {
+    const bundle = createSchedulerLeaseBundle({
+      createdAt: observedAt,
+      requests: [
+        {
+          targetKind: 'account',
+          targetKey: 'account@example.invalid',
+          holderKey: 'task-run-a',
+        },
+        {
+          targetKind: 'worktree',
+          targetKey: 'C:\\Users\\Thomas\\CodexHub\\worktrees\\task-a',
+          holderKey: 'task-run-a',
+        },
+      ],
+    });
+    const serialized = JSON.stringify(bundle);
+
+    expect(bundle.status).toBe('ready');
+    expect(bundle.readyCount).toBe(2);
+    expect(bundle.blockedCount).toBe(0);
+    expect(bundle.leases.every((lease) => lease.leaseSecretStored === false)).toBe(
+      true,
+    );
+    expect(serialized).not.toContain('account@example.invalid');
+    expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
+    expect(serialized).not.toContain('task-run-a');
+  });
+
+  it('blocks conflicting concurrent lease requests without replacing existing leases', () => {
+    const existingLease = createSchedulerLease({
+      createdAt: observedAt,
+      targetKind: 'thread',
+      targetKey: 'thread-123',
+      holderKey: 'task-run-a',
+      status: 'active',
+    });
+    const bundle = createSchedulerLeaseBundle({
+      createdAt: observedAt,
+      existingLeases: [existingLease],
+      requests: [
+        {
+          targetKind: 'thread',
+          targetKey: 'thread-123',
+          holderKey: 'task-run-b',
+        },
+        {
+          targetKind: 'quota',
+          targetKey: 'quota-window',
+          holderKey: 'task-run-b',
+          status: 'requested',
+        },
+      ],
+    });
+
+    expect(bundle.status).toBe('blocked');
+    expect(bundle.blockedCount).toBe(1);
+    expect(bundle.readyCount).toBe(1);
+    expect(bundle.leases[0]?.status).toBe('blocked');
+    expect(bundle.checks[0]?.blockReasons).toEqual(['lease_conflict:thread']);
+    expect(bundle.leases[1]?.status).toBe('requested');
   });
 });

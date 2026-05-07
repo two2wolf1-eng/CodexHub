@@ -3,6 +3,8 @@ import {
   ClientPoolSchema,
   CodexAccountSchedulingProjectionSchema,
   CodexClientSchedulingProjectionSchema,
+  CodexSchedulerPreflightCheckSchema,
+  LeaseSchema,
   type AccountPool,
   type CodexAccountBinding,
   type CodexAccountSchedulingProjection,
@@ -11,7 +13,10 @@ import {
   type CodexClientSchedulingProjection,
   type CodexClientSchedulingStatus,
   type CodexDesktopHealthSnapshot,
+  type CodexSchedulerPreflightCheck,
   type ClientPool,
+  type Lease,
+  type LeaseTargetKind,
   type PoolEntryStatus,
   type QuotaSnapshot,
   SchemaVersionSchema,
@@ -59,6 +64,42 @@ export interface ClientPoolScoringInput {
   projections: readonly CodexClientSchedulingProjection[];
   evidenceRefIds?: readonly string[];
   auditEventIds?: readonly string[];
+}
+
+export interface SchedulerLeaseRequest {
+  targetKind: LeaseTargetKind;
+  targetKey: string;
+  holderKey: string;
+  status?: 'requested' | 'active';
+  expiresAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface SchedulerLeaseBundleInput {
+  createdAt?: string;
+  requests: readonly SchedulerLeaseRequest[];
+  existingLeases?: readonly Lease[];
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexSchedulerLeaseBundle {
+  id: string;
+  schemaVersion: string;
+  createdAt: string;
+  status: 'ready' | 'blocked';
+  requestedCount: number;
+  readyCount: number;
+  blockedCount: number;
+  leases: Lease[];
+  checks: CodexSchedulerPreflightCheck[];
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+  metadataOnly: true;
+  rawPathStored: false;
+  leaseSecretStored: false;
+  summary: string;
 }
 
 export function hashSchedulerMetadata(value: string | number): string {
@@ -202,6 +243,63 @@ export function createClientPoolScoringProjection(
     auditEventIds: [...(input.auditEventIds ?? [])],
     summary: `Client pool has ${readyCount} ready and ${blockedCount} blocked clients.`,
   });
+}
+
+export function createSchedulerLease(
+  input: SchedulerLeaseRequest & { createdAt?: string },
+): Lease {
+  return LeaseSchema.parse({
+    id: `scheduler_lease_${hashSchedulerMetadata(
+      `${input.targetKind}:${input.targetKey}:${input.holderKey}`,
+    )}`,
+    schemaVersion,
+    createdAt: input.createdAt ?? now(),
+    targetKind: input.targetKind,
+    targetIdHash: hashSchedulerMetadata(input.targetKey),
+    holderHash: hashSchedulerMetadata(input.holderKey),
+    status: input.status ?? 'active',
+    expiresAt: input.expiresAt,
+    leaseSecretStored: false,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: `Scheduler ${input.targetKind} lease stores target and holder hashes only.`,
+  });
+}
+
+export function createSchedulerLeaseBundle(
+  input: SchedulerLeaseBundleInput,
+): CodexSchedulerLeaseBundle {
+  const createdAt = input.createdAt ?? now();
+  const leases = input.requests.map((request) =>
+    createLeaseForRequest(request, input.existingLeases ?? [], createdAt),
+  );
+  const checks = leases.map((lease) => createLeasePreflightCheck(lease));
+  const blockedCount = leases.filter((lease) => lease.status === 'blocked').length;
+  const readyCount = leases.length - blockedCount;
+  const status = blockedCount > 0 ? 'blocked' : 'ready';
+
+  return {
+    id: `scheduler_lease_bundle_${hashSchedulerMetadata(
+      JSON.stringify(leases.map((lease) => `${lease.targetKind}:${lease.targetIdHash}`)),
+    )}`,
+    schemaVersion,
+    createdAt,
+    status,
+    requestedCount: input.requests.length,
+    readyCount,
+    blockedCount,
+    leases,
+    checks,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    rawPathStored: false,
+    leaseSecretStored: false,
+    summary:
+      status === 'ready'
+        ? `Scheduler lease bundle has ${readyCount} ready leases.`
+        : `Scheduler lease bundle has ${blockedCount} lease conflicts.`,
+  };
 }
 
 function inferAccountSchedulingStatus(
@@ -372,4 +470,61 @@ function poolEntryStatusForClient(status: CodexClientSchedulingStatus): PoolEntr
   }
 
   return 'blocked';
+}
+
+function createLeaseForRequest(
+  request: SchedulerLeaseRequest,
+  existingLeases: readonly Lease[],
+  createdAt: string,
+): Lease {
+  const targetIdHash = hashSchedulerMetadata(request.targetKey);
+  const holderHash = hashSchedulerMetadata(request.holderKey);
+  const conflict = existingLeases.find(
+    (lease) =>
+      lease.targetKind === request.targetKind &&
+      lease.targetIdHash === targetIdHash &&
+      isBlockingLeaseStatus(lease.status) &&
+      lease.holderHash !== holderHash,
+  );
+
+  if (!conflict) {
+    return createSchedulerLease({ ...request, createdAt });
+  }
+
+  return LeaseSchema.parse({
+    id: `scheduler_lease_blocked_${hashSchedulerMetadata(
+      `${request.targetKind}:${request.targetKey}:${request.holderKey}`,
+    )}`,
+    schemaVersion,
+    createdAt,
+    targetKind: request.targetKind,
+    targetIdHash,
+    holderHash,
+    status: 'blocked',
+    expiresAt: request.expiresAt,
+    leaseSecretStored: false,
+    evidenceRefIds: [...(request.evidenceRefIds ?? [])],
+    auditEventIds: [...(request.auditEventIds ?? [])],
+    summary: `Scheduler ${request.targetKind} lease is blocked by an existing lease.`,
+  });
+}
+
+function createLeasePreflightCheck(lease: Lease): CodexSchedulerPreflightCheck {
+  return CodexSchedulerPreflightCheckSchema.parse({
+    checkKind: lease.targetKind,
+    status: lease.status === 'blocked' ? 'blocked' : 'ready',
+    targetIdHash: lease.targetIdHash,
+    blockReasons:
+      lease.status === 'blocked' ? [`lease_conflict:${lease.targetKind}`] : [],
+    evidenceRefIds: lease.evidenceRefIds,
+    auditEventIds: lease.auditEventIds,
+    summary:
+      lease.status === 'blocked'
+        ? `Scheduler ${lease.targetKind} lease check is blocked.`
+        : `Scheduler ${lease.targetKind} lease check is ready.`,
+  });
+}
+
+function isBlockingLeaseStatus(status: Lease['status']): boolean {
+  return status === 'requested' || status === 'active';
 }
