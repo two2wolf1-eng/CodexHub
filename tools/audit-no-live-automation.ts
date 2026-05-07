@@ -357,7 +357,12 @@ const dashboardProductionGaScopedPayloadTerms = [
   'executionAuthority',
   'authority:',
   'childArtifacts',
+  'childAuthority',
+  'childApprovalArtifact',
+  'childExecutionAuthority',
+  'rawE2EPayload',
   'rawE2ePayload',
+  'e2ePayload',
   'rawDocs',
   'rawPath',
   'rawUrl',
@@ -368,6 +373,15 @@ const dashboardProductionGaScopedPayloadTerms = [
   'rawDbRow',
   'rawAudit',
   'CODEXHUB_PRODUCTION_GA_',
+];
+const productionGaKernelForbiddenImports = [
+  '@codexhub/github-provider-adapter',
+  '@codexhub/deployment-provider-adapter',
+  '@codexhub/playwright-observer-adapter',
+  '@codexhub/electron-cdp-adapter',
+  '@codexhub/external-agent-adapter',
+  '@codexhub/policy-backend-adapter',
+  '@codexhub/otel-adapter',
 ];
 const dashboardProductionGaRouteBypassTerms = [
   'startsWith',
@@ -1005,6 +1019,48 @@ function validateAdversarialAuditSentinels(): void {
       description: 'Dashboard policy telemetry prefix route guard',
     },
     {
+      workspacePath: 'packages/production-ga-kernel/src/adversarial-direct-adapter.ts',
+      sourceText:
+        'import { executeGithubMerge } from "@codexhub/github-provider-adapter"; export const run = executeGithubMerge;',
+      expectedTerm: '@codexhub/github-provider-adapter',
+      description: 'Production GA kernel direct child adapter import',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/production-ga/signoffs"; const body = { dryRunId };',
+      expectedTerm: 'approvalArtifactIds',
+      description: 'Dashboard Production GA signoff without two approval artifact ids',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/production-ga/signoffs"; const body = { dryRunId, approvalArtifactIds, rawE2EPayload: "patch verify pr merge release deploy observe rollback" };',
+      expectedTerm: 'rawE2EPayload',
+      description: 'Dashboard Production GA raw E2E payload persistence attempt',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/production-ga/signoffs"; const body = { dryRunId, approvalArtifactIds, childAuthority: { approved: true } };',
+      expectedTerm: 'childAuthority',
+      description: 'Dashboard Production GA child authority payload',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
+      sourceText:
+        'const ok = path.includes("/api/production-ga/"); fetch(path, { method: "POST" });',
+      expectedTerm: 'includes(',
+      description: 'Dashboard Production GA generic route passthrough',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
+      sourceText:
+        'const endpoint = "/api/production-ga/dry-runs"; const enabled = process.env.CODEXHUB_PRODUCTION_GA_ENABLED;',
+      expectedTerm: 'CODEXHUB_PRODUCTION_GA_',
+      description: 'Dashboard Production GA live env read',
+    },
+    {
       workspacePath: 'apps/cli/src/adversarial-browser.ts',
       sourceText: 'const browser = await chromium.launch();',
       expectedTerm: 'chromium.launch',
@@ -1282,6 +1338,19 @@ function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: strin
   const workspacePath = toWorkspacePath(file);
 
   for (const importPath of collectModuleSpecifiers(sourceFile, sourceText)) {
+    if (
+      workspacePath.startsWith('packages/production-ga-kernel/src/') &&
+      productionGaKernelForbiddenImports.includes(importPath)
+    ) {
+      violations.push({
+        file,
+        line: 1,
+        term: importPath,
+        reason:
+          'Production GA kernel must aggregate child control-plane metadata only and must not import child capability adapters directly.',
+      });
+    }
+
     if (externalProcessModules.includes(importPath)) {
       if (isApprovedExternalProcessBoundary(workspacePath) && importPath === 'node:child_process') {
         continue;
@@ -2479,6 +2548,16 @@ function auditDashboardProductionGaWizardScopedGuards(file: string, sourceText: 
 }
 
 function auditDashboardProductionGaSnippetGuards(file: string, sourceText: string): void {
+  if (sourceText.includes('/api/production-ga/signoffs') && !sourceText.includes('approvalArtifactIds')) {
+    violations.push({
+      file,
+      line: 1,
+      term: 'approvalArtifactIds',
+      reason:
+        'Dashboard Production GA signoff requests must include two store-resolved approval artifact ids.',
+    });
+  }
+
   for (const term of dashboardProductionGaScopedPayloadTerms) {
     if (sourceText.includes(term)) {
       violations.push({
@@ -2516,6 +2595,16 @@ function auditDashboardProductionGaPayloadWindow(
       reason: `Dashboard Production GA function ${name} must remain present for scoped audit coverage.`,
     });
     return;
+  }
+
+  if (name === 'runProductionGaSignoff' && !window.includes('approvalArtifactIds')) {
+    violations.push({
+      file,
+      line: 1,
+      term: 'approvalArtifactIds',
+      reason:
+        'Dashboard Production GA signoff requests must stay bound to two persisted approval artifact ids.',
+    });
   }
 
   for (const term of dashboardProductionGaScopedPayloadTerms) {
