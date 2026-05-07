@@ -4,6 +4,7 @@ import {
   ElectronCdpEventMetadataSummarySchema,
   ElectronCdpNetworkMetadataSummarySchema,
   CodexDesktopHealthSnapshotSchema,
+  type CodexAccountBinding,
   ElectronDebugEndpointSummarySchema,
   ElectronProcessSummarySchema,
   ElectronTargetSummarySchema,
@@ -22,6 +23,7 @@ import {
   type ElectronTargetType,
   type Metadata,
   type OsProcessMetadataSummary,
+  type QuotaSnapshot,
 } from '@codexhub/contracts';
 import { hashText, redactMetadata } from '@codexhub/evidence-kernel';
 
@@ -108,6 +110,19 @@ export interface CodexDesktopHealthSnapshotInput {
   accountMatched?: boolean;
   workspaceMatched?: boolean;
   diagnosticHints?: readonly CodexDesktopDiagnosticHint[];
+}
+
+export interface CodexAppServerStateMetadata {
+  status: 'not_initialized' | 'initialized' | 'degraded' | 'closed' | 'blocked' | 'unknown';
+  initialized?: boolean;
+  protocolDriftDetected?: boolean;
+}
+
+export interface CodexDesktopHealthReconciliationInput
+  extends CodexDesktopHealthSnapshotInput {
+  appServerState?: CodexAppServerStateMetadata;
+  accountBinding?: CodexAccountBinding;
+  quotaSnapshot?: QuotaSnapshot;
 }
 
 export function hashElectronLocalMetadata(value: string | number): string {
@@ -332,6 +347,92 @@ export function createCodexDesktopHealthSnapshot(
         ? 'Codex Desktop health is ready from read-only metadata.'
         : 'Codex Desktop health has read-only diagnostic hints.',
   });
+}
+
+export function reconcileCodexDesktopHealth(
+  input: CodexDesktopHealthReconciliationInput = {},
+): CodexDesktopHealthSnapshot {
+  const appServerResponsive =
+    input.appServerResponsive ??
+    (input.appServerState
+      ? input.appServerState.status === 'initialized' &&
+        input.appServerState.initialized === true &&
+        input.appServerState.protocolDriftDetected === false
+      : false);
+  const quotaAvailable =
+    input.quotaAvailable ??
+    (input.quotaSnapshot
+      ? input.quotaSnapshot.status === 'available' || input.quotaSnapshot.status === 'limited'
+      : false);
+  const loggedIn =
+    input.loggedIn ??
+    (input.accountBinding
+      ? input.accountBinding.status === 'matched' || input.accountBinding.status === 'mismatch'
+      : false);
+  const accountMatched =
+    input.accountMatched ??
+    (input.accountBinding ? input.accountBinding.status === 'matched' : false);
+  const workspaceMatched =
+    input.workspaceMatched ??
+    (input.accountBinding
+      ? input.accountBinding.status === 'matched' && Boolean(input.accountBinding.workspaceIdHash)
+      : false);
+
+  return createCodexDesktopHealthSnapshot({
+    ...input,
+    appServerResponsive,
+    quotaAvailable,
+    loggedIn,
+    accountMatched,
+    workspaceMatched,
+    diagnosticHints: [
+      ...reconcileCodexDesktopDiagnosticHints({
+        ...input,
+        appServerResponsive,
+        quotaAvailable,
+        loggedIn,
+        accountMatched,
+        workspaceMatched,
+      }),
+      ...(input.diagnosticHints ?? []),
+    ],
+  });
+}
+
+export function reconcileCodexDesktopDiagnosticHints(
+  input: CodexDesktopHealthReconciliationInput,
+): CodexDesktopDiagnosticHint[] {
+  const hints = inferCodexDesktopDiagnosticHints(input);
+
+  if (
+    input.appServerState &&
+    (input.appServerState.status === 'degraded' ||
+      input.appServerState.status === 'blocked' ||
+      input.appServerState.protocolDriftDetected)
+  ) {
+    hints.push('app_server_unresponsive');
+  }
+
+  if (
+    input.quotaSnapshot &&
+    (input.quotaSnapshot.status === 'exhausted' || input.quotaSnapshot.status === 'blocked')
+  ) {
+    hints.push('quota_depleted');
+  }
+
+  if (input.accountBinding?.status === 'unverified') {
+    hints.push('codex_logged_out');
+  }
+
+  if (input.accountBinding?.status === 'mismatch') {
+    hints.push('wrong_account');
+  }
+
+  if (input.accountBinding?.status === 'disabled' || input.accountBinding?.status === 'blocked') {
+    hints.push('codex_logged_out');
+  }
+
+  return mergeDiagnosticHints(hints);
 }
 
 export function inferCodexDesktopDiagnosticHints(

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CodexAccountBindingSchema,
+  CodexAppServerSessionSchema,
+  QuotaSnapshotSchema,
+} from '@codexhub/contracts';
+import {
   ELECTRON_CDP_COMMAND_ALLOWLIST,
   ELECTRON_CDP_FORBIDDEN_ACTIONS,
   ELECTRON_CDP_READ_ONLY_CAPABILITIES,
@@ -16,6 +21,8 @@ import {
   isCodexDesktopProcessName,
   isLoopbackElectronEndpointHost,
   isLoopbackElectronWebSocketUrl,
+  reconcileCodexDesktopDiagnosticHints,
+  reconcileCodexDesktopHealth,
 } from './index';
 
 describe('electron-cdp-kernel', () => {
@@ -190,5 +197,65 @@ describe('electron-cdp-kernel', () => {
     expect(inferCodexDesktopDiagnosticHints({ loggedIn: false })).toContain(
       'codex_logged_out',
     );
+  });
+
+  it('reconciles App Server, quota, login, account, and workspace hints', () => {
+    const appServerSession = CodexAppServerSessionSchema.parse({
+      id: 'codex_app_server_session_1',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: '2026-05-08T00:00:00.000Z',
+      clientInstanceId: 'codex_client_1',
+      appServerSessionHash: 'sha256:app-server',
+      status: 'degraded',
+      initialized: false,
+      protocolDriftDetected: true,
+      summary: 'App Server metadata indicates degraded readiness.',
+    });
+    const accountBinding = CodexAccountBindingSchema.parse({
+      id: 'codex_account_binding_1',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: '2026-05-08T00:00:00.000Z',
+      codexAccountHash: 'sha256:account',
+      status: 'mismatch',
+      summary: 'Account binding metadata indicates mismatch.',
+    });
+    const quotaSnapshot = QuotaSnapshotSchema.parse({
+      id: 'quota_snapshot_1',
+      schemaVersion: '2026-04-28.foundation',
+      observedAt: '2026-05-08T00:00:00.000Z',
+      subjectKind: 'codex-account',
+      subjectHash: 'sha256:account',
+      status: 'exhausted',
+      summary: 'Quota metadata indicates exhausted quota.',
+    });
+    const health = reconcileCodexDesktopHealth({
+      appServerState: appServerSession,
+      accountBinding,
+      quotaSnapshot,
+      desktopUiResponsive: false,
+    });
+    const hints = reconcileCodexDesktopDiagnosticHints({
+      appServerState: appServerSession,
+      accountBinding,
+      quotaSnapshot,
+      desktopUiResponsive: false,
+    });
+    const serialized = JSON.stringify(health);
+
+    expect(health.status).toBe('blocked');
+    expect(health.diagnosticHints).toEqual([
+      'no_process',
+      'no_cdp_endpoint',
+      'desktop_ui_frozen',
+      'app_server_unresponsive',
+      'quota_depleted',
+      'wrong_account',
+      'workspace_mismatch',
+    ]);
+    expect(hints).toContain('app_server_unresponsive');
+    expect(hints).toContain('quota_depleted');
+    expect(hints).toContain('wrong_account');
+    expect(serialized).not.toContain('degraded readiness');
+    expect(serialized).not.toContain('exhausted quota');
   });
 });
