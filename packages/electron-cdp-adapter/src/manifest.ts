@@ -27,6 +27,7 @@ export function createElectronCdpAdapterManifest(): CapabilityManifest {
       'electron.cdp.controlled_http.target_summary',
       'electron.cdp.controlled_websocket.console_events',
       'electron.cdp.controlled_websocket.network_events',
+      'electron.codex_desktop.local_discovery_projection',
       'electron.fixture_runner_only',
       'electron.main_inspector.disabled',
       'electron.runtime_evaluate.forbidden',
@@ -47,7 +48,7 @@ export function createElectronCdpAdapterManifest(): CapabilityManifest {
     metadata: {
       authorityProvider: 'codexhub',
       capabilityProvider: 'electron-cdp-adapter',
-      integrationStage: 'm5c',
+      integrationStage: 'm55.2',
       productDefaultEnabled: false,
       fixtureOnly: false,
       controlledLocalHttpSupported: true,

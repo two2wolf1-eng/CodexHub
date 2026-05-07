@@ -19,6 +19,7 @@ import { createElectronCdpControlledHttpRunner } from './controlled-http-runner'
 import { createElectronCdpControlledWebSocketEventRunner } from './controlled-websocket-event-runner';
 import { executeElectronCdpAdapter } from './execute';
 import { createElectronCdpFixtureRunner } from './fixture';
+import { createCodexDesktopReadOnlyDiscoveryProjection } from './local-discovery';
 import { runElectronMainInspectorBoundary } from './main-inspector-boundary';
 import { createElectronCdpAdapterManifest } from './manifest';
 import { planElectronCdpObservation } from './plan';
@@ -71,7 +72,7 @@ describe('electron-cdp-adapter', () => {
     expect(manifest.kind).toBe('electron');
     expect(manifest.provider).toBe('builtin');
     expect(manifest.processBoundary.mayStartExternalProcess).toBe(false);
-    expect(manifest.metadata?.integrationStage).toBe('m5c');
+    expect(manifest.metadata?.integrationStage).toBe('m55.2');
     expect(manifest.metadata?.controlledLocalHttpSupported).toBe(true);
     expect(manifest.metadata?.controlledWebSocketEventsSupported).toBe(true);
   });
@@ -100,6 +101,60 @@ describe('electron-cdp-adapter', () => {
     expect(serialized).not.toContain('Codex.exe');
     expect(serialized).not.toContain('app://codex');
     expect(serialized).not.toContain('C:\\Users\\Thomas');
+  });
+
+  it('projects Codex Desktop local discovery as read-only metadata', () => {
+    const target = createTargetSummary();
+    const projection = createCodexDesktopReadOnlyDiscoveryProjection({
+      processCandidate: {
+        processId: 7712,
+        processName: 'Codex.exe',
+        executablePath: 'C:\\Users\\Thomas\\AppData\\Local\\Codex\\Codex.exe',
+        commandLine: '--remote-debugging-port=43325 --private-flag',
+        windowTitle: 'Private Desktop Window',
+      },
+      debugEndpointCandidate: {
+        host: '127.0.0.1',
+        port: 43325,
+      },
+      targets: [target],
+      consoleSummary: createElectronCdpConsoleSummary({
+        messageCount: 3,
+        warningCount: 1,
+        errorCount: 0,
+      }),
+      networkSummary: createElectronCdpNetworkMetadataSummary({
+        requestCount: 2,
+        responseCount: 2,
+        failedRequestCount: 0,
+      }),
+      appServerResponsive: false,
+      desktopUiResponsive: true,
+      quotaAvailable: true,
+      loggedIn: true,
+      accountMatched: true,
+      workspaceMatched: true,
+      observedAt: '2026-05-08T00:00:00.000Z',
+    });
+    const serialized = JSON.stringify(projection);
+
+    expect(projection.status).toBe('degraded');
+    expect(projection.processSummary?.processKind).toBe('main');
+    expect(projection.debugEndpoint?.loopbackOnly).toBe(true);
+    expect(projection.targets).toHaveLength(1);
+    expect(projection.healthSnapshot.diagnosticHints).toContain(
+      'app_server_unresponsive',
+    );
+    expect(projection.rawPathStored).toBe(false);
+    expect(projection.cdpHttpBoundaryInvoked).toBe(false);
+    expect(projection.processBoundaryInvoked).toBe(false);
+    expect(projection.externalProcessStarted).toBe(false);
+    expect(serialized).not.toContain('Codex.exe');
+    expect(serialized).not.toContain('Private Desktop Window');
+    expect(serialized).not.toContain('C:\\Users\\Thomas');
+    expect(serialized).not.toContain('--private-flag');
+    expect(serialized).not.toContain('app://codex');
+    expect(serialized).not.toContain('43325');
   });
 
   it('plans controlled HTTP observations as approval-gated without process boundaries', () => {

@@ -3,6 +3,7 @@ import {
   ElectronCdpConsoleSummarySchema,
   ElectronCdpEventMetadataSummarySchema,
   ElectronCdpNetworkMetadataSummarySchema,
+  CodexDesktopHealthSnapshotSchema,
   ElectronDebugEndpointSummarySchema,
   ElectronProcessSummarySchema,
   ElectronTargetSummarySchema,
@@ -12,12 +13,15 @@ import {
   type ElectronCdpConsoleSummary,
   type ElectronCdpEventMetadataSummary,
   type ElectronCdpNetworkMetadataSummary,
+  type CodexDesktopDiagnosticHint,
+  type CodexDesktopHealthSnapshot,
   type ElectronDebugEndpointSummary,
   type ElectronProcessKind,
   type ElectronProcessSummary,
   type ElectronTargetSummary,
   type ElectronTargetType,
   type Metadata,
+  type OsProcessMetadataSummary,
 } from '@codexhub/contracts';
 import { hashText, redactMetadata } from '@codexhub/evidence-kernel';
 
@@ -86,6 +90,24 @@ export interface ElectronTargetSummaryInput {
   url?: string;
   observedAt?: string;
   metadata?: Metadata;
+}
+
+export interface CodexDesktopHealthSnapshotInput {
+  id?: string;
+  observedAt?: string;
+  processSummary?: ElectronProcessSummary;
+  osProcessSummary?: OsProcessMetadataSummary;
+  debugEndpoint?: ElectronDebugEndpointSummary;
+  targetCount?: number;
+  consoleErrorCount?: number;
+  networkFailedRequestCount?: number;
+  appServerResponsive?: boolean;
+  desktopUiResponsive?: boolean;
+  quotaAvailable?: boolean;
+  loggedIn?: boolean;
+  accountMatched?: boolean;
+  workspaceMatched?: boolean;
+  diagnosticHints?: readonly CodexDesktopDiagnosticHint[];
 }
 
 export function hashElectronLocalMetadata(value: string | number): string {
@@ -264,6 +286,103 @@ export function createElectronCdpEventMetadataSummary(input: {
     rawPathStored: false,
     noRealWrite: true,
   });
+}
+
+export function createCodexDesktopHealthSnapshot(
+  input: CodexDesktopHealthSnapshotInput = {},
+): CodexDesktopHealthSnapshot {
+  const diagnosticHints = mergeDiagnosticHints([
+    ...inferCodexDesktopDiagnosticHints(input),
+    ...(input.diagnosticHints ?? []),
+  ]);
+  const status =
+    diagnosticHints.length === 0 &&
+    Boolean(input.desktopUiResponsive) &&
+    Boolean(input.appServerResponsive)
+      ? 'ready'
+      : diagnosticHints.includes('no_process')
+        ? 'blocked'
+        : 'degraded';
+
+  return CodexDesktopHealthSnapshotSchema.parse({
+    id: input.id ?? `codex_desktop_health_${hashElectronLocalMetadata(now())}`,
+    schemaVersion,
+    observedAt: input.observedAt ?? now(),
+    status,
+    processSummary: input.processSummary,
+    osProcessSummary: input.osProcessSummary,
+    debugEndpoint: input.debugEndpoint,
+    targetCount: input.targetCount ?? 0,
+    consoleErrorCount: input.consoleErrorCount ?? 0,
+    networkFailedRequestCount: input.networkFailedRequestCount ?? 0,
+    appServerResponsive: input.appServerResponsive ?? false,
+    desktopUiResponsive: input.desktopUiResponsive ?? false,
+    quotaAvailable: input.quotaAvailable ?? false,
+    loggedIn: input.loggedIn ?? false,
+    accountMatched: input.accountMatched ?? false,
+    workspaceMatched: input.workspaceMatched ?? false,
+    diagnosticHints,
+    rawPathStored: false,
+    bodyStored: false,
+    noRealWrite: true,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    summary:
+      status === 'ready'
+        ? 'Codex Desktop health is ready from read-only metadata.'
+        : 'Codex Desktop health has read-only diagnostic hints.',
+  });
+}
+
+export function inferCodexDesktopDiagnosticHints(
+  input: CodexDesktopHealthSnapshotInput,
+): CodexDesktopDiagnosticHint[] {
+  const hints: CodexDesktopDiagnosticHint[] = [];
+
+  if (!input.processSummary && !input.osProcessSummary) {
+    hints.push('no_process');
+  }
+
+  if (!input.debugEndpoint) {
+    hints.push('no_cdp_endpoint');
+  }
+
+  if (input.desktopUiResponsive === false) {
+    hints.push('desktop_ui_frozen');
+  }
+
+  if (input.appServerResponsive === false) {
+    hints.push('app_server_unresponsive');
+  }
+
+  if (input.quotaAvailable === false) {
+    hints.push('quota_depleted');
+  }
+
+  if (input.loggedIn === false) {
+    hints.push('codex_logged_out');
+  }
+
+  if (input.accountMatched === false) {
+    hints.push('wrong_account');
+  }
+
+  if (input.workspaceMatched === false) {
+    hints.push('workspace_mismatch');
+  }
+
+  return mergeDiagnosticHints(hints);
+}
+
+export function isCodexDesktopProcessName(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'codex' || normalized === 'codex.exe' || normalized.includes('codex');
+}
+
+function mergeDiagnosticHints(
+  hints: readonly CodexDesktopDiagnosticHint[],
+): CodexDesktopDiagnosticHint[] {
+  return [...new Set(hints.filter((hint) => hint !== 'unknown'))];
 }
 
 export type ElectronTarget = ElectronTargetSummary;

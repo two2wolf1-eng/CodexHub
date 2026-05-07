@@ -7,10 +7,13 @@ import {
   createElectronCdpConsoleSummary,
   createElectronCdpEventMetadataSummary,
   createElectronCdpNetworkMetadataSummary,
+  createCodexDesktopHealthSnapshot,
   createElectronDebugEndpointSummary,
   createElectronProcessSummary,
   createElectronTargetSummary,
   hashElectronLocalMetadata,
+  inferCodexDesktopDiagnosticHints,
+  isCodexDesktopProcessName,
   isLoopbackElectronEndpointHost,
   isLoopbackElectronWebSocketUrl,
 } from './index';
@@ -142,5 +145,50 @@ describe('electron-cdp-kernel', () => {
     expect(eventSummary.bodyStored).toBe(false);
     expect(eventSummary.rawPathStored).toBe(false);
     expect(eventSummary.payloadHashes).toEqual(['sha256:event']);
+  });
+
+  it('creates Codex Desktop health snapshots from read-only metadata', () => {
+    const processSummary = createElectronProcessSummary({
+      processId: 12345,
+      executablePath: 'C:\\Users\\Thomas\\AppData\\Local\\Codex\\Codex.exe',
+      commandLine: '--remote-debugging-port=43325',
+      processKind: 'main',
+    });
+    const endpoint = createElectronDebugEndpointSummary({
+      host: '127.0.0.1',
+      port: 43325,
+      userEnabled: true,
+    });
+    const health = createCodexDesktopHealthSnapshot({
+      processSummary,
+      debugEndpoint: endpoint,
+      targetCount: 1,
+      consoleErrorCount: 0,
+      networkFailedRequestCount: 0,
+      appServerResponsive: false,
+      desktopUiResponsive: false,
+      quotaAvailable: false,
+      loggedIn: true,
+      accountMatched: true,
+      workspaceMatched: true,
+    });
+    const serialized = JSON.stringify(health);
+
+    expect(isCodexDesktopProcessName('Codex.exe')).toBe(true);
+    expect(isCodexDesktopProcessName('notepad.exe')).toBe(false);
+    expect(health.status).toBe('degraded');
+    expect(health.diagnosticHints).toEqual([
+      'desktop_ui_frozen',
+      'app_server_unresponsive',
+      'quota_depleted',
+    ]);
+    expect(health.rawPathStored).toBe(false);
+    expect(health.processBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('Codex.exe');
+    expect(serialized).not.toContain('43325');
+    expect(serialized).not.toContain('C:\\Users\\Thomas');
+    expect(inferCodexDesktopDiagnosticHints({ loggedIn: false })).toContain(
+      'codex_logged_out',
+    );
   });
 });

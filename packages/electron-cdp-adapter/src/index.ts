@@ -4,6 +4,7 @@ export * from './controlled-websocket-event-runner';
 export * from './evidence';
 export * from './execute';
 export * from './fixture';
+export * from './local-discovery';
 export * from './main-inspector-boundary';
 export * from './manifest';
 export * from './plan';
