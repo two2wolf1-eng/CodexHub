@@ -5,7 +5,9 @@ import {
 } from '@codexhub/capability-adapter-kernel';
 import {
   CodexAccountBindingSchema,
+  CodexAppServerApprovalBridgeRecordSchema,
   CodexAppServerEventSummarySchema,
+  CodexAppServerProtocolDriftReportSchema,
   CodexAppServerSessionSchema,
   CodexAppServerThreadMirrorSchema,
   CodexAppServerTurnMirrorSchema,
@@ -15,6 +17,7 @@ import {
 import {
   createCodexAppServerAdapterManifest,
   createCodexAppServerAdapterPlan,
+  createCodexAppServerProtocolDriftReport,
   createCodexAppServerSessionController,
   createInMemoryCodexAppServerJsonlTransport,
   decodeCodexAppServerJsonlMessage,
@@ -324,6 +327,100 @@ describe('codex-app-server-adapter', () => {
     expect(serialized).not.toContain('turn-start-private-request');
   });
 
+  it('bridges approval requests without silent approval or raw proposal storage', async () => {
+    const transport = createInMemoryCodexAppServerJsonlTransport([
+      { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+      {
+        jsonrpc: '2.0',
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: 'private-thread-id',
+          turnId: 'private-turn-id',
+          itemId: 'private-item-id',
+          requestId: 'private-approval-request',
+          proposalId: 'private-proposal-id',
+          proposalSummary: 'private approval proposal body',
+          availableDecisions: ['private-approve-once', 'private-decline'],
+          status: 'pending',
+        },
+      },
+    ]);
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_1',
+      transport,
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+
+    await controller.initialize({ requestId: 'initialize-private-id' });
+    const bridged = await controller.ingestApprovalRequest({
+      taskRunId: 'codex_task_run_1',
+      proposalSummaryHash: 'sha256:approval-summary',
+    });
+    const serialized = JSON.stringify(bridged);
+
+    expect(bridged.status).toBe('completed');
+    expect(bridged.approvalBridgeRecord?.approvalKind).toBe('command-execution');
+    expect(bridged.approvalBridgeRecord?.status).toBe('pending');
+    expect(bridged.approvalBridgeRecord?.silentApprovalAllowed).toBe(false);
+    expect(bridged.approvalBridgeRecord?.rawProposalStored).toBe(false);
+    expect(bridged.approvalBridgeRecord?.approvalSecretStored).toBe(false);
+    expect(bridged.approvalBridgeRecord?.availableDecisionCount).toBe(2);
+    expect(bridged.approvalBridgeRecord?.availableDecisionHashes).toHaveLength(2);
+    expect(
+      CodexAppServerApprovalBridgeRecordSchema.safeParse(bridged.approvalBridgeRecord).success,
+    ).toBe(true);
+    expect(serialized).not.toContain('private-thread-id');
+    expect(serialized).not.toContain('private-turn-id');
+    expect(serialized).not.toContain('private-item-id');
+    expect(serialized).not.toContain('private-approval-request');
+    expect(serialized).not.toContain('private-proposal-id');
+    expect(serialized).not.toContain('private approval proposal body');
+    expect(serialized).not.toContain('private-approve-once');
+    expect(serialized).not.toContain('private-decline');
+  });
+
+  it('detects compatible and blocking protocol drift by hash and counts only', () => {
+    const compatible = createCodexAppServerProtocolDriftReport({
+      appServerSessionId: 'codex_app_server_session_1',
+      baselineKind: 'generate-ts',
+      baselineHash: 'sha256:baseline',
+      observedSchemaHash: 'sha256:baseline',
+      expectedMethods: ['initialize', 'thread/start'],
+      observedMethods: ['initialize', 'thread/start'],
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+    const incompatible = createCodexAppServerProtocolDriftReport({
+      appServerSessionId: 'codex_app_server_session_1',
+      baselineKind: 'generate-json-schema',
+      baselineHash: 'sha256:baseline',
+      observedSchemaHash: 'sha256:observed',
+      expectedMethods: ['initialize', 'turn/start'],
+      observedMethods: ['initialize', 'private/newMethod'],
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+    const unknown = createCodexAppServerProtocolDriftReport({
+      baselineKind: 'unknown',
+      baselineHash: 'sha256:baseline',
+      observedSchemaHash: 'sha256:baseline',
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+    const serialized = JSON.stringify([compatible, incompatible, unknown]);
+
+    expect(compatible.status).toBe('compatible');
+    expect(compatible.liveDispatchBlocked).toBe(false);
+    expect(incompatible.status).toBe('incompatible');
+    expect(incompatible.liveDispatchBlocked).toBe(true);
+    expect(incompatible.missingMethodCount).toBe(1);
+    expect(incompatible.unknownMethodCount).toBe(1);
+    expect(unknown.status).toBe('unknown');
+    expect(unknown.liveDispatchBlocked).toBe(true);
+    expect(compatible.rawSchemaStored).toBe(false);
+    expect(CodexAppServerProtocolDriftReportSchema.safeParse(compatible).success).toBe(true);
+    expect(CodexAppServerProtocolDriftReportSchema.safeParse(incompatible).success).toBe(true);
+    expect(CodexAppServerProtocolDriftReportSchema.safeParse(unknown).success).toBe(true);
+    expect(serialized).not.toContain('private/newMethod');
+  });
+
   it('blocks account and rate-limit reads before initialize', async () => {
     const controller = createCodexAppServerSessionController({
       clientInstanceId: 'codex_client_1',
@@ -333,13 +430,19 @@ describe('codex-app-server-adapter', () => {
 
     const account = await controller.readAccount();
     const rateLimits = await controller.readRateLimits();
+    const approval = await controller.ingestApprovalRequest();
 
     expect(account.status).toBe('blocked');
     expect(account.blockReasons).toContain('not_initialized:account/read');
     expect(rateLimits.status).toBe('blocked');
     expect(rateLimits.blockReasons).toContain('not_initialized:account/rateLimits/read');
+    expect(approval.status).toBe('blocked');
+    expect(approval.blockReasons).toContain(
+      'not_initialized:item/commandExecution/requestApproval',
+    );
     expect(account.wireSummaries).toHaveLength(0);
     expect(rateLimits.wireSummaries).toHaveLength(0);
+    expect(approval.wireSummaries).toHaveLength(0);
   });
 
   it('blocks operations before initialize and duplicate initialize attempts', async () => {

@@ -4,8 +4,12 @@ import {
   type CapabilityManifest,
   type CodexAccountBinding,
   CodexAccountBindingSchema,
+  type CodexAppServerApprovalBridgeRecord,
+  CodexAppServerApprovalBridgeRecordSchema,
   type CodexAppServerMethod,
   CodexAppServerMethodSchema,
+  type CodexAppServerProtocolDriftReport,
+  CodexAppServerProtocolDriftReportSchema,
   type CodexAppServerSession,
   CodexAppServerSessionSchema,
   type CodexAppServerThreadMirror,
@@ -38,6 +42,7 @@ export {
 export type CodexAppServerAdapterPlanStatus = 'ready' | 'blocked';
 export type CodexAppServerInitializeStatus = 'initialized' | 'blocked' | 'failed';
 export type CodexAppServerReadStatus = 'completed' | 'blocked' | 'failed';
+export type CodexAppServerBridgeStatus = 'completed' | 'blocked' | 'failed';
 export type JsonRpcScalarId = string | number;
 
 export interface CodexAppServerAdapterPlanInput {
@@ -288,6 +293,49 @@ export interface CodexAppServerEventIngestionResult {
   rawBodyStored: false;
 }
 
+export interface CodexAppServerApprovalBridgeInput {
+  taskRunId?: string;
+  threadKey?: string;
+  turnKey?: string;
+  fallbackThreadKey?: string;
+  fallbackTurnKey?: string;
+  fallbackRequestKey?: string;
+  proposalKey?: string;
+  proposalSummaryHash?: string;
+  availableDecisionKeys?: readonly string[];
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexAppServerApprovalBridgeResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: CodexAppServerBridgeStatus;
+  blockReasons: string[];
+  approvalBridgeRecord?: CodexAppServerApprovalBridgeRecord;
+  wireSummaries: CodexAppServerWireMessageSummary[];
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+}
+
+export interface CodexAppServerProtocolDriftInput {
+  appServerSessionId?: string;
+  baselineKind: CodexAppServerProtocolDriftReport['baselineKind'];
+  baselineHash: string;
+  observedSchemaHash: string;
+  expectedMethods?: readonly CodexAppServerMethod[];
+  observedMethods?: readonly string[];
+  changedMethodCount?: number;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
 export interface CodexAppServerSessionController {
   readonly sessionId: string;
   readonly initialized: boolean;
@@ -306,6 +354,9 @@ export interface CodexAppServerSessionController {
   ingestNextEvent(
     input?: CodexAppServerEventIngestionInput,
   ): Promise<CodexAppServerEventIngestionResult>;
+  ingestApprovalRequest(
+    input?: CodexAppServerApprovalBridgeInput,
+  ): Promise<CodexAppServerApprovalBridgeResult>;
   assertInitialized(method: CodexAppServerMethod): CodexAppServerInitializeResult | undefined;
   close(): Promise<void>;
 }
@@ -448,6 +499,70 @@ export function createCodexAppServerSessionController(
   input: CodexAppServerSessionControllerInput,
 ): CodexAppServerSessionController {
   return new DefaultCodexAppServerSessionController(input);
+}
+
+export function createCodexAppServerProtocolDriftReport(
+  input: CodexAppServerProtocolDriftInput,
+): CodexAppServerProtocolDriftReport {
+  const observedMethods = [...(input.observedMethods ?? [])];
+  const expectedMethods = new Set(
+    [...(input.expectedMethods ?? [])].filter((method) => method !== 'unknown'),
+  );
+  const normalizedObservedMethods = new Set<CodexAppServerMethod>();
+  let unknownMethodCount = 0;
+
+  for (const method of observedMethods) {
+    const parsed = safeMethod(method);
+    if (parsed === 'unknown') {
+      unknownMethodCount += 1;
+    } else {
+      normalizedObservedMethods.add(parsed);
+    }
+  }
+
+  let missingMethodCount = 0;
+  for (const method of expectedMethods) {
+    if (!normalizedObservedMethods.has(method)) {
+      missingMethodCount += 1;
+    }
+  }
+
+  const changedMethodCount = optionalNonnegativeInteger(input.changedMethodCount) ?? 0;
+  const schemaHashDrift = input.baselineHash === input.observedSchemaHash ? 0 : 1;
+  const driftCount =
+    schemaHashDrift + missingMethodCount + changedMethodCount + unknownMethodCount;
+  const status = protocolDriftStatus({
+    baselineKind: input.baselineKind,
+    driftCount,
+    missingMethodCount,
+    unknownMethodCount,
+  });
+
+  return CodexAppServerProtocolDriftReportSchema.parse({
+    id: foundationId('codex_app_server_protocol_drift'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: input.observedAt ?? foundationTimestamp(),
+    appServerSessionId: input.appServerSessionId,
+    baselineKind: input.baselineKind,
+    baselineHash: toHash(input.baselineHash),
+    observedSchemaHash: toHash(input.observedSchemaHash),
+    status,
+    driftCount,
+    missingMethodCount,
+    changedMethodCount,
+    unknownMethodCount,
+    liveDispatchBlocked: status !== 'compatible',
+    generatedSchemaRequired: true,
+    rawSchemaStored: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary:
+      status === 'compatible'
+        ? 'Codex App Server protocol baseline is compatible with observed metadata.'
+        : 'Codex App Server protocol drift blocks live dispatch until reviewed.',
+  });
 }
 
 class DefaultCodexAppServerSessionController implements CodexAppServerSessionController {
@@ -962,6 +1077,144 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     };
   }
 
+  async ingestApprovalRequest(
+    input: CodexAppServerApprovalBridgeInput = {},
+  ): Promise<CodexAppServerApprovalBridgeResult> {
+    const observedAt = input.observedAt ?? this.input.observedAt ?? foundationTimestamp();
+    const blocked = this.blockedApprovalBridgeResult(observedAt);
+    if (blocked) {
+      return blocked;
+    }
+
+    const eventLine = await this.input.transport.receiveLine();
+    if (!eventLine) {
+      return {
+        id: foundationId('codex_app_server_approval_bridge_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['approval_event_stream_empty'],
+        wireSummaries: [],
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const decoded = decodeCodexAppServerJsonlMessage(eventLine);
+    const payload = extractMessagePayload(eventLine);
+    const method =
+      decoded.method === 'unknown' ? safeMethod(firstString(payload?.method) ?? '') : decoded.method;
+    const wireSummary = createWireSummary({
+      line: eventLine,
+      decoded: {
+        ...decoded,
+        method,
+      },
+      appServerSessionId: this.sessionId,
+      observedAt,
+      status: 'received',
+      evidenceRefIds: input.evidenceRefIds ?? this.input.evidenceRefIds,
+      auditEventIds: input.auditEventIds ?? this.input.auditEventIds,
+      initializedObserved: true,
+      summary: 'Approval request event received as metadata-only wire summary.',
+    });
+
+    if (
+      method !== 'item/commandExecution/requestApproval' &&
+      method !== 'item/fileChange/requestApproval'
+    ) {
+      return {
+        id: foundationId('codex_app_server_approval_bridge_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['approval_method_unexpected'],
+        wireSummaries: [wireSummary],
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const threadKey = firstString(
+      payload?.threadId,
+      payload?.thread,
+      input.threadKey,
+      input.fallbackThreadKey,
+    );
+    const turnKey = firstString(payload?.turnId, payload?.turn, input.turnKey, input.fallbackTurnKey);
+    const requestKey = firstString(
+      payload?.requestId,
+      payload?.approvalId,
+      payload?.id,
+      input.fallbackRequestKey,
+    );
+    const itemKey = firstString(payload?.itemId, payload?.item);
+
+    if (!threadKey || !turnKey || !requestKey) {
+      return {
+        id: foundationId('codex_app_server_approval_bridge_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['approval_identity_missing'],
+        wireSummaries: [wireSummary],
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const availableDecisionHashes = decisionHashes(payload, input);
+    const approvalBridgeRecord = CodexAppServerApprovalBridgeRecordSchema.parse({
+      id: foundationId('codex_app_server_approval_bridge'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: observedAt,
+      appServerSessionId: this.sessionId,
+      taskRunId: input.taskRunId,
+      threadIdHash: toHash(threadKey),
+      turnIdHash: toHash(turnKey),
+      itemIdHash: itemKey ? toHash(itemKey) : undefined,
+      requestIdHash: toHash(requestKey),
+      approvalKind: approvalKind(method),
+      status: approvalStatus(payload?.status),
+      proposalHash: approvalProposalHash(payload, input, decoded.messageHash),
+      proposalSummaryHash: firstHash(input.proposalSummaryHash ?? payload?.proposalSummaryHash),
+      availableDecisionCount: availableDecisionHashes.length,
+      availableDecisionHashes,
+      silentApprovalAllowed: false,
+      rawProposalStored: false,
+      approvalSecretStored: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
+      summary: 'Codex App Server approval request bridged without silent approval.',
+    });
+
+    return {
+      id: foundationId('codex_app_server_approval_bridge_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'completed',
+      blockReasons: [],
+      approvalBridgeRecord,
+      wireSummaries: [wireSummary],
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
+    };
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     await this.input.transport.close();
@@ -1089,6 +1342,41 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     return {
       id: foundationId('codex_app_server_event_ingestion_result'),
       ...common,
+    };
+  }
+
+  private blockedApprovalBridgeResult(
+    observedAt: string,
+  ): CodexAppServerApprovalBridgeResult | undefined {
+    if (this.closed) {
+      return this.createBlockedApprovalBridgeResult(observedAt, ['transport_closed']);
+    }
+
+    if (!this.initializedState) {
+      return this.createBlockedApprovalBridgeResult(observedAt, [
+        'not_initialized:item/commandExecution/requestApproval',
+      ]);
+    }
+
+    return undefined;
+  }
+
+  private createBlockedApprovalBridgeResult(
+    observedAt: string,
+    blockReasons: string[],
+  ): CodexAppServerApprovalBridgeResult {
+    return {
+      id: foundationId('codex_app_server_approval_bridge_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'blocked',
+      blockReasons,
+      wireSummaries: [],
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
     };
   }
 
@@ -1363,6 +1651,10 @@ function hashRef(value: string): string {
   return `sha256:${hashText(value)}`;
 }
 
+function toHash(value: string): string {
+  return value.startsWith('sha256:') ? value : hashRef(value);
+}
+
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
@@ -1403,6 +1695,94 @@ function firstHash(value: unknown): string | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function protocolDriftStatus(input: {
+  baselineKind: CodexAppServerProtocolDriftReport['baselineKind'];
+  driftCount: number;
+  missingMethodCount: number;
+  unknownMethodCount: number;
+}): CodexAppServerProtocolDriftReport['status'] {
+  if (input.baselineKind === 'unknown') {
+    return 'unknown';
+  }
+
+  if (input.driftCount === 0) {
+    return 'compatible';
+  }
+
+  if (input.missingMethodCount > 0 || input.unknownMethodCount > 0) {
+    return 'incompatible';
+  }
+
+  return 'minor_drift';
+}
+
+function approvalKind(
+  method: CodexAppServerMethod,
+): CodexAppServerApprovalBridgeRecord['approvalKind'] {
+  if (method === 'item/commandExecution/requestApproval') {
+    return 'command-execution';
+  }
+
+  if (method === 'item/fileChange/requestApproval') {
+    return 'file-change';
+  }
+
+  return 'unknown';
+}
+
+function approvalStatus(value: unknown): CodexAppServerApprovalBridgeRecord['status'] {
+  if (
+    value === 'approved' ||
+    value === 'declined' ||
+    value === 'cancelled' ||
+    value === 'resolved' ||
+    value === 'blocked' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+
+  return 'pending';
+}
+
+function approvalProposalHash(
+  payload: Record<string, unknown>,
+  input: CodexAppServerApprovalBridgeInput,
+  messageHash: string,
+): string {
+  const existingHash = firstHash(input.proposalKey) ?? firstHash(payload.proposalHash);
+  if (existingHash) {
+    return existingHash;
+  }
+
+  const proposalKey = firstString(
+    input.proposalKey,
+    payload.proposalId,
+    payload.proposalSummary,
+    payload.kind,
+  );
+  return proposalKey ? hashRef(proposalKey) : messageHash;
+}
+
+function decisionHashes(
+  payload: Record<string, unknown>,
+  input: CodexAppServerApprovalBridgeInput,
+): string[] {
+  const decisionKeys =
+    input.availableDecisionKeys && input.availableDecisionKeys.length > 0
+      ? [...input.availableDecisionKeys]
+      : stringArray(payload.availableDecisions ?? payload.decisions);
+  return decisionKeys.map(toHash);
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
 function accountStatus(value: unknown): CodexAccountBinding['status'] {

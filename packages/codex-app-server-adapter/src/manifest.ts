@@ -26,6 +26,8 @@ export function createCodexAppServerAdapterManifest(): CapabilityManifest {
       'codex.app_server.thread.start_resume.fixture',
       'codex.app_server.turn.start.fixture',
       'codex.app_server.event.ingest.fixture',
+      'codex.app_server.approval.bridge.fixture',
+      'codex.app_server.protocol.drift_detector',
       'codex.app_server.codec.request_notification_response',
       'codex.app_server.wire_summary.metadata_only',
       'codex.app_server.no_process_spawn_m54_3',
@@ -43,7 +45,7 @@ export function createCodexAppServerAdapterManifest(): CapabilityManifest {
       requiresProcessAudit: true,
     },
     metadata: {
-      integrationStage: 'm54.3',
+      integrationStage: 'm54.6',
       authorityProvider: 'codexhub',
       capabilityProvider: CODEX_APP_SERVER_ADAPTER_NAME,
       transportKind: 'stdio-jsonl',
