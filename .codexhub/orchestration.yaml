@@ -6576,3 +6576,35 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m49.real-capability-development-queue:
+    risk: critical
+    trigger:
+      type: real-capability-development-queue
+      entrypoint: docs orchestration integrations scaffold-health
+      localControlRequired: false
+    scope:
+      - future-m49-through-m60-real-capability-roadmap
+      - codex-development-task-queue
+      - chatgpt-business-codex-desktop-boundary-registration
+      - no-live-capability-registration
+      - first-p0-p1-issue-backlog
+    docs:
+      - docs/development/real-capability-codex-development-backlog.md
+      - docs/releases/m49-real-capability-development-queue.md
+      - docs/reviews/m49-real-capability-development-queue-review.md
+      - docs/runbooks/m49-real-capability-development-queue-runbook.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      documentationAndRegistrationOnly: true
+      metadataOnlyPublicOutput: true
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true

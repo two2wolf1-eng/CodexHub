@@ -2917,3 +2917,37 @@ integrations:
       dashboardTokenPersistenceAllowed: false
       cliGenericPostAllowed: false
       mcpMutationBypassAllowed: false
+  m49-real-capability-development-queue:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-planning
+    providerType: builtin
+    mode: planning-only
+    stage: m49-real-capability-development-queue
+    roadmap: docs/development/real-capability-codex-development-backlog.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    plannedCapabilityChains:
+      - chatgpt-business-readiness
+      - chrome-profile-readiness
+      - codex-app-server-adapter
+      - codex-desktop-electron-observation
+      - account-client-pool-scheduler
+      - codex-task-dispatch-diagnosis-recovery
+      - verification-review-github-pr-loop
+      - canary-drift-production-readiness
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      documentationAndRegistrationOnly: true
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true
