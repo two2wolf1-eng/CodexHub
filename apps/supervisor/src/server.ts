@@ -21183,6 +21183,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       reason,
       requiredApprovalCount: 2,
       approvalCount,
+      approvalConsumedCount: 0,
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
       remoteProviderBoundaryInvoked: false,

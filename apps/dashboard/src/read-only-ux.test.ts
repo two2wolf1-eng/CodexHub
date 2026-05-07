@@ -1618,6 +1618,7 @@ describe('dashboard read-only UX helpers', () => {
       'authority:',
       'childArtifacts',
       'rawE2ePayload',
+      'rawE2EPayload',
       'rawDocs',
       'rawPath',
       'CODEXHUB_PRODUCTION_GA_ENABLED',

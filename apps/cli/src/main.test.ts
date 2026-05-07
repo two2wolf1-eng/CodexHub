@@ -266,6 +266,14 @@ describe('cli development mock-run fallback', () => {
       expect(source).not.toContain('childArtifacts');
       expect(source).not.toContain('approvalArtifact:');
     }
+
+    for (const forbiddenProductionGaMutationRoute of [
+      '/api/production-ga/approval-requests',
+      '/api/production-ga/manual-approvals',
+    ]) {
+      expect(productionGaRegistration).not.toContain(forbiddenProductionGaMutationRoute);
+      expect(productionGaStatus).not.toContain(forbiddenProductionGaMutationRoute);
+    }
   });
 
   it('lists MCP tools from the local read-only registry without invoking MCP', async () => {

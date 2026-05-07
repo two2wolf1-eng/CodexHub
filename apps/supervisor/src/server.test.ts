@@ -1017,6 +1017,26 @@ describe('supervisor mock development API', () => {
         reason: 'ga signoff fixture two',
       },
     });
+    const duplicateApprovalOneResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        decidedBy: 'operator-c',
+        reason: 'ga signoff duplicate fixture one',
+      },
+    });
+    const duplicateApprovalTwoResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/manual-approvals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        decidedBy: 'operator-c',
+        reason: 'ga signoff duplicate fixture two',
+      },
+    });
     const singleApprovalSignoffResponse = await server.inject({
       method: 'POST',
       url: '/api/production-ga/signoffs',
@@ -1024,6 +1044,18 @@ describe('supervisor mock development API', () => {
       payload: {
         dryRunId: dryRun.dryRunId,
         approvalArtifactIds: [firstApprovalResponse.json().id],
+      },
+    });
+    const duplicateApproverSignoffResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/signoffs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [
+          duplicateApprovalOneResponse.json().id,
+          duplicateApprovalTwoResponse.json().id,
+        ],
       },
     });
     const signoffResponse = await server.inject({
@@ -1081,13 +1113,23 @@ describe('supervisor mock development API', () => {
     expect(dryRun.blockReasons).toEqual([]);
     expect(firstApprovalResponse.statusCode).toBe(200);
     expect(secondApprovalResponse.statusCode).toBe(200);
+    expect(duplicateApprovalOneResponse.statusCode).toBe(200);
+    expect(duplicateApprovalTwoResponse.statusCode).toBe(200);
     expect(firstApprovalResponse.json().approved).toBe(true);
     expect(secondApprovalResponse.json().approved).toBe(true);
     expect(firstApprovalResponse.body).not.toContain('ga signoff fixture one');
+    expect(duplicateApprovalOneResponse.body).not.toContain('ga signoff duplicate fixture one');
     expect(singleApprovalSignoffResponse.statusCode).toBe(409);
     expect(singleApprovalSignoffResponse.json()).toMatchObject({
       status: 'blocked',
       reason: 'two_ga_approvals_required',
+      childAdapterInvokedDirectly: false,
+    });
+    expect(duplicateApproverSignoffResponse.statusCode).toBe(409);
+    expect(duplicateApproverSignoffResponse.json()).toMatchObject({
+      status: 'blocked',
+      reason: 'distinct_ga_approver_hashes_required',
+      approvalConsumedCount: 0,
       childAdapterInvokedDirectly: false,
     });
     expect(signoffResponse.statusCode).toBe(200);
