@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputRoundTripLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
   CodexExecLiveRunRecordSchema,
   CodexExecLiveConfigSchema,
@@ -511,6 +514,23 @@ import {
   StoreMigrationRunSchema,
   MultiAgentCoordinationPlanSchema,
   MultiAgentSlotSummarySchema,
+  AccountPoolSchema,
+  BusinessMembershipMirrorSchema,
+  BusinessWorkspaceSchema,
+  ChatGptSessionHealthSchema,
+  ChromeProfileBindingSchema,
+  ClientPoolSchema,
+  CodexAccountBindingSchema,
+  CodexAppServerSessionSchema,
+  CodexClientInstanceSchema,
+  CodexRecoveryRunSchema,
+  CodexTaskDiagnosisSchema,
+  CodexTaskIntentSchema,
+  CodexTaskRunSchema,
+  EvidenceBundleSchema,
+  HumanCheckpointSchema,
+  LeaseSchema,
+  QuotaSnapshotSchema,
   WorkflowRunSchema,
 } from './index';
 
@@ -15490,5 +15510,348 @@ describe('contracts schemas', () => {
         expect(hasArchetype, `${matrix.name} missing ${archetype} rehearsal archetype`).toBe(true);
       }
     }
+  });
+
+  it('parses M51 unified account, client, task, quota, evidence, and recovery contracts metadata-only', () => {
+    const workspace = BusinessWorkspaceSchema.parse({
+      id: 'business_workspace_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceIdHash: 'sha256:workspace',
+      workspaceNameHash: 'sha256:workspace-name',
+      status: 'active',
+      membershipCount: 1,
+      ownerCount: 1,
+      adminCount: 0,
+      evidenceRefIds: ['evidence_business_workspace'],
+      auditEventIds: ['audit_business_workspace'],
+      summary: 'Business workspace mirror stores metadata only.',
+    });
+    const membership = BusinessMembershipMirrorSchema.parse({
+      id: 'business_membership_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceIdHash: workspace.workspaceIdHash,
+      memberHash: 'sha256:member',
+      emailHash: 'sha256:email',
+      role: 'owner',
+      status: 'active',
+      seatActive: true,
+      ownerProtected: true,
+      evidenceRefIds: ['evidence_business_membership'],
+      auditEventIds: ['audit_business_membership'],
+      summary: 'Membership mirror stores hashes and role/status only.',
+    });
+    const profileBinding = ChromeProfileBindingSchema.parse({
+      id: 'chrome_profile_binding_1',
+      schemaVersion,
+      createdAt,
+      profileId: 'profile-default',
+      profilePathHash: 'sha256:profile-path',
+      accountHash: membership.memberHash,
+      workspaceIdHash: workspace.workspaceIdHash,
+      healthStatus: 'healthy',
+      summary: 'Chrome profile binding stores the profile path hash only.',
+    });
+    const sessionHealth = ChatGptSessionHealthSchema.parse({
+      id: 'chatgpt_session_health_1',
+      schemaVersion,
+      observedAt: createdAt,
+      profileBindingId: profileBinding.id,
+      accountHash: membership.memberHash,
+      workspaceIdHash: workspace.workspaceIdHash,
+      status: 'healthy',
+      accountMatchesExpected: true,
+      workspaceMatchesExpected: true,
+      summary: 'ChatGPT session health is metadata-only.',
+    });
+    const checkpoint = HumanCheckpointSchema.parse({
+      id: 'human_checkpoint_1',
+      schemaVersion,
+      createdAt,
+      checkpointKind: 'mfa_required',
+      status: 'requested',
+      targetHash: 'sha256:target',
+      accountHash: membership.memberHash,
+      workspaceIdHash: workspace.workspaceIdHash,
+      reasonHash: 'sha256:reason',
+      evidenceRefIds: ['evidence_checkpoint'],
+      auditEventIds: ['audit_checkpoint'],
+      summary: 'Human checkpoint stores no MFA code or credential data.',
+    });
+    const client = CodexClientInstanceSchema.parse({
+      id: 'codex_client_1',
+      schemaVersion,
+      observedAt: createdAt,
+      clientKind: 'codex-app-server',
+      clientInstanceHash: 'sha256:client',
+      status: 'available',
+      protocolVersionHash: 'sha256:protocol',
+      activeTaskCount: 0,
+      evidenceRefIds: ['evidence_client'],
+      auditEventIds: ['audit_client'],
+      summary: 'Codex client instance is available in metadata projection.',
+    });
+    const appServerSession = CodexAppServerSessionSchema.parse({
+      id: 'codex_app_server_session_1',
+      schemaVersion,
+      observedAt: createdAt,
+      clientInstanceId: client.id,
+      appServerSessionHash: 'sha256:app-server-session',
+      status: 'initialized',
+      initialized: true,
+      protocolDriftDetected: false,
+      evidenceRefIds: ['evidence_app_server'],
+      auditEventIds: ['audit_app_server'],
+      summary: 'App Server session summary is initialized without raw response data.',
+    });
+    const accountBinding = CodexAccountBindingSchema.parse({
+      id: 'codex_account_binding_1',
+      schemaVersion,
+      observedAt: createdAt,
+      codexAccountHash: 'sha256:codex-account',
+      businessMembershipMirrorId: membership.id,
+      workspaceIdHash: workspace.workspaceIdHash,
+      status: 'matched',
+      summary: 'Codex account matches the Business membership mirror.',
+    });
+    const intent = CodexTaskIntentSchema.parse({
+      id: 'codex_task_intent_1',
+      schemaVersion,
+      createdAt,
+      intentHash: 'sha256:intent',
+      promptHash: 'sha256:prompt',
+      promptLength: 42,
+      requestedByHash: 'sha256:operator',
+      workflowHash: 'sha256:workflow',
+      status: 'planned',
+      evidenceRefIds: ['evidence_intent'],
+      auditEventIds: ['audit_intent'],
+      summary: 'Task intent stores prompt hash and length only.',
+    });
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      status: 'queued',
+      accountBindingId: accountBinding.id,
+      clientInstanceId: client.id,
+      appServerSessionId: appServerSession.id,
+      threadHash: 'sha256:thread',
+      turnCount: 0,
+      eventCount: 0,
+      evidenceRefIds: ['evidence_task_run'],
+      auditEventIds: ['audit_task_run'],
+      summary: 'Task run is queued without live dispatch.',
+    });
+    const diagnosis = CodexTaskDiagnosisSchema.parse({
+      id: 'codex_task_diagnosis_1',
+      schemaVersion,
+      observedAt: createdAt,
+      taskRunId: taskRun.id,
+      diagnosisKind: 'failed_auth',
+      status: 'actionable',
+      confidence: 0.9,
+      recommendedRecoveryKind: 'human_checkpoint',
+      evidenceRefIds: ['evidence_diagnosis'],
+      auditEventIds: ['audit_diagnosis'],
+      summary: 'Diagnosis points to a human checkpoint.',
+    });
+    const recovery = CodexRecoveryRunSchema.parse({
+      id: 'codex_recovery_run_1',
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      diagnosisId: diagnosis.id,
+      recoveryKind: 'human_checkpoint',
+      status: 'needs_human',
+      dryRunId: 'recovery_dry_run_1',
+      approvalRequired: true,
+      evidenceRefIds: ['evidence_recovery'],
+      auditEventIds: ['audit_recovery'],
+      summary: 'Recovery run remains disabled and awaits a human checkpoint.',
+    });
+    const accountPool = AccountPoolSchema.parse({
+      id: 'account_pool_1',
+      schemaVersion,
+      observedAt: createdAt,
+      poolHash: 'sha256:account-pool',
+      status: 'ready',
+      accountCount: 1,
+      readyCount: 1,
+      blockedCount: 0,
+      entries: [
+        {
+          entryId: 'account_pool_entry_1',
+          targetIdHash: accountBinding.codexAccountHash,
+          status: 'ready',
+          score: 90,
+          evidenceRefIds: ['evidence_pool_entry'],
+        },
+      ],
+      summary: 'Account pool has one ready account.',
+    });
+    const clientPool = ClientPoolSchema.parse({
+      id: 'client_pool_1',
+      schemaVersion,
+      observedAt: createdAt,
+      poolHash: 'sha256:client-pool',
+      status: 'ready',
+      clientCount: 1,
+      readyCount: 1,
+      blockedCount: 0,
+      entries: [
+        {
+          entryId: 'client_pool_entry_1',
+          targetIdHash: client.clientInstanceHash,
+          status: 'ready',
+          score: 90,
+          evidenceRefIds: ['evidence_client_pool_entry'],
+        },
+      ],
+      summary: 'Client pool has one ready client.',
+    });
+    const lease = LeaseSchema.parse({
+      id: 'pool_lease_1',
+      schemaVersion,
+      createdAt,
+      targetKind: 'account',
+      targetIdHash: accountBinding.codexAccountHash,
+      holderHash: 'sha256:task-holder',
+      status: 'active',
+      evidenceRefIds: ['evidence_lease'],
+      auditEventIds: ['audit_lease'],
+      summary: 'Lease stores the holder hash and no secret.',
+    });
+    const quota = QuotaSnapshotSchema.parse({
+      id: 'quota_snapshot_1',
+      schemaVersion,
+      observedAt: createdAt,
+      subjectKind: 'unified-account',
+      subjectHash: accountBinding.codexAccountHash,
+      status: 'available',
+      limitCount: 100,
+      usedCount: 1,
+      remainingCount: 99,
+      resetAtHash: 'sha256:reset-window',
+      sourceRefIds: [workspace.id, appServerSession.id],
+      evidenceRefIds: ['evidence_quota'],
+      auditEventIds: ['audit_quota'],
+      summary: 'Quota snapshot stores counts and hashed reset metadata.',
+    });
+    const evidenceBundle = EvidenceBundleSchema.parse({
+      id: 'evidence_bundle_1',
+      schemaVersion,
+      createdAt,
+      bundleHash: 'sha256:evidence-bundle',
+      evidenceRefIds: ['evidence_quota', 'evidence_task_run'],
+      auditEventIds: ['audit_quota', 'audit_task_run'],
+      evidenceCount: 2,
+      auditEventCount: 2,
+      summary: 'Evidence bundle stores refs and counts only.',
+    });
+
+    const records = [
+      workspace,
+      membership,
+      profileBinding,
+      sessionHealth,
+      checkpoint,
+      client,
+      appServerSession,
+      accountBinding,
+      intent,
+      taskRun,
+      diagnosis,
+      recovery,
+      accountPool,
+      clientPool,
+      lease,
+      quota,
+      evidenceBundle,
+    ];
+    const serialized = JSON.stringify(records);
+
+    expect(records).toHaveLength(17);
+    expect(profileBinding.rawPathStored).toBe(false);
+    expect(sessionHealth.storageRead).toBe(false);
+    expect(checkpoint.sensitiveInputStored).toBe(false);
+    expect(intent.rawPromptStored).toBe(false);
+    expect(recovery.executionDisabled).toBe(true);
+    expect(lease.leaseSecretStored).toBe(false);
+    expect(quota.ambiguous).toBe(false);
+    expect(evidenceBundle.evidenceCount).toBe(evidenceBundle.evidenceRefIds.length);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('rejects M51 contracts that expose raw prompt, path, body, token, cookie, session, or MFA metadata', () => {
+    expect(() =>
+      CodexTaskIntentSchema.parse({
+        id: 'codex_task_intent_raw_1',
+        schemaVersion,
+        createdAt,
+        intentHash: 'sha256:intent',
+        status: 'planned',
+        summary: 'Unsafe task intent.',
+        metadata: {
+          rawPrompt: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      ChromeProfileBindingSchema.parse({
+        id: 'chrome_profile_binding_raw_1',
+        schemaVersion,
+        createdAt,
+        profileId: 'default',
+        profilePathHash: 'sha256:profile-path',
+        rawPath: adversarialPublicOutputFixture,
+        summary: 'Unsafe profile binding.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ChatGptSessionHealthSchema.parse({
+        id: 'chatgpt_session_raw_1',
+        schemaVersion,
+        observedAt: createdAt,
+        profileBindingId: 'chrome_profile_binding_1',
+        status: 'blocked',
+        summary: 'Unsafe session health.',
+        metadata: {
+          token: adversarialPublicOutputFixture,
+          cookie: adversarialPublicOutputFixture,
+          session: adversarialPublicOutputFixture,
+          body: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      HumanCheckpointSchema.parse({
+        id: 'human_checkpoint_raw_1',
+        schemaVersion,
+        createdAt,
+        checkpointKind: 'mfa_required',
+        status: 'requested',
+        summary: 'Unsafe checkpoint.',
+        metadata: {
+          mfa: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      EvidenceBundleSchema.parse({
+        id: 'evidence_bundle_bad_count',
+        schemaVersion,
+        createdAt,
+        bundleHash: 'sha256:bundle',
+        evidenceRefIds: ['evidence_1'],
+        auditEventIds: [],
+        evidenceCount: 2,
+        auditEventCount: 0,
+        summary: 'Evidence count mismatch.',
+      }),
+    ).toThrow();
   });
 });

@@ -481,6 +481,14 @@ const customWorkflowForbiddenMetadataKeys = new Set([
   'token',
   'cookie',
   'session',
+  'mfa',
+  'MFA',
+  'password',
+  'passkey',
+  'credential',
+  'storage',
+  'localStorage',
+  'sessionStorage',
   'env',
   'envValue',
   'responseBody',
@@ -17740,6 +17748,574 @@ export const ProductionGaEvidenceBundleSummarySchema = createdEntityBaseSchema
 export type ProductionGaEvidenceBundleSummary = z.infer<
   typeof ProductionGaEvidenceBundleSummarySchema
 >;
+
+export const BusinessWorkspaceStatusSchema = z.enum([
+  'active',
+  'disabled',
+  'unknown',
+]);
+export type BusinessWorkspaceStatus = z.infer<typeof BusinessWorkspaceStatusSchema>;
+
+export const BusinessMembershipRoleSchema = z.enum([
+  'owner',
+  'admin',
+  'member',
+  'unknown',
+]);
+export type BusinessMembershipRole = z.infer<typeof BusinessMembershipRoleSchema>;
+
+export const BusinessMembershipStatusSchema = z.enum([
+  'active',
+  'pending',
+  'removed',
+  'suspended',
+  'unknown',
+]);
+export type BusinessMembershipStatus = z.infer<typeof BusinessMembershipStatusSchema>;
+
+export const ChatGptSessionHealthStatusSchema = z.enum([
+  'healthy',
+  'logged_out',
+  'wrong_account',
+  'workspace_mismatch',
+  'mfa_required',
+  'captcha_required',
+  'unknown',
+  'blocked',
+]);
+export type ChatGptSessionHealthStatus = z.infer<
+  typeof ChatGptSessionHealthStatusSchema
+>;
+
+export const HumanCheckpointKindSchema = z.enum([
+  'login_required',
+  'mfa_required',
+  'captcha_required',
+  'passkey_required',
+  'account_select_required',
+  'workspace_select_required',
+  'manual_review_required',
+]);
+export type HumanCheckpointKind = z.infer<typeof HumanCheckpointKindSchema>;
+
+export const HumanCheckpointStatusSchema = z.enum([
+  'requested',
+  'waiting',
+  'resolved',
+  'blocked',
+  'expired',
+]);
+export type HumanCheckpointStatus = z.infer<typeof HumanCheckpointStatusSchema>;
+
+export const CodexClientKindSchema = z.enum([
+  'codex-app-server',
+  'codex-desktop',
+  'codex-cli',
+  'unknown',
+]);
+export type CodexClientKind = z.infer<typeof CodexClientKindSchema>;
+
+export const CodexClientStatusSchema = z.enum([
+  'available',
+  'degraded',
+  'offline',
+  'blocked',
+  'unknown',
+]);
+export type CodexClientStatus = z.infer<typeof CodexClientStatusSchema>;
+
+export const CodexAppServerSessionStatusSchema = z.enum([
+  'not_initialized',
+  'initialized',
+  'degraded',
+  'closed',
+  'blocked',
+  'unknown',
+]);
+export type CodexAppServerSessionStatus = z.infer<
+  typeof CodexAppServerSessionStatusSchema
+>;
+
+export const CodexAccountBindingStatusSchema = z.enum([
+  'matched',
+  'mismatch',
+  'unverified',
+  'disabled',
+  'blocked',
+]);
+export type CodexAccountBindingStatus = z.infer<
+  typeof CodexAccountBindingStatusSchema
+>;
+
+export const CodexTaskStatusSchema = z.enum([
+  'planned',
+  'queued',
+  'running',
+  'completed',
+  'failed',
+  'blocked',
+  'cancelled',
+  'needs_human',
+]);
+export type CodexTaskStatus = z.infer<typeof CodexTaskStatusSchema>;
+
+export const CodexTaskDiagnosisKindSchema = z.enum([
+  'healthy',
+  'failed_quota',
+  'failed_auth',
+  'workspace_mismatch',
+  'client_unavailable',
+  'tool_stuck',
+  'app_server_unresponsive',
+  'unknown',
+  'needs_manual_review',
+]);
+export type CodexTaskDiagnosisKind = z.infer<typeof CodexTaskDiagnosisKindSchema>;
+
+export const CodexRecoveryKindSchema = z.enum([
+  'none',
+  'wait_for_quota',
+  'human_checkpoint',
+  'switch_account',
+  'switch_client',
+  'restart_client',
+  'resume_thread',
+  'interrupt_turn',
+  'manual_review',
+]);
+export type CodexRecoveryKind = z.infer<typeof CodexRecoveryKindSchema>;
+
+export const PoolStatusSchema = z.enum(['ready', 'degraded', 'blocked', 'unknown']);
+export type PoolStatus = z.infer<typeof PoolStatusSchema>;
+
+export const PoolEntryStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'leased',
+  'disabled',
+  'unknown',
+]);
+export type PoolEntryStatus = z.infer<typeof PoolEntryStatusSchema>;
+
+export const LeaseStatusSchema = z.enum([
+  'requested',
+  'active',
+  'released',
+  'expired',
+  'blocked',
+]);
+export type LeaseStatus = z.infer<typeof LeaseStatusSchema>;
+
+export const LeaseTargetKindSchema = z.enum([
+  'account',
+  'client',
+  'profile',
+  'thread',
+  'worktree',
+  'task',
+  'quota',
+]);
+export type LeaseTargetKind = z.infer<typeof LeaseTargetKindSchema>;
+
+export const QuotaSnapshotSubjectKindSchema = z.enum([
+  'business-workspace',
+  'business-member',
+  'codex-account',
+  'codex-client',
+  'unified-account',
+]);
+export type QuotaSnapshotSubjectKind = z.infer<
+  typeof QuotaSnapshotSubjectKindSchema
+>;
+
+export const QuotaSnapshotStatusSchema = z.enum([
+  'available',
+  'limited',
+  'exhausted',
+  'unknown',
+  'blocked',
+]);
+export type QuotaSnapshotStatus = z.infer<typeof QuotaSnapshotStatusSchema>;
+
+const m51EvidenceAuditSchema = z
+  .object({
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
+
+const m51SafeBoundarySchema = z
+  .object({
+    metadataOnly: z.literal(true).default(true),
+    rawPromptStored: z.literal(false).default(false),
+    rawDiffStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    tokenStored: z.literal(false).default(false),
+    cookieStored: z.literal(false).default(false),
+    sessionStored: z.literal(false).default(false),
+    mfaStored: z.literal(false).default(false),
+    storageRead: z.literal(false).default(false),
+    bodyStored: z.literal(false).default(false),
+    noRealWrite: z.literal(true).default(true),
+    liveExecution: z.literal(false).default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+  })
+  .strict();
+
+const m51ReadOnlyBoundarySchema = m51SafeBoundarySchema.extend({
+  networkBoundaryInvoked: z.literal(false).default(false),
+  processBoundaryInvoked: z.literal(false).default(false),
+  externalProcessStarted: z.literal(false).default(false),
+});
+
+const PoolEntrySchema = z
+  .object({
+    entryId: z.string().min(1),
+    targetIdHash: z.string().min(1),
+    status: PoolEntryStatusSchema,
+    score: z.number().int().nonnegative().max(100).default(0),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type PoolEntry = z.infer<typeof PoolEntrySchema>;
+
+export const BusinessWorkspaceSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceIdHash: z.string().min(1),
+    workspaceNameHash: z.string().min(1).optional(),
+    status: BusinessWorkspaceStatusSchema,
+    membershipCount: z.number().int().nonnegative().default(0),
+    ownerCount: z.number().int().nonnegative().default(0),
+    adminCount: z.number().int().nonnegative().default(0),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type BusinessWorkspace = z.infer<typeof BusinessWorkspaceSchema>;
+
+export const BusinessMembershipMirrorSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceIdHash: z.string().min(1),
+    memberHash: z.string().min(1),
+    emailHash: z.string().min(1).optional(),
+    displayNameHash: z.string().min(1).optional(),
+    role: BusinessMembershipRoleSchema,
+    status: BusinessMembershipStatusSchema,
+    seatActive: z.boolean().default(false),
+    ownerProtected: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type BusinessMembershipMirror = z.infer<
+  typeof BusinessMembershipMirrorSchema
+>;
+
+export const ChromeProfileBindingSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    profileId: z.string().min(1),
+    displayNameHash: z.string().min(1).optional(),
+    profilePathHash: z.string().min(1),
+    accountHash: z.string().min(1).optional(),
+    workspaceIdHash: z.string().min(1).optional(),
+    locked: z.boolean().default(false),
+    lockId: z.string().min(1).optional(),
+    healthStatus: ChatGptSessionHealthStatusSchema.default('unknown'),
+    readOnly: z.literal(true).default(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ChromeProfileBinding = z.infer<typeof ChromeProfileBindingSchema>;
+
+export const ChatGptSessionHealthSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    profileBindingId: z.string().min(1),
+    accountHash: z.string().min(1).optional(),
+    workspaceIdHash: z.string().min(1).optional(),
+    status: ChatGptSessionHealthStatusSchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    humanCheckpointRequired: z.boolean().default(false),
+    humanCheckpointId: z.string().min(1).optional(),
+    accountMatchesExpected: z.boolean().optional(),
+    workspaceMatchesExpected: z.boolean().optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ChatGptSessionHealth = z.infer<typeof ChatGptSessionHealthSchema>;
+
+export const HumanCheckpointSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    checkpointKind: HumanCheckpointKindSchema,
+    status: HumanCheckpointStatusSchema,
+    targetHash: z.string().min(1).optional(),
+    accountHash: z.string().min(1).optional(),
+    workspaceIdHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    sensitiveInputStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type HumanCheckpoint = z.infer<typeof HumanCheckpointSchema>;
+
+export const CodexClientInstanceSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    clientKind: CodexClientKindSchema,
+    clientInstanceHash: z.string().min(1),
+    status: CodexClientStatusSchema,
+    versionHash: z.string().min(1).optional(),
+    protocolVersionHash: z.string().min(1).optional(),
+    accountBindingId: z.string().min(1).optional(),
+    activeTaskCount: z.number().int().nonnegative().default(0),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexClientInstance = z.infer<typeof CodexClientInstanceSchema>;
+
+export const CodexAppServerSessionSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    clientInstanceId: z.string().min(1),
+    appServerSessionHash: z.string().min(1),
+    status: CodexAppServerSessionStatusSchema,
+    initialized: z.boolean().default(false),
+    accountBindingId: z.string().min(1).optional(),
+    protocolDriftDetected: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAppServerSession = z.infer<typeof CodexAppServerSessionSchema>;
+
+export const CodexAccountBindingSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    codexAccountHash: z.string().min(1),
+    businessMembershipMirrorId: z.string().min(1).optional(),
+    workspaceIdHash: z.string().min(1).optional(),
+    status: CodexAccountBindingStatusSchema,
+    disabled: z.boolean().default(false),
+    disableReasonHash: z.string().min(1).optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAccountBinding = z.infer<typeof CodexAccountBindingSchema>;
+
+export const CodexTaskIntentSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentHash: z.string().min(1),
+    promptHash: z.string().min(1).optional(),
+    promptLength: z.number().int().nonnegative().optional(),
+    requestedByHash: z.string().min(1).optional(),
+    workflowHash: z.string().min(1).optional(),
+    status: CodexTaskStatusSchema.default('planned'),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexTaskIntent = z.infer<typeof CodexTaskIntentSchema>;
+
+export const CodexTaskRunSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentId: z.string().min(1),
+    status: CodexTaskStatusSchema,
+    accountBindingId: z.string().min(1).optional(),
+    clientInstanceId: z.string().min(1).optional(),
+    appServerSessionId: z.string().min(1).optional(),
+    threadHash: z.string().min(1).optional(),
+    turnCount: z.number().int().nonnegative().default(0),
+    eventCount: z.number().int().nonnegative().default(0),
+    outputSummaryHash: z.string().min(1).optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexTaskRun = z.infer<typeof CodexTaskRunSchema>;
+
+export const CodexTaskDiagnosisSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    diagnosisKind: CodexTaskDiagnosisKindSchema,
+    status: z.enum(['healthy', 'actionable', 'blocked', 'unknown']),
+    confidence: z.number().min(0).max(1).default(0),
+    recommendedRecoveryKind: CodexRecoveryKindSchema.optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexTaskDiagnosis = z.infer<typeof CodexTaskDiagnosisSchema>;
+
+export const CodexRecoveryRunSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    diagnosisId: z.string().min(1).optional(),
+    recoveryKind: CodexRecoveryKindSchema,
+    status: CodexTaskStatusSchema,
+    dryRunId: z.string().min(1).optional(),
+    approvalArtifactId: z.string().min(1).optional(),
+    approvalRequired: z.boolean().default(false),
+    executionDisabled: z.literal(true).default(true),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexRecoveryRun = z.infer<typeof CodexRecoveryRunSchema>;
+
+export const AccountPoolSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    poolHash: z.string().min(1),
+    status: PoolStatusSchema,
+    accountCount: z.number().int().nonnegative().default(0),
+    readyCount: z.number().int().nonnegative().default(0),
+    blockedCount: z.number().int().nonnegative().default(0),
+    entries: z.array(PoolEntrySchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.readyCount + record.blockedCount > record.accountCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'account pool ready and blocked counts must not exceed account count',
+        path: ['accountCount'],
+      });
+    }
+  });
+export type AccountPool = z.infer<typeof AccountPoolSchema>;
+
+export const ClientPoolSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    poolHash: z.string().min(1),
+    status: PoolStatusSchema,
+    clientCount: z.number().int().nonnegative().default(0),
+    readyCount: z.number().int().nonnegative().default(0),
+    blockedCount: z.number().int().nonnegative().default(0),
+    entries: z.array(PoolEntrySchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.readyCount + record.blockedCount > record.clientCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'client pool ready and blocked counts must not exceed client count',
+        path: ['clientCount'],
+      });
+    }
+  });
+export type ClientPool = z.infer<typeof ClientPoolSchema>;
+
+export const LeaseSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    targetKind: LeaseTargetKindSchema,
+    targetIdHash: z.string().min(1),
+    holderHash: z.string().min(1),
+    status: LeaseStatusSchema,
+    expiresAt: IsoDateTimeSchema.optional(),
+    releasedAt: IsoDateTimeSchema.optional(),
+    leaseSecretStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type Lease = z.infer<typeof LeaseSchema>;
+
+export const QuotaSnapshotSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    subjectKind: QuotaSnapshotSubjectKindSchema,
+    subjectHash: z.string().min(1),
+    status: QuotaSnapshotStatusSchema,
+    limitCount: z.number().int().nonnegative().optional(),
+    usedCount: z.number().int().nonnegative().optional(),
+    remainingCount: z.number().int().nonnegative().optional(),
+    resetAtHash: z.string().min(1).optional(),
+    sourceRefIds: z.array(z.string().min(1)).default([]),
+    ambiguous: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.ambiguous && record.status !== 'unknown' && record.status !== 'blocked') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ambiguous quota snapshots must be unknown or blocked',
+        path: ['status'],
+      });
+    }
+  });
+export type QuotaSnapshot = z.infer<typeof QuotaSnapshotSchema>;
+
+export const EvidenceBundleSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .extend({
+    bundleHash: z.string().min(1),
+    evidenceRefIds: z.array(z.string().min(1)).default([]),
+    auditEventIds: z.array(z.string().min(1)).default([]),
+    evidenceCount: z.number().int().nonnegative(),
+    auditEventCount: z.number().int().nonnegative(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.evidenceCount !== record.evidenceRefIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'evidence count must match evidenceRefIds length',
+        path: ['evidenceCount'],
+      });
+    }
+    if (record.auditEventCount !== record.auditEventIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'audit event count must match auditEventIds length',
+        path: ['auditEventCount'],
+      });
+    }
+  });
+export type EvidenceBundle = z.infer<typeof EvidenceBundleSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();
