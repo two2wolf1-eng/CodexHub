@@ -6311,3 +6311,27 @@ workflows:
       noOpenPullRequest: true
       testsAndDocsOnly: true
       metadataOnlyPublicOutput: true
+  m48_d15.secrets-policy-telemetry-audit:
+    risk: critical
+    trigger:
+      type: secrets-policy-telemetry-audit
+      entrypoint: secret-governance policy-backend otel tests docs
+      localControlRequired: false
+    scope:
+      - secrets-provider-hash-only-readiness
+      - policy-backend-advisory-only
+      - policy-cli-runner-summary-redaction
+      - telemetry-non-authoritative-export
+      - no-secret-policy-telemetry-raw-output
+    docs:
+      - docs/releases/m48-d15-secrets-policy-telemetry-audit.md
+      - docs/reviews/m48-d15-secrets-policy-telemetry-audit-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true

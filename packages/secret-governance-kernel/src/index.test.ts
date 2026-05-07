@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { SecretProvider } from '@codexhub/contracts';
 import {
   createConfiguredSecretReferenceSummary,
   createSecretEnvironmentReadiness,
@@ -80,5 +81,64 @@ describe('secret-governance-kernel', () => {
     expect(serialized).not.toContain('payment api runtime value');
     expect(serialized).not.toContain('VAULT_ADDR');
     expect(serialized).not.toContain('raw approval reason');
+  });
+
+  it('keeps all secret providers configured/hash-only with adversarial env values', () => {
+    const providers: SecretProvider[] = ['vault', 'sops', 'onepassword', 'doppler'];
+    const rawValues = {
+      reference: 'secret/data/prod/db-password',
+      purpose: 'database password runtime value',
+      config:
+        'VAULT_TOKEN=raw-token\nSOPS_AGE_KEY=AGE-SECRET-KEY\nOP_SERVICE_ACCOUNT_TOKEN=secret\nDOPPLER_TOKEN=secret',
+      env: 'DATABASE_URL=postgres://user:password@localhost/db',
+      privateKey: '-----BEGIN PRIVATE KEY-----raw secret key-----END PRIVATE KEY-----',
+    };
+    const records = providers.flatMap((provider) => {
+      const reference = createConfiguredSecretReferenceSummary({
+        provider,
+        environment: 'prod',
+        reference: `${provider}:${rawValues.reference}`,
+        purpose: `${provider}:${rawValues.purpose}`,
+        configured: true,
+      });
+      const providerReadiness = createSecretProviderReadiness({
+        provider,
+        governanceEnabled: true,
+        providerEnabled: true,
+        configured: true,
+        config: `${provider}:${rawValues.config}\n${rawValues.env}\n${rawValues.privateKey}`,
+        referenceSummaries: [reference],
+      });
+      const plan = createSecretReadinessPlan({
+        provider,
+        environment: 'prod',
+        config: `${provider}:${rawValues.config}\n${rawValues.env}\n${rawValues.privateKey}`,
+        expectedReferenceCount: 1,
+      });
+      const run = createSecretReadinessRun({
+        plan,
+        providerReadiness,
+        referenceSummaries: [reference],
+      });
+
+      expect(reference.secretValueStored).toBe(false);
+      expect(reference.rawReferenceStored).toBe(false);
+      expect(providerReadiness.secretValueReadAllowed).toBe(false);
+      expect(providerReadiness.secretValueStored).toBe(false);
+      expect(providerReadiness.envValueStored).toBe(false);
+      expect(run.secretValueStored).toBe(false);
+      expect(run.envValueStored).toBe(false);
+      expect(run.networkBoundaryInvoked).toBe(false);
+
+      return [reference, providerReadiness, plan, run];
+    });
+    const serialized = JSON.stringify(records);
+
+    for (const rawValue of Object.values(rawValues)) {
+      expect(serialized).not.toContain(rawValue);
+    }
+    expect(serialized).not.toContain('DATABASE_URL');
+    expect(serialized).not.toContain('BEGIN PRIVATE KEY');
+    expect(serialized).not.toContain('raw-token');
   });
 });

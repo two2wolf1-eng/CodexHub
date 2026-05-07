@@ -359,6 +359,49 @@ describe('policy-backend-adapter', () => {
     expect(serialized).not.toContain('hidden');
   });
 
+  it('does not trust raw CLI runner summaries from real policy backends', async () => {
+    const transientInput = JSON.stringify({
+      action: 'workspace.write',
+      token: 'hidden-runner-token',
+    });
+    const transientPolicySource = 'permit(principal, action, resource);';
+    const result = await runRealPolicyBackendBoundary({
+      backendKind: 'cedar',
+      runtimeMode: 'local-cli',
+      inputHash: `sha256:${hashText(transientInput)}`,
+      policySourceHash: `sha256:${hashText(transientPolicySource)}`,
+      transientInput,
+      transientPolicySource,
+      spawnProcess: async ({ command, args, stdin }) => {
+        expect(command).toBe('cedar');
+        expect(args).toEqual(['authorize']);
+        expect(stdin).toContain('inputHash');
+        expect(stdin).toContain('policySourceHash');
+        return {
+          status: 'completed',
+          stdoutHash: 'sha256:stdout',
+          stderrHash: 'sha256:stderr',
+          stdoutByteCount: 12,
+          stderrByteCount: 0,
+          exitCode: 0,
+          summary:
+            'raw runner summary contains hidden-runner-token and permit(principal, action, resource)',
+        };
+      },
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.processBoundaryInvoked).toBe(true);
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.rawPolicySourceStored).toBe(false);
+    expect(result.rawInputStored).toBe(false);
+    expect(result.rawOutputStored).toBe(false);
+    expect(serialized).not.toContain('hidden-runner-token');
+    expect(serialized).not.toContain('permit(principal');
+    expect(result.summary).toBe('Real policy backend CLI evaluation completed as advisory metadata.');
+  });
+
   it('blocks policy HTTP backends outside loopback or fixed endpoint paths before fetch', async () => {
     const transientInput = JSON.stringify({ action: 'workspace.read', token: 'hidden' });
     const inputHash = `sha256:${hashText(transientInput)}`;

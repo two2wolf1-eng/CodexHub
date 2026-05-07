@@ -144,7 +144,10 @@ async function runLocalCliBoundary(
     rawOutputStored: false,
     rawPathStored: false,
     bodyStored: false,
-    summary: result.summary,
+    summary:
+      result.status === 'completed'
+        ? 'Real policy backend CLI evaluation completed as advisory metadata.'
+        : 'Real policy backend CLI evaluation failed as advisory metadata.',
   };
 }
 
