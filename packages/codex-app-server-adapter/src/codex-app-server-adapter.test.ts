@@ -19,9 +19,12 @@ import {
   createCodexAppServerAdapterPlan,
   createCodexAppServerProtocolDriftReport,
   createCodexAppServerSessionController,
+  createGovernedCodexAppServerStdioTransport,
   createInMemoryCodexAppServerJsonlTransport,
   decodeCodexAppServerJsonlMessage,
   encodeCodexAppServerJsonlMessage,
+  type CodexAppServerProcessHandle,
+  type CodexAppServerProcessSpawner,
 } from './index';
 
 describe('codex-app-server-adapter', () => {
@@ -34,6 +37,7 @@ describe('codex-app-server-adapter', () => {
     expect(manifest.requiresApprovalByDefault).toBe(true);
     expect(manifest.processBoundary.mayStartExternalProcess).toBe(false);
     expect(manifest.metadata?.fixtureOnly).toBe(true);
+    expect(manifest.metadata?.governedProcessBoundaryAvailable).toBe(true);
     expect(manifest.metadata?.realProcessLaunchEnabled).toBe(false);
     expect(validateCapabilityManifest(manifest).ok).toBe(true);
   });
@@ -488,4 +492,143 @@ describe('codex-app-server-adapter', () => {
     expect(result.rawBodyStored).toBe(false);
     expect(JSON.stringify(result)).not.toContain('missing-response-id');
   });
+
+  it('blocks governed stdio process boundary before dispatch gates are ready', () => {
+    const spawner = new FakeCodexAppServerProcessSpawner([
+      { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+    ]);
+    const result = createGovernedCodexAppServerStdioTransport({
+      command: 'C:\\private\\codex-app-server.exe',
+      args: ['--private-arg'],
+      grant: {
+        dryRunId: 'dry_run_m57',
+        approvalArtifactId: '',
+        dispatchAllowed: false,
+        preflightStatus: 'waiting_approval',
+        approvalStatus: 'waiting',
+        canaryGateStatus: 'blocked',
+        protocolDriftStatus: 'compatible',
+      },
+      spawner,
+      observedAt: '2026-05-08T00:00:00.000Z',
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('blocked');
+    expect(result.blockReasons).toEqual(
+      expect.arrayContaining([
+        'approval_artifact_id_required',
+        'dispatch_preflight_not_ready',
+        'approval_not_approved',
+        'canary_gate_not_passed',
+      ]),
+    );
+    expect(result.processBoundaryInvoked).toBe(false);
+    expect(result.externalProcessStarted).toBe(false);
+    expect(result.liveDispatchEnabled).toBe(false);
+    expect(result.rawCommandStored).toBe(false);
+    expect(result.rawArgsStored).toBe(false);
+    expect(spawner.starts).toHaveLength(0);
+    expect(serialized).not.toContain('C:\\private\\codex-app-server.exe');
+    expect(serialized).not.toContain('--private-arg');
+  });
+
+  it('starts governed stdio process transport only after preflight, approval, drift, and canary gates', async () => {
+    const spawner = new FakeCodexAppServerProcessSpawner([
+      { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+    ]);
+    const result = createGovernedCodexAppServerStdioTransport({
+      command: 'C:\\private\\codex-app-server.exe',
+      args: ['--private-arg'],
+      grant: {
+        dryRunId: 'dry_run_m57',
+        approvalArtifactId: 'approval_m57',
+        dispatchAllowed: true,
+        preflightStatus: 'ready',
+        approvalStatus: 'approved',
+        canaryGateStatus: 'passed',
+        protocolDriftStatus: 'compatible',
+        liveDispatchBlocked: false,
+      },
+      spawner,
+      observedAt: '2026-05-08T00:00:00.000Z',
+      evidenceRefIds: ['evidence_stdio_boundary'],
+      auditEventIds: ['audit_stdio_boundary'],
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('ready');
+    expect(result.processBoundaryInvoked).toBe(true);
+    expect(result.externalProcessStarted).toBe(true);
+    expect(result.liveDispatchEnabled).toBe(true);
+    expect(result.transportKind).toBe('stdio-jsonl');
+    expect(result.fixtureOnly).toBe(false);
+    expect(result.rawCommandStored).toBe(false);
+    expect(result.rawArgsStored).toBe(false);
+    expect(result.transport).toBeDefined();
+    expect(serialized).not.toContain('"transport":');
+    expect(serialized).not.toContain('C:\\private\\codex-app-server.exe');
+    expect(serialized).not.toContain('--private-arg');
+    expect(spawner.starts).toEqual([
+      {
+        command: 'C:\\private\\codex-app-server.exe',
+        args: ['--private-arg'],
+      },
+    ]);
+
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_1',
+      transport: result.transport ?? createInMemoryCodexAppServerJsonlTransport(),
+      observedAt: '2026-05-08T00:00:00.000Z',
+    });
+    const initialized = await controller.initialize({ requestId: 'initialize-private-id' });
+
+    expect(initialized.status).toBe('initialized');
+    expect(result.transport?.listLineSummaries().map((summary) => summary.direction)).toEqual([
+      'sent',
+      'received',
+      'sent',
+    ]);
+    expect(JSON.stringify(initialized)).not.toContain('initialize-private-id');
+  });
 });
+
+class FakeCodexAppServerProcessSpawner implements CodexAppServerProcessSpawner {
+  readonly starts: { command: string; args: string[] }[] = [];
+
+  constructor(
+    private readonly incoming: readonly ({ jsonrpc: '2.0'; id: string; result: unknown } | string)[],
+  ) {}
+
+  start(input: { command: string; args: readonly string[] }): CodexAppServerProcessHandle {
+    this.starts.push({ command: input.command, args: [...input.args] });
+    return new FakeCodexAppServerProcessHandle(this.incoming);
+  }
+}
+
+class FakeCodexAppServerProcessHandle implements CodexAppServerProcessHandle {
+  readonly pid = 1234;
+  readonly sentLines: string[] = [];
+  private readonly incomingLines: string[];
+  private closed = false;
+
+  constructor(incoming: readonly ({ jsonrpc: '2.0'; id: string; result: unknown } | string)[]) {
+    this.incomingLines = incoming.map((message) =>
+      typeof message === 'string' ? message : `${JSON.stringify(message)}\n`,
+    );
+  }
+
+  async writeStdin(line: string): Promise<void> {
+    if (!this.closed) {
+      this.sentLines.push(line);
+    }
+  }
+
+  async readStdoutLine(): Promise<string | undefined> {
+    return this.closed ? undefined : this.incomingLines.shift();
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+  }
+}

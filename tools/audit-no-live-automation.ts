@@ -23,6 +23,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scanRoots = ['apps', 'packages', 'tools'];
 const approvedProcessBoundaryFiles = new Set([
   'packages/codex-kernel/src/real-read-only-adapter-process.ts',
+  'packages/codex-app-server-adapter/src/stdio-process-boundary.ts',
   'packages/nx-verification-adapter/src/process-boundary.ts',
   'packages/policy-backend-adapter/src/real-policy-boundary.ts',
   'packages/worktree-manager/src/git-process-boundary.ts',

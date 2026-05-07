@@ -32,6 +32,7 @@ import {
   CODEX_APP_SERVER_ADAPTER_NAME,
   createCodexAppServerAdapterManifest,
 } from './manifest';
+export * from './stdio-process-boundary';
 
 export {
   CODEX_APP_SERVER_ADAPTER_NAME,
