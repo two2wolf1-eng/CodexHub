@@ -12,7 +12,9 @@ import {
 } from '@codexhub/codex-kernel';
 import type { CodexExecRealReadOnlyAdapterExecutableResolution } from '@codexhub/codex-kernel';
 import type {
+  AuditEvent,
   CodexPatchChildRecord,
+  EvidenceRef,
   LocalReviewPackageApprovalArtifactRecord,
   LocalReviewPackageControlPlaneRun,
   LocalReviewPackageDryRunRecord,
@@ -408,6 +410,131 @@ describe('supervisor mock development API', () => {
     });
     expect(response.body).not.toContain('"argv":');
     expect(response.body).not.toContain('"executablePath":');
+  });
+
+  it('exposes M50.1 core read routes as metadata-only projections', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-read-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const privateMetadata = {
+      rawPrompt: 'do not expose raw prompt',
+      rawPath: process.cwd(),
+      body: 'do not expose raw body',
+    };
+    const evidenceRef: EvidenceRef = {
+      id: 'm50_evidence_ref_1',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      kind: 'audit',
+      summary: 'M50 test evidence summary.',
+      hash: `sha256:${createHash('sha256').update(JSON.stringify(privateMetadata)).digest('hex')}`,
+      redacted: true,
+      labels: ['m50.test'],
+      metadata: privateMetadata,
+    };
+    const auditEvent: AuditEvent = {
+      id: 'm50_audit_event_1',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      actor: 'codexhub-supervisor',
+      action: 'manual_private_action',
+      outcome: 'observed',
+      evidenceRefs: [evidenceRef],
+      metadata: privateMetadata,
+    };
+
+    await store.evidenceRefs.create(evidenceRef);
+    await store.auditEvents.append(auditEvent);
+
+    const server = buildSupervisorServer({ store });
+    const routes = [
+      '/capabilities',
+      '/accounts',
+      '/clients',
+      '/tasks',
+      '/workflows',
+      '/approvals',
+      '/evidence?limit=5',
+      `/evidence/${evidenceRef.id}`,
+      '/audit?limit=5',
+      `/audit/${auditEvent.id}`,
+    ];
+    const responses = await Promise.all(
+      routes.map((url) =>
+        server.inject({
+          method: 'GET',
+          url,
+        }),
+      ),
+    );
+
+    await server.close();
+    await store.close();
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(200);
+      expect(response.body).not.toContain('do not expose raw prompt');
+      expect(response.body).not.toContain('do not expose raw body');
+      expect(response.body).not.toContain(process.cwd());
+      expect(response.body).not.toContain('manual_private_action');
+    }
+
+    expect(responses[0].json()).toMatchObject({
+      status: 'ok',
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          capability: 'Browser',
+          classification: 'available-readonly',
+          status: 'available-readonly',
+        }),
+        expect.objectContaining({
+          capability: 'Codex App Server',
+          classification: 'missing-real-adapter',
+        }),
+      ]),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(responses[1].json()).toMatchObject({ status: 'missing-contracts-store', count: 0 });
+    expect(responses[2].json()).toMatchObject({ status: 'missing-contracts-store', count: 0 });
+    expect(responses[3].json()).toMatchObject({ status: 'missing-contracts-store', count: 0 });
+    expect(responses[4].json()).toMatchObject({
+      status: 'available-readonly',
+      workflows: expect.arrayContaining([
+        expect.objectContaining({ workflow: 'development.bootstrap' }),
+      ]),
+    });
+    expect(responses[5].json()).toMatchObject({
+      status: 'available-readonly',
+      itemCount: 0,
+    });
+    expect(responses[6].json()).toMatchObject({
+      status: 'available-readonly',
+      count: 1,
+      evidenceRefIds: [evidenceRef.id],
+    });
+    expect(responses[7].json()).toMatchObject({
+      status: 'available-readonly',
+      item: {
+        evidenceRefId: evidenceRef.id,
+        summary: evidenceRef.summary,
+        hash: evidenceRef.hash,
+      },
+    });
+    expect(responses[8].json()).toMatchObject({
+      status: 'available-readonly',
+      count: 1,
+      auditEventIds: [auditEvent.id],
+    });
+    expect(responses[9].json()).toMatchObject({
+      status: 'available-readonly',
+      item: {
+        auditEventId: auditEvent.id,
+        actionHash: expect.stringMatching(/^sha256:/),
+        evidenceRefIds: [evidenceRef.id],
+      },
+    });
   });
 
   it('protects mutating local API routes with trusted origins and a local token', async () => {

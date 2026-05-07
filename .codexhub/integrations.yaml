@@ -2997,3 +2997,45 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50-supervisor-core-read-control-plane:
+    enabled: false
+    adapter: supervisor-control-plane
+    provider: codexhub-supervisor
+    providerType: builtin
+    mode: read-only
+    stage: m50.1-supervisor-core-read-control-plane
+    release: docs/releases/m50.1-supervisor-core-read-control-plane.md
+    review: docs/reviews/m50.1-supervisor-core-read-control-plane-review.md
+    runbook: docs/runbooks/m50.1-supervisor-core-read-control-plane-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    routes:
+      - GET /capabilities
+      - GET /accounts
+      - GET /clients
+      - GET /tasks
+      - GET /workflows
+      - GET /approvals
+      - GET /evidence
+      - GET /evidence/:id
+      - GET /audit
+      - GET /audit/:id
+    safety:
+      readRoutesOnly: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noPostMutationShell: true
+      directAdapterExecutionAllowed: false
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

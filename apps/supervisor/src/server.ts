@@ -331,6 +331,7 @@ import type {
   WorktreeCleanupDryRunRecord,
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
+  WorkflowRun,
   M9PilotRun,
   M11PilotRun,
   WorktreeRunStatus,
@@ -2268,6 +2269,216 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       realReadOnlyAdapterCodexCliArgvStored: false,
     },
   }));
+
+  server.get('/capabilities', async () => ({
+    id: foundationId('supervisor_capabilities'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: foundationTimestamp(),
+    status: 'ok',
+    summary:
+      'M50.1 Supervisor exposes the M49.1 real capability matrix as metadata-only control-plane state.',
+    matrixHash: hashSupervisorMetadata({
+      stage: 'm49.1',
+      matrix: 'real-capability-boundary-convergence',
+    }),
+    capabilities: M50_REAL_CAPABILITY_SUMMARIES.map(createM50CapabilityProjection),
+    evidenceRefIds: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  }));
+
+  server.get('/accounts', async () =>
+    createM50UnavailableReadProjection({
+      idPrefix: 'supervisor_accounts',
+      surface: 'accounts',
+      summary:
+        'Account pool projections are blocked until M51 contracts and store models exist.',
+    }),
+  );
+
+  server.get('/clients', async () =>
+    createM50UnavailableReadProjection({
+      idPrefix: 'supervisor_clients',
+      surface: 'clients',
+      summary:
+        'Codex client pool projections are blocked until M51 contracts and store models exist.',
+    }),
+  );
+
+  server.get('/tasks', async () =>
+    createM50UnavailableReadProjection({
+      idPrefix: 'supervisor_tasks',
+      surface: 'tasks',
+      summary:
+        'Codex task projections are blocked until M51 task contracts and store models exist.',
+    }),
+  );
+
+  server.get('/workflows', async () => {
+    const store = await getStore();
+    const workflowRuns = store ? await store.workflowRuns.list() : [];
+
+    return {
+      id: foundationId('supervisor_workflows'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'available-readonly',
+      summary:
+        'Supervisor workflow catalog and run summaries are available as metadata-only read projections.',
+      catalogHash: hashSupervisorMetadata({
+        workflows: M50_WORKFLOW_CATALOG_SUMMARIES.map((item) => item.workflow),
+      }),
+      workflows: M50_WORKFLOW_CATALOG_SUMMARIES.map(createM50WorkflowProjection),
+      workflowRunSummaries: workflowRuns.map(createM50WorkflowRunProjection),
+      workflowRunCount: workflowRuns.length,
+      evidenceRefIds: [],
+      auditEventIds: [],
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/approvals', async () => {
+    const store = await getStore();
+    const projection = await buildApprovalInboxProjection(store);
+
+    return {
+      id: foundationId('supervisor_approvals'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'available-readonly',
+      summary: projection.summary,
+      itemCount: projection.itemCount,
+      requestedCount: projection.requestedCount,
+      approvedCount: projection.approvedCount,
+      terminalCount: projection.terminalCount,
+      typeBreakdownHash: hashSupervisorMetadata({ typeBreakdown: projection.typeBreakdown }),
+      evidenceRefIds: projection.items.flatMap((item) => item.evidenceRefIds),
+      auditEventIds: projection.items.flatMap((item) => item.auditEventIds),
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/evidence/:evidenceId', async (request, reply) => {
+    const params = request.params as { evidenceId?: string };
+
+    if (!params.evidenceId) {
+      return reply.code(400).send({ error: 'evidenceId is required' });
+    }
+
+    const store = await getStore();
+    const evidenceRef = store
+      ? await store.evidenceRefs.getEvidenceRef(params.evidenceId)
+      : undefined;
+
+    if (!evidenceRef) {
+      return reply.code(404).send(createM50NotFoundProjection('evidence'));
+    }
+
+    return {
+      id: foundationId('supervisor_evidence_detail'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'available-readonly',
+      summary: 'Evidence ref metadata was resolved without returning raw body or path data.',
+      item: createM50EvidenceProjection(evidenceRef),
+      evidenceRefIds: [evidenceRef.id],
+      auditEventIds: [],
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/evidence', async (request) => {
+    const store = await getStore();
+    const limit = parseM50Limit(request.query);
+    const evidenceRefs = store ? await store.evidenceRefs.listEvidenceRefs({ limit }) : [];
+
+    return {
+      id: foundationId('supervisor_evidence'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'available-readonly',
+      summary: 'Evidence refs are listed as metadata-only summaries.',
+      items: evidenceRefs.map(createM50EvidenceProjection),
+      count: evidenceRefs.length,
+      evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+      auditEventIds: [],
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/audit/:auditEventId', async (request, reply) => {
+    const params = request.params as { auditEventId?: string };
+
+    if (!params.auditEventId) {
+      return reply.code(400).send({ error: 'auditEventId is required' });
+    }
+
+    const store = await getStore();
+    const auditEvent = store
+      ? await store.auditEvents.getAuditEvent(params.auditEventId)
+      : undefined;
+
+    if (!auditEvent) {
+      return reply.code(404).send(createM50NotFoundProjection('audit'));
+    }
+
+    return {
+      id: foundationId('supervisor_audit_detail'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'available-readonly',
+      summary: 'Audit event metadata was resolved without returning raw target, reason, or body data.',
+      item: createM50AuditEventProjection(auditEvent),
+      evidenceRefIds: auditEvent.evidenceRefs.map((ref) => ref.id),
+      auditEventIds: [auditEvent.id],
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
+
+  server.get('/audit', async (request) => {
+    const store = await getStore();
+    const limit = parseM50Limit(request.query);
+    const auditEvents = store ? await store.auditEvents.listAuditEvents({ limit }) : [];
+
+    return {
+      id: foundationId('supervisor_audit'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'available-readonly',
+      summary: 'Audit events are listed as metadata-only summaries.',
+      items: auditEvents.map(createM50AuditEventProjection),
+      count: auditEvents.length,
+      evidenceRefIds: auditEvents.flatMap((event) => event.evidenceRefs.map((ref) => ref.id)),
+      auditEventIds: auditEvents.map((event) => event.id),
+      degraded: persistenceState.status !== 'ok',
+      notPersisted: !store,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    };
+  });
 
   server.post('/api/workflows/dry-run', async (request) => {
     const body = request.body as
@@ -30710,6 +30921,223 @@ function createUntrustedApprovalArtifactBodyAuditEvents(
 
 function hashSupervisorMetadata(metadata: Record<string, unknown>): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(metadata)).digest('hex')}`;
+}
+
+type M50RealCapabilityClassification =
+  | 'available-readonly'
+  | 'available-dry-run'
+  | 'missing-real-adapter'
+  | 'requires-approval'
+  | 'forbidden';
+
+interface M50RealCapabilitySummary {
+  capability: string;
+  classification: M50RealCapabilityClassification;
+  summary: string;
+}
+
+interface M50WorkflowCatalogSummary {
+  workflow: string;
+  status: 'available-readonly' | 'available-dry-run';
+  summary: string;
+}
+
+const M50_REAL_CAPABILITY_SUMMARIES: M50RealCapabilitySummary[] = [
+  {
+    capability: 'Browser',
+    classification: 'available-readonly',
+    summary:
+      'Read-only profile and observation planning; click, input, and browser secret material remain forbidden.',
+  },
+  {
+    capability: 'Electron',
+    classification: 'available-readonly',
+    summary: 'Loopback metadata planning only; main inspector, runtime evaluation, and mutation remain forbidden.',
+  },
+  {
+    capability: 'Codex App Server',
+    classification: 'missing-real-adapter',
+    summary: 'Adapter and protocol verification are future M54 work after M51 contracts and store models.',
+  },
+  {
+    capability: 'ChatGPT Business',
+    classification: 'missing-real-adapter',
+    summary: 'Read-first workspace and quota adapter work is future M52; admin actions remain blocked.',
+  },
+  {
+    capability: 'Git',
+    classification: 'available-dry-run',
+    summary: 'Dry-run planning and summaries exist; real local writes, push, and PR operations require approval.',
+  },
+  {
+    capability: 'Worktree',
+    classification: 'available-dry-run',
+    summary: 'Isolated sibling worktree planning exists; mutation and cleanup remain governed and approval gated.',
+  },
+  {
+    capability: 'GitHub',
+    classification: 'available-dry-run',
+    summary: 'Provider planning and rehearsals exist; remote writes, PRs, merges, releases, and cleanup require approval.',
+  },
+  {
+    capability: 'Approval',
+    classification: 'requires-approval',
+    summary: 'Approvals must be store-resolved and hash-bound; request-body authority is never trusted.',
+  },
+  {
+    capability: 'Policy',
+    classification: 'available-readonly',
+    summary: 'Policy projections and decisions are metadata-only; policy does not execute adapters directly.',
+  },
+  {
+    capability: 'Evidence',
+    classification: 'available-readonly',
+    summary: 'Evidence refs expose ids, hashes, summaries, and redaction status without raw body/path data.',
+  },
+  {
+    capability: 'Audit',
+    classification: 'available-readonly',
+    summary: 'Audit projections expose ids, outcomes, hashes, summaries, and evidence refs without raw targets.',
+  },
+];
+
+const M50_WORKFLOW_CATALOG_SUMMARIES: M50WorkflowCatalogSummary[] = [
+  {
+    workflow: 'development.bootstrap',
+    status: 'available-dry-run',
+    summary: 'Existing development bootstrap workflow remains dry-run only.',
+  },
+  {
+    workflow: 'local-patch-review',
+    status: 'available-dry-run',
+    summary: 'Local patch review workflow remains governed by existing policy, evidence, and audit gates.',
+  },
+  {
+    workflow: 'local-rc-bundle',
+    status: 'available-dry-run',
+    summary: 'Local release-candidate bundle workflow remains governed and export-only.',
+  },
+  {
+    workflow: 'github-draft-pr-chain',
+    status: 'available-dry-run',
+    summary: 'GitHub draft PR chain remains dry-run and approval gated before any remote write.',
+  },
+  {
+    workflow: 'rework-cleanup',
+    status: 'available-dry-run',
+    summary: 'Rework cleanup remains plan-first and approval gated before mutation.',
+  },
+];
+
+function createM50CapabilityProjection(summary: M50RealCapabilitySummary) {
+  return {
+    capability: summary.capability,
+    capabilityHash: hashSupervisorMetadata({
+      capability: summary.capability,
+      classification: summary.classification,
+    }),
+    classification: summary.classification,
+    status: summary.classification,
+    summary: summary.summary,
+    evidenceRefIds: [],
+    auditEventIds: [],
+  };
+}
+
+function createM50WorkflowProjection(summary: M50WorkflowCatalogSummary) {
+  return {
+    workflow: summary.workflow,
+    workflowHash: hashSupervisorMetadata({ workflow: summary.workflow }),
+    status: summary.status,
+    summary: summary.summary,
+    evidenceRefIds: [],
+    auditEventIds: [],
+  };
+}
+
+function createM50WorkflowRunProjection(run: WorkflowRun) {
+  return {
+    workflowRunId: run.id,
+    workflowHash: hashSupervisorMetadata({ workflow: run.workflowName }),
+    status: run.status,
+    summary: `Workflow run ${run.status}; ${run.steps.length} step(s) recorded.`,
+    dryRun: run.dryRun,
+    evidenceRefIds: run.evidenceRefs.map((ref) => ref.id),
+    auditEventIds: [],
+  };
+}
+
+function createM50EvidenceProjection(ref: EvidenceRef) {
+  return {
+    evidenceRefId: ref.id,
+    kind: ref.kind,
+    status: ref.redacted ? 'redacted' : 'metadata-only',
+    summary: ref.summary,
+    hash: ref.hash,
+    evidenceRefIds: [ref.id],
+    auditEventIds: [],
+  };
+}
+
+function createM50AuditEventProjection(event: AuditEvent) {
+  return {
+    auditEventId: event.id,
+    actionHash: hashSupervisorMetadata({ action: event.action }),
+    status: event.outcome,
+    summary: `Audit event ${event.outcome}.`,
+    evidenceRefIds: event.evidenceRefs.map((ref) => ref.id),
+    auditEventIds: [event.id],
+  };
+}
+
+function createM50UnavailableReadProjection(input: {
+  idPrefix: string;
+  surface: string;
+  summary: string;
+}) {
+  return {
+    id: foundationId(input.idPrefix),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: foundationTimestamp(),
+    status: 'missing-contracts-store',
+    summary: input.summary,
+    surfaceHash: hashSupervisorMetadata({ surface: input.surface }),
+    items: [],
+    count: 0,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function createM50NotFoundProjection(surface: 'audit' | 'evidence') {
+  return {
+    status: 'not-found',
+    summary: `${surface} record was not found or is not persisted.`,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+  };
+}
+
+function parseM50Limit(query: unknown): number {
+  const rawLimit = (query as { limit?: string | number } | undefined)?.limit;
+  const parsed =
+    typeof rawLimit === 'number'
+      ? rawLimit
+      : typeof rawLimit === 'string'
+        ? Number.parseInt(rawLimit, 10)
+        : 50;
+
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 50;
+  }
+
+  return Math.min(parsed, 100);
 }
 
 function findWorkspaceRoot(startDirectory: string): string {

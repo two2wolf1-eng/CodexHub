@@ -149,6 +149,19 @@ Tasks:
 | M50.3 Core read routes | Health, capabilities, workflows, evidence, audit. | Responses are metadata/hash-only and schema-validated. |
 | M50.4 Core mutation shells | Workflow dry-run, approval decision, task create, task recover. | Mutations create audit events and never trust request-body approval artifacts. |
 
+M50.1 status:
+
+- Complete as a Supervisor read-control-plane round.
+- Added root-level `GET /capabilities`, `GET /accounts`, `GET /clients`,
+  `GET /tasks`, `GET /workflows`, `GET /approvals`, `GET /evidence`,
+  `GET /evidence/:id`, `GET /audit`, and `GET /audit/:id`.
+- Account, client, and task routes intentionally return
+  `missing-contracts-store` until M51 contracts and stores exist.
+- Release, review, and runbook:
+  - `docs/releases/m50.1-supervisor-core-read-control-plane.md`
+  - `docs/reviews/m50.1-supervisor-core-read-control-plane-review.md`
+  - `docs/runbooks/m50.1-supervisor-core-read-control-plane-runbook.md`
+
 Non-scope:
 
 - No direct adapter execution from routes.

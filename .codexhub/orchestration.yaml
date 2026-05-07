@@ -6643,3 +6643,42 @@ workflows:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50_1.supervisor-core-read-control-plane:
+    risk: critical
+    trigger:
+      type: supervisor-core-read-control-plane
+      entrypoint: apps/supervisor docs orchestration integrations scaffold-health
+      localControlRequired: false
+    scope:
+      - supervisor-root-read-routes
+      - real-capability-matrix-projection
+      - account-client-task-degraded-projections
+      - workflow-catalog-read-projection
+      - approval-count-read-projection
+      - evidence-audit-metadata-read-projections
+      - no-direct-adapter-execution-tests
+    docs:
+      - docs/releases/m50.1-supervisor-core-read-control-plane.md
+      - docs/reviews/m50.1-supervisor-core-read-control-plane-review.md
+      - docs/runbooks/m50.1-supervisor-core-read-control-plane-runbook.md
+    safety:
+      readRoutesOnly: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewPackage: true
+      noNewLiveBoundary: true
+      noPostMutationShell: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true
