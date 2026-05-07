@@ -328,4 +328,50 @@ describe('production-ga-kernel', () => {
     expect(failedE2eSignoff.status).toBe('failed');
     expect(failedE2eSignoff.approvalConsumedCount).toBe(0);
   });
+
+  it('blocks GA signoff when approvals share the same approver hash', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const matrix = createProductionGaCapabilityMatrix({ now });
+    const threatModel = createProductionGaThreatModel({
+      authorityModelSeed: 'security-kernel-final-authority',
+      approvalModelSeed: 'two-distinct-approver-ga',
+      evidenceAuditModelSeed: 'evidence-audit-required',
+      rollbackModelSeed: 'dr-runbook-required',
+      now,
+    });
+    const readinessPlan = createProductionGaReadinessPlan({ matrix, threatModel, now });
+    const readiness = summarizeProductionGaReadiness({ plan: readinessPlan, now });
+    const rehearsalPlan = createProductionGaE2ERehearsalPlan({ scenario: 'all-pass', now });
+    const rehearsalRun = createProductionGaE2ERehearsalRun({ plan: rehearsalPlan, now });
+    const signoffPlan = createProductionGaReleaseCandidateSignoffPlan({
+      matrix,
+      threatModel,
+      readinessSummary: readiness,
+      e2eRehearsalRun: rehearsalRun,
+      now,
+    });
+    const approvalOne = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'same-operator',
+      now,
+    });
+    const approvalTwo = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'same-operator',
+      now,
+    });
+
+    const signoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals: [approvalOne, approvalTwo],
+      now,
+    });
+
+    expect(signoff.status).toBe('blocked');
+    expect(signoff.approvalConsumedCount).toBe(0);
+    expect(signoff.approverHashes).toHaveLength(2);
+    expect(new Set(signoff.approverHashes).size).toBe(1);
+    expect(signoff.childAdapterInvokedDirectly).toBe(false);
+    expect(findAdversarialPublicOutputRoundTripLeaks([signoff])).toEqual([]);
+  });
 });

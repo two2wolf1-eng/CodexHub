@@ -17686,7 +17686,11 @@ export const ProductionGaSignoffRunSchema = createdEntityBaseSchema
   .strict()
   .superRefine((record, context) => {
     rejectCustomWorkflowRawMetadata(record, context);
-    if (record.approvalArtifactIds.length < 2 || new Set(record.approverHashes).size < 2) {
+    const readyStatus = record.status === 'ready' || record.status === 'conditionally_ready';
+    if (
+      readyStatus &&
+      (record.approvalArtifactIds.length < 2 || new Set(record.approverHashes).size < 2)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Production GA signoff requires two distinct approvals',

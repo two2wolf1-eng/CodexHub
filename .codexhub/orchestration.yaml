@@ -6015,3 +6015,28 @@ workflows:
       noOpenPullRequest: true
       serializerHelperOnly: true
       metadataOnlyPublicOutput: true
+  m48_d3.ga-store-signoff-semantics-debug:
+    risk: critical
+    trigger:
+      type: ga-store-signoff-semantics-debug
+      entrypoint: production-ga-kernel store-core store-sqlite supervisor docs
+      localControlRequired: false
+    scope:
+      - production-ga-store-save-list-get-roundtrip
+      - production-ga-approval-distinct-approver-hash-semantics
+      - production-ga-signoff-critical-risk-blockers
+      - production-ga-conditional-live-blocker-semantics
+      - metadata-only-store-projection
+    docs:
+      - docs/releases/m48-d3-ga-store-signoff-debug.md
+      - docs/reviews/m48-d3-ga-store-signoff-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      testsAndDocsOnly: true
+      metadataOnlyPublicOutput: true

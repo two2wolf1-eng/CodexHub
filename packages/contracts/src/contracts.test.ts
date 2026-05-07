@@ -14849,6 +14849,14 @@ describe('contracts schemas', () => {
         approverHashes: ['sha256:same-approver', 'sha256:same-approver'],
       }),
     ).toThrow();
+    const blockedDuplicateApproverSignoff = ProductionGaSignoffRunSchema.parse({
+      ...signoff,
+      id: 'production_ga_signoff_blocked_duplicate_approver',
+      status: 'blocked',
+      approverHashes: ['sha256:same-approver', 'sha256:same-approver'],
+      approvalConsumedCount: 0,
+    });
+    expect(blockedDuplicateApproverSignoff.status).toBe('blocked');
     expect(() =>
       ProductionGaSignoffRunSchema.parse({
         ...signoff,

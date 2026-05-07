@@ -109,18 +109,47 @@ describe('production GA SQLite stores', () => {
     await store.productionGaThreatModels.saveThreatModel(threatModel);
     await store.productionGaResidualRiskRegisters.saveResidualRiskRegister(riskRegister);
 
+    const dryRuns = await store.productionGaDryRuns.listDryRuns({ limit: 10 });
+    const approvals = await store.productionGaApprovals.listApprovals({ limit: 10 });
+    const signoffPlans = await store.productionGaSignoffPlans.listSignoffPlans({ limit: 10 });
+    const signoffRuns = await store.productionGaSignoffRuns.listRuns({ limit: 10 });
+    const rehearsalRuns = await store.productionGaE2ERehearsalRuns.listRehearsalRuns({ limit: 10 });
+    const trainingCompletions = await store.productionGaTrainingCompletions.listTrainingCompletions({
+      limit: 10,
+    });
+    const threatModels = await store.productionGaThreatModels.listThreatModels({ limit: 10 });
+    const riskRegisters = await store.productionGaResidualRiskRegisters.listResidualRiskRegisters({
+      limit: 10,
+    });
     const records = [
       await store.productionGaDryRuns.getDryRun(readinessPlan.id),
       await store.productionGaApprovals.getApprovalByArtifactId(approvalOne.id),
+      await store.productionGaApprovals.getApproval(approvalTwo.id),
       await store.productionGaSignoffPlans.getSignoffPlan(signoffPlan.id),
       await store.productionGaSignoffRuns.getRun(signoffRun.id),
-      ...(await store.productionGaE2ERehearsalRuns.listRehearsalRuns({ limit: 10 })),
-      ...(await store.productionGaTrainingCompletions.listTrainingCompletions({ limit: 10 })),
-      ...(await store.productionGaThreatModels.listThreatModels({ limit: 10 })),
-      ...(await store.productionGaResidualRiskRegisters.listResidualRiskRegisters({ limit: 10 })),
+      await store.productionGaE2ERehearsalRuns.getRehearsalRun(rehearsalRun.id),
+      await store.productionGaTrainingCompletions.getTrainingCompletion(training.id),
+      await store.productionGaThreatModels.getThreatModel(threatModel.id),
+      await store.productionGaResidualRiskRegisters.getResidualRiskRegister(riskRegister.id),
+      ...dryRuns,
+      ...approvals,
+      ...signoffPlans,
+      ...signoffRuns,
+      ...rehearsalRuns,
+      ...trainingCompletions,
+      ...threatModels,
+      ...riskRegisters,
     ].filter((record) => record !== undefined);
 
-    expect(records).toHaveLength(8);
+    expect(dryRuns).toHaveLength(1);
+    expect(approvals).toHaveLength(2);
+    expect(signoffPlans).toHaveLength(1);
+    expect(signoffRuns).toHaveLength(1);
+    expect(rehearsalRuns).toHaveLength(1);
+    expect(trainingCompletions).toHaveLength(1);
+    expect(threatModels).toHaveLength(1);
+    expect(riskRegisters).toHaveLength(1);
+    expect(records).toHaveLength(18);
     expect(signoffRun.childAdapterInvokedDirectly).toBe(false);
     expect(signoffRun.approvalConsumedCount).toBe(2);
     expect(JSON.stringify(records)).not.toContain(adversarialPublicOutputFixture);
