@@ -466,6 +466,7 @@ import {
   PlatformRestoreRunSchema,
   ProductionGaApprovalArtifactSchema,
   ProductionGaCapabilityMatrixSchema,
+  ProductionGaE2EScenarioSchema,
   ProductionGaE2ERehearsalPlanSchema,
   ProductionGaE2ERehearsalRunSchema,
   ProductionGaEvidenceBundleSummarySchema,
@@ -15322,11 +15323,172 @@ describe('contracts schemas', () => {
           'disaster-recovery-drill',
         ],
       },
+      {
+        name: 'M48 production GA E2E',
+        actual: ProductionGaE2EScenarioSchema.options,
+        required: [
+          'all-pass',
+          'patch-blocked',
+          'verification-failed',
+          'pr-blocked',
+          'merge-blocked',
+          'release-blocked',
+          'deploy-blocked',
+          'observe-blocked',
+          'rollback-plan-missing',
+          'rollback-failed',
+          'child-hash-mismatch',
+          'approval-blocked',
+          'live-env-not-configured',
+          'evidence-missing',
+          'audit-gap',
+        ],
+      },
     ];
 
     for (const matrix of matrices) {
       const missing = matrix.required.filter((scenario) => !matrix.actual.includes(scenario));
       expect(missing, `${matrix.name} rehearsal matrix drift`).toEqual([]);
+    }
+  });
+
+  it('keeps rehearsal matrices covering success, block, failure, timeout, hash, and approval archetypes', () => {
+    const coverage: Array<{
+      name: string;
+      actual: readonly string[];
+      archetypes: Record<string, readonly string[]>;
+    }> = [
+      {
+        name: 'M40 release lifecycle',
+        actual: ReleaseLifecycleAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass'],
+          blocked: ['version-plan-blocked', 'changelog-blocked', 'tag-exists'],
+          approval: ['tag-approval-blocked', 'release-draft-approval-blocked'],
+          failure: ['tag-create-failed', 'release-draft-failed'],
+          timeout: ['network-timeout'],
+        },
+      },
+      {
+        name: 'M41 deployment observation',
+        actual: DeploymentAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass'],
+          blocked: ['provider-disabled', 'tool-missing', 'status-unavailable'],
+          approval: ['approval-blocked'],
+          hashMismatch: ['target-hash-mismatch'],
+          failure: ['plan-diff-detected', 'drift-detected', 'raw-output-rejected'],
+          timeout: ['network-timeout'],
+        },
+      },
+      {
+        name: 'M42 deployment operation',
+        actual: DeploymentOperationAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass'],
+          blocked: ['provider-disabled', 'tool-missing', 'rollback-plan-missing'],
+          approval: ['approval-blocked', 'prod-second-approval-missing'],
+          hashMismatch: ['target-hash-mismatch'],
+          failure: ['apply-failed', 'sync-failed', 'rollback-failed'],
+          timeout: ['network-timeout'],
+        },
+      },
+      {
+        name: 'M43 secrets governance',
+        actual: SecretGovernanceAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass'],
+          blocked: ['provider-disabled', 'config-missing'],
+          approval: ['approval-blocked'],
+          failure: ['leak-audit-failed', 'raw-output-rejected'],
+        },
+      },
+      {
+        name: 'M44 policy backend',
+        actual: RealPolicyBackendAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass'],
+          blocked: ['provider-disabled', 'loopback-unavailable'],
+          approval: ['approval-blocked'],
+          failure: ['advisory-deny', 'backend-error', 'raw-output-rejected'],
+        },
+      },
+      {
+        name: 'M44 telemetry export',
+        actual: RealTelemetryAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass-local'],
+          blocked: ['exporter-disabled', 'network-exporter-disabled', 'endpoint-blocked'],
+          approval: ['approval-blocked'],
+          failure: ['export-failed', 'raw-span-rejected'],
+          timeout: ['network-timeout'],
+        },
+      },
+      {
+        name: 'M45 controlled write',
+        actual: ControlledWriteAcceptanceScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass-click', 'all-pass-type', 'all-pass-runtime-evaluate'],
+          blocked: ['browser-disabled', 'inspector-disabled', 'mcp-write-disabled'],
+          approval: ['approval-blocked'],
+          hashMismatch: ['selector-hash-mismatch', 'target-hash-mismatch', 'patch-hash-mismatch'],
+          failure: ['action-failed', 'runtime-failed', 'patch-apply-failed'],
+          timeout: ['network-timeout'],
+        },
+      },
+      {
+        name: 'M46 runtime scheduler',
+        actual: RuntimeSchedulerRehearsalScenarioSchema.options,
+        archetypes: {
+          blocked: ['scheduler-disabled', 'queue-full', 'lock-held', 'child-workflow-blocked'],
+          failure: ['retry-exhausted', 'cancel-requested'],
+          timeout: ['timeout'],
+          resume: ['resume-from-checkpoint'],
+        },
+      },
+      {
+        name: 'M46 external agent',
+        actual: ExternalAgentRehearsalScenarioSchema.options,
+        archetypes: {
+          success: ['codex-all-pass', 'claude-all-pass'],
+          blocked: ['provider-disabled', 'cli-missing', 'worktree-missing'],
+          approval: ['approval-blocked'],
+          hashMismatch: ['prompt-hash-mismatch', 'patch-hash-mismatch'],
+          failure: ['agent-run-failed', 'command-passthrough-blocked'],
+          timeout: ['timeout'],
+        },
+      },
+      {
+        name: 'M47 platform operations',
+        actual: DisasterRecoveryScenarioSchema.options,
+        archetypes: {
+          success: ['backup-all-pass', 'restore-rehearsal-pass', 'audit-export-pass'],
+          blocked: ['backup-dir-missing', 'restore-replace-disabled', 'role-missing'],
+          approval: ['restore-second-approval-missing'],
+          hashMismatch: ['backup-hash-mismatch'],
+          failure: ['migration-failed', 'role-insufficient'],
+          resume: ['disaster-recovery-drill'],
+        },
+      },
+      {
+        name: 'M48 production GA E2E',
+        actual: ProductionGaE2EScenarioSchema.options,
+        archetypes: {
+          success: ['all-pass'],
+          blocked: ['patch-blocked', 'pr-blocked', 'merge-blocked', 'live-env-not-configured'],
+          approval: ['approval-blocked'],
+          hashMismatch: ['child-hash-mismatch'],
+          failure: ['verification-failed', 'rollback-failed', 'audit-gap'],
+        },
+      },
+    ];
+
+    for (const matrix of coverage) {
+      for (const [archetype, scenarios] of Object.entries(matrix.archetypes)) {
+        const hasArchetype = scenarios.some((scenario) => matrix.actual.includes(scenario));
+
+        expect(hasArchetype, `${matrix.name} missing ${archetype} rehearsal archetype`).toBe(true);
+      }
     }
   });
 });

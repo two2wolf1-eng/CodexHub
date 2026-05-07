@@ -6479,3 +6479,26 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d22.rehearsal-matrix-completeness:
+    risk: high
+    trigger:
+      type: rehearsal-matrix-completeness
+      entrypoint: contracts tests docs
+      localControlRequired: false
+    scope:
+      - m40-m48-rehearsal-scenario-matrices
+      - production-ga-e2e-scenario-drift
+      - success-blocked-approval-failure-timeout-hash-resume-archetypes
+      - fixture-only-metadata-only-coverage
+    docs:
+      - docs/releases/m48-d22-rehearsal-matrix-completeness.md
+      - docs/reviews/m48-d22-rehearsal-matrix-completeness-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
