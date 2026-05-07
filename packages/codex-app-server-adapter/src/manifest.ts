@@ -21,6 +21,8 @@ export function createCodexAppServerAdapterManifest(): CapabilityManifest {
     capabilities: [
       'codex.app_server.stdio_jsonl.fixture_transport',
       'codex.app_server.initialize.lifecycle',
+      'codex.app_server.account.read.fixture',
+      'codex.app_server.account.rate_limits.read.fixture',
       'codex.app_server.codec.request_notification_response',
       'codex.app_server.wire_summary.metadata_only',
       'codex.app_server.no_process_spawn_m54_3',

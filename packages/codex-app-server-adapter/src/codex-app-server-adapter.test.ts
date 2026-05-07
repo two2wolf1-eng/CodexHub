@@ -4,8 +4,10 @@ import {
   validateCapabilityPlanEnvelope,
 } from '@codexhub/capability-adapter-kernel';
 import {
+  CodexAccountBindingSchema,
   CodexAppServerSessionSchema,
   CodexAppServerWireMessageSummarySchema,
+  QuotaSnapshotSchema,
 } from '@codexhub/contracts';
 import {
   createCodexAppServerAdapterManifest,
@@ -144,6 +146,90 @@ describe('codex-app-server-adapter', () => {
     expect(serialized).not.toContain('private-client-instance');
     expect(serialized).not.toContain('private-app-server-session');
     expect(serialized).not.toContain('initialize-private-id');
+  });
+
+  it('reads account and rate limits through initialized fixture transport by hash only', async () => {
+    const transport = createInMemoryCodexAppServerJsonlTransport([
+      { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+      {
+        jsonrpc: '2.0',
+        id: 'account-private-request',
+        result: {
+          accountId: 'private-account-id',
+          email: 'private@example.test',
+          workspaceId: 'private-workspace-id',
+          status: 'matched',
+        },
+      },
+      {
+        jsonrpc: '2.0',
+        id: 'rate-private-request',
+        result: {
+          subjectId: 'private-account-id',
+          status: 'limited',
+          limitCount: 100,
+          usedCount: 75,
+          remainingCount: 25,
+          resetAt: '2026-05-08T00:00:00.000Z',
+        },
+      },
+    ]);
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_1',
+      transport,
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+
+    await controller.initialize({ requestId: 'initialize-private-id' });
+    const account = await controller.readAccount({
+      requestId: 'account-private-request',
+    });
+    const rateLimits = await controller.readRateLimits({
+      requestId: 'rate-private-request',
+    });
+    const serialized = JSON.stringify([account, rateLimits]);
+
+    expect(account.status).toBe('completed');
+    expect(account.accountBinding?.codexAccountHash).toMatch(/^sha256:/);
+    expect(account.accountBinding?.workspaceIdHash).toMatch(/^sha256:/);
+    expect(account.wireSummaries.map((summary) => summary.method)).toEqual([
+      'account/read',
+      'account/read',
+    ]);
+    expect(CodexAccountBindingSchema.safeParse(account.accountBinding).success).toBe(true);
+    expect(rateLimits.status).toBe('completed');
+    expect(rateLimits.quotaSnapshot?.status).toBe('limited');
+    expect(rateLimits.quotaSnapshot?.remainingCount).toBe(25);
+    expect(rateLimits.quotaSnapshot?.resetAtHash).toMatch(/^sha256:/);
+    expect(rateLimits.wireSummaries.map((summary) => summary.method)).toEqual([
+      'account/rateLimits/read',
+      'account/rateLimits/read',
+    ]);
+    expect(QuotaSnapshotSchema.safeParse(rateLimits.quotaSnapshot).success).toBe(true);
+    expect(serialized).not.toContain('private-account-id');
+    expect(serialized).not.toContain('private@example.test');
+    expect(serialized).not.toContain('private-workspace-id');
+    expect(serialized).not.toContain('2026-05-08T00:00:00.000Z');
+    expect(serialized).not.toContain('account-private-request');
+    expect(serialized).not.toContain('rate-private-request');
+  });
+
+  it('blocks account and rate-limit reads before initialize', async () => {
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_1',
+      transport: createInMemoryCodexAppServerJsonlTransport(),
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+
+    const account = await controller.readAccount();
+    const rateLimits = await controller.readRateLimits();
+
+    expect(account.status).toBe('blocked');
+    expect(account.blockReasons).toContain('not_initialized:account/read');
+    expect(rateLimits.status).toBe('blocked');
+    expect(rateLimits.blockReasons).toContain('not_initialized:account/rateLimits/read');
+    expect(account.wireSummaries).toHaveLength(0);
+    expect(rateLimits.wireSummaries).toHaveLength(0);
   });
 
   it('blocks operations before initialize and duplicate initialize attempts', async () => {

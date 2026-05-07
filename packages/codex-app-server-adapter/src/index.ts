@@ -2,12 +2,17 @@ import {
   type CapabilityDryRun,
   CapabilityDryRunSchema,
   type CapabilityManifest,
+  type CodexAccountBinding,
+  CodexAccountBindingSchema,
   type CodexAppServerMethod,
   CodexAppServerMethodSchema,
   type CodexAppServerSession,
   CodexAppServerSessionSchema,
   type CodexAppServerWireMessageSummary,
   CodexAppServerWireMessageSummarySchema,
+  type QuotaSnapshot,
+  type QuotaSnapshotStatus,
+  QuotaSnapshotSchema,
   SchemaVersionSchema,
   foundationId,
   foundationTimestamp,
@@ -26,6 +31,7 @@ export {
 
 export type CodexAppServerAdapterPlanStatus = 'ready' | 'blocked';
 export type CodexAppServerInitializeStatus = 'initialized' | 'blocked' | 'failed';
+export type CodexAppServerReadStatus = 'completed' | 'blocked' | 'failed';
 export type JsonRpcScalarId = string | number;
 
 export interface CodexAppServerAdapterPlanInput {
@@ -152,10 +158,61 @@ export interface CodexAppServerInitializeResult {
   rawBodyStored: false;
 }
 
+export interface CodexAppServerAccountReadInput {
+  requestId?: JsonRpcScalarId;
+  fallbackAccountKey?: string;
+  fallbackWorkspaceKey?: string;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexAppServerAccountReadResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: CodexAppServerReadStatus;
+  blockReasons: string[];
+  accountBinding?: CodexAccountBinding;
+  wireSummaries: CodexAppServerWireMessageSummary[];
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+}
+
+export interface CodexAppServerRateLimitsReadInput {
+  requestId?: JsonRpcScalarId;
+  fallbackSubjectKey?: string;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexAppServerRateLimitsReadResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: CodexAppServerReadStatus;
+  blockReasons: string[];
+  quotaSnapshot?: QuotaSnapshot;
+  wireSummaries: CodexAppServerWireMessageSummary[];
+  fixtureOnly: true;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+}
+
 export interface CodexAppServerSessionController {
   readonly sessionId: string;
   readonly initialized: boolean;
   initialize(input?: CodexAppServerInitializeInput): Promise<CodexAppServerInitializeResult>;
+  readAccount(input?: CodexAppServerAccountReadInput): Promise<CodexAppServerAccountReadResult>;
+  readRateLimits(
+    input?: CodexAppServerRateLimitsReadInput,
+  ): Promise<CodexAppServerRateLimitsReadResult>;
   assertInitialized(method: CodexAppServerMethod): CodexAppServerInitializeResult | undefined;
   close(): Promise<void>;
 }
@@ -433,6 +490,195 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     return this.blockedInitializeResult(observedAt, [`not_initialized:${method}`]);
   }
 
+  async readAccount(
+    input: CodexAppServerAccountReadInput = {},
+  ): Promise<CodexAppServerAccountReadResult> {
+    const observedAt = input.observedAt ?? this.input.observedAt ?? foundationTimestamp();
+    const blocked = this.blockedReadResult('account', observedAt, 'account/read');
+    if (blocked) {
+      return blocked;
+    }
+
+    const requestId = input.requestId ?? 'account_read_1';
+    const exchange = await this.requestResponseExchange({
+      method: 'account/read',
+      requestId,
+      observedAt,
+      summary: 'Account read request uses fixture JSONL transport.',
+      responseSummary: 'Account read response stored as metadata-only wire summary.',
+      evidenceRefIds: input.evidenceRefIds ?? this.input.evidenceRefIds,
+      auditEventIds: input.auditEventIds ?? this.input.auditEventIds,
+    });
+
+    if (!exchange.responseLine) {
+      return {
+        id: foundationId('codex_app_server_account_read_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['account_read_response_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const payload = extractResponsePayload(exchange.responseLine);
+    const accountKey = firstString(
+      payload?.accountId,
+      payload?.accountID,
+      payload?.email,
+      payload?.account,
+      input.fallbackAccountKey,
+    );
+    const workspaceKey = firstString(
+      payload?.workspaceId,
+      payload?.workspaceID,
+      payload?.workspace,
+      input.fallbackWorkspaceKey,
+    );
+
+    if (!accountKey) {
+      return {
+        id: foundationId('codex_app_server_account_read_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['account_identity_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const accountBinding = CodexAccountBindingSchema.parse({
+      id: foundationId('codex_account_binding'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      codexAccountHash: hashRef(accountKey),
+      workspaceIdHash: workspaceKey ? hashRef(workspaceKey) : undefined,
+      status: accountStatus(payload?.status),
+      evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
+      summary: 'Codex App Server account read projected as hashed account binding.',
+    });
+
+    return {
+      id: foundationId('codex_app_server_account_read_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'completed',
+      blockReasons: [],
+      accountBinding,
+      wireSummaries: exchange.wireSummaries,
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
+    };
+  }
+
+  async readRateLimits(
+    input: CodexAppServerRateLimitsReadInput = {},
+  ): Promise<CodexAppServerRateLimitsReadResult> {
+    const observedAt = input.observedAt ?? this.input.observedAt ?? foundationTimestamp();
+    const blocked = this.blockedReadResult('rateLimits', observedAt, 'account/rateLimits/read');
+    if (blocked) {
+      return blocked;
+    }
+
+    const requestId = input.requestId ?? 'account_rate_limits_read_1';
+    const exchange = await this.requestResponseExchange({
+      method: 'account/rateLimits/read',
+      requestId,
+      observedAt,
+      summary: 'Rate limits read request uses fixture JSONL transport.',
+      responseSummary: 'Rate limits read response stored as metadata-only wire summary.',
+      evidenceRefIds: input.evidenceRefIds ?? this.input.evidenceRefIds,
+      auditEventIds: input.auditEventIds ?? this.input.auditEventIds,
+    });
+
+    if (!exchange.responseLine) {
+      return {
+        id: foundationId('codex_app_server_rate_limits_read_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['rate_limits_response_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const payload = extractResponsePayload(exchange.responseLine);
+    const subjectKey = firstString(
+      payload?.subjectId,
+      payload?.accountId,
+      payload?.email,
+      input.fallbackSubjectKey,
+    );
+
+    if (!subjectKey) {
+      return {
+        id: foundationId('codex_app_server_rate_limits_read_result'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+        status: 'failed',
+        blockReasons: ['rate_limits_subject_missing'],
+        wireSummaries: exchange.wireSummaries,
+        fixtureOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        rawBodyStored: false,
+      };
+    }
+
+    const resetAt = firstString(payload?.resetAt, payload?.reset_at);
+    const quotaSnapshot = QuotaSnapshotSchema.parse({
+      id: foundationId('quota_snapshot'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      subjectKind: 'codex-account',
+      subjectHash: hashRef(subjectKey),
+      status: quotaStatus(payload?.status),
+      limitCount: optionalNonnegativeInteger(payload?.limitCount ?? payload?.limit),
+      usedCount: optionalNonnegativeInteger(payload?.usedCount ?? payload?.used),
+      remainingCount: optionalNonnegativeInteger(payload?.remainingCount ?? payload?.remaining),
+      resetAtHash: resetAt ? hashRef(resetAt) : undefined,
+      sourceRefIds: [this.sessionId],
+      evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
+      summary: 'Codex App Server rate limits projected as hashed quota snapshot.',
+    });
+
+    return {
+      id: foundationId('codex_app_server_rate_limits_read_result'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'completed',
+      blockReasons: [],
+      quotaSnapshot,
+      wireSummaries: exchange.wireSummaries,
+      fixtureOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      rawBodyStored: false,
+    };
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     await this.input.transport.close();
@@ -481,6 +727,111 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
         ? 'App Server session is blocked before initialization completes.'
         : 'App Server session is initialized through fixture JSONL transport.',
     });
+  }
+
+  private blockedReadResult(
+    kind: 'account' | 'rateLimits',
+    observedAt: string,
+    method: CodexAppServerMethod,
+  ): CodexAppServerAccountReadResult | CodexAppServerRateLimitsReadResult | undefined {
+    if (this.closed) {
+      return this.createBlockedReadResult(kind, observedAt, ['transport_closed']);
+    }
+
+    if (!this.initializedState) {
+      return this.createBlockedReadResult(kind, observedAt, [`not_initialized:${method}`]);
+    }
+
+    return undefined;
+  }
+
+  private createBlockedReadResult(
+    kind: 'account' | 'rateLimits',
+    observedAt: string,
+    blockReasons: string[],
+  ): CodexAppServerAccountReadResult | CodexAppServerRateLimitsReadResult {
+    const common = {
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
+      status: 'blocked' as const,
+      blockReasons,
+      wireSummaries: [],
+      fixtureOnly: true as const,
+      processBoundaryInvoked: false as const,
+      externalProcessStarted: false as const,
+      rawBodyStored: false as const,
+    };
+
+    return kind === 'account'
+      ? {
+          id: foundationId('codex_app_server_account_read_result'),
+          ...common,
+        }
+      : {
+          id: foundationId('codex_app_server_rate_limits_read_result'),
+          ...common,
+        };
+  }
+
+  private async requestResponseExchange(input: {
+    method: CodexAppServerMethod;
+    requestId: JsonRpcScalarId;
+    observedAt: string;
+    summary: string;
+    responseSummary: string;
+    evidenceRefIds?: readonly string[];
+    auditEventIds?: readonly string[];
+  }): Promise<{
+    responseLine?: string;
+    wireSummaries: CodexAppServerWireMessageSummary[];
+  }> {
+    const request: CodexAppServerJsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: input.requestId,
+      method: input.method,
+      params: {},
+    };
+    const requestLine = encodeCodexAppServerJsonlMessage(request);
+    await this.input.transport.sendLine(requestLine);
+    const requestSummary = createWireSummary({
+      line: requestLine,
+      decoded: decodeCodexAppServerJsonlMessage(requestLine),
+      appServerSessionId: this.sessionId,
+      observedAt: input.observedAt,
+      status: 'sent',
+      evidenceRefIds: input.evidenceRefIds,
+      auditEventIds: input.auditEventIds,
+      initializedObserved: true,
+      summary: input.summary,
+    });
+    const responseLine = await this.input.transport.receiveLine();
+
+    if (!responseLine) {
+      return {
+        wireSummaries: [requestSummary],
+      };
+    }
+
+    const responseSummary = createWireSummary({
+      line: responseLine,
+      decoded: {
+        ...decodeCodexAppServerJsonlMessage(responseLine),
+        method: input.method,
+      },
+      appServerSessionId: this.sessionId,
+      observedAt: input.observedAt,
+      status: 'received',
+      evidenceRefIds: input.evidenceRefIds,
+      auditEventIds: input.auditEventIds,
+      initializedObserved: true,
+      summary: input.responseSummary,
+    });
+
+    return {
+      responseLine,
+      wireSummaries: [requestSummary, responseSummary],
+    };
   }
 }
 
@@ -598,4 +949,63 @@ function byteLength(value: string): number {
 
 function ensureJsonlLine(value: string): string {
   return value.endsWith('\n') ? value : `${value}\n`;
+}
+
+function extractResponsePayload(line: string): Record<string, unknown> | undefined {
+  const parsed = JSON.parse(line.trim()) as Record<string, unknown>;
+  const result = parsed.result;
+  return result && typeof result === 'object' && !Array.isArray(result)
+    ? (result as Record<string, unknown>)
+    : undefined;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function accountStatus(value: unknown): CodexAccountBinding['status'] {
+  if (value === 'matched' || value === 'active' || value === 'ready') {
+    return 'matched';
+  }
+
+  if (value === 'mismatch' || value === 'wrong_account') {
+    return 'mismatch';
+  }
+
+  if (value === 'disabled' || value === 'removed') {
+    return 'disabled';
+  }
+
+  if (value === 'blocked') {
+    return 'blocked';
+  }
+
+  return 'unverified';
+}
+
+function quotaStatus(value: unknown): QuotaSnapshotStatus {
+  if (
+    value === 'available' ||
+    value === 'limited' ||
+    value === 'exhausted' ||
+    value === 'blocked'
+  ) {
+    return value;
+  }
+
+  return 'unknown';
+}
+
+function optionalNonnegativeInteger(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.trunc(value));
 }
