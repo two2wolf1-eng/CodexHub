@@ -119,6 +119,12 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'codex.exec.read_only_adapter.final_readiness',
     'codex.exec.real_read_only_adapter.readiness_package',
     'codex.exec.real_read_only_adapter.readiness_review',
+    'codex.app_server.wire_summary',
+    'codex.app_server.thread_mirror',
+    'codex.app_server.turn_mirror',
+    'codex.app_server.event_summary',
+    'codex.app_server.approval_bridge',
+    'codex.app_server.protocol_drift',
     'codex.patch_plan',
     'codex.patch_run_summary',
     'verification.dry_run_plan',
@@ -17937,6 +17943,152 @@ export const QuotaSnapshotStatusSchema = z.enum([
 ]);
 export type QuotaSnapshotStatus = z.infer<typeof QuotaSnapshotStatusSchema>;
 
+export const CodexAppServerTransportKindSchema = z.enum([
+  'stdio-jsonl',
+  'websocket-loopback',
+  'unix-socket',
+  'in-memory-fixture',
+  'unknown',
+]);
+export type CodexAppServerTransportKind = z.infer<
+  typeof CodexAppServerTransportKindSchema
+>;
+
+export const CodexAppServerWireDirectionSchema = z.enum([
+  'request',
+  'response',
+  'notification',
+  'server-request',
+  'event',
+  'stderr-summary',
+]);
+export type CodexAppServerWireDirection = z.infer<
+  typeof CodexAppServerWireDirectionSchema
+>;
+
+export const CodexAppServerWireStatusSchema = z.enum([
+  'queued',
+  'sent',
+  'received',
+  'handled',
+  'failed',
+  'blocked',
+  'unknown',
+]);
+export type CodexAppServerWireStatus = z.infer<
+  typeof CodexAppServerWireStatusSchema
+>;
+
+export const CodexAppServerMethodSchema = z.enum([
+  'initialize',
+  'initialized',
+  'account/read',
+  'account/rateLimits/read',
+  'thread/start',
+  'thread/resume',
+  'turn/start',
+  'thread/started',
+  'turn/started',
+  'turn/completed',
+  'item/started',
+  'item/completed',
+  'item/agentMessage/delta',
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+  'serverRequest/resolved',
+  'protocol/drift',
+  'unknown',
+]);
+export type CodexAppServerMethod = z.infer<typeof CodexAppServerMethodSchema>;
+
+export const CodexAppServerThreadStatusSchema = z.enum([
+  'not_loaded',
+  'loaded',
+  'running',
+  'completed',
+  'interrupted',
+  'failed',
+  'closed',
+  'blocked',
+  'unknown',
+]);
+export type CodexAppServerThreadStatus = z.infer<
+  typeof CodexAppServerThreadStatusSchema
+>;
+
+export const CodexAppServerTurnStatusSchema = z.enum([
+  'queued',
+  'running',
+  'completed',
+  'failed',
+  'interrupted',
+  'declined',
+  'blocked',
+  'unknown',
+]);
+export type CodexAppServerTurnStatus = z.infer<
+  typeof CodexAppServerTurnStatusSchema
+>;
+
+export const CodexAppServerEventStatusSchema = z.enum([
+  'started',
+  'delta',
+  'completed',
+  'failed',
+  'resolved',
+  'blocked',
+  'unknown',
+]);
+export type CodexAppServerEventStatus = z.infer<
+  typeof CodexAppServerEventStatusSchema
+>;
+
+export const CodexAppServerApprovalKindSchema = z.enum([
+  'command-execution',
+  'file-change',
+  'network-policy',
+  'tool-user-input',
+  'mcp-elicitation',
+  'unknown',
+]);
+export type CodexAppServerApprovalKind = z.infer<
+  typeof CodexAppServerApprovalKindSchema
+>;
+
+export const CodexAppServerApprovalStatusSchema = z.enum([
+  'pending',
+  'approved',
+  'declined',
+  'cancelled',
+  'resolved',
+  'blocked',
+  'unknown',
+]);
+export type CodexAppServerApprovalStatus = z.infer<
+  typeof CodexAppServerApprovalStatusSchema
+>;
+
+export const CodexAppServerProtocolBaselineKindSchema = z.enum([
+  'generate-ts',
+  'generate-json-schema',
+  'upstream-readme',
+  'fixture',
+  'unknown',
+]);
+export type CodexAppServerProtocolBaselineKind = z.infer<
+  typeof CodexAppServerProtocolBaselineKindSchema
+>;
+
+export const CodexAppServerProtocolDriftStatusSchema = z.enum([
+  'compatible',
+  'minor_drift',
+  'incompatible',
+  'unknown',
+]);
+export type CodexAppServerProtocolDriftStatus = z.infer<
+  typeof CodexAppServerProtocolDriftStatusSchema
+>;
+
 const m51EvidenceAuditSchema = z
   .object({
     evidenceRefIds: z.array(z.string().min(1)).default([]),
@@ -18316,6 +18468,185 @@ export const EvidenceBundleSchema = createdEntityBaseSchema
     }
   });
 export type EvidenceBundle = z.infer<typeof EvidenceBundleSchema>;
+
+export const CodexAppServerWireMessageSummarySchema = observedEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerSessionId: z.string().min(1),
+    transportKind: CodexAppServerTransportKindSchema,
+    direction: CodexAppServerWireDirectionSchema,
+    method: CodexAppServerMethodSchema,
+    requestIdHash: z.string().min(1).optional(),
+    correlationIdHash: z.string().min(1).optional(),
+    messageHash: z.string().min(1),
+    payloadSummaryHash: z.string().min(1).optional(),
+    payloadByteCount: z.number().int().nonnegative().default(0),
+    lineCount: z.number().int().nonnegative().default(0),
+    redactedFieldCount: z.number().int().nonnegative().default(0),
+    status: CodexAppServerWireStatusSchema,
+    errorCodeHash: z.string().min(1).optional(),
+    errorSummaryHash: z.string().min(1).optional(),
+    initializedRequired: z.boolean().default(true),
+    initializedObserved: z.boolean().default(false),
+    jsonRpcStyle: z.literal(true).default(true),
+    jsonRpcHeaderStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAppServerWireMessageSummary = z.infer<
+  typeof CodexAppServerWireMessageSummarySchema
+>;
+
+export const CodexAppServerThreadMirrorSchema = observedEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerSessionId: z.string().min(1),
+    taskRunId: z.string().min(1).optional(),
+    threadIdHash: z.string().min(1),
+    status: CodexAppServerThreadStatusSchema,
+    ephemeral: z.boolean().default(false),
+    pathHash: z.string().min(1).optional(),
+    turnCount: z.number().int().nonnegative().default(0),
+    activeTurnIdHash: z.string().min(1).optional(),
+    subscribed: z.boolean().default(false),
+    permissionProfileHash: z.string().min(1).optional(),
+    workspaceTrustMutationAllowed: z.literal(false).default(false),
+    workspaceTrustMutationObserved: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAppServerThreadMirror = z.infer<
+  typeof CodexAppServerThreadMirrorSchema
+>;
+
+export const CodexAppServerTurnMirrorSchema = observedEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerSessionId: z.string().min(1),
+    threadMirrorId: z.string().min(1),
+    taskRunId: z.string().min(1).optional(),
+    threadIdHash: z.string().min(1),
+    turnIdHash: z.string().min(1),
+    status: CodexAppServerTurnStatusSchema,
+    itemCount: z.number().int().nonnegative().default(0),
+    eventCount: z.number().int().nonnegative().default(0),
+    inputSummaryHash: z.string().min(1).optional(),
+    outputSummaryHash: z.string().min(1).optional(),
+    tokenCount: z.number().int().nonnegative().optional(),
+    approvalPendingCount: z.number().int().nonnegative().default(0),
+    failureSummaryHash: z.string().min(1).optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAppServerTurnMirror = z.infer<
+  typeof CodexAppServerTurnMirrorSchema
+>;
+
+export const CodexAppServerEventSummarySchema = observedEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerSessionId: z.string().min(1),
+    threadMirrorId: z.string().min(1).optional(),
+    turnMirrorId: z.string().min(1).optional(),
+    method: CodexAppServerMethodSchema,
+    eventHash: z.string().min(1),
+    threadIdHash: z.string().min(1).optional(),
+    turnIdHash: z.string().min(1).optional(),
+    itemIdHash: z.string().min(1).optional(),
+    status: CodexAppServerEventStatusSchema,
+    sequenceNumber: z.number().int().nonnegative(),
+    deltaCount: z.number().int().nonnegative().default(0),
+    payloadByteCount: z.number().int().nonnegative().default(0),
+    itemKindHash: z.string().min(1).optional(),
+    terminal: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexAppServerEventSummary = z.infer<
+  typeof CodexAppServerEventSummarySchema
+>;
+
+export const CodexAppServerApprovalBridgeRecordSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerSessionId: z.string().min(1),
+    taskRunId: z.string().min(1).optional(),
+    threadIdHash: z.string().min(1),
+    turnIdHash: z.string().min(1),
+    itemIdHash: z.string().min(1).optional(),
+    requestIdHash: z.string().min(1),
+    approvalKind: CodexAppServerApprovalKindSchema,
+    status: CodexAppServerApprovalStatusSchema,
+    proposalHash: z.string().min(1),
+    proposalSummaryHash: z.string().min(1).optional(),
+    availableDecisionCount: z.number().int().nonnegative().default(0),
+    availableDecisionHashes: z.array(z.string().min(1)).default([]),
+    decisionHash: z.string().min(1).optional(),
+    resolvedAt: IsoDateTimeSchema.optional(),
+    silentApprovalAllowed: z.literal(false).default(false),
+    rawProposalStored: z.literal(false).default(false),
+    approvalSecretStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.availableDecisionCount !== record.availableDecisionHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'available decision count must match availableDecisionHashes length',
+        path: ['availableDecisionCount'],
+      });
+    }
+  });
+export type CodexAppServerApprovalBridgeRecord = z.infer<
+  typeof CodexAppServerApprovalBridgeRecordSchema
+>;
+
+export const CodexAppServerProtocolDriftReportSchema = observedEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerSessionId: z.string().min(1).optional(),
+    baselineKind: CodexAppServerProtocolBaselineKindSchema,
+    baselineHash: z.string().min(1),
+    observedSchemaHash: z.string().min(1),
+    status: CodexAppServerProtocolDriftStatusSchema,
+    driftCount: z.number().int().nonnegative().default(0),
+    missingMethodCount: z.number().int().nonnegative().default(0),
+    changedMethodCount: z.number().int().nonnegative().default(0),
+    unknownMethodCount: z.number().int().nonnegative().default(0),
+    liveDispatchBlocked: z.boolean().default(true),
+    generatedSchemaRequired: z.literal(true).default(true),
+    rawSchemaStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.status === 'incompatible' || record.status === 'unknown') &&
+      !record.liveDispatchBlocked
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'incompatible or unknown protocol drift must block live dispatch',
+        path: ['liveDispatchBlocked'],
+      });
+    }
+  });
+export type CodexAppServerProtocolDriftReport = z.infer<
+  typeof CodexAppServerProtocolDriftReportSchema
+>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

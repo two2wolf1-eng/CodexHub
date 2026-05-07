@@ -521,7 +521,13 @@ import {
   ChromeProfileBindingSchema,
   ClientPoolSchema,
   CodexAccountBindingSchema,
+  CodexAppServerApprovalBridgeRecordSchema,
+  CodexAppServerEventSummarySchema,
+  CodexAppServerProtocolDriftReportSchema,
   CodexAppServerSessionSchema,
+  CodexAppServerThreadMirrorSchema,
+  CodexAppServerTurnMirrorSchema,
+  CodexAppServerWireMessageSummarySchema,
   CodexClientInstanceSchema,
   CodexRecoveryRunSchema,
   CodexTaskDiagnosisSchema,
@@ -15851,6 +15857,236 @@ describe('contracts schemas', () => {
         evidenceCount: 2,
         auditEventCount: 0,
         summary: 'Evidence count mismatch.',
+      }),
+    ).toThrow();
+  });
+
+  it('parses M54 App Server wire, mirror, approval, and drift contracts metadata-only', () => {
+    const wire = CodexAppServerWireMessageSummarySchema.parse({
+      id: 'codex_app_server_wire_1',
+      schemaVersion,
+      observedAt: createdAt,
+      appServerSessionId: 'codex_app_server_session_1',
+      transportKind: 'stdio-jsonl',
+      direction: 'request',
+      method: 'initialize',
+      requestIdHash: 'sha256:request-id',
+      messageHash: 'sha256:wire-message',
+      payloadSummaryHash: 'sha256:payload-summary',
+      payloadByteCount: 120,
+      lineCount: 1,
+      redactedFieldCount: 0,
+      status: 'sent',
+      initializedRequired: true,
+      initializedObserved: false,
+      processBoundaryInvoked: true,
+      evidenceRefIds: ['evidence_app_server_wire'],
+      auditEventIds: ['audit_app_server_wire'],
+      summary: 'Initialize request stored as a hash-only wire summary.',
+    });
+    const threadMirror = CodexAppServerThreadMirrorSchema.parse({
+      id: 'codex_app_server_thread_1',
+      schemaVersion,
+      observedAt: createdAt,
+      appServerSessionId: wire.appServerSessionId,
+      taskRunId: 'codex_task_run_1',
+      threadIdHash: 'sha256:thread-id',
+      status: 'loaded',
+      ephemeral: true,
+      turnCount: 1,
+      activeTurnIdHash: 'sha256:turn-id',
+      subscribed: true,
+      permissionProfileHash: 'sha256:permission-profile',
+      workspaceTrustMutationAllowed: false,
+      workspaceTrustMutationObserved: false,
+      processBoundaryInvoked: true,
+      evidenceRefIds: ['evidence_thread_mirror'],
+      auditEventIds: ['audit_thread_mirror'],
+      summary: 'Thread mirror contains no raw path or conversation body.',
+    });
+    const turnMirror = CodexAppServerTurnMirrorSchema.parse({
+      id: 'codex_app_server_turn_1',
+      schemaVersion,
+      observedAt: createdAt,
+      appServerSessionId: wire.appServerSessionId,
+      threadMirrorId: threadMirror.id,
+      taskRunId: 'codex_task_run_1',
+      threadIdHash: threadMirror.threadIdHash,
+      turnIdHash: 'sha256:turn-id',
+      status: 'running',
+      itemCount: 2,
+      eventCount: 3,
+      inputSummaryHash: 'sha256:input-summary',
+      outputSummaryHash: 'sha256:output-summary',
+      tokenCount: 42,
+      approvalPendingCount: 1,
+      processBoundaryInvoked: true,
+      evidenceRefIds: ['evidence_turn_mirror'],
+      auditEventIds: ['audit_turn_mirror'],
+      summary: 'Turn mirror stores summary hashes and counts only.',
+    });
+    const eventSummary = CodexAppServerEventSummarySchema.parse({
+      id: 'codex_app_server_event_1',
+      schemaVersion,
+      observedAt: createdAt,
+      appServerSessionId: wire.appServerSessionId,
+      threadMirrorId: threadMirror.id,
+      turnMirrorId: turnMirror.id,
+      method: 'item/commandExecution/requestApproval',
+      eventHash: 'sha256:event',
+      threadIdHash: threadMirror.threadIdHash,
+      turnIdHash: turnMirror.turnIdHash,
+      itemIdHash: 'sha256:item',
+      status: 'started',
+      sequenceNumber: 1,
+      deltaCount: 0,
+      payloadByteCount: 256,
+      itemKindHash: 'sha256:item-kind',
+      terminal: false,
+      processBoundaryInvoked: true,
+      evidenceRefIds: ['evidence_event_summary'],
+      auditEventIds: ['audit_event_summary'],
+      summary: 'Event summary records an approval request without raw payload.',
+    });
+    const approvalBridge = CodexAppServerApprovalBridgeRecordSchema.parse({
+      id: 'codex_app_server_approval_1',
+      schemaVersion,
+      createdAt,
+      appServerSessionId: wire.appServerSessionId,
+      taskRunId: 'codex_task_run_1',
+      threadIdHash: threadMirror.threadIdHash,
+      turnIdHash: turnMirror.turnIdHash,
+      itemIdHash: eventSummary.itemIdHash,
+      requestIdHash: 'sha256:server-request',
+      approvalKind: 'command-execution',
+      status: 'pending',
+      proposalHash: 'sha256:proposal',
+      proposalSummaryHash: 'sha256:proposal-summary',
+      availableDecisionCount: 2,
+      availableDecisionHashes: ['sha256:decline', 'sha256:cancel'],
+      processBoundaryInvoked: true,
+      evidenceRefIds: ['evidence_approval_bridge'],
+      auditEventIds: ['audit_approval_bridge'],
+      summary: 'Approval bridge is pending and cannot silently approve.',
+    });
+    const driftReport = CodexAppServerProtocolDriftReportSchema.parse({
+      id: 'codex_app_server_drift_1',
+      schemaVersion,
+      observedAt: createdAt,
+      appServerSessionId: wire.appServerSessionId,
+      baselineKind: 'generate-json-schema',
+      baselineHash: 'sha256:baseline-schema',
+      observedSchemaHash: 'sha256:observed-schema',
+      status: 'compatible',
+      driftCount: 0,
+      missingMethodCount: 0,
+      changedMethodCount: 0,
+      unknownMethodCount: 0,
+      liveDispatchBlocked: false,
+      processBoundaryInvoked: true,
+      evidenceRefIds: ['evidence_protocol_drift'],
+      auditEventIds: ['audit_protocol_drift'],
+      summary: 'Protocol drift report confirms compatible generated schema hashes.',
+    });
+
+    const records = [
+      wire,
+      threadMirror,
+      turnMirror,
+      eventSummary,
+      approvalBridge,
+      driftReport,
+    ];
+    const serialized = JSON.stringify(records);
+
+    expect(records).toHaveLength(6);
+    expect(wire.rawBodyStored).toBe(false);
+    expect(wire.jsonRpcHeaderStored).toBe(false);
+    expect(threadMirror.workspaceTrustMutationAllowed).toBe(false);
+    expect(threadMirror.workspaceTrustMutationObserved).toBe(false);
+    expect(approvalBridge.silentApprovalAllowed).toBe(false);
+    expect(approvalBridge.rawProposalStored).toBe(false);
+    expect(approvalBridge.approvalSecretStored).toBe(false);
+    expect(driftReport.rawSchemaStored).toBe(false);
+    expect(driftReport.generatedSchemaRequired).toBe(true);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('rejects M54 App Server contracts that expose raw payloads or unblock unknown drift', () => {
+    expect(() =>
+      CodexAppServerWireMessageSummarySchema.parse({
+        id: 'codex_app_server_wire_raw_1',
+        schemaVersion,
+        observedAt: createdAt,
+        appServerSessionId: 'codex_app_server_session_1',
+        transportKind: 'stdio-jsonl',
+        direction: 'response',
+        method: 'turn/start',
+        messageHash: 'sha256:wire-message',
+        status: 'received',
+        summary: 'Unsafe wire summary.',
+        metadata: {
+          rawBody: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexAppServerThreadMirrorSchema.parse({
+        id: 'codex_app_server_thread_raw_1',
+        schemaVersion,
+        observedAt: createdAt,
+        appServerSessionId: 'codex_app_server_session_1',
+        threadIdHash: 'sha256:thread-id',
+        status: 'loaded',
+        rawPath: adversarialPublicOutputFixture,
+        summary: 'Unsafe thread mirror.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexAppServerEventSummarySchema.parse({
+        id: 'codex_app_server_event_raw_1',
+        schemaVersion,
+        observedAt: createdAt,
+        appServerSessionId: 'codex_app_server_session_1',
+        method: 'item/fileChange/requestApproval',
+        eventHash: 'sha256:event',
+        status: 'started',
+        sequenceNumber: 0,
+        summary: 'Unsafe event summary.',
+        metadata: {
+          rawDiff: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexAppServerApprovalBridgeRecordSchema.parse({
+        id: 'codex_app_server_approval_mismatch_1',
+        schemaVersion,
+        createdAt,
+        appServerSessionId: 'codex_app_server_session_1',
+        threadIdHash: 'sha256:thread-id',
+        turnIdHash: 'sha256:turn-id',
+        requestIdHash: 'sha256:request-id',
+        approvalKind: 'file-change',
+        status: 'pending',
+        proposalHash: 'sha256:proposal',
+        availableDecisionCount: 2,
+        availableDecisionHashes: ['sha256:decline'],
+        summary: 'Unsafe approval decision count.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexAppServerProtocolDriftReportSchema.parse({
+        id: 'codex_app_server_drift_unblocked_1',
+        schemaVersion,
+        observedAt: createdAt,
+        baselineKind: 'generate-ts',
+        baselineHash: 'sha256:baseline',
+        observedSchemaHash: 'sha256:observed',
+        status: 'unknown',
+        liveDispatchBlocked: false,
+        summary: 'Unknown drift must not allow dispatch.',
       }),
     ).toThrow();
   });
