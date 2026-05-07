@@ -113,6 +113,14 @@ import type {
   PlatformOperationApprovalArtifact,
   PlatformRestorePlan,
   PlatformRestoreRun,
+  ProductionGaApprovalArtifact,
+  ProductionGaE2ERehearsalRun,
+  ProductionGaOperatorTrainingCompletionSummary,
+  ProductionGaReadinessPlan,
+  ProductionGaReleaseCandidateSignoffPlan,
+  ProductionGaResidualRiskRegister,
+  ProductionGaSignoffRun,
+  ProductionGaThreatModel,
   RetentionPolicyPlan,
   RetentionPolicyRun,
   RuntimeCheckpoint,
@@ -284,6 +292,15 @@ import type {
   PlatformOperationsControlPlaneQuery,
   PlatformRestorePlanRepository,
   PlatformRestoreRunRepository,
+  ProductionGaApprovalRepository,
+  ProductionGaControlPlaneQuery,
+  ProductionGaDryRunRepository,
+  ProductionGaE2ERehearsalRunRepository,
+  ProductionGaResidualRiskRegisterRepository,
+  ProductionGaSignoffPlanRepository,
+  ProductionGaSignoffRunRepository,
+  ProductionGaThreatModelRepository,
+  ProductionGaTrainingCompletionRepository,
   RetentionPolicyPlanRepository,
   RetentionPolicyRunRepository,
   ReworkLoopApprovalRepository,
@@ -509,6 +526,14 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly operatorRoleAssignmentPlans: OperatorRoleAssignmentPlanRepository;
   readonly operatorRoleAssignmentRuns: OperatorRoleAssignmentRunRepository;
   readonly disasterRecoveryRehearsalRuns: DisasterRecoveryRehearsalRunRepository;
+  readonly productionGaDryRuns: ProductionGaDryRunRepository;
+  readonly productionGaApprovals: ProductionGaApprovalRepository;
+  readonly productionGaSignoffPlans: ProductionGaSignoffPlanRepository;
+  readonly productionGaSignoffRuns: ProductionGaSignoffRunRepository;
+  readonly productionGaE2ERehearsalRuns: ProductionGaE2ERehearsalRunRepository;
+  readonly productionGaTrainingCompletions: ProductionGaTrainingCompletionRepository;
+  readonly productionGaThreatModels: ProductionGaThreatModelRepository;
+  readonly productionGaResidualRiskRegisters: ProductionGaResidualRiskRegisterRepository;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -814,6 +839,20 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.operatorRoleAssignmentRuns = new SqliteOperatorRoleAssignmentRunRepository(database);
     this.disasterRecoveryRehearsalRuns =
       new SqliteDisasterRecoveryRehearsalRunRepository(database);
+    this.productionGaDryRuns = new SqliteProductionGaDryRunRepository(database);
+    this.productionGaApprovals = new SqliteProductionGaApprovalRepository(database);
+    this.productionGaSignoffPlans = new SqliteProductionGaSignoffPlanRepository(database);
+    this.productionGaSignoffRuns = new SqliteGenericRunRepository<ProductionGaSignoffRun>(
+      database,
+      'production_ga_signoff_runs',
+    );
+    this.productionGaE2ERehearsalRuns =
+      new SqliteProductionGaE2ERehearsalRunRepository(database);
+    this.productionGaTrainingCompletions =
+      new SqliteProductionGaTrainingCompletionRepository(database);
+    this.productionGaThreatModels = new SqliteProductionGaThreatModelRepository(database);
+    this.productionGaResidualRiskRegisters =
+      new SqliteProductionGaResidualRiskRegisterRepository(database);
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -4146,6 +4185,232 @@ class SqliteDisasterRecoveryRehearsalRunRepository
   }
 }
 
+class SqliteProductionGaDryRunRepository implements ProductionGaDryRunRepository {
+  private readonly repository: JsonEntityRepository<ProductionGaReadinessPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaReadinessPlan>(
+      database,
+      'production_ga_dry_runs',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveDryRun(record: ProductionGaReadinessPlan): Promise<ProductionGaReadinessPlan> {
+    return this.repository.create(record);
+  }
+
+  async getDryRun(id: string): Promise<ProductionGaReadinessPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listDryRuns(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaReadinessPlan[]> {
+    return listObservationControlPlaneRecords<ProductionGaReadinessPlan>(
+      this.database,
+      'production_ga_dry_runs',
+      query,
+    );
+  }
+}
+
+class SqliteProductionGaApprovalRepository implements ProductionGaApprovalRepository {
+  private readonly repository: JsonEntityRepository<ProductionGaApprovalArtifact>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaApprovalArtifact>(
+      database,
+      'production_ga_approvals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveApproval(record: ProductionGaApprovalArtifact): Promise<ProductionGaApprovalArtifact> {
+    return this.repository.create(record);
+  }
+
+  async getApproval(id: string): Promise<ProductionGaApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async getApprovalByArtifactId(id: string): Promise<ProductionGaApprovalArtifact | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listApprovals(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaApprovalArtifact[]> {
+    return listObservationControlPlaneRecords<ProductionGaApprovalArtifact>(
+      this.database,
+      'production_ga_approvals',
+      query,
+    );
+  }
+}
+
+class SqliteProductionGaSignoffPlanRepository implements ProductionGaSignoffPlanRepository {
+  private readonly repository: JsonEntityRepository<ProductionGaReleaseCandidateSignoffPlan>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaReleaseCandidateSignoffPlan>(
+      database,
+      'production_ga_signoff_plans',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveSignoffPlan(
+    record: ProductionGaReleaseCandidateSignoffPlan,
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan> {
+    return this.repository.create(record);
+  }
+
+  async getSignoffPlan(
+    id: string,
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listSignoffPlans(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan[]> {
+    return listObservationControlPlaneRecords<ProductionGaReleaseCandidateSignoffPlan>(
+      this.database,
+      'production_ga_signoff_plans',
+      query,
+    );
+  }
+}
+
+class SqliteProductionGaE2ERehearsalRunRepository
+  implements ProductionGaE2ERehearsalRunRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionGaE2ERehearsalRun>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaE2ERehearsalRun>(
+      database,
+      'production_ga_e2e_rehearsals',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveRehearsalRun(
+    record: ProductionGaE2ERehearsalRun,
+  ): Promise<ProductionGaE2ERehearsalRun> {
+    return this.repository.create(record);
+  }
+
+  async getRehearsalRun(id: string): Promise<ProductionGaE2ERehearsalRun | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listRehearsalRuns(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaE2ERehearsalRun[]> {
+    return listObservationControlPlaneRecords<ProductionGaE2ERehearsalRun>(
+      this.database,
+      'production_ga_e2e_rehearsals',
+      query,
+    );
+  }
+}
+
+class SqliteProductionGaTrainingCompletionRepository
+  implements ProductionGaTrainingCompletionRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionGaOperatorTrainingCompletionSummary>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaOperatorTrainingCompletionSummary>(
+      database,
+      'production_ga_training_completions',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveTrainingCompletion(
+    record: ProductionGaOperatorTrainingCompletionSummary,
+  ): Promise<ProductionGaOperatorTrainingCompletionSummary> {
+    return this.repository.create(record);
+  }
+
+  async getTrainingCompletion(
+    id: string,
+  ): Promise<ProductionGaOperatorTrainingCompletionSummary | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listTrainingCompletions(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaOperatorTrainingCompletionSummary[]> {
+    return listObservationControlPlaneRecords<ProductionGaOperatorTrainingCompletionSummary>(
+      this.database,
+      'production_ga_training_completions',
+      query,
+    );
+  }
+}
+
+class SqliteProductionGaThreatModelRepository implements ProductionGaThreatModelRepository {
+  private readonly repository: JsonEntityRepository<ProductionGaThreatModel>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaThreatModel>(
+      database,
+      'production_ga_threat_models',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveThreatModel(record: ProductionGaThreatModel): Promise<ProductionGaThreatModel> {
+    return this.repository.create(record);
+  }
+
+  async getThreatModel(id: string): Promise<ProductionGaThreatModel | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listThreatModels(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaThreatModel[]> {
+    return (await this.repository.list()).slice(0, normalizeLimit(query.limit));
+  }
+}
+
+class SqliteProductionGaResidualRiskRegisterRepository
+  implements ProductionGaResidualRiskRegisterRepository
+{
+  private readonly repository: JsonEntityRepository<ProductionGaResidualRiskRegister>;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.repository = new JsonEntityRepository<ProductionGaResidualRiskRegister>(
+      database,
+      'production_ga_residual_risk_registers',
+      (record) => record.createdAt,
+    );
+  }
+
+  async saveResidualRiskRegister(
+    record: ProductionGaResidualRiskRegister,
+  ): Promise<ProductionGaResidualRiskRegister> {
+    return this.repository.create(record);
+  }
+
+  async getResidualRiskRegister(
+    id: string,
+  ): Promise<ProductionGaResidualRiskRegister | undefined> {
+    return this.repository.getById(id);
+  }
+
+  async listResidualRiskRegisters(
+    query: ProductionGaControlPlaneQuery = {},
+  ): Promise<ProductionGaResidualRiskRegister[]> {
+    return (await this.repository.list()).slice(0, normalizeLimit(query.limit));
+  }
+}
+
 class SqliteGithubRemoteCleanupDryRunRepository
   implements GithubRemoteCleanupDryRunRepository
 {
@@ -6307,6 +6572,54 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS disaster_recovery_rehearsal_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_approvals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_signoff_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_signoff_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_e2e_rehearsals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_training_completions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_threat_models (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_ga_residual_risk_registers (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

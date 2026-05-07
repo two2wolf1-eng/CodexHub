@@ -24,6 +24,10 @@ export default defineConfig({
         workspaceRoot,
         'packages/platform-operations-kernel/src/index.ts',
       ),
+      '@codexhub/production-ga-kernel': resolve(
+        workspaceRoot,
+        'packages/production-ga-kernel/src/index.ts',
+      ),
     },
   },
   test: {

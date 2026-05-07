@@ -1,0 +1,206 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputRoundTripLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
+  createProductionGaApprovalArtifact,
+  createProductionGaCapabilityMatrix,
+  createProductionGaE2ERehearsalPlan,
+  createProductionGaE2ERehearsalRun,
+  createProductionGaEvidenceBundleSummary,
+  createProductionGaOperatorTrainingCompletion,
+  createProductionGaOperatorTrainingPlan,
+  createProductionGaReadinessPlan,
+  createProductionGaReleaseCandidateSignoffPlan,
+  createProductionGaResidualRiskRegister,
+  createProductionGaSignoffRun,
+  createProductionGaThreatModel,
+  summarizeProductionGaReadiness,
+} from './index';
+
+const sourceDir = dirname(fileURLToPath(import.meta.url));
+
+describe('production-ga-kernel', () => {
+  it('keeps GA aggregation free of direct adapter and boundary execution', () => {
+    const source = readFileSync(join(sourceDir, 'index.ts'), 'utf8');
+    const forbiddenTerms = [
+      'node:child_process',
+      'child_process',
+      'spawn(',
+      'execFile(',
+      'shell: true',
+      'fetch(',
+      'executeGithub',
+      'executeDeployment',
+      'executeBrowser',
+      'executeElectron',
+      'executeMcp',
+      'runExternalAgent',
+      'new Worker(',
+    ];
+
+    expect(forbiddenTerms.filter((term) => source.includes(term))).toEqual([]);
+  });
+
+  it('builds GA release metadata without leaking adversarial source material', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const matrix = createProductionGaCapabilityMatrix({
+      matrixSeed: adversarialPublicOutputFixture,
+      now,
+    });
+    const threatModel = createProductionGaThreatModel({
+      assetSeeds: [adversarialPublicOutputFixture],
+      trustBoundarySeeds: [adversarialPublicOutputFixture],
+      liveBoundarySeeds: [adversarialPublicOutputFixture],
+      authorityModelSeed: adversarialPublicOutputFixture,
+      approvalModelSeed: adversarialPublicOutputFixture,
+      evidenceAuditModelSeed: adversarialPublicOutputFixture,
+      rollbackModelSeed: adversarialPublicOutputFixture,
+      now,
+    });
+    const readinessPlan = createProductionGaReadinessPlan({
+      matrix,
+      threatModel,
+      now,
+    });
+    const readiness = summarizeProductionGaReadiness({
+      plan: readinessPlan,
+      now,
+    });
+    const rehearsalPlan = createProductionGaE2ERehearsalPlan({
+      scenario: 'all-pass',
+      chainSeeds: [adversarialPublicOutputFixture],
+      childControlPlaneRecordSeeds: [adversarialPublicOutputFixture],
+      now,
+    });
+    const rehearsalRun = createProductionGaE2ERehearsalRun({
+      plan: rehearsalPlan,
+      status: 'ready',
+      liveSmokeStatus: 'readiness_blocked',
+      timelineSeeds: [adversarialPublicOutputFixture],
+      now,
+    });
+    const trainingPlan = createProductionGaOperatorTrainingPlan({
+      moduleIds: [adversarialPublicOutputFixture, 'release-governance'],
+      trainingSeed: adversarialPublicOutputFixture,
+      now,
+    });
+    const training = createProductionGaOperatorTrainingCompletion({
+      trainingPlan,
+      operatorIdentity: adversarialPublicOutputFixture,
+      now,
+    });
+    const signoffPlan = createProductionGaReleaseCandidateSignoffPlan({
+      matrix,
+      threatModel,
+      readinessSummary: readiness,
+      e2eRehearsalRun: rehearsalRun,
+      now,
+    });
+    const approvalOne = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: adversarialPublicOutputFixture,
+      reason: adversarialPublicOutputFixture,
+      now,
+    });
+    const approvalTwo = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'second-operator',
+      reason: adversarialPublicOutputFixture,
+      now,
+    });
+    const signoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals: [approvalOne, approvalTwo],
+      now,
+    });
+    const riskRegister = createProductionGaResidualRiskRegister({
+      risks: [{ severity: 'medium' }],
+      mitigationSeed: adversarialPublicOutputFixture,
+      now,
+    });
+    const evidenceBundle = createProductionGaEvidenceBundleSummary({
+      gateSeeds: [adversarialPublicOutputFixture],
+      now,
+    });
+    const records = [
+      matrix,
+      threatModel,
+      readinessPlan,
+      readiness,
+      rehearsalPlan,
+      rehearsalRun,
+      trainingPlan,
+      training,
+      signoffPlan,
+      approvalOne,
+      approvalTwo,
+      signoff,
+      riskRegister,
+      evidenceBundle,
+    ];
+    const serialized = JSON.stringify(records);
+
+    expect(signoff.status).toBe('conditionally_ready');
+    expect(signoff.approvalConsumedCount).toBe(2);
+    expect(signoff.childAdapterInvokedDirectly).toBe(false);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('blocks signoff when critical-risk resolution is missing', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const matrix = createProductionGaCapabilityMatrix({ now });
+    const threatModel = createProductionGaThreatModel({
+      authorityModelSeed: 'security-kernel-final-authority',
+      approvalModelSeed: 'two-approval-ga',
+      evidenceAuditModelSeed: 'evidence-audit-required',
+      rollbackModelSeed: 'dr-runbook-required',
+      unresolvedCriticalRiskCount: 1,
+      now,
+    });
+    const readinessPlan = createProductionGaReadinessPlan({ matrix, threatModel, now });
+    const readiness = summarizeProductionGaReadiness({
+      plan: readinessPlan,
+      unresolvedCriticalRiskCount: 1,
+      now,
+    });
+    const rehearsalPlan = createProductionGaE2ERehearsalPlan({ scenario: 'all-pass', now });
+    const rehearsalRun = createProductionGaE2ERehearsalRun({
+      plan: rehearsalPlan,
+      status: 'ready',
+      now,
+    });
+    const signoffPlan = createProductionGaReleaseCandidateSignoffPlan({
+      matrix,
+      threatModel,
+      readinessSummary: readiness,
+      e2eRehearsalRun: rehearsalRun,
+      now,
+    });
+    const approvalOne = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'operator-one',
+      now,
+    });
+    const approvalTwo = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'operator-two',
+      now,
+    });
+
+    const signoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals: [approvalOne, approvalTwo],
+      now,
+    });
+
+    expect(signoff.status).toBe('blocked');
+    expect(signoff.approvalConsumedCount).toBe(0);
+    expect(signoff.unresolvedCriticalRiskCount).toBe(1);
+  });
+});

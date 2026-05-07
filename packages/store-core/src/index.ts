@@ -106,6 +106,14 @@ import type {
   PlatformOperationApprovalArtifact,
   PlatformRestorePlan,
   PlatformRestoreRun,
+  ProductionGaApprovalArtifact,
+  ProductionGaE2ERehearsalRun,
+  ProductionGaOperatorTrainingCompletionSummary,
+  ProductionGaReadinessPlan,
+  ProductionGaReleaseCandidateSignoffPlan,
+  ProductionGaResidualRiskRegister,
+  ProductionGaSignoffRun,
+  ProductionGaThreatModel,
   RetentionPolicyPlan,
   RetentionPolicyRun,
   RuntimeCheckpoint,
@@ -211,6 +219,7 @@ export type McpWriteToolControlPlaneQuery = WorktreeControlPlaneQuery;
 export type RuntimeOperationsControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ExternalAgentControlPlaneQuery = WorktreeControlPlaneQuery;
 export type PlatformOperationsControlPlaneQuery = WorktreeControlPlaneQuery;
+export type ProductionGaControlPlaneQuery = WorktreeControlPlaneQuery;
 export type GithubRemoteCleanupControlPlaneQuery = WorktreeControlPlaneQuery;
 export type ReworkLoopControlPlaneQuery = WorktreeControlPlaneQuery;
 export type CustomWorkflowControlPlaneQuery = WorktreeControlPlaneQuery;
@@ -1136,6 +1145,71 @@ export interface DisasterRecoveryRehearsalRunRepository {
   ): Promise<DisasterRecoveryRehearsalRun[]>;
 }
 
+export interface ProductionGaDryRunRepository {
+  saveDryRun(record: ProductionGaReadinessPlan): Promise<ProductionGaReadinessPlan>;
+  getDryRun(id: string): Promise<ProductionGaReadinessPlan | undefined>;
+  listDryRuns(query?: ProductionGaControlPlaneQuery): Promise<ProductionGaReadinessPlan[]>;
+}
+
+export interface ProductionGaApprovalRepository {
+  saveApproval(record: ProductionGaApprovalArtifact): Promise<ProductionGaApprovalArtifact>;
+  getApproval(id: string): Promise<ProductionGaApprovalArtifact | undefined>;
+  getApprovalByArtifactId(id: string): Promise<ProductionGaApprovalArtifact | undefined>;
+  listApprovals(query?: ProductionGaControlPlaneQuery): Promise<ProductionGaApprovalArtifact[]>;
+}
+
+export interface ProductionGaSignoffPlanRepository {
+  saveSignoffPlan(
+    record: ProductionGaReleaseCandidateSignoffPlan,
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan>;
+  getSignoffPlan(id: string): Promise<ProductionGaReleaseCandidateSignoffPlan | undefined>;
+  listSignoffPlans(
+    query?: ProductionGaControlPlaneQuery,
+  ): Promise<ProductionGaReleaseCandidateSignoffPlan[]>;
+}
+
+export interface ProductionGaSignoffRunRepository {
+  saveRun(record: ProductionGaSignoffRun): Promise<ProductionGaSignoffRun>;
+  getRun(id: string): Promise<ProductionGaSignoffRun | undefined>;
+  listRuns(query?: ProductionGaControlPlaneQuery): Promise<ProductionGaSignoffRun[]>;
+}
+
+export interface ProductionGaE2ERehearsalRunRepository {
+  saveRehearsalRun(record: ProductionGaE2ERehearsalRun): Promise<ProductionGaE2ERehearsalRun>;
+  getRehearsalRun(id: string): Promise<ProductionGaE2ERehearsalRun | undefined>;
+  listRehearsalRuns(
+    query?: ProductionGaControlPlaneQuery,
+  ): Promise<ProductionGaE2ERehearsalRun[]>;
+}
+
+export interface ProductionGaTrainingCompletionRepository {
+  saveTrainingCompletion(
+    record: ProductionGaOperatorTrainingCompletionSummary,
+  ): Promise<ProductionGaOperatorTrainingCompletionSummary>;
+  getTrainingCompletion(
+    id: string,
+  ): Promise<ProductionGaOperatorTrainingCompletionSummary | undefined>;
+  listTrainingCompletions(
+    query?: ProductionGaControlPlaneQuery,
+  ): Promise<ProductionGaOperatorTrainingCompletionSummary[]>;
+}
+
+export interface ProductionGaThreatModelRepository {
+  saveThreatModel(record: ProductionGaThreatModel): Promise<ProductionGaThreatModel>;
+  getThreatModel(id: string): Promise<ProductionGaThreatModel | undefined>;
+  listThreatModels(query?: ProductionGaControlPlaneQuery): Promise<ProductionGaThreatModel[]>;
+}
+
+export interface ProductionGaResidualRiskRegisterRepository {
+  saveResidualRiskRegister(
+    record: ProductionGaResidualRiskRegister,
+  ): Promise<ProductionGaResidualRiskRegister>;
+  getResidualRiskRegister(id: string): Promise<ProductionGaResidualRiskRegister | undefined>;
+  listResidualRiskRegisters(
+    query?: ProductionGaControlPlaneQuery,
+  ): Promise<ProductionGaResidualRiskRegister[]>;
+}
+
 export interface GithubRemoteCleanupDryRunRepository {
   saveDryRun(record: GithubRemoteCleanupPlan): Promise<GithubRemoteCleanupPlan>;
   getDryRun(id: string): Promise<GithubRemoteCleanupPlan | undefined>;
@@ -1565,6 +1639,14 @@ export interface CodexHubStore {
   operatorRoleAssignmentPlans: OperatorRoleAssignmentPlanRepository;
   operatorRoleAssignmentRuns: OperatorRoleAssignmentRunRepository;
   disasterRecoveryRehearsalRuns: DisasterRecoveryRehearsalRunRepository;
+  productionGaDryRuns: ProductionGaDryRunRepository;
+  productionGaApprovals: ProductionGaApprovalRepository;
+  productionGaSignoffPlans: ProductionGaSignoffPlanRepository;
+  productionGaSignoffRuns: ProductionGaSignoffRunRepository;
+  productionGaE2ERehearsalRuns: ProductionGaE2ERehearsalRunRepository;
+  productionGaTrainingCompletions: ProductionGaTrainingCompletionRepository;
+  productionGaThreatModels: ProductionGaThreatModelRepository;
+  productionGaResidualRiskRegisters: ProductionGaResidualRiskRegisterRepository;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
