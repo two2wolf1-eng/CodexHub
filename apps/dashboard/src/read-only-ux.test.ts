@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findAdversarialPublicOutputLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
   createApprovalDecisionHistoryReadOnlySummary,
   createCustomWorkflowReadOnlySummary,
@@ -1564,6 +1567,31 @@ describe('dashboard read-only UX helpers', () => {
     expect(summary.rawPathStored).toBe(false);
     expect(summary.bodyStored).toBe(false);
     expect(summary.tokenStored).toBe(false);
+    expectNoForbiddenRawOutputTerms(serialized);
+  });
+
+  it('normalizes adversarial Production GA status strings before public Dashboard output', () => {
+    const summary = createProductionGaReadOnlySummary({
+      latestSignoffStatus: adversarialPublicOutputFixture,
+      latestRehearsalStatus: adversarialPublicOutputFixture,
+      matrixStatus: adversarialPublicOutputFixture,
+      threatModelStatus: adversarialPublicOutputFixture,
+      trainingStatus: adversarialPublicOutputFixture,
+      e2eFixtureStatus: adversarialPublicOutputFixture,
+      conditionalLiveStatus: adversarialPublicOutputFixture,
+      blockerCount: 0,
+      unresolvedCriticalRiskCount: 0,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.status).toBe('blocked');
+    expect(summary.latestSignoffStatus).toBe('none');
+    expect(summary.latestRehearsalStatus).toBe('none');
+    expect(summary.matrixStatus).toBe('unknown');
+    expect(summary.threatModelStatus).toBe('unknown');
+    expect(summary.trainingStatus).toBe('unknown');
+    expect(summary.e2eFixtureStatus).toBe('unknown');
+    expect(summary.conditionalLiveStatus).toBe('unknown');
     expectNoForbiddenRawOutputTerms(serialized);
   });
 

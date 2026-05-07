@@ -2163,8 +2163,11 @@ export function createProductionGaReadOnlySummary(input: {
   blockerCount?: number;
   unresolvedCriticalRiskCount?: number;
 } = {}): ProductionGaReadOnlySummary {
-  const latestSignoffStatus = input.latestSignoffStatus ?? 'none';
-  const latestRehearsalStatus = input.latestRehearsalStatus ?? 'none';
+  const latestSignoffStatus = normalizeProductionGaPublicStatus(input.latestSignoffStatus, 'none');
+  const latestRehearsalStatus = normalizeProductionGaPublicStatus(
+    input.latestRehearsalStatus,
+    'none',
+  );
   const blockerCount = input.blockerCount ?? 0;
   const unresolvedCriticalRiskCount = input.unresolvedCriticalRiskCount ?? 0;
   const status =
@@ -2185,11 +2188,11 @@ export function createProductionGaReadOnlySummary(input: {
     trainingCompletionCount: input.trainingCompletionCount ?? 0,
     latestSignoffStatus,
     latestRehearsalStatus,
-    matrixStatus: input.matrixStatus ?? 'unknown',
-    threatModelStatus: input.threatModelStatus ?? 'unknown',
-    trainingStatus: input.trainingStatus ?? 'unknown',
-    e2eFixtureStatus: input.e2eFixtureStatus ?? 'unknown',
-    conditionalLiveStatus: input.conditionalLiveStatus ?? 'unknown',
+    matrixStatus: normalizeProductionGaPublicStatus(input.matrixStatus),
+    threatModelStatus: normalizeProductionGaPublicStatus(input.threatModelStatus),
+    trainingStatus: normalizeProductionGaPublicStatus(input.trainingStatus),
+    e2eFixtureStatus: normalizeProductionGaPublicStatus(input.e2eFixtureStatus),
+    conditionalLiveStatus: normalizeProductionGaPublicStatus(input.conditionalLiveStatus),
     blockerCount,
     unresolvedCriticalRiskCount,
     requiresTwoApprovals: true,
@@ -2209,6 +2212,24 @@ export function createProductionGaReadOnlySummary(input: {
     summary:
       'Production GA aggregates existing metadata, training, threat model, rehearsal, and signoff evidence. It does not execute child adapters.',
   };
+}
+
+function normalizeProductionGaPublicStatus(
+  value: string | undefined,
+  fallback = 'unknown',
+): string {
+  const allowed = new Set([
+    'ready',
+    'conditionally_ready',
+    'blocked',
+    'failed',
+    'completed',
+    'readiness_blocked',
+    'none',
+    'unknown',
+  ]);
+
+  return value && allowed.has(value) ? value : fallback;
 }
 
 export function createGovernanceReadOnlySummary(
