@@ -6091,3 +6091,27 @@ workflows:
       noOpenPullRequest: true
       auditAndDocsOnly: true
       metadataOnlyPublicOutput: true
+  m48_d6.baseline-reverification:
+    risk: critical
+    trigger:
+      type: baseline-reverification
+      entrypoint: scaffold-health audits verify-foundation docs
+      localControlRequired: false
+    scope:
+      - m48-d1-through-d5-registration-review
+      - production-ga-debug-baseline-clean-state
+      - foundation-gate-reverification
+      - no-new-capability-confirmation
+    docs:
+      - docs/releases/m48-d6-baseline-reverification.md
+      - docs/reviews/m48-d6-baseline-reverification-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      documentationAndRegistrationOnly: true
+      metadataOnlyPublicOutput: true
