@@ -57,6 +57,17 @@ function sourceWindow(source: string, startMarker: string, endMarker: string): s
   return source.slice(start, end);
 }
 
+function sourceFunctionWindow(source: string, startMarker: string): string {
+  const start = source.indexOf(startMarker);
+  expect(start).toBeGreaterThanOrEqual(0);
+
+  const endMarker = '\n  return result;\n}';
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  expect(end).toBeGreaterThan(start);
+
+  return source.slice(start, end + endMarker.length);
+}
+
 function extractDashboardPostRouteSets(source: string): Record<string, string[]> {
   return Object.fromEntries(
     [
@@ -385,6 +396,59 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('URLSearchParams');
     expect(appSource).not.toContain('history.pushState');
     expect(appSource).not.toContain('history.replaceState');
+  });
+
+  it('keeps Dashboard local-control keys header-only and blocks new write helper drift', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const helperWindows = [
+      sourceFunctionWindow(appSource, 'async function postRecoveryJson'),
+      sourceFunctionWindow(appSource, 'async function postMergeJson'),
+      sourceFunctionWindow(appSource, 'async function postDeploymentOperationJson'),
+      sourceFunctionWindow(appSource, 'async function postPolicyTelemetryJson'),
+      sourceFunctionWindow(appSource, 'async function postProductionGaJson'),
+    ];
+    const forbiddenHelperNames = [
+      'postBrowser',
+      'postElectron',
+      'postMcp',
+      'postRuntime',
+      'postAgent',
+      'postExternalAgent',
+      'postPlatform',
+      'postSecrets',
+      'postGithubActions',
+      'postRelease',
+    ];
+    const forbiddenBodyTerms = [
+      'approvalArtifact',
+      'executionAuthority',
+      'authority',
+      'childArtifacts',
+      'rawPrompt',
+      'rawPatch',
+      'rawPath',
+      'rawBody',
+      'token:',
+      'localStorage',
+      'sessionStorage',
+      'indexedDB',
+      'document.cookie',
+      'console.',
+    ];
+
+    for (const helperWindow of helperWindows) {
+      expect(helperWindow).toContain('[dashboardLocalControlHeaderName]: pageMemoryKey');
+      expect(helperWindow).toContain('body: JSON.stringify(body)');
+      expect(helperWindow).not.toContain('JSON.stringify({');
+      for (const forbiddenBodyTerm of forbiddenBodyTerms) {
+        expect(helperWindow).not.toContain(forbiddenBodyTerm);
+      }
+    }
+
+    for (const helperName of forbiddenHelperNames) {
+      expect(appSource).not.toContain(`async function ${helperName}`);
+      expect(appSource).not.toContain(`const ${helperName}`);
+    }
   });
 
   it('summarizes approval decision history without raw reason or token data', () => {
@@ -1601,7 +1665,7 @@ describe('dashboard read-only UX helpers', () => {
       appSource.indexOf("if (activeView === 'production-ga')"),
       appSource.indexOf("if (activeView === 'pilot')"),
     );
-    const postWindow = sourceWindow(appSource, 'async function postProductionGaJson', '');
+    const postWindow = sourceFunctionWindow(appSource, 'async function postProductionGaJson');
 
     expect(gaRoute).toContain('Production GA Readiness');
     expect(gaRoute).toContain('Production GA Guided Signoff');
