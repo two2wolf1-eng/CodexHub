@@ -11,6 +11,10 @@ import {
   type BrowserObservationControlPlaneRun,
   type BrowserObservationDryRunRecord,
   type CodexPatchChildRecord,
+  CodexRecoveryRunSchema,
+  CodexTaskDiagnosisSchema,
+  CodexTaskIntentSchema,
+  CodexTaskRunSchema,
   type CodexExecLiveAdapterAdrDecisionRecord,
   type CodexExecLiveRunRecord,
   type CodexExecManualApprovalRecord,
@@ -91,7 +95,10 @@ import {
   SchemaVersionSchema,
 } from '@codexhub/contracts';
 import { createSqliteStore, resolveCodexHubDbPath } from './index';
-import { findAdversarialPublicOutputRoundTripLeaks } from '../../../test-fixtures/adversarial-public-output-fixture';
+import {
+  adversarialPublicOutputFixture,
+  findAdversarialPublicOutputRoundTripLeaks,
+} from '../../../test-fixtures/adversarial-public-output-fixture';
 
 describe('store-sqlite migration initialization', () => {
   it('creates an idempotent temp file database and repositories', async () => {
@@ -1245,6 +1252,126 @@ describe('store-sqlite migration initialization', () => {
         runRecord,
       }),
     ).toEqual([]);
+  });
+
+  it('persists M57 Codex task dispatch metadata across list/get round trips', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-store-m57-task-roundtrip-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const createdAt = '2026-05-08T00:57:02.000Z';
+    const intent = CodexTaskIntentSchema.parse({
+      id: 'codex_task_intent_m57_store_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      intentHash: 'sha256:m57-intent',
+      titleHash: 'sha256:m57-title',
+      instructionHash: 'sha256:m57-instruction',
+      repoHash: 'sha256:m57-repo',
+      worktreeHash: 'sha256:m57-worktree',
+      verificationHash: 'sha256:m57-verification',
+      selectionPolicyHash: 'sha256:m57-selection-policy',
+      requestedByHash: 'sha256:m57-operator',
+      workflowHash: 'sha256:m57-workflow',
+      appServerDispatchRequested: true,
+      liveDispatchRequested: true,
+      status: 'planned',
+      evidenceRefIds: ['evidence_m57_intent'],
+      auditEventIds: ['audit_m57_intent'],
+      summary: 'M57 store intent fixture keeps raw task input out of SQLite payloads.',
+    });
+    const run = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m57_store_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      intentId: intent.id,
+      status: 'running',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      schedulerSelectionId: 'codex_scheduler_selection_m57_store_1',
+      leaseIds: ['lease_account_m57_store_1', 'lease_worktree_m57_store_1'],
+      accountBindingId: 'codex_account_binding_m57_store_1',
+      clientInstanceId: 'codex_client_instance_m57_store_1',
+      appServerSessionId: 'codex_app_server_session_m57_store_1',
+      threadMirrorId: 'codex_app_server_thread_m57_store_1',
+      turnMirrorId: 'codex_app_server_turn_m57_store_1',
+      threadHash: 'sha256:m57-thread',
+      turnHash: 'sha256:m57-turn',
+      turnCount: 1,
+      eventCount: 2,
+      eventStreamStatus: 'listening',
+      protocolDriftStatus: 'compatible',
+      canaryGateStatus: 'passed',
+      dispatchAllowed: true,
+      liveExecution: true,
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      noRealWrite: false,
+      evidenceRefIds: ['evidence_m57_run'],
+      auditEventIds: ['audit_m57_run'],
+      summary: 'M57 task run fixture records governed live dispatch metadata only.',
+    });
+    const diagnosis = CodexTaskDiagnosisSchema.parse({
+      id: 'codex_task_diagnosis_m57_store_1',
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: createdAt,
+      taskRunId: run.id,
+      diagnosisKind: 'healthy',
+      status: 'healthy',
+      confidence: 1,
+      evidenceRefIds: ['evidence_m57_diagnosis'],
+      auditEventIds: ['audit_m57_diagnosis'],
+      summary: 'M57 diagnosis fixture confirms the task run is healthy.',
+    });
+    const recovery = CodexRecoveryRunSchema.parse({
+      id: 'codex_recovery_run_m57_store_1',
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      taskRunId: run.id,
+      diagnosisId: diagnosis.id,
+      recoveryKind: 'none',
+      status: 'completed',
+      approvalRequired: false,
+      evidenceRefIds: ['evidence_m57_recovery'],
+      auditEventIds: ['audit_m57_recovery'],
+      summary: 'M57 recovery fixture records that no recovery was required.',
+    });
+
+    await first.codexTaskIntents.saveRecord(intent);
+    await first.codexTaskRuns.saveRecord(run);
+    await first.codexTaskDiagnoses.saveRecord(diagnosis);
+    await first.codexRecoveryRuns.saveRecord(recovery);
+    await first.close();
+
+    const second = await createSqliteStore({ dbPath });
+    const intentRecord = await second.codexTaskIntents.getRecord(intent.id);
+    const runRecord = await second.codexTaskRuns.getRecord(run.id);
+    const diagnosisRecords = await second.codexTaskDiagnoses.listRecords({ limit: 10 });
+    const recoveryRecord = await second.codexRecoveryRuns.getRecord(recovery.id);
+    await second.close();
+
+    expect(intentRecord?.liveDispatchRequested).toBe(true);
+    expect(runRecord?.dispatchMode).toBe('live_app_server');
+    expect(runRecord?.processBoundaryInvoked).toBe(true);
+    expect(runRecord?.externalProcessStarted).toBe(true);
+    expect(runRecord?.leaseIds).toHaveLength(2);
+    expect(diagnosisRecords).toHaveLength(1);
+    expect(recoveryRecord?.executionDisabled).toBe(true);
+    expect(
+      findAdversarialPublicOutputRoundTripLeaks({
+        intentRecord,
+        runRecord,
+        diagnosisRecords,
+        recoveryRecord,
+      }),
+    ).toEqual([]);
+    expect(() =>
+      CodexTaskIntentSchema.parse({
+        ...intent,
+        id: 'codex_task_intent_m57_store_raw_1',
+        metadata: { prompt: adversarialPublicOutputFixture },
+      }),
+    ).toThrow();
   });
 
   it('persists M40-M45 metadata-only control-plane records across list/get round trips', async () => {
