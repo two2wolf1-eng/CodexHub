@@ -54,6 +54,13 @@ const METADATA_FLAGS = {
   bodyStored: false,
 } as const;
 
+function resolvePlatformBoundaryReached(
+  planStatus: 'planned' | 'blocked',
+  requestedBoundaryReached?: boolean,
+): boolean {
+  return planStatus === 'planned' && (requestedBoundaryReached ?? false);
+}
+
 export interface PlatformBackupPlanInput {
   scope: PlatformBackupScope;
   storeSnapshotSeed: string;
@@ -164,7 +171,7 @@ export function createPlatformBackupRun(input: {
   now?: () => string;
 }): PlatformBackupRun {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.boundaryReached ?? false;
+  const boundaryReached = resolvePlatformBoundaryReached(input.plan.status, input.boundaryReached);
 
   return PlatformBackupRunSchema.parse({
     id: foundationId('platform_backup_run'),
@@ -246,7 +253,7 @@ export function createPlatformRestoreRun(input: {
   now?: () => string;
 }): PlatformRestoreRun {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.boundaryReached ?? false;
+  const boundaryReached = resolvePlatformBoundaryReached(input.plan.status, input.boundaryReached);
 
   return PlatformRestoreRunSchema.parse({
     id: foundationId('platform_restore_run'),
@@ -318,7 +325,7 @@ export function createStoreMigrationRun(input: {
   now?: () => string;
 }): StoreMigrationRun {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.boundaryReached ?? false;
+  const boundaryReached = resolvePlatformBoundaryReached(input.plan.status, input.boundaryReached);
 
   return StoreMigrationRunSchema.parse({
     id: foundationId('store_migration_run'),
@@ -392,7 +399,7 @@ export function createRetentionPolicyRun(input: {
   now?: () => string;
 }): RetentionPolicyRun {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.boundaryReached ?? false;
+  const boundaryReached = resolvePlatformBoundaryReached(input.plan.status, input.boundaryReached);
 
   return RetentionPolicyRunSchema.parse({
     id: foundationId('retention_policy_run'),
@@ -463,7 +470,7 @@ export function createAuditExportRun(input: {
   now?: () => string;
 }): AuditExportRun {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.boundaryReached ?? false;
+  const boundaryReached = resolvePlatformBoundaryReached(input.plan.status, input.boundaryReached);
 
   return AuditExportRunSchema.parse({
     id: foundationId('audit_export_run'),
@@ -537,7 +544,7 @@ export function createOperatorRoleAssignmentRun(input: {
   now?: () => string;
 }): OperatorRoleAssignmentRun {
   const now = input.now ?? foundationTimestamp;
-  const boundaryReached = input.boundaryReached ?? false;
+  const boundaryReached = resolvePlatformBoundaryReached(input.plan.status, input.boundaryReached);
 
   return OperatorRoleAssignmentRunSchema.parse({
     id: foundationId('operator_role_run'),

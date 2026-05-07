@@ -6383,3 +6383,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d18.platform-operations-audit:
+    risk: critical
+    trigger:
+      type: platform-operations-audit
+      entrypoint: platform-operations-kernel tests docs
+      localControlRequired: false
+    scope:
+      - backup-restore-migration-retention-audit-export-role-boundaries
+      - pre-boundary-block-preserves-approval
+      - no-arbitrary-sql-or-network-export
+      - no-raw-db-backup-audit-path-token-env-output
+      - no-role-bypass
+    docs:
+      - docs/releases/m48-d18-platform-operations-audit.md
+      - docs/reviews/m48-d18-platform-operations-audit-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true

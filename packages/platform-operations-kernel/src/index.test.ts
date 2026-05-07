@@ -255,6 +255,97 @@ describe('platform operations kernel', () => {
     ).toBe('blocked');
   });
 
+  it('does not report platform boundaries reached for blocked operation plans', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const backup = createPlatformBackupRun({
+      plan: createPlatformBackupPlan({
+        scope: 'store-sqlite',
+        storeSnapshotSeed: 'store snapshot',
+        backupRootSeed: 'backup root',
+        backupDirConfigured: false,
+        now,
+      }),
+      boundaryReached: true,
+      approvalArtifactIds: ['approval_backup'],
+      now,
+    });
+    const restore = createPlatformRestoreRun({
+      plan: createPlatformRestorePlan({
+        mode: 'isolated-rehearsal',
+        sourceBackupManifest: 'manifest',
+        targetStoreSeed: 'target-store',
+        schedulerQuiesced: false,
+        now,
+      }),
+      boundaryReached: true,
+      approvalArtifactIds: ['approval_restore'],
+      now,
+    });
+    const migration = createStoreMigrationRun({
+      plan: createStoreMigrationPlan({
+        builtInMigrationId: 'foundation_0004',
+        currentSchemaSeed: 'current',
+        targetSchemaSeed: 'target',
+        migrationEnabled: false,
+        now,
+      }),
+      boundaryReached: true,
+      approvalArtifactIds: ['approval_migration'],
+      now,
+    });
+    const retention = createRetentionPolicyRun({
+      plan: createRetentionPolicyPlan({
+        target: 'audit',
+        policySeed: 'retain only',
+        retentionEnabled: false,
+        now,
+      }),
+      boundaryReached: true,
+      approvalArtifactIds: ['approval_retention'],
+      now,
+    });
+    const auditExport = createAuditExportRun({
+      plan: createAuditExportPlan({
+        destinationSeed: 'local export',
+        auditExportEnabled: false,
+        now,
+      }),
+      boundaryReached: true,
+      approvalArtifactIds: ['approval_audit_export'],
+      now,
+    });
+    const role = createOperatorRoleAssignmentRun({
+      plan: createOperatorRoleAssignmentPlan({
+        operatorIdentity: 'operator',
+        role: 'admin',
+        roleEnforcementEnabled: false,
+        now,
+      }),
+      boundaryReached: true,
+      approvalArtifactIds: ['approval_role'],
+      now,
+    });
+
+    expect(backup.boundaryReached).toBe(false);
+    expect(backup.approvalConsumed).toBe(false);
+    expect(backup.localFilesystemBoundaryInvoked).toBe(false);
+    expect(restore.boundaryReached).toBe(false);
+    expect(restore.approvalConsumedCount).toBe(0);
+    expect(restore.isolatedRestoreBoundaryInvoked).toBe(false);
+    expect(migration.boundaryReached).toBe(false);
+    expect(migration.approvalConsumed).toBe(false);
+    expect(migration.migrationBoundaryInvoked).toBe(false);
+    expect(retention.boundaryReached).toBe(false);
+    expect(retention.approvalConsumed).toBe(false);
+    expect(retention.retentionBoundaryInvoked).toBe(false);
+    expect(auditExport.boundaryReached).toBe(false);
+    expect(auditExport.approvalConsumed).toBe(false);
+    expect(auditExport.localFilesystemBoundaryInvoked).toBe(false);
+    expect(role.boundaryReached).toBe(false);
+    expect(role.approvalConsumed).toBe(false);
+    expect(role.roleStoreBoundaryInvoked).toBe(false);
+  });
+
   it('maps each disaster recovery fixture to precise operation statuses', () => {
     const now = () => '2026-05-07T00:00:00.000Z';
     const scenarios: Array<
