@@ -122,6 +122,21 @@ describe('runtime and external agent SQLite stores', () => {
       await store.externalAgentPatchSummaries.savePatchSummary(agentRun.patchSummary);
     }
 
+    const directRecords = [
+      await store.runtimeJobPlans.getJobPlan(plan.id),
+      await store.runtimeQueueEntries.getQueueEntry(queue.id),
+      await store.runtimeLeases.getLease(lease.id),
+      await store.runtimeLocks.getLock(lock.id),
+      await store.runtimeCheckpoints.getCheckpoint(checkpoint.id),
+      await store.runtimeJobRuns.getRun(runtimeRun.id),
+      await store.externalAgentDryRuns.getDryRun(agentPlan.id),
+      await store.externalAgentApprovals.getApproval(approval.id),
+      await store.externalAgentApprovals.getApprovalByArtifactId(approval.approvalArtifactId),
+      await store.externalAgentRuns.getRun(agentRun.id),
+      agentRun.patchSummary
+        ? await store.externalAgentPatchSummaries.getPatchSummary(agentRun.patchSummary.id)
+        : undefined,
+    ].filter((record) => record !== undefined);
     const records = [
       ...(await store.runtimeJobPlans.listJobPlans()),
       ...(await store.runtimeQueueEntries.listQueueEntries()),
@@ -133,11 +148,26 @@ describe('runtime and external agent SQLite stores', () => {
       ...(await store.externalAgentApprovals.listApprovals()),
       ...(await store.externalAgentRuns.listRuns()),
       ...(await store.externalAgentPatchSummaries.listPatchSummaries()),
+      ...directRecords,
     ];
 
     expect(await store.runtimeJobPlans.getJobPlan(plan.id)).toEqual(plan);
     expect(await store.externalAgentApprovals.getApprovalByArtifactId(approval.approvalArtifactId))
       .toEqual(approval);
+    expect(directRecords).toHaveLength(11);
+    expect(directRecords).toContainEqual(plan);
+    expect(directRecords).toContainEqual(queue);
+    expect(directRecords).toContainEqual(lease);
+    expect(directRecords).toContainEqual(lock);
+    expect(directRecords).toContainEqual(checkpoint);
+    expect(directRecords).toContainEqual(runtimeRun);
+    expect(directRecords).toContainEqual(agentPlan);
+    expect(directRecords).toContainEqual(approval);
+    expect(directRecords).toContainEqual(agentRun);
+    expect(runtimeRun.processBoundaryInvoked).toBe(false);
+    expect(agentRun.controlledSiblingWorktreeOnly).toBe(true);
+    expect(agentRun.repoRootMutationAllowed).toBe(false);
+    expect(approval.rawPromptStored).toBe(false);
     expect(JSON.stringify(records)).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
 
