@@ -329,6 +329,39 @@ function extractDirectLiteralPostRoutes(serverSource: string): string[] {
     .filter((route): route is string => Boolean(route));
 }
 
+const callerSuppliedAuthorityPayload = {
+  approvalArtifact: { id: 'caller_supplied_artifact', status: 'approved' },
+  executionAuthority: { allowed: true, policyDecisionId: 'caller_supplied_policy' },
+  authority: { allowed: true, policyDecisionId: 'caller_supplied_authority' },
+  rawUrl: 'https://evil.example/caller-supplied-url',
+  rawBody: 'caller supplied raw body fixture',
+  requestBody: 'caller supplied request body fixture',
+  responseBody: 'caller supplied response body fixture',
+  token: 'ghp_caller_supplied_token',
+  envValue: 'CALLER_SUPPLIED_ENV_VALUE',
+  childArtifacts: [{ id: 'caller_supplied_child_artifact', status: 'approved' }],
+  fullArtifact: { id: 'caller_supplied_full_artifact' },
+} as const;
+
+function expectNoCallerSuppliedAuthorityPayloadLeak(body: string): void {
+  for (const forbiddenTerm of [
+    'caller_supplied_artifact',
+    'caller_supplied_policy',
+    'caller_supplied_authority',
+    'caller-supplied-url',
+    'caller supplied raw body fixture',
+    'caller supplied request body fixture',
+    'caller supplied response body fixture',
+    'ghp_caller_supplied_token',
+    'CALLER_SUPPLIED_ENV_VALUE',
+    'caller_supplied_child_artifact',
+    'caller_supplied_full_artifact',
+    '"allowed":true',
+  ]) {
+    expect(body).not.toContain(forbiddenTerm);
+  }
+}
+
 afterEach(() => {
   rmSync(symlinkEscapeAbsolutePath, { force: true });
 });
@@ -927,33 +960,12 @@ describe('supervisor mock development API', () => {
         payload: {
           dryRunId: 'dry-run-fixture',
           approvalArtifactId: 'approval-fixture',
-          approvalArtifact: { id: 'caller_supplied_artifact', status: 'approved' },
-          executionAuthority: { allowed: true, policyDecisionId: 'caller_supplied_policy' },
-          authority: { allowed: true, policyDecisionId: 'caller_supplied_authority' },
-          rawUrl: 'https://evil.example/caller-supplied-url',
-          rawBody: 'caller supplied raw body fixture',
-          requestBody: 'caller supplied request body fixture',
-          responseBody: 'caller supplied response body fixture',
-          token: 'ghp_caller_supplied_token',
-          envValue: 'CALLER_SUPPLIED_ENV_VALUE',
-          childArtifacts: [{ id: 'caller_supplied_child_artifact' }],
-          fullArtifact: { id: 'caller_supplied_full_artifact' },
+          ...callerSuppliedAuthorityPayload,
         },
       });
 
       expect(response.statusCode).toBeGreaterThanOrEqual(400);
-      expect(response.body).not.toContain('caller_supplied_artifact');
-      expect(response.body).not.toContain('caller_supplied_policy');
-      expect(response.body).not.toContain('caller_supplied_authority');
-      expect(response.body).not.toContain('caller-supplied-url');
-      expect(response.body).not.toContain('caller supplied raw body fixture');
-      expect(response.body).not.toContain('caller supplied request body fixture');
-      expect(response.body).not.toContain('caller supplied response body fixture');
-      expect(response.body).not.toContain('ghp_caller_supplied_token');
-      expect(response.body).not.toContain('CALLER_SUPPLIED_ENV_VALUE');
-      expect(response.body).not.toContain('caller_supplied_child_artifact');
-      expect(response.body).not.toContain('caller_supplied_full_artifact');
-      expect(response.body).not.toContain('"allowed":true');
+      expectNoCallerSuppliedAuthorityPayloadLeak(response.body);
     }
 
     await server.close();
@@ -973,20 +985,55 @@ describe('supervisor mock development API', () => {
         payload: {
           dryRunId: 'dry-run-fixture',
           approvalArtifactId: 'approval-fixture',
-          approvalArtifact: { id: 'caller_supplied_artifact', status: 'approved' },
-          executionAuthority: { allowed: true, policyDecisionId: 'caller_supplied_policy' },
-          authority: { allowed: true, policyDecisionId: 'caller_supplied_authority' },
-          childArtifacts: [{ id: 'caller_supplied_child_artifact', status: 'approved' }],
+          ...callerSuppliedAuthorityPayload,
         },
       });
 
       expect(response.statusCode).toBe(400);
       expect(response.body.toLowerCase()).toContain('authority');
-      expect(response.body).not.toContain('caller_supplied_artifact');
-      expect(response.body).not.toContain('caller_supplied_child_artifact');
-      expect(response.body).not.toContain('caller_supplied_policy');
-      expect(response.body).not.toContain('caller_supplied_authority');
-      expect(response.body).not.toContain('"allowed":true');
+      expectNoCallerSuppliedAuthorityPayloadLeak(response.body);
+    }
+
+    await server.close();
+    await store.close();
+  });
+
+  it('keeps local gates ahead of hostile authority payloads on all late-stage mutating routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-late-stage-gate-hostile-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    for (const url of lateStageSupervisorMutatingRoutes) {
+      const missingTokenResponse = await server.inject({
+        method: 'POST',
+        url,
+        payload: callerSuppliedAuthorityPayload,
+      });
+      const badTokenResponse = await server.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-codexhub-local-token': 'bad-token-fixture' },
+        payload: callerSuppliedAuthorityPayload,
+      });
+      const maliciousOriginResponse = await server.inject({
+        method: 'POST',
+        url,
+        headers: {
+          ...localControlHeaders,
+          origin: 'https://evil.example',
+        },
+        payload: callerSuppliedAuthorityPayload,
+      });
+
+      expect(missingTokenResponse.statusCode).toBe(401);
+      expect(missingTokenResponse.json().error).toBe('invalid_local_control_token');
+      expectNoCallerSuppliedAuthorityPayloadLeak(missingTokenResponse.body);
+      expect(badTokenResponse.statusCode).toBe(401);
+      expect(badTokenResponse.json().error).toBe('invalid_local_control_token');
+      expectNoCallerSuppliedAuthorityPayloadLeak(badTokenResponse.body);
+      expect(maliciousOriginResponse.statusCode).toBe(403);
+      expect(maliciousOriginResponse.json().error).toBe('untrusted_origin');
+      expectNoCallerSuppliedAuthorityPayloadLeak(maliciousOriginResponse.body);
     }
 
     await server.close();
