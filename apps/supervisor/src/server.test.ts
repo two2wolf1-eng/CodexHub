@@ -1087,6 +1087,91 @@ describe('supervisor mock development API', () => {
     expect(forgedPayloadResponse.body).not.toContain('raw patch verify pr merge');
   });
 
+  it('records production GA E2E rehearsal chains as metadata-only step outcomes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-production-ga-e2e-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const allPassResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/rehearsals',
+      headers: localControlHeaders,
+      payload: { scenario: 'all-pass' },
+    });
+    const verificationFailedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/rehearsals',
+      headers: localControlHeaders,
+      payload: { scenario: 'verification-failed' },
+    });
+    const rollbackBlockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/rehearsals',
+      headers: localControlHeaders,
+      payload: { scenario: 'rollback-plan-missing' },
+    });
+    const listResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-ga/rehearsals',
+    });
+    const forgedPayloadResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        scenario: 'all-pass',
+        rawE2EPayload: 'raw patch verify pr merge release deploy observe rollback',
+        childArtifacts: [{ id: 'caller_supplied_child_artifact' }],
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(allPassResponse.statusCode).toBe(200);
+    expect(allPassResponse.json()).toMatchObject({
+      status: 'ready',
+      completedStepCount: 8,
+      blockedStepCount: 0,
+      failedStepCount: 0,
+      liveSmokeStatus: 'readiness_blocked',
+      childAdapterInvokedDirectly: false,
+    });
+    expect(verificationFailedResponse.statusCode).toBe(200);
+    expect(verificationFailedResponse.json()).toMatchObject({
+      status: 'failed',
+      completedStepCount: 1,
+      blockedStepCount: 6,
+      failedStepCount: 1,
+      processBoundaryInvoked: false,
+      networkBoundaryInvoked: false,
+      remoteProviderBoundaryInvoked: false,
+      childAdapterInvokedDirectly: false,
+    });
+    expect(rollbackBlockedResponse.statusCode).toBe(200);
+    expect(rollbackBlockedResponse.json()).toMatchObject({
+      status: 'blocked',
+      completedStepCount: 7,
+      blockedStepCount: 1,
+      failedStepCount: 0,
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().records).toHaveLength(3);
+    expect(forgedPayloadResponse.statusCode).toBe(400);
+    for (const responseBody of [
+      allPassResponse.body,
+      verificationFailedResponse.body,
+      rollbackBlockedResponse.body,
+      listResponse.body,
+      forgedPayloadResponse.body,
+    ]) {
+      expect(responseBody).not.toContain('raw patch verify pr merge');
+      expect(responseBody).not.toContain('caller_supplied_child_artifact');
+      expect(responseBody).not.toContain(localControlToken);
+    }
+  });
+
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-external-agent-raw-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

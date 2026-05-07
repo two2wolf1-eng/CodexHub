@@ -47,6 +47,29 @@ export const productionGaSurfaces: readonly ProductionGaSurface[] = [
   'platform-operations',
 ];
 
+export const productionGaE2EChainSteps = [
+  'patch',
+  'verify',
+  'pr',
+  'merge',
+  'release',
+  'deploy',
+  'observe',
+  'rollback',
+] as const;
+
+type ProductionGaE2EChainStep = (typeof productionGaE2EChainSteps)[number];
+
+interface ProductionGaE2ERehearsalOutcome {
+  status: ProductionGaStatus;
+  completedStepCount: number;
+  blockedStepCount: number;
+  failedStepCount: number;
+  timelineSeeds: readonly string[];
+  liveSmokeStatus: 'not_configured' | 'readiness_blocked' | 'completed';
+  liveSmokeBlockerCount: number;
+}
+
 export interface ProductionGaCapabilityMatrixInput {
   readySurfaces?: readonly ProductionGaSurface[];
   blockedSurfaces?: readonly ProductionGaSurface[];
@@ -200,6 +223,113 @@ function statusFromParts(parts: readonly ProductionGaStatus[]): ProductionGaStat
   return 'ready';
 }
 
+function buildE2ETimelineSeeds(
+  completedSteps: readonly ProductionGaE2EChainStep[],
+  blockedSteps: readonly ProductionGaE2EChainStep[],
+  failedSteps: readonly ProductionGaE2EChainStep[],
+): readonly string[] {
+  return [
+    ...completedSteps.map((step) => `${step}:completed`),
+    ...blockedSteps.map((step) => `${step}:blocked`),
+    ...failedSteps.map((step) => `${step}:failed`),
+  ];
+}
+
+function deriveProductionGaE2ERehearsalOutcome(
+  scenario: ProductionGaE2EScenario,
+  liveSmokeMode: 'disabled' | 'conditional',
+): ProductionGaE2ERehearsalOutcome {
+  const steps = productionGaE2EChainSteps;
+  const blockFrom = (
+    step: ProductionGaE2EChainStep,
+    status: ProductionGaStatus = 'blocked',
+  ): ProductionGaE2ERehearsalOutcome => {
+    const index = steps.indexOf(step);
+    const completedSteps = steps.slice(0, index);
+    const blockedSteps = steps.slice(index);
+
+    return {
+      status,
+      completedStepCount: completedSteps.length,
+      blockedStepCount: blockedSteps.length,
+      failedStepCount: 0,
+      timelineSeeds: buildE2ETimelineSeeds(completedSteps, blockedSteps, []),
+      liveSmokeStatus: 'readiness_blocked',
+      liveSmokeBlockerCount: 1,
+    };
+  };
+  const failAt = (step: ProductionGaE2EChainStep): ProductionGaE2ERehearsalOutcome => {
+    const index = steps.indexOf(step);
+    const completedSteps = steps.slice(0, index);
+    const failedSteps = steps.slice(index, index + 1);
+    const blockedSteps = steps.slice(index + 1);
+
+    return {
+      status: 'failed',
+      completedStepCount: completedSteps.length,
+      blockedStepCount: blockedSteps.length,
+      failedStepCount: failedSteps.length,
+      timelineSeeds: buildE2ETimelineSeeds(completedSteps, blockedSteps, failedSteps),
+      liveSmokeStatus: 'readiness_blocked',
+      liveSmokeBlockerCount: 1,
+    };
+  };
+
+  switch (scenario) {
+    case 'all-pass':
+      return {
+        status: 'ready',
+        completedStepCount: steps.length,
+        blockedStepCount: 0,
+        failedStepCount: 0,
+        timelineSeeds: buildE2ETimelineSeeds(steps, [], []),
+        liveSmokeStatus: liveSmokeMode === 'disabled' ? 'not_configured' : 'readiness_blocked',
+        liveSmokeBlockerCount: liveSmokeMode === 'disabled' ? 0 : 1,
+      };
+    case 'patch-blocked':
+    case 'child-hash-mismatch':
+    case 'approval-blocked':
+      return blockFrom('patch');
+    case 'verification-failed':
+      return failAt('verify');
+    case 'pr-blocked':
+      return blockFrom('pr');
+    case 'merge-blocked':
+      return blockFrom('merge');
+    case 'release-blocked':
+      return blockFrom('release');
+    case 'deploy-blocked':
+      return blockFrom('deploy');
+    case 'observe-blocked':
+      return blockFrom('observe');
+    case 'rollback-plan-missing':
+      return blockFrom('rollback');
+    case 'rollback-failed':
+      return failAt('rollback');
+    case 'evidence-missing':
+    case 'audit-gap':
+      return {
+        status: 'blocked',
+        completedStepCount: steps.length,
+        blockedStepCount: 1,
+        failedStepCount: 0,
+        timelineSeeds: [...buildE2ETimelineSeeds(steps, [], []), `${scenario}:blocked`],
+        liveSmokeStatus: 'readiness_blocked',
+        liveSmokeBlockerCount: 1,
+      };
+    case 'live-env-not-configured':
+      return {
+        status: 'conditionally_ready',
+        completedStepCount: steps.length,
+        blockedStepCount: 0,
+        failedStepCount: 0,
+        timelineSeeds: [...buildE2ETimelineSeeds(steps, [], []), 'live-smoke:readiness-blocked'],
+        liveSmokeStatus: 'readiness_blocked',
+        liveSmokeBlockerCount: 1,
+      };
+  }
+}
+
 export function createProductionGaCapabilityMatrix(
   input: ProductionGaCapabilityMatrixInput = {},
 ): ProductionGaCapabilityMatrix {
@@ -327,16 +457,7 @@ export function summarizeProductionGaReadiness(
 export function createProductionGaE2ERehearsalPlan(
   input: ProductionGaE2ERehearsalPlanInput,
 ): ProductionGaE2ERehearsalPlan {
-  const chainSeeds = input.chainSeeds ?? [
-    'patch',
-    'verify',
-    'pr',
-    'merge',
-    'release',
-    'deploy',
-    'observe',
-    'rollback',
-  ];
+  const chainSeeds = input.chainSeeds ?? productionGaE2EChainSteps;
 
   return ProductionGaE2ERehearsalPlanSchema.parse({
     id: foundationId('production_ga_e2e_rehearsal_plan'),
@@ -356,7 +477,11 @@ export function createProductionGaE2ERehearsalPlan(
 export function createProductionGaE2ERehearsalRun(
   input: ProductionGaE2ERehearsalRunInput,
 ): ProductionGaE2ERehearsalRun {
-  const status = input.status ?? (input.plan.scenario === 'all-pass' ? 'ready' : 'blocked');
+  const derivedOutcome = deriveProductionGaE2ERehearsalOutcome(
+    input.plan.scenario,
+    input.plan.liveSmokeMode,
+  );
+  const status = input.status ?? derivedOutcome.status;
 
   return ProductionGaE2ERehearsalRunSchema.parse({
     id: foundationId('production_ga_e2e_rehearsal_run'),
@@ -365,12 +490,14 @@ export function createProductionGaE2ERehearsalRun(
     rehearsalPlanId: input.plan.id,
     scenario: input.plan.scenario,
     status,
-    completedStepCount: input.completedStepCount ?? (status === 'ready' ? input.plan.stepCount : 0),
-    blockedStepCount: input.blockedStepCount ?? (status === 'blocked' ? 1 : 0),
-    failedStepCount: input.failedStepCount ?? (status === 'failed' ? 1 : 0),
-    liveSmokeStatus: input.liveSmokeStatus ?? 'readiness_blocked',
-    liveSmokeBlockerCount: input.liveSmokeBlockerCount ?? 1,
-    timelineHash: hashList(input.timelineSeeds ?? [input.plan.id, input.plan.chainHash, status]),
+    completedStepCount: input.completedStepCount ?? derivedOutcome.completedStepCount,
+    blockedStepCount: input.blockedStepCount ?? derivedOutcome.blockedStepCount,
+    failedStepCount: input.failedStepCount ?? derivedOutcome.failedStepCount,
+    liveSmokeStatus: input.liveSmokeStatus ?? derivedOutcome.liveSmokeStatus,
+    liveSmokeBlockerCount: input.liveSmokeBlockerCount ?? derivedOutcome.liveSmokeBlockerCount,
+    timelineHash: hashList(
+      input.timelineSeeds ?? [input.plan.id, input.plan.chainHash, ...derivedOutcome.timelineSeeds],
+    ),
     processBoundaryInvoked: false,
     networkBoundaryInvoked: false,
     remoteProviderBoundaryInvoked: false,

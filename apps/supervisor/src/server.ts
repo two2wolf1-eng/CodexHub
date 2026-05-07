@@ -20967,24 +20967,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'evidence-missing',
     'audit-gap',
   ];
-  const productionGaStatuses: readonly ProductionGaStatus[] = [
-    'ready',
-    'conditionally_ready',
-    'blocked',
-    'failed',
-  ];
-
   function normalizeProductionGaScenario(
     scenario: ProductionGaRequestBody['scenario'],
   ): ProductionGaE2EScenario {
     return scenario && productionGaScenarios.includes(scenario) ? scenario : 'all-pass';
-  }
-
-  function normalizeProductionGaStatus(
-    status: ProductionGaRequestBody['status'],
-    fallback: ProductionGaStatus,
-  ): ProductionGaStatus {
-    return status && productionGaStatuses.includes(status) ? status : fallback;
   }
 
   function hasForbiddenProductionGaBody(value: unknown): boolean {
@@ -21116,14 +21102,9 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       scenario,
       liveSmokeMode: body?.liveSmokeMode ?? 'conditional',
     });
-    const status =
-      scenario === 'all-pass'
-        ? normalizeProductionGaStatus(body?.status, 'ready')
-        : normalizeProductionGaStatus(body?.status, 'blocked');
 
     return createProductionGaE2ERehearsalRun({
       plan,
-      status,
       liveSmokeStatus: body?.liveSmokeStatus ?? 'readiness_blocked',
       liveSmokeBlockerCount: body?.liveSmokeStatus === 'completed' ? 0 : 1,
     });

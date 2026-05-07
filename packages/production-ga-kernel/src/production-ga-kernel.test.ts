@@ -152,6 +152,56 @@ describe('production-ga-kernel', () => {
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
 
+  it('derives complete E2E rehearsal metadata timelines for each GA scenario', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const cases = [
+      ['all-pass', 'ready', 8, 0, 0, 'readiness_blocked', 1],
+      ['patch-blocked', 'blocked', 0, 8, 0, 'readiness_blocked', 1],
+      ['verification-failed', 'failed', 1, 6, 1, 'readiness_blocked', 1],
+      ['pr-blocked', 'blocked', 2, 6, 0, 'readiness_blocked', 1],
+      ['merge-blocked', 'blocked', 3, 5, 0, 'readiness_blocked', 1],
+      ['release-blocked', 'blocked', 4, 4, 0, 'readiness_blocked', 1],
+      ['deploy-blocked', 'blocked', 5, 3, 0, 'readiness_blocked', 1],
+      ['observe-blocked', 'blocked', 6, 2, 0, 'readiness_blocked', 1],
+      ['rollback-plan-missing', 'blocked', 7, 1, 0, 'readiness_blocked', 1],
+      ['rollback-failed', 'failed', 7, 0, 1, 'readiness_blocked', 1],
+      ['child-hash-mismatch', 'blocked', 0, 8, 0, 'readiness_blocked', 1],
+      ['approval-blocked', 'blocked', 0, 8, 0, 'readiness_blocked', 1],
+      ['live-env-not-configured', 'conditionally_ready', 8, 0, 0, 'readiness_blocked', 1],
+      ['evidence-missing', 'blocked', 8, 1, 0, 'readiness_blocked', 1],
+      ['audit-gap', 'blocked', 8, 1, 0, 'readiness_blocked', 1],
+    ] as const;
+
+    for (const [
+      scenario,
+      status,
+      completedStepCount,
+      blockedStepCount,
+      failedStepCount,
+      liveSmokeStatus,
+      liveSmokeBlockerCount,
+    ] of cases) {
+      const plan = createProductionGaE2ERehearsalPlan({ scenario, now });
+      const run = createProductionGaE2ERehearsalRun({ plan, now });
+
+      expect(run).toMatchObject({
+        scenario,
+        status,
+        completedStepCount,
+        blockedStepCount,
+        failedStepCount,
+        liveSmokeStatus,
+        liveSmokeBlockerCount,
+        processBoundaryInvoked: false,
+        networkBoundaryInvoked: false,
+        remoteProviderBoundaryInvoked: false,
+        childAdapterInvokedDirectly: false,
+      });
+      expect(run.timelineHash).not.toBe(plan.chainHash);
+      expect(findAdversarialPublicOutputRoundTripLeaks([plan, run])).toEqual([]);
+    }
+  });
+
   it('blocks signoff when critical-risk resolution is missing', () => {
     const now = () => '2026-05-07T00:00:00.000Z';
     const matrix = createProductionGaCapabilityMatrix({ now });
