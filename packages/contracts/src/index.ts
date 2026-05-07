@@ -17968,6 +17968,44 @@ export const CodexTaskStatusSchema = z.enum([
 ]);
 export type CodexTaskStatus = z.infer<typeof CodexTaskStatusSchema>;
 
+export const CodexTaskDispatchModeSchema = z.enum([
+  'fixture',
+  'live_app_server',
+]);
+export type CodexTaskDispatchMode = z.infer<typeof CodexTaskDispatchModeSchema>;
+
+export const CodexTaskPreflightStatusSchema = z.enum([
+  'not_started',
+  'ready',
+  'blocked',
+  'waiting_approval',
+  'drift_blocked',
+  'canary_blocked',
+]);
+export type CodexTaskPreflightStatus = z.infer<
+  typeof CodexTaskPreflightStatusSchema
+>;
+
+export const CodexTaskApprovalStatusSchema = z.enum([
+  'not_required',
+  'required',
+  'waiting',
+  'approved',
+  'rejected',
+]);
+export type CodexTaskApprovalStatus = z.infer<typeof CodexTaskApprovalStatusSchema>;
+
+export const CodexTaskEventStreamStatusSchema = z.enum([
+  'not_started',
+  'listening',
+  'completed',
+  'failed',
+  'stalled',
+]);
+export type CodexTaskEventStreamStatus = z.infer<
+  typeof CodexTaskEventStreamStatusSchema
+>;
+
 export const CodexTaskDiagnosisKindSchema = z.enum([
   'healthy',
   'failed_quota',
@@ -18435,10 +18473,25 @@ export const CodexTaskIntentSchema = createdEntityBaseSchema
   .merge(m51EvidenceAuditSchema)
   .extend({
     intentHash: z.string().min(1),
+    titleHash: z.string().min(1).optional(),
+    titleSummaryHash: z.string().min(1).optional(),
+    instructionHash: z.string().min(1).optional(),
+    instructionSummaryHash: z.string().min(1).optional(),
     promptHash: z.string().min(1).optional(),
     promptLength: z.number().int().nonnegative().optional(),
+    repoHash: z.string().min(1).optional(),
+    worktreeHash: z.string().min(1).optional(),
+    verificationHash: z.string().min(1).optional(),
+    selectionPolicyHash: z.string().min(1).optional(),
+    selectionPolicySummaryHash: z.string().min(1).optional(),
     requestedByHash: z.string().min(1).optional(),
     workflowHash: z.string().min(1).optional(),
+    isolatedWorktreeRequired: z.literal(true).default(true),
+    repoRootWriteAllowed: z.literal(false).default(false),
+    dryRunRequired: z.literal(true).default(true),
+    approvalRequired: z.boolean().default(true),
+    appServerDispatchRequested: z.boolean().default(false),
+    liveDispatchRequested: z.boolean().default(false),
     status: CodexTaskStatusSchema.default('planned'),
     summary: z.string().min(1),
   })
@@ -18452,17 +18505,60 @@ export const CodexTaskRunSchema = createdEntityBaseSchema
   .extend({
     intentId: z.string().min(1),
     status: CodexTaskStatusSchema,
+    dispatchMode: CodexTaskDispatchModeSchema.default('fixture'),
+    preflightStatus: CodexTaskPreflightStatusSchema.default('not_started'),
+    approvalStatus: CodexTaskApprovalStatusSchema.default('required'),
+    schedulerSelectionId: z.string().min(1).optional(),
+    leaseIds: z.array(z.string().min(1)).default([]),
     accountBindingId: z.string().min(1).optional(),
     clientInstanceId: z.string().min(1).optional(),
     appServerSessionId: z.string().min(1).optional(),
+    threadMirrorId: z.string().min(1).optional(),
+    turnMirrorId: z.string().min(1).optional(),
     threadHash: z.string().min(1).optional(),
+    turnHash: z.string().min(1).optional(),
     turnCount: z.number().int().nonnegative().default(0),
     eventCount: z.number().int().nonnegative().default(0),
+    eventStreamStatus: CodexTaskEventStreamStatusSchema.default('not_started'),
+    protocolDriftStatus: CodexAppServerProtocolDriftStatusSchema.optional(),
+    canaryGateStatus: z
+      .enum(['not_required', 'passed', 'failed', 'blocked'])
+      .default('not_required'),
+    workspaceWriteApproved: z.boolean().default(false),
+    isolatedWorktreeRequired: z.literal(true).default(true),
+    repoRootWriteAllowed: z.literal(false).default(false),
+    dispatchAllowed: z.boolean().default(false),
+    dispatchStartedAt: IsoDateTimeSchema.optional(),
+    completedAt: IsoDateTimeSchema.optional(),
+    failureDiagnosisId: z.string().min(1).optional(),
+    ciStatus: z.enum(['not_run', 'pending', 'passed', 'failed', 'blocked']).default('not_run'),
     outputSummaryHash: z.string().min(1).optional(),
+    liveExecution: z.boolean().default(false),
+    noRealWrite: z.boolean().default(true),
     summary: z.string().min(1),
   })
   .strict()
-  .superRefine(rejectCustomWorkflowRawMetadata);
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      record.dispatchMode === 'live_app_server' &&
+      record.liveExecution &&
+      !record.dispatchAllowed
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live App Server dispatch requires dispatchAllowed',
+        path: ['dispatchAllowed'],
+      });
+    }
+    if (record.repoRootWriteAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Codex task runs cannot write directly to the repository root',
+        path: ['repoRootWriteAllowed'],
+      });
+    }
+  });
 export type CodexTaskRun = z.infer<typeof CodexTaskRunSchema>;
 
 export const CodexTaskDiagnosisSchema = observedEntityBaseSchema

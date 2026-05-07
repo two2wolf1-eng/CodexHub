@@ -540,8 +540,12 @@ import {
   CodexRecoveryRunSchema,
   CodexSchedulerPreflightCheckSchema,
   CodexSchedulerSelectionSummarySchema,
+  CodexTaskApprovalStatusSchema,
   CodexTaskDiagnosisSchema,
+  CodexTaskDispatchModeSchema,
+  CodexTaskEventStreamStatusSchema,
   CodexTaskIntentSchema,
+  CodexTaskPreflightStatusSchema,
   CodexTaskRunSchema,
   EvidenceBundleSchema,
   HumanCheckpointSchema,
@@ -15709,10 +15713,21 @@ describe('contracts schemas', () => {
       schemaVersion,
       createdAt,
       intentHash: 'sha256:intent',
+      titleHash: 'sha256:title',
+      titleSummaryHash: 'sha256:title-summary',
+      instructionHash: 'sha256:instruction',
+      instructionSummaryHash: 'sha256:instruction-summary',
       promptHash: 'sha256:prompt',
       promptLength: 42,
+      repoHash: 'sha256:repo',
+      worktreeHash: 'sha256:worktree',
+      verificationHash: 'sha256:verification',
+      selectionPolicyHash: 'sha256:selection-policy',
+      selectionPolicySummaryHash: 'sha256:selection-policy-summary',
       requestedByHash: 'sha256:operator',
       workflowHash: 'sha256:workflow',
+      appServerDispatchRequested: true,
+      liveDispatchRequested: true,
       status: 'planned',
       evidenceRefIds: ['evidence_intent'],
       auditEventIds: ['audit_intent'],
@@ -15724,15 +15739,28 @@ describe('contracts schemas', () => {
       createdAt,
       intentId: intent.id,
       status: 'queued',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      schedulerSelectionId: 'codex_scheduler_selection_1',
+      leaseIds: ['pool_lease_1'],
       accountBindingId: accountBinding.id,
       clientInstanceId: client.id,
       appServerSessionId: appServerSession.id,
+      threadMirrorId: 'codex_app_server_thread_1',
+      turnMirrorId: 'codex_app_server_turn_1',
       threadHash: 'sha256:thread',
+      turnHash: 'sha256:turn',
       turnCount: 0,
       eventCount: 0,
+      eventStreamStatus: 'not_started',
+      protocolDriftStatus: 'compatible',
+      canaryGateStatus: 'passed',
+      dispatchAllowed: true,
+      liveExecution: true,
       evidenceRefIds: ['evidence_task_run'],
       auditEventIds: ['audit_task_run'],
-      summary: 'Task run is queued without live dispatch.',
+      summary: 'Task run is queued for governed live App Server dispatch.',
     });
     const diagnosis = CodexTaskDiagnosisSchema.parse({
       id: 'codex_task_diagnosis_1',
@@ -15937,6 +15965,12 @@ describe('contracts schemas', () => {
     expect(sessionHealth.storageRead).toBe(false);
     expect(checkpoint.sensitiveInputStored).toBe(false);
     expect(intent.rawPromptStored).toBe(false);
+    expect(intent.isolatedWorktreeRequired).toBe(true);
+    expect(intent.repoRootWriteAllowed).toBe(false);
+    expect(taskRun.dispatchMode).toBe('live_app_server');
+    expect(taskRun.liveExecution).toBe(true);
+    expect(taskRun.dispatchAllowed).toBe(true);
+    expect(taskRun.repoRootWriteAllowed).toBe(false);
     expect(recovery.executionDisabled).toBe(true);
     expect(lease.leaseSecretStored).toBe(false);
     expect(quota.ambiguous).toBe(false);
@@ -15946,6 +15980,71 @@ describe('contracts schemas', () => {
     expect(evidenceBundle.evidenceCount).toBe(evidenceBundle.evidenceRefIds.length);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('parses M57 task orchestrator contracts as hash-only live dispatch metadata', () => {
+    expect(CodexTaskDispatchModeSchema.options).toEqual(['fixture', 'live_app_server']);
+    expect(CodexTaskPreflightStatusSchema.options).toContain('waiting_approval');
+    expect(CodexTaskApprovalStatusSchema.options).toContain('approved');
+    expect(CodexTaskEventStreamStatusSchema.options).toContain('stalled');
+
+    const intent = CodexTaskIntentSchema.parse({
+      id: 'codex_task_intent_m57',
+      schemaVersion,
+      createdAt,
+      intentHash: 'sha256:intent-m57',
+      titleHash: 'sha256:title-m57',
+      instructionHash: 'sha256:instruction-m57',
+      repoHash: 'sha256:repo-m57',
+      worktreeHash: 'sha256:worktree-m57',
+      verificationHash: 'sha256:verification-m57',
+      selectionPolicyHash: 'sha256:selection-policy-m57',
+      requestedByHash: 'sha256:operator-m57',
+      workflowHash: 'sha256:workflow-m57',
+      appServerDispatchRequested: true,
+      liveDispatchRequested: true,
+      summary: 'M57 task intent keeps title, instruction, repo, worktree, and policy as hashes.',
+    });
+    const blockedRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m57_blocked',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      status: 'blocked',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'waiting_approval',
+      approvalStatus: 'waiting',
+      dispatchAllowed: false,
+      liveExecution: false,
+      leaseIds: ['lease_account_m57', 'lease_worktree_m57'],
+      eventStreamStatus: 'not_started',
+      canaryGateStatus: 'passed',
+      protocolDriftStatus: 'compatible',
+      summary: 'M57 task run is blocked until governance approval is resolved.',
+    });
+
+    expect(intent.dryRunRequired).toBe(true);
+    expect(intent.approvalRequired).toBe(true);
+    expect(blockedRun.dispatchAllowed).toBe(false);
+    expect(blockedRun.liveExecution).toBe(false);
+    expect(blockedRun.leaseIds).toHaveLength(2);
+    expect(JSON.stringify([intent, blockedRun])).not.toContain(adversarialPublicOutputFixture);
+    expect(() =>
+      CodexTaskRunSchema.parse({
+        ...blockedRun,
+        id: 'codex_task_run_m57_unapproved_live',
+        status: 'running',
+        dispatchAllowed: false,
+        liveExecution: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexTaskIntentSchema.parse({
+        ...intent,
+        id: 'codex_task_intent_m57_raw_body',
+        metadata: { body: adversarialPublicOutputFixture },
+      }),
+    ).toThrow();
   });
 
   it('rejects M51 contracts that expose raw prompt, path, body, token, cookie, session, or MFA metadata', () => {
