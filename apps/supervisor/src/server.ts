@@ -31414,28 +31414,6 @@ function createM50AuditEventProjection(event: AuditEvent) {
   };
 }
 
-function createM50UnavailableReadProjection(input: {
-  idPrefix: string;
-  surface: string;
-  summary: string;
-}) {
-  return {
-    id: foundationId(input.idPrefix),
-    schemaVersion: SchemaVersionSchema.value,
-    observedAt: foundationTimestamp(),
-    status: 'missing-contracts-store',
-    summary: input.summary,
-    surfaceHash: hashSupervisorMetadata({ surface: input.surface }),
-    items: [],
-    count: 0,
-    evidenceRefIds: [],
-    auditEventIds: [],
-    liveExecution: false,
-    externalProcessStarted: false,
-    executionDisabled: true,
-  };
-}
-
 type M51ProjectionRecord = {
   id: string;
   status?: string;
