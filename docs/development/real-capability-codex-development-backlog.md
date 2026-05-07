@@ -190,6 +190,20 @@ M50.3 status:
   - `docs/reviews/m50.3-supervisor-mutation-shells-review.md`
   - `docs/runbooks/m50.3-supervisor-mutation-shells-runbook.md`
 
+M50.4 status:
+
+- Complete as a Supervisor shell hardening round.
+- Added regression coverage for store-disabled `store-unavailable` responses,
+  missing local-control token rejection, malicious Origin rejection, malicious
+  Host rejection, and private payload leak prevention across all M50.3 root POST
+  shells.
+- No product route behavior, contract, store repository, adapter, UI, CLI, or MCP
+  surface changed.
+- Release, review, and runbook:
+  - `docs/releases/m50.4-supervisor-shell-hardening.md`
+  - `docs/reviews/m50.4-supervisor-shell-hardening-review.md`
+  - `docs/runbooks/m50.4-supervisor-shell-hardening-runbook.md`
+
 Non-scope:
 
 - No direct adapter execution from routes.

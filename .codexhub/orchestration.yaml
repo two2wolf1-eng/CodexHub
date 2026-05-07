@@ -6761,3 +6761,42 @@ workflows:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50_4.supervisor-shell-hardening:
+    risk: critical
+    trigger:
+      type: supervisor-shell-hardening
+      entrypoint: apps/supervisor docs orchestration integrations scaffold-health
+      localControlRequired: false
+    scope:
+      - root-shell-store-unavailable-regression
+      - root-shell-shared-guard-regression
+      - missing-token-rejection
+      - malicious-origin-rejection
+      - malicious-host-rejection
+      - private-payload-leak-negative-fixtures
+    docs:
+      - docs/releases/m50.4-supervisor-shell-hardening.md
+      - docs/reviews/m50.4-supervisor-shell-hardening-review.md
+      - docs/runbooks/m50.4-supervisor-shell-hardening-runbook.md
+    safety:
+      testOnlyRuntimeBehavior: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewPackage: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      directAdapterExecutionAllowed: false
+      taskMutationBlockedUntilM51: true
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

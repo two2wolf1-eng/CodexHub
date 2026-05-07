@@ -3130,3 +3130,45 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50-supervisor-shell-hardening:
+    enabled: false
+    adapter: supervisor-control-plane
+    provider: codexhub-supervisor
+    providerType: builtin
+    mode: hardening-only
+    stage: m50.4-supervisor-shell-hardening
+    release: docs/releases/m50.4-supervisor-shell-hardening.md
+    review: docs/reviews/m50.4-supervisor-shell-hardening-review.md
+    runbook: docs/runbooks/m50.4-supervisor-shell-hardening-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    hardenedRoutes:
+      - POST /workflows/:workflowId/dry-run
+      - POST /approvals/:approvalId/decision
+      - POST /tasks
+      - POST /tasks/:taskId/recover
+    regressionCoverage:
+      - store-unavailable
+      - missing-local-control-token
+      - malicious-origin
+      - malicious-host
+      - private-payload-redaction
+    safety:
+      testOnlyRuntimeBehavior: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      directAdapterExecutionAllowed: false
+      taskMutationBlockedUntilM51: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

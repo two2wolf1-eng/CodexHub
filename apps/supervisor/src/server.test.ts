@@ -649,6 +649,94 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(auditEvents)).not.toContain('private shell body');
   });
 
+  it('keeps M50.3 mutation shells store-required and guarded before route logic', async () => {
+    const server = buildSupervisorServer({ disableStore: true });
+    const privatePayload = {
+      rawPrompt: 'private degraded instructions',
+      rawPath: process.cwd(),
+      body: 'private degraded body',
+      reason: 'private degraded reason',
+    };
+    const shellRequests = [
+      {
+        url: '/workflows/development.bootstrap/dry-run',
+        payload: { input: privatePayload },
+      },
+      {
+        url: '/approvals/approval-fixture/decision',
+        payload: { decision: 'approved', reason: privatePayload.reason },
+      },
+      {
+        url: '/tasks',
+        payload: privatePayload,
+      },
+      {
+        url: '/tasks/task-fixture/recover',
+        payload: privatePayload,
+      },
+    ];
+
+    for (const request of shellRequests) {
+      const storeUnavailableResponse = await server.inject({
+        method: 'POST',
+        url: request.url,
+        headers: localControlHeaders,
+        payload: request.payload,
+      });
+      const missingTokenResponse = await server.inject({
+        method: 'POST',
+        url: request.url,
+        payload: request.payload,
+      });
+      const maliciousOriginResponse = await server.inject({
+        method: 'POST',
+        url: request.url,
+        headers: {
+          ...localControlHeaders,
+          origin: 'https://evil.example',
+        },
+        payload: request.payload,
+      });
+      const maliciousHostResponse = await server.inject({
+        method: 'POST',
+        url: request.url,
+        headers: {
+          ...localControlHeaders,
+          host: 'evil.example',
+        },
+        payload: request.payload,
+      });
+
+      expect(storeUnavailableResponse.statusCode).toBe(503);
+      expect(storeUnavailableResponse.json()).toMatchObject({
+        status: 'store-unavailable',
+        requestHash: expect.stringMatching(/^sha256:/),
+        evidenceRefIds: [],
+        auditEventIds: [],
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+      expect(missingTokenResponse.statusCode).toBe(401);
+      expect(maliciousOriginResponse.statusCode).toBe(403);
+      expect(maliciousHostResponse.statusCode).toBe(403);
+
+      for (const response of [
+        storeUnavailableResponse,
+        missingTokenResponse,
+        maliciousOriginResponse,
+        maliciousHostResponse,
+      ]) {
+        expect(response.body).not.toContain('private degraded instructions');
+        expect(response.body).not.toContain('private degraded body');
+        expect(response.body).not.toContain('private degraded reason');
+        expect(response.body).not.toContain(process.cwd());
+      }
+    }
+
+    await server.close();
+  });
+
   it('protects mutating local API routes with trusted origins and a local token', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-api-guard-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
