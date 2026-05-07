@@ -6455,3 +6455,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d21.mcp-boundary-surface:
+    risk: critical
+    trigger:
+      type: mcp-boundary-surface
+      entrypoint: codexhub-mcp-server tests docs
+      localControlRequired: false
+    scope:
+      - no-mcp-process-network-token-access
+      - no-runtime-agent-platform-ga-mutation-routes
+      - no-controlled-write-route-passthrough
+      - no-direct-adapter-execute
+      - metadata-only-tool-output
+    docs:
+      - docs/releases/m48-d21-mcp-boundary-surface.md
+      - docs/reviews/m48-d21-mcp-boundary-surface-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true

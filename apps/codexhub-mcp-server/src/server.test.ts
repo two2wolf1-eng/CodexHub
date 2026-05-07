@@ -351,6 +351,52 @@ describe('codexhub MCP server', () => {
       }
     }
   });
+
+  it('keeps MCP tool execution source free of network, process, token, and route passthrough', () => {
+    const toolExecutionSources = ['tool-outputs.ts', 'tools.ts'].map((fileName) => ({
+      fileName,
+      source: readFileSync(new URL(`./${fileName}`, import.meta.url), 'utf8'),
+    }));
+    const forbiddenToolExecutionTerms = [
+      'process.env',
+      'process["env"]',
+      "process['env']",
+      'CODEXHUB_GITHUB_TOKEN',
+      'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
+      'CODEXHUB_RUNTIME_SCHEDULER_ENABLED',
+      'CODEXHUB_EXTERNAL_AGENTS_ENABLED',
+      'CODEXHUB_PLATFORM_OPERATIONS_ENABLED',
+      'CODEXHUB_PRODUCTION_GA_ENABLED',
+      'node:child_process',
+      'child_process',
+      'spawn(',
+      'execFile(',
+      'exec(',
+      'fetch(',
+      'globalThis.fetch',
+      'XMLHttpRequest',
+      'WebSocket',
+      'node:http',
+      'node:https',
+      'import(',
+      'require(',
+      '/api/runtime/',
+      '/api/agents/',
+      '/api/platform/',
+      '/api/production-ga/',
+      '/api/browser/actions/',
+      '/api/electron-cdp/main-inspector/',
+      '/api/mcp/write-tools/',
+      'http://',
+      'https://',
+    ];
+
+    for (const { fileName, source } of toolExecutionSources) {
+      for (const term of forbiddenToolExecutionTerms) {
+        expect(source, `${fileName} should not contain ${term}`).not.toContain(term);
+      }
+    }
+  });
 });
 
 function requestJson(
