@@ -2,7 +2,19 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AuditEvent, CodexExecManualApprovalRecord, EvidenceRef } from '@codexhub/contracts';
+import {
+  SchemaVersionSchema,
+  type AuditEvent,
+  type CodexAccountSchedulingProjection,
+  type CodexAppServerProtocolDriftReport,
+  type CodexAppServerSession,
+  type CodexClientSchedulingProjection,
+  type CodexExecManualApprovalRecord,
+  type CodexTaskIntent,
+  type EvidenceRef,
+  type QuotaSnapshot,
+} from '@codexhub/contracts';
+import { createSchedulerLease } from '@codexhub/codex-scheduler-kernel';
 import { hashText } from '@codexhub/evidence-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import {
@@ -25,6 +37,7 @@ import {
   runM9LocalPilot,
   runM10PilotAcceptanceRehearsal,
   runMockDevelopmentOrchestration,
+  prepareCodexTaskDispatchPreflight,
 } from './index';
 
 describe('orchestrator-kernel mock development orchestration', () => {
@@ -1556,6 +1569,191 @@ async function runM11PilotFixture(overrides: {
   });
 }
 
+describe('orchestrator-kernel M57 codex task dispatch preflight', () => {
+  it('marks governed live App Server dispatch ready only after leases and gates are ready', () => {
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntentFixture(),
+      accountProjection: accountProjectionFixture(),
+      clientProjection: clientProjectionFixture(),
+      quotaSnapshot: quotaSnapshotFixture(),
+      appServerSession: appServerSessionFixture(),
+      protocolDriftReport: protocolDriftReportFixture(),
+      dryRunId: 'dry_run_m57',
+      approvalArtifactId: 'approval_m57',
+      policyApproved: true,
+      canaryGateStatus: 'passed',
+      profileKey: 'Default',
+      threadKey: 'new-thread-m57',
+      worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      taskKey: 'codex-task-m57',
+      quotaKey: 'quota-window-m57',
+      createdAt: m57ObservedAt,
+      evidenceRefIds: ['evidence_m57_preflight'],
+      auditEventIds: ['audit_m57_preflight'],
+    });
+    const serialized = JSON.stringify(preflight);
+
+    expect(preflight.dispatchReady).toBe(true);
+    expect(preflight.schedulerSelection.dispatchAllowed).toBe(true);
+    expect(preflight.schedulerSelection.checkCount).toBe(16);
+    expect(preflight.leaseBundle.leases.map((lease) => lease.targetKind)).toEqual([
+      'account',
+      'client',
+      'profile',
+      'thread',
+      'worktree',
+      'task',
+      'quota',
+    ]);
+    expect(preflight.taskRun.dispatchMode).toBe('live_app_server');
+    expect(preflight.taskRun.preflightStatus).toBe('ready');
+    expect(preflight.taskRun.approvalStatus).toBe('approved');
+    expect(preflight.taskRun.dispatchAllowed).toBe(true);
+    expect(preflight.taskRun.workspaceWriteApproved).toBe(true);
+    expect(preflight.taskRun.liveExecution).toBe(false);
+    expect(preflight.taskRun.noRealWrite).toBe(true);
+    expect(preflight.externalProcessStarted).toBe(false);
+    expect(preflight.diagnosis).toBeUndefined();
+    expect(serialized).not.toContain('Default');
+    expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
+    expect(serialized).not.toContain('raw prompt');
+    expect(serialized).not.toContain('diff --git');
+  });
+
+  it('waits for approval before live dispatch and records diagnosis metadata', () => {
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntentFixture(),
+      accountProjection: accountProjectionFixture(),
+      clientProjection: clientProjectionFixture(),
+      quotaSnapshot: quotaSnapshotFixture(),
+      appServerSession: appServerSessionFixture(),
+      protocolDriftReport: protocolDriftReportFixture(),
+      dryRunId: 'dry_run_m57',
+      policyApproved: true,
+      canaryGateStatus: 'passed',
+      profileKey: 'Default',
+      threadKey: 'new-thread-m57',
+      worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      taskKey: 'codex-task-m57',
+      quotaKey: 'quota-window-m57',
+      createdAt: m57ObservedAt,
+    });
+
+    expect(preflight.dispatchReady).toBe(false);
+    expect(preflight.schedulerSelection.status).toBe('pending');
+    expect(preflight.taskRun.status).toBe('needs_human');
+    expect(preflight.taskRun.preflightStatus).toBe('waiting_approval');
+    expect(preflight.taskRun.approvalStatus).toBe('waiting');
+    expect(preflight.diagnosis?.diagnosisKind).toBe('needs_manual_review');
+    expect(preflight.diagnosis?.recommendedRecoveryKind).toBe('manual_review');
+  });
+
+  it('blocks quota depleted accounts without pretending dispatch succeeded', () => {
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntentFixture(),
+      accountProjection: accountProjectionFixture({
+        schedulingStatus: 'quota_depleted',
+        score: 0,
+        quotaStatus: 'exhausted',
+        blockReasons: ['account:quota_depleted'],
+      }),
+      clientProjection: clientProjectionFixture(),
+      quotaSnapshot: quotaSnapshotFixture({ status: 'exhausted', remainingCount: 0 }),
+      appServerSession: appServerSessionFixture(),
+      protocolDriftReport: protocolDriftReportFixture(),
+      dryRunId: 'dry_run_m57',
+      approvalArtifactId: 'approval_m57',
+      policyApproved: true,
+      canaryGateStatus: 'passed',
+      profileKey: 'Default',
+      threadKey: 'new-thread-m57',
+      worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      taskKey: 'codex-task-m57',
+      quotaKey: 'quota-window-m57',
+      createdAt: m57ObservedAt,
+    });
+
+    expect(preflight.dispatchReady).toBe(false);
+    expect(preflight.taskRun.status).toBe('blocked');
+    expect(preflight.taskRun.preflightStatus).toBe('blocked');
+    expect(preflight.taskRun.dispatchAllowed).toBe(false);
+    expect(preflight.taskRun.liveExecution).toBe(false);
+    expect(preflight.diagnosis?.diagnosisKind).toBe('failed_quota');
+    expect(preflight.diagnosis?.recommendedRecoveryKind).toBe('wait_for_quota');
+  });
+
+  it('blocks isolated worktree lease conflicts and keeps raw paths out of output', () => {
+    const existingLease = createSchedulerLease({
+      createdAt: m57ObservedAt,
+      targetKind: 'worktree',
+      targetKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      holderKey: 'other-task',
+      status: 'active',
+    });
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntentFixture(),
+      accountProjection: accountProjectionFixture(),
+      clientProjection: clientProjectionFixture(),
+      quotaSnapshot: quotaSnapshotFixture(),
+      appServerSession: appServerSessionFixture(),
+      protocolDriftReport: protocolDriftReportFixture(),
+      existingLeases: [existingLease],
+      dryRunId: 'dry_run_m57',
+      approvalArtifactId: 'approval_m57',
+      policyApproved: true,
+      canaryGateStatus: 'passed',
+      profileKey: 'Default',
+      threadKey: 'new-thread-m57',
+      worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      taskKey: 'codex-task-m57',
+      quotaKey: 'quota-window-m57',
+      createdAt: m57ObservedAt,
+    });
+    const serialized = JSON.stringify(preflight);
+
+    expect(preflight.dispatchReady).toBe(false);
+    expect(preflight.leaseBundle.status).toBe('blocked');
+    expect(preflight.taskRun.preflightStatus).toBe('blocked');
+    expect(
+      preflight.preflightChecks.some((check) =>
+        check.blockReasons.includes('lease_conflict:worktree'),
+      ),
+    ).toBe(true);
+    expect(serialized).not.toContain('C:\\Users\\Thomas\\CodexHub');
+    expect(serialized).not.toContain('other-task');
+  });
+
+  it('blocks protocol drift before live dispatch starts', () => {
+    const preflight = prepareCodexTaskDispatchPreflight({
+      intent: taskIntentFixture(),
+      accountProjection: accountProjectionFixture(),
+      clientProjection: clientProjectionFixture(),
+      quotaSnapshot: quotaSnapshotFixture(),
+      appServerSession: appServerSessionFixture(),
+      protocolDriftReport: protocolDriftReportFixture({
+        status: 'incompatible',
+        liveDispatchBlocked: true,
+        driftCount: 2,
+      }),
+      dryRunId: 'dry_run_m57',
+      approvalArtifactId: 'approval_m57',
+      policyApproved: true,
+      canaryGateStatus: 'passed',
+      profileKey: 'Default',
+      threadKey: 'new-thread-m57',
+      worktreeKey: 'C:\\Users\\Thomas\\CodexHub\\.worktrees\\m57-task',
+      taskKey: 'codex-task-m57',
+      quotaKey: 'quota-window-m57',
+      createdAt: m57ObservedAt,
+    });
+
+    expect(preflight.dispatchReady).toBe(false);
+    expect(preflight.taskRun.preflightStatus).toBe('drift_blocked');
+    expect(preflight.taskRun.protocolDriftStatus).toBe('incompatible');
+    expect(preflight.taskRun.liveExecution).toBe(false);
+  });
+});
+
 function createApprovalStore(): CodexHubStore & {
   getSavedApprovalRecord(): CodexExecManualApprovalRecord | undefined;
 } {
@@ -1660,5 +1858,172 @@ function createApprovalRecordFixture(expiresAt: string): CodexExecManualApproval
     auditEventIds: [],
     summary: 'Approved test record.',
     ...safetyFlags,
+  };
+}
+
+const m57SchemaVersion = SchemaVersionSchema.value;
+const m57ObservedAt = '2026-05-08T00:00:00.000Z';
+const m57SafeFlags = {
+  metadataOnly: true,
+  rawPromptStored: false,
+  rawDiffStored: false,
+  rawPathStored: false,
+  rawBodyStored: false,
+  tokenStored: false,
+  cookieStored: false,
+  sessionStored: false,
+  mfaStored: false,
+  storageRead: false,
+  bodyStored: false,
+  noRealWrite: true,
+  liveExecution: false,
+  networkBoundaryInvoked: false,
+  processBoundaryInvoked: false,
+  externalProcessStarted: false,
+} as const;
+
+function m57Hash(value: string): string {
+  return `sha256:${hashText(value)}`;
+}
+
+function taskIntentFixture(overrides: Partial<CodexTaskIntent> = {}): CodexTaskIntent {
+  return {
+    id: 'codex_task_intent_m57_preflight',
+    schemaVersion: m57SchemaVersion,
+    createdAt: m57ObservedAt,
+    ...m57SafeFlags,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    intentHash: m57Hash('intent-m57'),
+    titleHash: m57Hash('title-m57'),
+    instructionHash: m57Hash('instruction-m57'),
+    repoHash: m57Hash('repo-m57'),
+    worktreeHash: m57Hash('worktree-m57'),
+    verificationHash: m57Hash('verification-m57'),
+    selectionPolicyHash: m57Hash('selection-policy-m57'),
+    requestedByHash: m57Hash('operator-m57'),
+    workflowHash: m57Hash('workflow-m57'),
+    isolatedWorktreeRequired: true,
+    repoRootWriteAllowed: false,
+    dryRunRequired: true,
+    approvalRequired: true,
+    appServerDispatchRequested: true,
+    liveDispatchRequested: true,
+    status: 'planned',
+    summary: 'M57 task intent stores only hash metadata for dispatch preflight.',
+    ...overrides,
+  };
+}
+
+function accountProjectionFixture(
+  overrides: Partial<CodexAccountSchedulingProjection> = {},
+): CodexAccountSchedulingProjection {
+  return {
+    id: 'codex_account_scheduling_m57',
+    schemaVersion: m57SchemaVersion,
+    observedAt: m57ObservedAt,
+    ...m57SafeFlags,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    accountBindingId: 'codex_account_binding_m57',
+    accountHash: m57Hash('account-m57'),
+    schedulingStatus: 'account_ready',
+    score: 100,
+    quotaSnapshotId: 'quota_snapshot_m57',
+    quotaStatus: 'available',
+    activeLeaseCount: 0,
+    blockReasons: [],
+    summary: 'M57 account projection is ready.',
+    ...overrides,
+  };
+}
+
+function clientProjectionFixture(
+  overrides: Partial<CodexClientSchedulingProjection> = {},
+): CodexClientSchedulingProjection {
+  return {
+    id: 'codex_client_scheduling_m57',
+    schemaVersion: m57SchemaVersion,
+    observedAt: m57ObservedAt,
+    ...m57SafeFlags,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    clientInstanceId: 'codex_client_instance_m57',
+    clientHash: m57Hash('client-m57'),
+    schedulingStatus: 'client_ready',
+    score: 100,
+    activeLeaseCount: 0,
+    diagnosticHints: [],
+    blockReasons: [],
+    summary: 'M57 client projection is ready.',
+    ...overrides,
+  };
+}
+
+function quotaSnapshotFixture(overrides: Partial<QuotaSnapshot> = {}): QuotaSnapshot {
+  return {
+    id: 'quota_snapshot_m57',
+    schemaVersion: m57SchemaVersion,
+    observedAt: m57ObservedAt,
+    ...m57SafeFlags,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    subjectKind: 'codex-account',
+    subjectHash: m57Hash('account-m57'),
+    status: 'available',
+    limitCount: 100,
+    usedCount: 1,
+    remainingCount: 99,
+    sourceRefIds: [],
+    ambiguous: false,
+    summary: 'M57 quota snapshot is available.',
+    ...overrides,
+  };
+}
+
+function appServerSessionFixture(
+  overrides: Partial<CodexAppServerSession> = {},
+): CodexAppServerSession {
+  return {
+    id: 'codex_app_server_session_m57',
+    schemaVersion: m57SchemaVersion,
+    observedAt: m57ObservedAt,
+    ...m57SafeFlags,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    clientInstanceId: 'codex_client_instance_m57',
+    appServerSessionHash: m57Hash('app-server-session-m57'),
+    status: 'initialized',
+    initialized: true,
+    accountBindingId: 'codex_account_binding_m57',
+    protocolDriftDetected: false,
+    summary: 'M57 App Server session is initialized.',
+    ...overrides,
+  };
+}
+
+function protocolDriftReportFixture(
+  overrides: Partial<CodexAppServerProtocolDriftReport> = {},
+): CodexAppServerProtocolDriftReport {
+  return {
+    id: 'codex_app_server_protocol_drift_m57',
+    schemaVersion: m57SchemaVersion,
+    observedAt: m57ObservedAt,
+    ...m57SafeFlags,
+    evidenceRefIds: [],
+    auditEventIds: [],
+    baselineKind: 'generate-json-schema',
+    baselineHash: m57Hash('baseline-schema-m57'),
+    observedSchemaHash: m57Hash('observed-schema-m57'),
+    status: 'compatible',
+    driftCount: 0,
+    missingMethodCount: 0,
+    changedMethodCount: 0,
+    unknownMethodCount: 0,
+    liveDispatchBlocked: false,
+    generatedSchemaRequired: true,
+    rawSchemaStored: false,
+    summary: 'M57 protocol drift report is compatible.',
+    ...overrides,
   };
 }

@@ -487,6 +487,9 @@ importers:
       '@codexhub/codex-exec-adapter':
         specifier: workspace:*
         version: link:../codex-exec-adapter
+      '@codexhub/codex-scheduler-kernel':
+        specifier: workspace:*
+        version: link:../codex-scheduler-kernel
       '@codexhub/contracts':
         specifier: workspace:*
         version: link:../contracts

@@ -1,11 +1,27 @@
 import {
   type AgentRun,
   type AuditEvent,
+  CodexSchedulerPreflightCheckSchema,
+  CodexSchedulerSelectionSummarySchema,
+  CodexTaskDiagnosisSchema,
+  CodexTaskRunSchema,
+  type CodexAccountSchedulingProjection,
+  type CodexAppServerProtocolDriftReport,
+  type CodexAppServerSession,
+  type CodexClientSchedulingProjection,
+  type CodexSchedulerPreflightCheck,
+  type CodexSchedulerSelectionSummary,
+  type CodexTaskDiagnosis,
+  type CodexTaskIntent,
+  type CodexTaskPreflightStatus,
+  type CodexTaskRun,
   type DevelopmentRequest,
   type EvidenceRef,
+  type Lease,
   type OrchestrationPlan,
   type PatchRun,
   type PolicyDecision,
+  type QuotaSnapshot,
   type SkillResolutionResult,
   type TaskGraph,
   type VerificationRun,
@@ -14,6 +30,12 @@ import {
   foundationId,
   foundationTimestamp,
 } from '@codexhub/contracts';
+import {
+  createSchedulerLeaseBundle,
+  hashSchedulerMetadata,
+  type CodexSchedulerLeaseBundle,
+  type SchedulerLeaseRequest,
+} from '@codexhub/codex-scheduler-kernel';
 import { MetadataOnlyEvidenceCollector, hashText } from '@codexhub/evidence-kernel';
 import { DefaultPolicyEngine, type PolicyEngine } from '@codexhub/security-kernel';
 import { MockSkillRegistry, type SkillRegistry } from '@codexhub/skill-registry';
@@ -159,6 +181,40 @@ export interface GovernedDevelopmentOrchestrationResult {
   metadata?: Record<string, unknown>;
 }
 
+export interface CodexTaskOrchestratorPreflightInput {
+  intent: CodexTaskIntent;
+  accountProjection?: CodexAccountSchedulingProjection;
+  clientProjection?: CodexClientSchedulingProjection;
+  quotaSnapshot?: QuotaSnapshot;
+  appServerSession?: CodexAppServerSession;
+  protocolDriftReport?: CodexAppServerProtocolDriftReport;
+  existingLeases?: readonly Lease[];
+  dryRunId?: string;
+  approvalArtifactId?: string;
+  policyApproved?: boolean;
+  canaryGateStatus?: CodexTaskRun['canaryGateStatus'];
+  profileKey?: string;
+  threadKey?: string;
+  worktreeKey?: string;
+  taskKey?: string;
+  quotaKey?: string;
+  createdAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexTaskOrchestratorPreflightResult {
+  schedulerSelection: CodexSchedulerSelectionSummary;
+  leaseBundle: CodexSchedulerLeaseBundle;
+  taskRun: CodexTaskRun;
+  diagnosis?: CodexTaskDiagnosis;
+  preflightChecks: CodexSchedulerPreflightCheck[];
+  dispatchReady: boolean;
+  metadataOnly: true;
+  liveExecution: false;
+  externalProcessStarted: false;
+}
+
 export interface PlanningResult {
   request: DevelopmentRequest;
   taskGraph: TaskGraph;
@@ -236,6 +292,170 @@ export class MetadataOnlyGovernedControlPlaneRunner implements GovernedControlPl
       delegatedToSupervisor: true,
     };
   }
+}
+
+export function prepareCodexTaskDispatchPreflight(
+  input: CodexTaskOrchestratorPreflightInput,
+): CodexTaskOrchestratorPreflightResult {
+  const createdAt = input.createdAt ?? foundationTimestamp();
+  const evidenceRefIds = [...(input.evidenceRefIds ?? [])];
+  const auditEventIds = [...(input.auditEventIds ?? [])];
+  const liveRequested = input.intent.appServerDispatchRequested || input.intent.liveDispatchRequested;
+  const canaryGateStatus =
+    input.canaryGateStatus ?? (liveRequested ? 'blocked' : 'not_required');
+  const protocolDriftStatus =
+    input.protocolDriftReport?.status ?? (liveRequested ? 'unknown' : undefined);
+  const approvalRequired = input.intent.approvalRequired || liveRequested;
+  const approvalPending = approvalRequired && isBlank(input.approvalArtifactId);
+  const driftBlocks =
+    liveRequested &&
+    (!input.protocolDriftReport ||
+      input.protocolDriftReport.liveDispatchBlocked ||
+      input.protocolDriftReport.status === 'incompatible' ||
+      input.protocolDriftReport.status === 'unknown');
+  const canaryBlocks = liveRequested && canaryGateStatus !== 'passed';
+  const appServerReady =
+    !liveRequested ||
+    (input.appServerSession?.initialized === true &&
+      input.appServerSession.status === 'initialized' &&
+      input.appServerSession.protocolDriftDetected === false);
+  const leaseBundle = createSchedulerLeaseBundle({
+    createdAt,
+    existingLeases: input.existingLeases ?? [],
+    requests: createCodexTaskLeaseRequests(input),
+    evidenceRefIds,
+    auditEventIds,
+  });
+  const checks = [
+    ...createCodexTaskReadinessChecks({
+      input,
+      evidenceRefIds,
+      auditEventIds,
+      approvalPending,
+      approvalRequired,
+      appServerReady,
+      driftBlocks,
+      canaryBlocks,
+      canaryGateStatus,
+      liveRequested,
+    }),
+    ...leaseBundle.checks,
+  ];
+  const readyCheckCount = checks.filter((check) => check.status === 'ready').length;
+  const blockedCheckCount = checks.filter((check) => check.status === 'blocked').length;
+  const pendingCheckCount = checks.filter((check) => check.status === 'pending').length;
+  const selectionStatus =
+    blockedCheckCount > 0 ? 'blocked' : pendingCheckCount > 0 ? 'pending' : 'ready';
+  const dispatchAllowed = selectionStatus === 'ready' && leaseBundle.status === 'ready';
+  const schedulerSelection = CodexSchedulerSelectionSummarySchema.parse({
+    id: foundationId('codex_scheduler_selection'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: createdAt,
+    selectionHash: hashSchedulerMetadata(
+      JSON.stringify({
+        intentHash: input.intent.intentHash,
+        checks: checks.map((check) => [
+          check.checkKind,
+          check.status,
+          check.targetIdHash,
+          check.blockReasons,
+        ]),
+      }),
+    ),
+    taskIntentId: input.intent.id,
+    status: selectionStatus,
+    accountBindingId: input.accountProjection?.accountBindingId,
+    clientInstanceId: input.clientProjection?.clientInstanceId,
+    profileBindingId: input.profileKey ? hashMetadataValue(input.profileKey) : undefined,
+    threadHash: hashSchedulerMetadata(leaseTargetKey(input, 'thread')),
+    worktreeHash: hashSchedulerMetadata(leaseTargetKey(input, 'worktree')),
+    quotaSnapshotId: input.quotaSnapshot?.id,
+    checkCount: checks.length,
+    readyCheckCount,
+    blockedCheckCount,
+    pendingCheckCount,
+    checks,
+    dispatchAllowed,
+    evidenceRefIds,
+    auditEventIds,
+    summary: dispatchAllowed
+      ? 'Codex task dispatch preflight is ready for governed App Server handoff.'
+      : 'Codex task dispatch preflight is blocked or waiting before App Server handoff.',
+  });
+  const taskPreflightStatus = mapTaskPreflightStatus({
+    dispatchAllowed,
+    approvalPending,
+    driftBlocks,
+    canaryBlocks,
+  });
+  const diagnosisDraft = dispatchAllowed
+    ? undefined
+    : createCodexTaskPreflightDiagnosisDraft({
+        createdAt,
+        taskRunId: 'pending_task_run_id',
+        accountProjection: input.accountProjection,
+        clientProjection: input.clientProjection,
+        quotaSnapshot: input.quotaSnapshot,
+        checks,
+        approvalPending,
+        driftBlocks,
+        canaryBlocks,
+        appServerReady,
+        evidenceRefIds,
+        auditEventIds,
+      });
+  const taskRun = CodexTaskRunSchema.parse({
+    id: foundationId('codex_task_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt,
+    intentId: input.intent.id,
+    status: dispatchAllowed ? 'queued' : approvalPending ? 'needs_human' : 'blocked',
+    dispatchMode: liveRequested ? 'live_app_server' : 'fixture',
+    preflightStatus: taskPreflightStatus,
+    approvalStatus: approvalRequired
+      ? approvalPending
+        ? 'waiting'
+        : 'approved'
+      : 'not_required',
+    schedulerSelectionId: schedulerSelection.id,
+    leaseIds: leaseBundle.leases.map((lease) => lease.id),
+    accountBindingId: input.accountProjection?.accountBindingId,
+    clientInstanceId: input.clientProjection?.clientInstanceId,
+    appServerSessionId: input.appServerSession?.id,
+    threadHash: hashSchedulerMetadata(leaseTargetKey(input, 'thread')),
+    turnCount: 0,
+    eventCount: 0,
+    eventStreamStatus: 'not_started',
+    protocolDriftStatus,
+    canaryGateStatus,
+    workspaceWriteApproved: dispatchAllowed,
+    isolatedWorktreeRequired: true,
+    repoRootWriteAllowed: false,
+    dispatchAllowed,
+    failureDiagnosisId: diagnosisDraft?.id,
+    liveExecution: false,
+    noRealWrite: true,
+    evidenceRefIds,
+    auditEventIds,
+    summary: dispatchAllowed
+      ? 'Codex task run is queued after governed preflight; no process has started yet.'
+      : 'Codex task run is blocked before dispatch and no live boundary was invoked.',
+  });
+  const diagnosis = diagnosisDraft
+    ? CodexTaskDiagnosisSchema.parse({ ...diagnosisDraft, taskRunId: taskRun.id })
+    : undefined;
+
+  return {
+    schedulerSelection,
+    leaseBundle,
+    taskRun,
+    diagnosis,
+    preflightChecks: checks,
+    dispatchReady: dispatchAllowed,
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+  };
 }
 
 export function createDevelopmentRequest(
@@ -1112,6 +1332,446 @@ function createGovernedAuditEvents(input: {
   ];
 }
 
+function createCodexTaskLeaseRequests(
+  input: CodexTaskOrchestratorPreflightInput,
+): SchedulerLeaseRequest[] {
+  const holderKey = input.taskKey ?? input.intent.id;
+  const targetKinds: SchedulerLeaseRequest['targetKind'][] = [
+    'account',
+    'client',
+    'profile',
+    'thread',
+    'worktree',
+    'task',
+    'quota',
+  ];
+
+  return targetKinds.map((targetKind) => ({
+    targetKind,
+    targetKey: leaseTargetKey(input, targetKind),
+    holderKey,
+    status: 'active',
+    evidenceRefIds: input.evidenceRefIds,
+    auditEventIds: input.auditEventIds,
+  }));
+}
+
+function leaseTargetKey(
+  input: CodexTaskOrchestratorPreflightInput,
+  targetKind: SchedulerLeaseRequest['targetKind'],
+): string {
+  const fallback = `missing-${targetKind}:${input.intent.id}`;
+
+  if (targetKind === 'account') {
+    return input.accountProjection?.accountHash ?? input.intent.requestedByHash ?? fallback;
+  }
+
+  if (targetKind === 'client') {
+    return input.clientProjection?.clientHash ?? fallback;
+  }
+
+  if (targetKind === 'profile') {
+    return input.profileKey ?? input.accountProjection?.accountBindingId ?? fallback;
+  }
+
+  if (targetKind === 'thread') {
+    return input.threadKey ?? `thread:${input.intent.intentHash}`;
+  }
+
+  if (targetKind === 'worktree') {
+    return input.worktreeKey ?? input.intent.worktreeHash ?? fallback;
+  }
+
+  if (targetKind === 'task') {
+    return input.taskKey ?? input.intent.intentHash ?? input.intent.id;
+  }
+
+  return input.quotaKey ?? input.quotaSnapshot?.subjectHash ?? input.accountProjection?.accountHash ?? fallback;
+}
+
+function createCodexTaskReadinessChecks(input: {
+  input: CodexTaskOrchestratorPreflightInput;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+  approvalPending: boolean;
+  approvalRequired: boolean;
+  appServerReady: boolean;
+  driftBlocks: boolean;
+  canaryBlocks: boolean;
+  canaryGateStatus: CodexTaskRun['canaryGateStatus'];
+  liveRequested: boolean;
+}): CodexSchedulerPreflightCheck[] {
+  const {
+    input: preflightInput,
+    evidenceRefIds,
+    auditEventIds,
+    approvalPending,
+    approvalRequired,
+    appServerReady,
+    driftBlocks,
+    canaryBlocks,
+    canaryGateStatus,
+    liveRequested,
+  } = input;
+  const policyBlockReasons = collectCodexTaskPolicyBlockReasons({
+    input: preflightInput,
+    appServerReady,
+    driftBlocks,
+    canaryBlocks,
+    canaryGateStatus,
+    liveRequested,
+  });
+  const worktreeBlockReasons = collectWorktreeBlockReasons(preflightInput);
+  const quotaBlockReasons = collectQuotaBlockReasons(preflightInput.quotaSnapshot);
+
+  return [
+    createOrchestratorPreflightCheck({
+      checkKind: 'account',
+      status:
+        preflightInput.accountProjection?.schedulingStatus === 'account_ready'
+          ? 'ready'
+          : 'blocked',
+      targetIdHash: preflightInput.accountProjection?.accountHash,
+      blockReasons:
+        preflightInput.accountProjection?.schedulingStatus === 'account_ready'
+          ? []
+          : preflightInput.accountProjection?.blockReasons.length
+            ? preflightInput.accountProjection.blockReasons
+            : [
+                preflightInput.accountProjection
+                  ? `account:${preflightInput.accountProjection.schedulingStatus}`
+                  : 'account_projection_required',
+              ],
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Account preflight uses scheduler projection metadata only.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'client',
+      status:
+        preflightInput.clientProjection?.schedulingStatus === 'client_ready'
+          ? 'ready'
+          : 'blocked',
+      targetIdHash: preflightInput.clientProjection?.clientHash,
+      blockReasons:
+        preflightInput.clientProjection?.schedulingStatus === 'client_ready'
+          ? []
+          : preflightInput.clientProjection?.blockReasons.length
+            ? preflightInput.clientProjection.blockReasons
+            : [
+                preflightInput.clientProjection
+                  ? `client:${preflightInput.clientProjection.schedulingStatus}`
+                  : 'client_projection_required',
+              ],
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Client preflight uses scheduler projection metadata only.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'quota',
+      status: quotaBlockReasons.length === 0 ? 'ready' : 'blocked',
+      targetIdHash: preflightInput.quotaSnapshot?.subjectHash,
+      blockReasons: quotaBlockReasons,
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Quota preflight uses quota snapshot metadata only.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'profile',
+      status: isBlank(preflightInput.profileKey) ? 'blocked' : 'ready',
+      targetIdHash: preflightInput.profileKey
+        ? hashSchedulerMetadata(preflightInput.profileKey)
+        : undefined,
+      blockReasons: isBlank(preflightInput.profileKey) ? ['profile_lock_key_required'] : [],
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Profile preflight requires a hash-only profile lease target.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'thread',
+      status: isBlank(preflightInput.threadKey) ? 'blocked' : 'ready',
+      targetIdHash: hashSchedulerMetadata(leaseTargetKey(preflightInput, 'thread')),
+      blockReasons: isBlank(preflightInput.threadKey) ? ['thread_lock_key_required'] : [],
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Thread preflight requires an explicit thread lock target.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'worktree',
+      status: worktreeBlockReasons.length === 0 ? 'ready' : 'blocked',
+      targetIdHash: hashSchedulerMetadata(leaseTargetKey(preflightInput, 'worktree')),
+      blockReasons: worktreeBlockReasons,
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Worktree preflight requires isolated worktree metadata and blocks repo root writes.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'task',
+      status: preflightInput.intent.intentHash ? 'ready' : 'blocked',
+      targetIdHash: hashSchedulerMetadata(leaseTargetKey(preflightInput, 'task')),
+      blockReasons: preflightInput.intent.intentHash ? [] : ['task_intent_hash_required'],
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Task preflight locks the task intent hash only.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'policy',
+      status: policyBlockReasons.length === 0 ? 'ready' : 'blocked',
+      blockReasons: policyBlockReasons,
+      evidenceRefIds,
+      auditEventIds,
+      summary: 'Policy preflight requires dry-run, approval authority, drift, and canary gates.',
+    }),
+    createOrchestratorPreflightCheck({
+      checkKind: 'approval',
+      status: approvalPending ? 'pending' : 'ready',
+      blockReasons:
+        approvalPending && approvalRequired ? ['approval_artifact_id_required'] : [],
+      evidenceRefIds,
+      auditEventIds,
+      summary: approvalRequired
+        ? 'Approval preflight requires a governed approval artifact.'
+        : 'Approval preflight is not required for this task intent.',
+    }),
+  ];
+}
+
+function createOrchestratorPreflightCheck(input: {
+  checkKind: CodexSchedulerPreflightCheck['checkKind'];
+  status: CodexSchedulerPreflightCheck['status'];
+  targetIdHash?: string;
+  blockReasons?: string[];
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+  summary: string;
+}): CodexSchedulerPreflightCheck {
+  return CodexSchedulerPreflightCheckSchema.parse({
+    checkKind: input.checkKind,
+    status: input.status,
+    targetIdHash: input.targetIdHash,
+    blockReasons: input.blockReasons ?? [],
+    evidenceRefIds: input.evidenceRefIds,
+    auditEventIds: input.auditEventIds,
+    summary: input.summary,
+  });
+}
+
+function collectCodexTaskPolicyBlockReasons(input: {
+  input: CodexTaskOrchestratorPreflightInput;
+  appServerReady: boolean;
+  driftBlocks: boolean;
+  canaryBlocks: boolean;
+  canaryGateStatus: CodexTaskRun['canaryGateStatus'];
+  liveRequested: boolean;
+}): string[] {
+  const reasonCodes: string[] = [];
+
+  if (input.input.intent.dryRunRequired && isBlank(input.input.dryRunId)) {
+    reasonCodes.push('dry_run_id_required');
+  }
+
+  if (input.input.policyApproved !== true) {
+    reasonCodes.push('policy_approval_required');
+  }
+
+  if (input.liveRequested && !input.appServerReady) {
+    reasonCodes.push('app_server_initialized_session_required');
+  }
+
+  if (input.driftBlocks) {
+    reasonCodes.push('protocol_drift_blocks_live_dispatch');
+  }
+
+  if (input.canaryBlocks) {
+    reasonCodes.push(`canary_gate:${input.canaryGateStatus}`);
+  }
+
+  return reasonCodes;
+}
+
+function collectQuotaBlockReasons(quotaSnapshot: QuotaSnapshot | undefined): string[] {
+  if (!quotaSnapshot) {
+    return ['quota_snapshot_required'];
+  }
+
+  if (
+    quotaSnapshot.status === 'blocked' ||
+    quotaSnapshot.status === 'exhausted' ||
+    quotaSnapshot.remainingCount === 0
+  ) {
+    return [`quota:${quotaSnapshot.status}`];
+  }
+
+  if (quotaSnapshot.status === 'unknown' || quotaSnapshot.ambiguous) {
+    return ['quota:unknown'];
+  }
+
+  return [];
+}
+
+function collectWorktreeBlockReasons(
+  input: CodexTaskOrchestratorPreflightInput,
+): string[] {
+  const reasonCodes: string[] = [];
+
+  if (!input.intent.isolatedWorktreeRequired) {
+    reasonCodes.push('isolated_worktree_required');
+  }
+
+  if (input.intent.repoRootWriteAllowed) {
+    reasonCodes.push('repo_root_write_forbidden');
+  }
+
+  if (isBlank(input.worktreeKey) && isBlank(input.intent.worktreeHash)) {
+    reasonCodes.push('worktree_lock_key_required');
+  }
+
+  return reasonCodes;
+}
+
+function mapTaskPreflightStatus(input: {
+  dispatchAllowed: boolean;
+  approvalPending: boolean;
+  driftBlocks: boolean;
+  canaryBlocks: boolean;
+}): CodexTaskPreflightStatus {
+  if (input.dispatchAllowed) {
+    return 'ready';
+  }
+
+  if (input.approvalPending) {
+    return 'waiting_approval';
+  }
+
+  if (input.driftBlocks) {
+    return 'drift_blocked';
+  }
+
+  if (input.canaryBlocks) {
+    return 'canary_blocked';
+  }
+
+  return 'blocked';
+}
+
+function createCodexTaskPreflightDiagnosisDraft(input: {
+  createdAt: string;
+  taskRunId: string;
+  accountProjection?: CodexAccountSchedulingProjection;
+  clientProjection?: CodexClientSchedulingProjection;
+  quotaSnapshot?: QuotaSnapshot;
+  checks: CodexSchedulerPreflightCheck[];
+  approvalPending: boolean;
+  driftBlocks: boolean;
+  canaryBlocks: boolean;
+  appServerReady: boolean;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+}): CodexTaskDiagnosis {
+  const diagnosis = inferCodexTaskPreflightDiagnosis(input);
+
+  return CodexTaskDiagnosisSchema.parse({
+    id: foundationId('codex_task_diagnosis'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: input.createdAt,
+    taskRunId: input.taskRunId,
+    diagnosisKind: diagnosis.diagnosisKind,
+    status: diagnosis.status,
+    confidence: diagnosis.confidence,
+    recommendedRecoveryKind: diagnosis.recommendedRecoveryKind,
+    evidenceRefIds: input.evidenceRefIds,
+    auditEventIds: input.auditEventIds,
+    summary: diagnosis.summary,
+  });
+}
+
+function inferCodexTaskPreflightDiagnosis(input: {
+  accountProjection?: CodexAccountSchedulingProjection;
+  clientProjection?: CodexClientSchedulingProjection;
+  quotaSnapshot?: QuotaSnapshot;
+  checks: CodexSchedulerPreflightCheck[];
+  approvalPending: boolean;
+  driftBlocks: boolean;
+  canaryBlocks: boolean;
+  appServerReady: boolean;
+}): Pick<
+  CodexTaskDiagnosis,
+  'diagnosisKind' | 'status' | 'confidence' | 'recommendedRecoveryKind' | 'summary'
+> {
+  const leaseConflict = input.checks.some((check) =>
+    check.blockReasons.some((reason) => reason.startsWith('lease_conflict:')),
+  );
+
+  if (
+    input.accountProjection?.schedulingStatus === 'quota_depleted' ||
+    input.quotaSnapshot?.status === 'exhausted' ||
+    input.quotaSnapshot?.remainingCount === 0
+  ) {
+    return {
+      diagnosisKind: 'failed_quota',
+      status: 'blocked',
+      confidence: 0.95,
+      recommendedRecoveryKind: 'wait_for_quota',
+      summary: 'Preflight blocked because quota metadata indicates depletion.',
+    };
+  }
+
+  if (input.accountProjection?.schedulingStatus === 'workspace_mismatch') {
+    return {
+      diagnosisKind: 'workspace_mismatch',
+      status: 'blocked',
+      confidence: 0.9,
+      recommendedRecoveryKind: 'human_checkpoint',
+      summary: 'Preflight blocked because selected account metadata points to a workspace mismatch.',
+    };
+  }
+
+  if (
+    input.accountProjection?.schedulingStatus === 'wrong_account' ||
+    input.accountProjection?.schedulingStatus === 'removed' ||
+    input.clientProjection?.schedulingStatus === 'codex_logged_out'
+  ) {
+    return {
+      diagnosisKind: 'failed_auth',
+      status: 'actionable',
+      confidence: 0.85,
+      recommendedRecoveryKind: 'human_checkpoint',
+      summary: 'Preflight blocked because account or login metadata is not ready.',
+    };
+  }
+
+  if (
+    input.clientProjection?.schedulingStatus === 'app_server_unresponsive' ||
+    !input.appServerReady
+  ) {
+    return {
+      diagnosisKind: 'app_server_unresponsive',
+      status: 'actionable',
+      confidence: 0.8,
+      recommendedRecoveryKind: 'restart_client',
+      summary: 'Preflight blocked because the App Server session is not initialized.',
+    };
+  }
+
+  if (input.approvalPending || input.driftBlocks || input.canaryBlocks || leaseConflict) {
+    return {
+      diagnosisKind: 'needs_manual_review',
+      status: input.approvalPending ? 'actionable' : 'blocked',
+      confidence: 0.75,
+      recommendedRecoveryKind: 'manual_review',
+      summary: 'Preflight blocked by approval, drift, canary, or lease governance.',
+    };
+  }
+
+  return {
+    diagnosisKind: 'unknown',
+    status: 'unknown',
+    confidence: 0.4,
+    recommendedRecoveryKind: 'manual_review',
+    summary: 'Preflight blocked for an unknown metadata-only reason.',
+  };
+}
+
 function collectGovernedHandoffBlockers(input: GovernedControlPlaneHandoffRequest): string[] {
   const reasonCodes: string[] = [];
 
@@ -1146,6 +1806,10 @@ function collectGovernedHandoffBlockers(input: GovernedControlPlaneHandoffReques
 
 function hashMetadataValue(value: string): string {
   return `sha256:${hashText(value)}`;
+}
+
+function isBlank(value: string | undefined): boolean {
+  return !value || value.trim().length === 0;
 }
 
 async function persistMockArtifacts(

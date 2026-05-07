@@ -546,6 +546,12 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/orchestrator-kernel/src/index.ts',
+    terms: [['sess', 'ion'].join('')],
+    reason: 'M57 App Server session metadata-only preflight names only; no credential/session storage read path',
+  },
+  {
+    scope: 'production-source',
     filePrefix: 'packages/github-provider-adapter/src/',
     terms: sensitiveConceptTerms,
     reason: 'GitHub provider token readiness exposes configured/hash-only metadata',
