@@ -176,6 +176,14 @@ const deploymentWritePassthroughTerms = [
   'tofu apply',
   'docker compose up',
   'docker run',
+  '["kubectl", "apply"]',
+  "['kubectl', 'apply']",
+  '["helm", "upgrade"]',
+  "['helm', 'upgrade']",
+  '["terraform", "apply"]',
+  "['terraform', 'apply']",
+  '["tofu", "apply"]',
+  "['tofu', 'apply']",
 ];
 const browserDirectActionTerms = ['page.click', 'page.type', 'keyboard.type', 'mouse.click'];
 const electronRuntimeEvaluateTerms = ['Runtime.evaluate'];
@@ -401,6 +409,8 @@ const mcpBoundaryBypassTerms = [
   'process.env[',
   'process["env"]',
   "process['env']",
+  'globalThis["process"]',
+  "globalThis['process']",
   'CODEXHUB_GITHUB_TOKEN',
   'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
   'CODEXHUB_SUPERVISOR_LOCAL_',
@@ -790,6 +800,20 @@ function validateAdversarialAuditSentinels(): void {
       description: 'Terraform apply passthrough outside the reviewed deployment operation boundary',
     },
     {
+      workspacePath: 'apps/cli/src/adversarial-deployment-boundary.ts',
+      sourceText: 'const command = ["kubectl", "apply"].join(" ");',
+      expectedTerm: '["kubectl", "apply"]',
+      description:
+        'segmented kubectl apply command builder outside the reviewed deployment operation boundary',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-deployment-boundary.ts',
+      sourceText: "const command = ['terraform', 'apply'].join(' ');",
+      expectedTerm: "['terraform', 'apply']",
+      description:
+        'segmented Terraform apply command builder outside the reviewed deployment operation boundary',
+    },
+    {
       workspacePath: 'apps/cli/src/adversarial-browser-boundary.ts',
       sourceText: 'await page.click(selector);',
       expectedTerm: 'page.click',
@@ -875,6 +899,13 @@ function validateAdversarialAuditSentinels(): void {
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText:
+        'const route = new URL("/api/production-ga/signoffs", supervisorUrl); fetch(route, { method: "POST" });',
+      expectedTerm: 'method: "POST"',
+      description: 'Dashboard generic URL builder combined with POST helper',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
       sourceText: 'window["localStorage"].setItem("codexhub-local-control", token);',
       expectedTerm: 'localStorage',
       description: 'Dashboard token persistence through bracket notation wrapper',
@@ -891,6 +922,13 @@ function validateAdversarialAuditSentinels(): void {
         'const storage = globalThis["session" + "Storage"]; storage.setItem("codexhub-local-control", token);',
       expectedTerm: '["session" + "Storage"]',
       description: 'Dashboard token persistence through aliased split session storage wrapper',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-generic-post.tsx',
+      sourceText:
+        'const db = window["indexed" + "DB"]; db.open("codexhub-local-control");',
+      expectedTerm: '["indexed" + "DB"]',
+      description: 'Dashboard token persistence through split indexedDB storage wrapper',
     },
     {
       workspacePath: 'apps/dashboard/src/adversarial-recovery-ui.tsx',
@@ -1193,6 +1231,20 @@ function validateAdversarialAuditSentinels(): void {
       sourceText: 'const env = process["env"];',
       expectedTerm: 'process["env"]',
       description: 'MCP indirect process env access',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText:
+        'const env = globalThis["process"]["env"]; const token = env["CODEXHUB_SUPERVISOR_LOCAL_TOKEN"];',
+      expectedTerm: 'globalThis["process"]',
+      description: 'MCP globalThis process env access through bracket notation',
+    },
+    {
+      workspacePath: 'apps/codexhub-mcp-server/src/adversarial-tool.ts',
+      sourceText:
+        "const env = globalThis['process']['env']; const token = env['CODEXHUB_GITHUB_TOKEN'];",
+      expectedTerm: "globalThis['process']",
+      description: 'MCP globalThis process env access through single-quote bracket notation',
     },
     {
       workspacePath: 'apps/cli/src/adversarial-github.ts',

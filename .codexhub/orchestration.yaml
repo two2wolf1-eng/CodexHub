@@ -6526,3 +6526,27 @@ workflows:
       noPush: true
       noOpenPullRequest: true
       metadataOnlyPublicOutput: true
+  m48_d24.adversarial-static-audit-expansion:
+    risk: critical
+    trigger:
+      type: adversarial-static-audit-expansion
+      entrypoint: audit tooling docs
+      localControlRequired: false
+    scope:
+      - audit-no-live-automation-negative-sentinels
+      - segmented-shell-command-builders
+      - global-process-env-aliases
+      - generic-url-post-builders
+      - browser-storage-wrappers
+    docs:
+      - docs/releases/m48-d24-adversarial-static-audit-expansion.md
+      - docs/reviews/m48-d24-adversarial-static-audit-expansion-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
