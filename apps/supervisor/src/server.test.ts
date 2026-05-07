@@ -319,6 +319,16 @@ function extractHelperPostSuffixes(
     .filter((suffix): suffix is string => Boolean(suffix));
 }
 
+function extractDirectLiteralPostRoutes(serverSource: string): string[] {
+  return [
+    ...serverSource.matchAll(
+      /server\.post\(\s*(?:'([^']+)'|"([^"]+)"|`([^`$]+)`)/g,
+    ),
+  ]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((route): route is string => Boolean(route));
+}
+
 afterEach(() => {
   rmSync(symlinkEscapeAbsolutePath, { force: true });
 });
@@ -531,14 +541,12 @@ describe('supervisor mock development API', () => {
 
   it('keeps late-stage mutating route gate coverage synced with server POST registrations', () => {
     const serverSource = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
-    const registeredLateStageRoutes = [
-      ...serverSource.matchAll(/server\.post\('([^']+)'/g),
-    ]
-      .map((match) => match[1])
+    const directLateStageRoutes = extractDirectLiteralPostRoutes(serverSource)
       .filter((route): route is string => Boolean(route))
       .filter((route) =>
         lateStageSupervisorRoutePrefixes.some((prefix) => route.startsWith(prefix)),
-      )
+      );
+    const registeredLateStageRoutes = directLateStageRoutes
       .concat(
         [...serverSource.matchAll(/registerGithubMergeRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
@@ -737,6 +745,9 @@ describe('supervisor mock development API', () => {
 
     for (const prefix of registeredLateStageHelperPrefixes) {
       expect(lateStageSupervisorRoutePrefixes).toContain(prefix);
+    }
+    for (const directRoute of directLateStageRoutes) {
+      expect(coveredLateStageRoutes).toContain(directRoute);
     }
     expect(coveredLateStageRoutes).toEqual(registeredLateStageRoutes);
   });
