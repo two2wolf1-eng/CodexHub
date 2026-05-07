@@ -605,18 +605,29 @@ export function createProductionGaSignoffRun(
   const distinctApproverCount = new Set(approverHashes).size;
   const unresolvedCriticalRiskCount =
     input.unresolvedCriticalRiskCount ?? input.signoffPlan.unresolvedCriticalRiskCount;
-  const parts = [
-    input.foundationGateStatus ?? 'ready',
-    input.matrixStatus ?? 'ready',
-    input.threatModelStatus ?? 'ready',
-    input.trainingStatus ?? 'ready',
-    input.e2eFixtureStatus ?? 'ready',
-    input.conditionalLiveStatus ?? 'conditionally_ready',
+  const foundationGateStatus = input.foundationGateStatus ?? 'ready';
+  const matrixStatus = input.matrixStatus ?? 'ready';
+  const threatModelStatus = input.threatModelStatus ?? 'ready';
+  const trainingStatus = input.trainingStatus ?? 'ready';
+  const e2eFixtureStatus = input.e2eFixtureStatus ?? 'ready';
+  const conditionalLiveStatus = input.conditionalLiveStatus ?? 'conditionally_ready';
+  const requiredStatuses = [
+    foundationGateStatus,
+    matrixStatus,
+    threatModelStatus,
+    trainingStatus,
+    e2eFixtureStatus,
   ];
   const status =
     unresolvedCriticalRiskCount > 0 || approvedArtifacts.length < 2 || distinctApproverCount < 2
       ? 'blocked'
-      : statusFromParts(parts);
+      : requiredStatuses.includes('failed') || conditionalLiveStatus === 'failed'
+        ? 'failed'
+        : requiredStatuses.some((part) => part !== 'ready') || conditionalLiveStatus === 'blocked'
+          ? 'blocked'
+          : conditionalLiveStatus === 'conditionally_ready'
+            ? 'conditionally_ready'
+            : 'ready';
 
   return ProductionGaSignoffRunSchema.parse({
     id: foundationId('production_ga_signoff_run'),
@@ -627,12 +638,12 @@ export function createProductionGaSignoffRun(
     approvalArtifactIds: approvedArtifacts.map((approval) => approval.id),
     approverHashes,
     approvalConsumedCount: status === 'ready' || status === 'conditionally_ready' ? 2 : 0,
-    foundationGateStatus: input.foundationGateStatus ?? 'ready',
-    matrixStatus: input.matrixStatus ?? 'ready',
-    threatModelStatus: input.threatModelStatus ?? 'ready',
-    trainingStatus: input.trainingStatus ?? 'ready',
-    e2eFixtureStatus: input.e2eFixtureStatus ?? 'ready',
-    conditionalLiveStatus: input.conditionalLiveStatus ?? 'conditionally_ready',
+    foundationGateStatus,
+    matrixStatus,
+    threatModelStatus,
+    trainingStatus,
+    e2eFixtureStatus,
+    conditionalLiveStatus,
     unresolvedCriticalRiskCount,
     signoffHash: hashList([input.signoffPlan.id, ...approvedArtifacts.map((approval) => approval.id)]),
     processBoundaryInvoked: false,

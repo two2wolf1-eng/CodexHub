@@ -253,4 +253,79 @@ describe('production-ga-kernel', () => {
     expect(signoff.approvalConsumedCount).toBe(0);
     expect(signoff.unresolvedCriticalRiskCount).toBe(1);
   });
+
+  it('allows conditional GA signoff only for live-smoke environment blockers', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const matrix = createProductionGaCapabilityMatrix({ now });
+    const threatModel = createProductionGaThreatModel({
+      authorityModelSeed: 'security-kernel-final-authority',
+      approvalModelSeed: 'two-approval-ga',
+      evidenceAuditModelSeed: 'evidence-audit-required',
+      rollbackModelSeed: 'dr-runbook-required',
+      now,
+    });
+    const readinessPlan = createProductionGaReadinessPlan({ matrix, threatModel, now });
+    const readiness = summarizeProductionGaReadiness({ plan: readinessPlan, now });
+    const rehearsalPlan = createProductionGaE2ERehearsalPlan({ scenario: 'all-pass', now });
+    const rehearsalRun = createProductionGaE2ERehearsalRun({ plan: rehearsalPlan, now });
+    const signoffPlan = createProductionGaReleaseCandidateSignoffPlan({
+      matrix,
+      threatModel,
+      readinessSummary: readiness,
+      e2eRehearsalRun: rehearsalRun,
+      now,
+    });
+    const approvalOne = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'operator-one',
+      now,
+    });
+    const approvalTwo = createProductionGaApprovalArtifact({
+      dryRunId: signoffPlan.dryRunId,
+      approver: 'operator-two',
+      now,
+    });
+    const approvals = [approvalOne, approvalTwo];
+
+    const readySignoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals,
+      conditionalLiveStatus: 'ready',
+      now,
+    });
+    const conditionalLiveSignoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals,
+      now,
+    });
+    const conditionalMatrixSignoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals,
+      matrixStatus: 'conditionally_ready',
+      now,
+    });
+    const blockedTrainingSignoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals,
+      trainingStatus: 'blocked',
+      now,
+    });
+    const failedE2eSignoff = createProductionGaSignoffRun({
+      signoffPlan,
+      approvals,
+      e2eFixtureStatus: 'failed',
+      now,
+    });
+
+    expect(readySignoff.status).toBe('ready');
+    expect(readySignoff.approvalConsumedCount).toBe(2);
+    expect(conditionalLiveSignoff.status).toBe('conditionally_ready');
+    expect(conditionalLiveSignoff.approvalConsumedCount).toBe(2);
+    expect(conditionalMatrixSignoff.status).toBe('blocked');
+    expect(conditionalMatrixSignoff.approvalConsumedCount).toBe(0);
+    expect(blockedTrainingSignoff.status).toBe('blocked');
+    expect(blockedTrainingSignoff.approvalConsumedCount).toBe(0);
+    expect(failedE2eSignoff.status).toBe('failed');
+    expect(failedE2eSignoff.approvalConsumedCount).toBe(0);
+  });
 });

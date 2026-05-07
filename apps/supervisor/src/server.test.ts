@@ -1035,6 +1035,26 @@ describe('supervisor mock development API', () => {
         approvalArtifactIds: [firstApprovalResponse.json().id, secondApprovalResponse.json().id],
       },
     });
+    const conditionalMatrixSignoffResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/signoffs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [firstApprovalResponse.json().id, secondApprovalResponse.json().id],
+        matrixStatus: 'conditionally_ready',
+      },
+    });
+    const failedE2eSignoffResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-ga/signoffs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: dryRun.dryRunId,
+        approvalArtifactIds: [firstApprovalResponse.json().id, secondApprovalResponse.json().id],
+        e2eFixtureStatus: 'failed',
+      },
+    });
     const forgedPayloadResponse = await server.inject({
       method: 'POST',
       url: '/api/production-ga/signoffs',
@@ -1078,6 +1098,16 @@ describe('supervisor mock development API', () => {
       processBoundaryInvoked: false,
       networkBoundaryInvoked: false,
       remoteProviderBoundaryInvoked: false,
+    });
+    expect(conditionalMatrixSignoffResponse.statusCode).toBe(200);
+    expect(conditionalMatrixSignoffResponse.json()).toMatchObject({
+      status: 'blocked',
+      approvalConsumedCount: 0,
+    });
+    expect(failedE2eSignoffResponse.statusCode).toBe(200);
+    expect(failedE2eSignoffResponse.json()).toMatchObject({
+      status: 'failed',
+      approvalConsumedCount: 0,
     });
     expect(signoffResponse.json().approverHashes).toHaveLength(2);
     expect(new Set(signoffResponse.json().approverHashes).size).toBe(2);
