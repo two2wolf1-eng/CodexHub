@@ -18,6 +18,9 @@
       "@codexhub/approval-ux-kernel": ["packages/approval-ux-kernel/src/index.ts"],
       "@codexhub/browser-profile-kernel": ["packages/browser-profile-kernel/src/index.ts"],
       "@codexhub/capability-adapter-kernel": ["packages/capability-adapter-kernel/src/index.ts"],
+      "@codexhub/chatgpt-business-adapter": [
+        "packages/chatgpt-business-adapter/src/index.ts"
+      ],
       "@codexhub/codex-exec-adapter": ["packages/codex-exec-adapter/src/index.ts"],
       "@codexhub/codex-kernel": ["packages/codex-kernel/src/index.ts"],
       "@codexhub/contracts": ["packages/contracts/src/index.ts"],
