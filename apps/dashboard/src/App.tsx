@@ -32,6 +32,13 @@ import type {
   ApprovalInboxItem,
   ApprovalInboxProjection,
   ApprovalUxDecision,
+  ProductionGaApprovalArtifact,
+  ProductionGaCapabilityMatrix,
+  ProductionGaE2ERehearsalRun,
+  ProductionGaReadinessPlan,
+  ProductionGaSignoffRun,
+  ProductionGaThreatModel,
+  ProductionGaOperatorTrainingCompletionSummary,
 } from '@codexhub/contracts';
 import type { MockDevelopmentOrchestrationResult } from '@codexhub/orchestrator-kernel';
 import {
@@ -59,6 +66,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createProductionGaReadOnlySummary,
   createRemoteSupersedeAcceptanceRehearsalReadOnlySummary,
   createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
@@ -194,6 +202,13 @@ interface OverviewState {
   platformOperatorRoleDryRuns: PlatformOperationControlSummary[];
   platformOperatorRoleApprovals: PlatformOperationControlSummary[];
   platformOperatorRoleRuns: PlatformOperationControlSummary[];
+  productionGaDryRuns: ProductionGaReadinessPlan[];
+  productionGaApprovals: ProductionGaApprovalArtifact[];
+  productionGaSignoffs: ProductionGaSignoffRun[];
+  productionGaRehearsals: ProductionGaE2ERehearsalRun[];
+  productionGaTrainingCompletions: ProductionGaOperatorTrainingCompletionSummary[];
+  productionGaCapabilityMatrix?: ProductionGaCapabilityMatrix;
+  productionGaThreatModel?: ProductionGaThreatModel;
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -1428,6 +1443,14 @@ const policyTelemetryDashboardPostRoutes = new Set([
   '/api/telemetry/exports/manual-approvals',
   '/api/telemetry/exports/runs',
 ]);
+const productionGaDashboardPostRoutes = new Set([
+  '/api/production-ga/dry-runs',
+  '/api/production-ga/approval-requests',
+  '/api/production-ga/manual-approvals',
+  '/api/production-ga/signoffs',
+  '/api/production-ga/rehearsals',
+  '/api/production-ga/training-completions',
+]);
 type RecoveryTemplateId = (typeof recoveryTemplateOptions)[number]['id'];
 type GithubMergeStrategyOption = 'squash' | 'merge' | 'rebase';
 type DeploymentOperationProviderOption =
@@ -1443,6 +1466,22 @@ type PolicyTelemetrySurfaceOption = 'policy' | 'telemetry';
 type RealPolicyBackendKindOption = 'opa' | 'cedar';
 type RealPolicyRuntimeModeOption = 'local-cli' | 'loopback-http';
 type RealTelemetryExporterKindOption = 'in-memory' | 'otlp-http';
+type ProductionGaScenarioOption =
+  | 'all-pass'
+  | 'patch-blocked'
+  | 'verification-failed'
+  | 'pr-blocked'
+  | 'merge-blocked'
+  | 'release-blocked'
+  | 'deploy-blocked'
+  | 'observe-blocked'
+  | 'rollback-plan-missing'
+  | 'rollback-failed'
+  | 'child-hash-mismatch'
+  | 'approval-blocked'
+  | 'live-env-not-configured'
+  | 'evidence-missing'
+  | 'audit-gap';
 
 interface RecoveryGuidedOperationState {
   recoveryKey: string;
@@ -1568,6 +1607,34 @@ interface PolicyTelemetryGuidedOperationState {
   runPolicyTelemetry: () => Promise<void>;
 }
 
+interface ProductionGaGuidedOperationState {
+  productionGaKey: string;
+  setProductionGaKey: (value: string) => void;
+  productionGaMessage: string;
+  productionGaBusy: boolean;
+  productionGaDryRunId: string;
+  productionGaApprovalRequestId: string;
+  productionGaApprovalArtifactId: string;
+  productionGaSecondApprovalArtifactId: string;
+  productionGaApprover: string;
+  setProductionGaApprover: (value: string) => void;
+  productionGaSecondApprover: string;
+  setProductionGaSecondApprover: (value: string) => void;
+  productionGaScenario: ProductionGaScenarioOption;
+  setProductionGaScenario: (value: ProductionGaScenarioOption) => void;
+  productionGaOperatorHash: string;
+  setProductionGaOperatorHash: (value: string) => void;
+  latestProductionGaDryRun?: ProductionGaReadinessPlan;
+  latestProductionGaApproval?: ProductionGaApprovalArtifact;
+  latestProductionGaSignoff?: ProductionGaSignoffRun;
+  createProductionGaDryRun: () => Promise<void>;
+  requestProductionGaApproval: () => Promise<void>;
+  approveProductionGaRequest: (slot: 'primary' | 'secondary') => Promise<void>;
+  runProductionGaSignoff: () => Promise<void>;
+  runProductionGaRehearsal: () => Promise<void>;
+  recordProductionGaTrainingCompletion: () => Promise<void>;
+}
+
 export function App() {
   const [overview, setOverview] = useState<OverviewState>({
     status: 'loading',
@@ -1689,6 +1756,11 @@ export function App() {
     platformOperatorRoleDryRuns: [],
     platformOperatorRoleApprovals: [],
     platformOperatorRoleRuns: [],
+    productionGaDryRuns: [],
+    productionGaApprovals: [],
+    productionGaSignoffs: [],
+    productionGaRehearsals: [],
+    productionGaTrainingCompletions: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -1793,6 +1865,19 @@ export function App() {
   const [policyTelemetryApprovalRequestId, setPolicyTelemetryApprovalRequestId] = useState('');
   const [policyTelemetryApprovalArtifactId, setPolicyTelemetryApprovalArtifactId] = useState('');
   const [policyTelemetryApprover, setPolicyTelemetryApprover] = useState('');
+  const [productionGaKey, setProductionGaKey] = useState('');
+  const [productionGaMessage, setProductionGaMessage] = useState('');
+  const [productionGaBusy, setProductionGaBusy] = useState(false);
+  const [productionGaDryRunId, setProductionGaDryRunId] = useState('');
+  const [productionGaApprovalRequestId, setProductionGaApprovalRequestId] = useState('');
+  const [productionGaApprovalArtifactId, setProductionGaApprovalArtifactId] = useState('');
+  const [productionGaSecondApprovalArtifactId, setProductionGaSecondApprovalArtifactId] =
+    useState('');
+  const [productionGaApprover, setProductionGaApprover] = useState('');
+  const [productionGaSecondApprover, setProductionGaSecondApprover] = useState('');
+  const [productionGaScenario, setProductionGaScenario] =
+    useState<ProductionGaScenarioOption>('all-pass');
+  const [productionGaOperatorHash, setProductionGaOperatorHash] = useState('');
   const mcpSummary = summarizeMcpTools();
   const verificationPreview = createVerificationReadinessPreview();
   const browserProfilesSummary = createBrowserProfilesReadOnlySummary({
@@ -2096,6 +2181,42 @@ export function App() {
     policyTelemetrySurface === 'policy'
       ? overview.realPolicyBackendRuns[0]
       : overview.realTelemetryExportRuns[0];
+  const latestProductionGaDryRun = overview.productionGaDryRuns[0];
+  const latestProductionGaApproval =
+    overview.productionGaApprovals.find((record) => record.approved === true) ??
+    overview.productionGaApprovals[0];
+  const latestProductionGaSignoff = overview.productionGaSignoffs[0];
+  const latestProductionGaRehearsal = overview.productionGaRehearsals[0];
+  const productionGaSummary = createProductionGaReadOnlySummary({
+    dryRunCount: overview.productionGaDryRuns.length,
+    approvalCount: overview.productionGaApprovals.length,
+    signoffCount: overview.productionGaSignoffs.length,
+    rehearsalCount: overview.productionGaRehearsals.length,
+    trainingCompletionCount: overview.productionGaTrainingCompletions.length,
+    latestSignoffStatus: latestProductionGaSignoff?.status,
+    latestRehearsalStatus: latestProductionGaRehearsal?.status,
+    matrixStatus: overview.productionGaCapabilityMatrix ? 'ready' : 'blocked',
+    threatModelStatus:
+      overview.productionGaThreatModel?.unresolvedCriticalRiskCount === 0 ? 'ready' : 'blocked',
+    trainingStatus: latestProductionGaSignoff?.trainingStatus,
+    e2eFixtureStatus:
+      latestProductionGaSignoff?.e2eFixtureStatus ?? latestProductionGaRehearsal?.status,
+    conditionalLiveStatus:
+      latestProductionGaSignoff?.conditionalLiveStatus ??
+      (latestProductionGaRehearsal?.liveSmokeStatus === 'completed'
+        ? 'ready'
+        : latestProductionGaRehearsal?.liveSmokeStatus === 'readiness_blocked'
+          ? 'conditionally_ready'
+          : 'blocked'),
+    blockerCount:
+      latestProductionGaDryRun?.blockReasons?.length ??
+      latestProductionGaRehearsal?.blockedStepCount ??
+      0,
+    unresolvedCriticalRiskCount:
+      latestProductionGaSignoff?.unresolvedCriticalRiskCount ??
+      overview.productionGaThreatModel?.unresolvedCriticalRiskCount ??
+      0,
+  });
   const deploymentGuidedOperation: DeploymentGuidedOperationState = {
     deploymentKey,
     setDeploymentKey,
@@ -2155,6 +2276,33 @@ export function App() {
     requestPolicyTelemetryApproval,
     approvePolicyTelemetryRequest,
     runPolicyTelemetry,
+  };
+  const productionGaGuidedOperation: ProductionGaGuidedOperationState = {
+    productionGaKey,
+    setProductionGaKey,
+    productionGaMessage,
+    productionGaBusy,
+    productionGaDryRunId,
+    productionGaApprovalRequestId,
+    productionGaApprovalArtifactId,
+    productionGaSecondApprovalArtifactId,
+    productionGaApprover,
+    setProductionGaApprover,
+    productionGaSecondApprover,
+    setProductionGaSecondApprover,
+    productionGaScenario,
+    setProductionGaScenario,
+    productionGaOperatorHash,
+    setProductionGaOperatorHash,
+    latestProductionGaDryRun,
+    latestProductionGaApproval,
+    latestProductionGaSignoff,
+    createProductionGaDryRun,
+    requestProductionGaApproval,
+    approveProductionGaRequest,
+    runProductionGaSignoff,
+    runProductionGaRehearsal,
+    recordProductionGaTrainingCompletion,
   };
   const policyTelemetrySummary = createPolicyTelemetryReadOnlySummary({
     projectionSpanCount:
@@ -2797,6 +2945,13 @@ export function App() {
           releaseCandidateApprovalsResponse,
           releaseCandidateRunsResponse,
           m11PilotRunsResponse,
+          productionGaDryRunsResponse,
+          productionGaApprovalsResponse,
+          productionGaSignoffsResponse,
+          productionGaRehearsalsResponse,
+          productionGaTrainingCompletionsResponse,
+          productionGaCapabilityMatrixResponse,
+          productionGaThreatModelResponse,
           approvalInboxResponse,
         ] = await Promise.all([
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
@@ -3325,6 +3480,66 @@ export function App() {
           getOptionalJson<{ records: M11PilotControlSummary[] }>('/api/pilots/m11/local-runs', {
             records: [],
           }),
+          getOptionalJson<{ records: ProductionGaReadinessPlan[] }>('/api/production-ga/dry-runs', {
+            records: [],
+          }),
+          getOptionalJson<{ records: ProductionGaApprovalArtifact[] }>(
+            '/api/production-ga/approvals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ProductionGaSignoffRun[] }>('/api/production-ga/signoffs', {
+            records: [],
+          }),
+          getOptionalJson<{ records: ProductionGaE2ERehearsalRun[] }>(
+            '/api/production-ga/rehearsals',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: ProductionGaOperatorTrainingCompletionSummary[] }>(
+            '/api/production-ga/training-completions',
+            { records: [] },
+          ),
+          getOptionalJson<ProductionGaCapabilityMatrix>('/api/production-ga/capability-matrix/latest', {
+            id: 'production_ga_capability_matrix_degraded',
+            schemaVersion: '2026-04-28.foundation',
+            createdAt: new Date(0).toISOString(),
+            matrixHash: 'sha256:production-ga-matrix-unavailable',
+            surfaceCount: 9,
+            surfaces: [
+              'local-patch-review-rc',
+              'github-pr-lifecycle',
+              'github-merge-actions-release',
+              'deployment-observe-apply-rollback',
+              'secrets-governance',
+              'policy-telemetry',
+              'browser-electron-mcp-controlled-write',
+              'runtime-external-agents',
+              'platform-operations',
+            ],
+            readySurfaceCount: 0,
+            blockedSurfaceCount: 9,
+            defaultDisabledSurfaceCount: 9,
+            criticalRiskSurfaceCount: 5,
+            liveBoundaryAllowlistExpanded: false,
+            childAdapterDirectExecutionAllowed: false,
+            publicOutputMetadataOnly: true,
+            summary: 'Production GA capability matrix unavailable; Dashboard remains metadata-only.',
+          }),
+          getOptionalJson<ProductionGaThreatModel>('/api/production-ga/threat-model/latest', {
+            id: 'production_ga_threat_model_degraded',
+            schemaVersion: '2026-04-28.foundation',
+            createdAt: new Date(0).toISOString(),
+            threatModelHash: 'sha256:production-ga-threat-model-unavailable',
+            assetCount: 0,
+            trustBoundaryCount: 0,
+            liveBoundaryCount: 0,
+            authorityModelHash: 'sha256:authority-unavailable',
+            approvalModelHash: 'sha256:approval-unavailable',
+            evidenceAuditModelHash: 'sha256:evidence-audit-unavailable',
+            rollbackModelHash: 'sha256:rollback-unavailable',
+            residualRiskCount: 1,
+            unresolvedCriticalRiskCount: 1,
+            summary: 'Production GA threat model unavailable; signoff remains blocked.',
+          }),
           getOptionalJson<ApprovalInboxProjection>('/api/approvals/inbox', {
             id: 'approval_inbox_projection_degraded',
             schemaVersion: '2026-04-28.foundation',
@@ -3518,6 +3733,13 @@ export function App() {
             releaseCandidateApprovals: releaseCandidateApprovalsResponse.records,
             releaseCandidateRuns: releaseCandidateRunsResponse.records,
             m11PilotRuns: m11PilotRunsResponse.records,
+            productionGaDryRuns: productionGaDryRunsResponse.records,
+            productionGaApprovals: productionGaApprovalsResponse.records,
+            productionGaSignoffs: productionGaSignoffsResponse.records,
+            productionGaRehearsals: productionGaRehearsalsResponse.records,
+            productionGaTrainingCompletions: productionGaTrainingCompletionsResponse.records,
+            productionGaCapabilityMatrix: productionGaCapabilityMatrixResponse,
+            productionGaThreatModel: productionGaThreatModelResponse,
             approvalInbox: approvalInboxResponse,
           });
         }
@@ -3685,6 +3907,11 @@ export function App() {
             releaseCandidateApprovals: [],
             releaseCandidateRuns: [],
             m11PilotRuns: [],
+            productionGaDryRuns: [],
+            productionGaApprovals: [],
+            productionGaSignoffs: [],
+            productionGaRehearsals: [],
+            productionGaTrainingCompletions: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -3943,6 +4170,246 @@ export function App() {
       setPolicyTelemetryMessage(error instanceof Error ? error.message : 'Run failed.');
     } finally {
       setPolicyTelemetryBusy(false);
+    }
+  }
+
+  async function refreshProductionGaRecords() {
+    const [
+      dryRunsResponse,
+      approvalsResponse,
+      signoffsResponse,
+      rehearsalsResponse,
+      trainingCompletionsResponse,
+      capabilityMatrixResponse,
+      threatModelResponse,
+    ] = await Promise.all([
+      getOptionalJson<{ records: ProductionGaReadinessPlan[] }>('/api/production-ga/dry-runs', {
+        records: [],
+      }),
+      getOptionalJson<{ records: ProductionGaApprovalArtifact[] }>('/api/production-ga/approvals', {
+        records: [],
+      }),
+      getOptionalJson<{ records: ProductionGaSignoffRun[] }>('/api/production-ga/signoffs', {
+        records: [],
+      }),
+      getOptionalJson<{ records: ProductionGaE2ERehearsalRun[] }>('/api/production-ga/rehearsals', {
+        records: [],
+      }),
+      getOptionalJson<{ records: ProductionGaOperatorTrainingCompletionSummary[] }>(
+        '/api/production-ga/training-completions',
+        { records: [] },
+      ),
+      getOptionalJson<ProductionGaCapabilityMatrix>('/api/production-ga/capability-matrix/latest', {
+        id: 'production_ga_capability_matrix_degraded',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt: new Date(0).toISOString(),
+        matrixHash: 'sha256:production-ga-matrix-unavailable',
+        surfaceCount: 9,
+        surfaces: [
+          'local-patch-review-rc',
+          'github-pr-lifecycle',
+          'github-merge-actions-release',
+          'deployment-observe-apply-rollback',
+          'secrets-governance',
+          'policy-telemetry',
+          'browser-electron-mcp-controlled-write',
+          'runtime-external-agents',
+          'platform-operations',
+        ],
+        readySurfaceCount: 0,
+        blockedSurfaceCount: 9,
+        defaultDisabledSurfaceCount: 9,
+        criticalRiskSurfaceCount: 5,
+        liveBoundaryAllowlistExpanded: false,
+        childAdapterDirectExecutionAllowed: false,
+        publicOutputMetadataOnly: true,
+        summary: 'Production GA capability matrix unavailable; Dashboard remains metadata-only.',
+      }),
+      getOptionalJson<ProductionGaThreatModel>('/api/production-ga/threat-model/latest', {
+        id: 'production_ga_threat_model_degraded',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt: new Date(0).toISOString(),
+        threatModelHash: 'sha256:production-ga-threat-model-unavailable',
+        assetCount: 0,
+        trustBoundaryCount: 0,
+        liveBoundaryCount: 0,
+        authorityModelHash: 'sha256:authority-unavailable',
+        approvalModelHash: 'sha256:approval-unavailable',
+        evidenceAuditModelHash: 'sha256:evidence-audit-unavailable',
+        rollbackModelHash: 'sha256:rollback-unavailable',
+        residualRiskCount: 1,
+        unresolvedCriticalRiskCount: 1,
+        summary: 'Production GA threat model unavailable; signoff remains blocked.',
+      }),
+    ]);
+
+    setOverview((current) => ({
+      ...current,
+      productionGaDryRuns: dryRunsResponse.records,
+      productionGaApprovals: approvalsResponse.records,
+      productionGaSignoffs: signoffsResponse.records,
+      productionGaRehearsals: rehearsalsResponse.records,
+      productionGaTrainingCompletions: trainingCompletionsResponse.records,
+      productionGaCapabilityMatrix: capabilityMatrixResponse,
+      productionGaThreatModel: threatModelResponse,
+    }));
+  }
+
+  async function createProductionGaDryRun() {
+    if (!productionGaKey) {
+      setProductionGaMessage('Enter the page-memory key before creating a GA readiness dry-run.');
+      return;
+    }
+
+    setProductionGaBusy(true);
+    try {
+      const result = await postProductionGaJson<ProductionGaReadinessPlan>(
+        '/api/production-ga/dry-runs',
+        productionGaKey,
+        {},
+      );
+      setProductionGaDryRunId(result.dryRunId);
+      setProductionGaApprovalRequestId('');
+      setProductionGaApprovalArtifactId('');
+      setProductionGaSecondApprovalArtifactId('');
+      setProductionGaMessage(`GA dry-run ${result.dryRunId} is planned.`);
+      await refreshProductionGaRecords();
+    } catch (error) {
+      setProductionGaMessage(error instanceof Error ? error.message : 'GA dry-run failed.');
+    } finally {
+      setProductionGaBusy(false);
+    }
+  }
+
+  async function requestProductionGaApproval() {
+    if (!productionGaKey || !productionGaDryRunId) {
+      setProductionGaMessage('Create a GA dry-run before requesting approval.');
+      return;
+    }
+
+    setProductionGaBusy(true);
+    try {
+      const result = await postProductionGaJson<ProductionGaApprovalArtifact>(
+        '/api/production-ga/approval-requests',
+        productionGaKey,
+        { dryRunId: productionGaDryRunId },
+      );
+      setProductionGaApprovalRequestId(result.id);
+      setProductionGaMessage(`GA approval request ${result.id} is recorded.`);
+      await refreshProductionGaRecords();
+    } catch (error) {
+      setProductionGaMessage(error instanceof Error ? error.message : 'GA approval request failed.');
+    } finally {
+      setProductionGaBusy(false);
+    }
+  }
+
+  async function approveProductionGaRequest(slot: 'primary' | 'secondary') {
+    const approverHash = slot === 'primary' ? productionGaApprover : productionGaSecondApprover;
+
+    if (!productionGaKey || !productionGaDryRunId || !productionGaApprovalRequestId || !approverHash) {
+      setProductionGaMessage('Request GA approval and enter a distinct approver hash first.');
+      return;
+    }
+
+    setProductionGaBusy(true);
+    try {
+      const result = await postProductionGaJson<ProductionGaApprovalArtifact>(
+        '/api/production-ga/manual-approvals',
+        productionGaKey,
+        {
+          dryRunId: productionGaDryRunId,
+          approvalRequestId: productionGaApprovalRequestId,
+          outcome: 'approved',
+          approverHash,
+        },
+      );
+      if (slot === 'primary') {
+        setProductionGaApprovalArtifactId(result.id);
+      } else {
+        setProductionGaSecondApprovalArtifactId(result.id);
+      }
+      setProductionGaMessage(`GA ${slot} approval ${result.id} is approved.`);
+      await refreshProductionGaRecords();
+    } catch (error) {
+      setProductionGaMessage(error instanceof Error ? error.message : 'GA approval failed.');
+    } finally {
+      setProductionGaBusy(false);
+    }
+  }
+
+  async function runProductionGaSignoff() {
+    if (!productionGaKey || !productionGaDryRunId || !productionGaApprovalArtifactId || !productionGaSecondApprovalArtifactId) {
+      setProductionGaMessage('Two distinct GA approvals are required before signoff.');
+      return;
+    }
+
+    setProductionGaBusy(true);
+    try {
+      const result = await postProductionGaJson<ProductionGaSignoffRun>(
+        '/api/production-ga/signoffs',
+        productionGaKey,
+        {
+          dryRunId: productionGaDryRunId,
+          approvalArtifactIds: [
+            productionGaApprovalArtifactId,
+            productionGaSecondApprovalArtifactId,
+          ],
+        },
+      );
+      setProductionGaMessage(`GA signoff ${result.id} is ${result.status}.`);
+      await refreshProductionGaRecords();
+    } catch (error) {
+      setProductionGaMessage(error instanceof Error ? error.message : 'GA signoff failed.');
+    } finally {
+      setProductionGaBusy(false);
+    }
+  }
+
+  async function runProductionGaRehearsal() {
+    if (!productionGaKey) {
+      setProductionGaMessage('Enter the page-memory key before recording a GA rehearsal.');
+      return;
+    }
+
+    setProductionGaBusy(true);
+    try {
+      const result = await postProductionGaJson<ProductionGaE2ERehearsalRun>(
+        '/api/production-ga/rehearsals',
+        productionGaKey,
+        { scenario: productionGaScenario },
+      );
+      setProductionGaMessage(`GA rehearsal ${result.id} is ${result.status}.`);
+      await refreshProductionGaRecords();
+    } catch (error) {
+      setProductionGaMessage(error instanceof Error ? error.message : 'GA rehearsal failed.');
+    } finally {
+      setProductionGaBusy(false);
+    }
+  }
+
+  async function recordProductionGaTrainingCompletion() {
+    if (!productionGaKey) {
+      setProductionGaMessage('Enter the page-memory key before recording training completion.');
+      return;
+    }
+
+    setProductionGaBusy(true);
+    try {
+      const result = await postProductionGaJson<ProductionGaOperatorTrainingCompletionSummary>(
+        '/api/production-ga/training-completions',
+        productionGaKey,
+        {
+          operatorIdentity: productionGaOperatorHash || undefined,
+          completedModuleCount: 8,
+        },
+      );
+      setProductionGaMessage(`Training completion ${result.id} is ${result.status}.`);
+      await refreshProductionGaRecords();
+    } catch (error) {
+      setProductionGaMessage(error instanceof Error ? error.message : 'Training completion failed.');
+    } finally {
+      setProductionGaBusy(false);
     }
   }
 
@@ -6026,6 +6493,8 @@ export function App() {
           },
           deploymentGuidedOperation,
           policyTelemetryGuidedOperation,
+          productionGaSummary,
+          productionGaGuidedOperation,
         )
       )}
     </main>
@@ -6076,6 +6545,8 @@ function renderReadOnlyDashboardView(
   mergeGuidedOperation: MergeGuidedOperationState,
   deploymentGuidedOperation: DeploymentGuidedOperationState,
   policyTelemetryGuidedOperation: PolicyTelemetryGuidedOperationState,
+  productionGaSummary: ReturnType<typeof createProductionGaReadOnlySummary>,
+  productionGaGuidedOperation: ProductionGaGuidedOperationState,
 ) {
   if (activeView === 'development') {
     return (
@@ -10013,6 +10484,280 @@ function renderReadOnlyDashboardView(
     );
   }
 
+  if (activeView === 'production-ga') {
+    const {
+      productionGaKey,
+      setProductionGaKey,
+      productionGaMessage,
+      productionGaBusy,
+      productionGaDryRunId,
+      productionGaApprovalRequestId,
+      productionGaApprovalArtifactId,
+      productionGaSecondApprovalArtifactId,
+      productionGaApprover,
+      setProductionGaApprover,
+      productionGaSecondApprover,
+      setProductionGaSecondApprover,
+      productionGaScenario,
+      setProductionGaScenario,
+      productionGaOperatorHash,
+      setProductionGaOperatorHash,
+      latestProductionGaDryRun,
+      latestProductionGaApproval,
+      latestProductionGaSignoff,
+      createProductionGaDryRun,
+      requestProductionGaApproval,
+      approveProductionGaRequest,
+      runProductionGaSignoff,
+      runProductionGaRehearsal,
+      recordProductionGaTrainingCompletion,
+    } = productionGaGuidedOperation;
+
+    return (
+      <section className="grid">
+        <Panel title="Production GA Readiness">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{productionGaSummary.status}</span>
+            </li>
+            <li>
+              <strong>records</strong>
+              <span>
+                dry-runs {productionGaSummary.dryRunCount}, approvals{' '}
+                {productionGaSummary.approvalCount}, signoffs {productionGaSummary.signoffCount}
+              </span>
+            </li>
+            <li>
+              <strong>matrix / threat model</strong>
+              <span>
+                {productionGaSummary.matrixStatus} / {productionGaSummary.threatModelStatus}
+              </span>
+            </li>
+            <li>
+              <strong>training / rehearsal</strong>
+              <span>
+                {productionGaSummary.trainingStatus} / {productionGaSummary.latestRehearsalStatus}
+              </span>
+            </li>
+            <li>
+              <strong>critical blockers</strong>
+              <span>{productionGaSummary.unresolvedCriticalRiskCount}</span>
+            </li>
+            <li>
+              <strong>boundaries</strong>
+              <span>
+                childAdapter {String(productionGaSummary.childAdapterInvokedDirectly)}, liveAllowlist{' '}
+                {String(productionGaSummary.liveBoundaryAllowlistExpanded)}
+              </span>
+            </li>
+          </ul>
+          <p>{productionGaSummary.summary}</p>
+        </Panel>
+        <Panel title="Capability Matrix">
+          <ul>
+            <li>
+              <strong>hash</strong>
+              <span>{overview.productionGaCapabilityMatrix?.matrixHash ?? 'unavailable'}</span>
+            </li>
+            <li>
+              <strong>surfaces</strong>
+              <span>
+                {overview.productionGaCapabilityMatrix?.readySurfaceCount ?? 0} ready,{' '}
+                {overview.productionGaCapabilityMatrix?.blockedSurfaceCount ?? 0} blocked,{' '}
+                {overview.productionGaCapabilityMatrix?.defaultDisabledSurfaceCount ?? 0} disabled
+              </span>
+            </li>
+            <li>
+              <strong>metadata only</strong>
+              <span>
+                {String(overview.productionGaCapabilityMatrix?.publicOutputMetadataOnly ?? true)}
+              </span>
+            </li>
+          </ul>
+          <p>{overview.productionGaCapabilityMatrix?.summary ?? 'Capability matrix unavailable.'}</p>
+        </Panel>
+        <Panel title="Threat Model">
+          <ul>
+            <li>
+              <strong>hash</strong>
+              <span>{overview.productionGaThreatModel?.threatModelHash ?? 'unavailable'}</span>
+            </li>
+            <li>
+              <strong>counts</strong>
+              <span>
+                assets {overview.productionGaThreatModel?.assetCount ?? 0}, trust boundaries{' '}
+                {overview.productionGaThreatModel?.trustBoundaryCount ?? 0}, live boundaries{' '}
+                {overview.productionGaThreatModel?.liveBoundaryCount ?? 0}
+              </span>
+            </li>
+            <li>
+              <strong>residual risks</strong>
+              <span>
+                {overview.productionGaThreatModel?.residualRiskCount ?? 0} total,{' '}
+                {overview.productionGaThreatModel?.unresolvedCriticalRiskCount ?? 0} critical
+              </span>
+            </li>
+          </ul>
+          <p>{overview.productionGaThreatModel?.summary ?? 'Threat model unavailable.'}</p>
+        </Panel>
+        <Panel title="E2E Rehearsal History">
+          {overview.productionGaRehearsals.length > 0 ? (
+            <ul>
+              {overview.productionGaRehearsals.slice(0, 8).map((run) => (
+                <li key={run.id} className="stacked">
+                  <strong>{run.id}</strong>
+                  <span>
+                    {run.scenario} / {run.status} / live {run.liveSmokeStatus}
+                  </span>
+                  <span>
+                    completed {run.completedStepCount}, blocked {run.blockedStepCount}, failed{' '}
+                    {run.failedStepCount}
+                  </span>
+                  <span>
+                    evidence {run.evidenceRefIds.length}, audit {run.auditEventIds.length}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Production GA E2E rehearsal metadata is available.</p>
+          )}
+        </Panel>
+        <Panel title="Training Status">
+          <ul>
+            <li>
+              <strong>completion records</strong>
+              <span>{overview.productionGaTrainingCompletions.length}</span>
+            </li>
+            <li>
+              <strong>latest status</strong>
+              <span>{overview.productionGaTrainingCompletions[0]?.status ?? 'none'}</span>
+            </li>
+            <li>
+              <strong>latest modules</strong>
+              <span>
+                {overview.productionGaTrainingCompletions[0]?.completedModuleCount ?? 0}/
+                {overview.productionGaTrainingCompletions[0]?.requiredModuleCount ?? 0}
+              </span>
+            </li>
+          </ul>
+          <p>
+            Training completion stores operator and module hashes only. It does not grant execution
+            authority.
+          </p>
+        </Panel>
+        <Panel title="Production GA Guided Signoff">
+          <div className="form-grid">
+            <label>
+              Page-memory key
+              <input
+                type="password"
+                value={productionGaKey}
+                onChange={(event) => setProductionGaKey(event.target.value)}
+                placeholder="entered / missing only"
+              />
+            </label>
+            <label>
+              E2E scenario
+              <select
+                value={productionGaScenario}
+                onChange={(event) =>
+                  setProductionGaScenario(event.target.value as ProductionGaScenarioOption)
+                }
+              >
+                {[
+                  'all-pass',
+                  'patch-blocked',
+                  'verification-failed',
+                  'pr-blocked',
+                  'merge-blocked',
+                  'release-blocked',
+                  'deploy-blocked',
+                  'observe-blocked',
+                  'rollback-plan-missing',
+                  'rollback-failed',
+                  'child-hash-mismatch',
+                  'approval-blocked',
+                  'live-env-not-configured',
+                  'evidence-missing',
+                  'audit-gap',
+                ].map((scenario) => (
+                  <option key={scenario} value={scenario}>
+                    {scenario}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Primary approver hash
+              <input
+                value={productionGaApprover}
+                onChange={(event) => setProductionGaApprover(event.target.value)}
+                placeholder="hash or operator tag hash"
+              />
+            </label>
+            <label>
+              Secondary approver hash
+              <input
+                value={productionGaSecondApprover}
+                onChange={(event) => setProductionGaSecondApprover(event.target.value)}
+                placeholder="must differ"
+              />
+            </label>
+            <label>
+              Training operator hash
+              <input
+                value={productionGaOperatorHash}
+                onChange={(event) => setProductionGaOperatorHash(event.target.value)}
+                placeholder="hash only"
+              />
+            </label>
+          </div>
+          <p>
+            Page key state: {productionGaKey ? 'entered' : 'missing'}. This panel only posts to
+            Production GA routes and never sends child artifacts or authority objects.
+          </p>
+          <div className="button-row">
+            <button type="button" disabled={productionGaBusy || !productionGaKey} onClick={() => void createProductionGaDryRun()}>
+              Create dry-run
+            </button>
+            <button type="button" disabled={productionGaBusy || !productionGaDryRunId} onClick={() => void requestProductionGaApproval()}>
+              Request approval
+            </button>
+            <button type="button" disabled={productionGaBusy || !productionGaApprovalRequestId} onClick={() => void approveProductionGaRequest('primary')}>
+              Approve primary
+            </button>
+            <button type="button" disabled={productionGaBusy || !productionGaApprovalRequestId} onClick={() => void approveProductionGaRequest('secondary')}>
+              Approve secondary
+            </button>
+            <button type="button" disabled={productionGaBusy || !productionGaKey} onClick={() => void recordProductionGaTrainingCompletion()}>
+              Record training
+            </button>
+            <button type="button" disabled={productionGaBusy || !productionGaKey} onClick={() => void runProductionGaRehearsal()}>
+              Record rehearsal
+            </button>
+            <button type="button" disabled={productionGaBusy || !productionGaApprovalArtifactId || !productionGaSecondApprovalArtifactId} onClick={() => void runProductionGaSignoff()}>
+              Run signoff
+            </button>
+          </div>
+          <ul>
+            <li>dryRunId: {productionGaDryRunId || latestProductionGaDryRun?.dryRunId || 'none'}</li>
+            <li>approvalRequestId: {productionGaApprovalRequestId || 'none'}</li>
+            <li>
+              approvalArtifactIds:{' '}
+              {[productionGaApprovalArtifactId, productionGaSecondApprovalArtifactId]
+                .filter(Boolean)
+                .join(', ') || latestProductionGaApproval?.id || 'none'}
+            </li>
+            <li>latest signoff: {latestProductionGaSignoff?.status ?? 'none'}</li>
+          </ul>
+          {productionGaMessage ? <p>{productionGaMessage}</p> : null}
+        </Panel>
+      </section>
+    );
+  }
+
   if (activeView === 'pilot') {
     return (
       <section className="grid">
@@ -10639,6 +11384,32 @@ async function postPolicyTelemetryJson<T>(
 ): Promise<T> {
   if (!policyTelemetryDashboardPostRoutes.has(path)) {
     throw new Error('Dashboard policy telemetry wizard can only call M44 control-plane routes.');
+  }
+
+  const response = await fetch(`${supervisorUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      [dashboardLocalControlHeaderName]: pageMemoryKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json()) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new Error(result.error ?? `Supervisor returned ${response.status} for ${path}`);
+  }
+
+  return result;
+}
+
+async function postProductionGaJson<T>(
+  path: string,
+  pageMemoryKey: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  if (!productionGaDashboardPostRoutes.has(path)) {
+    throw new Error('Dashboard Production GA panel can only call GA control-plane routes.');
   }
 
   const response = await fetch(`${supervisorUrl}${path}`, {

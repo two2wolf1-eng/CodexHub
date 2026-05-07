@@ -57,6 +57,7 @@ export const DASHBOARD_VIEWS = [
   'runtime',
   'operations',
   'workflows',
+  'production-ga',
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -658,6 +659,41 @@ export interface PolicyTelemetryReadOnlySummary {
     evidenceAuditAuthoritative: false;
     summary: string;
   };
+}
+
+export interface ProductionGaReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  status: 'ready' | 'conditionally_ready' | 'blocked' | 'failed';
+  dryRunCount: number;
+  approvalCount: number;
+  signoffCount: number;
+  rehearsalCount: number;
+  trainingCompletionCount: number;
+  latestSignoffStatus: string;
+  latestRehearsalStatus: string;
+  matrixStatus: string;
+  threatModelStatus: string;
+  trainingStatus: string;
+  e2eFixtureStatus: string;
+  conditionalLiveStatus: string;
+  blockerCount: number;
+  unresolvedCriticalRiskCount: number;
+  requiresTwoApprovals: true;
+  distinctApproverHashesRequired: true;
+  productDefaultEnabled: false;
+  supervisorPostAllowed: true;
+  localControlKeyRead: false;
+  directChildAdapterExecutionAllowed: false;
+  liveBoundaryAllowlistExpanded: false;
+  processBoundaryInvoked: false;
+  networkBoundaryInvoked: false;
+  remoteProviderBoundaryInvoked: false;
+  childAdapterInvokedDirectly: false;
+  rawPathStored: false;
+  bodyStored: false;
+  tokenStored: false;
+  summary: string;
 }
 
 export interface GovernanceReadOnlySummary {
@@ -2108,6 +2144,70 @@ export function createPolicyTelemetryReadOnlySummary(input: {
       summary:
         'Telemetry projection is local metadata only. It can reference Evidence/Audit ids but cannot replace the fact chain.',
     },
+  };
+}
+
+export function createProductionGaReadOnlySummary(input: {
+  dryRunCount?: number;
+  approvalCount?: number;
+  signoffCount?: number;
+  rehearsalCount?: number;
+  trainingCompletionCount?: number;
+  latestSignoffStatus?: string;
+  latestRehearsalStatus?: string;
+  matrixStatus?: string;
+  threatModelStatus?: string;
+  trainingStatus?: string;
+  e2eFixtureStatus?: string;
+  conditionalLiveStatus?: string;
+  blockerCount?: number;
+  unresolvedCriticalRiskCount?: number;
+} = {}): ProductionGaReadOnlySummary {
+  const latestSignoffStatus = input.latestSignoffStatus ?? 'none';
+  const latestRehearsalStatus = input.latestRehearsalStatus ?? 'none';
+  const blockerCount = input.blockerCount ?? 0;
+  const unresolvedCriticalRiskCount = input.unresolvedCriticalRiskCount ?? 0;
+  const status =
+    unresolvedCriticalRiskCount > 0 || blockerCount > 0
+      ? 'blocked'
+      : latestSignoffStatus === 'ready' || latestSignoffStatus === 'conditionally_ready'
+        ? latestSignoffStatus
+        : 'blocked';
+
+  return {
+    manifestName: 'production-ga',
+    manifestVersion: '0.48.0-ga-readiness',
+    status,
+    dryRunCount: input.dryRunCount ?? 0,
+    approvalCount: input.approvalCount ?? 0,
+    signoffCount: input.signoffCount ?? 0,
+    rehearsalCount: input.rehearsalCount ?? 0,
+    trainingCompletionCount: input.trainingCompletionCount ?? 0,
+    latestSignoffStatus,
+    latestRehearsalStatus,
+    matrixStatus: input.matrixStatus ?? 'unknown',
+    threatModelStatus: input.threatModelStatus ?? 'unknown',
+    trainingStatus: input.trainingStatus ?? 'unknown',
+    e2eFixtureStatus: input.e2eFixtureStatus ?? 'unknown',
+    conditionalLiveStatus: input.conditionalLiveStatus ?? 'unknown',
+    blockerCount,
+    unresolvedCriticalRiskCount,
+    requiresTwoApprovals: true,
+    distinctApproverHashesRequired: true,
+    productDefaultEnabled: false,
+    supervisorPostAllowed: true,
+    localControlKeyRead: false,
+    directChildAdapterExecutionAllowed: false,
+    liveBoundaryAllowlistExpanded: false,
+    processBoundaryInvoked: false,
+    networkBoundaryInvoked: false,
+    remoteProviderBoundaryInvoked: false,
+    childAdapterInvokedDirectly: false,
+    rawPathStored: false,
+    bodyStored: false,
+    tokenStored: false,
+    summary:
+      'Production GA aggregates existing metadata, training, threat model, rehearsal, and signoff evidence. It does not execute child adapters.',
   };
 }
 

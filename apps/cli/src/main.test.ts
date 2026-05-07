@@ -187,6 +187,7 @@ describe('cli development mock-run fallback', () => {
       'registerRuntimeReadOnlyCommands',
       'registerExternalAgentReadOnlyCommands',
       'registerPlatformOperationsReadOnlyCommands',
+      'registerProductionGaReadOnlyCommands',
       'registerSecretReadOnlyCommands',
       'registerGithubActionsObservationCommands',
       'registerGithubActionsRunControlCommands',
@@ -199,7 +200,7 @@ describe('cli development mock-run fallback', () => {
     }
   });
 
-  it('keeps runtime, external agent, and platform operations CLI surfaces read-only', () => {
+  it('keeps runtime, external agent, platform operations, and Production GA CLI surfaces read-only', () => {
     const cliSource = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
     const runtimeRegistration = extractFunctionSource(cliSource, 'registerRuntimeReadOnlyCommands');
     const externalAgentRegistration = extractFunctionSource(
@@ -210,9 +211,14 @@ describe('cli development mock-run fallback', () => {
       cliSource,
       'registerPlatformOperationsReadOnlyCommands',
     );
+    const productionGaRegistration = extractFunctionSource(
+      cliSource,
+      'registerProductionGaReadOnlyCommands',
+    );
     const runtimeStatus = extractFunctionSource(cliSource, 'getRuntimeStatusForCli');
     const externalStatus = extractFunctionSource(cliSource, 'getExternalAgentStatusForCli');
     const platformStatus = extractFunctionSource(cliSource, 'getPlatformOperationsStatusForCli');
+    const productionGaStatus = extractFunctionSource(cliSource, 'getProductionGaStatusForCli');
 
     for (const route of [
       '/api/runtime/jobs/dry-runs',
@@ -228,19 +234,27 @@ describe('cli development mock-run fallback', () => {
       '/api/platform/retention',
       '/api/platform/audit-exports',
       '/api/platform/operator-roles',
+      '/api/production-ga/dry-runs',
+      '/api/production-ga/signoffs',
+      '/api/production-ga/rehearsals',
+      '/api/production-ga/training-completions',
+      '/api/production-ga/capability-matrix/latest',
+      '/api/production-ga/threat-model/latest',
     ]) {
-      expect(`${runtimeRegistration}\n${externalAgentRegistration}\n${platformOperationsRegistration}`).toContain(
-        route,
-      );
+      expect(
+        `${runtimeRegistration}\n${externalAgentRegistration}\n${platformOperationsRegistration}\n${productionGaRegistration}\n${productionGaStatus}`,
+      ).toContain(route);
     }
 
     for (const source of [
       runtimeRegistration,
       externalAgentRegistration,
       platformOperationsRegistration,
+      productionGaRegistration,
       runtimeStatus,
       externalStatus,
       platformStatus,
+      productionGaStatus,
     ]) {
       expect(source).not.toContain("method: 'POST'");
       expect(source).not.toContain('createSupervisorPostHeaders');
@@ -249,6 +263,8 @@ describe('cli development mock-run fallback', () => {
       expect(source).not.toContain('rawPrompt:');
       expect(source).not.toContain('rawPatch:');
       expect(source).not.toContain('rawCommand:');
+      expect(source).not.toContain('childArtifacts');
+      expect(source).not.toContain('approvalArtifact:');
     }
   });
 

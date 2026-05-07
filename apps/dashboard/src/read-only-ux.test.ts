@@ -23,6 +23,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createProductionGaReadOnlySummary,
   createRemoteSupersedeAcceptanceRehearsalReadOnlySummary,
   createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
@@ -81,6 +82,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/release-candidates')).toBe('release-candidates');
     expect(getDashboardViewFromHash('#/operations')).toBe('operations');
     expect(getDashboardViewFromHash('#/workflows')).toBe('workflows');
+    expect(getDashboardViewFromHash('#/production-ga')).toBe('production-ga');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
     expect(getDashboardViewFromHash('#/unknown')).toBe('overview');
     expect(getDashboardHash('evidence')).toBe('#/evidence');
@@ -96,6 +98,7 @@ describe('dashboard read-only UX helpers', () => {
       'secrets',
       'runtime',
       'operations',
+      'production-ga',
       'policy-telemetry',
       'browser-profiles',
       'electron',
@@ -124,6 +127,7 @@ describe('dashboard read-only UX helpers', () => {
       { view: 'policy-telemetry', firstPanel: 'Policy Backend' },
       { view: 'runtime', firstPanel: 'Runtime Scheduler' },
       { view: 'operations', firstPanel: 'Platform Operations' },
+      { view: 'production-ga', firstPanel: 'Production GA Readiness' },
     ] as const;
 
     const smokeSummary = operatorSmokePanels.map(({ view, firstPanel }) => {
@@ -181,7 +185,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(appSource).not.toContain('approvalToken=');
   });
 
-  it('keeps Dashboard mutating calls restricted to governed approval, recovery, merge, deployment, and policy telemetry paths', () => {
+  it('keeps Dashboard mutating calls restricted to governed approval, recovery, merge, deployment, policy telemetry, and Production GA paths', () => {
     const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const postMatches = [...appSource.matchAll(/method:\s*['"]POST['"]/g)];
     const approvalDecisionIndex = appSource.indexOf('/api/approvals/decisions');
@@ -191,19 +195,22 @@ describe('dashboard read-only UX helpers', () => {
     const policyTelemetryControlIndex = appSource.indexOf(
       'async function postPolicyTelemetryJson',
     );
+    const productionGaControlIndex = appSource.indexOf('async function postProductionGaJson');
 
-    expect(postMatches).toHaveLength(5);
+    expect(postMatches).toHaveLength(6);
     expect(approvalDecisionIndex).toBeGreaterThanOrEqual(0);
     expect(recoveryControlIndex).toBeGreaterThanOrEqual(0);
     expect(mergeControlIndex).toBeGreaterThanOrEqual(0);
     expect(deploymentControlIndex).toBeGreaterThanOrEqual(0);
     expect(policyTelemetryControlIndex).toBeGreaterThanOrEqual(0);
+    expect(productionGaControlIndex).toBeGreaterThanOrEqual(0);
 
     const approvalPostIndex = postMatches[0]?.index ?? -1;
     const recoveryPostIndex = postMatches[1]?.index ?? -1;
     const mergePostIndex = postMatches[2]?.index ?? -1;
     const deploymentPostIndex = postMatches[3]?.index ?? -1;
     const policyTelemetryPostIndex = postMatches[4]?.index ?? -1;
+    const productionGaPostIndex = postMatches[5]?.index ?? -1;
     const approvalDecisionWindow = appSource.slice(
       Math.max(0, approvalDecisionIndex - 400),
       approvalDecisionIndex + 900,
@@ -224,6 +231,10 @@ describe('dashboard read-only UX helpers', () => {
       Math.max(0, policyTelemetryControlIndex - 500),
       policyTelemetryControlIndex + 1300,
     );
+    const productionGaControlWindow = appSource.slice(
+      Math.max(0, productionGaControlIndex - 500),
+      productionGaControlIndex + 1300,
+    );
 
     expect(approvalPostIndex).toBeGreaterThan(approvalDecisionIndex);
     expect(approvalDecisionWindow).toContain("method: 'POST'");
@@ -243,6 +254,10 @@ describe('dashboard read-only UX helpers', () => {
     expect(policyTelemetryControlWindow).toContain("method: 'POST'");
     expect(policyTelemetryControlWindow).toContain('dashboardLocalControlHeaderName');
     expect(policyTelemetryControlWindow).toContain('policyTelemetryDashboardPostRoutes.has(path)');
+    expect(productionGaPostIndex).toBeGreaterThan(productionGaControlIndex);
+    expect(productionGaControlWindow).toContain("method: 'POST'");
+    expect(productionGaControlWindow).toContain('dashboardLocalControlHeaderName');
+    expect(productionGaControlWindow).toContain('productionGaDashboardPostRoutes.has(path)');
     expect(approvalDecisionWindow).not.toContain('localStorage');
     expect(approvalDecisionWindow).not.toContain('sessionStorage');
     expect(approvalDecisionWindow).not.toContain('indexedDB');
@@ -268,6 +283,11 @@ describe('dashboard read-only UX helpers', () => {
     expect(policyTelemetryControlWindow).not.toContain('indexedDB');
     expect(policyTelemetryControlWindow).not.toContain('executeGithub');
     expect(policyTelemetryControlWindow).not.toContain('adapter.execute');
+    expect(productionGaControlWindow).not.toContain('localStorage');
+    expect(productionGaControlWindow).not.toContain('sessionStorage');
+    expect(productionGaControlWindow).not.toContain('indexedDB');
+    expect(productionGaControlWindow).not.toContain('executeGithub');
+    expect(productionGaControlWindow).not.toContain('adapter.execute');
   });
 
   it('keeps Dashboard POST route sets exact and free of generic expansion', () => {
@@ -303,6 +323,14 @@ describe('dashboard read-only UX helpers', () => {
         '/api/telemetry/exports/manual-approvals',
         '/api/telemetry/exports/runs',
       ],
+      productionGaDashboardPostRoutes: [
+        '/api/production-ga/dry-runs',
+        '/api/production-ga/approval-requests',
+        '/api/production-ga/manual-approvals',
+        '/api/production-ga/signoffs',
+        '/api/production-ga/rehearsals',
+        '/api/production-ga/training-completions',
+      ],
     } satisfies Record<string, string[]>;
     const allowedRoutePrefixes = [
       '/api/workflows/production/recoveries/',
@@ -310,6 +338,7 @@ describe('dashboard read-only UX helpers', () => {
       '/api/deployments/operations/',
       '/api/policy-backends/evaluations/',
       '/api/telemetry/exports/',
+      '/api/production-ga/',
     ];
     const unsafeRouteTerms = [
       'actions',
@@ -1505,6 +1534,74 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).not.toContain('token');
     expect(serialized).not.toContain('cookie');
     expect(serialized).not.toContain('session');
+  });
+
+  it('summarizes Production GA as metadata-only signoff readiness', () => {
+    const summary = createProductionGaReadOnlySummary({
+      dryRunCount: 1,
+      approvalCount: 2,
+      signoffCount: 1,
+      rehearsalCount: 1,
+      trainingCompletionCount: 1,
+      latestSignoffStatus: 'conditionally_ready',
+      latestRehearsalStatus: 'ready',
+      matrixStatus: 'ready',
+      threatModelStatus: 'ready',
+      trainingStatus: 'ready',
+      e2eFixtureStatus: 'ready',
+      conditionalLiveStatus: 'conditionally_ready',
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.status).toBe('conditionally_ready');
+    expect(summary.requiresTwoApprovals).toBe(true);
+    expect(summary.distinctApproverHashesRequired).toBe(true);
+    expect(summary.productDefaultEnabled).toBe(false);
+    expect(summary.localControlKeyRead).toBe(false);
+    expect(summary.directChildAdapterExecutionAllowed).toBe(false);
+    expect(summary.childAdapterInvokedDirectly).toBe(false);
+    expect(summary.liveBoundaryAllowlistExpanded).toBe(false);
+    expect(summary.rawPathStored).toBe(false);
+    expect(summary.bodyStored).toBe(false);
+    expect(summary.tokenStored).toBe(false);
+    expectNoForbiddenRawOutputTerms(serialized);
+  });
+
+  it('keeps the Production GA Dashboard panel scoped to GA routes and metadata payloads', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const gaRoute = appSource.slice(
+      appSource.indexOf("if (activeView === 'production-ga')"),
+      appSource.indexOf("if (activeView === 'pilot')"),
+    );
+    const postWindow = sourceWindow(appSource, 'async function postProductionGaJson', '');
+
+    expect(gaRoute).toContain('Production GA Readiness');
+    expect(gaRoute).toContain('Production GA Guided Signoff');
+    expect(gaRoute).toContain('<button');
+    expect(appSource).toContain("'/api/production-ga/dry-runs'");
+    expect(appSource).toContain("'/api/production-ga/signoffs'");
+    expect(postWindow).toContain('productionGaDashboardPostRoutes.has(path)');
+    expect(postWindow).not.toContain('startsWith');
+    expect(postWindow).not.toContain('indexOf(');
+    expect(postWindow).not.toContain('includes(');
+    for (const forbidden of [
+      'approvalArtifact:',
+      'executionAuthority',
+      'authority:',
+      'childArtifacts',
+      'rawE2ePayload',
+      'rawDocs',
+      'rawPath',
+      'CODEXHUB_PRODUCTION_GA_ENABLED',
+      'executeGithub',
+      'adapter.execute',
+      'localStorage',
+      'sessionStorage',
+      'indexedDB',
+    ]) {
+      expect(gaRoute).not.toContain(forbidden);
+      expect(postWindow).not.toContain(forbidden);
+    }
   });
 
   it('summarizes unified governance projections without raw run data', () => {

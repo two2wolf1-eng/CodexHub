@@ -342,6 +342,42 @@ const dashboardPolicyTelemetryRouteBypassTerms = [
   'includes(policy',
   'includes(telemetry',
 ];
+const dashboardProductionGaExactPostRoutes = [
+  '/api/production-ga/dry-runs',
+  '/api/production-ga/approval-requests',
+  '/api/production-ga/manual-approvals',
+  '/api/production-ga/signoffs',
+  '/api/production-ga/rehearsals',
+  '/api/production-ga/training-completions',
+];
+const dashboardProductionGaScopedPayloadTerms = [
+  'reason:',
+  'rawReason',
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'childArtifacts',
+  'rawE2ePayload',
+  'rawDocs',
+  'rawPath',
+  'rawUrl',
+  'rawBody',
+  'rawTrace',
+  'rawLog',
+  'rawPatch',
+  'rawDbRow',
+  'rawAudit',
+  'CODEXHUB_PRODUCTION_GA_',
+];
+const dashboardProductionGaRouteBypassTerms = [
+  'startsWith',
+  'indexOf(',
+  "indexOf('/api/production-ga/')",
+  'indexOf(productionGa',
+  'includes(',
+  ".includes('/api/production-ga/')",
+  'includes(productionGa',
+];
 const mcpBoundaryBypassTerms = [
   ['child', '_process'].join(''),
   ['node:', 'child', '_process'].join(''),
@@ -361,6 +397,7 @@ const dashboardAllowedMutationRoutes = new Set([
   ...dashboardMergeExactPostRoutes,
   ...dashboardDeploymentOperationExactPostRoutes,
   ...dashboardPolicyTelemetryExactPostRoutes,
+  ...dashboardProductionGaExactPostRoutes,
 ]);
 const dashboardMutationSurfaceTerms = [
   "method: 'POST'",
@@ -1212,6 +1249,7 @@ function adversarialSentinelWouldViolate(
   auditDashboardMergeWizardScopedGuards(file, sourceText);
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
   auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
+  auditDashboardProductionGaWizardScopedGuards(file, sourceText);
   auditFixedAdapterBoundaryGuards(file, sourceText);
   auditCliControlledWriteSurfaceGuards(file, sourceText);
 
@@ -1235,6 +1273,7 @@ function auditFile(file: string): void {
   auditDashboardMergeWizardScopedGuards(file, sourceText);
   auditDashboardDeploymentOperationWizardScopedGuards(file, sourceText);
   auditDashboardPolicyTelemetryWizardScopedGuards(file, sourceText);
+  auditDashboardProductionGaWizardScopedGuards(file, sourceText);
   auditFixedAdapterBoundaryGuards(file, sourceText);
   auditCliControlledWriteSurfaceGuards(file, sourceText);
 }
@@ -1770,7 +1809,7 @@ function auditDashboardMutationSurfaceGuards(file: string, sourceText: string): 
         line: index + 1,
         term,
         reason:
-          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI, recovery wizard, merge wizard, deployment wizard, and policy telemetry wizard, with exact route allowlists.',
+          'Dashboard mutating HTTP helpers are allowed only in the approval decision UI, recovery wizard, merge wizard, deployment wizard, policy telemetry wizard, and Production GA panel, with exact route allowlists.',
       });
     }
   }
@@ -1792,7 +1831,9 @@ function isAllowedDashboardMutationLine(lines: string[], index: number): boolean
         lines.join('\n').includes(route),
       )) ||
     (window.includes('policyTelemetryDashboardPostRoutes.has(path)') &&
-      dashboardPolicyTelemetryExactPostRoutes.every((route) => lines.join('\n').includes(route)))
+      dashboardPolicyTelemetryExactPostRoutes.every((route) => lines.join('\n').includes(route))) ||
+    (window.includes('productionGaDashboardPostRoutes.has(path)') &&
+      dashboardProductionGaExactPostRoutes.every((route) => lines.join('\n').includes(route)))
   );
 }
 
@@ -2337,6 +2378,154 @@ function auditDashboardPolicyTelemetryPayloadWindow(
         term,
         reason:
           'Dashboard policy telemetry wizard may only send ids, hashes, fixed provider/runtime metadata, and approver tags to the M44 control planes; raw policy, telemetry, request-body authority, forged artifacts, and env payloads are forbidden.',
+      });
+    }
+  }
+}
+
+function auditDashboardProductionGaWizardScopedGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (
+    workspacePath !== 'apps/dashboard/src/App.tsx' &&
+    !workspacePath.includes('adversarial-production-ga-ui')
+  ) {
+    return;
+  }
+
+  if (!sourceText.includes('/api/production-ga/')) {
+    return;
+  }
+
+  if (workspacePath.includes('adversarial-production-ga-ui')) {
+    auditDashboardProductionGaSnippetGuards(file, sourceText);
+    return;
+  }
+
+  for (const route of dashboardProductionGaExactPostRoutes) {
+    if (!sourceText.includes(route)) {
+      violations.push({
+        file,
+        line: 1,
+        term: route,
+        reason: 'Dashboard Production GA panel must keep every allowed POST route explicit.',
+      });
+    }
+  }
+
+  const dryRunWindow = getWindowBetween(
+    sourceText,
+    'async function createProductionGaDryRun',
+    'async function requestProductionGaApproval',
+  );
+  const approvalRequestWindow = getWindowBetween(
+    sourceText,
+    'async function requestProductionGaApproval',
+    'async function approveProductionGaRequest',
+  );
+  const manualApprovalWindow = getWindowBetween(
+    sourceText,
+    'async function approveProductionGaRequest',
+    'async function runProductionGaSignoff',
+  );
+  const signoffWindow = getWindowBetween(
+    sourceText,
+    'async function runProductionGaSignoff',
+    'async function runProductionGaRehearsal',
+  );
+  const rehearsalWindow = getWindowBetween(
+    sourceText,
+    'async function runProductionGaRehearsal',
+    'async function recordProductionGaTrainingCompletion',
+  );
+  const trainingWindow = getWindowBetween(
+    sourceText,
+    'async function recordProductionGaTrainingCompletion',
+    'async function submitApprovalDecision',
+  );
+  const postWindow = getWindowBetween(sourceText, 'async function postProductionGaJson', '');
+
+  for (const [name, window] of [
+    ['createProductionGaDryRun', dryRunWindow],
+    ['requestProductionGaApproval', approvalRequestWindow],
+    ['approveProductionGaRequest', manualApprovalWindow],
+    ['runProductionGaSignoff', signoffWindow],
+    ['runProductionGaRehearsal', rehearsalWindow],
+    ['recordProductionGaTrainingCompletion', trainingWindow],
+  ] as const) {
+    auditDashboardProductionGaPayloadWindow(file, name, window);
+  }
+
+  if (!postWindow.includes('productionGaDashboardPostRoutes.has(path)')) {
+    violations.push({
+      file,
+      line: findLineNumber(sourceText, 'async function postProductionGaJson'),
+      term: 'productionGaDashboardPostRoutes.has(path)',
+      reason: 'Dashboard Production GA POST helper must enforce the exact route allowlist.',
+    });
+  }
+
+  for (const term of dashboardProductionGaRouteBypassTerms) {
+    if (postWindow.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(sourceText, term),
+        term,
+        reason:
+          'Dashboard Production GA POST helper must not use prefix, substring, or dynamic route guards.',
+      });
+    }
+  }
+}
+
+function auditDashboardProductionGaSnippetGuards(file: string, sourceText: string): void {
+  for (const term of dashboardProductionGaScopedPayloadTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason:
+          'Dashboard Production GA panel may only send ids, hashes, scenario ids, and approver tags; raw E2E, authority, forged artifacts, and env payloads are forbidden.',
+      });
+    }
+  }
+
+  for (const term of dashboardProductionGaRouteBypassTerms) {
+    if (sourceText.includes(term)) {
+      violations.push({
+        file,
+        line: 1,
+        term,
+        reason: 'Dashboard Production GA route checks must use the exact route allowlist.',
+      });
+    }
+  }
+}
+
+function auditDashboardProductionGaPayloadWindow(
+  file: string,
+  name: string,
+  window: string,
+): void {
+  if (window.length === 0) {
+    violations.push({
+      file,
+      line: 1,
+      term: name,
+      reason: `Dashboard Production GA function ${name} must remain present for scoped audit coverage.`,
+    });
+    return;
+  }
+
+  for (const term of dashboardProductionGaScopedPayloadTerms) {
+    if (window.includes(term)) {
+      violations.push({
+        file,
+        line: findLineNumber(window, term),
+        term,
+        reason:
+          'Dashboard Production GA panel may only send ids, hashes, scenario ids, and approver tags to the GA control plane; raw E2E payloads, request-body authority, forged artifacts, and env payloads are forbidden.',
       });
     }
   }

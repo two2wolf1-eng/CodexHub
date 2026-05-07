@@ -1414,6 +1414,122 @@ function registerPlatformOperationsReadOnlyCommands(program: Command): void {
     });
 }
 
+function registerProductionGaReadOnlyCommands(program: Command): void {
+  const command = program
+    .command('ga')
+    .description('Read Production GA readiness and signoff metadata');
+
+  command
+    .command('status')
+    .option('--json', 'Print full JSON output')
+    .description('Show Production GA readiness without creating signoff records')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getProductionGaStatusForCli();
+      console.log(formatReadOnlyControlCollectionOutput('Production GA status', result, options));
+    });
+
+  command
+    .command('capability-matrix')
+    .description('Read the Production GA capability matrix')
+    .command('show')
+    .option('--json', 'Print full JSON output')
+    .description('Show the latest Production GA capability matrix')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getSupervisorReadOnlyRecord(
+        '/api/production-ga/capability-matrix/latest',
+        'Production GA capability matrix is unavailable; no action was attempted.',
+      );
+      console.log(formatReadOnlyControlDetailOutput('Production GA capability matrix', result, options));
+    });
+
+  command
+    .command('threat-model')
+    .description('Read the Production GA threat model')
+    .command('show')
+    .option('--json', 'Print full JSON output')
+    .description('Show the latest Production GA threat model')
+    .action(async (options: JsonCliOptions) => {
+      const result = await getSupervisorReadOnlyRecord(
+        '/api/production-ga/threat-model/latest',
+        'Production GA threat model is unavailable; no action was attempted.',
+      );
+      console.log(formatReadOnlyControlDetailOutput('Production GA threat model', result, options));
+    });
+
+  command
+    .command('training')
+    .description('Read Production GA training completion metadata')
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List GA training completions without recording completion')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/production-ga/training-completions',
+        'Production GA training completions are read from Supervisor GET endpoints only.',
+        'Production GA training completion source is unavailable; no completion was recorded.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Production GA training completions', result, options));
+    });
+
+  const rehearsalsCommand = command
+    .command('rehearsals')
+    .description('Read Production GA E2E rehearsal metadata');
+  rehearsalsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List Production GA rehearsals without running live smoke')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/production-ga/rehearsals',
+        'Production GA rehearsals are read from Supervisor GET endpoints only.',
+        'Production GA rehearsal source is unavailable; no rehearsal was started.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Production GA rehearsals', result, options));
+    });
+  rehearsalsCommand
+    .command('show')
+    .argument('<id>')
+    .option('--json', 'Print full JSON output')
+    .description('Show Production GA rehearsal metadata')
+    .action(async (id: string, options: JsonCliOptions) => {
+      const result = await showSupervisorReadOnlyRecord(
+        '/api/production-ga/rehearsals',
+        id,
+        'Production GA rehearsal',
+      );
+      console.log(formatReadOnlyControlDetailOutput('Production GA rehearsal', result, options));
+    });
+
+  const signoffsCommand = command
+    .command('signoffs')
+    .description('Read Production GA signoff metadata');
+  signoffsCommand
+    .command('list')
+    .option('--json', 'Print full JSON output')
+    .description('List Production GA signoffs without creating signoff')
+    .action(async (options: JsonCliOptions) => {
+      const result = await listSupervisorReadOnlyCollection(
+        '/api/production-ga/signoffs',
+        'Production GA signoffs are read from Supervisor GET endpoints only.',
+        'Production GA signoff source is unavailable; no signoff was started.',
+      );
+      console.log(formatReadOnlyControlCollectionOutput('Production GA signoffs', result, options));
+    });
+  signoffsCommand
+    .command('show')
+    .argument('<id>')
+    .option('--json', 'Print full JSON output')
+    .description('Show Production GA signoff metadata')
+    .action(async (id: string, options: JsonCliOptions) => {
+      const result = await showSupervisorReadOnlyRecord(
+        '/api/production-ga/signoffs',
+        id,
+        'Production GA signoff',
+      );
+      console.log(formatReadOnlyControlDetailOutput('Production GA signoff', result, options));
+    });
+}
+
 function registerReadOnlyControlFamily(
   parentCommand: Command,
   commandName: string,
@@ -3651,6 +3767,7 @@ export function buildProgram(): Command {
   registerDeploymentReadOnlyCommands(program);
   registerSecretReadOnlyCommands(program);
   registerPlatformOperationsReadOnlyCommands(program);
+  registerProductionGaReadOnlyCommands(program);
 
   const githubSupersedesCommand = githubCommand
     .command('supersedes')
@@ -7318,6 +7435,46 @@ async function listSupervisorReadOnlyCollection(
   }
 }
 
+async function getSupervisorReadOnlyRecord(
+  path: string,
+  degradedNote: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const record = await getSupervisorJson<Record<string, unknown>>(path);
+
+    return {
+      status: 'ready',
+      record,
+      liveExecution: false,
+      networkBoundaryInvoked: Boolean(record.networkBoundaryInvoked),
+      processBoundaryInvoked: Boolean(record.processBoundaryInvoked),
+      externalProcessStarted: Boolean(record.externalProcessStarted),
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: 'Record is metadata-only and read from a Supervisor GET endpoint.',
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      record: undefined,
+      message: error instanceof Error ? error.message : 'Supervisor source unavailable',
+      liveExecution: false,
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawPathStored: false,
+      rawUrlStored: false,
+      rawResponseBodyStored: false,
+      bodyStored: false,
+      note: degradedNote,
+    };
+  }
+}
+
 async function showSupervisorReadOnlyRecord(
   routePrefix: string,
   recordId: string,
@@ -7523,6 +7680,73 @@ async function getPlatformOperationsStatusForCli(): Promise<Record<string, unkno
     rawAuditBodyStored: false,
     note:
       'Platform operations status is read-only; CLI does not run backups, restores, migrations, retention, audit exports, or role changes.',
+  };
+}
+
+async function getProductionGaStatusForCli(): Promise<Record<string, unknown>> {
+  const [dryRuns, approvals, signoffs, rehearsals, training, matrix, threatModel] =
+    await Promise.all([
+      listSupervisorReadOnlyCollection(
+        '/api/production-ga/dry-runs',
+        'Production GA dry-runs are read from Supervisor GET endpoints only.',
+        'Production GA dry-run source is unavailable; no GA action was attempted.',
+      ),
+      listSupervisorReadOnlyCollection(
+        '/api/production-ga/approvals',
+        'Production GA approvals are read from Supervisor GET endpoints only.',
+        'Production GA approval source is unavailable; no GA action was attempted.',
+      ),
+      listSupervisorReadOnlyCollection(
+        '/api/production-ga/signoffs',
+        'Production GA signoffs are read from Supervisor GET endpoints only.',
+        'Production GA signoff source is unavailable; no GA action was attempted.',
+      ),
+      listSupervisorReadOnlyCollection(
+        '/api/production-ga/rehearsals',
+        'Production GA rehearsals are read from Supervisor GET endpoints only.',
+        'Production GA rehearsal source is unavailable; no GA action was attempted.',
+      ),
+      listSupervisorReadOnlyCollection(
+        '/api/production-ga/training-completions',
+        'Production GA training completions are read from Supervisor GET endpoints only.',
+        'Production GA training source is unavailable; no GA action was attempted.',
+      ),
+      getSupervisorReadOnlyRecord(
+        '/api/production-ga/capability-matrix/latest',
+        'Production GA capability matrix source is unavailable.',
+      ),
+      getSupervisorReadOnlyRecord(
+        '/api/production-ga/threat-model/latest',
+        'Production GA threat model source is unavailable.',
+      ),
+    ]);
+  const productionGaEnabled = process.env.CODEXHUB_PRODUCTION_GA_ENABLED === 'true';
+  const degradedSources = [dryRuns, approvals, signoffs, rehearsals, training, matrix, threatModel].filter(
+    (item) => item.status === 'degraded',
+  ).length;
+
+  return {
+    status: degradedSources > 0 ? 'degraded' : productionGaEnabled ? 'ready' : 'blocked',
+    productionGaEnabled,
+    dryRunCount: dryRuns.count ?? 0,
+    approvalCount: approvals.count ?? 0,
+    signoffCount: signoffs.count ?? 0,
+    rehearsalCount: rehearsals.count ?? 0,
+    trainingCompletionCount: training.count ?? 0,
+    degradedSources,
+    matrix: matrix.record,
+    threatModel: threatModel.record,
+    liveExecution: false,
+    networkBoundaryInvoked: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    noRealWrite: true,
+    rawPathStored: false,
+    rawUrlStored: false,
+    rawResponseBodyStored: false,
+    bodyStored: false,
+    note:
+      'Production GA status is read-only. GA signoff aggregates existing metadata and never invokes child adapters.',
   };
 }
 
