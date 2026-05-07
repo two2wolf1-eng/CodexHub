@@ -10,6 +10,7 @@ const expectedProjects = [
   'capability-adapter-kernel',
   'chatgpt-business-adapter',
   'codex-app-server-adapter',
+  'codex-scheduler-kernel',
   'electron-cdp-adapter',
   'electron-cdp-kernel',
   'orchestrator-kernel',

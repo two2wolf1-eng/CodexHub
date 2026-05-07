@@ -26,6 +26,9 @@
       ],
       "@codexhub/codex-exec-adapter": ["packages/codex-exec-adapter/src/index.ts"],
       "@codexhub/codex-kernel": ["packages/codex-kernel/src/index.ts"],
+      "@codexhub/codex-scheduler-kernel": [
+        "packages/codex-scheduler-kernel/src/index.ts"
+      ],
       "@codexhub/contracts": ["packages/contracts/src/index.ts"],
       "@codexhub/electron-cdp-adapter": ["packages/electron-cdp-adapter/src/index.ts"],
       "@codexhub/electron-cdp-kernel": ["packages/electron-cdp-kernel/src/index.ts"],
