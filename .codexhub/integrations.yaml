@@ -2844,7 +2844,7 @@ integrations:
     provider: codexhub-hardening
     providerType: builtin
     mode: review-only
-    stage: m48-d1-ga-baseline-drift-debug
+    stage: m48-d5-final-ga-adversarial-debug-baseline
     processBoundary: false
     networkBoundary: false
     remoteProviderBoundary: false
@@ -2857,6 +2857,7 @@ integrations:
       - production-ga-dashboard-ux
       - production-ga-cli-readonly
       - production-ga-audits
+      - production-ga-adversarial-static-sentinels
     safety:
       noNewProvider: true
       noNewRoute: true
@@ -2868,3 +2869,5 @@ integrations:
       metadataOnlyReviewDocs: true
       gaApprovalCanGrantChildAuthority: false
       uiCliMcpDirectAdapterExecuteAllowed: false
+      dashboardTokenPersistenceAllowed: false
+      cliGenericGaPostAllowed: false

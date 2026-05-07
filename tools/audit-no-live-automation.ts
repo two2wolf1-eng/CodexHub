@@ -434,6 +434,31 @@ const cliControlledWriteForbiddenPayloadTerms = [
   'rawPatch',
   'rawPath',
 ];
+const cliProductionGaForbiddenMutationTerms = [
+  "method: 'POST'",
+  'method: "POST"',
+  'createSupervisorPostHeaders',
+  '/api/production-ga/approval-requests',
+  '/api/production-ga/manual-approvals',
+  'postProductionGa',
+  'postGa',
+  'genericPost',
+];
+const cliProductionGaForbiddenPayloadTerms = [
+  'approvalArtifact:',
+  'executionAuthority',
+  'authority:',
+  'childArtifacts',
+  'childAuthority',
+  'rawE2EPayload',
+  'rawE2ePayload',
+  'rawPayload',
+  'rawBody',
+  'rawPath:',
+  'rawUrl:',
+  'rawResponseBody:',
+  'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
+];
 const cliControlledWriteRouteBypassTerms = [
   "startsWith('/api/browser/actions",
   'startsWith("/api/browser/actions',
@@ -1049,6 +1074,13 @@ function validateAdversarialAuditSentinels(): void {
     {
       workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
       sourceText:
+        'const endpoint = "/api/production-ga/signoffs"; window.localStorage.setItem("production-ga-token", token);',
+      expectedTerm: 'localStorage',
+      description: 'Dashboard Production GA local-control token persistence wrapper',
+    },
+    {
+      workspacePath: 'apps/dashboard/src/adversarial-production-ga-ui.tsx',
+      sourceText:
         'const ok = path.includes("/api/production-ga/"); fetch(path, { method: "POST" });',
       expectedTerm: 'includes(',
       description: 'Dashboard Production GA generic route passthrough',
@@ -1059,6 +1091,41 @@ function validateAdversarialAuditSentinels(): void {
         'const endpoint = "/api/production-ga/dry-runs"; const enabled = process.env.CODEXHUB_PRODUCTION_GA_ENABLED;',
       expectedTerm: 'CODEXHUB_PRODUCTION_GA_',
       description: 'Dashboard Production GA live env read',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-production-ga-cli.ts',
+      sourceText:
+        'await fetch(`${supervisorUrl}/api/production-ga/signoffs`, { method: "POST", headers: createSupervisorPostHeaders(), body: JSON.stringify({ approvalArtifactIds }) });',
+      expectedTerm: 'method: "POST"',
+      description: 'CLI Production GA generic signoff POST helper',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-production-ga-cli.ts',
+      sourceText:
+        'await postGa("/api/production-ga/signoffs", { approvalArtifactIds, rawE2EPayload });',
+      expectedTerm: 'postGa',
+      description: 'CLI Production GA generic route passthrough helper',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-production-ga-cli.ts',
+      sourceText:
+        'const localToken = process.env["CODEXHUB_SUPERVISOR_LOCAL_TOKEN"]; const route = "/api/production-ga/signoffs";',
+      expectedTerm: 'CODEXHUB_SUPERVISOR_LOCAL_TOKEN',
+      description: 'CLI Production GA local-control token env read',
+    },
+    {
+      workspacePath: 'apps/cli/src/adversarial-production-ga-cli.ts',
+      sourceText:
+        'const route = "/api/production-ga/approval-requests"; const body = { dryRunId, childArtifacts: [] };',
+      expectedTerm: '/api/production-ga/approval-requests',
+      description: 'CLI Production GA approval-request mutation route',
+    },
+    {
+      workspacePath: 'packages/production-ga-kernel/src/adversarial-direct-adapter.ts',
+      sourceText:
+        'import * as deployment from "@codexhub/deployment-provider-adapter"; export const run = deployment.executeDeploymentOperation;',
+      expectedTerm: '@codexhub/deployment-provider-adapter',
+      description: 'Production GA kernel namespace child adapter import',
     },
     {
       workspacePath: 'apps/cli/src/adversarial-browser.ts',
@@ -1308,6 +1375,7 @@ function adversarialSentinelWouldViolate(
   auditDashboardProductionGaWizardScopedGuards(file, sourceText);
   auditFixedAdapterBoundaryGuards(file, sourceText);
   auditCliControlledWriteSurfaceGuards(file, sourceText);
+  auditCliProductionGaReadOnlyGuards(file, sourceText);
 
   const addedViolations = violations.splice(before);
 
@@ -1332,6 +1400,7 @@ function auditFile(file: string): void {
   auditDashboardProductionGaWizardScopedGuards(file, sourceText);
   auditFixedAdapterBoundaryGuards(file, sourceText);
   auditCliControlledWriteSurfaceGuards(file, sourceText);
+  auditCliProductionGaReadOnlyGuards(file, sourceText);
 }
 
 function auditImports(file: string, sourceFile: ts.SourceFile, sourceText: string): void {
@@ -1708,6 +1777,78 @@ function auditCliControlledWriteSurfaceGuards(file: string, sourceText: string):
       }
     }
   }
+}
+
+function auditCliProductionGaReadOnlyGuards(file: string, sourceText: string): void {
+  const workspacePath = toWorkspacePath(file);
+
+  if (!workspacePath.startsWith('apps/cli/src/') || workspacePath.endsWith('.test.ts')) {
+    return;
+  }
+
+  if (!sourceText.includes('/api/production-ga/')) {
+    return;
+  }
+
+  const windows = getCliProductionGaReadOnlyWindows(workspacePath, sourceText);
+
+  for (const window of windows) {
+    const lines = window.source.split(/\r?\n/);
+
+    for (const [index, line] of lines.entries()) {
+      for (const term of cliProductionGaForbiddenMutationTerms) {
+        if (line.includes(term)) {
+          violations.push({
+            file,
+            line: window.startLine + index,
+            term,
+            reason:
+              'CLI Production GA commands must remain read-only GET/local projection helpers; GA signoff mutation belongs to the Supervisor/Dashboard guided control plane, not CLI generic POST helpers.',
+          });
+        }
+      }
+
+      for (const term of cliProductionGaForbiddenPayloadTerms) {
+        if (line.includes(term)) {
+          violations.push({
+            file,
+            line: window.startLine + index,
+            term,
+            reason:
+              'CLI Production GA read-only output must not send authority, forged artifacts, raw E2E payloads, raw transport data, or local-control tokens.',
+          });
+        }
+      }
+    }
+  }
+}
+
+function getCliProductionGaReadOnlyWindows(
+  workspacePath: string,
+  sourceText: string,
+): { source: string; startLine: number }[] {
+  if (workspacePath.includes('adversarial-production-ga-cli')) {
+    return [{ source: sourceText, startLine: 1 }];
+  }
+
+  const windows: { source: string; startLine: number }[] = [];
+
+  for (const [startMarker, endMarker] of [
+    ['function registerProductionGaReadOnlyCommands', 'interface ControlledWriteCliOptions'],
+    ['async function getProductionGaStatusForCli', 'function normalizeRuntimeSchedulerRehearsalScenario'],
+  ] as const) {
+    const start = sourceText.indexOf(startMarker);
+    if (start < 0) {
+      continue;
+    }
+
+    const end = sourceText.indexOf(endMarker, start);
+    const source = sourceText.slice(start, end >= 0 ? end : sourceText.length);
+    const startLine = sourceText.slice(0, start).split(/\r?\n/).length;
+    windows.push({ source, startLine });
+  }
+
+  return windows;
 }
 
 function getCliControlledWriteWindow(

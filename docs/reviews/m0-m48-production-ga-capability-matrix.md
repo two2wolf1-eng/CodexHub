@@ -34,3 +34,7 @@
 ## Final GA Closeout
 
 M48 final release keeps this matrix as the production capability baseline. Any new provider, route family, store repository, live boundary, or authority model change must update this matrix before it can be included in a future GA signoff.
+
+## M48-D5 Debug Baseline
+
+The M48-D1 through M48-D5 debug series keeps this matrix unchanged as product capability: no provider, route, store repository, or live boundary was added. The final D5 baseline strengthens static audit sentinels for GA aggregation so direct child adapter imports, generic GA route passthrough, raw E2E payloads, child authority payloads, token/env reads, Dashboard token persistence, and CLI GA generic POST helpers remain blocked before future GA signoff changes are accepted.

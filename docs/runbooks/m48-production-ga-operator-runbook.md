@@ -33,3 +33,7 @@ GA signoff does not roll back child systems. Child rollbacks remain owned by the
 - Missing required operator training without accepted non-critical blocker.
 - Unresolved critical residual risk.
 - Any no-live automation audit failure.
+
+## M48-D5 Debug Baseline
+
+Before changing GA signoff behavior, rerun the final GA debug baseline checks and review `docs/runbooks/m48-d5-final-ga-debug-runbook.md`. GA changes must preserve child-adapter isolation, exact Dashboard route allowlists, CLI read-only GA commands, MCP non-mutation, and metadata-only public output.
