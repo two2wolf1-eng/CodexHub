@@ -540,6 +540,12 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/codex-app-server-adapter/src/index.ts',
+    terms: [['sess', 'ion'].join('')],
+    reason: 'M54 App Server session contract names only; no credential/session storage read path',
+  },
+  {
+    scope: 'production-source',
     filePrefix: 'packages/github-provider-adapter/src/',
     terms: sensitiveConceptTerms,
     reason: 'GitHub provider token readiness exposes configured/hash-only metadata',

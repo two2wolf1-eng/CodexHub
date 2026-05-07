@@ -21,6 +21,9 @@
       "@codexhub/chatgpt-business-adapter": [
         "packages/chatgpt-business-adapter/src/index.ts"
       ],
+      "@codexhub/codex-app-server-adapter": [
+        "packages/codex-app-server-adapter/src/index.ts"
+      ],
       "@codexhub/codex-exec-adapter": ["packages/codex-exec-adapter/src/index.ts"],
       "@codexhub/codex-kernel": ["packages/codex-kernel/src/index.ts"],
       "@codexhub/contracts": ["packages/contracts/src/index.ts"],

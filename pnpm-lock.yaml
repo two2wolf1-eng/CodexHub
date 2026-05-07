@@ -326,6 +326,18 @@ importers:
         specifier: workspace:*
         version: link:../evidence-kernel
 
+  packages/codex-app-server-adapter:
+    dependencies:
+      '@codexhub/capability-adapter-kernel':
+        specifier: workspace:*
+        version: link:../capability-adapter-kernel
+      '@codexhub/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@codexhub/evidence-kernel':
+        specifier: workspace:*
+        version: link:../evidence-kernel
+
   packages/codex-exec-adapter:
     dependencies:
       '@codexhub/capability-adapter-kernel':

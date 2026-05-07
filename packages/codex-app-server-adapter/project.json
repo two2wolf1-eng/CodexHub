@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "codex-app-server-adapter",
+  "projectType": "library",
+  "sourceRoot": "packages/codex-app-server-adapter/src",
+  "implicitDependencies": ["contracts", "capability-adapter-kernel", "evidence-kernel"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json",
+        "cwd": "packages/codex-app-server-adapter"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "packages/codex-app-server-adapter"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "packages/codex-app-server-adapter"
+      }
+    }
+  }
+}
