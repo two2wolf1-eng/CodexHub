@@ -6682,3 +6682,43 @@ workflows:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50_2.supervisor-route-gate-hardening:
+    risk: critical
+    trigger:
+      type: supervisor-route-gate-hardening
+      entrypoint: apps/supervisor docs orchestration integrations scaffold-health
+      localControlRequired: false
+    scope:
+      - supervisor-shared-on-request-guard
+      - post-host-validation
+      - options-host-validation
+      - trusted-origin-validation
+      - local-control-token-validation
+      - preflight-local-control-header-validation
+      - no-mutation-shell
+    docs:
+      - docs/releases/m50.2-supervisor-route-gate-hardening.md
+      - docs/reviews/m50.2-supervisor-route-gate-hardening-review.md
+      - docs/runbooks/m50.2-supervisor-route-gate-hardening-runbook.md
+    safety:
+      guardOnly: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewPackage: true
+      noNewLiveBoundary: true
+      noPostMutationShell: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      trustedHostWildcardAllowed: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

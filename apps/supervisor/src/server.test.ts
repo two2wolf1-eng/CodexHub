@@ -551,6 +551,15 @@ describe('supervisor mock development API', () => {
       },
       payload: { workflowName: 'development.bootstrap' },
     });
+    const maliciousHostResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      headers: {
+        ...localControlHeaders,
+        host: 'evil.example',
+      },
+      payload: { workflowName: 'development.bootstrap' },
+    });
     const missingTokenResponse = await server.inject({
       method: 'POST',
       url: '/api/workflows/dry-run',
@@ -562,6 +571,15 @@ describe('supervisor mock development API', () => {
       headers: {
         ...localControlHeaders,
         origin: 'http://127.0.0.1:5173',
+      },
+      payload: { workflowName: 'development.bootstrap' },
+    });
+    const trustedLoopbackHostResponse = await server.inject({
+      method: 'POST',
+      url: '/api/workflows/dry-run',
+      headers: {
+        ...localControlHeaders,
+        host: '127.0.0.1:5173',
       },
       payload: { workflowName: 'development.bootstrap' },
     });
@@ -589,12 +607,24 @@ describe('supervisor mock development API', () => {
         'access-control-request-headers': 'content-type, x-codexhub-local-token',
       },
     });
+    const maliciousHostPreflightResponse = await server.inject({
+      method: 'OPTIONS',
+      url: '/api/workflows/dry-run',
+      headers: {
+        host: 'evil.example',
+        origin: 'http://localhost:4173',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, x-codexhub-local-token',
+      },
+    });
 
     await server.close();
     await store.close();
 
     expect(maliciousOriginResponse.statusCode).toBe(403);
     expect(maliciousOriginResponse.json().error).toBe('untrusted_origin');
+    expect(maliciousHostResponse.statusCode).toBe(403);
+    expect(maliciousHostResponse.json().error).toBe('untrusted_host');
     expect(unsupportedProtocolResponse.statusCode).toBe(403);
     expect(unsupportedProtocolResponse.json().error).toBe('untrusted_origin');
     expect(missingTokenResponse.statusCode).toBe(401);
@@ -603,8 +633,11 @@ describe('supervisor mock development API', () => {
     expect(trustedOriginResponse.headers['access-control-allow-origin']).toBe(
       'http://127.0.0.1:5173',
     );
+    expect(trustedLoopbackHostResponse.statusCode).toBe(200);
     expect(cliStyleResponse.statusCode).toBe(200);
     expect(preflightResponse.statusCode).toBe(204);
+    expect(maliciousHostPreflightResponse.statusCode).toBe(403);
+    expect(maliciousHostPreflightResponse.json().error).toBe('untrusted_host');
     expect(preflightResponse.headers['access-control-allow-origin']).toBe('http://localhost:4173');
     expect(preflightResponse.headers['access-control-allow-origin']).not.toBe('*');
   });

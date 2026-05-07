@@ -162,6 +162,18 @@ M50.1 status:
   - `docs/reviews/m50.1-supervisor-core-read-control-plane-review.md`
   - `docs/runbooks/m50.1-supervisor-core-read-control-plane-runbook.md`
 
+M50.2 status:
+
+- Complete as a Supervisor route-gate hardening round.
+- Added POST/OPTIONS trusted Host validation to the existing local-control and
+  trusted-Origin guard.
+- Added tests for malicious Host rejection, trusted loopback Host acceptance,
+  and malicious preflight Host rejection.
+- Release, review, and runbook:
+  - `docs/releases/m50.2-supervisor-route-gate-hardening.md`
+  - `docs/reviews/m50.2-supervisor-route-gate-hardening-review.md`
+  - `docs/runbooks/m50.2-supervisor-route-gate-hardening-runbook.md`
+
 Non-scope:
 
 - No direct adapter execution from routes.

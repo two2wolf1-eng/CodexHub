@@ -3039,3 +3039,44 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m50-supervisor-route-gate-hardening:
+    enabled: false
+    adapter: supervisor-control-plane
+    provider: codexhub-supervisor
+    providerType: builtin
+    mode: guard-only
+    stage: m50.2-supervisor-route-gate-hardening
+    release: docs/releases/m50.2-supervisor-route-gate-hardening.md
+    review: docs/reviews/m50.2-supervisor-route-gate-hardening-review.md
+    runbook: docs/runbooks/m50.2-supervisor-route-gate-hardening-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    guardedMethods:
+      - POST
+      - OPTIONS
+    guardChecks:
+      - trusted-host
+      - trusted-origin
+      - local-control-token
+      - preflight-local-control-header
+      - request-body-authority-untrusted
+    safety:
+      guardOnly: true
+      noNewProvider: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noPostMutationShell: true
+      directAdapterExecutionAllowed: false
+      capabilityProvidersAuthoritative: false
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      trustedHostWildcardAllowed: false
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

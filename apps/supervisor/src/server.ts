@@ -639,6 +639,7 @@ interface SupervisorServerOptions {
   disableStore?: boolean;
   localControlKey?: string;
   trustedOrigins?: string[];
+  trustedHosts?: string[];
   configLoadResult?: CodexExecConfigLoadResult;
   realReadOnlyAdapterExecutableResolver?: () => CodexExecRealReadOnlyAdapterExecutableResolution;
   realReadOnlyAdapterProcessRunner?: CodexExecRealReadOnlyAdapterProcessRunner;
@@ -1974,6 +1975,7 @@ const LOCAL_CONTROL_NOT_CONFIGURED_ERROR = [
   'not_configured',
 ].join('_');
 const INVALID_LOCAL_CONTROL_ERROR = ['invalid_local_control', LOCAL_CONTROL_KEY_KIND].join('_');
+const UNTRUSTED_HOST_ERROR = 'untrusted_host';
 const DEFAULT_TRUSTED_ORIGIN_PORTS = new Set(['3000', '3001', '4173', '5173', '5174']);
 
 function hasRequestBodyProperty(body: unknown, key: string): boolean {
@@ -2016,6 +2018,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   const server = Fastify({ logger: true });
   const localControlKey = options.localControlKey ?? process.env[LOCAL_CONTROL_ENV_VAR];
   const trustedOrigins = new Set(options.trustedOrigins ?? []);
+  const trustedHosts = new Set(options.trustedHosts ?? []);
   const workflowRunner = new WorkflowRunner();
   const observationSource = new MockObservationSource('codexhub.mock.supervisor');
   const mockDevelopmentRuns: MockDevelopmentOrchestrationResult[] = [];
@@ -2189,9 +2192,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   server.addHook('onRequest', async (request, reply) => {
     const origin = readHeaderValue(request.headers.origin);
     const trustedOrigin = origin ? isTrustedOrigin(origin, trustedOrigins) : false;
+    const host = readHeaderValue(request.headers.host);
 
     reply.header('Access-Control-Allow-Headers', `content-type, ${LOCAL_CONTROL_HEADER}`);
     reply.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+
+    if (
+      (request.method === 'POST' || request.method === 'OPTIONS') &&
+      !isTrustedHost(host, trustedHosts)
+    ) {
+      return reply.code(403).send({
+        error: UNTRUSTED_HOST_ERROR,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
 
     if (origin) {
       reply.header('Vary', 'Origin');
@@ -30849,6 +30865,32 @@ function isTrustedOrigin(origin: string, trustedOrigins: Set<string>): boolean {
         hostname === '[::1]' ||
         hostname === '::1') &&
       DEFAULT_TRUSTED_ORIGIN_PORTS.has(parsed.port)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedHost(host: string | undefined, trustedHosts: Set<string>): boolean {
+  if (!host) {
+    return false;
+  }
+
+  const normalizedHost = host.trim().toLowerCase();
+
+  if (trustedHosts.has(normalizedHost)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(`http://${normalizedHost}`);
+    const hostname = parsed.hostname.toLowerCase();
+
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname === '::1'
     );
   } catch {
     return false;
