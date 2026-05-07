@@ -2838,3 +2838,33 @@ integrations:
       fixtureE2eRequired: true
       cliReadOnly: true
       dashboardTokenMemoryOnly: true
+  m48-ga-debug-baseline:
+    enabled: false
+    adapter: governance-audit
+    provider: codexhub-hardening
+    providerType: builtin
+    mode: review-only
+    stage: m48-d1-ga-baseline-drift-debug
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    reviewedCapabilityChains:
+      - production-ga-release
+      - production-ga-kernel
+      - production-ga-supervisor-routes
+      - production-ga-dashboard-ux
+      - production-ga-cli-readonly
+      - production-ga-audits
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWriteSmoke: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyReviewDocs: true
+      gaApprovalCanGrantChildAuthority: false
+      uiCliMcpDirectAdapterExecuteAllowed: false

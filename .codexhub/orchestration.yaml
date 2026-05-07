@@ -5965,3 +5965,28 @@ workflows:
       metadataOnlyPublicOutput: true
       noPush: true
       noOpenPullRequest: true
+  m48_d1.ga-baseline-drift-debug:
+    risk: critical
+    trigger:
+      type: ga-baseline-drift-debug
+      entrypoint: docs tools orchestration integrations
+      localControlRequired: false
+    scope:
+      - m0-m48-capability-matrix-registration-review
+      - m48-release-review-runbook-registration-review
+      - production-ga-disabled-default-review
+      - scaffold-health-registration
+      - no-live-audit-allowlist-review
+    docs:
+      - docs/releases/m48-d1-ga-baseline-drift-debug.md
+      - docs/reviews/m48-d1-ga-baseline-drift-review.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      documentationAndRegistrationOnly: true
+      metadataOnlyPublicOutput: true
