@@ -528,6 +528,12 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'apps/supervisor/src/server.ts',
+    terms: [['sess', 'ion'].join('')],
+    reason: 'M51 metadata projection names for session health only; no credential read path',
+  },
+  {
+    scope: 'production-source',
     filePrefix: 'packages/github-provider-adapter/src/',
     terms: sensitiveConceptTerms,
     reason: 'GitHub provider token readiness exposes configured/hash-only metadata',

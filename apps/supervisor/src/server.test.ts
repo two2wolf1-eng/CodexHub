@@ -23,6 +23,12 @@ import type {
   WorktreeControlPlaneRun,
   WorktreeDryRunRecord,
 } from '@codexhub/contracts';
+import {
+  BusinessWorkspaceSchema,
+  CodexClientInstanceSchema,
+  CodexTaskIntentSchema,
+  CodexTaskRunSchema,
+} from '@codexhub/contracts';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
 
@@ -445,6 +451,58 @@ describe('supervisor mock development API', () => {
 
     await store.evidenceRefs.create(evidenceRef);
     await store.auditEvents.append(auditEvent);
+    await store.businessWorkspaces.saveRecord(
+      BusinessWorkspaceSchema.parse({
+        id: 'business_workspace_supervisor_1',
+        schemaVersion: '2026-04-28.foundation',
+        observedAt: createdAt,
+        workspaceIdHash: 'sha256:workspace-supervisor',
+        status: 'active',
+        membershipCount: 1,
+        evidenceRefIds: [evidenceRef.id],
+        auditEventIds: [auditEvent.id],
+        summary: 'Workspace projection test record.',
+      }),
+    );
+    await store.codexClientInstances.saveRecord(
+      CodexClientInstanceSchema.parse({
+        id: 'codex_client_supervisor_1',
+        schemaVersion: '2026-04-28.foundation',
+        observedAt: createdAt,
+        clientKind: 'codex-app-server',
+        clientInstanceHash: 'sha256:client-supervisor',
+        status: 'available',
+        activeTaskCount: 1,
+        evidenceRefIds: [evidenceRef.id],
+        auditEventIds: [auditEvent.id],
+        summary: 'Client projection test record.',
+      }),
+    );
+    const taskIntent = CodexTaskIntentSchema.parse({
+      id: 'codex_task_intent_supervisor_1',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      intentHash: 'sha256:intent-supervisor',
+      promptHash: 'sha256:prompt-supervisor',
+      promptLength: 12,
+      status: 'planned',
+      evidenceRefIds: [evidenceRef.id],
+      auditEventIds: [auditEvent.id],
+      summary: 'Task intent projection test record.',
+    });
+    await store.codexTaskIntents.saveRecord(taskIntent);
+    await store.codexTaskRuns.saveRecord(
+      CodexTaskRunSchema.parse({
+        id: 'codex_task_run_supervisor_1',
+        schemaVersion: '2026-04-28.foundation',
+        createdAt,
+        intentId: taskIntent.id,
+        status: 'queued',
+        evidenceRefIds: [evidenceRef.id],
+        auditEventIds: [auditEvent.id],
+        summary: 'Task run projection test record.',
+      }),
+    );
 
     const server = buildSupervisorServer({ store });
     const routes = [
@@ -496,9 +554,49 @@ describe('supervisor mock development API', () => {
       externalProcessStarted: false,
       executionDisabled: true,
     });
-    expect(responses[1].json()).toMatchObject({ status: 'missing-contracts-store', count: 0 });
-    expect(responses[2].json()).toMatchObject({ status: 'missing-contracts-store', count: 0 });
-    expect(responses[3].json()).toMatchObject({ status: 'missing-contracts-store', count: 0 });
+    expect(responses[1].json()).toMatchObject({
+      status: 'available-readonly',
+      count: 1,
+      counts: { workspaces: 1 },
+      items: [
+        expect.objectContaining({
+          kind: 'business-workspace',
+          recordHash: expect.stringMatching(/^sha256:/),
+          status: 'active',
+          evidenceRefIds: [evidenceRef.id],
+          auditEventIds: [auditEvent.id],
+        }),
+      ],
+    });
+    expect(responses[2].json()).toMatchObject({
+      status: 'available-readonly',
+      count: 1,
+      counts: { clients: 1 },
+      items: [
+        expect.objectContaining({
+          kind: 'codex-client',
+          recordHash: expect.stringMatching(/^sha256:/),
+          status: 'available',
+        }),
+      ],
+    });
+    expect(responses[3].json()).toMatchObject({
+      status: 'available-readonly',
+      count: 2,
+      counts: { intents: 1, runs: 1 },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'task-intent',
+          recordHash: expect.stringMatching(/^sha256:/),
+          status: 'planned',
+        }),
+        expect.objectContaining({
+          kind: 'task-run',
+          recordHash: expect.stringMatching(/^sha256:/),
+          status: 'queued',
+        }),
+      ]),
+    });
     expect(responses[4].json()).toMatchObject({
       status: 'available-readonly',
       workflows: expect.arrayContaining([
@@ -588,6 +686,9 @@ describe('supervisor mock development API', () => {
     );
     const evidenceRefs = await store.evidenceRefs.listEvidenceRefs({ limit: 10 });
     const auditEvents = await store.auditEvents.listAuditEvents({ limit: 10 });
+    const taskIntents = await store.codexTaskIntents.listRecords({ limit: 10 });
+    const taskRuns = await store.codexTaskRuns.listRecords({ limit: 10 });
+    const recoveryRuns = await store.codexRecoveryRuns.listRecords({ limit: 10 });
 
     await server.close();
     await store.close();
@@ -607,15 +708,45 @@ describe('supervisor mock development API', () => {
       status: 'decision-shell-recorded',
       approvalIdHash: expect.stringMatching(/^sha256:/),
     });
-    expect(taskCreateResponse.statusCode).toBe(409);
+    expect(taskCreateResponse.statusCode).toBe(202);
     expect(taskCreateResponse.json()).toMatchObject({
-      status: 'missing-contracts-store',
+      status: 'task-intent-recorded',
       requestHash: expect.stringMatching(/^sha256:/),
+      taskIntentHash: expect.stringMatching(/^sha256:/),
+      taskRunHash: expect.stringMatching(/^sha256:/),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
     });
-    expect(taskRecoverResponse.statusCode).toBe(409);
+    expect(taskRecoverResponse.statusCode).toBe(202);
     expect(taskRecoverResponse.json()).toMatchObject({
-      status: 'missing-contracts-store',
+      status: 'recovery-recorded',
       taskIdHash: expect.stringMatching(/^sha256:/),
+      requestHash: expect.stringMatching(/^sha256:/),
+      recoveryRunHash: expect.stringMatching(/^sha256:/),
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(taskIntents).toHaveLength(1);
+    expect(taskRuns).toHaveLength(1);
+    expect(recoveryRuns).toHaveLength(1);
+    expect(taskIntents[0]).toMatchObject({
+      status: 'planned',
+      rawPromptStored: false,
+      rawBodyStored: false,
+      liveExecution: false,
+    });
+    expect(taskRuns[0]).toMatchObject({
+      status: 'queued',
+      liveExecution: false,
+      externalProcessStarted: false,
+    });
+    expect(recoveryRuns[0]).toMatchObject({
+      status: 'needs_human',
+      recoveryKind: 'manual_review',
+      approvalRequired: true,
+      executionDisabled: true,
     });
 
     for (const response of [
@@ -647,6 +778,18 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify(evidenceRefs)).not.toContain('private task instructions');
     expect(JSON.stringify(evidenceRefs)).not.toContain(process.cwd());
     expect(JSON.stringify(auditEvents)).not.toContain('private shell body');
+    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
+      'private task instructions',
+    );
+    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
+      'private shell body',
+    );
+    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
+      'private recovery reason',
+    );
+    expect(JSON.stringify([...taskIntents, ...taskRuns, ...recoveryRuns])).not.toContain(
+      process.cwd(),
+    );
   });
 
   it('keeps M50.3 mutation shells store-required and guarded before route logic', async () => {

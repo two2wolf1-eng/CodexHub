@@ -404,6 +404,9 @@ import {
   CustomWorkflowApprovalArtifactRecordSchema,
   CustomWorkflowPlanSchema,
   CustomWorkflowRunSchema,
+  CodexRecoveryRunSchema,
+  CodexTaskIntentSchema,
+  CodexTaskRunSchema,
   ProductionWorkflowChildActionStateRecordSchema,
   ProductionWorkflowChildRecordRefSchema,
   ProductionWorkflowChildRecordResolutionSchema,
@@ -2305,32 +2308,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     executionDisabled: true,
   }));
 
-  server.get('/accounts', async () =>
-    createM50UnavailableReadProjection({
-      idPrefix: 'supervisor_accounts',
-      surface: 'accounts',
-      summary:
-        'Account pool projections are blocked until M51 contracts and store models exist.',
-    }),
-  );
+  server.get('/accounts', async () => createM51AccountsProjection(await getStore()));
 
-  server.get('/clients', async () =>
-    createM50UnavailableReadProjection({
-      idPrefix: 'supervisor_clients',
-      surface: 'clients',
-      summary:
-        'Codex client pool projections are blocked until M51 contracts and store models exist.',
-    }),
-  );
+  server.get('/clients', async () => createM51ClientsProjection(await getStore()));
 
-  server.get('/tasks', async () =>
-    createM50UnavailableReadProjection({
-      idPrefix: 'supervisor_tasks',
-      surface: 'tasks',
-      summary:
-        'Codex task projections are blocked until M51 task contracts and store models exist.',
-    }),
-  );
+  server.get('/tasks', async () => createM51TasksProjection(await getStore()));
 
   server.get('/workflows', async () => {
     const store = await getStore();
@@ -2591,11 +2573,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     const requestHash = hashSupervisorMetadata({ surface: 'task-create', body: body ?? {} });
+    const store = await getStore();
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('task-create', requestHash));
+    }
+
     const trace = await createM50MutationShellTrace({
       surface: 'task-create',
       requestHash,
-      status: 'missing-contracts-store',
-      summary: 'Task create shell is blocked until M51 task contracts and store models exist.',
+      status: 'task-intent-recorded',
+      summary: 'Task create shell recorded metadata only; no Codex dispatch was executed.',
     });
 
     if (!trace.storeAvailable) {
@@ -2604,13 +2593,51 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         .send(createM50StoreUnavailableShellResponse('task-create', requestHash));
     }
 
-    return reply.code(409).send({
+    const createdAt = foundationTimestamp();
+    const promptLength =
+      typeof body?.prompt === 'string' ? Math.max(0, Math.trunc(body.prompt.length)) : undefined;
+    const taskIntent = CodexTaskIntentSchema.parse({
+      id: foundationId('codex_task_intent'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      intentHash: requestHash,
+      promptHash: requestHash,
+      promptLength,
+      status: 'planned',
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      summary: 'Task intent recorded metadata only; raw prompt/body was not stored.',
+    });
+    const taskRun = CodexTaskRunSchema.parse({
+      id: foundationId('codex_task_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt,
+      intentId: taskIntent.id,
+      status: 'queued',
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      summary: 'Task run queued as a metadata shell only; no live dispatch occurred.',
+    });
+    await store.codexTaskIntents.saveRecord(taskIntent);
+    await store.codexTaskRuns.saveRecord(taskRun);
+
+    return reply.code(202).send({
       id: foundationId('supervisor_task_create_shell'),
       schemaVersion: SchemaVersionSchema.value,
       observedAt: foundationTimestamp(),
-      status: 'missing-contracts-store',
-      summary: 'Task create shell is blocked until M51 task contracts and store models exist.',
+      status: 'task-intent-recorded',
+      summary: 'Task create shell accepted metadata only; no Codex dispatch was executed.',
       requestHash,
+      taskIntentHash: hashSupervisorMetadata({
+        id: taskIntent.id,
+        status: taskIntent.status,
+        summary: taskIntent.summary,
+      }),
+      taskRunHash: hashSupervisorMetadata({
+        id: taskRun.id,
+        status: taskRun.status,
+        summary: taskRun.summary,
+      }),
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
       liveExecution: false,
@@ -2633,11 +2660,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       taskIdHash,
       body: body ?? {},
     });
+    const store = await getStore();
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('task-recover', requestHash));
+    }
+
     const trace = await createM50MutationShellTrace({
       surface: 'task-recover',
       requestHash,
-      status: 'missing-contracts-store',
-      summary: 'Task recovery shell is blocked until M51 task and recovery contracts exist.',
+      status: 'recovery-recorded',
+      summary: 'Task recovery shell recorded metadata only; no recovery execution was started.',
     });
 
     if (!trace.storeAvailable) {
@@ -2646,14 +2680,34 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         .send(createM50StoreUnavailableShellResponse('task-recover', requestHash));
     }
 
-    return reply.code(409).send({
+    const recoveryRun = CodexRecoveryRunSchema.parse({
+      id: foundationId('codex_recovery_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: foundationTimestamp(),
+      taskRunId: taskIdHash,
+      recoveryKind: 'manual_review',
+      status: 'needs_human',
+      dryRunId: requestHash,
+      approvalRequired: true,
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      summary: 'Task recovery plan recorded as a metadata shell and awaits human review.',
+    });
+    await store.codexRecoveryRuns.saveRecord(recoveryRun);
+
+    return reply.code(202).send({
       id: foundationId('supervisor_task_recover_shell'),
       schemaVersion: SchemaVersionSchema.value,
       observedAt: foundationTimestamp(),
-      status: 'missing-contracts-store',
-      summary: 'Task recovery shell is blocked until M51 task and recovery contracts exist.',
+      status: 'recovery-recorded',
+      summary: 'Task recovery shell accepted metadata only; no recovery execution was started.',
       taskIdHash,
       requestHash,
+      recoveryRunHash: hashSupervisorMetadata({
+        id: recoveryRun.id,
+        status: recoveryRun.status,
+        summary: recoveryRun.summary,
+      }),
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
       liveExecution: false,
@@ -31380,6 +31434,252 @@ function createM50UnavailableReadProjection(input: {
     externalProcessStarted: false,
     executionDisabled: true,
   };
+}
+
+type M51ProjectionRecord = {
+  id: string;
+  status?: string;
+  summary?: string;
+  evidenceRefIds?: string[];
+  auditEventIds?: string[];
+  createdAt?: string;
+  observedAt?: string;
+} & Record<string, unknown>;
+
+type M51ProjectionItem = ReturnType<typeof projectM51ProjectionRecord>;
+
+async function createM51AccountsProjection(store: CodexHubStore | undefined) {
+  if (!store) {
+    return createM51MetadataProjection({
+      idPrefix: 'supervisor_accounts',
+      surface: 'accounts',
+      summary: 'Account metadata projection requires the store and returns no raw account data.',
+      counts: {},
+      items: [],
+      storeAvailable: false,
+    });
+  }
+
+  const [
+    workspaces,
+    memberships,
+    profileBindings,
+    healthChecks,
+    checkpoints,
+    accountBindings,
+    accountPools,
+    leases,
+    quotaSnapshots,
+  ] = await Promise.all([
+    store.businessWorkspaces.listRecords({ limit: 50 }),
+    store.businessMembershipMirrors.listRecords({ limit: 50 }),
+    store.chromeProfileBindings.listRecords({ limit: 50 }),
+    store.chatGptSessionHealth.listRecords({ limit: 50 }),
+    store.humanCheckpoints.listRecords({ limit: 50 }),
+    store.codexAccountBindings.listRecords({ limit: 50 }),
+    store.accountPools.listRecords({ limit: 50 }),
+    store.poolLeases.listRecords({ limit: 50 }),
+    store.quotaSnapshots.listRecords({ limit: 50 }),
+  ]);
+
+  return createM51MetadataProjection({
+    idPrefix: 'supervisor_accounts',
+    surface: 'accounts',
+    summary: 'Account metadata projection is available read-only from the M51 store.',
+    storeAvailable: true,
+    counts: {
+      workspaces: workspaces.length,
+      memberships: memberships.length,
+      profileBindings: profileBindings.length,
+      healthChecks: healthChecks.length,
+      checkpoints: checkpoints.length,
+      accountBindings: accountBindings.length,
+      accountPools: accountPools.length,
+      leases: leases.length,
+      quotaSnapshots: quotaSnapshots.length,
+    },
+    items: [
+      ...workspaces.map((record) => projectM51ProjectionRecord('business-workspace', record)),
+      ...memberships.map((record) => projectM51ProjectionRecord('business-membership', record)),
+      ...profileBindings.map((record) =>
+        projectM51ProjectionRecord('chrome-profile-binding', record),
+      ),
+      ...healthChecks.map((record) => projectM51ProjectionRecord('chatgpt-health', record)),
+      ...checkpoints.map((record) => projectM51ProjectionRecord('human-checkpoint', record)),
+      ...accountBindings.map((record) =>
+        projectM51ProjectionRecord('codex-account-binding', record),
+      ),
+      ...accountPools.map((record) => projectM51ProjectionRecord('account-pool', record)),
+      ...leases.map((record) => projectM51ProjectionRecord('lease', record)),
+      ...quotaSnapshots.map((record) => projectM51ProjectionRecord('quota-snapshot', record)),
+    ],
+  });
+}
+
+async function createM51ClientsProjection(store: CodexHubStore | undefined) {
+  if (!store) {
+    return createM51MetadataProjection({
+      idPrefix: 'supervisor_clients',
+      surface: 'clients',
+      summary: 'Client metadata projection requires the store and returns no raw client data.',
+      counts: {},
+      items: [],
+      storeAvailable: false,
+    });
+  }
+
+  const [clients, appServerSessions, clientPools, leases] = await Promise.all([
+    store.codexClientInstances.listRecords({ limit: 50 }),
+    store.codexAppServerSessions.listRecords({ limit: 50 }),
+    store.clientPools.listRecords({ limit: 50 }),
+    store.poolLeases.listRecords({ limit: 50 }),
+  ]);
+
+  return createM51MetadataProjection({
+    idPrefix: 'supervisor_clients',
+    surface: 'clients',
+    summary: 'Client metadata projection is available read-only from the M51 store.',
+    storeAvailable: true,
+    counts: {
+      clients: clients.length,
+      appServerSessions: appServerSessions.length,
+      clientPools: clientPools.length,
+      leases: leases.length,
+    },
+    items: [
+      ...clients.map((record) => projectM51ProjectionRecord('codex-client', record)),
+      ...appServerSessions.map((record) => projectM51ProjectionRecord('app-server', record)),
+      ...clientPools.map((record) => projectM51ProjectionRecord('client-pool', record)),
+      ...leases.map((record) => projectM51ProjectionRecord('lease', record)),
+    ],
+  });
+}
+
+async function createM51TasksProjection(store: CodexHubStore | undefined) {
+  if (!store) {
+    return createM51MetadataProjection({
+      idPrefix: 'supervisor_tasks',
+      surface: 'tasks',
+      summary: 'Task metadata projection requires the store and returns no raw task data.',
+      counts: {},
+      items: [],
+      storeAvailable: false,
+    });
+  }
+
+  const [intents, runs, diagnoses, recoveries, evidenceBundles] = await Promise.all([
+    store.codexTaskIntents.listRecords({ limit: 50 }),
+    store.codexTaskRuns.listRecords({ limit: 50 }),
+    store.codexTaskDiagnoses.listRecords({ limit: 50 }),
+    store.codexRecoveryRuns.listRecords({ limit: 50 }),
+    store.evidenceBundles.listRecords({ limit: 50 }),
+  ]);
+
+  return createM51MetadataProjection({
+    idPrefix: 'supervisor_tasks',
+    surface: 'tasks',
+    summary: 'Task metadata projection is available read-only from the M51 store.',
+    storeAvailable: true,
+    counts: {
+      intents: intents.length,
+      runs: runs.length,
+      diagnoses: diagnoses.length,
+      recoveries: recoveries.length,
+      evidenceBundles: evidenceBundles.length,
+    },
+    items: [
+      ...intents.map((record) => projectM51ProjectionRecord('task-intent', record)),
+      ...runs.map((record) => projectM51ProjectionRecord('task-run', record)),
+      ...diagnoses.map((record) => projectM51ProjectionRecord('task-diagnosis', record)),
+      ...recoveries.map((record) => projectM51ProjectionRecord('recovery-run', record)),
+      ...evidenceBundles.map((record) => projectM51ProjectionRecord('evidence-bundle', record)),
+    ],
+  });
+}
+
+function createM51MetadataProjection(input: {
+  idPrefix: string;
+  surface: string;
+  summary: string;
+  counts: Record<string, number>;
+  items: M51ProjectionItem[];
+  storeAvailable: boolean;
+}) {
+  const evidenceRefIds = dedupeStrings(input.items.flatMap((item) => item.evidenceRefIds));
+  const auditEventIds = dedupeStrings(input.items.flatMap((item) => item.auditEventIds));
+
+  return {
+    id: foundationId(input.idPrefix),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: foundationTimestamp(),
+    status: input.storeAvailable ? 'available-readonly' : 'store-unavailable',
+    summary: input.summary,
+    surfaceHash: hashSupervisorMetadata({ surface: input.surface }),
+    items: input.items,
+    count: input.items.length,
+    counts: input.counts,
+    evidenceRefIds,
+    auditEventIds,
+    liveExecution: false,
+    externalProcessStarted: false,
+    executionDisabled: true,
+    metadataOnly: true,
+  };
+}
+
+function projectM51ProjectionRecord(kind: string, record: M51ProjectionRecord) {
+  const status = typeof record.status === 'string' ? record.status : 'recorded';
+  const summary = typeof record.summary === 'string' ? record.summary : `${kind} metadata record`;
+  const evidenceRefIds = Array.isArray(record.evidenceRefIds) ? record.evidenceRefIds : [];
+  const auditEventIds = Array.isArray(record.auditEventIds) ? record.auditEventIds : [];
+
+  return {
+    kind,
+    recordHash: hashSupervisorMetadata({
+      id: record.id,
+      kind,
+      status,
+      summary,
+      createdAt: record.createdAt,
+      observedAt: record.observedAt,
+    }),
+    status,
+    summary,
+    counts: pickM51CountFields(record),
+    evidenceRefIds,
+    auditEventIds,
+  };
+}
+
+function pickM51CountFields(record: M51ProjectionRecord): Record<string, number> {
+  const countKeys = [
+    'membershipCount',
+    'ownerCount',
+    'adminCount',
+    'activeTaskCount',
+    'turnCount',
+    'eventCount',
+    'accountCount',
+    'clientCount',
+    'readyCount',
+    'blockedCount',
+    'limitCount',
+    'usedCount',
+    'remainingCount',
+    'evidenceCount',
+    'auditEventCount',
+    'promptLength',
+  ];
+
+  return Object.fromEntries(
+    countKeys
+      .map((key) => [key, record[key]])
+      .filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+  );
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
 }
 
 function createM50NotFoundProjection(surface: 'audit' | 'evidence') {
