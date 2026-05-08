@@ -19340,6 +19340,222 @@ export type CodexAppServerProtocolDriftReport = z.infer<
   typeof CodexAppServerProtocolDriftReportSchema
 >;
 
+export const CodexProductionCanaryKindSchema = z.enum([
+  'account',
+  'quota',
+  'login',
+  'app-server',
+  'thread-turn',
+  'approval',
+  'worktree',
+  'draft-pr',
+  'live-smoke',
+]);
+export type CodexProductionCanaryKind = z.infer<typeof CodexProductionCanaryKindSchema>;
+
+export const CodexProductionCanaryStatusSchema = z.enum([
+  'planned',
+  'running',
+  'passed',
+  'failed',
+  'blocked',
+  'skipped',
+]);
+export type CodexProductionCanaryStatus = z.infer<typeof CodexProductionCanaryStatusSchema>;
+
+export const CodexProductionDriftGateKindSchema = z.enum([
+  'app-server-protocol',
+  'desktop-target',
+  'electron-target',
+  'combined',
+]);
+export type CodexProductionDriftGateKind = z.infer<
+  typeof CodexProductionDriftGateKindSchema
+>;
+
+export const CodexProductionDriftGateStatusSchema = z.enum([
+  'compatible',
+  'minor_drift',
+  'incompatible',
+  'unknown',
+]);
+export type CodexProductionDriftGateStatus = z.infer<
+  typeof CodexProductionDriftGateStatusSchema
+>;
+
+export const CodexProductionReadinessGateStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'drift_blocked',
+  'canary_blocked',
+  'approval_waiting',
+]);
+export type CodexProductionReadinessGateStatus = z.infer<
+  typeof CodexProductionReadinessGateStatusSchema
+>;
+
+export const CodexProductionCanaryTaskSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    canaryKind: CodexProductionCanaryKindSchema,
+    taskHash: z.string().min(1),
+    status: CodexProductionCanaryStatusSchema.default('planned'),
+    targetHash: z.string().min(1).optional(),
+    dependencyHash: z.string().min(1).optional(),
+    dryRunOnly: z.literal(true).default(true),
+    approvalRequired: z.boolean().default(false),
+    liveSmoke: z.boolean().default(false),
+    highRisk: z.boolean().default(false),
+    rawCheckStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexProductionCanaryTask = z.infer<typeof CodexProductionCanaryTaskSchema>;
+
+export const CodexProductionCanaryRunSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    canaryTaskId: z.string().min(1),
+    canaryKind: CodexProductionCanaryKindSchema,
+    status: CodexProductionCanaryStatusSchema,
+    checkCount: z.number().int().nonnegative().default(0),
+    passedCount: z.number().int().nonnegative().default(0),
+    failedCount: z.number().int().nonnegative().default(0),
+    blockerCount: z.number().int().nonnegative().default(0),
+    liveSmoke: z.boolean().default(false),
+    approvalArtifactIdHash: z.string().min(1).optional(),
+    highRiskLiveTaskBlocked: z.boolean().default(true),
+    rawCheckStored: z.literal(false).default(false),
+    rawOutputStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.checkCount !== record.passedCount + record.failedCount + record.blockerCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'canary checkCount must match passed, failed, and blocked counts',
+        path: ['checkCount'],
+      });
+    }
+    if (
+      (record.status === 'failed' || record.status === 'blocked') &&
+      !record.highRiskLiveTaskBlocked
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'failed or blocked canary runs must block high-risk live tasks',
+        path: ['highRiskLiveTaskBlocked'],
+      });
+    }
+    if (record.liveSmoke && !record.approvalArtifactIdHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live smoke canary runs require an approval artifact hash',
+        path: ['approvalArtifactIdHash'],
+      });
+    }
+  });
+export type CodexProductionCanaryRun = z.infer<typeof CodexProductionCanaryRunSchema>;
+
+export const CodexProductionDriftGateSchema = observedEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    gateKind: CodexProductionDriftGateKindSchema,
+    baselineHash: z.string().min(1),
+    observedHash: z.string().min(1),
+    status: CodexProductionDriftGateStatusSchema,
+    driftCount: z.number().int().nonnegative().default(0),
+    blockerCount: z.number().int().nonnegative().default(0),
+    highRiskLiveTaskBlocked: z.boolean().default(true),
+    rawSchemaStored: z.literal(false).default(false),
+    rawTargetStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.status === 'incompatible' || record.status === 'unknown') &&
+      !record.highRiskLiveTaskBlocked
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'incompatible or unknown production drift must block high-risk live tasks',
+        path: ['highRiskLiveTaskBlocked'],
+      });
+    }
+  });
+export type CodexProductionDriftGate = z.infer<typeof CodexProductionDriftGateSchema>;
+
+export const CodexProductionAuditExportSummarySchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    exportHash: z.string().min(1),
+    manifestHash: z.string().min(1),
+    recordCount: z.number().int().nonnegative().default(0),
+    evidenceRefCount: z.number().int().nonnegative().default(0),
+    auditEventCount: z.number().int().nonnegative().default(0),
+    metadataOnly: z.literal(true).default(true),
+    rawRecordStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDiffStored: z.literal(false).default(false),
+    rawPathStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type CodexProductionAuditExportSummary = z.infer<
+  typeof CodexProductionAuditExportSummarySchema
+>;
+
+export const CodexProductionReadinessGateSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    status: CodexProductionReadinessGateStatusSchema,
+    canaryRunCount: z.number().int().nonnegative().default(0),
+    failedCanaryCount: z.number().int().nonnegative().default(0),
+    driftGateCount: z.number().int().nonnegative().default(0),
+    blockingDriftCount: z.number().int().nonnegative().default(0),
+    auditExportSummaryId: z.string().min(1).optional(),
+    highRiskLiveTaskBlocked: z.boolean().default(true),
+    liveSmokeAllowed: z.boolean().default(false),
+    approvalRequiredForLiveSmoke: z.literal(true).default(true),
+    rawReadinessDataStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.failedCanaryCount > 0 || record.blockingDriftCount > 0) &&
+      !record.highRiskLiveTaskBlocked
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'failed canaries or blocking drift must block high-risk live tasks',
+        path: ['highRiskLiveTaskBlocked'],
+      });
+    }
+    if (record.liveSmokeAllowed && record.status !== 'ready') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live smoke can only be allowed when production readiness is ready',
+        path: ['liveSmokeAllowed'],
+      });
+    }
+  });
+export type CodexProductionReadinessGate = z.infer<
+  typeof CodexProductionReadinessGateSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

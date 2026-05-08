@@ -537,6 +537,11 @@ import {
   CodexAppServerWireMessageSummarySchema,
   CodexClientInstanceSchema,
   CodexClientSchedulingProjectionSchema,
+  CodexProductionAuditExportSummarySchema,
+  CodexProductionCanaryRunSchema,
+  CodexProductionCanaryTaskSchema,
+  CodexProductionDriftGateSchema,
+  CodexProductionReadinessGateSchema,
   CodexRecoveryKindSchema,
   CodexRecoveryRunSchema,
   CodexSchedulerPreflightCheckSchema,
@@ -16602,6 +16607,171 @@ describe('contracts schemas', () => {
         status: 'unknown',
         liveDispatchBlocked: false,
         summary: 'Unknown drift must not allow dispatch.',
+      }),
+    ).toThrow();
+  });
+
+  it('parses M60 production canary, drift, readiness, and audit contracts as metadata-only', () => {
+    const canaryTask = CodexProductionCanaryTaskSchema.parse({
+      id: 'codex_production_canary_task_1',
+      schemaVersion,
+      createdAt,
+      canaryKind: 'app-server',
+      taskHash: 'sha256:canary-task',
+      status: 'planned',
+      targetHash: 'sha256:app-server-target',
+      dryRunOnly: true,
+      approvalRequired: false,
+      liveSmoke: false,
+      highRisk: false,
+      evidenceRefIds: ['evidence_m60_canary_task'],
+      auditEventIds: ['audit_m60_canary_task'],
+      summary: 'App Server canary task stores metadata only.',
+    });
+    const canaryRun = CodexProductionCanaryRunSchema.parse({
+      id: 'codex_production_canary_run_1',
+      schemaVersion,
+      createdAt,
+      canaryTaskId: canaryTask.id,
+      canaryKind: canaryTask.canaryKind,
+      status: 'passed',
+      checkCount: 3,
+      passedCount: 3,
+      failedCount: 0,
+      blockerCount: 0,
+      liveSmoke: false,
+      highRiskLiveTaskBlocked: false,
+      evidenceRefIds: ['evidence_m60_canary_run'],
+      auditEventIds: ['audit_m60_canary_run'],
+      summary: 'App Server canary run passed without live smoke.',
+    });
+    const driftGate = CodexProductionDriftGateSchema.parse({
+      id: 'codex_production_drift_gate_1',
+      schemaVersion,
+      observedAt: createdAt,
+      gateKind: 'app-server-protocol',
+      baselineHash: 'sha256:baseline',
+      observedHash: 'sha256:observed',
+      status: 'compatible',
+      driftCount: 0,
+      blockerCount: 0,
+      highRiskLiveTaskBlocked: false,
+      evidenceRefIds: ['evidence_m60_drift_gate'],
+      auditEventIds: ['audit_m60_drift_gate'],
+      summary: 'Protocol drift gate is compatible by hash.',
+    });
+    const auditExport = CodexProductionAuditExportSummarySchema.parse({
+      id: 'codex_production_audit_export_summary_1',
+      schemaVersion,
+      createdAt,
+      exportHash: 'sha256:audit-export',
+      manifestHash: 'sha256:audit-manifest',
+      recordCount: 4,
+      evidenceRefCount: 2,
+      auditEventCount: 2,
+      evidenceRefIds: ['evidence_m60_audit_export'],
+      auditEventIds: ['audit_m60_audit_export'],
+      summary: 'Audit export summary stores manifest hashes and counts only.',
+    });
+    const readiness = CodexProductionReadinessGateSchema.parse({
+      id: 'codex_production_readiness_gate_1',
+      schemaVersion,
+      createdAt,
+      status: 'ready',
+      canaryRunCount: 1,
+      failedCanaryCount: 0,
+      driftGateCount: 1,
+      blockingDriftCount: 0,
+      auditExportSummaryId: auditExport.id,
+      highRiskLiveTaskBlocked: false,
+      liveSmokeAllowed: true,
+      evidenceRefIds: ['evidence_m60_readiness'],
+      auditEventIds: ['audit_m60_readiness'],
+      summary: 'Production readiness is ready after canary, drift, and audit gates.',
+    });
+    const records = [canaryTask, canaryRun, driftGate, auditExport, readiness];
+    const serialized = JSON.stringify(records);
+
+    expect(canaryTask.rawCheckStored).toBe(false);
+    expect(canaryRun.rawOutputStored).toBe(false);
+    expect(driftGate.rawSchemaStored).toBe(false);
+    expect(auditExport.metadataOnly).toBe(true);
+    expect(readiness.rawReadinessDataStored).toBe(false);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('rejects M60 production gates that bypass canary, drift, or live-smoke safety', () => {
+    expect(() =>
+      CodexProductionCanaryRunSchema.parse({
+        id: 'codex_production_canary_run_bad_count',
+        schemaVersion,
+        createdAt,
+        canaryTaskId: 'codex_production_canary_task_1',
+        canaryKind: 'quota',
+        status: 'failed',
+        checkCount: 1,
+        passedCount: 0,
+        failedCount: 1,
+        blockerCount: 0,
+        highRiskLiveTaskBlocked: false,
+        summary: 'Failed canary must block high-risk live tasks.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexProductionCanaryRunSchema.parse({
+        id: 'codex_production_canary_run_live_smoke_no_approval',
+        schemaVersion,
+        createdAt,
+        canaryTaskId: 'codex_production_canary_task_1',
+        canaryKind: 'live-smoke',
+        status: 'passed',
+        checkCount: 1,
+        passedCount: 1,
+        failedCount: 0,
+        blockerCount: 0,
+        liveSmoke: true,
+        summary: 'Live smoke canary requires approval hash.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexProductionDriftGateSchema.parse({
+        id: 'codex_production_drift_gate_unblocked',
+        schemaVersion,
+        observedAt: createdAt,
+        gateKind: 'desktop-target',
+        baselineHash: 'sha256:baseline',
+        observedHash: 'sha256:observed',
+        status: 'unknown',
+        highRiskLiveTaskBlocked: false,
+        summary: 'Unknown desktop drift must block high-risk live tasks.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexProductionReadinessGateSchema.parse({
+        id: 'codex_production_readiness_gate_unblocked',
+        schemaVersion,
+        createdAt,
+        status: 'canary_blocked',
+        canaryRunCount: 1,
+        failedCanaryCount: 1,
+        driftGateCount: 0,
+        blockingDriftCount: 0,
+        highRiskLiveTaskBlocked: false,
+        summary: 'Failed canary must block readiness.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexProductionAuditExportSummarySchema.parse({
+        id: 'codex_production_audit_export_raw',
+        schemaVersion,
+        createdAt,
+        exportHash: 'sha256:audit-export',
+        manifestHash: 'sha256:audit-manifest',
+        summary: 'Audit export cannot store raw records.',
+        metadata: {
+          rawBody: adversarialPublicOutputFixture,
+        },
       }),
     ).toThrow();
   });
