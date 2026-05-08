@@ -286,6 +286,7 @@ const lateStageSupervisorControlPlaneMatrix = [
       '/observation-rehearsals',
       '/owner-admin-extractions',
       '/reconciliations',
+      '/quota-fusions',
       '/ui-action-dry-runs',
       '/approval-requests',
       '/quota-read-dry-runs',
@@ -2303,6 +2304,7 @@ describe('supervisor mock development API', () => {
             `${prefix}/observation-rehearsals`,
             `${prefix}/owner-admin-extractions`,
             `${prefix}/reconciliations`,
+            `${prefix}/quota-fusions`,
             `${prefix}/ui-action-dry-runs`,
             `${prefix}/approval-requests`,
             `${prefix}/quota-read-dry-runs`,
@@ -2455,6 +2457,7 @@ describe('supervisor mock development API', () => {
           '/observation-rehearsals',
           '/owner-admin-extractions',
           '/reconciliations',
+          '/quota-fusions',
           '/ui-action-dry-runs',
           '/approval-requests',
           '/quota-read-dry-runs',
@@ -3419,7 +3422,7 @@ describe('supervisor mock development API', () => {
         pendingInviteCount: 2,
         codexSeatCount: 3,
         invoiceSummaryCount: 2,
-        limitIncidentCount: 1,
+        limitIncidentCount: 0,
         usageAlertCount: 1,
         creditBalanceKnown: true,
       },
@@ -3435,6 +3438,29 @@ describe('supervisor mock development API', () => {
         observedWorkspaceSeeds: ['private owner workspace', 'private personal workspace'],
         profileStatuses: ['business_workspace', 'personal_workspace'],
         memberInOwnerRoster: [true, true],
+      },
+    });
+    const quotaFusionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/quota-fusions',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'codex-quota-fusion-1',
+        sourceKind: 'app-server-rate-limits',
+        sourceRefSeed: 'private app server fusion source',
+        subjectKind: 'codex-account',
+        subjectSeed: 'private fusion codex account',
+        quotaStatus: 'available',
+        limitCount: 10,
+        usedCount: 2,
+        remainingCount: 8,
+        canaryPassed: true,
+        expectedWorkspaceSeed: 'private owner workspace',
+        profileSeeds: ['private fusion profile'],
+        accountSeeds: ['private fusion account'],
+        observedWorkspaceSeeds: ['private owner workspace'],
+        profileStatuses: ['business_workspace'],
+        memberInOwnerRoster: [true],
       },
     });
     const approvalResponse = await server.inject({
@@ -3503,6 +3529,10 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/business-quota/reconciliations',
     });
+    const quotaFusionProjectionResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/quota-fusion',
+    });
     const workspaceSwitchesResponse = await server.inject({
       method: 'GET',
       url: '/api/business-quota/workspace-switches',
@@ -3567,6 +3597,17 @@ describe('supervisor mock development API', () => {
       liveClickPerformed: false,
       executionDisabled: true,
     });
+    expect(quotaFusionResponse.statusCode).toBe(200);
+    expect(quotaFusionResponse.json()).toMatchObject({
+      status: 'ready',
+      accountCount: 1,
+      readyAccountCount: 1,
+      dispatchAllowed: true,
+      requestBodyAuthorityAccepted: false,
+      directAdapterExecutionAllowed: false,
+      liveCodexDispatchAllowed: true,
+      executionDisabled: true,
+    });
     expect(approvalResponse.statusCode).toBe(200);
     expect(approvalResponse.json()).toMatchObject({
       status: 'approval_waiting',
@@ -3590,6 +3631,8 @@ describe('supervisor mock development API', () => {
     expect(seatAllocationResponse.json().codexSeatCount).toBe(3);
     expect(reconciliationsResponse.json().counts.reports).toBe(1);
     expect(reconciliationsResponse.json().counts.workspaceSwitchDryRuns).toBe(1);
+    expect(quotaFusionProjectionResponse.json().counts.reports).toBe(1);
+    expect(quotaFusionProjectionResponse.json().counts.accountReadiness).toBe(1);
     expect(workspaceSwitchesResponse.json().counts.dryRuns).toBe(1);
     expect(automationRunsResponse.json().counts.runs).toBe(2);
     expect(accountsResponse.json().counts.quotaSourceHealth).toBeGreaterThanOrEqual(2);
@@ -3600,6 +3643,7 @@ describe('supervisor mock development API', () => {
       dryRunResponse.body,
       ownerAdminExtractionResponse.body,
       reconciliationResponse.body,
+      quotaFusionResponse.body,
       approvalResponse.body,
       criticalResponse.body,
       forgedResponse.body,
@@ -3612,6 +3656,7 @@ describe('supervisor mock development API', () => {
       pendingInvitesResponse.body,
       seatAllocationResponse.body,
       reconciliationsResponse.body,
+      quotaFusionProjectionResponse.body,
       workspaceSwitchesResponse.body,
       automationRunsResponse.body,
       accountsResponse.body,
@@ -3628,6 +3673,10 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private owner account');
       expect(body).not.toContain('private member account');
       expect(body).not.toContain('private personal workspace');
+      expect(body).not.toContain('private app server fusion source');
+      expect(body).not.toContain('private fusion codex account');
+      expect(body).not.toContain('private fusion profile');
+      expect(body).not.toContain('private fusion account');
       expect(body).not.toContain('private approval target');
       expect(body).not.toContain('private desktop target');
       expect(body).not.toContain('private forged target');

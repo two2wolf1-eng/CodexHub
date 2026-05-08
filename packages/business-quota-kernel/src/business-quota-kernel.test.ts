@@ -3,6 +3,7 @@ import {
   attributeBusinessQuota,
   createBusinessMemberReconciliationBundle,
   createBusinessQuotaCrossCheckReport,
+  createCodexQuotaFusionBundle,
   createOwnerAdminExtractionBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
@@ -259,5 +260,78 @@ describe('business quota kernel', () => {
     expect(serialized).not.toContain('owner chrome profile');
     expect(serialized).not.toContain('member account');
     expect(serialized).not.toContain('personal workspace');
+  });
+
+  it('fuses Codex quota sources with owner seats and workspace reconciliation before dispatch', () => {
+    const ownerBundle = createOwnerAdminExtractionBundle({
+      workspaceSeed: 'private business workspace',
+      memberCount: 2,
+      ownerCount: 1,
+      codexSeatCount: 2,
+      limitIncidentCount: 0,
+    });
+    const sourceHealth = summarizeQuotaSourceHealth({
+      sourceKind: 'app-server-rate-limits',
+      sourceRefSeed: 'private app server source',
+      status: 'healthy',
+      canaryPassed: true,
+      liveReadReady: true,
+      observationCount: 1,
+    });
+    const quotaSnapshot = createQuotaSnapshotFromSource({
+      subjectKind: 'codex-account',
+      subjectSeed: 'private codex account',
+      status: 'available',
+      limitCount: 100,
+      usedCount: 25,
+      remainingCount: 75,
+      sourceHealth,
+    });
+    const reconciliation = createBusinessMemberReconciliationBundle({
+      ownerRosterSnapshot: ownerBundle.rosterSnapshot,
+      profiles: [
+        {
+          profileSeed: 'private chrome profile',
+          accountSeed: 'private codex account',
+          observedWorkspaceSeed: 'private business workspace',
+          status: 'business_workspace',
+        },
+      ],
+    });
+    const ready = createCodexQuotaFusionBundle({
+      ownerRosterSnapshot: ownerBundle.rosterSnapshot,
+      billingSummary: ownerBundle.billingSummary,
+      sourceHealth,
+      quotaSnapshots: [quotaSnapshot],
+      profileObservations: reconciliation.profileObservations,
+      canaryPassed: true,
+    });
+    const conflict = createCodexQuotaFusionBundle({
+      ownerRosterSnapshot: ownerBundle.rosterSnapshot,
+      billingSummary: ownerBundle.billingSummary,
+      sourceHealth: summarizeQuotaSourceHealth({
+        sourceKind: 'business-page-dom',
+        status: 'degraded',
+        failureKind: 'unknown',
+        blockReasons: ['quota_source_conflict'],
+        canaryPassed: false,
+      }),
+      quotaSnapshots: [quotaSnapshot],
+      profileObservations: reconciliation.profileObservations,
+      canaryPassed: false,
+    });
+    const serialized = JSON.stringify([ready, conflict]);
+
+    expect(ready.workspaceReadiness.status).toBe('ready');
+    expect(ready.workspaceReadiness.dispatchAllowed).toBe(true);
+    expect(ready.accountReadiness[0]?.status).toBe('ready');
+    expect(ready.report.dispatchAllowed).toBe(true);
+    expect(conflict.report.dispatchAllowed).toBe(false);
+    expect(conflict.report.status).toBe('canary_failed');
+    expect(conflict.report.blockReasons).toContain('quota_canary_failed');
+    expect(serialized).not.toContain('private business workspace');
+    expect(serialized).not.toContain('private app server source');
+    expect(serialized).not.toContain('private codex account');
+    expect(serialized).not.toContain('private chrome profile');
   });
 });

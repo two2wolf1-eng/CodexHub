@@ -3320,3 +3320,39 @@ integrations:
       noRawAccountWorkspaceProfileStorage: true
       workspaceSwitchVisibleClickExecutionDeferredToM71: true
       codexDispatchBlockedOnMismatch: true
+  m69-codex-quota-fusion:
+    enabled: false
+    adapter: business-quota-kernel
+    provider: codexhub-metadata
+    providerType: builtin
+    mode: metadata-only-quota-fusion
+    stage: m69-codex-quota-fusion
+    release: docs/releases/m69-codex-quota-fusion.md
+    review: docs/reviews/m69-codex-quota-fusion-review.md
+    runbook: docs/runbooks/m69-codex-quota-fusion-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: high
+    supervisorRoutes:
+      - POST /api/business-quota/quota-fusions
+      - GET /api/business-quota/quota-fusion
+    persistedStores:
+      - workspace_codex_quota_readiness
+      - account_codex_quota_readiness
+      - codex_quota_fusion_reports
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      directAdapterExecutionAllowed: false
+      metadataOnlyPublicOutput: true
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noRawAccountWorkspaceProfileStorage: true
+      noRawQuotaPayloadStorage: true
+      codexDispatchBlockedOnQuotaConflict: true
+      codexDispatchBlockedOnCanaryFailure: true

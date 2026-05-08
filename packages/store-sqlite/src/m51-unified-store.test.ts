@@ -16,6 +16,7 @@ import {
   BusinessWorkspaceSchema,
   BusinessWorkspaceSwitchDryRunPlanSchema,
   BusinessWorkspaceSwitchRunSchema,
+  AccountCodexQuotaReadinessSchema,
   ChatGptSessionHealthSchema,
   ChromeProfileBindingSchema,
   ClientPoolSchema,
@@ -32,6 +33,7 @@ import {
   CodexProductionDriftGateSchema,
   CodexProductionReadinessGateSchema,
   CodexQuotaSourceHealthSchema,
+  CodexQuotaFusionReportSchema,
   CodexRecoveryRunSchema,
   CodexSeatUsageLimitSchema,
   CodexTaskClosureRunSchema,
@@ -63,6 +65,7 @@ import {
   UiAutomationIntentSchema,
   UiAutomationRunSchema,
   UiObservationSourceSchema,
+  WorkspaceCodexQuotaReadinessSchema,
   WorkspaceCreditSnapshotSchema,
   SchemaVersionSchema,
 } from '@codexhub/contracts';
@@ -1087,6 +1090,56 @@ describe('M51 unified metadata store', () => {
       dispatchAllowed: true,
       summary: 'Business member reconciliation stores readiness metadata only.',
     });
+    const workspaceQuotaReadiness = WorkspaceCodexQuotaReadinessSchema.parse({
+      id: 'workspace_codex_quota_readiness_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceHash: rosterSnapshot.workspaceHash,
+      status: 'ready',
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      billingSummaryId: billingSummary.id,
+      quotaSnapshotIds: ['quota_snapshot_store_1'],
+      sourceHealthId: sourceHealth.id,
+      codexSeatCount: billingSummary.codexSeatCount,
+      remainingCountKnown: true,
+      remainingCountHash: 'sha256:workspace-remaining',
+      canaryPassed: true,
+      dispatchAllowed: true,
+      summary: 'Workspace Codex quota readiness stores hash-bound readiness only.',
+    });
+    const accountQuotaReadiness = AccountCodexQuotaReadinessSchema.parse({
+      id: 'account_codex_quota_readiness_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      accountHash: profileObservation.accountHash ?? 'sha256:account',
+      workspaceHash: rosterSnapshot.workspaceHash,
+      status: 'ready',
+      quotaSnapshotId: 'quota_snapshot_store_1',
+      profileWorkspaceObservationId: profileObservation.id,
+      sourceHealthId: sourceHealth.id,
+      memberInOwnerRoster: true,
+      workspaceMatches: true,
+      codexSeatAvailable: true,
+      quotaStatus: 'available',
+      remainingCountKnown: true,
+      remainingCountHash: 'sha256:account-remaining',
+      dispatchAllowed: true,
+      summary: 'Account Codex quota readiness stores hash-bound readiness only.',
+    });
+    const quotaFusionReport = CodexQuotaFusionReportSchema.parse({
+      id: 'codex_quota_fusion_report_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'ready',
+      workspaceReadinessId: workspaceQuotaReadiness.id,
+      accountReadinessIds: [accountQuotaReadiness.id],
+      workspaceHash: rosterSnapshot.workspaceHash,
+      accountCount: 1,
+      readyAccountCount: 1,
+      dispatchAllowed: true,
+      canaryPassed: true,
+      summary: 'Codex quota fusion report stores readiness IDs and counts only.',
+    });
 
     const saved = [
       await expectRoundTrip(first.codexQuotaSourceHealth, sourceHealth),
@@ -1117,6 +1170,9 @@ describe('M51 unified metadata store', () => {
       await expectRoundTrip(first.businessWorkspaceSwitchDryRunPlans, workspaceSwitchDryRun),
       await expectRoundTrip(first.businessWorkspaceSwitchRuns, workspaceSwitchRun),
       await expectRoundTrip(first.businessMemberReconciliationReports, reconciliationReport),
+      await expectRoundTrip(first.workspaceCodexQuotaReadiness, workspaceQuotaReadiness),
+      await expectRoundTrip(first.accountCodexQuotaReadiness, accountQuotaReadiness),
+      await expectRoundTrip(first.codexQuotaFusionReports, quotaFusionReport),
     ];
     await first.close();
 
@@ -1132,6 +1188,9 @@ describe('M51 unified metadata store', () => {
     await expect(
       reopened.businessMemberReconciliationReports.getRecord(reconciliationReport.id),
     ).resolves.toEqual(reconciliationReport);
+    await expect(
+      reopened.codexQuotaFusionReports.getRecord(quotaFusionReport.id),
+    ).resolves.toEqual(quotaFusionReport);
     await expect(reopened.businessQuotaCrossCheckReports.getRecord(crossCheck.id)).resolves.toEqual(
       crossCheck,
     );
@@ -1162,6 +1221,9 @@ describe('M51 unified metadata store', () => {
     expect(workspaceSwitchDryRun.liveClickAllowed).toBe(false);
     expect(workspaceSwitchRun.executionDisabled).toBe(true);
     expect(reconciliationReport.liveClickPerformed).toBe(false);
+    expect(workspaceQuotaReadiness.rawQuotaPayloadStored).toBe(false);
+    expect(accountQuotaReadiness.rawAccountStored).toBe(false);
+    expect(quotaFusionReport.rawBillingBodyStored).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

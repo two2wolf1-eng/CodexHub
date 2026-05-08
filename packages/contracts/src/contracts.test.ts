@@ -581,6 +581,9 @@ import {
   BusinessProfileWorkspaceObservationSchema,
   BusinessWorkspaceSwitchDryRunPlanSchema,
   BusinessWorkspaceSwitchRunSchema,
+  AccountCodexQuotaReadinessSchema,
+  CodexQuotaFusionReportSchema,
+  WorkspaceCodexQuotaReadinessSchema,
   QuotaSnapshotSchema,
   QuotaAttributionSchema,
   BusinessQuotaPermissionProbeSchema,
@@ -17444,6 +17447,54 @@ describe('contracts schemas', () => {
       dispatchAllowed: true,
       summary: 'Business member reconciliation allows dispatch from hash-bound metadata.',
     });
+    const workspaceQuotaReadiness = WorkspaceCodexQuotaReadinessSchema.parse({
+      id: 'workspace_codex_quota_readiness_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceHash: rosterSnapshot.workspaceHash,
+      status: 'ready',
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      billingSummaryId: billingSummary.id,
+      quotaSnapshotIds: ['quota_snapshot_1'],
+      codexSeatCount: billingSummary.codexSeatCount,
+      remainingCountKnown: true,
+      remainingCountHash: 'sha256:remaining',
+      canaryPassed: true,
+      dispatchAllowed: true,
+      summary: 'Workspace quota readiness is ready from metadata-only sources.',
+    });
+    const accountQuotaReadiness = AccountCodexQuotaReadinessSchema.parse({
+      id: 'account_codex_quota_readiness_1',
+      schemaVersion,
+      observedAt: createdAt,
+      accountHash: profileObservation.accountHash ?? 'sha256:account',
+      workspaceHash: rosterSnapshot.workspaceHash,
+      status: 'ready',
+      quotaSnapshotId: 'quota_snapshot_1',
+      profileWorkspaceObservationId: profileObservation.id,
+      memberInOwnerRoster: true,
+      workspaceMatches: true,
+      codexSeatAvailable: true,
+      quotaStatus: 'available',
+      remainingCountKnown: true,
+      remainingCountHash: 'sha256:remaining',
+      dispatchAllowed: true,
+      summary: 'Account quota readiness is ready from hash-bound metadata.',
+    });
+    const quotaFusionReport = CodexQuotaFusionReportSchema.parse({
+      id: 'codex_quota_fusion_report_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'ready',
+      workspaceReadinessId: workspaceQuotaReadiness.id,
+      accountReadinessIds: [accountQuotaReadiness.id],
+      workspaceHash: rosterSnapshot.workspaceHash,
+      accountCount: 1,
+      readyAccountCount: 1,
+      dispatchAllowed: true,
+      canaryPassed: true,
+      summary: 'Quota fusion allows dispatch from ready workspace and account metadata.',
+    });
     const records = [
       sourceHealth,
       seat,
@@ -17496,6 +17547,9 @@ describe('contracts schemas', () => {
       workspaceSwitchDryRun,
       workspaceSwitchRun,
       reconciliationReport,
+      workspaceQuotaReadiness,
+      accountQuotaReadiness,
+      quotaFusionReport,
     ];
     const serialized = JSON.stringify(records);
 
@@ -17521,6 +17575,9 @@ describe('contracts schemas', () => {
     expect(workspaceSwitchDryRun.liveClickAllowed).toBe(false);
     expect(workspaceSwitchRun.executionDisabled).toBe(true);
     expect(reconciliationReport.directAdapterExecutionAllowed).toBe(false);
+    expect(workspaceQuotaReadiness.rawQuotaPayloadStored).toBe(false);
+    expect(accountQuotaReadiness.rawAccountStored).toBe(false);
+    expect(quotaFusionReport.dispatchAllowed).toBe(true);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
@@ -17703,6 +17760,18 @@ describe('contracts schemas', () => {
         metadata: {
           rawSelector: adversarialPublicOutputFixture,
         },
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexQuotaFusionReportSchema.parse({
+        id: 'codex_quota_fusion_report_bad_dispatch',
+        schemaVersion,
+        observedAt: createdAt,
+        status: 'source_conflict',
+        workspaceReadinessId: 'workspace_codex_quota_readiness_1',
+        workspaceHash: 'sha256:workspace',
+        dispatchAllowed: true,
+        summary: 'Source conflicts cannot allow dispatch.',
       }),
     ).toThrow();
   });

@@ -7,6 +7,8 @@ import {
   BusinessProfileWorkspaceObservationSchema,
   BusinessWorkspaceSwitchDryRunPlanSchema,
   BusinessWorkspaceSwitchRunSchema,
+  AccountCodexQuotaReadinessSchema,
+  CodexQuotaFusionReportSchema,
   CdpDomObservationSummarySchema,
   CodexQuotaSourceHealthSchema,
   OwnerAdminExtractionReportSchema,
@@ -16,6 +18,7 @@ import {
   SchemaVersionSchema,
   SensitiveRedactionReportSchema,
   UiObservationSourceSchema,
+  WorkspaceCodexQuotaReadinessSchema,
   foundationId,
   foundationTimestamp,
   type BusinessQuotaSourceKind,
@@ -27,6 +30,9 @@ import {
   type BusinessWorkspaceObservationStatus,
   type BusinessWorkspaceSwitchDryRunPlan,
   type BusinessWorkspaceSwitchRun,
+  type AccountCodexQuotaReadiness,
+  type CodexQuotaFusionReadinessStatus,
+  type CodexQuotaFusionReport,
   type BusinessAdminMemberRosterSnapshot,
   type BusinessBillingSummary,
   type CdpDomObservationSummary,
@@ -47,6 +53,7 @@ import {
   type SensitiveRedactionStatus,
   type UiObservationSource,
   type UiObservationStatus,
+  type WorkspaceCodexQuotaReadiness,
 } from '@codexhub/contracts';
 import { hashText } from '@codexhub/evidence-kernel';
 
@@ -200,6 +207,24 @@ export interface BusinessMemberReconciliationBundle {
   workspaceSwitchDryRunPlans: BusinessWorkspaceSwitchDryRunPlan[];
   workspaceSwitchRuns: BusinessWorkspaceSwitchRun[];
   report: BusinessMemberReconciliationReport;
+}
+
+export interface CodexQuotaFusionInput {
+  ownerRosterSnapshot?: BusinessAdminMemberRosterSnapshot;
+  billingSummary?: BusinessBillingSummary;
+  quotaSnapshots?: readonly QuotaSnapshot[];
+  profileObservations?: readonly BusinessProfileWorkspaceObservation[];
+  sourceHealth?: CodexQuotaSourceHealth;
+  canaryPassed?: boolean;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface CodexQuotaFusionBundle {
+  workspaceReadiness: WorkspaceCodexQuotaReadiness;
+  accountReadiness: AccountCodexQuotaReadiness[];
+  report: CodexQuotaFusionReport;
 }
 
 export function redactSensitiveObservation(
@@ -772,6 +797,109 @@ export function createBusinessMemberReconciliationBundle(
   };
 }
 
+export function createCodexQuotaFusionBundle(input: CodexQuotaFusionInput): CodexQuotaFusionBundle {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const workspaceHash =
+    input.ownerRosterSnapshot?.workspaceHash ??
+    input.billingSummary?.workspaceHash ??
+    input.profileObservations?.[0]?.expectedWorkspaceHash ??
+    hashRef('unknown-workspace');
+  const quotaSnapshots = [...(input.quotaSnapshots ?? [])];
+  const profileObservations = [...(input.profileObservations ?? [])];
+  const workspaceBlockReasons = workspaceQuotaBlockReasons(input, quotaSnapshots);
+  const workspaceStatus = quotaFusionStatus(workspaceBlockReasons, quotaSnapshots);
+  const workspaceDispatchAllowed = workspaceStatus === 'ready' && workspaceBlockReasons.length === 0;
+  const remainingCount = quotaSnapshots.find((snapshot) => snapshot.remainingCount !== undefined)
+    ?.remainingCount;
+  const workspaceReadiness = WorkspaceCodexQuotaReadinessSchema.parse({
+    id: foundationId('workspace_codex_quota_readiness'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    workspaceHash,
+    status: workspaceStatus,
+    ownerRosterSnapshotId: input.ownerRosterSnapshot?.id,
+    billingSummaryId: input.billingSummary?.id,
+    quotaSnapshotIds: quotaSnapshots.map((snapshot) => snapshot.id),
+    sourceHealthId: input.sourceHealth?.id,
+    codexSeatCount: input.billingSummary?.codexSeatCount ?? 0,
+    remainingCountKnown: remainingCount !== undefined,
+    remainingCountHash: remainingCount !== undefined ? hashRef({ workspaceHash, remainingCount }) : undefined,
+    limitIncidentCount: input.billingSummary?.limitIncidentCount ?? 0,
+    sourceConflict: workspaceBlockReasons.includes('quota_source_conflict'),
+    canaryPassed: input.canaryPassed ?? input.sourceHealth?.canaryPassed ?? false,
+    dispatchAllowed: workspaceDispatchAllowed,
+    blockReasons: workspaceBlockReasons,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary: workspaceDispatchAllowed
+      ? 'Workspace Codex quota readiness is ready from fused metadata.'
+      : 'Workspace Codex quota readiness blocks dispatch until seats, quota, source, and canary metadata agree.',
+  });
+
+  const accountReadiness = createAccountQuotaReadiness({
+    workspaceHash,
+    workspaceStatus,
+    profileObservations,
+    quotaSnapshots,
+    fusionInput: input,
+    observedAt,
+  });
+  const blockReasons = [
+    ...workspaceReadiness.blockReasons,
+    ...accountReadiness.flatMap((readiness) => readiness.blockReasons),
+  ];
+  const readyAccountCount = accountReadiness.filter((readiness) => readiness.status === 'ready').length;
+  const limitedAccountCount = accountReadiness.filter(
+    (readiness) => readiness.status === 'quota_limited',
+  ).length;
+  const exhaustedAccountCount = accountReadiness.filter(
+    (readiness) => readiness.status === 'quota_exhausted',
+  ).length;
+  const sourceConflictCount = accountReadiness.filter(
+    (readiness) => readiness.status === 'source_conflict',
+  ).length;
+  const dispatchAllowed =
+    workspaceReadiness.dispatchAllowed &&
+    accountReadiness.length > 0 &&
+    accountReadiness.every((readiness) => readiness.dispatchAllowed);
+  const reportStatus: CodexQuotaFusionReadinessStatus = dispatchAllowed
+    ? 'ready'
+    : workspaceReadiness.status !== 'ready'
+      ? workspaceReadiness.status
+      : accountReadiness.find((readiness) => readiness.status !== 'ready')?.status ?? 'unknown';
+  const report = CodexQuotaFusionReportSchema.parse({
+    id: foundationId('codex_quota_fusion_report'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    status: reportStatus,
+    workspaceReadinessId: workspaceReadiness.id,
+    accountReadinessIds: accountReadiness.map((readiness) => readiness.id),
+    workspaceHash,
+    accountCount: accountReadiness.length,
+    readyAccountCount,
+    blockedAccountCount: accountReadiness.length - readyAccountCount,
+    limitedAccountCount,
+    exhaustedAccountCount,
+    sourceConflictCount,
+    dispatchAllowed,
+    canaryPassed: workspaceReadiness.canaryPassed,
+    blockReasons: [...new Set(blockReasons)],
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary: dispatchAllowed
+      ? 'Codex quota fusion allows dispatch from matching workspace, seat, quota, and canary metadata.'
+      : 'Codex quota fusion blocks dispatch until source conflicts, workspace mismatches, or quota blockers are resolved.',
+  });
+
+  return { workspaceReadiness, accountReadiness, report };
+}
+
 export function createQuotaSnapshotFromSource(input: {
   subjectKind: QuotaSnapshot['subjectKind'];
   subjectSeed: string;
@@ -967,6 +1095,163 @@ function reconciliationStatus(input: {
   }
   if (input.counts.unknown > 0) return 'unknown';
   return input.blockReasons.length > 0 ? 'blocked' : 'unknown';
+}
+
+function workspaceQuotaBlockReasons(
+  input: CodexQuotaFusionInput,
+  quotaSnapshots: readonly QuotaSnapshot[],
+): string[] {
+  const blockReasons: string[] = [];
+  if (!input.ownerRosterSnapshot) blockReasons.push('owner_roster_missing');
+  if (!input.billingSummary) blockReasons.push('owner_billing_missing');
+  if (input.billingSummary && input.billingSummary.codexSeatCount === 0) {
+    blockReasons.push('codex_seat_missing');
+  }
+  if (input.billingSummary && input.billingSummary.limitIncidentCount > 0) {
+    blockReasons.push('quota_limit_incident');
+  }
+  if (!input.sourceHealth) blockReasons.push('quota_source_missing');
+  if (input.sourceHealth && input.sourceHealth.status !== 'healthy') {
+    blockReasons.push('quota_source_conflict');
+  }
+  if (input.sourceHealth?.blockReasons.length) blockReasons.push(...input.sourceHealth.blockReasons);
+  if (input.canaryPassed === false || input.sourceHealth?.canaryPassed === false) {
+    blockReasons.push('quota_canary_failed');
+  }
+  if (quotaSnapshots.length === 0) blockReasons.push('quota_snapshot_missing');
+  for (const snapshot of quotaSnapshots) {
+    if (snapshot.status === 'exhausted') blockReasons.push('quota_exhausted');
+    if (snapshot.status === 'limited') blockReasons.push('quota_limited');
+    if (snapshot.status === 'blocked' || snapshot.status === 'unknown') {
+      blockReasons.push(`quota_${snapshot.status}`);
+    }
+  }
+  return [...new Set(blockReasons)];
+}
+
+function quotaFusionStatus(
+  blockReasons: readonly string[],
+  quotaSnapshots: readonly QuotaSnapshot[],
+): CodexQuotaFusionReadinessStatus {
+  if (blockReasons.includes('quota_canary_failed')) return 'canary_failed';
+  if (blockReasons.includes('workspace_mismatch')) return 'workspace_mismatch';
+  if (blockReasons.includes('codex_seat_missing')) return 'codex_seat_missing';
+  if (blockReasons.includes('quota_exhausted')) return 'quota_exhausted';
+  if (blockReasons.includes('quota_limited') || blockReasons.includes('quota_limit_incident')) {
+    return 'quota_limited';
+  }
+  if (
+    blockReasons.includes('quota_source_conflict') ||
+    blockReasons.includes('owner_roster_missing') ||
+    blockReasons.includes('owner_billing_missing') ||
+    blockReasons.includes('quota_snapshot_missing')
+  ) {
+    return 'source_conflict';
+  }
+  if (blockReasons.length > 0) return 'unknown';
+  return quotaSnapshots.length > 0 ? 'ready' : 'unknown';
+}
+
+function createAccountQuotaReadiness(input: {
+  workspaceHash: string;
+  workspaceStatus: CodexQuotaFusionReadinessStatus;
+  profileObservations: readonly BusinessProfileWorkspaceObservation[];
+  quotaSnapshots: readonly QuotaSnapshot[];
+  fusionInput: CodexQuotaFusionInput;
+  observedAt: string;
+}): AccountCodexQuotaReadiness[] {
+  const profileObservations =
+    input.profileObservations.length > 0
+      ? input.profileObservations
+      : [
+          BusinessProfileWorkspaceObservationSchema.parse({
+            id: foundationId('business_profile_workspace_observation'),
+            schemaVersion: SchemaVersionSchema.value,
+            observedAt: input.observedAt,
+            ownerRosterSnapshotId: input.fusionInput.ownerRosterSnapshot?.id,
+            profileHash: hashRef('unknown-profile'),
+            expectedWorkspaceHash: input.workspaceHash,
+            status: 'unknown',
+            memberInOwnerRoster: false,
+            blockReasons: ['profile_observation_missing'],
+            summary: 'Profile workspace observation is missing for quota fusion.',
+          }),
+        ];
+
+  return profileObservations.map((profileObservation, index) => {
+    const quotaSnapshot = input.quotaSnapshots[index] ?? input.quotaSnapshots[0];
+    const blockReasons = accountQuotaBlockReasons({
+      profileObservation,
+      quotaSnapshot,
+      workspaceStatus: input.workspaceStatus,
+      billingSummary: input.fusionInput.billingSummary,
+      sourceHealth: input.fusionInput.sourceHealth,
+    });
+    const status =
+      input.workspaceStatus !== 'ready'
+        ? input.workspaceStatus
+        : quotaFusionStatus(blockReasons, quotaSnapshot ? [quotaSnapshot] : []);
+    const dispatchAllowed = status === 'ready' && blockReasons.length === 0;
+    return AccountCodexQuotaReadinessSchema.parse({
+      id: foundationId('account_codex_quota_readiness'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: input.observedAt,
+      accountHash: profileObservation.accountHash ?? profileObservation.profileHash,
+      workspaceHash: input.workspaceHash,
+      status,
+      quotaSnapshotId: quotaSnapshot?.id,
+      profileWorkspaceObservationId: profileObservation.id,
+      sourceHealthId: input.fusionInput.sourceHealth?.id,
+      memberInOwnerRoster: profileObservation.memberInOwnerRoster,
+      workspaceMatches: profileObservation.status === 'business_workspace',
+      codexSeatAvailable: (input.fusionInput.billingSummary?.codexSeatCount ?? 0) > 0,
+      quotaStatus: quotaSnapshot?.status,
+      remainingCountKnown: quotaSnapshot?.remainingCount !== undefined,
+      remainingCountHash:
+        quotaSnapshot?.remainingCount !== undefined
+          ? hashRef({ accountHash: profileObservation.accountHash, remaining: quotaSnapshot.remainingCount })
+          : undefined,
+      rateLimitReached: quotaSnapshot?.status === 'exhausted',
+      dispatchAllowed,
+      blockReasons,
+      evidenceRefIds: [...(input.fusionInput.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.fusionInput.auditEventIds ?? [])],
+      metadataOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      summary: dispatchAllowed
+        ? 'Account Codex quota readiness is ready from fused metadata.'
+        : 'Account Codex quota readiness blocks dispatch until profile, seat, quota, and source metadata agree.',
+    });
+  });
+}
+
+function accountQuotaBlockReasons(input: {
+  profileObservation: BusinessProfileWorkspaceObservation;
+  quotaSnapshot?: QuotaSnapshot;
+  workspaceStatus: CodexQuotaFusionReadinessStatus;
+  billingSummary?: BusinessBillingSummary;
+  sourceHealth?: CodexQuotaSourceHealth;
+}): string[] {
+  const blockReasons: string[] = [];
+  if (input.workspaceStatus !== 'ready') blockReasons.push(`workspace_${input.workspaceStatus}`);
+  if (!input.profileObservation.dispatchAllowed) {
+    blockReasons.push(...input.profileObservation.blockReasons);
+    if (input.profileObservation.status !== 'business_workspace') {
+      blockReasons.push('workspace_mismatch');
+    }
+  }
+  if ((input.billingSummary?.codexSeatCount ?? 0) === 0) blockReasons.push('codex_seat_missing');
+  if (!input.quotaSnapshot) blockReasons.push('quota_snapshot_missing');
+  if (input.quotaSnapshot?.status === 'exhausted') blockReasons.push('quota_exhausted');
+  if (input.quotaSnapshot?.status === 'limited') blockReasons.push('quota_limited');
+  if (input.quotaSnapshot?.status === 'blocked' || input.quotaSnapshot?.status === 'unknown') {
+    blockReasons.push(`quota_${input.quotaSnapshot.status}`);
+  }
+  if (!input.sourceHealth || input.sourceHealth.status !== 'healthy') {
+    blockReasons.push('quota_source_conflict');
+  }
+  return [...new Set(blockReasons)];
 }
 
 function hashRef(value: unknown): string {

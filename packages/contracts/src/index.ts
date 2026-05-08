@@ -20160,6 +20160,20 @@ export type BusinessMemberReconciliationStatus = z.infer<
   typeof BusinessMemberReconciliationStatusSchema
 >;
 
+export const CodexQuotaFusionReadinessStatusSchema = z.enum([
+  'ready',
+  'quota_limited',
+  'quota_exhausted',
+  'codex_seat_missing',
+  'workspace_mismatch',
+  'source_conflict',
+  'canary_failed',
+  'unknown',
+]);
+export type CodexQuotaFusionReadinessStatus = z.infer<
+  typeof CodexQuotaFusionReadinessStatusSchema
+>;
+
 export const BusinessCodexSeatSchema = observedEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)
   .merge(m51EvidenceAuditSchema)
@@ -20844,6 +20858,137 @@ export const BusinessMemberReconciliationReportSchema = observedEntityBaseSchema
 export type BusinessMemberReconciliationReport = z.infer<
   typeof BusinessMemberReconciliationReportSchema
 >;
+
+export const WorkspaceCodexQuotaReadinessSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceHash: z.string().min(1),
+    status: CodexQuotaFusionReadinessStatusSchema,
+    ownerRosterSnapshotId: z.string().min(1).optional(),
+    billingSummaryId: z.string().min(1).optional(),
+    quotaSnapshotIds: z.array(z.string().min(1)).default([]),
+    sourceHealthId: z.string().min(1).optional(),
+    codexSeatCount: z.number().int().nonnegative().default(0),
+    remainingCountKnown: z.boolean().default(false),
+    remainingCountHash: z.string().min(1).optional(),
+    limitIncidentCount: z.number().int().nonnegative().default(0),
+    sourceConflict: z.boolean().default(false),
+    canaryPassed: z.boolean().default(false),
+    dispatchAllowed: z.boolean().default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawQuotaPayloadStored: z.literal(false).default(false),
+    rawBillingBodyStored: z.literal(false).default(false),
+    rawAccountStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.dispatchAllowed && record.status !== 'ready') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'workspace quota dispatch can only be allowed from ready status',
+        path: ['dispatchAllowed'],
+      });
+    }
+    if (record.dispatchAllowed && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'workspace quota dispatch cannot be allowed with blockers',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type WorkspaceCodexQuotaReadiness = z.infer<
+  typeof WorkspaceCodexQuotaReadinessSchema
+>;
+
+export const AccountCodexQuotaReadinessSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    accountHash: z.string().min(1),
+    workspaceHash: z.string().min(1),
+    status: CodexQuotaFusionReadinessStatusSchema,
+    quotaSnapshotId: z.string().min(1).optional(),
+    profileWorkspaceObservationId: z.string().min(1).optional(),
+    sourceHealthId: z.string().min(1).optional(),
+    memberInOwnerRoster: z.boolean().default(false),
+    workspaceMatches: z.boolean().default(false),
+    codexSeatAvailable: z.boolean().default(false),
+    quotaStatus: QuotaSnapshotStatusSchema.optional(),
+    remainingCountKnown: z.boolean().default(false),
+    remainingCountHash: z.string().min(1).optional(),
+    rateLimitReached: z.boolean().default(false),
+    dispatchAllowed: z.boolean().default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawQuotaPayloadStored: z.literal(false).default(false),
+    rawAccountStored: z.literal(false).default(false),
+    rawWorkspaceStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.dispatchAllowed && record.status !== 'ready') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'account quota dispatch can only be allowed from ready status',
+        path: ['dispatchAllowed'],
+      });
+    }
+    if (record.dispatchAllowed && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'account quota dispatch cannot be allowed with blockers',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type AccountCodexQuotaReadiness = z.infer<typeof AccountCodexQuotaReadinessSchema>;
+
+export const CodexQuotaFusionReportSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    status: CodexQuotaFusionReadinessStatusSchema,
+    workspaceReadinessId: z.string().min(1),
+    accountReadinessIds: z.array(z.string().min(1)).default([]),
+    workspaceHash: z.string().min(1),
+    accountCount: z.number().int().nonnegative().default(0),
+    readyAccountCount: z.number().int().nonnegative().default(0),
+    blockedAccountCount: z.number().int().nonnegative().default(0),
+    limitedAccountCount: z.number().int().nonnegative().default(0),
+    exhaustedAccountCount: z.number().int().nonnegative().default(0),
+    sourceConflictCount: z.number().int().nonnegative().default(0),
+    dispatchAllowed: z.boolean().default(false),
+    canaryPassed: z.boolean().default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawQuotaPayloadStored: z.literal(false).default(false),
+    rawBillingBodyStored: z.literal(false).default(false),
+    rawAccountStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.accountReadinessIds.length !== record.accountCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'quota fusion account count must match account readiness ids',
+        path: ['accountReadinessIds'],
+      });
+    }
+    if (record.dispatchAllowed && record.status !== 'ready') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'quota fusion dispatch can only be allowed from ready status',
+        path: ['dispatchAllowed'],
+      });
+    }
+  });
+export type CodexQuotaFusionReport = z.infer<typeof CodexQuotaFusionReportSchema>;
 
 export const UiTargetFingerprintSchema = observedEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)

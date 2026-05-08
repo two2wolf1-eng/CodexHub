@@ -640,6 +640,7 @@ import {
 import {
   attributeBusinessQuota,
   createBusinessMemberReconciliationBundle,
+  createCodexQuotaFusionBundle,
   createOwnerAdminExtractionBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
@@ -21372,6 +21373,16 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     responseBody?: unknown;
   };
 
+  type CodexQuotaFusionRequestBody = BusinessQuotaRequestBody & {
+    expectedWorkspaceSeed?: string;
+    profileCount?: number;
+    profileSeeds?: string[];
+    accountSeeds?: string[];
+    observedWorkspaceSeeds?: string[];
+    profileStatuses?: BusinessWorkspaceObservationStatus[];
+    memberInOwnerRoster?: boolean[];
+  };
+
   type AdminUiRequestBody = {
     dryRunId?: string;
     actionKind?: AdminUiActionKind;
@@ -22854,6 +22865,41 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       };
     });
 
+    server.get(`${prefix}/quota-fusion`, async () => {
+      const store = await getStore();
+      const [workspaceReadiness, accountReadiness, reports] = store
+        ? await Promise.all([
+            store.workspaceCodexQuotaReadiness.listRecords({ limit: 50 }),
+            store.accountCodexQuotaReadiness.listRecords({ limit: 50 }),
+            store.codexQuotaFusionReports.listRecords({ limit: 50 }),
+          ])
+        : [[], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_codex_quota_fusion',
+        surface: 'codex-quota-fusion',
+        summary:
+          'Codex quota fusion projections expose workspace/account readiness hashes, statuses, and blockers only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          workspaceReadiness: workspaceReadiness.length,
+          accountReadiness: accountReadiness.length,
+          reports: reports.length,
+        },
+        items: [
+          ...workspaceReadiness.map((record) =>
+            projectM51ProjectionRecord('workspace-codex-quota-readiness', record),
+          ),
+          ...accountReadiness.map((record) =>
+            projectM51ProjectionRecord('account-codex-quota-readiness', record),
+          ),
+          ...reports.map((record) =>
+            projectM51ProjectionRecord('codex-quota-fusion-report', record),
+          ),
+        ],
+      });
+    });
+
     server.get(`${prefix}/automation-runs`, async () => {
       const store = await getStore();
       const [intents, dryRuns, authorities, runs] = store
@@ -23117,6 +23163,129 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         liveClickPerformed: false,
         executionDisabled: true,
         summary: bundle.report.summary,
+      };
+    });
+
+    server.post(`${prefix}/quota-fusions`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as CodexQuotaFusionRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const [rosters, billings, existingProfileObservations] = await Promise.all([
+        store.businessAdminMemberRosterSnapshots.listRecords({ limit: 1 }),
+        store.businessBillingSummaries.listRecords({ limit: 1 }),
+        store.businessProfileWorkspaceObservations.listRecords({ limit: 20 }),
+      ]);
+      const ownerRosterSnapshot = rosters[0];
+      const billingSummary = billings[0];
+      const shouldCreateProfiles =
+        existingProfileObservations.length === 0 ||
+        (body?.profileSeeds?.length ?? 0) > 0 ||
+        (body?.profileStatuses?.length ?? 0) > 0;
+      const profileCount = Math.max(
+        1,
+        Math.min(
+          20,
+          body?.profileCount ??
+            body?.profileSeeds?.length ??
+            body?.profileStatuses?.length ??
+            existingProfileObservations.length ??
+            1,
+        ),
+      );
+      const profileBundle = shouldCreateProfiles
+        ? createBusinessMemberReconciliationBundle({
+            ownerRosterSnapshot,
+            expectedWorkspaceSeed:
+              body?.expectedWorkspaceSeed ?? body?.dryRunId ?? 'codex-quota-fusion',
+            profiles: Array.from({ length: profileCount }, (_, index) => ({
+              profileSeed:
+                body?.profileSeeds?.[index] ??
+                `${body?.dryRunId ?? 'codex-quota-fusion'}-profile-${index + 1}`,
+              accountSeed: body?.accountSeeds?.[index],
+              observedWorkspaceSeed: body?.observedWorkspaceSeeds?.[index],
+              status: normalizeBusinessWorkspaceObservationStatus(body?.profileStatuses?.[index]),
+              memberInOwnerRoster: body?.memberInOwnerRoster?.[index],
+            })),
+          })
+        : undefined;
+      const profileObservations =
+        profileBundle?.profileObservations ?? existingProfileObservations.slice(0, profileCount);
+      const sourceHealth = summarizeQuotaSourceHealth({
+        sourceKind: normalizeBusinessQuotaSourceKind(body?.sourceKind),
+        sourceRefSeed: body?.sourceRefSeed ?? body?.dryRunId ?? 'codex-quota-fusion-source',
+        status: body?.canaryPassed === true ? 'healthy' : 'degraded',
+        failureKind: body?.canaryPassed === true ? 'none' : 'canary_failed',
+        blockReasons: body?.canaryPassed === true ? [] : ['quota_canary_required'],
+        canaryPassed: body?.canaryPassed ?? false,
+        liveReadReady: body?.canaryPassed === true,
+        observationCount: 1,
+      });
+      const quotaSnapshot = createQuotaSnapshotFromSource({
+        subjectKind: normalizeQuotaSubjectKind(body?.subjectKind),
+        subjectSeed: body?.subjectSeed ?? body?.dryRunId ?? 'codex-quota-fusion-account',
+        status: normalizeQuotaSnapshotStatus(body?.quotaStatus),
+        limitCount: body?.limitCount,
+        usedCount: body?.usedCount,
+        remainingCount: body?.remainingCount,
+        sourceHealth,
+      });
+      const fusion = createCodexQuotaFusionBundle({
+        ownerRosterSnapshot,
+        billingSummary,
+        sourceHealth,
+        quotaSnapshots: [quotaSnapshot],
+        profileObservations,
+        canaryPassed: body?.canaryPassed,
+      });
+
+      await Promise.all([
+        store.codexQuotaSourceHealth.saveRecord(sourceHealth),
+        store.quotaSnapshots.saveRecord(quotaSnapshot),
+        ...(profileBundle
+          ? [
+              ...profileBundle.profileObservations.map((observation) =>
+                store.businessProfileWorkspaceObservations.saveRecord(observation),
+              ),
+            ]
+          : []),
+        store.workspaceCodexQuotaReadiness.saveRecord(fusion.workspaceReadiness),
+        ...fusion.accountReadiness.map((readiness) =>
+          store.accountCodexQuotaReadiness.saveRecord(readiness),
+        ),
+        store.codexQuotaFusionReports.saveRecord(fusion.report),
+      ]);
+
+      return {
+        status: fusion.report.status,
+        reportId: fusion.report.id,
+        workspaceReadinessId: fusion.workspaceReadiness.id,
+        accountReadinessIds: fusion.report.accountReadinessIds,
+        accountCount: fusion.report.accountCount,
+        readyAccountCount: fusion.report.readyAccountCount,
+        blockedAccountCount: fusion.report.blockedAccountCount,
+        limitedAccountCount: fusion.report.limitedAccountCount,
+        exhaustedAccountCount: fusion.report.exhaustedAccountCount,
+        sourceConflictCount: fusion.report.sourceConflictCount,
+        canaryPassed: fusion.report.canaryPassed,
+        dispatchAllowed: fusion.report.dispatchAllowed,
+        blockReasons: fusion.report.blockReasons,
+        sourceHealthId: sourceHealth.id,
+        quotaSnapshotId: quotaSnapshot.id,
+        ownerRosterSnapshotId: ownerRosterSnapshot?.id,
+        billingSummaryId: billingSummary?.id,
+        requestBodyAuthorityAccepted: false,
+        directAdapterExecutionAllowed: false,
+        liveCodexDispatchAllowed: fusion.report.dispatchAllowed,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: fusion.report.summary,
       };
     });
 

@@ -6922,3 +6922,32 @@ workflows:
       noRawAccountWorkspaceProfileStorage: true
       workspaceSwitchVisibleClickExecutionDeferredToM71: true
       codexDispatchBlockedOnMismatch: true
+  m69.codex-quota-fusion:
+    risk: high
+    trigger:
+      type: codex-quota-fusion
+      entrypoint: contracts business-quota-kernel store supervisor docs
+      localControlRequired: true
+    scope:
+      - workspace-codex-quota-readiness
+      - account-codex-quota-readiness
+      - codex-quota-fusion-report
+      - supervisor-codex-quota-fusion-projections
+    docs:
+      - docs/releases/m69-codex-quota-fusion.md
+      - docs/reviews/m69-codex-quota-fusion-review.md
+      - docs/runbooks/m69-codex-quota-fusion-runbook.md
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      metadataOnlyPublicOutput: true
+      directAdapterExecutionAllowed: false
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noRawAccountWorkspaceProfileStorage: true
+      noRawQuotaPayloadStorage: true
+      codexDispatchBlockedOnQuotaConflict: true
+      codexDispatchBlockedOnCanaryFailure: true

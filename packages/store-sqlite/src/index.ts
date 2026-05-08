@@ -18,6 +18,8 @@ import type {
   BusinessQuotaCrossCheckReport,
   BusinessWorkspaceSwitchDryRunPlan,
   BusinessWorkspaceSwitchRun,
+  AccountCodexQuotaReadiness,
+  CodexQuotaFusionReport,
   BusinessMembershipMirror,
   BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
@@ -231,6 +233,7 @@ import type {
   UiAutomationIntent,
   UiAutomationRun,
   UiObservationSource,
+  WorkspaceCodexQuotaReadiness,
   WorkspaceCreditSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
@@ -678,6 +681,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly businessWorkspaceSwitchDryRunPlans: MetadataEntityRepository<BusinessWorkspaceSwitchDryRunPlan>;
   readonly businessWorkspaceSwitchRuns: MetadataEntityRepository<BusinessWorkspaceSwitchRun>;
   readonly businessMemberReconciliationReports: MetadataEntityRepository<BusinessMemberReconciliationReport>;
+  readonly workspaceCodexQuotaReadiness: MetadataEntityRepository<WorkspaceCodexQuotaReadiness>;
+  readonly accountCodexQuotaReadiness: MetadataEntityRepository<AccountCodexQuotaReadiness>;
+  readonly codexQuotaFusionReports: MetadataEntityRepository<CodexQuotaFusionReport>;
   readonly automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
@@ -1241,6 +1247,21 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteMetadataEntityRepository<BusinessMemberReconciliationReport>(
         database,
         'business_member_reconciliation_reports',
+      );
+    this.workspaceCodexQuotaReadiness =
+      new SqliteMetadataEntityRepository<WorkspaceCodexQuotaReadiness>(
+        database,
+        'workspace_codex_quota_readiness',
+      );
+    this.accountCodexQuotaReadiness =
+      new SqliteMetadataEntityRepository<AccountCodexQuotaReadiness>(
+        database,
+        'account_codex_quota_readiness',
+      );
+    this.codexQuotaFusionReports =
+      new SqliteMetadataEntityRepository<CodexQuotaFusionReport>(
+        database,
+        'codex_quota_fusion_reports',
       );
     this.automationCapabilityPolicies =
       new SqliteMetadataEntityRepository<AutomationCapabilityPolicy>(
@@ -7553,6 +7574,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS business_member_reconciliation_reports (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_codex_quota_readiness (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS account_codex_quota_readiness (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_quota_fusion_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

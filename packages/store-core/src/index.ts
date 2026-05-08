@@ -206,6 +206,8 @@ import type {
   BusinessProfileWorkspaceObservation,
   BusinessWorkspaceSwitchDryRunPlan,
   BusinessWorkspaceSwitchRun,
+  AccountCodexQuotaReadiness,
+  CodexQuotaFusionReport,
   BusinessQuotaPermissionProbe,
   BusinessQuotaSourceProbe,
   EvidenceBundle,
@@ -227,6 +229,7 @@ import type {
   UiAutomationIntent,
   UiAutomationRun,
   UiObservationSource,
+  WorkspaceCodexQuotaReadiness,
   WorkspaceCreditSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
@@ -1796,6 +1799,9 @@ export interface CodexHubStore {
   businessWorkspaceSwitchDryRunPlans: MetadataEntityRepository<BusinessWorkspaceSwitchDryRunPlan>;
   businessWorkspaceSwitchRuns: MetadataEntityRepository<BusinessWorkspaceSwitchRun>;
   businessMemberReconciliationReports: MetadataEntityRepository<BusinessMemberReconciliationReport>;
+  workspaceCodexQuotaReadiness: MetadataEntityRepository<WorkspaceCodexQuotaReadiness>;
+  accountCodexQuotaReadiness: MetadataEntityRepository<AccountCodexQuotaReadiness>;
+  codexQuotaFusionReports: MetadataEntityRepository<CodexQuotaFusionReport>;
   automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
