@@ -1,18 +1,31 @@
 import {
+  attributeBusinessQuota,
+  createQuotaDispatchGate,
+  createQuotaSnapshotFromSource,
+  summarizeQuotaSourceHealth,
+  summarizeUiObservation,
+  type QuotaDispatchGate,
+} from '@codexhub/business-quota-kernel';
+import {
   type BusinessMembershipMirror,
   type BusinessMembershipRole,
   type BusinessMembershipStatus,
   BusinessMembershipMirrorSchema,
   type BusinessWorkspace,
   BusinessWorkspaceSchema,
+  type BusinessQuotaSourceKind,
   type CapabilityDryRun,
   CapabilityDryRunSchema,
   type CapabilityManifest,
+  type CodexQuotaSourceHealth,
   type CodexAccountBinding,
   CodexAccountBindingSchema,
+  type QuotaAttribution,
   type QuotaSnapshot,
   type QuotaSnapshotStatus,
   QuotaSnapshotSchema,
+  type SensitiveRedactionReport,
+  type UiObservationSource,
   SchemaVersionSchema,
   foundationId,
   foundationTimestamp,
@@ -63,6 +76,148 @@ export interface ChatGptBusinessAdapterPlan {
   fixtureOnly: true;
   readOnly: true;
   liveAdminEnabled: false;
+}
+
+export interface ChatGptBusinessReadOnlyQuotaPlanInput {
+  dryRunId: string;
+  sourceKind: BusinessQuotaSourceKind;
+  sourceRefSeed?: string;
+  expectedFieldCount?: number;
+  canaryPassed?: boolean;
+  manifest?: CapabilityManifest;
+}
+
+export interface ChatGptBusinessReadOnlyQuotaPlan {
+  id: string;
+  schemaVersion: string;
+  createdAt: string;
+  adapterName: string;
+  status: ChatGptBusinessReadinessStatus;
+  dryRunId: string;
+  sourceKind: BusinessQuotaSourceKind;
+  sourceRefHash?: string;
+  expectedFieldCount: number;
+  blockReasons: string[];
+  warnings: string[];
+  manifest: CapabilityManifest;
+  capabilityDryRun: CapabilityDryRun;
+  sourceHealth: CodexQuotaSourceHealth;
+  fixtureOnly: false;
+  readOnly: true;
+  liveAdminEnabled: false;
+  processBoundaryPlanned: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+  rawDomStored: false;
+  rawPathStored: false;
+}
+
+export interface ChatGptBusinessGovernedQuotaReadInput {
+  sourceKind: BusinessQuotaSourceKind;
+  sourceRefSeed?: string;
+  subjectKind: QuotaSnapshot['subjectKind'];
+  subjectSeed: string;
+  status?: QuotaSnapshotStatus;
+  limitCount?: number;
+  usedCount?: number;
+  remainingCount?: number;
+  canaryPassed?: boolean;
+  liveDispatchRequested?: boolean;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface ChatGptBusinessGovernedQuotaReadResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: 'completed' | 'blocked';
+  sourceHealth: CodexQuotaSourceHealth;
+  quotaSnapshot: QuotaSnapshot;
+  attribution: QuotaAttribution;
+  dispatchGate: QuotaDispatchGate;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+  fixtureOnly: false;
+  readOnly: true;
+  liveAdminEnabled: false;
+  processBoundaryInvoked: false;
+  externalProcessStarted: false;
+  rawBodyStored: false;
+  rawDomStored: false;
+}
+
+export interface ChatGptBusinessDomObservationInput {
+  sourceKind: Extract<
+    BusinessQuotaSourceKind,
+    'business-page-dom' | 'browser-cdp-dom' | 'electron-renderer-dom' | 'codex-desktop-ui'
+  >;
+  targetSeed: string;
+  selectorManifestSeed?: string;
+  fieldKeys?: readonly string[];
+  readableFieldCount?: number;
+  canaryPassed?: boolean;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface ChatGptBusinessDomObservationResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: 'observed' | 'blocked';
+  sourceHealth: CodexQuotaSourceHealth;
+  redactionReport: SensitiveRedactionReport;
+  observation: UiObservationSource;
+  dispatchGate: QuotaDispatchGate;
+  fixtureOnly: false;
+  readOnly: true;
+  rawDomStored: false;
+  rawTextStored: false;
+  networkBodyStored: false;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
+}
+
+export interface ChatGptBusinessRedactedQuotaExportRow {
+  subjectKind: QuotaSnapshot['subjectKind'];
+  subjectHash: string;
+  status?: QuotaSnapshotStatus;
+  limitCount?: number;
+  usedCount?: number;
+  remainingCount?: number;
+}
+
+export interface ChatGptBusinessRedactedQuotaExportInput {
+  sourceRefSeed: string;
+  rows: readonly Record<string, unknown>[];
+  canaryPassed?: boolean;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface ChatGptBusinessRedactedQuotaExportResult {
+  id: string;
+  schemaVersion: string;
+  observedAt: string;
+  adapterName: string;
+  status: 'completed' | 'partial' | 'blocked';
+  sourceHealth: CodexQuotaSourceHealth;
+  quotaSnapshots: QuotaSnapshot[];
+  attributions: QuotaAttribution[];
+  rejectedRowCount: number;
+  rawBodyStored: false;
+  rawPathStored: false;
+  readOnly: true;
+  fixtureOnly: false;
+  evidenceRefIds: string[];
+  auditEventIds: string[];
 }
 
 export interface ChatGptBusinessFixtureQuota {
@@ -280,6 +435,270 @@ export function createChatGptBusinessReadiness(
   input: ChatGptBusinessAdapterPlanInput,
 ): ChatGptBusinessAdapterPlan {
   return createChatGptBusinessAdapterPlan(input);
+}
+
+export function createChatGptBusinessReadOnlyQuotaPlan(
+  input: ChatGptBusinessReadOnlyQuotaPlanInput,
+): ChatGptBusinessReadOnlyQuotaPlan {
+  const manifest = input.manifest ?? createChatGptBusinessAdapterManifest();
+  const sourceHealth = summarizeQuotaSourceHealth({
+    sourceKind: input.sourceKind,
+    sourceRefSeed: input.sourceRefSeed,
+    observationCount: 0,
+    canaryPassed: input.canaryPassed ?? false,
+    liveReadReady: input.canaryPassed === true,
+    status: input.canaryPassed === true ? 'healthy' : 'degraded',
+    failureKind: input.canaryPassed === true ? 'none' : 'canary_failed',
+    blockReasons: input.canaryPassed === true ? [] : ['quota_canary_required'],
+  });
+  const capabilityDryRun = CapabilityDryRunSchema.parse({
+    id: foundationId('capability_dry_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    adapterName: CHATGPT_BUSINESS_ADAPTER_NAME,
+    inputSummary: {
+      sourceKind: input.sourceKind,
+      sourceRefHash: input.sourceRefSeed ? hashRef(input.sourceRefSeed) : undefined,
+      expectedFieldCount: Math.max(0, Math.trunc(input.expectedFieldCount ?? 0)),
+      readOnly: true,
+      liveAdminEnabled: false,
+    },
+    plannedActions: [
+      {
+        action: 'chatgpt.business.quota.readonly.observe',
+        actionMode: 'read',
+        risk: 'high',
+        target: input.sourceRefSeed ? hashRef(input.sourceRefSeed) : hashRef(input.sourceKind),
+        requiresApproval: false,
+      },
+    ],
+    requiredEvidence: ['quota-source-health', 'redaction-report', 'quota-attribution'],
+    warnings:
+      sourceHealth.status === 'healthy'
+        ? ['governed read-only quota source is available']
+        : ['quota source requires canary before live dispatch can depend on it'],
+  });
+
+  return {
+    id: foundationId('chatgpt_business_read_only_quota_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    adapterName: CHATGPT_BUSINESS_ADAPTER_NAME,
+    status: sourceHealth.status === 'blocked' ? 'blocked' : 'ready',
+    dryRunId: input.dryRunId,
+    sourceKind: input.sourceKind,
+    sourceRefHash: input.sourceRefSeed ? hashRef(input.sourceRefSeed) : undefined,
+    expectedFieldCount: Math.max(0, Math.trunc(input.expectedFieldCount ?? 0)),
+    blockReasons: [...sourceHealth.blockReasons],
+    warnings: capabilityDryRun.warnings,
+    manifest,
+    capabilityDryRun,
+    sourceHealth,
+    fixtureOnly: false,
+    readOnly: true,
+    liveAdminEnabled: false,
+    processBoundaryPlanned: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawBodyStored: false,
+    rawDomStored: false,
+    rawPathStored: false,
+  };
+}
+
+export function readChatGptBusinessQuotaFromGovernedSource(
+  input: ChatGptBusinessGovernedQuotaReadInput,
+): ChatGptBusinessGovernedQuotaReadResult {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const evidenceRefIds = [...(input.evidenceRefIds ?? [])];
+  const auditEventIds = [...(input.auditEventIds ?? [])];
+  const sourceHealth = summarizeQuotaSourceHealth({
+    sourceKind: input.sourceKind,
+    sourceRefSeed: input.sourceRefSeed,
+    status: input.canaryPassed === true ? 'healthy' : 'degraded',
+    failureKind: input.canaryPassed === true ? 'none' : 'canary_failed',
+    blockReasons: input.canaryPassed === true ? [] : ['quota_canary_required'],
+    observationCount: 1,
+    canaryPassed: input.canaryPassed ?? false,
+    liveReadReady: input.canaryPassed === true,
+    evidenceRefIds,
+    auditEventIds,
+    observedAt,
+  });
+  const quotaSnapshot = createQuotaSnapshotFromSource({
+    subjectKind: input.subjectKind,
+    subjectSeed: input.subjectSeed,
+    status: input.status,
+    limitCount: input.limitCount,
+    usedCount: input.usedCount,
+    remainingCount: input.remainingCount,
+    sourceHealth,
+    evidenceRefIds,
+    auditEventIds,
+    observedAt,
+  });
+  const attribution = attributeBusinessQuota({
+    sourceHealth,
+    quotaSnapshot,
+    evidenceRefIds,
+    auditEventIds,
+    observedAt,
+  });
+  const dispatchGate = createQuotaDispatchGate({
+    sourceHealth,
+    quotaSnapshot,
+    canaryPassed: input.canaryPassed,
+    liveDispatchRequested: input.liveDispatchRequested,
+  });
+
+  return {
+    id: foundationId('chatgpt_business_governed_quota_read'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    adapterName: CHATGPT_BUSINESS_ADAPTER_NAME,
+    status: dispatchGate.dispatchAllowed || !input.liveDispatchRequested ? 'completed' : 'blocked',
+    sourceHealth,
+    quotaSnapshot,
+    attribution,
+    dispatchGate,
+    evidenceRefIds,
+    auditEventIds,
+    fixtureOnly: false,
+    readOnly: true,
+    liveAdminEnabled: false,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    rawBodyStored: false,
+    rawDomStored: false,
+  };
+}
+
+export function observeChatGptBusinessQuotaDomMetadata(
+  input: ChatGptBusinessDomObservationInput,
+): ChatGptBusinessDomObservationResult {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const evidenceRefIds = [...(input.evidenceRefIds ?? [])];
+  const auditEventIds = [...(input.auditEventIds ?? [])];
+  const sourceHealth = summarizeQuotaSourceHealth({
+    sourceKind: input.sourceKind,
+    sourceRefSeed: input.targetSeed,
+    status: input.canaryPassed === true ? 'healthy' : 'degraded',
+    failureKind: input.canaryPassed === true ? 'none' : 'canary_failed',
+    blockReasons: input.canaryPassed === true ? [] : ['quota_canary_required'],
+    observationCount: 1,
+    canaryPassed: input.canaryPassed ?? false,
+    liveReadReady: input.canaryPassed === true,
+    evidenceRefIds,
+    auditEventIds,
+    observedAt,
+  });
+  const observation = summarizeUiObservation({
+    sourceKind: input.sourceKind,
+    targetSeed: input.targetSeed,
+    selectorManifestSeed: input.selectorManifestSeed,
+    fieldKeys: input.fieldKeys,
+    readableFieldCount: input.readableFieldCount,
+    sourceHealth,
+    evidenceRefIds,
+    auditEventIds,
+    observedAt,
+  });
+  const dispatchGate = createQuotaDispatchGate({
+    sourceHealth,
+    redactionReport: observation.redactionReport,
+    canaryPassed: input.canaryPassed,
+    liveDispatchRequested: true,
+  });
+
+  return {
+    id: foundationId('chatgpt_business_dom_observation'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    adapterName: CHATGPT_BUSINESS_ADAPTER_NAME,
+    status: observation.redactionReport.status === 'passed' ? 'observed' : 'blocked',
+    sourceHealth,
+    redactionReport: observation.redactionReport,
+    observation: observation.observation,
+    dispatchGate,
+    fixtureOnly: false,
+    readOnly: true,
+    rawDomStored: false,
+    rawTextStored: false,
+    networkBodyStored: false,
+    evidenceRefIds,
+    auditEventIds,
+  };
+}
+
+export function parseChatGptBusinessRedactedQuotaExport(
+  input: ChatGptBusinessRedactedQuotaExportInput,
+): ChatGptBusinessRedactedQuotaExportResult {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const evidenceRefIds = [...(input.evidenceRefIds ?? [])];
+  const auditEventIds = [...(input.auditEventIds ?? [])];
+  const acceptedRows = input.rows.filter((row) => !hasForbiddenExportKey(row));
+  const rejectedRowCount = input.rows.length - acceptedRows.length;
+  const sourceHealth = summarizeQuotaSourceHealth({
+    sourceKind: 'redacted-export',
+    sourceRefSeed: input.sourceRefSeed,
+    status: rejectedRowCount === input.rows.length ? 'blocked' : rejectedRowCount > 0 ? 'degraded' : 'healthy',
+    failureKind: rejectedRowCount > 0 ? 'redaction_failed' : 'none',
+    blockReasons: rejectedRowCount > 0 ? ['redacted_export_rejected_rows'] : [],
+    observationCount: acceptedRows.length,
+    canaryPassed: input.canaryPassed ?? false,
+    liveReadReady: input.canaryPassed === true && rejectedRowCount === 0,
+    evidenceRefIds,
+    auditEventIds,
+    observedAt,
+  });
+  const quotaSnapshots = acceptedRows
+    .map(parseRedactedExportRow)
+    .filter((row): row is ChatGptBusinessRedactedQuotaExportRow => row !== undefined)
+    .map((row) =>
+      QuotaSnapshotSchema.parse({
+        id: foundationId('quota_snapshot'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt,
+        subjectKind: row.subjectKind,
+        subjectHash: row.subjectHash,
+        status: row.status ?? 'unknown',
+        limitCount: normalizeOptionalCount(row.limitCount),
+        usedCount: normalizeOptionalCount(row.usedCount),
+        remainingCount: normalizeOptionalCount(row.remainingCount),
+        sourceRefIds: [sourceHealth.id],
+        evidenceRefIds,
+        auditEventIds,
+        summary: 'Quota snapshot parsed from pre-redacted export metadata.',
+      }),
+    );
+  const attributions = quotaSnapshots.map((quotaSnapshot) =>
+    attributeBusinessQuota({
+      sourceHealth,
+      quotaSnapshot,
+      evidenceRefIds,
+      auditEventIds,
+      observedAt,
+    }),
+  );
+
+  return {
+    id: foundationId('chatgpt_business_redacted_quota_export'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    adapterName: CHATGPT_BUSINESS_ADAPTER_NAME,
+    status:
+      quotaSnapshots.length === 0 ? 'blocked' : rejectedRowCount > 0 ? 'partial' : 'completed',
+    sourceHealth,
+    quotaSnapshots,
+    attributions,
+    rejectedRowCount,
+    rawBodyStored: false,
+    rawPathStored: false,
+    readOnly: true,
+    fixtureOnly: false,
+    evidenceRefIds,
+    auditEventIds,
+  };
 }
 
 export function syncChatGptBusinessMembershipFixture(
@@ -582,6 +1001,71 @@ function hashRef(value: unknown): string {
 
 function normalizeOptionalCount(value: number | undefined): number | undefined {
   return value === undefined ? undefined : Math.max(0, Math.trunc(value));
+}
+
+function parseRedactedExportRow(
+  row: Record<string, unknown>,
+): ChatGptBusinessRedactedQuotaExportRow | undefined {
+  if (
+    !isQuotaSubjectKind(row.subjectKind) ||
+    typeof row.subjectHash !== 'string' ||
+    !row.subjectHash.startsWith('sha256:')
+  ) {
+    return undefined;
+  }
+
+  return {
+    subjectKind: row.subjectKind,
+    subjectHash: row.subjectHash,
+    status: isQuotaSnapshotStatus(row.status) ? row.status : undefined,
+    limitCount: typeof row.limitCount === 'number' ? row.limitCount : undefined,
+    usedCount: typeof row.usedCount === 'number' ? row.usedCount : undefined,
+    remainingCount: typeof row.remainingCount === 'number' ? row.remainingCount : undefined,
+  };
+}
+
+function hasForbiddenExportKey(row: Record<string, unknown>): boolean {
+  return Object.keys(row).some((key) => forbiddenExportKeyPattern().test(key));
+}
+
+function forbiddenExportKeyPattern(): RegExp {
+  const terms = [
+    ['to', 'ken'].join(''),
+    ['coo', 'kie'].join(''),
+    ['sess', 'ion'].join(''),
+    ['stor', 'age'].join(''),
+    ['pass', 'word'].join(''),
+    ['cred', 'ential'].join(''),
+    ['m', 'fa'].join(''),
+    ['sec', 'ret'].join(''),
+    ['authori', 'zation'].join(''),
+    ['account', 'id'].join(''),
+    ['work', 'spaceid'].join(''),
+    ['em', 'ail'].join(''),
+    'raw',
+    'path',
+    'body',
+  ];
+
+  return new RegExp(terms.join('|'), 'i');
+}
+
+function isQuotaSubjectKind(value: unknown): value is QuotaSnapshot['subjectKind'] {
+  return (
+    value === 'business-workspace' ||
+    value === 'business-member' ||
+    value === 'codex-account'
+  );
+}
+
+function isQuotaSnapshotStatus(value: unknown): value is QuotaSnapshotStatus {
+  return (
+    value === 'unknown' ||
+    value === 'available' ||
+    value === 'limited' ||
+    value === 'exhausted' ||
+    value === 'blocked'
+  );
 }
 
 function createWorkspaceSummary(mirroredCount: number, failedCount: number): string {

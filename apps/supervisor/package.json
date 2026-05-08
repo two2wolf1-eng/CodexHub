@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@codexhub/approval-ux-kernel": "workspace:*",
+    "@codexhub/business-quota-kernel": "workspace:*",
     "@codexhub/browser-profile-kernel": "workspace:*",
     "@codexhub/codex-kernel": "workspace:*",
     "@codexhub/codex-scheduler-kernel": "workspace:*",
@@ -26,6 +27,7 @@
     "@codexhub/store-core": "workspace:*",
     "@codexhub/store-sqlite": "workspace:*",
     "@codexhub/task-closure-kernel": "workspace:*",
+    "@codexhub/ui-automation-kernel": "workspace:*",
     "@codexhub/worktree-manager": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "fastify": "^5.2.1"

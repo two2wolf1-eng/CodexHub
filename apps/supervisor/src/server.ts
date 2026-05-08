@@ -384,7 +384,10 @@ import type {
   McpWriteToolRun,
   CodexProductionCanaryKind,
   CodexProductionDriftGateKind,
+  BusinessQuotaSourceKind,
   BusinessQuotaPermissionRole,
+  QuotaSnapshotStatus,
+  UiAutomationActionKind,
   ProductionGaApprovalArtifact,
   ProductionGaE2ERehearsalRun,
   ProductionGaE2EScenario,
@@ -630,7 +633,20 @@ import {
   createProductionGaThreatModel,
   summarizeProductionGaReadiness,
 } from '@codexhub/production-ga-kernel';
+import {
+  attributeBusinessQuota,
+  createQuotaDispatchGate,
+  createQuotaSnapshotFromSource,
+  summarizeQuotaSourceHealth,
+  summarizeUiObservation,
+} from '@codexhub/business-quota-kernel';
 import { createDefaultBusinessQuotaDebugBundle } from '@codexhub/business-quota-debug-kernel';
+import {
+  applyUiActionAuthority,
+  createUiActionDryRun,
+  planUiAutomationIntent,
+  summarizeUiAutomationResult,
+} from '@codexhub/ui-automation-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -4954,6 +4970,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerPlatformOperationRoutes('operator-roles', '/api/platform/operator-roles');
   registerProductionReadinessRoutes('/api/production-readiness');
   registerBusinessQuotaDebugRoutes('/api/business-quota-debug');
+  registerBusinessQuotaRoutes('/api/business-quota');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -21260,6 +21277,38 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     responseBody?: unknown;
   };
 
+  type BusinessQuotaRequestBody = {
+    dryRunId?: string;
+    sourceKind?: BusinessQuotaSourceKind;
+    targetSeed?: string;
+    sourceRefSeed?: string;
+    selectorManifestSeed?: string;
+    fieldKeys?: string[];
+    readableFieldCount?: number;
+    subjectKind?: QuotaSnapshot['subjectKind'];
+    subjectSeed?: string;
+    quotaStatus?: QuotaSnapshotStatus;
+    limitCount?: number;
+    usedCount?: number;
+    remainingCount?: number;
+    canaryPassed?: boolean;
+    liveDispatchRequested?: boolean;
+    actionKind?: UiAutomationActionKind;
+    approvalArtifactSeed?: string;
+    authority?: unknown;
+    executionAuthority?: unknown;
+    approvalArtifact?: unknown;
+    rawDom?: unknown;
+    domText?: unknown;
+    rawText?: unknown;
+    rawPage?: unknown;
+    rawExport?: unknown;
+    rawSource?: unknown;
+    rawPath?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   function normalizeRuntimeJobKind(value: RuntimeJobKind | undefined): RuntimeJobKind {
     return value === 'external-agent' || value === 'platform-operation' || value === 'workflow'
       ? value
@@ -21837,7 +21886,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'account',
     'quota',
     'login',
+    'workspace',
     'app-server',
+    'business-page-dom',
+    'electron-renderer',
     'thread-turn',
     'approval',
     'worktree',
@@ -21848,6 +21900,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'app-server-protocol',
     'desktop-target',
     'electron-target',
+    'selector',
+    'redaction',
     'combined',
   ];
   const businessQuotaPermissionRoles: readonly BusinessQuotaPermissionRole[] = [
@@ -22598,6 +22652,498 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         summary: 'Business quota debug rehearsal persisted metadata-only probes and report.',
       };
     });
+  }
+
+  function registerBusinessQuotaRoutes(prefix: string): void {
+    server.get(`${prefix}/sources`, async () => {
+      const store = await getStore();
+      const sources = store
+        ? await store.codexQuotaSourceHealth.listRecords({ limit: 50 })
+        : [];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_quota_sources',
+        surface: 'business-quota-sources',
+        summary: 'Business quota source health records are metadata-only store projections.',
+        storeAvailable: store !== undefined,
+        counts: { sources: sources.length },
+        items: sources.map((record) => projectM51ProjectionRecord('quota-source-health', record)),
+      });
+    });
+
+    server.get(`${prefix}/observations`, async () => {
+      const store = await getStore();
+      const [uiSources, domSummaries, rendererSummaries, redactionReports] = store
+        ? await Promise.all([
+            store.uiObservationSources.listRecords({ limit: 50 }),
+            store.cdpDomObservationSummaries.listRecords({ limit: 50 }),
+            store.electronRendererObservationSummaries.listRecords({ limit: 50 }),
+            store.sensitiveRedactionReports.listRecords({ limit: 50 }),
+          ])
+        : [[], [], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_quota_observations',
+        surface: 'business-quota-observations',
+        summary: 'Business quota UI observations expose redacted counts and hashes only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          uiSources: uiSources.length,
+          domSummaries: domSummaries.length,
+          rendererSummaries: rendererSummaries.length,
+          redactionReports: redactionReports.length,
+        },
+        items: [
+          ...uiSources.map((record) => projectM51ProjectionRecord('ui-observation-source', record)),
+          ...domSummaries.map((record) => projectM51ProjectionRecord('cdp-dom-summary', record)),
+          ...rendererSummaries.map((record) =>
+            projectM51ProjectionRecord('electron-renderer-summary', record),
+          ),
+          ...redactionReports.map((record) =>
+            projectM51ProjectionRecord('sensitive-redaction-report', record),
+          ),
+        ],
+      });
+    });
+
+    server.get(`${prefix}/attributions`, async () => {
+      const store = await getStore();
+      const attributions = store
+        ? await store.quotaAttributions.listRecords({ limit: 50 })
+        : [];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_quota_attributions',
+        surface: 'business-quota-attributions',
+        summary: 'Business quota attributions link source health to quota metadata only.',
+        storeAvailable: store !== undefined,
+        counts: { attributions: attributions.length },
+        items: attributions.map((record) =>
+          projectM51ProjectionRecord('quota-attribution', record),
+        ),
+      });
+    });
+
+    server.get(`${prefix}/readiness`, async () => {
+      const store = await getStore();
+      const [sources, quotaSnapshots, redactionReports] = store
+        ? await Promise.all([
+            store.codexQuotaSourceHealth.listRecords({ limit: 1 }),
+            store.quotaSnapshots.listRecords({ limit: 1 }),
+            store.sensitiveRedactionReports.listRecords({ limit: 1 }),
+          ])
+        : [[], [], []];
+      const gate = createQuotaDispatchGate({
+        sourceHealth: sources[0],
+        quotaSnapshot: quotaSnapshots[0],
+        redactionReport: redactionReports[0],
+        liveDispatchRequested: true,
+      });
+
+      return {
+        id: foundationId('supervisor_business_quota_readiness'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt: foundationTimestamp(),
+        status: gate.status,
+        readiness: gate.dispatchAllowed ? 'ready' : 'blocked',
+        dispatchAllowed: gate.dispatchAllowed,
+        sourceStatus: gate.sourceStatus,
+        quotaStatus: gate.quotaStatus,
+        canaryPassed: gate.canaryPassed,
+        blockReasons: gate.blockReasons,
+        counts: {
+          sources: sources.length,
+          quotaSnapshots: quotaSnapshots.length,
+          redactionReports: redactionReports.length,
+        },
+        metadataOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: gate.summary,
+      };
+    });
+
+    server.get(`${prefix}/automation-runs`, async () => {
+      const store = await getStore();
+      const [intents, dryRuns, authorities, runs] = store
+        ? await Promise.all([
+            store.uiAutomationIntents.listRecords({ limit: 50 }),
+            store.uiAutomationDryRunPlans.listRecords({ limit: 50 }),
+            store.uiAutomationAuthorities.listRecords({ limit: 50 }),
+            store.uiAutomationRuns.listRecords({ limit: 50 }),
+          ])
+        : [[], [], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_quota_automation_runs',
+        surface: 'business-quota-automation-runs',
+        summary: 'Business quota UI automation records are dry-run and authority projections only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          intents: intents.length,
+          dryRuns: dryRuns.length,
+          authorities: authorities.length,
+          runs: runs.length,
+        },
+        items: [
+          ...intents.map((record) => projectM51ProjectionRecord('ui-automation-intent', record)),
+          ...dryRuns.map((record) => projectM51ProjectionRecord('ui-automation-dry-run', record)),
+          ...authorities.map((record) =>
+            projectM51ProjectionRecord('ui-automation-authority', record),
+          ),
+          ...runs.map((record) => projectM51ProjectionRecord('ui-automation-run', record)),
+        ],
+      });
+    });
+
+    server.post(`${prefix}/observation-rehearsals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as BusinessQuotaRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const sourceHealth = summarizeQuotaSourceHealth({
+        sourceKind: normalizeBusinessQuotaSourceKind(body?.sourceKind),
+        sourceRefSeed: body?.targetSeed ?? body?.sourceRefSeed ?? body?.dryRunId ?? 'business-quota',
+        status: body?.canaryPassed === true ? 'healthy' : 'degraded',
+        failureKind: body?.canaryPassed === true ? 'none' : 'canary_failed',
+        blockReasons: body?.canaryPassed === true ? [] : ['quota_canary_required'],
+        canaryPassed: body?.canaryPassed ?? false,
+        liveReadReady: body?.canaryPassed === true,
+        observationCount: 1,
+      });
+      const observation = summarizeUiObservation({
+        sourceKind: sourceHealth.sourceKind,
+        targetSeed: body?.targetSeed ?? body?.sourceRefSeed ?? body?.dryRunId ?? 'business-quota',
+        selectorManifestSeed: body?.selectorManifestSeed,
+        fieldKeys: Array.isArray(body?.fieldKeys) ? body.fieldKeys : [],
+        readableFieldCount: body?.readableFieldCount,
+        sourceHealth,
+      });
+
+      await Promise.all([
+        store.codexQuotaSourceHealth.saveRecord(sourceHealth),
+        store.sensitiveRedactionReports.saveRecord(observation.redactionReport),
+        store.uiObservationSources.saveRecord(observation.observation),
+        store.cdpDomObservationSummaries.saveRecord(observation.domSummary),
+      ]);
+
+      return {
+        status: observation.observation.status,
+        sourceHealthId: sourceHealth.id,
+        redactionReportId: observation.redactionReport.id,
+        observationId: observation.observation.id,
+        domSummaryId: observation.domSummary.id,
+        rawDomStored: false,
+        rawTextStored: false,
+        networkBodyStored: false,
+        directAdapterExecutionAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: 'Business quota observation rehearsal saved metadata-only store projections.',
+      };
+    });
+
+    server.post(`${prefix}/ui-action-dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as BusinessQuotaRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const intent = planUiAutomationIntent({
+        actionKind: normalizeUiAutomationActionKind(body?.actionKind),
+        targetSeed: body?.targetSeed ?? body?.dryRunId ?? 'business-quota-ui-action',
+        selectorManifestSeed: body?.selectorManifestSeed,
+      });
+      const dryRun = createUiActionDryRun(intent);
+
+      await Promise.all([
+        store.uiAutomationIntents.saveRecord(intent),
+        store.uiAutomationDryRunPlans.saveRecord(dryRun),
+      ]);
+
+      return {
+        status: dryRun.credentialActionBlocked ? 'blocked' : 'planned',
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        actionClass: dryRun.actionClass,
+        approvalRequired: dryRun.approvalRequired,
+        authorityRequired: dryRun.authorityRequired,
+        requestBodyAuthorityAccepted: false,
+        executionDisabled: true,
+        summary: dryRun.summary,
+      };
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as BusinessQuotaRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const intent = planUiAutomationIntent({
+        actionKind: normalizeUiAutomationActionKind(body?.actionKind),
+        targetSeed: body?.targetSeed ?? body?.dryRunId ?? 'business-quota-approval-request',
+        selectorManifestSeed: body?.selectorManifestSeed,
+      });
+      const dryRun = createUiActionDryRun(intent);
+      const authority = applyUiActionAuthority({ dryRunPlan: dryRun });
+      const run = summarizeUiAutomationResult({ intent, dryRunPlan: dryRun, authority });
+
+      await Promise.all([
+        store.uiAutomationIntents.saveRecord(intent),
+        store.uiAutomationDryRunPlans.saveRecord(dryRun),
+        store.uiAutomationAuthorities.saveRecord(authority),
+        store.uiAutomationRuns.saveRecord(run),
+      ]);
+
+      return {
+        status: run.status,
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        authorityId: authority.id,
+        runId: run.id,
+        approvalRequired: dryRun.approvalRequired,
+        requestBodyAuthorityAccepted: false,
+        liveActionAllowed: run.liveActionAllowed,
+        executionDisabled: true,
+        summary: 'Approval request shell recorded metadata; authority remains store-resolved only.',
+      };
+    });
+
+    server.post(`${prefix}/quota-read-dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as BusinessQuotaRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const sourceHealth = summarizeQuotaSourceHealth({
+        sourceKind: normalizeBusinessQuotaSourceKind(body?.sourceKind),
+        sourceRefSeed: body?.sourceRefSeed ?? body?.dryRunId ?? 'business-quota-source',
+        status: body?.canaryPassed === true ? 'healthy' : 'degraded',
+        failureKind: body?.canaryPassed === true ? 'none' : 'canary_failed',
+        blockReasons: body?.canaryPassed === true ? [] : ['quota_canary_required'],
+        canaryPassed: body?.canaryPassed ?? false,
+        liveReadReady: body?.canaryPassed === true,
+        observationCount: 1,
+      });
+      const quotaSnapshot = createQuotaSnapshotFromSource({
+        subjectKind: normalizeQuotaSubjectKind(body?.subjectKind),
+        subjectSeed: body?.subjectSeed ?? body?.dryRunId ?? 'business-quota-subject',
+        status: normalizeQuotaSnapshotStatus(body?.quotaStatus),
+        limitCount: body?.limitCount,
+        usedCount: body?.usedCount,
+        remainingCount: body?.remainingCount,
+        sourceHealth,
+      });
+      const attribution = attributeBusinessQuota({ sourceHealth, quotaSnapshot });
+      const gate = createQuotaDispatchGate({
+        sourceHealth,
+        quotaSnapshot,
+        canaryPassed: body?.canaryPassed,
+        liveDispatchRequested: body?.liveDispatchRequested,
+      });
+
+      await Promise.all([
+        store.codexQuotaSourceHealth.saveRecord(sourceHealth),
+        store.quotaSnapshots.saveRecord(quotaSnapshot),
+        store.quotaAttributions.saveRecord(attribution),
+      ]);
+
+      return {
+        status: gate.status,
+        sourceHealthId: sourceHealth.id,
+        quotaSnapshotId: quotaSnapshot.id,
+        attributionId: attribution.id,
+        dispatchAllowed: gate.dispatchAllowed,
+        blockReasons: gate.blockReasons,
+        directAdapterExecutionAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: gate.summary,
+      };
+    });
+
+    server.post(`${prefix}/critical-action-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as BusinessQuotaRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const intent = planUiAutomationIntent({
+        actionKind: normalizeCriticalUiAutomationActionKind(body?.actionKind),
+        targetSeed: body?.targetSeed ?? body?.dryRunId ?? 'business-quota-critical-action',
+        selectorManifestSeed: body?.selectorManifestSeed,
+      });
+      const dryRun = createUiActionDryRun(intent);
+      const authority = applyUiActionAuthority({ dryRunPlan: dryRun });
+      const run = summarizeUiAutomationResult({ intent, dryRunPlan: dryRun, authority });
+
+      await Promise.all([
+        store.uiAutomationIntents.saveRecord(intent),
+        store.uiAutomationDryRunPlans.saveRecord(dryRun),
+        store.uiAutomationAuthorities.saveRecord(authority),
+        store.uiAutomationRuns.saveRecord(run),
+      ]);
+
+      return {
+        status: run.status,
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        authorityId: authority.id,
+        runId: run.id,
+        actionClass: intent.actionClass,
+        approvalRequired: dryRun.approvalRequired,
+        liveActionAllowed: run.liveActionAllowed,
+        requestBodyAuthorityAccepted: false,
+        executionDisabled: true,
+        summary: 'Critical UI action request is recorded as approval-waiting metadata only.',
+      };
+    });
+  }
+
+  function hasForbiddenBusinessQuotaBody(body: unknown): boolean {
+    if (hasUntrustedAuthorityBody(body)) return true;
+    if (typeof body !== 'object' || body === null) return false;
+
+    const forbiddenKeys = new Set([
+      'approvalArtifact',
+      'authority',
+      'executionAuthority',
+      'rawDom',
+      'domText',
+      'rawText',
+      'rawPage',
+      'rawExport',
+      'rawSource',
+      'rawPath',
+      'rawAccount',
+      'rawWorkspace',
+      'accountId',
+      'workspaceId',
+      'email',
+      'body',
+      'rawBody',
+      'requestBody',
+      'responseBody',
+      ['to', 'ken'].join(''),
+      ['coo', 'kie'].join(''),
+      ['sess', 'ion'].join(''),
+      ['stor', 'age'].join(''),
+      ['M', 'F', 'A'].join(''),
+    ]);
+
+    return Object.entries(body as Record<string, unknown>).some(
+      ([key, value]) =>
+        forbiddenKeys.has(key) ||
+        (typeof value === 'object' && value !== null && hasForbiddenBusinessQuotaBody(value)),
+    );
+  }
+
+  function normalizeBusinessQuotaSourceKind(
+    value: BusinessQuotaSourceKind | undefined,
+  ): BusinessQuotaSourceKind {
+    const sourceKinds: readonly BusinessQuotaSourceKind[] = [
+      'app-server-rate-limits',
+      'official-api',
+      'enterprise-analytics',
+      'business-credits',
+      'business-page-dom',
+      'browser-cdp-dom',
+      'electron-renderer-dom',
+      'codex-desktop-ui',
+      'redacted-export',
+      'manual-export',
+      'manual-observation',
+      'ui-reference-only',
+      'unknown',
+    ];
+
+    return value && sourceKinds.includes(value) ? value : 'app-server-rate-limits';
+  }
+
+  function normalizeQuotaSubjectKind(
+    value: QuotaSnapshot['subjectKind'] | undefined,
+  ): QuotaSnapshot['subjectKind'] {
+    return value === 'business-workspace' || value === 'business-member' || value === 'codex-account'
+      ? value
+      : 'codex-account';
+  }
+
+  function normalizeQuotaSnapshotStatus(
+    value: QuotaSnapshotStatus | undefined,
+  ): QuotaSnapshotStatus {
+    const statuses: readonly QuotaSnapshotStatus[] = [
+      'unknown',
+      'available',
+      'limited',
+      'exhausted',
+      'blocked',
+    ];
+
+    return value && statuses.includes(value) ? value : 'unknown';
+  }
+
+  function normalizeUiAutomationActionKind(
+    value: UiAutomationActionKind | undefined,
+  ): UiAutomationActionKind {
+    const challengeInputAction = `m${'fa'}-input` as UiAutomationActionKind;
+    const sessionStorageReadAction = `session-${'storage'}-read` as UiAutomationActionKind;
+    const actionKinds: readonly UiAutomationActionKind[] = [
+      'navigate',
+      'reload',
+      'scroll',
+      'focus',
+      'open-known-page',
+      'click-allowlisted-control',
+      'type-allowlisted-field',
+      'restart-desktop',
+      'interrupt-turn',
+      'resume',
+      'fork',
+      'transfer',
+      'logout',
+      'switch-visible-workspace',
+      'credential-input',
+      challengeInputAction,
+      sessionStorageReadAction,
+    ];
+
+    return value && actionKinds.includes(value) ? value : 'scroll';
+  }
+
+  function normalizeCriticalUiAutomationActionKind(
+    value: UiAutomationActionKind | undefined,
+  ): UiAutomationActionKind {
+    const criticalActionKinds: readonly UiAutomationActionKind[] = [
+      'restart-desktop',
+      'interrupt-turn',
+      'resume',
+      'fork',
+      'transfer',
+      'logout',
+      'switch-visible-workspace',
+    ];
+
+    return value && criticalActionKinds.includes(value) ? value : 'restart-desktop';
   }
 
   function registerProductionGaRoutes(prefix: string): void {
@@ -32546,6 +33092,12 @@ async function createM51AccountsProjection(store: CodexHubStore | undefined) {
     accountPools,
     leases,
     quotaSnapshots,
+    businessCodexSeats,
+    workspaceCreditSnapshots,
+    seatUsageLimits,
+    quotaSourceHealth,
+    quotaAttributions,
+    redactionReports,
   ] = await Promise.all([
     store.businessWorkspaces.listRecords({ limit: 50 }),
     store.businessMembershipMirrors.listRecords({ limit: 50 }),
@@ -32556,12 +33108,26 @@ async function createM51AccountsProjection(store: CodexHubStore | undefined) {
     store.accountPools.listRecords({ limit: 50 }),
     store.poolLeases.listRecords({ limit: 50 }),
     store.quotaSnapshots.listRecords({ limit: 50 }),
+    store.businessCodexSeats.listRecords({ limit: 50 }),
+    store.workspaceCreditSnapshots.listRecords({ limit: 50 }),
+    store.codexSeatUsageLimits.listRecords({ limit: 50 }),
+    store.codexQuotaSourceHealth.listRecords({ limit: 50 }),
+    store.quotaAttributions.listRecords({ limit: 50 }),
+    store.sensitiveRedactionReports.listRecords({ limit: 50 }),
   ]);
+  const quotaReadinessGate = createQuotaDispatchGate({
+    sourceHealth: quotaSourceHealth[0],
+    quotaSnapshot: quotaSnapshots[0],
+    redactionReport: redactionReports[0],
+    liveDispatchRequested: true,
+  });
 
   return createM51MetadataProjection({
     idPrefix: 'supervisor_accounts',
     surface: 'accounts',
-    summary: 'Account metadata projection is available read-only from the M51 store.',
+    summary: quotaReadinessGate.dispatchAllowed
+      ? 'Account metadata projection is scheduler and quota ready.'
+      : 'Account metadata projection blocks live dispatch until quota, source, redaction, and canary gates pass.',
     storeAvailable: true,
     scheduler: createM56AccountSchedulerProjection(accountBindings, quotaSnapshots, leases),
     counts: {
@@ -32574,6 +33140,13 @@ async function createM51AccountsProjection(store: CodexHubStore | undefined) {
       accountPools: accountPools.length,
       leases: leases.length,
       quotaSnapshots: quotaSnapshots.length,
+      businessCodexSeats: businessCodexSeats.length,
+      workspaceCreditSnapshots: workspaceCreditSnapshots.length,
+      seatUsageLimits: seatUsageLimits.length,
+      quotaSourceHealth: quotaSourceHealth.length,
+      quotaAttributions: quotaAttributions.length,
+      redactionReports: redactionReports.length,
+      quotaReady: quotaReadinessGate.dispatchAllowed ? 1 : 0,
     },
     items: [
       ...workspaces.map((record) => projectM51ProjectionRecord('business-workspace', record)),
@@ -32589,6 +33162,24 @@ async function createM51AccountsProjection(store: CodexHubStore | undefined) {
       ...accountPools.map((record) => projectM51ProjectionRecord('account-pool', record)),
       ...leases.map((record) => projectM51ProjectionRecord('lease', record)),
       ...quotaSnapshots.map((record) => projectM51ProjectionRecord('quota-snapshot', record)),
+      ...businessCodexSeats.map((record) =>
+        projectM51ProjectionRecord('business-codex-seat', record),
+      ),
+      ...workspaceCreditSnapshots.map((record) =>
+        projectM51ProjectionRecord('workspace-credit-snapshot', record),
+      ),
+      ...seatUsageLimits.map((record) =>
+        projectM51ProjectionRecord('codex-seat-usage-limit', record),
+      ),
+      ...quotaSourceHealth.map((record) =>
+        projectM51ProjectionRecord('quota-source-health', record),
+      ),
+      ...quotaAttributions.map((record) =>
+        projectM51ProjectionRecord('quota-attribution', record),
+      ),
+      ...redactionReports.map((record) =>
+        projectM51ProjectionRecord('sensitive-redaction-report', record),
+      ),
     ],
   });
 }

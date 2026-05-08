@@ -12,7 +12,11 @@ import {
   checkChatGptBusinessWorkspaceIdentity,
   createChatGptBusinessAdapterManifest,
   createChatGptBusinessAdapterPlan,
+  createChatGptBusinessReadOnlyQuotaPlan,
+  observeChatGptBusinessQuotaDomMetadata,
+  parseChatGptBusinessRedactedQuotaExport,
   planChatGptBusinessAdminDryRun,
+  readChatGptBusinessQuotaFromGovernedSource,
   readChatGptBusinessQuotaFromFixture,
   syncChatGptBusinessMembershipFixture,
 } from './index';
@@ -170,6 +174,106 @@ describe('chatgpt-business-adapter', () => {
     expect(quota.resetAtHash).toMatch(/^sha256:/);
     expect(JSON.stringify(quota)).not.toContain('workspace-quota-private');
     expect(JSON.stringify(quota)).not.toContain('2026-05-09T00:00:00.000Z');
+  });
+
+  it('plans governed read-only quota sources without adapter-granted authority', () => {
+    const plan = createChatGptBusinessReadOnlyQuotaPlan({
+      dryRunId: 'quota_read_plan_1',
+      sourceKind: 'business-page-dom',
+      sourceRefSeed: 'business-quota-page-private-url',
+      expectedFieldCount: 2,
+      canaryPassed: true,
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.status).toBe('ready');
+    expect(plan.fixtureOnly).toBe(false);
+    expect(plan.readOnly).toBe(true);
+    expect(plan.sourceHealth.status).toBe('healthy');
+    expect(plan.capabilityDryRun.plannedActions[0]?.actionMode).toBe('read');
+    expect(plan.processBoundaryInvoked).toBe(false);
+    expect(plan.externalProcessStarted).toBe(false);
+    expect(serialized).not.toContain('business-quota-page-private-url');
+  });
+
+  it('reads governed quota metadata and blocks live dispatch when canary is missing', () => {
+    const result = readChatGptBusinessQuotaFromGovernedSource({
+      sourceKind: 'app-server-rate-limits',
+      sourceRefSeed: 'app-server-account-private',
+      subjectKind: 'codex-account',
+      subjectSeed: 'codex-account-private',
+      status: 'available',
+      limitCount: 20,
+      usedCount: 4,
+      remainingCount: 16,
+      canaryPassed: false,
+      liveDispatchRequested: true,
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('blocked');
+    expect(result.quotaSnapshot.status).toBe('available');
+    expect(result.dispatchGate.dispatchAllowed).toBe(false);
+    expect(result.dispatchGate.blockReasons).toContain('quota_source_degraded');
+    expect(result.processBoundaryInvoked).toBe(false);
+    expect(serialized).not.toContain('app-server-account-private');
+    expect(serialized).not.toContain('codex-account-private');
+  });
+
+  it('observes Business quota DOM metadata only after redaction', () => {
+    const observed = observeChatGptBusinessQuotaDomMetadata({
+      sourceKind: 'browser-cdp-dom',
+      targetSeed: 'chatgpt-business-page-private',
+      selectorManifestSeed: 'quota-selectors-v1',
+      fieldKeys: ['quotaStatus', 'remainingCount'],
+      readableFieldCount: 2,
+      canaryPassed: true,
+    });
+    const blocked = observeChatGptBusinessQuotaDomMetadata({
+      sourceKind: 'browser-cdp-dom',
+      targetSeed: 'chatgpt-business-page-private',
+      fieldKeys: ['quotaStatus', 'rawAccount'],
+      canaryPassed: true,
+    });
+    const serialized = JSON.stringify([observed, blocked]);
+
+    expect(observed.status).toBe('observed');
+    expect(observed.redactionReport.status).toBe('passed');
+    expect(observed.observation.rawDomStored).toBe(false);
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.redactionReport.blockedPersistence).toBe(true);
+    expect(serialized).not.toContain('chatgpt-business-page-private');
+    expect(serialized).not.toContain('rawAccount');
+  });
+
+  it('parses pre-redacted quota exports and rejects raw identity columns', () => {
+    const result = parseChatGptBusinessRedactedQuotaExport({
+      sourceRefSeed: 'operator-export-private',
+      canaryPassed: true,
+      rows: [
+        {
+          subjectKind: 'business-workspace',
+          subjectHash: 'sha256:workspace-hash',
+          status: 'limited',
+          remainingCount: 4,
+        },
+        {
+          subjectKind: 'codex-account',
+          subjectHash: 'sha256:account-hash',
+          status: 'available',
+          email: 'private@example.test',
+        },
+      ],
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('partial');
+    expect(result.rejectedRowCount).toBe(1);
+    expect(result.quotaSnapshots).toHaveLength(1);
+    expect(result.attributions).toHaveLength(1);
+    expect(result.rawBodyStored).toBe(false);
+    expect(serialized).not.toContain('operator-export-private');
+    expect(serialized).not.toContain('private@example.test');
   });
 
   it('keeps invite, remove, and replace admin helpers dry-run blocked', () => {

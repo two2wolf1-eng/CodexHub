@@ -266,6 +266,18 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: true,
     routeSuffixes: ['/rehearsals'],
   },
+  {
+    family: 'business-quota',
+    prefix: '/api/business-quota',
+    approvalManagedExternally: true,
+    routeSuffixes: [
+      '/observation-rehearsals',
+      '/ui-action-dry-runs',
+      '/approval-requests',
+      '/quota-read-dry-runs',
+      '/critical-action-requests',
+    ],
+  },
 ] as const;
 function getLateStageMutatingRoutes(
   entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
@@ -306,6 +318,7 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/production-ga',
   '/api/production-readiness',
   '/api/business-quota-debug',
+  '/api/business-quota',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -2268,6 +2281,18 @@ describe('supervisor mock development API', () => {
           .filter((prefix): prefix is string => Boolean(prefix))
           .flatMap((prefix) => [`${prefix}/rehearsals`]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerBusinessQuotaRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/observation-rehearsals`,
+            `${prefix}/ui-action-dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/quota-read-dry-runs`,
+            `${prefix}/critical-action-requests`,
+          ]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -2396,6 +2421,17 @@ describe('supervisor mock development API', () => {
         suffixes: ['/rehearsals'],
       },
       {
+        helperName: 'registerBusinessQuotaRoutes',
+        variableName: 'prefix',
+        suffixes: [
+          '/observation-rehearsals',
+          '/ui-action-dry-runs',
+          '/approval-requests',
+          '/quota-read-dry-runs',
+          '/critical-action-requests',
+        ],
+      },
+      {
         helperName: 'registerRealPolicyBackendRoutes',
         variableName: 'prefix',
         suffixes: standardApprovalSuffixes,
@@ -2434,7 +2470,9 @@ describe('supervisor mock development API', () => {
     expect(new Set(coveredLateStageRoutes).size).toBe(coveredLateStageRoutes.length);
 
     for (const entry of lateStageSupervisorControlPlaneMatrix) {
-      const routes = coveredLateStageRoutes.filter((route) => route.startsWith(entry.prefix));
+      const routes = coveredLateStageRoutes.filter((route) =>
+        route.startsWith(`${entry.prefix}/`),
+      );
       const expectedRoutes = getLateStageMutatingRoutes(entry);
 
       for (const expectedRoute of expectedRoutes) {
@@ -3070,6 +3108,119 @@ describe('supervisor mock development API', () => {
     }
   });
 
+  it('projects M65 quota automation canary and drift gates through production readiness', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m65-readiness-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const selectorDriftResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        canaryKind: 'business-page-dom',
+        gateKind: 'selector',
+        taskSeed: 'private business quota dom canary',
+        targetSeed: 'private business quota dom target',
+        baselineSeed: 'private selector baseline',
+        observedSeed: 'private selector observed drift',
+        driftBlockerCount: 1,
+      },
+    });
+    const redactionDriftResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        canaryKind: 'electron-renderer',
+        gateKind: 'redaction',
+        taskSeed: 'private electron renderer canary',
+        targetSeed: 'private electron renderer target',
+        failedCount: 1,
+        baselineSeed: 'private redaction baseline',
+        observedSeed: 'private redaction observed drift',
+        driftBlockerCount: 1,
+      },
+    });
+    const summaryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/summary',
+    });
+    const canaryRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/canary-runs',
+    });
+    const driftGatesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/drift-gates',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(selectorDriftResponse.statusCode).toBe(200);
+    expect(selectorDriftResponse.json()).toMatchObject({
+      status: 'drift_blocked',
+      liveSmokeAllowed: false,
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(selectorDriftResponse.json().canaryTask).toMatchObject({
+      canaryKind: 'business-page-dom',
+      rawCheckStored: false,
+    });
+    expect(selectorDriftResponse.json().driftGate).toMatchObject({
+      gateKind: 'selector',
+      status: 'incompatible',
+      highRiskLiveTaskBlocked: true,
+      rawSchemaStored: false,
+      rawTargetStored: false,
+    });
+    expect(redactionDriftResponse.statusCode).toBe(200);
+    expect(redactionDriftResponse.json()).toMatchObject({
+      status: 'canary_blocked',
+      liveSmokeAllowed: false,
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(redactionDriftResponse.json().canaryRun).toMatchObject({
+      canaryKind: 'electron-renderer',
+      status: 'failed',
+      highRiskLiveTaskBlocked: true,
+      rawOutputStored: false,
+    });
+    expect(redactionDriftResponse.json().driftGate).toMatchObject({
+      gateKind: 'redaction',
+      status: 'incompatible',
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(canaryRunsResponse.json().records).toHaveLength(2);
+    expect(driftGatesResponse.json().records).toHaveLength(2);
+    expect(summaryResponse.json()).toMatchObject({
+      canaryRunCount: 2,
+      driftGateCount: 2,
+      readinessGateCount: 2,
+      highRiskLiveTaskBlocked: true,
+    });
+
+    for (const body of [
+      selectorDriftResponse.body,
+      redactionDriftResponse.body,
+      summaryResponse.body,
+      canaryRunsResponse.body,
+      driftGatesResponse.body,
+    ]) {
+      expect(body).not.toContain('private business quota dom canary');
+      expect(body).not.toContain('private business quota dom target');
+      expect(body).not.toContain('private selector baseline');
+      expect(body).not.toContain('private selector observed drift');
+      expect(body).not.toContain('private electron renderer canary');
+      expect(body).not.toContain('private electron renderer target');
+      expect(body).not.toContain('private redaction baseline');
+      expect(body).not.toContain('private redaction observed drift');
+      expect(body).not.toContain(localControlToken);
+    }
+  });
+
   it('projects M61 business quota readiness debug probes and report without calling adapters', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-business-quota-debug-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
@@ -3157,6 +3308,181 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private business quota source body');
       expect(body).not.toContain('private browser profile contents');
       expect(body).not.toContain('C:/Users/Thomas/private-profile');
+      expect(body).not.toContain(localControlToken);
+    }
+  });
+
+  it('projects M64 business quota readiness and governed UI automation shells', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-business-quota-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const quotaDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/quota-read-dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-readiness-1',
+        sourceKind: 'app-server-rate-limits',
+        sourceRefSeed: 'private app server quota source',
+        subjectKind: 'codex-account',
+        subjectSeed: 'private codex account subject',
+        quotaStatus: 'available',
+        limitCount: 10,
+        usedCount: 2,
+        remainingCount: 8,
+        canaryPassed: true,
+        liveDispatchRequested: true,
+      },
+    });
+    const observationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/observation-rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-observation-1',
+        sourceKind: 'browser-cdp-dom',
+        targetSeed: 'private business page target',
+        selectorManifestSeed: 'private selector manifest',
+        fieldKeys: ['quotaStatus', 'remainingCount'],
+        readableFieldCount: 2,
+        canaryPassed: true,
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/ui-action-dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-ui-action-1',
+        actionKind: 'click-allowlisted-control',
+        targetSeed: 'private action target',
+      },
+    });
+    const approvalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-approval-1',
+        actionKind: 'click-allowlisted-control',
+        targetSeed: 'private approval target',
+        approvalArtifactSeed: 'must not grant authority from body',
+      },
+    });
+    const criticalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/critical-action-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-critical-1',
+        actionKind: 'restart-desktop',
+        targetSeed: 'private desktop target',
+      },
+    });
+    const forgedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/ui-action-dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-forged-1',
+        actionKind: 'scroll',
+        targetSeed: 'private forged target',
+        authority: { allowed: true },
+        rawDom: '<main>private raw page</main>',
+      },
+    });
+    const sourcesResponse = await server.inject({ method: 'GET', url: '/api/business-quota/sources' });
+    const observationsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/observations',
+    });
+    const attributionsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/attributions',
+    });
+    const readinessResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/readiness',
+    });
+    const automationRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/automation-runs',
+    });
+    const accountsResponse = await server.inject({ method: 'GET', url: '/accounts' });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(quotaDryRunResponse.statusCode).toBe(200);
+    expect(quotaDryRunResponse.json()).toMatchObject({
+      status: 'ready',
+      dispatchAllowed: true,
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(observationResponse.statusCode).toBe(200);
+    expect(observationResponse.json()).toMatchObject({
+      status: 'observed',
+      rawDomStored: false,
+      rawTextStored: false,
+      networkBodyStored: false,
+      directAdapterExecutionAllowed: false,
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      status: 'planned',
+      approvalRequired: true,
+      authorityRequired: true,
+      requestBodyAuthorityAccepted: false,
+    });
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(approvalResponse.json()).toMatchObject({
+      status: 'approval_waiting',
+      liveActionAllowed: false,
+      requestBodyAuthorityAccepted: false,
+    });
+    expect(criticalResponse.statusCode).toBe(200);
+    expect(criticalResponse.json()).toMatchObject({
+      status: 'approval_waiting',
+      actionClass: 'critical_approved_action',
+      liveActionAllowed: false,
+    });
+    expect(forgedResponse.statusCode).toBe(400);
+    expect(sourcesResponse.json().counts.sources).toBeGreaterThanOrEqual(2);
+    expect(observationsResponse.json().counts.uiSources).toBe(1);
+    expect(attributionsResponse.json().counts.attributions).toBe(1);
+    expect(readinessResponse.json().metadataOnly).toBe(true);
+    expect(automationRunsResponse.json().counts.runs).toBe(2);
+    expect(accountsResponse.json().counts.quotaSourceHealth).toBeGreaterThanOrEqual(2);
+
+    for (const body of [
+      quotaDryRunResponse.body,
+      observationResponse.body,
+      dryRunResponse.body,
+      approvalResponse.body,
+      criticalResponse.body,
+      forgedResponse.body,
+      sourcesResponse.body,
+      observationsResponse.body,
+      attributionsResponse.body,
+      readinessResponse.body,
+      automationRunsResponse.body,
+      accountsResponse.body,
+    ]) {
+      expect(body).not.toContain('private app server quota source');
+      expect(body).not.toContain('private codex account subject');
+      expect(body).not.toContain('private business page target');
+      expect(body).not.toContain('private selector manifest');
+      expect(body).not.toContain('private action target');
+      expect(body).not.toContain('private approval target');
+      expect(body).not.toContain('private desktop target');
+      expect(body).not.toContain('private forged target');
+      expect(body).not.toContain('private raw page');
+      expect(body).not.toContain('must not grant authority from body');
       expect(body).not.toContain(localControlToken);
     }
   });

@@ -2,17 +2,19 @@
 
 ## Decision
 
-M61 status is **needs_adapter with manual checkpoint support**.
+M61 status is **governed_automation_ready with adapter activation required**.
 
-The project now has contracts, a pure debug kernel, SQLite metadata tables, and Supervisor projections for Business quota readiness. It still should not perform live quota reads until M62 confirms role, protocol compatibility, canary status, approval, and forbidden-path gates.
+The project now has contracts, a pure debug kernel, SQLite metadata tables, Supervisor projections, and a revised automation stance for Business quota readiness. Browser DOM/AX, Browser CDP, Electron renderer CDP, Codex Desktop UI metadata, App Server, Supervisor, Store, and Scheduler can all participate as real automation paths when they pass dry-run, policy, approval, evidence, audit, redaction, drift, and canary gates.
+
+The compliance floor remains strict: no credential harvesting, no login or MFA bypass, no quota or workspace-governance bypass, and no persistence of raw page, transport, identity, local path, prompt, diff, or body material.
 
 ## Source Ranking
 
 1. `app-server-rate-limits`: preferred machine-readable source for Codex quota status and count metadata.
 2. `official-api` or `enterprise-analytics`: secondary source if documented and authorized for the workspace.
 3. `business-credits`: useful for workspace credit/spend-control context when permission allows.
-4. `manual-export`: future import candidate only after redaction and approval.
-5. `ui-reference-only`: human reference only, not a machine data source.
+4. `business-page-dom`, `browser-cdp-dom`, `electron-renderer-dom`, and `codex-desktop-ui`: allowed machine-readable observation sources after selector allowlist, redaction, drift, and canary gates.
+5. `redacted-export`: import candidate only when pre-redacted and rejected if identity or raw payload columns appear.
 
 ## Permission Model
 
@@ -23,11 +25,12 @@ The project now has contracts, a pure debug kernel, SQLite metadata tables, and 
 
 ## Local Capability Baseline
 
-- `chatgpt-business-adapter`: fixture-only in M61.
-- `codex-app-server`: methods are modeled, live read remains gated.
-- `codex-desktop-cdp`: health metadata only, not quota data.
+- `chatgpt-business-adapter`: ready for governed read-only activation after M62/M63.
+- `codex-app-server`: account and rate-limit reads are modeled; live read remains gated by approval, drift, and canary.
+- `codex-desktop-cdp`: renderer metadata and governed UI observation are valid automation sources after redaction.
 - `profile-registry`: hash and health summary only.
 - `store` and `supervisor`: metadata projection ready.
+- `scheduler`: must block real dispatch when quota, canary, drift, or redaction state is unknown or failed.
 
 ## Evidence Model
 
@@ -47,9 +50,16 @@ Forbidden persisted material:
 - raw workspace or account identifiers
 - raw local profile locations
 - raw transport payloads
-- page text extraction
-- browser auth-state material
+- raw page, DOM, AX, console, or network body
+- browser or desktop auth-state material
 - human challenge material
+- caller-supplied authority
+
+Allowed in-memory transient parsing:
+
+- DOM/AX quota labels and visible state, only long enough to produce counts, statuses, hashes, redaction reports, evidence refs, and audit ids.
+- CDP target, frame, console, and network metadata summaries, never bodies.
+- Desktop UI health signals, never main-inspector mutation by default.
 
 ## Failure Checkpoints
 
@@ -57,6 +67,8 @@ Forbidden persisted material:
 - `workspace_mismatch`: create a workspace selection checkpoint.
 - `not_logged_in`: create a login checkpoint for the human operator.
 - `source_unavailable`: keep quota unknown and block scheduling.
+- `selector_drift`: block live dispatch and require selector review.
+- `redaction_failed`: reject persistence and create a redaction checkpoint.
 - `protocol_drift`: block live read until drift is reviewed.
 - `forbidden_path_requested`: reject and record a blocked forbidden-path probe.
 
@@ -91,7 +103,7 @@ Forbidden persisted material:
 
 ## M62 Go/No-Go
 
-M62 is a conditional go for **read-only adapter activation work**, not live quota automation by default.
+M62 is a go for **quota contracts and store**, and M63 is a go for **real read-only plus governed UI automation** inside the compliance floor.
 
 Before any live read smoke:
 
@@ -101,3 +113,4 @@ Before any live read smoke:
 - approval must exist
 - no forbidden-path probe may be unknown
 - Supervisor must continue to avoid direct adapter calls
+- redaction and selector drift gates must be compatible

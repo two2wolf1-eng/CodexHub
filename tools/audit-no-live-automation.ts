@@ -517,6 +517,12 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/ui-automation-kernel/src/index.ts',
+    terms: sensitiveConceptTerms,
+    reason: 'M63 UI automation policy vocabulary only; forbidden credential actions never execute',
+  },
+  {
+    scope: 'production-source',
     file: 'packages/contracts/src/index.ts',
     terms: sensitiveConceptTerms,
     reason: 'contract metadata flags and hash-only credential readiness schemas only',
@@ -574,6 +580,12 @@ const allowlistRules: AllowlistEntry[] = [
     file: 'packages/evidence-kernel/src/evidence-kernel.test.ts',
     terms: sensitiveConceptTerms,
     reason: 'redaction test fixture only; no external automation path',
+  },
+  {
+    scope: 'test',
+    file: 'packages/ui-automation-kernel/src/ui-automation-kernel.test.ts',
+    terms: sensitiveConceptTerms,
+    reason: 'M63 forbidden-action test fixture only; no external automation path',
   },
   {
     scope: 'audit',

@@ -12,6 +12,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@codexhub/business-quota-kernel": "workspace:*",
     "@codexhub/capability-adapter-kernel": "workspace:*",
     "@codexhub/contracts": "workspace:*",
     "@codexhub/evidence-kernel": "workspace:*"

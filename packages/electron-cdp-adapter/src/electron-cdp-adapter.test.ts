@@ -23,6 +23,10 @@ import { createCodexDesktopReadOnlyDiscoveryProjection } from './local-discovery
 import { runElectronMainInspectorBoundary } from './main-inspector-boundary';
 import { createElectronCdpAdapterManifest } from './manifest';
 import { planElectronCdpObservation } from './plan';
+import {
+  createCodexDesktopRendererUiAutomationBoundary,
+  summarizeCodexDesktopRendererObservation,
+} from './renderer-observation';
 
 const authority: ExecutionAuthority = {
   id: 'authority_electron_1',
@@ -155,6 +159,59 @@ describe('electron-cdp-adapter', () => {
     expect(serialized).not.toContain('--private-flag');
     expect(serialized).not.toContain('app://codex');
     expect(serialized).not.toContain('43325');
+  });
+
+  it('summarizes Codex Desktop renderer DOM and health metadata without main inspector', () => {
+    const summary = summarizeCodexDesktopRendererObservation({
+      sourceSeed: 'codex-desktop-private-source',
+      endpointSeed: 'http://127.0.0.1:43325/json/list',
+      targetSeed: 'renderer-target-private',
+      consoleErrorCount: 1,
+      networkFailedRequestCount: 2,
+      uiResponsive: false,
+      appServerResponsive: false,
+      quotaAvailable: false,
+      loggedIn: true,
+      workspaceMatched: false,
+    });
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.rendererTarget).toBe(true);
+    expect(summary.mainInspectorUsed).toBe(false);
+    expect(summary.diagnosticHints).toContain('desktop_ui_frozen');
+    expect(summary.diagnosticHints).toContain('app_server_unresponsive');
+    expect(summary.diagnosticHints).toContain('quota_depleted');
+    expect(summary.diagnosticHints).toContain('workspace_mismatch');
+    expect(summary.rawDomStored).toBe(false);
+    expect(summary.networkBodyStored).toBe(false);
+    expect(serialized).not.toContain('renderer-target-private');
+    expect(serialized).not.toContain('43325');
+  });
+
+  it('creates renderer UI automation boundaries through dry-run and approval metadata', () => {
+    const boundary = createCodexDesktopRendererUiAutomationBoundary({
+      actionKind: 'interrupt-turn',
+      targetSeed: 'renderer-turn-private',
+      approvalArtifactSeed: 'approved-renderer-action',
+    });
+    const forbidden = createCodexDesktopRendererUiAutomationBoundary({
+      actionKind: 'credential-input',
+      targetSeed: 'renderer-login-private',
+      approvalArtifactSeed: 'approved-but-forbidden',
+    });
+    const serialized = JSON.stringify([boundary, forbidden]);
+
+    expect(boundary.rendererOnly).toBe(true);
+    expect(boundary.mainInspectorUsed).toBe(false);
+    expect(boundary.executionBoundaryInvoked).toBe(false);
+    expect(boundary.intent.actionClass).toBe('critical_approved_action');
+    expect(boundary.authority.allowed).toBe(true);
+    expect(boundary.run.liveActionAllowed).toBe(true);
+    expect(forbidden.intent.actionClass).toBe('forbidden_credential_action');
+    expect(forbidden.authority.allowed).toBe(false);
+    expect(forbidden.run.status).toBe('blocked');
+    expect(serialized).not.toContain('renderer-turn-private');
+    expect(serialized).not.toContain('renderer-login-private');
   });
 
   it('plans controlled HTTP observations as approval-gated without process boundaries', () => {

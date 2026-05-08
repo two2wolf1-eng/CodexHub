@@ -8,3 +8,4 @@ export * from './local-discovery';
 export * from './main-inspector-boundary';
 export * from './manifest';
 export * from './plan';
+export * from './renderer-observation';
