@@ -161,6 +161,17 @@ import {
   scoreCodexAccount,
   scoreCodexClient,
 } from '@codexhub/codex-scheduler-kernel';
+import {
+  containsForbiddenM75RequestBody,
+  createAccountSwitchEvidence,
+  createClaudeCodeRepairRun,
+  createCodexDesktopObservedState,
+  createM75RehearsalRun,
+  createTaskDispatchEvidence,
+  createWorkspaceMemberState,
+  createWorkspaceMemberActionEvidence,
+  routeCodexTaskByCapacity,
+} from '@codexhub/codex-desktop-orchestration-kernel';
 import type {
   AuditEvent,
   BrowserObservationApprovalArtifactRecord,
@@ -5030,6 +5041,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerBusinessQuotaRoutes('/api/business-quota');
   registerBusinessQuotaAdminUiRoutes('/api/business-quota/admin-ui');
   registerRealClientConnectionRoutes('/api/real-clients');
+  registerCodexDesktopOrchestrationRoutes('/api/codex-desktop-orchestration');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -24252,6 +24264,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'temporaryNamedScriptRegistration',
     'temporaryDelegatedAdminWorkflow',
     'emergencyBulkAutomation',
+    'codexDesktopReadState',
+    'codexDesktopSwitchAuthorizedAccount',
+    'codexDesktopDispatchTask',
+    'chatgptWorkspaceMemberStateRead',
+    'chatgptWorkspaceMemberAdd',
+    'chatgptWorkspaceMemberRemove',
+    'claudeCodeRepairProposal',
   ]);
 
   function normalizeRealClientSurface(
@@ -24327,6 +24346,523 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       productionRealClientOperationKinds.has(value as ProductionRealClientOperationKind)
       ? (value as ProductionRealClientOperationKind)
       : undefined;
+  }
+
+  function registerCodexDesktopOrchestrationRoutes(prefix: string): void {
+    server.get(`${prefix}/accounts`, async () => {
+      const store = await getStore();
+      const records = store ? await store.codexAccountRecords.listRecords({ limit: 100 }) : [];
+      return {
+        storeAvailable: store !== undefined,
+        records,
+        rawEndpointStored: false,
+        rawSelectorStored: false,
+        rawScriptStored: false,
+        rawPromptStored: false,
+        credentialMaterialStored: false,
+        summary: 'Authorized Codex Desktop accounts are server/store registered only.',
+      };
+    });
+
+    server.get(`${prefix}/clients`, async () => {
+      const store = await getStore();
+      const records = store ? await store.codexClientInstances.listRecords({ limit: 100 }) : [];
+      return {
+        storeAvailable: store !== undefined,
+        records,
+        codexDesktopEndpointConfigured: Boolean(process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT),
+        codexDesktopEndpointHash: process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT
+          ? hashLocalMetadata({ endpoint: process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT })
+          : undefined,
+        rawEndpointStored: false,
+        credentialMaterialStored: false,
+        summary: 'Codex Desktop clients expose only configured state, hashes, and store records.',
+      };
+    });
+
+    server.get(`${prefix}/state`, async () => {
+      const store = await getStore();
+      const records = store ? await store.codexDesktopObservedStates.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, rawDomStored: false };
+    });
+
+    server.get(`${prefix}/capacity`, async () => {
+      const store = await getStore();
+      const records = store ? await store.codexAccountCapacityStates.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, credentialMaterialStored: false };
+    });
+
+    server.get(`${prefix}/tasks`, async () => {
+      const store = await getStore();
+      const records = store ? await store.taskDispatchEvidenceRecords.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, rawPromptStored: false };
+    });
+
+    server.get(`${prefix}/routing-decisions`, async () => {
+      const store = await getStore();
+      const records = store ? await store.codexTaskRoutingDecisions.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, quotaEvasionAllowed: false };
+    });
+
+    server.get(`${prefix}/state-reads`, async () => {
+      const store = await getStore();
+      const records = store ? await store.codexDesktopObservedStates.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records };
+    });
+
+    server.post(`${prefix}/state-reads`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled() || process.env.CODEXHUB_CODEX_DESKTOP_STATE_READER_ENABLED !== 'true') {
+        return reply.code(403).send(createM75DisabledResponse('codex_desktop_state_reader_disabled'));
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-state'));
+      const record = createCodexDesktopObservedState({
+        clientSeed: readBodyString(body, 'clientRefId') ?? 'codex-desktop-client',
+        surfaceRegistrationId: readBodyString(body, 'surfaceRegistrationId'),
+        manifestId: readBodyString(body, 'manifestId'),
+        currentAccountSeed: readBodyString(body, 'currentAccountRefId'),
+        currentWorkspaceSeed: readBodyString(body, 'currentWorkspaceRefId'),
+        loginState: normalizeM75LoginState(body?.loginState),
+        capacityStatus: normalizeM75CapacityStatus(body?.capacityStatus),
+        taskState: normalizeM75TaskState(body?.taskState),
+        canSwitchAccount: body?.canSwitchAccount === true,
+        canSubmitTask: body?.canSubmitTask === true,
+        blockReasons: normalizeM75BlockReasons(body?.blockReasons),
+        cdpHttpBoundaryInvoked: body?.cdpHttpBoundaryInvoked === true,
+        cdpWebSocketBoundaryInvoked: body?.cdpWebSocketBoundaryInvoked === true,
+      });
+      await store.codexDesktopObservedStates.saveRecord(record);
+      return record;
+    });
+
+    server.post(`${prefix}/routing-decisions`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-routing'));
+      const accounts = await store.codexAccountRecords.listRecords({ limit: 100 });
+      const current = readBodyString(body, 'currentAccountRecordId')
+        ? await store.codexAccountRecords.getRecord(String(body?.currentAccountRecordId))
+        : undefined;
+      const decision = routeCodexTaskByCapacity({
+        inputRefSeed: readBodyString(body, 'inputRefId') ?? 'm75-input-ref',
+        inputSeed: readBodyString(body, 'inputHashSeed'),
+        currentAccountHash: current?.accountHash,
+        targetWorkspaceSeed: readBodyString(body, 'targetWorkspaceRefId'),
+        authorizedAccounts: accounts,
+        policyAllowsSwitch: body?.policyAllowsSwitch === true,
+        requestedMemberMutationForCapacity: body?.requestedMemberMutationForCapacity === true,
+        requestedAccountCreationForCapacity: body?.requestedAccountCreationForCapacity === true,
+        requestedWorkspaceChurnForCapacity: body?.requestedWorkspaceChurnForCapacity === true,
+      });
+      await store.codexTaskRoutingDecisions.saveRecord(decision);
+      return decision;
+    });
+
+    server.get(`${prefix}/account-switches/dry-runs`, async () => {
+      const store = await getStore();
+      const records = store ? await store.accountSwitchEvidenceRecords.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records };
+    });
+
+    server.post(`${prefix}/account-switches/dry-runs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-switch'));
+      const target = readBodyString(body, 'targetAccountRecordId')
+        ? await store.codexAccountRecords.getRecord(String(body?.targetAccountRecordId))
+        : undefined;
+      if (!target) {
+        return reply.code(404).send({
+          error: 'registered_target_account_missing',
+          requestBodyAuthorityAccepted: false,
+          quotaEvasionAllowed: false,
+        });
+      }
+      const record = createAccountSwitchEvidence({
+        dryRunId: readBodyString(body, 'dryRunId') ?? foundationId('m75_account_switch_dry_run'),
+        targetAccount: target,
+        targetWorkspaceSeed: readBodyString(body, 'targetWorkspaceRefId'),
+        beforeAccountSeed: readBodyString(body, 'beforeAccountRefId'),
+        beforeWorkspaceSeed: readBodyString(body, 'beforeWorkspaceRefId'),
+      });
+      await store.accountSwitchEvidenceRecords.saveRecord(record);
+      return record;
+    });
+
+    server.post(`${prefix}/account-switches/approval-requests`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      return reply.code(202).send({
+        status: 'approval_waiting',
+        dryRunId: readBodyString(body, 'dryRunId'),
+        existingApprovalPath: 'approvals decide',
+        requestBodyApprovalArtifactAccepted: false,
+        requestBodyAuthorityAccepted: false,
+      });
+    });
+
+    server.post(`${prefix}/account-switches/runs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled() || process.env.CODEXHUB_CODEX_DESKTOP_ACCOUNT_SWITCH_ENABLED !== 'true') {
+        return reply.code(403).send(createM75DisabledResponse('codex_desktop_account_switch_disabled'));
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-switch-run'));
+      const dryRun = readBodyString(body, 'dryRunId')
+        ? await store.accountSwitchEvidenceRecords.getRecord(String(body?.dryRunId))
+        : undefined;
+      if (!dryRun) return reply.code(404).send({ error: 'account_switch_dry_run_missing' });
+      if (!readBodyString(body, 'authorityRefId')) {
+        return reply.code(403).send({
+          error: 'store_resolved_authority_required',
+          requestBodyAuthorityAccepted: false,
+          liveExecution: false,
+        });
+      }
+      const run = { ...dryRun, status: 'authorized' as const, authorityRefId: String(body?.authorityRefId) };
+      await store.accountSwitchEvidenceRecords.saveRecord(run);
+      return run;
+    });
+
+    server.get(`${prefix}/task-dispatches/dry-runs`, async () => {
+      const store = await getStore();
+      const records = store ? await store.taskDispatchEvidenceRecords.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, rawPromptStored: false };
+    });
+
+    server.post(`${prefix}/task-dispatches/dry-runs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-dispatch'));
+      const decisions = await store.codexTaskRoutingDecisions.listRecords({ limit: 1 });
+      const routingDecision = readBodyString(body, 'routingDecisionId')
+        ? await store.codexTaskRoutingDecisions.getRecord(String(body?.routingDecisionId))
+        : decisions[0];
+      if (!routingDecision) return reply.code(404).send({ error: 'routing_decision_missing' });
+      const record = createTaskDispatchEvidence({
+        dryRunId: readBodyString(body, 'dryRunId') ?? foundationId('m75_task_dispatch_dry_run'),
+        routingDecision,
+        inputRefSeed: readBodyString(body, 'inputRefId') ?? routingDecision.inputRefHash,
+        inputSeed: readBodyString(body, 'inputHashSeed') ?? routingDecision.inputHash ?? routingDecision.id,
+        promptSummarySeed: readBodyString(body, 'inputSummaryRefId'),
+        canSubmitTaskVerified: body?.canSubmitTaskVerified === true,
+      });
+      await store.taskDispatchEvidenceRecords.saveRecord(record);
+      return record;
+    });
+
+    server.post(`${prefix}/task-dispatches/approval-requests`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      return reply.code(202).send({
+        status: 'approval_waiting',
+        dryRunId: readBodyString(body, 'dryRunId'),
+        existingApprovalPath: 'approvals decide',
+        requestBodyApprovalArtifactAccepted: false,
+        requestBodyAuthorityAccepted: false,
+      });
+    });
+
+    server.post(`${prefix}/task-dispatches/runs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled() || process.env.CODEXHUB_CODEX_DESKTOP_TASK_DISPATCH_ENABLED !== 'true') {
+        return reply.code(403).send(createM75DisabledResponse('codex_desktop_task_dispatch_disabled'));
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-dispatch-run'));
+      const dryRun = readBodyString(body, 'dryRunId')
+        ? await store.taskDispatchEvidenceRecords.getRecord(String(body?.dryRunId))
+        : undefined;
+      if (!dryRun) return reply.code(404).send({ error: 'task_dispatch_dry_run_missing' });
+      if (!readBodyString(body, 'authorityRefId')) {
+        return reply.code(403).send({
+          error: 'store_resolved_authority_required',
+          requestBodyAuthorityAccepted: false,
+          liveExecution: false,
+        });
+      }
+      const run = { ...dryRun, status: 'authorized' as const };
+      await store.taskDispatchEvidenceRecords.saveRecord(run);
+      return run;
+    });
+
+    server.get(`${prefix}/workspace-members/state-reads`, async () => {
+      const store = await getStore();
+      const records = store ? await store.workspaceMemberStates.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records };
+    });
+
+    server.post(`${prefix}/workspace-members/state-reads`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-member-state'));
+      const record = createWorkspaceMemberState({
+        workspaceSeed: readBodyString(body, 'workspaceRefId') ?? 'workspace',
+        memberSeed: readBodyString(body, 'memberRefId') ?? 'member',
+      });
+      await store.workspaceMemberStates.saveRecord(record);
+      return record;
+    });
+
+    server.get(`${prefix}/workspace-members/actions/dry-runs`, async () => {
+      const store = await getStore();
+      const records = store
+        ? await store.workspaceMemberActionEvidenceRecords.listRecords({ limit: 100 })
+        : [];
+      return { storeAvailable: store !== undefined, records, quotaEvasionAllowed: false };
+    });
+
+    server.post(`${prefix}/workspace-members/actions/dry-runs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-member-action'));
+      const record = createWorkspaceMemberActionEvidence({
+        actionKind:
+          body?.actionKind === 'member_remove' || body?.actionKind === 'member_add'
+            ? body.actionKind
+            : 'state_read',
+        workspaceSeed: readBodyString(body, 'workspaceRefId') ?? 'workspace',
+        memberSeed: readBodyString(body, 'memberRefId'),
+        reasonSeed: readBodyString(body, 'reasonRefId'),
+        ticketSeed: readBodyString(body, 'ticketRefId'),
+        delegatedAdminAuthorityVerified: body?.delegatedAdminAuthorityVerified === true,
+        cooldownPassed: body?.cooldownPassed === true,
+        antiEvasionPassed: body?.antiEvasionPassed !== false,
+      });
+      await store.workspaceMemberActionEvidenceRecords.saveRecord(record);
+      return record;
+    });
+
+    server.post(`${prefix}/workspace-members/actions/approval-requests`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      return reply.code(202).send({
+        status: 'approval_waiting',
+        dryRunId: readBodyString(body, 'dryRunId'),
+        existingApprovalPath: 'approvals decide',
+        delegatedAdminAuthorityRequired: true,
+        requestBodyAuthorityAccepted: false,
+      });
+    });
+
+    server.post(`${prefix}/workspace-members/actions/runs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (
+        !isM75Enabled() ||
+        process.env.CODEXHUB_CHATGPT_WORKSPACE_MEMBER_ORCHESTRATOR_ENABLED !== 'true'
+      ) {
+        return reply
+          .code(403)
+          .send(createM75DisabledResponse('chatgpt_workspace_member_orchestrator_disabled'));
+      }
+      if (!readBodyString(body, 'authorityRefId')) {
+        return reply.code(403).send({
+          error: 'delegated_admin_authority_required',
+          requestBodyAuthorityAccepted: false,
+          liveExecution: false,
+        });
+      }
+      return reply.code(202).send({
+        status: 'authorized',
+        boundaryReached: false,
+        delegatedAdminAuthorityVerified: true,
+      });
+    });
+
+    server.get(`${prefix}/claude-repairs`, async () => {
+      const store = await getStore();
+      const records = store ? await store.claudeCodeRepairRuns.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records };
+    });
+
+    server.post(`${prefix}/claude-repairs`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled() || process.env.CODEXHUB_CLAUDE_CODE_REPAIR_ENABLED !== 'true') {
+        return reply.code(403).send(createM75DisabledResponse('claude_code_repair_disabled'));
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-claude'));
+      const record = createClaudeCodeRepairRun({
+        failureEvidenceSeed: readBodyString(body, 'failureEvidenceRefId') ?? 'failure-evidence',
+        controlledWorktreeSeed: readBodyString(body, 'controlledWorktreeRefId') ?? 'controlled-worktree',
+        proposalSeed: readBodyString(body, 'proposalRefId') ?? 'repair-proposal',
+        changedFileCount: typeof body?.changedFileCount === 'number' ? body.changedFileCount : 0,
+        diffSeed: readBodyString(body, 'diffRefId'),
+        testResultSeed: readBodyString(body, 'testResultRefId'),
+      });
+      await store.claudeCodeRepairRuns.saveRecord(record);
+      return record;
+    });
+
+    server.get(`${prefix}/rehearsals`, async () => {
+      const store = await getStore();
+      const records = store ? await store.m75RehearsalRuns.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records };
+    });
+
+    server.post(`${prefix}/rehearsals`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-rehearsal'));
+      const record = createM75RehearsalRun({
+        scenario: normalizeM75Scenario(body?.scenario),
+        blockerCount: typeof body?.blockerCount === 'number' ? body.blockerCount : 0,
+        dispatchStatus: readBodyString(body, 'dispatchStatus'),
+        switchStatus: readBodyString(body, 'switchStatus'),
+        memberStateStatus: readBodyString(body, 'memberStateStatus'),
+        repairStatus: readBodyString(body, 'repairStatus'),
+      });
+      await store.m75RehearsalRuns.saveRecord(record);
+      return record;
+    });
+  }
+
+  type M75RequestBody = Record<string, unknown>;
+
+  function isM75Enabled(): boolean {
+    return process.env.CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED === 'true';
+  }
+
+  function hasForbiddenM75RouteBody(body: unknown): boolean {
+    return hasUntrustedAuthorityBody(body) || containsForbiddenM75RequestBody(body);
+  }
+
+  function createM75RejectedBodyResponse(): Record<string, unknown> {
+    return {
+      error: 'untrusted_codex_desktop_orchestration_raw_body_or_authority',
+      requestBodyEndpointAccepted: false,
+      requestBodySelectorAccepted: false,
+      requestBodyScriptAccepted: false,
+      requestBodyAuthorityAccepted: false,
+      rawPromptStored: false,
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      credentialMaterialStored: false,
+    };
+  }
+
+  function createM75DisabledResponse(error: string): Record<string, unknown> {
+    return {
+      error,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      quotaEvasionAllowed: false,
+    };
+  }
+
+  function readBodyString(body: M75RequestBody | undefined, key: string): string | undefined {
+    const value = body?.[key];
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
+  }
+
+  function normalizeM75LoginState(value: unknown) {
+    return value === 'logged_in' ||
+      value === 'logged_out' ||
+      value === 'login_required' ||
+      value === 'mfa_required' ||
+      value === 'permission_denied' ||
+      value === 'unknown'
+      ? value
+      : 'unknown';
+  }
+
+  function normalizeM75CapacityStatus(value: unknown) {
+    return value === 'ready' ||
+      value === 'quota_limited' ||
+      value === 'quota_exhausted' ||
+      value === 'capacity_unknown' ||
+      value === 'blocked'
+      ? value
+      : 'capacity_unknown';
+  }
+
+  function normalizeM75TaskState(value: unknown) {
+    return value === 'idle' ||
+      value === 'composer_ready' ||
+      value === 'submitted' ||
+      value === 'running' ||
+      value === 'waiting_approval' ||
+      value === 'failed' ||
+      value === 'completed' ||
+      value === 'unknown'
+      ? value
+      : 'unknown';
+  }
+
+  function normalizeM75BlockReasons(value: unknown) {
+    const allowed = new Set([
+      'client_not_running',
+      'cdp_unreachable',
+      'login_required',
+      'mfa_required',
+      'permission_denied',
+      'capacity_exhausted',
+      'unauthorized_account',
+      'unauthorized_workspace',
+      'unknown_account',
+      'unknown_state',
+      'drift_detected',
+      'identity_verification_failed',
+      'quota_evasion_blocked',
+      'delegated_admin_authority_required',
+      'approval_required',
+      'runtime_gate_disabled',
+    ]);
+    return Array.isArray(value)
+      ? value.filter((item): item is CodexDesktopBlockedReasonRoute => typeof item === 'string' && allowed.has(item))
+      : [];
+  }
+
+  type CodexDesktopBlockedReasonRoute =
+    | 'client_not_running'
+    | 'cdp_unreachable'
+    | 'login_required'
+    | 'mfa_required'
+    | 'permission_denied'
+    | 'capacity_exhausted'
+    | 'unauthorized_account'
+    | 'unauthorized_workspace'
+    | 'unknown_account'
+    | 'unknown_state'
+    | 'drift_detected'
+    | 'identity_verification_failed'
+    | 'quota_evasion_blocked'
+    | 'delegated_admin_authority_required'
+    | 'approval_required'
+    | 'runtime_gate_disabled';
+
+  function normalizeM75Scenario(value: unknown) {
+    return value === 'all-pass' ||
+      value === 'state-blocked' ||
+      value === 'login-required' ||
+      value === 'mfa-required' ||
+      value === 'no-authorized-capacity' ||
+      value === 'switch-blocked' ||
+      value === 'dispatch-blocked' ||
+      value === 'member-mutation-blocked' ||
+      value === 'claude-repair-proposal'
+      ? value
+      : 'state-blocked';
   }
 
   function registerBusinessQuotaAdminUiRoutes(prefix: string): void {

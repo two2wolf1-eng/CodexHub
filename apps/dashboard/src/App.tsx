@@ -66,6 +66,7 @@ import {
   createM11PilotReadOnlySummary,
   createOperatorReadinessReadOnlySummary,
   createPolicyTelemetryReadOnlySummary,
+  createCodexDesktopOrchestrationReadOnlySummary,
   createProductionGaReadOnlySummary,
   createRemoteSupersedeAcceptanceRehearsalReadOnlySummary,
   createReworkLoopAcceptanceRehearsalReadOnlySummary,
@@ -209,6 +210,15 @@ interface OverviewState {
   productionGaTrainingCompletions: ProductionGaOperatorTrainingCompletionSummary[];
   productionGaCapabilityMatrix?: ProductionGaCapabilityMatrix;
   productionGaThreatModel?: ProductionGaThreatModel;
+  codexDesktopAccounts: Array<Record<string, unknown>>;
+  codexDesktopClients: Array<Record<string, unknown>>;
+  codexDesktopStates: Array<Record<string, unknown>>;
+  codexDesktopCapacity: Array<Record<string, unknown>>;
+  codexDesktopRoutingDecisions: Array<Record<string, unknown>>;
+  codexDesktopAccountSwitches: Array<Record<string, unknown>>;
+  codexDesktopTaskDispatches: Array<Record<string, unknown>>;
+  codexDesktopWorkspaceMemberActions: Array<Record<string, unknown>>;
+  codexDesktopClaudeRepairs: Array<Record<string, unknown>>;
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -1761,6 +1771,15 @@ export function App() {
     productionGaSignoffs: [],
     productionGaRehearsals: [],
     productionGaTrainingCompletions: [],
+    codexDesktopAccounts: [],
+    codexDesktopClients: [],
+    codexDesktopStates: [],
+    codexDesktopCapacity: [],
+    codexDesktopRoutingDecisions: [],
+    codexDesktopAccountSwitches: [],
+    codexDesktopTaskDispatches: [],
+    codexDesktopWorkspaceMemberActions: [],
+    codexDesktopClaudeRepairs: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -3740,6 +3759,15 @@ export function App() {
             productionGaTrainingCompletions: productionGaTrainingCompletionsResponse.records,
             productionGaCapabilityMatrix: productionGaCapabilityMatrixResponse,
             productionGaThreatModel: productionGaThreatModelResponse,
+            codexDesktopAccounts: [],
+            codexDesktopClients: [],
+            codexDesktopStates: [],
+            codexDesktopCapacity: [],
+            codexDesktopRoutingDecisions: [],
+            codexDesktopAccountSwitches: [],
+            codexDesktopTaskDispatches: [],
+            codexDesktopWorkspaceMemberActions: [],
+            codexDesktopClaudeRepairs: [],
             approvalInbox: approvalInboxResponse,
           });
         }
@@ -3912,6 +3940,15 @@ export function App() {
             productionGaSignoffs: [],
             productionGaRehearsals: [],
             productionGaTrainingCompletions: [],
+            codexDesktopAccounts: [],
+            codexDesktopClients: [],
+            codexDesktopStates: [],
+            codexDesktopCapacity: [],
+            codexDesktopRoutingDecisions: [],
+            codexDesktopAccountSwitches: [],
+            codexDesktopTaskDispatches: [],
+            codexDesktopWorkspaceMemberActions: [],
+            codexDesktopClaudeRepairs: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -10479,6 +10516,82 @@ function renderReadOnlyDashboardView(
           ) : (
             <p>No real telemetry export run metadata is available.</p>
           )}
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'codex-desktop') {
+    const codexDesktopSummary = createCodexDesktopOrchestrationReadOnlySummary({
+      accountCount: overview.codexDesktopAccounts.length,
+      clientCount: overview.codexDesktopClients.length,
+      stateReadCount: overview.codexDesktopStates.length,
+      capacityRecordCount: overview.codexDesktopCapacity.length,
+      routingDecisionCount: overview.codexDesktopRoutingDecisions.length,
+      accountSwitchCount: overview.codexDesktopAccountSwitches.length,
+      taskDispatchCount: overview.codexDesktopTaskDispatches.length,
+      workspaceMemberActionCount: overview.codexDesktopWorkspaceMemberActions.length,
+      claudeRepairRunCount: overview.codexDesktopClaudeRepairs.length,
+    });
+
+    return (
+      <section className="grid">
+        <Panel title="Codex Desktop Orchestration">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{codexDesktopSummary.status}</span>
+            </li>
+            <li>
+              <strong>accounts / clients</strong>
+              <span>
+                {codexDesktopSummary.accountCount} accounts, {codexDesktopSummary.clientCount}{' '}
+                clients
+              </span>
+            </li>
+            <li>
+              <strong>state / capacity</strong>
+              <span>
+                {codexDesktopSummary.stateReadCount} state reads,{' '}
+                {codexDesktopSummary.capacityRecordCount} capacity records
+              </span>
+            </li>
+            <li>
+              <strong>routing / dispatch</strong>
+              <span>
+                {codexDesktopSummary.routingDecisionCount} routing decisions,{' '}
+                {codexDesktopSummary.taskDispatchCount} task dispatches
+              </span>
+            </li>
+            <li>
+              <strong>guardrails</strong>
+              <span>
+                quota evasion {String(codexDesktopSummary.quotaEvasionAllowed)}, generic CDP{' '}
+                {String(codexDesktopSummary.genericCdpPassthroughAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{codexDesktopSummary.summary}</p>
+        </Panel>
+        <Panel title="State And Routing Records">
+          <ul>
+            <li>
+              <strong>account switches</strong>
+              <span>{codexDesktopSummary.accountSwitchCount}</span>
+            </li>
+            <li>
+              <strong>member actions</strong>
+              <span>{codexDesktopSummary.workspaceMemberActionCount}</span>
+            </li>
+            <li>
+              <strong>repair proposals</strong>
+              <span>{codexDesktopSummary.claudeRepairRunCount}</span>
+            </li>
+          </ul>
+          <p>
+            This view has no raw CDP console, generic selector builder, JavaScript runner,
+            credential viewer, or raw prompt viewer.
+          </p>
         </Panel>
       </section>
     );

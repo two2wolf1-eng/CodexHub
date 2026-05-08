@@ -185,6 +185,16 @@ import type {
   ProductionRealClientOperationManifest,
   ProductionRealClientRun,
   ProductionRealClientSurfaceRegistration,
+  AccountSwitchEvidence,
+  ClaudeCodeRepairRun,
+  CodexAccountCapacityState,
+  CodexAccountRecord,
+  CodexDesktopObservedState,
+  CodexTaskRoutingDecision,
+  M75RehearsalRun,
+  TaskDispatchEvidence,
+  WorkspaceMemberActionEvidence,
+  WorkspaceMemberState,
   RetentionPolicyPlan,
   RetentionPolicyRun,
   RuntimeCheckpoint,
@@ -631,6 +641,16 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly productionRealClientJobs: MetadataEntityRepository<ProductionRealClientJob>;
   readonly productionRealClientCanaryDriftReports: MetadataEntityRepository<ProductionRealClientCanaryDriftReport>;
   readonly productionBreakGlassSessions: MetadataEntityRepository<ProductionBreakGlassSession>;
+  readonly codexAccountRecords: MetadataEntityRepository<CodexAccountRecord>;
+  readonly codexDesktopObservedStates: MetadataEntityRepository<CodexDesktopObservedState>;
+  readonly codexAccountCapacityStates: MetadataEntityRepository<CodexAccountCapacityState>;
+  readonly codexTaskRoutingDecisions: MetadataEntityRepository<CodexTaskRoutingDecision>;
+  readonly accountSwitchEvidenceRecords: MetadataEntityRepository<AccountSwitchEvidence>;
+  readonly taskDispatchEvidenceRecords: MetadataEntityRepository<TaskDispatchEvidence>;
+  readonly workspaceMemberStates: MetadataEntityRepository<WorkspaceMemberState>;
+  readonly workspaceMemberActionEvidenceRecords: MetadataEntityRepository<WorkspaceMemberActionEvidence>;
+  readonly claudeCodeRepairRuns: MetadataEntityRepository<ClaudeCodeRepairRun>;
+  readonly m75RehearsalRuns: MetadataEntityRepository<M75RehearsalRun>;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -1078,6 +1098,52 @@ class SqliteCodexHubStore implements CodexHubStore {
         database,
         'production_break_glass_sessions',
       );
+    this.codexAccountRecords = new SqliteMetadataEntityRepository<CodexAccountRecord>(
+      database,
+      'codex_account_records',
+    );
+    this.codexDesktopObservedStates =
+      new SqliteMetadataEntityRepository<CodexDesktopObservedState>(
+        database,
+        'codex_desktop_observed_states',
+      );
+    this.codexAccountCapacityStates =
+      new SqliteMetadataEntityRepository<CodexAccountCapacityState>(
+        database,
+        'codex_account_capacity_states',
+      );
+    this.codexTaskRoutingDecisions =
+      new SqliteMetadataEntityRepository<CodexTaskRoutingDecision>(
+        database,
+        'codex_task_routing_decisions',
+      );
+    this.accountSwitchEvidenceRecords =
+      new SqliteMetadataEntityRepository<AccountSwitchEvidence>(
+        database,
+        'account_switch_evidence_records',
+      );
+    this.taskDispatchEvidenceRecords =
+      new SqliteMetadataEntityRepository<TaskDispatchEvidence>(
+        database,
+        'task_dispatch_evidence_records',
+      );
+    this.workspaceMemberStates = new SqliteMetadataEntityRepository<WorkspaceMemberState>(
+      database,
+      'workspace_member_states',
+    );
+    this.workspaceMemberActionEvidenceRecords =
+      new SqliteMetadataEntityRepository<WorkspaceMemberActionEvidence>(
+        database,
+        'workspace_member_action_evidence_records',
+      );
+    this.claudeCodeRepairRuns = new SqliteMetadataEntityRepository<ClaudeCodeRepairRun>(
+      database,
+      'claude_code_repair_runs',
+    );
+    this.m75RehearsalRuns = new SqliteMetadataEntityRepository<M75RehearsalRun>(
+      database,
+      'm75_rehearsal_runs',
+    );
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -7288,6 +7354,66 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS production_break_glass_sessions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_account_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_desktop_observed_states (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_account_capacity_states (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_routing_decisions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS account_switch_evidence_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS task_dispatch_evidence_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_member_states (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_member_action_evidence_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS claude_code_repair_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS m75_rehearsal_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

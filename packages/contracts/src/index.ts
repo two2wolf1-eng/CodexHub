@@ -21711,6 +21711,13 @@ export const ProductionRealClientOperationKindSchema = z.enum([
   'temporaryNamedScriptRegistration',
   'temporaryDelegatedAdminWorkflow',
   'emergencyBulkAutomation',
+  'codexDesktopReadState',
+  'codexDesktopSwitchAuthorizedAccount',
+  'codexDesktopDispatchTask',
+  'chatgptWorkspaceMemberStateRead',
+  'chatgptWorkspaceMemberAdd',
+  'chatgptWorkspaceMemberRemove',
+  'claudeCodeRepairProposal',
 ]);
 export type ProductionRealClientOperationKind = z.infer<
   typeof ProductionRealClientOperationKindSchema
@@ -22177,6 +22184,509 @@ export const ProductionBreakGlassSessionSchema = createdEntityBaseSchema
     }
   });
 export type ProductionBreakGlassSession = z.infer<typeof ProductionBreakGlassSessionSchema>;
+
+export const CodexDesktopLoginStateSchema = z.enum([
+  'logged_in',
+  'logged_out',
+  'login_required',
+  'mfa_required',
+  'permission_denied',
+  'unknown',
+]);
+export type CodexDesktopLoginState = z.infer<typeof CodexDesktopLoginStateSchema>;
+
+export const CodexDesktopTaskStateSchema = z.enum([
+  'idle',
+  'composer_ready',
+  'submitted',
+  'running',
+  'waiting_approval',
+  'failed',
+  'completed',
+  'unknown',
+]);
+export type CodexDesktopTaskState = z.infer<typeof CodexDesktopTaskStateSchema>;
+
+export const CodexAccountCapacityStatusSchema = z.enum([
+  'ready',
+  'quota_limited',
+  'quota_exhausted',
+  'capacity_unknown',
+  'blocked',
+]);
+export type CodexAccountCapacityStatus = z.infer<
+  typeof CodexAccountCapacityStatusSchema
+>;
+
+export const CodexDesktopBlockedReasonSchema = z.enum([
+  'client_not_running',
+  'cdp_unreachable',
+  'login_required',
+  'mfa_required',
+  'permission_denied',
+  'capacity_exhausted',
+  'unauthorized_account',
+  'unauthorized_workspace',
+  'unknown_account',
+  'unknown_state',
+  'drift_detected',
+  'identity_verification_failed',
+  'quota_evasion_blocked',
+  'delegated_admin_authority_required',
+  'approval_required',
+  'runtime_gate_disabled',
+]);
+export type CodexDesktopBlockedReason = z.infer<
+  typeof CodexDesktopBlockedReasonSchema
+>;
+
+export const WorkspaceMemberLifecycleStatusSchema = z.enum([
+  'active',
+  'pending',
+  'removed',
+  'not_member',
+  'unknown',
+]);
+export type WorkspaceMemberLifecycleStatus = z.infer<
+  typeof WorkspaceMemberLifecycleStatusSchema
+>;
+
+export const CodexAccountRecordSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    accountHash: z.string().min(1),
+    workspaceHash: z.string().min(1),
+    profileHash: z.string().min(1).optional(),
+    displayNameHash: z.string().min(1).optional(),
+    serverRegistered: z.literal(true).default(true),
+    authorizedForCodexDesktop: z.boolean().default(false),
+    switchAllowed: z.boolean().default(false),
+    taskDispatchAllowed: z.boolean().default(false),
+    crossWorkspaceAllowed: z.boolean().default(false),
+    delegatedAdminAllowed: z.boolean().default(false),
+    capacityStateId: z.string().min(1).optional(),
+    lastObservedStateId: z.string().min(1).optional(),
+    loginState: CodexDesktopLoginStateSchema.default('unknown'),
+    capacityStatus: CodexAccountCapacityStatusSchema.default('capacity_unknown'),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    quotaEvasionAllowed: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    rawProfileMaterialStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.authorizedForCodexDesktop && record.loginState === 'login_required') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'authorized Codex Desktop accounts cannot be marked dispatchable while login is required',
+        path: ['loginState'],
+      });
+    }
+    if (
+      record.taskDispatchAllowed &&
+      (!record.authorizedForCodexDesktop || record.capacityStatus === 'quota_exhausted')
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'task dispatch requires an authorized account with legitimate capacity',
+        path: ['taskDispatchAllowed'],
+      });
+    }
+  });
+export type CodexAccountRecord = z.infer<typeof CodexAccountRecordSchema>;
+
+export const CodexAccountCapacityStateSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    accountHash: z.string().min(1),
+    workspaceHash: z.string().min(1),
+    capacityStatus: CodexAccountCapacityStatusSchema,
+    rateLimitStatusHash: z.string().min(1).optional(),
+    remainingCapacityHash: z.string().min(1).optional(),
+    resetAt: IsoDateTimeSchema.optional(),
+    sourceSnapshotIds: z.array(z.string().min(1)).default([]),
+    canAcceptTask: z.boolean().default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    quotaEvasionAllowed: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.capacityStatus === 'quota_exhausted' && record.canAcceptTask) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'exhausted capacity cannot accept task routing',
+        path: ['canAcceptTask'],
+      });
+    }
+    if (record.canAcceptTask && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'capacity states with block reasons cannot accept task routing',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type CodexAccountCapacityState = z.infer<typeof CodexAccountCapacityStateSchema>;
+
+export const CodexDesktopObservedStateSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    clientHash: z.string().min(1),
+    surfaceRegistrationId: z.string().min(1).optional(),
+    manifestId: z.string().min(1).optional(),
+    currentAccountHash: z.string().min(1).optional(),
+    currentWorkspaceHash: z.string().min(1).optional(),
+    loginState: CodexDesktopLoginStateSchema,
+    capacityStatus: CodexAccountCapacityStatusSchema,
+    taskState: CodexDesktopTaskStateSchema,
+    canSwitchAccount: z.boolean().default(false),
+    canSubmitTask: z.boolean().default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    loopbackOnly: z.literal(true).default(true),
+    registeredSurfaceOnly: z.literal(true).default(true),
+    boundedVisibleStateOnly: z.literal(true).default(true),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    requestBodyEndpointAccepted: z.literal(false).default(false),
+    requestBodySelectorAccepted: z.literal(false).default(false),
+    requestBodyScriptAccepted: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      ['login_required', 'mfa_required', 'permission_denied'].includes(record.loginState) &&
+      (record.canSwitchAccount || record.canSubmitTask)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked login states cannot allow account switching or task submission',
+        path: ['loginState'],
+      });
+    }
+    if (record.capacityStatus === 'quota_exhausted' && record.canSubmitTask) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'exhausted capacity cannot submit tasks',
+        path: ['canSubmitTask'],
+      });
+    }
+  });
+export type CodexDesktopObservedState = z.infer<typeof CodexDesktopObservedStateSchema>;
+
+export const WorkspaceMemberStateSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceHash: z.string().min(1),
+    memberHash: z.string().min(1),
+    roleHash: z.string().min(1).optional(),
+    seatStateHash: z.string().min(1).optional(),
+    lifecycleStatus: WorkspaceMemberLifecycleStatusSchema,
+    delegatedAdminAuthorityRequired: z.boolean().default(false),
+    memberMutationAllowedForRouting: z.literal(false).default(false),
+    quotaEvasionAllowed: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type WorkspaceMemberState = z.infer<typeof WorkspaceMemberStateSchema>;
+
+export const CodexTaskRoutingDecisionSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    inputRefHash: z.string().min(1),
+    inputHash: z.string().min(1).optional(),
+    currentAccountHash: z.string().min(1).optional(),
+    selectedAccountHash: z.string().min(1).optional(),
+    targetWorkspaceHash: z.string().min(1).optional(),
+    routingStrategy: z.enum([
+      'use_current_account',
+      'switch_authorized_account',
+      'wait_for_capacity',
+      'blocked',
+    ]),
+    status: z.enum(['ready', 'blocked', 'waiting']).default('blocked'),
+    accountSwitchRequired: z.boolean().default(false),
+    approvalRequired: z.boolean().default(false),
+    authorityRequired: z.boolean().default(false),
+    memberMutationUsedForRouting: z.literal(false).default(false),
+    accountCreationUsedForRouting: z.literal(false).default(false),
+    workspaceChurnUsedForRouting: z.literal(false).default(false),
+    quotaEvasionBlocked: z.literal(true).default(true),
+    rawPromptStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.routingStrategy === 'blocked' && record.status !== 'blocked') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked routing decisions must use blocked status',
+        path: ['status'],
+      });
+    }
+    if (record.routingStrategy !== 'blocked' && !record.selectedAccountHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'non-blocked routing decisions require a selected account hash',
+        path: ['selectedAccountHash'],
+      });
+    }
+    if (
+      record.routingStrategy === 'switch_authorized_account' &&
+      (!record.accountSwitchRequired || !record.approvalRequired || !record.authorityRequired)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'account switch routing requires switch, approval, and authority flags',
+        path: ['accountSwitchRequired'],
+      });
+    }
+  });
+export type CodexTaskRoutingDecision = z.infer<typeof CodexTaskRoutingDecisionSchema>;
+
+export const AccountSwitchEvidenceSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    targetAccountHash: z.string().min(1),
+    targetWorkspaceHash: z.string().min(1),
+    beforeAccountHash: z.string().min(1).optional(),
+    beforeWorkspaceHash: z.string().min(1).optional(),
+    afterAccountHash: z.string().min(1).optional(),
+    afterWorkspaceHash: z.string().min(1).optional(),
+    capacityStatus: CodexAccountCapacityStatusSchema.default('capacity_unknown'),
+    status: UiAutomationStatusSchema,
+    approvalRequired: z.boolean().default(true),
+    authorityRequired: z.boolean().default(true),
+    authorityRefId: z.string().min(1).optional(),
+    registeredSurfaceOnly: z.literal(true).default(true),
+    registeredManifestOnly: z.literal(true).default(true),
+    selectorFingerprintMatched: z.boolean().default(false),
+    identityVerified: z.boolean().default(false),
+    visibleUiExecution: z.boolean().default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'completed' && (!record.identityVerified || !record.afterAccountHash)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed account switches require after identity verification',
+        path: ['identityVerified'],
+      });
+    }
+    if (record.visibleUiExecution && !record.selectorFingerprintMatched) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'visible account switching requires selector fingerprint match',
+        path: ['selectorFingerprintMatched'],
+      });
+    }
+  });
+export type AccountSwitchEvidence = z.infer<typeof AccountSwitchEvidenceSchema>;
+
+export const TaskDispatchEvidenceSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    routingDecisionId: z.string().min(1),
+    inputRefHash: z.string().min(1),
+    inputHash: z.string().min(1),
+    promptSummaryHash: z.string().min(1).optional(),
+    promptCharCount: z.number().int().nonnegative().default(0),
+    selectedAccountHash: z.string().min(1).optional(),
+    workspaceHash: z.string().min(1).optional(),
+    taskState: CodexDesktopTaskStateSchema,
+    status: UiAutomationStatusSchema,
+    accountSwitchEvidenceId: z.string().min(1).optional(),
+    registeredSurfaceOnly: z.literal(true).default(true),
+    registeredManifestOnly: z.literal(true).default(true),
+    canSubmitTaskVerified: z.boolean().default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'completed' && !record.canSubmitTaskVerified) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed task dispatch requires canSubmitTask verification',
+        path: ['canSubmitTaskVerified'],
+      });
+    }
+  });
+export type TaskDispatchEvidence = z.infer<typeof TaskDispatchEvidenceSchema>;
+
+export const WorkspaceMemberActionEvidenceSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    actionKind: z.enum(['state_read', 'member_add', 'member_remove']),
+    workspaceHash: z.string().min(1),
+    memberHash: z.string().min(1).optional(),
+    reasonHash: z.string().min(1).optional(),
+    ticketHash: z.string().min(1).optional(),
+    beforeStateId: z.string().min(1).optional(),
+    afterStateId: z.string().min(1).optional(),
+    status: UiAutomationStatusSchema,
+    delegatedAdminAuthorityRequired: z.boolean().default(false),
+    delegatedAdminAuthorityVerified: z.boolean().default(false),
+    approvalRequired: z.boolean().default(false),
+    cooldownPassed: z.boolean().default(false),
+    antiEvasionPassed: z.boolean().default(true),
+    memberMutationAllowedForRouting: z.literal(false).default(false),
+    quotaEvasionAllowed: z.literal(false).default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      record.actionKind !== 'state_read' &&
+      record.status !== 'blocked' &&
+      (!record.delegatedAdminAuthorityRequired ||
+        !record.approvalRequired ||
+        !record.reasonHash ||
+        !record.ticketHash)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'workspace member mutation requires delegated admin authority, approval, reason, and ticket hashes',
+        path: ['actionKind'],
+      });
+    }
+    if (record.actionKind !== 'state_read' && record.status !== 'blocked' && !record.antiEvasionPassed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'workspace member mutation cannot proceed when anti-evasion policy fails',
+        path: ['antiEvasionPassed'],
+      });
+    }
+  });
+export type WorkspaceMemberActionEvidence = z.infer<
+  typeof WorkspaceMemberActionEvidenceSchema
+>;
+
+export const ClaudeCodeRepairRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    provider: z.literal('claude-code-cli').default('claude-code-cli'),
+    failureEvidenceHash: z.string().min(1),
+    controlledWorktreeHash: z.string().min(1),
+    proposalHash: z.string().min(1),
+    changedFileCount: z.number().int().nonnegative().default(0),
+    diffHash: z.string().min(1).optional(),
+    testResultHash: z.string().min(1).optional(),
+    status: z.enum(['planned', 'running', 'completed', 'failed', 'blocked']),
+    productionClientOperationInvoked: z.literal(false).default(false),
+    accountSwitchInvoked: z.literal(false).default(false),
+    workspaceMemberMutationInvoked: z.literal(false).default(false),
+    autoMergeInvoked: z.literal(false).default(false),
+    deploymentInvoked: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDiffStored: z.literal(false).default(false),
+    rawPatchStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    blockReasons: z.array(CodexDesktopBlockedReasonSchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type ClaudeCodeRepairRun = z.infer<typeof ClaudeCodeRepairRunSchema>;
+
+export const M75RehearsalRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    scenario: z.enum([
+      'all-pass',
+      'state-blocked',
+      'login-required',
+      'mfa-required',
+      'no-authorized-capacity',
+      'switch-blocked',
+      'dispatch-blocked',
+      'member-mutation-blocked',
+      'claude-repair-proposal',
+    ]),
+    status: z.enum(['passed', 'blocked', 'failed']),
+    stateReadStatus: z.string().min(1),
+    routingStatus: z.string().min(1),
+    switchStatus: z.string().min(1).optional(),
+    dispatchStatus: z.string().min(1).optional(),
+    memberStateStatus: z.string().min(1).optional(),
+    repairStatus: z.string().min(1).optional(),
+    blockerCount: z.number().int().nonnegative().default(0),
+    fixtureOnly: z.boolean().default(true),
+    conditionalLiveSmoke: z.boolean().default(false),
+    liveSmokeBlockedReasonCount: z.number().int().nonnegative().default(0),
+    quotaEvasionAllowed: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.conditionalLiveSmoke && record.fixtureOnly) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'conditional live smoke cannot also be fixture-only',
+        path: ['conditionalLiveSmoke'],
+      });
+    }
+  });
+export type M75RehearsalRun = z.infer<typeof M75RehearsalRunSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

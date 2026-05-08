@@ -3432,6 +3432,69 @@ integrations:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m75-codex-desktop-account-capacity-orchestration:
+    enabled: false
+    adapter: codex-desktop-orchestration-kernel
+    provider: codex-desktop-account-capacity
+    providerType: governed
+    mode: account-capacity-aware-desktop-orchestration
+    stage: m75-codex-desktop-account-capacity-orchestration
+    release: docs/releases/m75-codex-desktop-account-capacity-orchestration.md
+    review: docs/reviews/m75-codex-desktop-account-capacity-orchestration-review.md
+    runbook: docs/runbooks/m75-codex-desktop-account-capacity-runbook.md
+    processBoundary: true
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: admin
+    defaultRisk: critical
+    runtimeGates:
+      - CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED
+      - CODEXHUB_CODEX_DESKTOP_STATE_READER_ENABLED
+      - CODEXHUB_CODEX_DESKTOP_ACCOUNT_SWITCH_ENABLED
+      - CODEXHUB_CODEX_DESKTOP_TASK_DISPATCH_ENABLED
+      - CODEXHUB_CHATGPT_WORKSPACE_MEMBER_ORCHESTRATOR_ENABLED
+      - CODEXHUB_CLAUDE_CODE_REPAIR_ENABLED
+    supervisorRoutes:
+      - GET /api/codex-desktop-orchestration/accounts
+      - GET /api/codex-desktop-orchestration/clients
+      - GET /api/codex-desktop-orchestration/state
+      - GET /api/codex-desktop-orchestration/capacity
+      - GET /api/codex-desktop-orchestration/tasks
+      - GET /api/codex-desktop-orchestration/routing-decisions
+      - POST /api/codex-desktop-orchestration/state-reads
+      - POST /api/codex-desktop-orchestration/routing-decisions
+      - POST /api/codex-desktop-orchestration/account-switches/dry-runs
+      - POST /api/codex-desktop-orchestration/task-dispatches/dry-runs
+      - POST /api/codex-desktop-orchestration/workspace-members/actions/dry-runs
+      - POST /api/codex-desktop-orchestration/claude-repairs
+      - POST /api/codex-desktop-orchestration/rehearsals
+    persistedStores:
+      - codex_account_records
+      - codex_desktop_observed_states
+      - codex_account_capacity_states
+      - codex_task_routing_decisions
+      - account_switch_evidence_records
+      - task_dispatch_evidence_records
+      - workspace_member_states
+      - workspace_member_action_evidence_records
+      - claude_code_repair_runs
+      - m75_rehearsal_runs
+    safety:
+      capacityAwareRoutingAllowed: true
+      quotaEvasionAllowed: false
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      dryRunRequired: true
+      highRiskApprovalRequired: true
+      storeResolvedAuthorityRequired: true
+      delegatedAdminRequiredForMemberMutation: true
+      directAdapterExecutionAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      arbitrarySelectorRunnerAllowed: false
+      arbitraryJavascriptRunnerAllowed: false
+      requestBodyAuthorityTrusted: false
+      rawPromptStored: false
+      credentialMaterialStored: false
   m72-canary-drift-hardening:
     enabled: false
     adapter: production-readiness-control-plane

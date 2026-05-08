@@ -95,6 +95,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/approvals')).toBe('approvals');
     expect(getDashboardViewFromHash('#/release-candidates')).toBe('release-candidates');
     expect(getDashboardViewFromHash('#/operations')).toBe('operations');
+    expect(getDashboardViewFromHash('#/codex-desktop')).toBe('codex-desktop');
     expect(getDashboardViewFromHash('#/workflows')).toBe('workflows');
     expect(getDashboardViewFromHash('#/production-ga')).toBe('production-ga');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
@@ -112,6 +113,7 @@ describe('dashboard read-only UX helpers', () => {
       'secrets',
       'runtime',
       'operations',
+      'codex-desktop',
       'production-ga',
       'policy-telemetry',
       'browser-profiles',
@@ -141,6 +143,7 @@ describe('dashboard read-only UX helpers', () => {
       { view: 'policy-telemetry', firstPanel: 'Policy Backend' },
       { view: 'runtime', firstPanel: 'Runtime Scheduler' },
       { view: 'operations', firstPanel: 'Platform Operations' },
+      { view: 'codex-desktop', firstPanel: 'Codex Desktop Orchestration' },
       { view: 'production-ga', firstPanel: 'Production GA Readiness' },
     ] as const;
 
@@ -169,6 +172,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).toContain('#/policy-telemetry');
     expect(serialized).toContain('#/runtime');
     expect(serialized).toContain('#/operations');
+    expect(serialized).toContain('#/codex-desktop');
     expectNoForbiddenRawOutputTerms(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
     expect(serialized).not.toContain('localStorage');
@@ -188,6 +192,7 @@ describe('dashboard read-only UX helpers', () => {
       { view: 'policy-telemetry', firstPanel: 'Policy Backend' },
       { view: 'runtime', firstPanel: 'Runtime Scheduler' },
       { view: 'operations', firstPanel: 'Platform Operations' },
+      { view: 'codex-desktop', firstPanel: 'Codex Desktop Orchestration' },
       { view: 'production-ga', firstPanel: 'Production GA Readiness' },
     ] as const;
 
@@ -201,6 +206,7 @@ describe('dashboard read-only UX helpers', () => {
       'policy-telemetry',
       'runtime',
       'operations',
+      'codex-desktop',
       'production-ga',
     ]);
 
@@ -231,8 +237,9 @@ describe('dashboard read-only UX helpers', () => {
     });
     const serialized = JSON.stringify(smokeMatrix);
 
-    expect(smokeMatrix).toHaveLength(10);
+    expect(smokeMatrix).toHaveLength(11);
     expect(serialized).toContain('#/production-ga');
+    expect(serialized).toContain('#/codex-desktop');
     expect(serialized).toContain('Supervisor unavailable');
     expectNoForbiddenRawOutputTerms(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');

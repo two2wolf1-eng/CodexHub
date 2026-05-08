@@ -171,6 +171,16 @@ import type {
   ProductionRealClientOperationManifest,
   ProductionRealClientRun,
   ProductionRealClientSurfaceRegistration,
+  AccountSwitchEvidence,
+  ClaudeCodeRepairRun,
+  CodexAccountCapacityState,
+  CodexAccountRecord,
+  CodexDesktopObservedState,
+  CodexTaskRoutingDecision,
+  M75RehearsalRun,
+  TaskDispatchEvidence,
+  WorkspaceMemberActionEvidence,
+  WorkspaceMemberState,
   RetentionPolicyPlan,
   RetentionPolicyRun,
   RuntimeCheckpoint,
@@ -1749,6 +1759,16 @@ export interface CodexHubStore {
   productionRealClientJobs: MetadataEntityRepository<ProductionRealClientJob>;
   productionRealClientCanaryDriftReports: MetadataEntityRepository<ProductionRealClientCanaryDriftReport>;
   productionBreakGlassSessions: MetadataEntityRepository<ProductionBreakGlassSession>;
+  codexAccountRecords: MetadataEntityRepository<CodexAccountRecord>;
+  codexDesktopObservedStates: MetadataEntityRepository<CodexDesktopObservedState>;
+  codexAccountCapacityStates: MetadataEntityRepository<CodexAccountCapacityState>;
+  codexTaskRoutingDecisions: MetadataEntityRepository<CodexTaskRoutingDecision>;
+  accountSwitchEvidenceRecords: MetadataEntityRepository<AccountSwitchEvidence>;
+  taskDispatchEvidenceRecords: MetadataEntityRepository<TaskDispatchEvidence>;
+  workspaceMemberStates: MetadataEntityRepository<WorkspaceMemberState>;
+  workspaceMemberActionEvidenceRecords: MetadataEntityRepository<WorkspaceMemberActionEvidence>;
+  claudeCodeRepairRuns: MetadataEntityRepository<ClaudeCodeRepairRun>;
+  m75RehearsalRuns: MetadataEntityRepository<M75RehearsalRun>;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

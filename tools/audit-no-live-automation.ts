@@ -532,6 +532,13 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/codex-desktop-orchestration-kernel/src/index.ts',
+    terms: sensitiveConceptTerms,
+    reason:
+      'M75 Codex Desktop orchestration forbidden-body and blocked-state vocabulary only; no credential read or persistence path',
+  },
+  {
+    scope: 'production-source',
     file: 'packages/contracts/src/index.ts',
     terms: sensitiveConceptTerms,
     reason: 'contract metadata flags and hash-only credential readiness schemas only',

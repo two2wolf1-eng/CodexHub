@@ -7009,6 +7009,47 @@ workflows:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m75.codex-desktop-account-capacity-orchestration:
+    risk: critical
+    trigger:
+      type: codex-desktop-account-capacity-orchestration
+      entrypoint: contracts codex-desktop-orchestration-kernel supervisor store dashboard docs
+      localControlRequired: true
+    scope:
+      - codex-account-registry
+      - codex-desktop-state-reader
+      - account-capacity-observer
+      - quota-aware-task-router
+      - account-switch-workflow
+      - task-dispatch-workflow
+      - workspace-member-orchestrator
+      - claude-code-repair-proposals
+    docs:
+      - docs/releases/m75-codex-desktop-account-capacity-orchestration.md
+      - docs/reviews/m75-codex-desktop-account-capacity-orchestration-review.md
+      - docs/runbooks/m75-codex-desktop-account-capacity-runbook.md
+    safety:
+      capacityAwareRoutingAllowed: true
+      quotaEvasionAllowed: false
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      dryRunRequired: true
+      highRiskApprovalRequired: true
+      storeResolvedAuthorityRequired: true
+      delegatedAdminRequiredForMemberMutation: true
+      noGenericCdpPassthrough: true
+      noArbitrarySelectorRunner: true
+      noArbitraryJavascriptRunner: true
+      noOperateAnyPageRoute: true
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawPromptStored: false
+      publicProjectionMetadataOnly: true
   m72.canary-drift-hardening:
     risk: critical
     trigger:

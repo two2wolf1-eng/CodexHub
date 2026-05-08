@@ -42,6 +42,11 @@ const highRiskOperations = new Set<ProductionRealClientOperationKind>([
   'crossProfileAutomation',
   'crossWorkspaceAutomation',
   'bulkConversationExport',
+  'codexDesktopSwitchAuthorizedAccount',
+  'codexDesktopDispatchTask',
+  'chatgptWorkspaceMemberAdd',
+  'chatgptWorkspaceMemberRemove',
+  'claudeCodeRepairProposal',
 ]);
 
 const breakGlassOperations = new Set<ProductionRealClientOperationKind>([
@@ -72,6 +77,8 @@ const restrictedOperations = new Set<ProductionRealClientOperationKind>([
   'readCodexDesktopTaskState',
   'stopCodexDesktopTask',
   'codexCliSuggest',
+  'codexDesktopReadState',
+  'chatgptWorkspaceMemberStateRead',
 ]);
 
 const forbiddenRequestKeys = new Set([

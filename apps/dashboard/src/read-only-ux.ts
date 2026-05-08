@@ -56,6 +56,7 @@ export const DASHBOARD_VIEWS = [
   'secrets',
   'runtime',
   'operations',
+  'codex-desktop',
   'workflows',
   'production-ga',
 ] as const;
@@ -693,6 +694,31 @@ export interface ProductionGaReadOnlySummary {
   rawPathStored: false;
   bodyStored: false;
   tokenStored: false;
+  summary: string;
+}
+
+export interface CodexDesktopOrchestrationReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  status: 'ready' | 'blocked' | 'degraded';
+  accountCount: number;
+  clientCount: number;
+  stateReadCount: number;
+  capacityRecordCount: number;
+  routingDecisionCount: number;
+  accountSwitchCount: number;
+  taskDispatchCount: number;
+  workspaceMemberActionCount: number;
+  claudeRepairRunCount: number;
+  productDefaultEnabled: false;
+  capacityAwareRoutingAllowed: true;
+  quotaEvasionAllowed: false;
+  genericCdpPassthroughAllowed: false;
+  arbitrarySelectorAllowed: false;
+  arbitraryJsAllowed: false;
+  credentialViewerAllowed: false;
+  rawPromptViewerAllowed: false;
+  localControlKeyRead: false;
   summary: string;
 }
 
@@ -2211,6 +2237,46 @@ export function createProductionGaReadOnlySummary(input: {
     tokenStored: false,
     summary:
       'Production GA aggregates existing metadata, training, threat model, rehearsal, and signoff evidence. It does not execute child adapters.',
+  };
+}
+
+export function createCodexDesktopOrchestrationReadOnlySummary(input: {
+  accountCount?: number;
+  clientCount?: number;
+  stateReadCount?: number;
+  capacityRecordCount?: number;
+  routingDecisionCount?: number;
+  accountSwitchCount?: number;
+  taskDispatchCount?: number;
+  workspaceMemberActionCount?: number;
+  claudeRepairRunCount?: number;
+  blockerCount?: number;
+} = {}): CodexDesktopOrchestrationReadOnlySummary {
+  const blockerCount = input.blockerCount ?? 0;
+  return {
+    manifestName: 'codex-desktop-orchestration',
+    manifestVersion: '0.75.0-account-capacity',
+    status: blockerCount > 0 ? 'blocked' : 'degraded',
+    accountCount: input.accountCount ?? 0,
+    clientCount: input.clientCount ?? 0,
+    stateReadCount: input.stateReadCount ?? 0,
+    capacityRecordCount: input.capacityRecordCount ?? 0,
+    routingDecisionCount: input.routingDecisionCount ?? 0,
+    accountSwitchCount: input.accountSwitchCount ?? 0,
+    taskDispatchCount: input.taskDispatchCount ?? 0,
+    workspaceMemberActionCount: input.workspaceMemberActionCount ?? 0,
+    claudeRepairRunCount: input.claudeRepairRunCount ?? 0,
+    productDefaultEnabled: false,
+    capacityAwareRoutingAllowed: true,
+    quotaEvasionAllowed: false,
+    genericCdpPassthroughAllowed: false,
+    arbitrarySelectorAllowed: false,
+    arbitraryJsAllowed: false,
+    credentialViewerAllowed: false,
+    rawPromptViewerAllowed: false,
+    localControlKeyRead: false,
+    summary:
+      'Codex Desktop orchestration exposes account, capacity, state, routing, dispatch, member, and repair metadata only. Real production operations require registered surfaces, manifests, approval, authority, evidence, and audit.',
   };
 }
 
