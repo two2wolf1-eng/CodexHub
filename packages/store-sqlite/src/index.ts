@@ -13,7 +13,11 @@ import type {
   BusinessCodexSeat,
   BusinessAdminMemberRosterSnapshot,
   BusinessBillingSummary,
+  BusinessMemberReconciliationReport,
+  BusinessProfileWorkspaceObservation,
   BusinessQuotaCrossCheckReport,
+  BusinessWorkspaceSwitchDryRunPlan,
+  BusinessWorkspaceSwitchRun,
   BusinessMembershipMirror,
   BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
@@ -670,6 +674,10 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly businessAdminMemberRosterSnapshots: MetadataEntityRepository<BusinessAdminMemberRosterSnapshot>;
   readonly businessBillingSummaries: MetadataEntityRepository<BusinessBillingSummary>;
   readonly ownerAdminExtractionReports: MetadataEntityRepository<OwnerAdminExtractionReport>;
+  readonly businessProfileWorkspaceObservations: MetadataEntityRepository<BusinessProfileWorkspaceObservation>;
+  readonly businessWorkspaceSwitchDryRunPlans: MetadataEntityRepository<BusinessWorkspaceSwitchDryRunPlan>;
+  readonly businessWorkspaceSwitchRuns: MetadataEntityRepository<BusinessWorkspaceSwitchRun>;
+  readonly businessMemberReconciliationReports: MetadataEntityRepository<BusinessMemberReconciliationReport>;
   readonly automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
@@ -1213,6 +1221,26 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteMetadataEntityRepository<OwnerAdminExtractionReport>(
         database,
         'owner_admin_extraction_reports',
+      );
+    this.businessProfileWorkspaceObservations =
+      new SqliteMetadataEntityRepository<BusinessProfileWorkspaceObservation>(
+        database,
+        'business_profile_workspace_observations',
+      );
+    this.businessWorkspaceSwitchDryRunPlans =
+      new SqliteMetadataEntityRepository<BusinessWorkspaceSwitchDryRunPlan>(
+        database,
+        'business_workspace_switch_dry_run_plans',
+      );
+    this.businessWorkspaceSwitchRuns =
+      new SqliteMetadataEntityRepository<BusinessWorkspaceSwitchRun>(
+        database,
+        'business_workspace_switch_runs',
+      );
+    this.businessMemberReconciliationReports =
+      new SqliteMetadataEntityRepository<BusinessMemberReconciliationReport>(
+        database,
+        'business_member_reconciliation_reports',
       );
     this.automationCapabilityPolicies =
       new SqliteMetadataEntityRepository<AutomationCapabilityPolicy>(
@@ -7501,6 +7529,30 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS owner_admin_extraction_reports (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_profile_workspace_observations (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_workspace_switch_dry_run_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_workspace_switch_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_member_reconciliation_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

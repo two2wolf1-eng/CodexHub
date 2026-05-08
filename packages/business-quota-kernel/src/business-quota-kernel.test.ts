@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attributeBusinessQuota,
+  createBusinessMemberReconciliationBundle,
   createBusinessQuotaCrossCheckReport,
   createOwnerAdminExtractionBundle,
   createQuotaDispatchGate,
@@ -209,5 +210,54 @@ describe('business quota kernel', () => {
     expect(bundle.report.cleartextBusinessDataStored).toBe(false);
     expect(serialized).not.toContain('private business workspace');
     expect(serialized).not.toContain('private owner admin page');
+  });
+
+  it('reconciles profile workspaces against the owner roster before Codex dispatch', () => {
+    const ownerBundle = createOwnerAdminExtractionBundle({
+      workspaceSeed: 'private business workspace',
+      memberCount: 2,
+      ownerCount: 1,
+      codexSeatCount: 2,
+    });
+    const ready = createBusinessMemberReconciliationBundle({
+      ownerRosterSnapshot: ownerBundle.rosterSnapshot,
+      profiles: [
+        {
+          profileSeed: 'owner chrome profile',
+          accountSeed: 'owner account',
+          observedWorkspaceSeed: 'private business workspace',
+          status: 'business_workspace',
+        },
+      ],
+    });
+    const blocked = createBusinessMemberReconciliationBundle({
+      ownerRosterSnapshot: ownerBundle.rosterSnapshot,
+      profiles: [
+        {
+          profileSeed: 'member chrome profile',
+          accountSeed: 'member account',
+          observedWorkspaceSeed: 'personal workspace',
+          status: 'personal_workspace',
+        },
+        {
+          profileSeed: 'logged out profile',
+          status: 'login_required',
+        },
+      ],
+    });
+    const serialized = JSON.stringify([ready, blocked]);
+
+    expect(ready.report.status).toBe('ready');
+    expect(ready.report.dispatchAllowed).toBe(true);
+    expect(ready.profileObservations[0]?.cookieSessionTokenRead).toBe(false);
+    expect(blocked.report.dispatchAllowed).toBe(false);
+    expect(blocked.report.status).toBe('login_required');
+    expect(blocked.workspaceSwitchDryRunPlans).toHaveLength(1);
+    expect(blocked.workspaceSwitchDryRunPlans[0]?.liveClickAllowed).toBe(false);
+    expect(blocked.workspaceSwitchRuns[0]?.executionDisabled).toBe(true);
+    expect(blocked.report.blockReasons).toContain('workspace_switch_approval_required');
+    expect(serialized).not.toContain('owner chrome profile');
+    expect(serialized).not.toContain('member account');
+    expect(serialized).not.toContain('personal workspace');
   });
 });

@@ -10,8 +10,12 @@ import {
   AdminWriteRunSchema,
   BusinessAdminMemberRosterSnapshotSchema,
   BusinessBillingSummarySchema,
+  BusinessMemberReconciliationReportSchema,
   BusinessMembershipMirrorSchema,
+  BusinessProfileWorkspaceObservationSchema,
   BusinessWorkspaceSchema,
+  BusinessWorkspaceSwitchDryRunPlanSchema,
+  BusinessWorkspaceSwitchRunSchema,
   ChatGptSessionHealthSchema,
   ChromeProfileBindingSchema,
   ClientPoolSchema,
@@ -1034,6 +1038,55 @@ describe('M51 unified metadata store', () => {
       billingSummaryId: billingSummary.id,
       summary: 'Owner admin extraction report stores metadata only.',
     });
+    const profileObservation = BusinessProfileWorkspaceObservationSchema.parse({
+      id: 'business_profile_workspace_observation_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      profileHash: 'sha256:profile',
+      accountHash: 'sha256:account',
+      expectedWorkspaceHash: rosterSnapshot.workspaceHash,
+      observedWorkspaceHash: rosterSnapshot.workspaceHash,
+      status: 'business_workspace',
+      memberInOwnerRoster: true,
+      dispatchAllowed: true,
+      codexDispatchBlocked: false,
+      summary: 'Profile workspace observation stores hashes only.',
+    });
+    const workspaceSwitchDryRun = BusinessWorkspaceSwitchDryRunPlanSchema.parse({
+      id: 'business_workspace_switch_dry_run_store_1',
+      schemaVersion,
+      createdAt,
+      profileWorkspaceObservationId: profileObservation.id,
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      profileHash: profileObservation.profileHash,
+      expectedWorkspaceHash: rosterSnapshot.workspaceHash,
+      selectorFingerprintHash: 'sha256:workspace-switch-selector',
+      summary: 'Workspace switch dry-run stores selector fingerprint only.',
+    });
+    const workspaceSwitchRun = BusinessWorkspaceSwitchRunSchema.parse({
+      id: 'business_workspace_switch_run_store_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: workspaceSwitchDryRun.id,
+      profileWorkspaceObservationId: profileObservation.id,
+      status: 'blocked',
+      summary: 'Workspace switch execution remains blocked.',
+    });
+    const reconciliationReport = BusinessMemberReconciliationReportSchema.parse({
+      id: 'business_member_reconciliation_report_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'ready',
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      workspaceHash: rosterSnapshot.workspaceHash,
+      rosterHash: rosterSnapshot.rosterHash,
+      profileObservationIds: [profileObservation.id],
+      observedProfileCount: 1,
+      readyProfileCount: 1,
+      dispatchAllowed: true,
+      summary: 'Business member reconciliation stores readiness metadata only.',
+    });
 
     const saved = [
       await expectRoundTrip(first.codexQuotaSourceHealth, sourceHealth),
@@ -1060,6 +1113,10 @@ describe('M51 unified metadata store', () => {
       await expectRoundTrip(first.businessAdminMemberRosterSnapshots, rosterSnapshot),
       await expectRoundTrip(first.businessBillingSummaries, billingSummary),
       await expectRoundTrip(first.ownerAdminExtractionReports, ownerAdminReport),
+      await expectRoundTrip(first.businessProfileWorkspaceObservations, profileObservation),
+      await expectRoundTrip(first.businessWorkspaceSwitchDryRunPlans, workspaceSwitchDryRun),
+      await expectRoundTrip(first.businessWorkspaceSwitchRuns, workspaceSwitchRun),
+      await expectRoundTrip(first.businessMemberReconciliationReports, reconciliationReport),
     ];
     await first.close();
 
@@ -1072,6 +1129,9 @@ describe('M51 unified metadata store', () => {
     await expect(reopened.ownerAdminExtractionReports.getRecord(ownerAdminReport.id)).resolves.toEqual(
       ownerAdminReport,
     );
+    await expect(
+      reopened.businessMemberReconciliationReports.getRecord(reconciliationReport.id),
+    ).resolves.toEqual(reconciliationReport);
     await expect(reopened.businessQuotaCrossCheckReports.getRecord(crossCheck.id)).resolves.toEqual(
       crossCheck,
     );
@@ -1098,6 +1158,10 @@ describe('M51 unified metadata store', () => {
     expect(ownerAdminSurface.rawDomStored).toBe(false);
     expect(rosterSnapshot.cleartextEmailStored).toBe(false);
     expect(ownerAdminReport.cleartextBusinessDataStored).toBe(false);
+    expect(profileObservation.cookieSessionTokenRead).toBe(false);
+    expect(workspaceSwitchDryRun.liveClickAllowed).toBe(false);
+    expect(workspaceSwitchRun.executionDisabled).toBe(true);
+    expect(reconciliationReport.liveClickPerformed).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

@@ -285,6 +285,7 @@ const lateStageSupervisorControlPlaneMatrix = [
     routeSuffixes: [
       '/observation-rehearsals',
       '/owner-admin-extractions',
+      '/reconciliations',
       '/ui-action-dry-runs',
       '/approval-requests',
       '/quota-read-dry-runs',
@@ -2301,6 +2302,7 @@ describe('supervisor mock development API', () => {
           .flatMap((prefix) => [
             `${prefix}/observation-rehearsals`,
             `${prefix}/owner-admin-extractions`,
+            `${prefix}/reconciliations`,
             `${prefix}/ui-action-dry-runs`,
             `${prefix}/approval-requests`,
             `${prefix}/quota-read-dry-runs`,
@@ -2452,6 +2454,7 @@ describe('supervisor mock development API', () => {
         suffixes: [
           '/observation-rehearsals',
           '/owner-admin-extractions',
+          '/reconciliations',
           '/ui-action-dry-runs',
           '/approval-requests',
           '/quota-read-dry-runs',
@@ -3421,6 +3424,19 @@ describe('supervisor mock development API', () => {
         creditBalanceKnown: true,
       },
     });
+    const reconciliationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/reconciliations',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-member-reconciliation-1',
+        profileSeeds: ['private owner profile', 'private member profile'],
+        accountSeeds: ['private owner account', 'private member account'],
+        observedWorkspaceSeeds: ['private owner workspace', 'private personal workspace'],
+        profileStatuses: ['business_workspace', 'personal_workspace'],
+        memberInOwnerRoster: [true, true],
+      },
+    });
     const approvalResponse = await server.inject({
       method: 'POST',
       url: '/api/business-quota/approval-requests',
@@ -3483,6 +3499,14 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/business-quota/seat-allocation',
     });
+    const reconciliationsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/reconciliations',
+    });
+    const workspaceSwitchesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/workspace-switches',
+    });
     const automationRunsResponse = await server.inject({
       method: 'GET',
       url: '/api/business-quota/automation-runs',
@@ -3530,6 +3554,19 @@ describe('supervisor mock development API', () => {
       cleartextBusinessDataStored: false,
       executionDisabled: true,
     });
+    expect(reconciliationResponse.statusCode).toBe(200);
+    expect(reconciliationResponse.json()).toMatchObject({
+      status: 'workspace_switch_required',
+      observedProfileCount: 2,
+      readyProfileCount: 1,
+      workspaceSwitchRequiredCount: 1,
+      dispatchAllowed: false,
+      workspaceSwitchDryRunCount: 1,
+      requestBodyAuthorityAccepted: false,
+      directAdapterExecutionAllowed: false,
+      liveClickPerformed: false,
+      executionDisabled: true,
+    });
     expect(approvalResponse.statusCode).toBe(200);
     expect(approvalResponse.json()).toMatchObject({
       status: 'approval_waiting',
@@ -3551,6 +3588,9 @@ describe('supervisor mock development API', () => {
     expect(memberRosterResponse.json().counts.rosters).toBe(1);
     expect(pendingInvitesResponse.json().pendingInviteCount).toBe(2);
     expect(seatAllocationResponse.json().codexSeatCount).toBe(3);
+    expect(reconciliationsResponse.json().counts.reports).toBe(1);
+    expect(reconciliationsResponse.json().counts.workspaceSwitchDryRuns).toBe(1);
+    expect(workspaceSwitchesResponse.json().counts.dryRuns).toBe(1);
     expect(automationRunsResponse.json().counts.runs).toBe(2);
     expect(accountsResponse.json().counts.quotaSourceHealth).toBeGreaterThanOrEqual(2);
 
@@ -3559,6 +3599,7 @@ describe('supervisor mock development API', () => {
       observationResponse.body,
       dryRunResponse.body,
       ownerAdminExtractionResponse.body,
+      reconciliationResponse.body,
       approvalResponse.body,
       criticalResponse.body,
       forgedResponse.body,
@@ -3570,6 +3611,8 @@ describe('supervisor mock development API', () => {
       memberRosterResponse.body,
       pendingInvitesResponse.body,
       seatAllocationResponse.body,
+      reconciliationsResponse.body,
+      workspaceSwitchesResponse.body,
       automationRunsResponse.body,
       accountsResponse.body,
     ]) {
@@ -3580,6 +3623,11 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private action target');
       expect(body).not.toContain('private owner workspace');
       expect(body).not.toContain('private owner admin page');
+      expect(body).not.toContain('private owner profile');
+      expect(body).not.toContain('private member profile');
+      expect(body).not.toContain('private owner account');
+      expect(body).not.toContain('private member account');
+      expect(body).not.toContain('private personal workspace');
       expect(body).not.toContain('private approval target');
       expect(body).not.toContain('private desktop target');
       expect(body).not.toContain('private forged target');

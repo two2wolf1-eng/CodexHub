@@ -577,6 +577,10 @@ import {
   OwnerAdminReadSurfaceSummarySchema,
   BusinessAdminMemberRosterSnapshotSchema,
   BusinessBillingSummarySchema,
+  BusinessMemberReconciliationReportSchema,
+  BusinessProfileWorkspaceObservationSchema,
+  BusinessWorkspaceSwitchDryRunPlanSchema,
+  BusinessWorkspaceSwitchRunSchema,
   QuotaSnapshotSchema,
   QuotaAttributionSchema,
   BusinessQuotaPermissionProbeSchema,
@@ -17390,6 +17394,56 @@ describe('contracts schemas', () => {
       billingSummaryId: billingSummary.id,
       summary: 'Owner admin extraction report is metadata-only.',
     });
+    const profileObservation = BusinessProfileWorkspaceObservationSchema.parse({
+      id: 'business_profile_workspace_observation_1',
+      schemaVersion,
+      observedAt: createdAt,
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      profileHash: 'sha256:profile',
+      accountHash: 'sha256:account',
+      expectedWorkspaceHash: rosterSnapshot.workspaceHash,
+      observedWorkspaceHash: rosterSnapshot.workspaceHash,
+      status: 'business_workspace',
+      memberInOwnerRoster: true,
+      workspaceSwitchRequired: false,
+      dispatchAllowed: true,
+      codexDispatchBlocked: false,
+      summary: 'Profile is in the expected Business workspace and roster.',
+    });
+    const workspaceSwitchDryRun = BusinessWorkspaceSwitchDryRunPlanSchema.parse({
+      id: 'business_workspace_switch_dry_run_1',
+      schemaVersion,
+      createdAt,
+      profileWorkspaceObservationId: profileObservation.id,
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      profileHash: profileObservation.profileHash,
+      expectedWorkspaceHash: rosterSnapshot.workspaceHash,
+      selectorFingerprintHash: 'sha256:workspace-switch-selector',
+      summary: 'Workspace switch visible click remains approval-gated and disabled.',
+    });
+    const workspaceSwitchRun = BusinessWorkspaceSwitchRunSchema.parse({
+      id: 'business_workspace_switch_run_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: workspaceSwitchDryRun.id,
+      profileWorkspaceObservationId: profileObservation.id,
+      status: 'blocked',
+      summary: 'Workspace switch run is blocked until a later approved executor round.',
+    });
+    const reconciliationReport = BusinessMemberReconciliationReportSchema.parse({
+      id: 'business_member_reconciliation_report_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'ready',
+      ownerRosterSnapshotId: rosterSnapshot.id,
+      workspaceHash: rosterSnapshot.workspaceHash,
+      rosterHash: rosterSnapshot.rosterHash,
+      profileObservationIds: [profileObservation.id],
+      observedProfileCount: 1,
+      readyProfileCount: 1,
+      dispatchAllowed: true,
+      summary: 'Business member reconciliation allows dispatch from hash-bound metadata.',
+    });
     const records = [
       sourceHealth,
       seat,
@@ -17438,6 +17492,10 @@ describe('contracts schemas', () => {
       rosterSnapshot,
       billingSummary,
       ownerAdminReport,
+      profileObservation,
+      workspaceSwitchDryRun,
+      workspaceSwitchRun,
+      reconciliationReport,
     ];
     const serialized = JSON.stringify(records);
 
@@ -17458,6 +17516,11 @@ describe('contracts schemas', () => {
     expect(adminRun.executionDisabled).toBe(true);
     expect(ownerAdminSurface.rawDomStored).toBe(false);
     expect(ownerAdminReport.directAdapterExecutionAllowed).toBe(false);
+    expect(profileObservation.cookieSessionTokenRead).toBe(false);
+    expect(profileObservation.dispatchAllowed).toBe(true);
+    expect(workspaceSwitchDryRun.liveClickAllowed).toBe(false);
+    expect(workspaceSwitchRun.executionDisabled).toBe(true);
+    expect(reconciliationReport.directAdapterExecutionAllowed).toBe(false);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
@@ -17603,6 +17666,43 @@ describe('contracts schemas', () => {
         status: 'blocked',
         workspaceHash: 'sha256:workspace',
         summary: 'Blocked owner admin extraction requires blocker reasons.',
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessProfileWorkspaceObservationSchema.parse({
+        id: 'business_profile_workspace_observation_bad_dispatch',
+        schemaVersion,
+        observedAt: createdAt,
+        profileHash: 'sha256:profile',
+        expectedWorkspaceHash: 'sha256:workspace',
+        status: 'personal_workspace',
+        dispatchAllowed: true,
+        summary: 'Personal workspace observations cannot allow dispatch.',
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessMemberReconciliationReportSchema.parse({
+        id: 'business_member_reconciliation_report_bad_dispatch',
+        schemaVersion,
+        observedAt: createdAt,
+        status: 'workspace_switch_required',
+        workspaceHash: 'sha256:workspace',
+        dispatchAllowed: true,
+        summary: 'Blocked reconciliation cannot allow Codex dispatch.',
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessWorkspaceSwitchDryRunPlanSchema.parse({
+        id: 'business_workspace_switch_dry_run_bad_raw',
+        schemaVersion,
+        createdAt,
+        profileWorkspaceObservationId: 'profile_observation_1',
+        profileHash: 'sha256:profile',
+        expectedWorkspaceHash: 'sha256:workspace',
+        summary: 'Raw selector metadata must be rejected.',
+        metadata: {
+          rawSelector: adversarialPublicOutputFixture,
+        },
       }),
     ).toThrow();
   });

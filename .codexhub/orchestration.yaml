@@ -6893,3 +6893,32 @@ workflows:
       noNetworkBodyRead: true
       noRawDomAxPathBodyStorage: true
       cleartextBusinessDataStoreDeferredToM70: true
+  m68.business-member-reconciliation:
+    risk: high
+    trigger:
+      type: business-member-reconciliation
+      entrypoint: contracts business-quota-kernel store supervisor docs
+      localControlRequired: true
+    scope:
+      - business-profile-workspace-observation
+      - business-workspace-switch-dry-run-plan
+      - business-workspace-switch-run
+      - business-member-reconciliation-report
+      - supervisor-business-member-reconciliation-projections
+    docs:
+      - docs/releases/m68-business-member-reconciliation.md
+      - docs/reviews/m68-business-member-reconciliation-review.md
+      - docs/runbooks/m68-business-member-reconciliation-runbook.md
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      metadataOnlyPublicOutput: true
+      directAdapterExecutionAllowed: false
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noRawAccountWorkspaceProfileStorage: true
+      workspaceSwitchVisibleClickExecutionDeferredToM71: true
+      codexDispatchBlockedOnMismatch: true

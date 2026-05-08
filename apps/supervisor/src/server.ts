@@ -387,6 +387,7 @@ import type {
   AdminUiActionKind,
   BusinessQuotaSourceKind,
   BusinessQuotaPermissionRole,
+  BusinessWorkspaceObservationStatus,
   OwnerAdminSurfaceKind,
   QuotaSnapshotStatus,
   UiAutomationActionKind,
@@ -638,6 +639,7 @@ import {
 } from '@codexhub/production-ga-kernel';
 import {
   attributeBusinessQuota,
+  createBusinessMemberReconciliationBundle,
   createOwnerAdminExtractionBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
@@ -21350,6 +21352,26 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     responseBody?: unknown;
   };
 
+  type BusinessMemberReconciliationRequestBody = {
+    dryRunId?: string;
+    expectedWorkspaceSeed?: string;
+    profileCount?: number;
+    profileSeeds?: string[];
+    accountSeeds?: string[];
+    observedWorkspaceSeeds?: string[];
+    profileStatuses?: BusinessWorkspaceObservationStatus[];
+    memberInOwnerRoster?: boolean[];
+    authority?: unknown;
+    executionAuthority?: unknown;
+    approvalArtifact?: unknown;
+    rawAccount?: unknown;
+    rawWorkspace?: unknown;
+    rawProfile?: unknown;
+    rawPath?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   type AdminUiRequestBody = {
     dryRunId?: string;
     actionKind?: AdminUiActionKind;
@@ -22960,6 +22982,144 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       };
     });
 
+    server.get(`${prefix}/reconciliations`, async () => {
+      const store = await getStore();
+      const [observations, switchDryRuns, switchRuns, reports] = store
+        ? await Promise.all([
+            store.businessProfileWorkspaceObservations.listRecords({ limit: 50 }),
+            store.businessWorkspaceSwitchDryRunPlans.listRecords({ limit: 50 }),
+            store.businessWorkspaceSwitchRuns.listRecords({ limit: 50 }),
+            store.businessMemberReconciliationReports.listRecords({ limit: 50 }),
+          ])
+        : [[], [], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_member_reconciliations',
+        surface: 'business-member-reconciliations',
+        summary: 'Business member reconciliation projections expose profile and workspace hashes only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          observations: observations.length,
+          workspaceSwitchDryRuns: switchDryRuns.length,
+          workspaceSwitchRuns: switchRuns.length,
+          reports: reports.length,
+        },
+        items: [
+          ...observations.map((record) =>
+            projectM51ProjectionRecord('business-profile-workspace-observation', record),
+          ),
+          ...switchDryRuns.map((record) =>
+            projectM51ProjectionRecord('business-workspace-switch-dry-run', record),
+          ),
+          ...switchRuns.map((record) =>
+            projectM51ProjectionRecord('business-workspace-switch-run', record),
+          ),
+          ...reports.map((record) =>
+            projectM51ProjectionRecord('business-member-reconciliation-report', record),
+          ),
+        ],
+      });
+    });
+
+    server.get(`${prefix}/workspace-switches`, async () => {
+      const store = await getStore();
+      const [switchDryRuns, switchRuns] = store
+        ? await Promise.all([
+            store.businessWorkspaceSwitchDryRunPlans.listRecords({ limit: 50 }),
+            store.businessWorkspaceSwitchRuns.listRecords({ limit: 50 }),
+          ])
+        : [[], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_workspace_switches',
+        surface: 'business-workspace-switches',
+        summary: 'Workspace switch records are approval-gated dry-run metadata; no visible click is executed.',
+        storeAvailable: store !== undefined,
+        counts: {
+          dryRuns: switchDryRuns.length,
+          runs: switchRuns.length,
+        },
+        items: [
+          ...switchDryRuns.map((record) =>
+            projectM51ProjectionRecord('business-workspace-switch-dry-run', record),
+          ),
+          ...switchRuns.map((record) =>
+            projectM51ProjectionRecord('business-workspace-switch-run', record),
+          ),
+        ],
+      });
+    });
+
+    server.post(`${prefix}/reconciliations`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as BusinessMemberReconciliationRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const rosters = await store.businessAdminMemberRosterSnapshots.listRecords({ limit: 1 });
+      const ownerRosterSnapshot = rosters[0];
+      const profileCount = Math.max(
+        1,
+        Math.min(
+          20,
+          body?.profileCount ??
+            body?.profileSeeds?.length ??
+            body?.profileStatuses?.length ??
+            1,
+        ),
+      );
+      const profiles = Array.from({ length: profileCount }, (_, index) => ({
+        profileSeed:
+          body?.profileSeeds?.[index] ??
+          `${body?.dryRunId ?? 'business-member-reconciliation'}-profile-${index + 1}`,
+        accountSeed: body?.accountSeeds?.[index],
+        observedWorkspaceSeed: body?.observedWorkspaceSeeds?.[index],
+        status: normalizeBusinessWorkspaceObservationStatus(body?.profileStatuses?.[index]),
+        memberInOwnerRoster: body?.memberInOwnerRoster?.[index],
+      }));
+      const bundle = createBusinessMemberReconciliationBundle({
+        ownerRosterSnapshot,
+        expectedWorkspaceSeed:
+          body?.expectedWorkspaceSeed ?? body?.dryRunId ?? 'business-member-reconciliation',
+        profiles,
+      });
+
+      await Promise.all([
+        ...bundle.profileObservations.map((observation) =>
+          store.businessProfileWorkspaceObservations.saveRecord(observation),
+        ),
+        ...bundle.workspaceSwitchDryRunPlans.map((dryRunPlan) =>
+          store.businessWorkspaceSwitchDryRunPlans.saveRecord(dryRunPlan),
+        ),
+        ...bundle.workspaceSwitchRuns.map((run) => store.businessWorkspaceSwitchRuns.saveRecord(run)),
+        store.businessMemberReconciliationReports.saveRecord(bundle.report),
+      ]);
+
+      return {
+        status: bundle.report.status,
+        reportId: bundle.report.id,
+        ownerRosterSnapshotId: bundle.report.ownerRosterSnapshotId,
+        observedProfileCount: bundle.report.observedProfileCount,
+        readyProfileCount: bundle.report.readyProfileCount,
+        workspaceSwitchRequiredCount: bundle.report.workspaceSwitchRequiredCount,
+        loginRequiredCount: bundle.report.loginRequiredCount,
+        notBusinessMemberCount: bundle.report.notBusinessMemberCount,
+        workspaceMismatchCount: bundle.report.workspaceMismatchCount,
+        dispatchAllowed: bundle.report.dispatchAllowed,
+        blockReasons: bundle.report.blockReasons,
+        workspaceSwitchDryRunCount: bundle.workspaceSwitchDryRunPlans.length,
+        requestBodyAuthorityAccepted: false,
+        directAdapterExecutionAllowed: false,
+        liveClickPerformed: false,
+        executionDisabled: true,
+        summary: bundle.report.summary,
+      };
+    });
+
     server.post(`${prefix}/owner-admin-extractions`, async (request, reply) => {
       const store = await getStore();
       if (!store) {
@@ -23535,6 +23695,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'rawExport',
       'rawSource',
       'rawPath',
+      'rawProfile',
       'rawAccount',
       'rawWorkspace',
       'accountId',
@@ -23597,6 +23758,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     return value.filter((surfaceKind) => surfaceKinds.includes(surfaceKind));
+  }
+
+  function normalizeBusinessWorkspaceObservationStatus(
+    value: BusinessWorkspaceObservationStatus | undefined,
+  ): BusinessWorkspaceObservationStatus {
+    const statuses: readonly BusinessWorkspaceObservationStatus[] = [
+      'business_workspace',
+      'personal_workspace',
+      'workspace_switch_required',
+      'not_business_member',
+      'login_required',
+      'workspace_mismatch',
+      'unknown',
+    ];
+
+    return value && statuses.includes(value) ? value : 'business_workspace';
   }
 
   function normalizeQuotaSubjectKind(

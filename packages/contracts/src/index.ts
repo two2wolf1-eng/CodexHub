@@ -20133,6 +20133,33 @@ export type OwnerAdminExtractionStatus = z.infer<
   typeof OwnerAdminExtractionStatusSchema
 >;
 
+export const BusinessWorkspaceObservationStatusSchema = z.enum([
+  'business_workspace',
+  'personal_workspace',
+  'workspace_switch_required',
+  'not_business_member',
+  'login_required',
+  'workspace_mismatch',
+  'unknown',
+]);
+export type BusinessWorkspaceObservationStatus = z.infer<
+  typeof BusinessWorkspaceObservationStatusSchema
+>;
+
+export const BusinessMemberReconciliationStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'workspace_switch_required',
+  'login_required',
+  'not_business_member',
+  'workspace_mismatch',
+  'source_conflict',
+  'unknown',
+]);
+export type BusinessMemberReconciliationStatus = z.infer<
+  typeof BusinessMemberReconciliationStatusSchema
+>;
+
 export const BusinessCodexSeatSchema = observedEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)
   .merge(m51EvidenceAuditSchema)
@@ -20659,6 +20686,163 @@ export const OwnerAdminExtractionReportSchema = observedEntityBaseSchema
   });
 export type OwnerAdminExtractionReport = z.infer<
   typeof OwnerAdminExtractionReportSchema
+>;
+
+export const BusinessProfileWorkspaceObservationSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    ownerRosterSnapshotId: z.string().min(1).optional(),
+    profileHash: z.string().min(1),
+    accountHash: z.string().min(1).optional(),
+    expectedWorkspaceHash: z.string().min(1),
+    observedWorkspaceHash: z.string().min(1).optional(),
+    status: BusinessWorkspaceObservationStatusSchema,
+    memberInOwnerRoster: z.boolean().default(false),
+    workspaceSwitchRequired: z.boolean().default(false),
+    dispatchAllowed: z.boolean().default(false),
+    codexDispatchBlocked: z.boolean().default(true),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawAccountStored: z.literal(false).default(false),
+    rawWorkspaceStored: z.literal(false).default(false),
+    browserStorageRead: z.literal(false).default(false),
+    cookieSessionTokenRead: z.literal(false).default(false),
+    clickOrTypeUsed: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.dispatchAllowed && record.status !== 'business_workspace') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'business profile dispatch can only be allowed in a business workspace',
+        path: ['dispatchAllowed'],
+      });
+    }
+    if (record.dispatchAllowed && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'business profile dispatch cannot be allowed with block reasons',
+        path: ['blockReasons'],
+      });
+    }
+    if (record.workspaceSwitchRequired && record.status === 'business_workspace') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'business workspace observations cannot require workspace switch',
+        path: ['workspaceSwitchRequired'],
+      });
+    }
+  });
+export type BusinessProfileWorkspaceObservation = z.infer<
+  typeof BusinessProfileWorkspaceObservationSchema
+>;
+
+export const BusinessWorkspaceSwitchDryRunPlanSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    profileWorkspaceObservationId: z.string().min(1),
+    ownerRosterSnapshotId: z.string().min(1).optional(),
+    profileHash: z.string().min(1),
+    expectedWorkspaceHash: z.string().min(1),
+    actionKind: z.literal('workspace-switch-visible-click').default('workspace-switch-visible-click'),
+    actionClass: z.literal('approved_admin_write').default('approved_admin_write'),
+    riskLevel: RiskLevelSchema.default('high'),
+    approvalRequired: z.literal(true).default(true),
+    authorityRequired: z.literal(true).default(true),
+    selectorFingerprintHash: z.string().min(1).optional(),
+    liveClickAllowed: z.literal(false).default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    credentialMaterialForbidden: z.literal(true).default(true),
+    rawSelectorStored: z.literal(false).default(false),
+    rawAccountStored: z.literal(false).default(false),
+    rawWorkspaceStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type BusinessWorkspaceSwitchDryRunPlan = z.infer<
+  typeof BusinessWorkspaceSwitchDryRunPlanSchema
+>;
+
+export const BusinessWorkspaceSwitchRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    dryRunPlanId: z.string().min(1),
+    authorityId: z.string().min(1).optional(),
+    profileWorkspaceObservationId: z.string().min(1),
+    status: UiAutomationStatusSchema.default('blocked'),
+    liveClickAllowed: z.literal(false).default(false),
+    visibleClickPerformed: z.literal(false).default(false),
+    postSwitchConfirmed: z.boolean().default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    executionDisabled: z.literal(true).default(true),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawAccountStored: z.literal(false).default(false),
+    rawWorkspaceStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type BusinessWorkspaceSwitchRun = z.infer<typeof BusinessWorkspaceSwitchRunSchema>;
+
+export const BusinessMemberReconciliationReportSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    status: BusinessMemberReconciliationStatusSchema,
+    ownerRosterSnapshotId: z.string().min(1).optional(),
+    workspaceHash: z.string().min(1),
+    rosterHash: z.string().min(1).optional(),
+    profileObservationIds: z.array(z.string().min(1)).default([]),
+    workspaceSwitchDryRunPlanIds: z.array(z.string().min(1)).default([]),
+    observedProfileCount: z.number().int().nonnegative().default(0),
+    readyProfileCount: z.number().int().nonnegative().default(0),
+    personalWorkspaceCount: z.number().int().nonnegative().default(0),
+    workspaceSwitchRequiredCount: z.number().int().nonnegative().default(0),
+    notBusinessMemberCount: z.number().int().nonnegative().default(0),
+    loginRequiredCount: z.number().int().nonnegative().default(0),
+    workspaceMismatchCount: z.number().int().nonnegative().default(0),
+    unknownProfileCount: z.number().int().nonnegative().default(0),
+    dispatchAllowed: z.boolean().default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    liveClickPerformed: z.literal(false).default(false),
+    rawProfileDataStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.profileObservationIds.length !== record.observedProfileCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'profile observation count must match profile observation ids',
+        path: ['profileObservationIds'],
+      });
+    }
+    if (record.dispatchAllowed && record.status !== 'ready') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'business member dispatch can only be allowed from ready reconciliation',
+        path: ['dispatchAllowed'],
+      });
+    }
+    if (record.dispatchAllowed && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'business member dispatch cannot be allowed with blockers',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type BusinessMemberReconciliationReport = z.infer<
+  typeof BusinessMemberReconciliationReportSchema
 >;
 
 export const UiTargetFingerprintSchema = observedEntityBaseSchema

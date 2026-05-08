@@ -3283,3 +3283,40 @@ integrations:
       noNetworkBodyRead: true
       noRawDomAxPathBodyStorage: true
       cleartextBusinessDataStoreDeferredToM70: true
+  m68-business-member-reconciliation:
+    enabled: false
+    adapter: business-quota-kernel
+    provider: codexhub-metadata
+    providerType: builtin
+    mode: metadata-only-reconciliation
+    stage: m68-business-member-reconciliation
+    release: docs/releases/m68-business-member-reconciliation.md
+    review: docs/reviews/m68-business-member-reconciliation-review.md
+    runbook: docs/runbooks/m68-business-member-reconciliation-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: high
+    supervisorRoutes:
+      - POST /api/business-quota/reconciliations
+      - GET /api/business-quota/reconciliations
+      - GET /api/business-quota/workspace-switches
+    persistedStores:
+      - business_profile_workspace_observations
+      - business_workspace_switch_dry_run_plans
+      - business_workspace_switch_runs
+      - business_member_reconciliation_reports
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      directAdapterExecutionAllowed: false
+      metadataOnlyPublicOutput: true
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noRawAccountWorkspaceProfileStorage: true
+      workspaceSwitchVisibleClickExecutionDeferredToM71: true
+      codexDispatchBlockedOnMismatch: true

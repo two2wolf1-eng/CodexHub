@@ -202,6 +202,10 @@ import type {
   CodexExecReportReviewRecord,
   CodexReplayRecord,
   BusinessQuotaCrossCheckReport,
+  BusinessMemberReconciliationReport,
+  BusinessProfileWorkspaceObservation,
+  BusinessWorkspaceSwitchDryRunPlan,
+  BusinessWorkspaceSwitchRun,
   BusinessQuotaPermissionProbe,
   BusinessQuotaSourceProbe,
   EvidenceBundle,
@@ -1788,6 +1792,10 @@ export interface CodexHubStore {
   businessAdminMemberRosterSnapshots: MetadataEntityRepository<BusinessAdminMemberRosterSnapshot>;
   businessBillingSummaries: MetadataEntityRepository<BusinessBillingSummary>;
   ownerAdminExtractionReports: MetadataEntityRepository<OwnerAdminExtractionReport>;
+  businessProfileWorkspaceObservations: MetadataEntityRepository<BusinessProfileWorkspaceObservation>;
+  businessWorkspaceSwitchDryRunPlans: MetadataEntityRepository<BusinessWorkspaceSwitchDryRunPlan>;
+  businessWorkspaceSwitchRuns: MetadataEntityRepository<BusinessWorkspaceSwitchRun>;
+  businessMemberReconciliationReports: MetadataEntityRepository<BusinessMemberReconciliationReport>;
   automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;

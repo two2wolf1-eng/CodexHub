@@ -3,6 +3,10 @@ import {
   BusinessQuotaCrossCheckReportSchema,
   BusinessAdminMemberRosterSnapshotSchema,
   BusinessBillingSummarySchema,
+  BusinessMemberReconciliationReportSchema,
+  BusinessProfileWorkspaceObservationSchema,
+  BusinessWorkspaceSwitchDryRunPlanSchema,
+  BusinessWorkspaceSwitchRunSchema,
   CdpDomObservationSummarySchema,
   CodexQuotaSourceHealthSchema,
   OwnerAdminExtractionReportSchema,
@@ -17,6 +21,12 @@ import {
   type BusinessQuotaSourceKind,
   type BusinessQuotaCrossCheckReport,
   type BusinessQuotaCrossCheckStatus,
+  type BusinessMemberReconciliationReport,
+  type BusinessMemberReconciliationStatus,
+  type BusinessProfileWorkspaceObservation,
+  type BusinessWorkspaceObservationStatus,
+  type BusinessWorkspaceSwitchDryRunPlan,
+  type BusinessWorkspaceSwitchRun,
   type BusinessAdminMemberRosterSnapshot,
   type BusinessBillingSummary,
   type CdpDomObservationSummary,
@@ -166,6 +176,30 @@ export interface OwnerAdminExtractionBundle {
   rosterSnapshot: BusinessAdminMemberRosterSnapshot;
   billingSummary: BusinessBillingSummary;
   report: OwnerAdminExtractionReport;
+}
+
+export interface BusinessWorkspaceProfileInput {
+  profileSeed: string;
+  accountSeed?: string;
+  observedWorkspaceSeed?: string;
+  status?: BusinessWorkspaceObservationStatus;
+  memberInOwnerRoster?: boolean;
+}
+
+export interface BusinessMemberReconciliationInput {
+  ownerRosterSnapshot?: BusinessAdminMemberRosterSnapshot;
+  expectedWorkspaceSeed?: string;
+  profiles?: readonly BusinessWorkspaceProfileInput[];
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface BusinessMemberReconciliationBundle {
+  profileObservations: BusinessProfileWorkspaceObservation[];
+  workspaceSwitchDryRunPlans: BusinessWorkspaceSwitchDryRunPlan[];
+  workspaceSwitchRuns: BusinessWorkspaceSwitchRun[];
+  report: BusinessMemberReconciliationReport;
 }
 
 export function redactSensitiveObservation(
@@ -605,6 +639,139 @@ export function createOwnerAdminExtractionBundle(
   return { surfaces, rosterSnapshot, billingSummary, report };
 }
 
+export function createBusinessMemberReconciliationBundle(
+  input: BusinessMemberReconciliationInput,
+): BusinessMemberReconciliationBundle {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const ownerRoster = input.ownerRosterSnapshot;
+  const workspaceHash = ownerRoster?.workspaceHash ?? hashRef(input.expectedWorkspaceSeed ?? 'unknown-workspace');
+  const profiles = [...(input.profiles ?? [{ profileSeed: 'default-profile' }])];
+  const profileObservations = profiles.map((profile, index) => {
+    const status = normalizeWorkspaceObservationStatus(profile.status);
+    const memberInOwnerRoster =
+      profile.memberInOwnerRoster ?? (ownerRoster !== undefined && ownerRoster.memberCount > 0);
+    const blockReasons = workspaceObservationBlockReasons(status, memberInOwnerRoster);
+    const dispatchAllowed =
+      status === 'business_workspace' && memberInOwnerRoster && blockReasons.length === 0;
+
+    return BusinessProfileWorkspaceObservationSchema.parse({
+      id: foundationId('business_profile_workspace_observation'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      ownerRosterSnapshotId: ownerRoster?.id,
+      profileHash: hashRef(profile.profileSeed),
+      accountHash: profile.accountSeed ? hashRef(profile.accountSeed) : undefined,
+      expectedWorkspaceHash: workspaceHash,
+      observedWorkspaceHash: profile.observedWorkspaceSeed
+        ? hashRef(profile.observedWorkspaceSeed)
+        : status === 'business_workspace'
+          ? workspaceHash
+          : hashRef({ profile: profile.profileSeed, status, index }),
+      status,
+      memberInOwnerRoster,
+      workspaceSwitchRequired:
+        status === 'personal_workspace' || status === 'workspace_switch_required',
+      dispatchAllowed,
+      codexDispatchBlocked: !dispatchAllowed,
+      blockReasons,
+      evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? [])],
+      metadataOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      summary: dispatchAllowed
+        ? 'Profile workspace matches the owner roster and can pass Codex dispatch gates.'
+        : 'Profile workspace observation blocks Codex dispatch until account and workspace match the owner roster.',
+    });
+  });
+
+  const workspaceSwitchDryRunPlans = profileObservations
+    .filter((observation) => observation.workspaceSwitchRequired)
+    .map((observation) =>
+      BusinessWorkspaceSwitchDryRunPlanSchema.parse({
+        id: foundationId('business_workspace_switch_dry_run'),
+        schemaVersion: SchemaVersionSchema.value,
+        createdAt: observedAt,
+        profileWorkspaceObservationId: observation.id,
+        ownerRosterSnapshotId: ownerRoster?.id,
+        profileHash: observation.profileHash,
+        expectedWorkspaceHash: workspaceHash,
+        selectorFingerprintHash: hashRef({
+          profileHash: observation.profileHash,
+          workspaceHash,
+          action: 'workspace-switch-visible-click',
+        }),
+        evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+        auditEventIds: [...(input.auditEventIds ?? [])],
+        summary: 'Workspace switch visible click is planned as approval-gated metadata only.',
+      }),
+    );
+  const workspaceSwitchRuns = workspaceSwitchDryRunPlans.map((dryRunPlan) =>
+    BusinessWorkspaceSwitchRunSchema.parse({
+      id: foundationId('business_workspace_switch_run'),
+      schemaVersion: SchemaVersionSchema.value,
+      createdAt: observedAt,
+      dryRunPlanId: dryRunPlan.id,
+      profileWorkspaceObservationId: dryRunPlan.profileWorkspaceObservationId,
+      status: 'blocked',
+      evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? [])],
+      summary: 'Workspace switch execution is blocked until a later approved visible-click executor.',
+    }),
+  );
+
+  const counts = countWorkspaceObservations(profileObservations);
+  const blockReasons = reconciliationBlockReasons({
+    ownerRoster,
+    profileObservations,
+    workspaceSwitchDryRunPlans,
+  });
+  const dispatchAllowed = profileObservations.length > 0 && blockReasons.length === 0;
+  const status = reconciliationStatus({
+    blockReasons,
+    counts,
+    dispatchAllowed,
+    ownerRoster,
+  });
+
+  const report = BusinessMemberReconciliationReportSchema.parse({
+    id: foundationId('business_member_reconciliation_report'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    status,
+    ownerRosterSnapshotId: ownerRoster?.id,
+    workspaceHash,
+    rosterHash: ownerRoster?.rosterHash,
+    profileObservationIds: profileObservations.map((observation) => observation.id),
+    workspaceSwitchDryRunPlanIds: workspaceSwitchDryRunPlans.map((plan) => plan.id),
+    observedProfileCount: profileObservations.length,
+    readyProfileCount: counts.ready,
+    personalWorkspaceCount: counts.personalWorkspace,
+    workspaceSwitchRequiredCount: counts.workspaceSwitchRequired,
+    notBusinessMemberCount: counts.notBusinessMember,
+    loginRequiredCount: counts.loginRequired,
+    workspaceMismatchCount: counts.workspaceMismatch,
+    unknownProfileCount: counts.unknown,
+    dispatchAllowed,
+    blockReasons,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary: dispatchAllowed
+      ? 'Business member reconciliation is ready from owner roster and profile workspace metadata.'
+      : 'Business member reconciliation blocks Codex dispatch until profile workspace metadata matches the owner roster.',
+  });
+
+  return {
+    profileObservations,
+    workspaceSwitchDryRunPlans,
+    workspaceSwitchRuns,
+    report,
+  };
+}
+
 export function createQuotaSnapshotFromSource(input: {
   subjectKind: QuotaSnapshot['subjectKind'];
   subjectSeed: string;
@@ -695,6 +862,111 @@ function projectedFieldCount(
     case 'usage-alerts':
       return normalizeOptionalCount(input.usageAlertCount) ?? 0;
   }
+}
+
+function normalizeWorkspaceObservationStatus(
+  status: BusinessWorkspaceObservationStatus | undefined,
+): BusinessWorkspaceObservationStatus {
+  return status ?? 'business_workspace';
+}
+
+function workspaceObservationBlockReasons(
+  status: BusinessWorkspaceObservationStatus,
+  memberInOwnerRoster: boolean,
+): string[] {
+  const blockReasons: string[] = [];
+  if (!memberInOwnerRoster) blockReasons.push('not_in_owner_roster');
+  switch (status) {
+    case 'business_workspace':
+      break;
+    case 'personal_workspace':
+      blockReasons.push('personal_workspace');
+      break;
+    case 'workspace_switch_required':
+      blockReasons.push('workspace_switch_required');
+      break;
+    case 'not_business_member':
+      blockReasons.push('not_business_member');
+      break;
+    case 'login_required':
+      blockReasons.push('login_required');
+      break;
+    case 'workspace_mismatch':
+      blockReasons.push('workspace_mismatch');
+      break;
+    case 'unknown':
+      blockReasons.push('workspace_unknown');
+      break;
+  }
+  return [...new Set(blockReasons)];
+}
+
+function countWorkspaceObservations(observations: readonly BusinessProfileWorkspaceObservation[]): {
+  ready: number;
+  personalWorkspace: number;
+  workspaceSwitchRequired: number;
+  notBusinessMember: number;
+  loginRequired: number;
+  workspaceMismatch: number;
+  unknown: number;
+} {
+  return {
+    ready: observations.filter((observation) => observation.dispatchAllowed).length,
+    personalWorkspace: observations.filter(
+      (observation) => observation.status === 'personal_workspace',
+    ).length,
+    workspaceSwitchRequired: observations.filter(
+      (observation) =>
+        observation.status === 'workspace_switch_required' || observation.workspaceSwitchRequired,
+    ).length,
+    notBusinessMember: observations.filter(
+      (observation) => observation.status === 'not_business_member',
+    ).length,
+    loginRequired: observations.filter((observation) => observation.status === 'login_required')
+      .length,
+    workspaceMismatch: observations.filter(
+      (observation) => observation.status === 'workspace_mismatch',
+    ).length,
+    unknown: observations.filter((observation) => observation.status === 'unknown').length,
+  };
+}
+
+function reconciliationBlockReasons(input: {
+  ownerRoster?: BusinessAdminMemberRosterSnapshot;
+  profileObservations: readonly BusinessProfileWorkspaceObservation[];
+  workspaceSwitchDryRunPlans: readonly BusinessWorkspaceSwitchDryRunPlan[];
+}): string[] {
+  const blockReasons: string[] = [];
+  if (!input.ownerRoster) blockReasons.push('owner_roster_missing');
+  if (input.ownerRoster && input.ownerRoster.memberCount === 0) {
+    blockReasons.push('owner_roster_empty');
+  }
+  if (input.profileObservations.length === 0) blockReasons.push('profile_observation_missing');
+  for (const observation of input.profileObservations) {
+    blockReasons.push(...observation.blockReasons);
+  }
+  if (input.workspaceSwitchDryRunPlans.length > 0) {
+    blockReasons.push('workspace_switch_approval_required');
+  }
+  return [...new Set(blockReasons)];
+}
+
+function reconciliationStatus(input: {
+  blockReasons: readonly string[];
+  counts: ReturnType<typeof countWorkspaceObservations>;
+  dispatchAllowed: boolean;
+  ownerRoster?: BusinessAdminMemberRosterSnapshot;
+}): BusinessMemberReconciliationStatus {
+  if (input.dispatchAllowed) return 'ready';
+  if (!input.ownerRoster) return 'source_conflict';
+  if (input.counts.loginRequired > 0) return 'login_required';
+  if (input.counts.notBusinessMember > 0) return 'not_business_member';
+  if (input.counts.workspaceMismatch > 0) return 'workspace_mismatch';
+  if (input.counts.workspaceSwitchRequired > 0 || input.counts.personalWorkspace > 0) {
+    return 'workspace_switch_required';
+  }
+  if (input.counts.unknown > 0) return 'unknown';
+  return input.blockReasons.length > 0 ? 'blocked' : 'unknown';
 }
 
 function hashRef(value: unknown): string {
