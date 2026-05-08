@@ -573,6 +573,10 @@ import {
   EvidenceBundleSchema,
   HumanCheckpointSchema,
   LeaseSchema,
+  OwnerAdminExtractionReportSchema,
+  OwnerAdminReadSurfaceSummarySchema,
+  BusinessAdminMemberRosterSnapshotSchema,
+  BusinessBillingSummarySchema,
   QuotaSnapshotSchema,
   QuotaAttributionSchema,
   BusinessQuotaPermissionProbeSchema,
@@ -17320,6 +17324,72 @@ describe('contracts schemas', () => {
       targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
       summary: 'Admin UI write is authorized but still disabled until the executor round.',
     });
+    const ownerAdminSurface = OwnerAdminReadSurfaceSummarySchema.parse({
+      id: 'owner_admin_read_surface_1',
+      schemaVersion,
+      observedAt: createdAt,
+      surfaceKind: 'admin-members',
+      targetHash: 'sha256:admin-members',
+      pageHash: 'sha256:page',
+      axTreeHash: 'sha256:ax',
+      domSnapshotHash: 'sha256:dom',
+      layoutHash: 'sha256:layout',
+      screenshotHash: 'sha256:screenshot',
+      networkEndpointHashes: ['sha256:endpoint'],
+      fieldCount: 8,
+      credentialFieldCount: 0,
+      summary: 'Owner admin members surface stores hashes and counts only.',
+    });
+    const rosterSnapshot = BusinessAdminMemberRosterSnapshotSchema.parse({
+      id: 'business_admin_member_roster_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceHash: 'sha256:workspace',
+      rosterHash: 'sha256:roster',
+      memberCount: 3,
+      ownerCount: 1,
+      adminCount: 1,
+      memberRoleCount: 1,
+      pendingInviteCount: 1,
+      seatAssignedCount: 2,
+      memberEmailHashCount: 3,
+      roleHashCount: 3,
+      summary: 'Member roster stores hashes and aggregate role counts only.',
+    });
+    const billingSummary = BusinessBillingSummarySchema.parse({
+      id: 'business_billing_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceHash: 'sha256:workspace',
+      billingHash: 'sha256:billing',
+      codexSeatCount: 2,
+      creditBalanceKnown: true,
+      creditBalanceHash: 'sha256:credits',
+      invoiceSummaryHashCount: 2,
+      pendingInviteCount: 1,
+      limitIncidentCount: 1,
+      usageAlertCount: 1,
+      autoTopUpConfigured: false,
+      summary: 'Billing summary stores credit and invoice hashes only.',
+    });
+    const ownerAdminReport = OwnerAdminExtractionReportSchema.parse({
+      id: 'owner_admin_extraction_report_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'observed',
+      workspaceHash: 'sha256:workspace',
+      surfaceCount: 1,
+      memberCount: rosterSnapshot.memberCount,
+      pendingInviteCount: rosterSnapshot.pendingInviteCount,
+      seatCount: billingSummary.codexSeatCount,
+      invoiceCount: billingSummary.invoiceSummaryHashCount,
+      limitIncidentCount: billingSummary.limitIncidentCount,
+      usageAlertCount: billingSummary.usageAlertCount,
+      sourceSurfaceIds: [ownerAdminSurface.id],
+      rosterSnapshotId: rosterSnapshot.id,
+      billingSummaryId: billingSummary.id,
+      summary: 'Owner admin extraction report is metadata-only.',
+    });
     const records = [
       sourceHealth,
       seat,
@@ -17364,6 +17434,10 @@ describe('contracts schemas', () => {
       adminDryRun,
       adminAuthority,
       adminRun,
+      ownerAdminSurface,
+      rosterSnapshot,
+      billingSummary,
+      ownerAdminReport,
     ];
     const serialized = JSON.stringify(records);
 
@@ -17382,6 +17456,8 @@ describe('contracts schemas', () => {
     expect(adminIntent.credentialInputRequested).toBe(false);
     expect(adminAuthority.requestBodyAuthorityAccepted).toBe(false);
     expect(adminRun.executionDisabled).toBe(true);
+    expect(ownerAdminSurface.rawDomStored).toBe(false);
+    expect(ownerAdminReport.directAdapterExecutionAllowed).toBe(false);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
@@ -17505,6 +17581,28 @@ describe('contracts schemas', () => {
         metadata: {
           rawSelector: adversarialPublicOutputFixture,
         },
+      }),
+    ).toThrow();
+    expect(() =>
+      OwnerAdminReadSurfaceSummarySchema.parse({
+        id: 'owner_admin_read_surface_bad_credential',
+        schemaVersion,
+        observedAt: createdAt,
+        surfaceKind: 'admin-members',
+        targetHash: 'sha256:admin-members',
+        fieldCount: 1,
+        credentialFieldCount: 1,
+        summary: 'Credential fields must block owner admin extraction.',
+      }),
+    ).toThrow();
+    expect(() =>
+      OwnerAdminExtractionReportSchema.parse({
+        id: 'owner_admin_extraction_report_blocked_without_reason',
+        schemaVersion,
+        observedAt: createdAt,
+        status: 'blocked',
+        workspaceHash: 'sha256:workspace',
+        summary: 'Blocked owner admin extraction requires blocker reasons.',
       }),
     ).toThrow();
   });

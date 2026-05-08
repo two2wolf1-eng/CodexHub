@@ -284,6 +284,7 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: true,
     routeSuffixes: [
       '/observation-rehearsals',
+      '/owner-admin-extractions',
       '/ui-action-dry-runs',
       '/approval-requests',
       '/quota-read-dry-runs',
@@ -2299,6 +2300,7 @@ describe('supervisor mock development API', () => {
           .filter((prefix): prefix is string => Boolean(prefix))
           .flatMap((prefix) => [
             `${prefix}/observation-rehearsals`,
+            `${prefix}/owner-admin-extractions`,
             `${prefix}/ui-action-dry-runs`,
             `${prefix}/approval-requests`,
             `${prefix}/quota-read-dry-runs`,
@@ -2449,6 +2451,7 @@ describe('supervisor mock development API', () => {
         variableName: 'prefix',
         suffixes: [
           '/observation-rehearsals',
+          '/owner-admin-extractions',
           '/ui-action-dry-runs',
           '/approval-requests',
           '/quota-read-dry-runs',
@@ -3399,6 +3402,25 @@ describe('supervisor mock development API', () => {
         targetSeed: 'private action target',
       },
     });
+    const ownerAdminExtractionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/owner-admin-extractions',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'owner-admin-extraction-1',
+        workspaceSeed: 'private owner workspace',
+        targetSeed: 'private owner admin page',
+        memberCount: 4,
+        ownerCount: 1,
+        adminCount: 1,
+        pendingInviteCount: 2,
+        codexSeatCount: 3,
+        invoiceSummaryCount: 2,
+        limitIncidentCount: 1,
+        usageAlertCount: 1,
+        creditBalanceKnown: true,
+      },
+    });
     const approvalResponse = await server.inject({
       method: 'POST',
       url: '/api/business-quota/approval-requests',
@@ -3445,6 +3467,22 @@ describe('supervisor mock development API', () => {
       method: 'GET',
       url: '/api/business-quota/readiness',
     });
+    const ownerAdminReportResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/owner-admin-report',
+    });
+    const memberRosterResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/member-roster',
+    });
+    const pendingInvitesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/pending-invites',
+    });
+    const seatAllocationResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/seat-allocation',
+    });
     const automationRunsResponse = await server.inject({
       method: 'GET',
       url: '/api/business-quota/automation-runs',
@@ -3479,6 +3517,19 @@ describe('supervisor mock development API', () => {
       authorityRequired: true,
       requestBodyAuthorityAccepted: false,
     });
+    expect(ownerAdminExtractionResponse.statusCode).toBe(200);
+    expect(ownerAdminExtractionResponse.json()).toMatchObject({
+      status: 'observed',
+      surfaceCount: 6,
+      memberCount: 4,
+      pendingInviteCount: 2,
+      seatCount: 3,
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      cleartextBusinessDataStored: false,
+      executionDisabled: true,
+    });
     expect(approvalResponse.statusCode).toBe(200);
     expect(approvalResponse.json()).toMatchObject({
       status: 'approval_waiting',
@@ -3496,6 +3547,10 @@ describe('supervisor mock development API', () => {
     expect(observationsResponse.json().counts.uiSources).toBe(1);
     expect(attributionsResponse.json().counts.attributions).toBe(1);
     expect(readinessResponse.json().metadataOnly).toBe(true);
+    expect(ownerAdminReportResponse.json().counts.reports).toBe(1);
+    expect(memberRosterResponse.json().counts.rosters).toBe(1);
+    expect(pendingInvitesResponse.json().pendingInviteCount).toBe(2);
+    expect(seatAllocationResponse.json().codexSeatCount).toBe(3);
     expect(automationRunsResponse.json().counts.runs).toBe(2);
     expect(accountsResponse.json().counts.quotaSourceHealth).toBeGreaterThanOrEqual(2);
 
@@ -3503,6 +3558,7 @@ describe('supervisor mock development API', () => {
       quotaDryRunResponse.body,
       observationResponse.body,
       dryRunResponse.body,
+      ownerAdminExtractionResponse.body,
       approvalResponse.body,
       criticalResponse.body,
       forgedResponse.body,
@@ -3510,6 +3566,10 @@ describe('supervisor mock development API', () => {
       observationsResponse.body,
       attributionsResponse.body,
       readinessResponse.body,
+      ownerAdminReportResponse.body,
+      memberRosterResponse.body,
+      pendingInvitesResponse.body,
+      seatAllocationResponse.body,
       automationRunsResponse.body,
       accountsResponse.body,
     ]) {
@@ -3518,6 +3578,8 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private business page target');
       expect(body).not.toContain('private selector manifest');
       expect(body).not.toContain('private action target');
+      expect(body).not.toContain('private owner workspace');
+      expect(body).not.toContain('private owner admin page');
       expect(body).not.toContain('private approval target');
       expect(body).not.toContain('private desktop target');
       expect(body).not.toContain('private forged target');

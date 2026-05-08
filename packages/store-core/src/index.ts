@@ -7,6 +7,8 @@ import type {
   AdminWriteRun,
   AutomationCapabilityPolicy,
   BusinessCodexSeat,
+  BusinessAdminMemberRosterSnapshot,
+  BusinessBillingSummary,
   BusinessMembershipMirror,
   BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
@@ -113,6 +115,8 @@ import type {
   ProductionWorkflowRecoveryPlan,
   ProductionWorkflowRecoveryRun,
   NxVerificationChildRecord,
+  OwnerAdminExtractionReport,
+  OwnerAdminReadSurfaceSummary,
   RealPolicyBackendApprovalArtifact,
   RealPolicyBackendEvaluationPlan,
   RealPolicyBackendEvaluationRun,
@@ -1780,6 +1784,10 @@ export interface CodexHubStore {
   codexQuotaSourceHealth: MetadataEntityRepository<CodexQuotaSourceHealth>;
   quotaAttributions: MetadataEntityRepository<QuotaAttribution>;
   businessQuotaCrossCheckReports: MetadataEntityRepository<BusinessQuotaCrossCheckReport>;
+  ownerAdminReadSurfaceSummaries: MetadataEntityRepository<OwnerAdminReadSurfaceSummary>;
+  businessAdminMemberRosterSnapshots: MetadataEntityRepository<BusinessAdminMemberRosterSnapshot>;
+  businessBillingSummaries: MetadataEntityRepository<BusinessBillingSummary>;
+  ownerAdminExtractionReports: MetadataEntityRepository<OwnerAdminExtractionReport>;
   automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;

@@ -1,8 +1,12 @@
 import {
   BusinessQuotaSourceKindSchema,
   BusinessQuotaCrossCheckReportSchema,
+  BusinessAdminMemberRosterSnapshotSchema,
+  BusinessBillingSummarySchema,
   CdpDomObservationSummarySchema,
   CodexQuotaSourceHealthSchema,
+  OwnerAdminExtractionReportSchema,
+  OwnerAdminReadSurfaceSummarySchema,
   QuotaAttributionSchema,
   QuotaSnapshotSchema,
   SchemaVersionSchema,
@@ -13,11 +17,17 @@ import {
   type BusinessQuotaSourceKind,
   type BusinessQuotaCrossCheckReport,
   type BusinessQuotaCrossCheckStatus,
+  type BusinessAdminMemberRosterSnapshot,
+  type BusinessBillingSummary,
   type CdpDomObservationSummary,
   type CodexQuotaSourceFailureKind,
   type CodexQuotaSourceHealth,
   type CodexQuotaSourceHealthStatus,
   type ElectronRendererObservationSummary,
+  type OwnerAdminExtractionReport,
+  type OwnerAdminExtractionStatus,
+  type OwnerAdminReadSurfaceSummary,
+  type OwnerAdminSurfaceKind,
   type QuotaAttribution,
   type QuotaAttributionConfidence,
   type QuotaAttributionStatus,
@@ -125,6 +135,37 @@ export interface BusinessQuotaCrossCheckInput {
   observedAt?: string;
   evidenceRefIds?: readonly string[];
   auditEventIds?: readonly string[];
+}
+
+export interface OwnerAdminExtractionInput {
+  workspaceSeed: string;
+  targetSeed?: string;
+  surfaceKinds?: readonly OwnerAdminSurfaceKind[];
+  memberCount?: number;
+  ownerCount?: number;
+  adminCount?: number;
+  memberRoleCount?: number;
+  pendingInviteCount?: number;
+  removedMemberCount?: number;
+  seatAssignedCount?: number;
+  codexSeatCount?: number;
+  invoiceSummaryCount?: number;
+  limitIncidentCount?: number;
+  usageAlertCount?: number;
+  creditBalanceKnown?: boolean;
+  autoTopUpConfigured?: boolean;
+  status?: OwnerAdminExtractionStatus;
+  blockers?: readonly string[];
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface OwnerAdminExtractionBundle {
+  surfaces: OwnerAdminReadSurfaceSummary[];
+  rosterSnapshot: BusinessAdminMemberRosterSnapshot;
+  billingSummary: BusinessBillingSummary;
+  report: OwnerAdminExtractionReport;
 }
 
 export function redactSensitiveObservation(
@@ -429,6 +470,141 @@ export function createBusinessQuotaCrossCheckReport(
   });
 }
 
+export function createOwnerAdminExtractionBundle(
+  input: OwnerAdminExtractionInput,
+): OwnerAdminExtractionBundle {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const workspaceHash = hashRef(input.workspaceSeed);
+  const surfaceKinds = [
+    ...(input.surfaceKinds ?? [
+      'admin-members',
+      'admin-billing',
+      'pending-invites',
+      'manage-seats',
+      'add-credits',
+      'usage-alerts',
+    ]),
+  ];
+  const blockers = [...(input.blockers ?? [])];
+  const status: OwnerAdminExtractionStatus =
+    input.status ?? (blockers.length > 0 ? 'blocked' : 'observed');
+  const targetSeed = input.targetSeed ?? input.workspaceSeed;
+  const surfaces = surfaceKinds.map((surfaceKind) =>
+    OwnerAdminReadSurfaceSummarySchema.parse({
+      id: foundationId('owner_admin_read_surface'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt,
+      surfaceKind,
+      targetHash: hashRef({ targetSeed, surfaceKind }),
+      pageHash: hashRef({ targetSeed, surfaceKind, page: 'summary' }),
+      axTreeHash: hashRef({ targetSeed, surfaceKind, ax: 'summary' }),
+      domSnapshotHash: hashRef({ targetSeed, surfaceKind, dom: 'summary' }),
+      layoutHash: hashRef({ targetSeed, surfaceKind, layout: 'summary' }),
+      screenshotHash: hashRef({ targetSeed, surfaceKind, screenshot: 'hash-only' }),
+      networkEndpointHashes: [hashRef({ targetSeed, surfaceKind, endpoint: 'metadata-only' })],
+      fieldCount: projectedFieldCount(surfaceKind, input),
+      credentialFieldCount: 0,
+      evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+      auditEventIds: [...(input.auditEventIds ?? [])],
+      metadataOnly: true,
+      liveExecution: false,
+      externalProcessStarted: false,
+      summary: `${surfaceKind} owner admin surface was projected as metadata only.`,
+    }),
+  );
+  const memberCount = normalizeOptionalCount(input.memberCount) ?? 0;
+  const pendingInviteCount = normalizeOptionalCount(input.pendingInviteCount) ?? 0;
+  const codexSeatCount = normalizeOptionalCount(input.codexSeatCount) ?? 0;
+  const invoiceCount = normalizeOptionalCount(input.invoiceSummaryCount) ?? 0;
+  const limitIncidentCount = normalizeOptionalCount(input.limitIncidentCount) ?? 0;
+  const usageAlertCount = normalizeOptionalCount(input.usageAlertCount) ?? 0;
+  const rosterSnapshot = BusinessAdminMemberRosterSnapshotSchema.parse({
+    id: foundationId('business_admin_member_roster_snapshot'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    workspaceHash,
+    rosterHash: hashRef({
+      workspaceHash,
+      memberCount,
+      pendingInviteCount,
+      seatAssignedCount: input.seatAssignedCount ?? codexSeatCount,
+    }),
+    memberCount,
+    ownerCount: normalizeOptionalCount(input.ownerCount) ?? (memberCount > 0 ? 1 : 0),
+    adminCount: normalizeOptionalCount(input.adminCount) ?? 0,
+    memberRoleCount: normalizeOptionalCount(input.memberRoleCount) ?? memberCount,
+    pendingInviteCount,
+    removedMemberCount: normalizeOptionalCount(input.removedMemberCount) ?? 0,
+    seatAssignedCount: normalizeOptionalCount(input.seatAssignedCount) ?? codexSeatCount,
+    memberEmailHashCount: memberCount,
+    roleHashCount: memberCount,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary: 'Owner admin member roster stores hashes and aggregate counts only.',
+  });
+  const billingSummary = BusinessBillingSummarySchema.parse({
+    id: foundationId('business_billing_summary'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    workspaceHash,
+    billingHash: hashRef({
+      workspaceHash,
+      codexSeatCount,
+      invoiceCount,
+      limitIncidentCount,
+      usageAlertCount,
+    }),
+    codexSeatCount,
+    creditBalanceKnown: input.creditBalanceKnown ?? false,
+    creditBalanceHash: input.creditBalanceKnown
+      ? hashRef({ workspaceHash, credit: 'known' })
+      : undefined,
+    invoiceSummaryHashCount: invoiceCount,
+    pendingInviteCount,
+    limitIncidentCount,
+    usageAlertCount,
+    autoTopUpConfigured: input.autoTopUpConfigured,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary: 'Owner admin billing summary stores credit and invoice hashes only.',
+  });
+  const report = OwnerAdminExtractionReportSchema.parse({
+    id: foundationId('owner_admin_extraction_report'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    status,
+    workspaceHash,
+    surfaceCount: surfaces.length,
+    memberCount,
+    pendingInviteCount,
+    seatCount: codexSeatCount,
+    invoiceCount,
+    limitIncidentCount,
+    usageAlertCount,
+    sourceSurfaceIds: surfaces.map((surface) => surface.id),
+    rosterSnapshotId: rosterSnapshot.id,
+    billingSummaryId: billingSummary.id,
+    blockers,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary:
+      status === 'observed'
+        ? 'Owner admin extraction projected Business management fields as metadata only.'
+        : 'Owner admin extraction is blocked before any raw admin surface can be persisted.',
+  });
+
+  return { surfaces, rosterSnapshot, billingSummary, report };
+}
+
 export function createQuotaSnapshotFromSource(input: {
   subjectKind: QuotaSnapshot['subjectKind'];
   subjectSeed: string;
@@ -496,6 +672,29 @@ function crossCheckStatus(input: {
 
 function normalizeOptionalCount(value: number | undefined): number | undefined {
   return value === undefined ? undefined : Math.max(0, Math.trunc(value));
+}
+
+function projectedFieldCount(
+  surfaceKind: OwnerAdminSurfaceKind,
+  input: OwnerAdminExtractionInput,
+): number {
+  switch (surfaceKind) {
+    case 'admin-members':
+      return normalizeOptionalCount(input.memberCount) ?? 0;
+    case 'pending-invites':
+      return normalizeOptionalCount(input.pendingInviteCount) ?? 0;
+    case 'manage-seats':
+      return normalizeOptionalCount(input.codexSeatCount) ?? 0;
+    case 'admin-billing':
+      return (
+        (normalizeOptionalCount(input.invoiceSummaryCount) ?? 0) +
+        (input.creditBalanceKnown ? 1 : 0)
+      );
+    case 'add-credits':
+      return input.creditBalanceKnown ? 1 : 0;
+    case 'usage-alerts':
+      return normalizeOptionalCount(input.usageAlertCount) ?? 0;
+  }
 }
 
 function hashRef(value: unknown): string {

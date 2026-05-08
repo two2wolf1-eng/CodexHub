@@ -3244,3 +3244,42 @@ integrations:
       noCredentialInput: true
       noTokenCookieSessionCollection: true
       noRawSelectorDomPathBodyStorage: true
+  m67-owner-admin-deep-extractor:
+    enabled: false
+    adapter: business-quota-kernel
+    provider: codexhub-metadata
+    providerType: builtin
+    mode: metadata-only-extractor
+    stage: m67-owner-admin-deep-extractor
+    release: docs/releases/m67-owner-admin-deep-extractor.md
+    review: docs/reviews/m67-owner-admin-deep-extractor-review.md
+    runbook: docs/runbooks/m67-owner-admin-deep-extractor-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: high
+    supervisorRoutes:
+      - POST /api/business-quota/owner-admin-extractions
+      - GET /api/business-quota/owner-admin-report
+      - GET /api/business-quota/member-roster
+      - GET /api/business-quota/pending-invites
+      - GET /api/business-quota/seat-allocation
+    persistedStores:
+      - owner_admin_read_surface_summaries
+      - business_admin_member_roster_snapshots
+      - business_billing_summaries
+      - owner_admin_extraction_reports
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      directAdapterExecutionAllowed: false
+      metadataOnlyPublicOutput: true
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noNetworkBodyRead: true
+      noRawDomAxPathBodyStorage: true
+      cleartextBusinessDataStoreDeferredToM70: true

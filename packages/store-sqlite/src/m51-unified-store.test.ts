@@ -8,6 +8,8 @@ import {
   AdminWriteDryRunPlanSchema,
   AdminWriteIntentSchema,
   AdminWriteRunSchema,
+  BusinessAdminMemberRosterSnapshotSchema,
+  BusinessBillingSummarySchema,
   BusinessMembershipMirrorSchema,
   BusinessWorkspaceSchema,
   ChatGptSessionHealthSchema,
@@ -43,6 +45,8 @@ import {
   ForbiddenPathProbeSchema,
   HumanCheckpointSchema,
   LeaseSchema,
+  OwnerAdminExtractionReportSchema,
+  OwnerAdminReadSurfaceSummarySchema,
   QuotaAttributionSchema,
   LocalCapabilityProbeSchema,
   QuotaEvidenceMatrixSchema,
@@ -965,6 +969,71 @@ describe('M51 unified metadata store', () => {
       targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
       summary: 'Admin write run stores metadata-only status.',
     });
+    const ownerAdminSurface = OwnerAdminReadSurfaceSummarySchema.parse({
+      id: 'owner_admin_read_surface_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      surfaceKind: 'admin-members',
+      targetHash: 'sha256:owner-admin-target',
+      pageHash: 'sha256:page',
+      axTreeHash: 'sha256:ax',
+      domSnapshotHash: 'sha256:dom',
+      layoutHash: 'sha256:layout',
+      screenshotHash: 'sha256:screenshot',
+      networkEndpointHashes: ['sha256:endpoint'],
+      fieldCount: 3,
+      credentialFieldCount: 0,
+      summary: 'Owner admin read surface stores hashes only.',
+    });
+    const rosterSnapshot = BusinessAdminMemberRosterSnapshotSchema.parse({
+      id: 'business_admin_member_roster_snapshot_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceHash: 'sha256:workspace',
+      rosterHash: 'sha256:roster',
+      memberCount: 3,
+      ownerCount: 1,
+      adminCount: 1,
+      memberRoleCount: 1,
+      pendingInviteCount: 1,
+      seatAssignedCount: 2,
+      memberEmailHashCount: 3,
+      roleHashCount: 3,
+      summary: 'Owner roster snapshot stores aggregate counts only.',
+    });
+    const billingSummary = BusinessBillingSummarySchema.parse({
+      id: 'business_billing_summary_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceHash: 'sha256:workspace',
+      billingHash: 'sha256:billing',
+      codexSeatCount: 2,
+      creditBalanceKnown: true,
+      creditBalanceHash: 'sha256:credits',
+      invoiceSummaryHashCount: 1,
+      pendingInviteCount: 1,
+      limitIncidentCount: 1,
+      usageAlertCount: 1,
+      summary: 'Billing summary stores hashes and counts only.',
+    });
+    const ownerAdminReport = OwnerAdminExtractionReportSchema.parse({
+      id: 'owner_admin_extraction_report_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'observed',
+      workspaceHash: 'sha256:workspace',
+      surfaceCount: 1,
+      memberCount: 3,
+      pendingInviteCount: 1,
+      seatCount: 2,
+      invoiceCount: 1,
+      limitIncidentCount: 1,
+      usageAlertCount: 1,
+      sourceSurfaceIds: [ownerAdminSurface.id],
+      rosterSnapshotId: rosterSnapshot.id,
+      billingSummaryId: billingSummary.id,
+      summary: 'Owner admin extraction report stores metadata only.',
+    });
 
     const saved = [
       await expectRoundTrip(first.codexQuotaSourceHealth, sourceHealth),
@@ -987,6 +1056,10 @@ describe('M51 unified metadata store', () => {
       await expectRoundTrip(first.adminWriteDryRunPlans, adminDryRun),
       await expectRoundTrip(first.adminWriteAuthorities, adminAuthority),
       await expectRoundTrip(first.adminWriteRuns, adminRun),
+      await expectRoundTrip(first.ownerAdminReadSurfaceSummaries, ownerAdminSurface),
+      await expectRoundTrip(first.businessAdminMemberRosterSnapshots, rosterSnapshot),
+      await expectRoundTrip(first.businessBillingSummaries, billingSummary),
+      await expectRoundTrip(first.ownerAdminExtractionReports, ownerAdminReport),
     ];
     await first.close();
 
@@ -996,6 +1069,9 @@ describe('M51 unified metadata store', () => {
     );
     await expect(reopened.uiAutomationRuns.getRecord(run.id)).resolves.toEqual(run);
     await expect(reopened.adminWriteRuns.getRecord(adminRun.id)).resolves.toEqual(adminRun);
+    await expect(reopened.ownerAdminExtractionReports.getRecord(ownerAdminReport.id)).resolves.toEqual(
+      ownerAdminReport,
+    );
     await expect(reopened.businessQuotaCrossCheckReports.getRecord(crossCheck.id)).resolves.toEqual(
       crossCheck,
     );
@@ -1019,6 +1095,9 @@ describe('M51 unified metadata store', () => {
     expect(authority.requestBodyAuthorityAccepted).toBe(false);
     expect(adminAuthority.requestBodyAuthorityAccepted).toBe(false);
     expect(adminRun.executionDisabled).toBe(true);
+    expect(ownerAdminSurface.rawDomStored).toBe(false);
+    expect(rosterSnapshot.cleartextEmailStored).toBe(false);
+    expect(ownerAdminReport.cleartextBusinessDataStored).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

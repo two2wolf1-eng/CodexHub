@@ -11,6 +11,8 @@ import type {
   AdminWriteRun,
   AutomationCapabilityPolicy,
   BusinessCodexSeat,
+  BusinessAdminMemberRosterSnapshot,
+  BusinessBillingSummary,
   BusinessQuotaCrossCheckReport,
   BusinessMembershipMirror,
   BusinessWorkspace,
@@ -121,6 +123,8 @@ import type {
   ProductionWorkflowRecoveryPlan,
   ProductionWorkflowRecoveryRun,
   NxVerificationChildRecord,
+  OwnerAdminExtractionReport,
+  OwnerAdminReadSurfaceSummary,
   RealPolicyBackendApprovalArtifact,
   RealPolicyBackendEvaluationPlan,
   RealPolicyBackendEvaluationRun,
@@ -662,6 +666,10 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexQuotaSourceHealth: MetadataEntityRepository<CodexQuotaSourceHealth>;
   readonly quotaAttributions: MetadataEntityRepository<QuotaAttribution>;
   readonly businessQuotaCrossCheckReports: MetadataEntityRepository<BusinessQuotaCrossCheckReport>;
+  readonly ownerAdminReadSurfaceSummaries: MetadataEntityRepository<OwnerAdminReadSurfaceSummary>;
+  readonly businessAdminMemberRosterSnapshots: MetadataEntityRepository<BusinessAdminMemberRosterSnapshot>;
+  readonly businessBillingSummaries: MetadataEntityRepository<BusinessBillingSummary>;
+  readonly ownerAdminExtractionReports: MetadataEntityRepository<OwnerAdminExtractionReport>;
   readonly automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
@@ -1185,6 +1193,26 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteMetadataEntityRepository<BusinessQuotaCrossCheckReport>(
         database,
         'business_quota_cross_check_reports',
+      );
+    this.ownerAdminReadSurfaceSummaries =
+      new SqliteMetadataEntityRepository<OwnerAdminReadSurfaceSummary>(
+        database,
+        'owner_admin_read_surface_summaries',
+      );
+    this.businessAdminMemberRosterSnapshots =
+      new SqliteMetadataEntityRepository<BusinessAdminMemberRosterSnapshot>(
+        database,
+        'business_admin_member_roster_snapshots',
+      );
+    this.businessBillingSummaries =
+      new SqliteMetadataEntityRepository<BusinessBillingSummary>(
+        database,
+        'business_billing_summaries',
+      );
+    this.ownerAdminExtractionReports =
+      new SqliteMetadataEntityRepository<OwnerAdminExtractionReport>(
+        database,
+        'owner_admin_extraction_reports',
       );
     this.automationCapabilityPolicies =
       new SqliteMetadataEntityRepository<AutomationCapabilityPolicy>(
@@ -7449,6 +7477,30 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS business_quota_cross_check_reports (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS owner_admin_read_surface_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_admin_member_roster_snapshots (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_billing_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS owner_admin_extraction_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

@@ -521,6 +521,7 @@ const customWorkflowForbiddenMetadataKeys = new Set([
   'rawScript',
   'rawPayload',
   'rawCredential',
+  'rawAx',
   'domText',
   'rawText',
   'networkBody',
@@ -20111,6 +20112,27 @@ export const SensitiveRedactionStatusSchema = z.enum([
 ]);
 export type SensitiveRedactionStatus = z.infer<typeof SensitiveRedactionStatusSchema>;
 
+export const OwnerAdminSurfaceKindSchema = z.enum([
+  'admin-members',
+  'admin-billing',
+  'pending-invites',
+  'manage-seats',
+  'add-credits',
+  'usage-alerts',
+]);
+export type OwnerAdminSurfaceKind = z.infer<typeof OwnerAdminSurfaceKindSchema>;
+
+export const OwnerAdminExtractionStatusSchema = z.enum([
+  'observed',
+  'blocked',
+  'failed',
+  'drifted',
+  'unknown',
+]);
+export type OwnerAdminExtractionStatus = z.infer<
+  typeof OwnerAdminExtractionStatusSchema
+>;
+
 export const BusinessCodexSeatSchema = observedEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)
   .merge(m51EvidenceAuditSchema)
@@ -20502,6 +20524,141 @@ export const ElectronRendererObservationSummarySchema = observedEntityBaseSchema
   .superRefine(rejectCustomWorkflowRawMetadata);
 export type ElectronRendererObservationSummary = z.infer<
   typeof ElectronRendererObservationSummarySchema
+>;
+
+export const OwnerAdminReadSurfaceSummarySchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    surfaceKind: OwnerAdminSurfaceKindSchema,
+    targetHash: z.string().min(1),
+    pageHash: z.string().min(1).optional(),
+    axTreeHash: z.string().min(1).optional(),
+    domSnapshotHash: z.string().min(1).optional(),
+    layoutHash: z.string().min(1).optional(),
+    screenshotHash: z.string().min(1).optional(),
+    networkEndpointHashes: z.array(z.string().min(1)).default([]),
+    fieldCount: z.number().int().nonnegative().default(0),
+    credentialFieldCount: z.number().int().nonnegative().default(0),
+    rawDomStored: z.literal(false).default(false),
+    rawAxStored: z.literal(false).default(false),
+    rawNetworkBodyStored: z.literal(false).default(false),
+    browserStorageRead: z.literal(false).default(false),
+    clickOrTypeUsed: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.credentialFieldCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'owner admin read surfaces must block credential fields',
+        path: ['credentialFieldCount'],
+      });
+    }
+  });
+export type OwnerAdminReadSurfaceSummary = z.infer<
+  typeof OwnerAdminReadSurfaceSummarySchema
+>;
+
+export const BusinessAdminMemberRosterSnapshotSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceHash: z.string().min(1),
+    rosterHash: z.string().min(1),
+    memberCount: z.number().int().nonnegative().default(0),
+    ownerCount: z.number().int().nonnegative().default(0),
+    adminCount: z.number().int().nonnegative().default(0),
+    memberRoleCount: z.number().int().nonnegative().default(0),
+    pendingInviteCount: z.number().int().nonnegative().default(0),
+    removedMemberCount: z.number().int().nonnegative().default(0),
+    seatAssignedCount: z.number().int().nonnegative().default(0),
+    memberEmailHashCount: z.number().int().nonnegative().default(0),
+    roleHashCount: z.number().int().nonnegative().default(0),
+    cleartextEmailStored: z.literal(false).default(false),
+    rawRosterStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.ownerCount === 0 && record.memberCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'member roster snapshots with members must include an owner count',
+        path: ['ownerCount'],
+      });
+    }
+  });
+export type BusinessAdminMemberRosterSnapshot = z.infer<
+  typeof BusinessAdminMemberRosterSnapshotSchema
+>;
+
+export const BusinessBillingSummarySchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceHash: z.string().min(1),
+    billingHash: z.string().min(1),
+    codexSeatCount: z.number().int().nonnegative().default(0),
+    creditBalanceKnown: z.boolean().default(false),
+    creditBalanceHash: z.string().min(1).optional(),
+    invoiceSummaryHashCount: z.number().int().nonnegative().default(0),
+    pendingInviteCount: z.number().int().nonnegative().default(0),
+    limitIncidentCount: z.number().int().nonnegative().default(0),
+    usageAlertCount: z.number().int().nonnegative().default(0),
+    autoTopUpConfigured: z.boolean().optional(),
+    paymentWriteRequired: z.literal(false).default(false),
+    rawInvoiceStored: z.literal(false).default(false),
+    rawBillingBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type BusinessBillingSummary = z.infer<typeof BusinessBillingSummarySchema>;
+
+export const OwnerAdminExtractionReportSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    status: OwnerAdminExtractionStatusSchema,
+    workspaceHash: z.string().min(1),
+    surfaceCount: z.number().int().nonnegative().default(0),
+    memberCount: z.number().int().nonnegative().default(0),
+    pendingInviteCount: z.number().int().nonnegative().default(0),
+    seatCount: z.number().int().nonnegative().default(0),
+    invoiceCount: z.number().int().nonnegative().default(0),
+    limitIncidentCount: z.number().int().nonnegative().default(0),
+    usageAlertCount: z.number().int().nonnegative().default(0),
+    sourceSurfaceIds: z.array(z.string().min(1)).default([]),
+    rosterSnapshotId: z.string().min(1).optional(),
+    billingSummaryId: z.string().min(1).optional(),
+    blockers: z.array(z.string().min(1)).default([]),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    processBoundaryInvoked: z.literal(false).default(false),
+    externalProcessStarted: z.literal(false).default(false),
+    networkBoundaryInvoked: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawAxStored: z.literal(false).default(false),
+    rawNetworkBodyStored: z.literal(false).default(false),
+    cleartextBusinessDataStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'blocked' && record.blockers.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked owner admin extraction reports require blockers',
+        path: ['blockers'],
+      });
+    }
+  });
+export type OwnerAdminExtractionReport = z.infer<
+  typeof OwnerAdminExtractionReportSchema
 >;
 
 export const UiTargetFingerprintSchema = observedEntityBaseSchema

@@ -387,6 +387,7 @@ import type {
   AdminUiActionKind,
   BusinessQuotaSourceKind,
   BusinessQuotaPermissionRole,
+  OwnerAdminSurfaceKind,
   QuotaSnapshotStatus,
   UiAutomationActionKind,
   UiAutomationStatus,
@@ -637,6 +638,7 @@ import {
 } from '@codexhub/production-ga-kernel';
 import {
   attributeBusinessQuota,
+  createOwnerAdminExtractionBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
   summarizeQuotaSourceHealth,
@@ -21317,6 +21319,37 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     responseBody?: unknown;
   };
 
+  type OwnerAdminExtractionRequestBody = {
+    dryRunId?: string;
+    workspaceSeed?: string;
+    targetSeed?: string;
+    surfaceKinds?: OwnerAdminSurfaceKind[];
+    memberCount?: number;
+    ownerCount?: number;
+    adminCount?: number;
+    memberRoleCount?: number;
+    pendingInviteCount?: number;
+    removedMemberCount?: number;
+    seatAssignedCount?: number;
+    codexSeatCount?: number;
+    invoiceSummaryCount?: number;
+    limitIncidentCount?: number;
+    usageAlertCount?: number;
+    creditBalanceKnown?: boolean;
+    autoTopUpConfigured?: boolean;
+    blockers?: string[];
+    authority?: unknown;
+    executionAuthority?: unknown;
+    approvalArtifact?: unknown;
+    rawDom?: unknown;
+    rawAx?: unknown;
+    rawPage?: unknown;
+    rawNetworkBody?: unknown;
+    rawPath?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   type AdminUiRequestBody = {
     dryRunId?: string;
     actionKind?: AdminUiActionKind;
@@ -22832,6 +22865,161 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       });
     });
 
+    server.get(`${prefix}/owner-admin-report`, async () => {
+      const store = await getStore();
+      const [reports, surfaces, rosters, billings] = store
+        ? await Promise.all([
+            store.ownerAdminExtractionReports.listRecords({ limit: 20 }),
+            store.ownerAdminReadSurfaceSummaries.listRecords({ limit: 50 }),
+            store.businessAdminMemberRosterSnapshots.listRecords({ limit: 20 }),
+            store.businessBillingSummaries.listRecords({ limit: 20 }),
+          ])
+        : [[], [], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_owner_admin_report',
+        surface: 'owner-admin-report',
+        summary: 'Owner admin extraction reports expose Business management hashes and counts only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          reports: reports.length,
+          surfaces: surfaces.length,
+          rosters: rosters.length,
+          billings: billings.length,
+        },
+        items: [
+          ...reports.map((record) => projectM51ProjectionRecord('owner-admin-report', record)),
+          ...surfaces.map((record) => projectM51ProjectionRecord('owner-admin-surface', record)),
+          ...rosters.map((record) => projectM51ProjectionRecord('owner-admin-roster', record)),
+          ...billings.map((record) => projectM51ProjectionRecord('owner-admin-billing', record)),
+        ],
+      });
+    });
+
+    server.get(`${prefix}/member-roster`, async () => {
+      const store = await getStore();
+      const rosters = store
+        ? await store.businessAdminMemberRosterSnapshots.listRecords({ limit: 50 })
+        : [];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_owner_admin_member_roster',
+        surface: 'owner-admin-member-roster',
+        summary: 'Owner member roster projections return aggregate counts and hashes only.',
+        storeAvailable: store !== undefined,
+        counts: { rosters: rosters.length },
+        items: rosters.map((record) => projectM51ProjectionRecord('owner-admin-roster', record)),
+      });
+    });
+
+    server.get(`${prefix}/pending-invites`, async () => {
+      const store = await getStore();
+      const rosters = store
+        ? await store.businessAdminMemberRosterSnapshots.listRecords({ limit: 50 })
+        : [];
+
+      return {
+        id: foundationId('supervisor_owner_admin_pending_invites'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt: foundationTimestamp(),
+        pendingInviteCount: rosters.reduce(
+          (count, roster) => count + roster.pendingInviteCount,
+          0,
+        ),
+        rosterCount: rosters.length,
+        metadataOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: 'Pending invite state is projected from owner roster counts only.',
+      };
+    });
+
+    server.get(`${prefix}/seat-allocation`, async () => {
+      const store = await getStore();
+      const [rosters, billings] = store
+        ? await Promise.all([
+            store.businessAdminMemberRosterSnapshots.listRecords({ limit: 50 }),
+            store.businessBillingSummaries.listRecords({ limit: 50 }),
+          ])
+        : [[], []];
+
+      return {
+        id: foundationId('supervisor_owner_admin_seat_allocation'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt: foundationTimestamp(),
+        seatAssignedCount: rosters.reduce((count, roster) => count + roster.seatAssignedCount, 0),
+        codexSeatCount: billings.reduce((count, billing) => count + billing.codexSeatCount, 0),
+        rosterCount: rosters.length,
+        billingSummaryCount: billings.length,
+        metadataOnly: true,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: 'Seat allocation state is projected from owner admin metadata only.',
+      };
+    });
+
+    server.post(`${prefix}/owner-admin-extractions`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as OwnerAdminExtractionRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const bundle = createOwnerAdminExtractionBundle({
+        workspaceSeed: body?.workspaceSeed ?? body?.dryRunId ?? 'owner-admin-workspace',
+        targetSeed: body?.targetSeed ?? body?.dryRunId ?? 'owner-admin-target',
+        surfaceKinds: normalizeOwnerAdminSurfaceKinds(body?.surfaceKinds),
+        memberCount: body?.memberCount,
+        ownerCount: body?.ownerCount,
+        adminCount: body?.adminCount,
+        memberRoleCount: body?.memberRoleCount,
+        pendingInviteCount: body?.pendingInviteCount,
+        removedMemberCount: body?.removedMemberCount,
+        seatAssignedCount: body?.seatAssignedCount,
+        codexSeatCount: body?.codexSeatCount,
+        invoiceSummaryCount: body?.invoiceSummaryCount,
+        limitIncidentCount: body?.limitIncidentCount,
+        usageAlertCount: body?.usageAlertCount,
+        creditBalanceKnown: body?.creditBalanceKnown,
+        autoTopUpConfigured: body?.autoTopUpConfigured,
+        blockers: body?.blockers,
+      });
+
+      await Promise.all([
+        ...bundle.surfaces.map((surface) =>
+          store.ownerAdminReadSurfaceSummaries.saveRecord(surface),
+        ),
+        store.businessAdminMemberRosterSnapshots.saveRecord(bundle.rosterSnapshot),
+        store.businessBillingSummaries.saveRecord(bundle.billingSummary),
+        store.ownerAdminExtractionReports.saveRecord(bundle.report),
+      ]);
+
+      return {
+        status: bundle.report.status,
+        reportId: bundle.report.id,
+        rosterSnapshotId: bundle.rosterSnapshot.id,
+        billingSummaryId: bundle.billingSummary.id,
+        surfaceCount: bundle.surfaces.length,
+        memberCount: bundle.report.memberCount,
+        pendingInviteCount: bundle.report.pendingInviteCount,
+        seatCount: bundle.report.seatCount,
+        invoiceCount: bundle.report.invoiceCount,
+        limitIncidentCount: bundle.report.limitIncidentCount,
+        usageAlertCount: bundle.report.usageAlertCount,
+        directAdapterExecutionAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        cleartextBusinessDataStored: false,
+        executionDisabled: true,
+        summary: bundle.report.summary,
+      };
+    });
+
     server.post(`${prefix}/observation-rehearsals`, async (request, reply) => {
       const store = await getStore();
       if (!store) {
@@ -23342,6 +23530,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'rawPayload',
       'rawPatch',
       'rawCredential',
+      'rawAx',
+      'rawNetworkBody',
       'rawExport',
       'rawSource',
       'rawPath',
@@ -23388,6 +23578,25 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     ];
 
     return value && sourceKinds.includes(value) ? value : 'app-server-rate-limits';
+  }
+
+  function normalizeOwnerAdminSurfaceKinds(
+    value: OwnerAdminSurfaceKind[] | undefined,
+  ): OwnerAdminSurfaceKind[] {
+    const surfaceKinds: readonly OwnerAdminSurfaceKind[] = [
+      'admin-members',
+      'admin-billing',
+      'pending-invites',
+      'manage-seats',
+      'add-credits',
+      'usage-alerts',
+    ];
+
+    if (!Array.isArray(value) || value.length === 0) {
+      return [...surfaceKinds];
+    }
+
+    return value.filter((surfaceKind) => surfaceKinds.includes(surfaceKind));
   }
 
   function normalizeQuotaSubjectKind(

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attributeBusinessQuota,
   createBusinessQuotaCrossCheckReport,
+  createOwnerAdminExtractionBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
   redactSensitiveObservation,
@@ -174,5 +175,39 @@ describe('business quota kernel', () => {
     expect(mismatch.mismatchFieldCount).toBe(2);
     expect(serialized).not.toContain('codex-account-ref');
     expect(serialized).not.toContain('codex-desktop-renderer');
+  });
+
+  it('projects owner admin surfaces without raw Business admin page content', () => {
+    const bundle = createOwnerAdminExtractionBundle({
+      workspaceSeed: 'private business workspace',
+      targetSeed: 'private owner admin page',
+      memberCount: 4,
+      ownerCount: 1,
+      adminCount: 1,
+      memberRoleCount: 2,
+      pendingInviteCount: 2,
+      codexSeatCount: 3,
+      invoiceSummaryCount: 2,
+      limitIncidentCount: 1,
+      usageAlertCount: 1,
+      creditBalanceKnown: true,
+      autoTopUpConfigured: false,
+    });
+    const serialized = JSON.stringify(bundle);
+
+    expect(bundle.surfaces).toHaveLength(6);
+    expect(bundle.surfaces.every((surface) => surface.rawDomStored === false)).toBe(true);
+    expect(bundle.surfaces.every((surface) => surface.rawNetworkBodyStored === false)).toBe(true);
+    expect(bundle.surfaces.every((surface) => surface.clickOrTypeUsed === false)).toBe(true);
+    expect(bundle.rosterSnapshot.memberCount).toBe(4);
+    expect(bundle.rosterSnapshot.cleartextEmailStored).toBe(false);
+    expect(bundle.billingSummary.creditBalanceKnown).toBe(true);
+    expect(bundle.billingSummary.rawInvoiceStored).toBe(false);
+    expect(bundle.report.status).toBe('observed');
+    expect(bundle.report.directAdapterExecutionAllowed).toBe(false);
+    expect(bundle.report.processBoundaryInvoked).toBe(false);
+    expect(bundle.report.cleartextBusinessDataStored).toBe(false);
+    expect(serialized).not.toContain('private business workspace');
+    expect(serialized).not.toContain('private owner admin page');
   });
 });
