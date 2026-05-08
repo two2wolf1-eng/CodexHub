@@ -191,12 +191,18 @@ import type {
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
+  BusinessQuotaPermissionProbe,
+  BusinessQuotaSourceProbe,
   EvidenceBundle,
   EvidenceRef,
+  ForbiddenPathProbe,
   HumanCheckpoint,
   Lease,
+  LocalCapabilityProbe,
   MockDevelopmentRun,
   Observation,
+  QuotaEvidenceMatrix,
+  QuotaReadinessDebugReport,
   QuotaSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
@@ -630,6 +636,12 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly poolLeases: MetadataEntityRepository<Lease>;
   readonly quotaSnapshots: MetadataEntityRepository<QuotaSnapshot>;
   readonly evidenceBundles: MetadataEntityRepository<EvidenceBundle>;
+  readonly businessQuotaSourceProbes: MetadataEntityRepository<BusinessQuotaSourceProbe>;
+  readonly businessQuotaPermissionProbes: MetadataEntityRepository<BusinessQuotaPermissionProbe>;
+  readonly localCapabilityProbes: MetadataEntityRepository<LocalCapabilityProbe>;
+  readonly forbiddenPathProbes: MetadataEntityRepository<ForbiddenPathProbe>;
+  readonly quotaEvidenceMatrices: MetadataEntityRepository<QuotaEvidenceMatrix>;
+  readonly quotaReadinessDebugReports: MetadataEntityRepository<QuotaReadinessDebugReport>;
 
   constructor(private readonly database: SqliteDatabase) {
     this.workflowRuns = new JsonEntityRepository<WorkflowRun>(
@@ -1107,6 +1119,33 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'evidence_bundles',
     );
+    this.businessQuotaSourceProbes =
+      new SqliteMetadataEntityRepository<BusinessQuotaSourceProbe>(
+        database,
+        'business_quota_source_probes',
+      );
+    this.businessQuotaPermissionProbes =
+      new SqliteMetadataEntityRepository<BusinessQuotaPermissionProbe>(
+        database,
+        'business_quota_permission_probes',
+      );
+    this.localCapabilityProbes = new SqliteMetadataEntityRepository<LocalCapabilityProbe>(
+      database,
+      'local_capability_probes',
+    );
+    this.forbiddenPathProbes = new SqliteMetadataEntityRepository<ForbiddenPathProbe>(
+      database,
+      'forbidden_path_probes',
+    );
+    this.quotaEvidenceMatrices = new SqliteMetadataEntityRepository<QuotaEvidenceMatrix>(
+      database,
+      'quota_evidence_matrices',
+    );
+    this.quotaReadinessDebugReports =
+      new SqliteMetadataEntityRepository<QuotaReadinessDebugReport>(
+        database,
+        'quota_readiness_debug_reports',
+      );
   }
 
   async close(): Promise<void> {
@@ -7243,6 +7282,42 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS evidence_bundles (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_quota_source_probes (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_quota_permission_probes (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS local_capability_probes (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS forbidden_path_probes (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quota_evidence_matrices (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quota_readiness_debug_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

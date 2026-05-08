@@ -187,12 +187,18 @@ import type {
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
+  BusinessQuotaPermissionProbe,
+  BusinessQuotaSourceProbe,
   EvidenceBundle,
   EvidenceRef,
+  ForbiddenPathProbe,
   HumanCheckpoint,
   Lease,
+  LocalCapabilityProbe,
   MockDevelopmentRun,
   Observation,
+  QuotaEvidenceMatrix,
+  QuotaReadinessDebugReport,
   QuotaSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
@@ -1748,6 +1754,12 @@ export interface CodexHubStore {
   poolLeases: MetadataEntityRepository<Lease>;
   quotaSnapshots: MetadataEntityRepository<QuotaSnapshot>;
   evidenceBundles: MetadataEntityRepository<EvidenceBundle>;
+  businessQuotaSourceProbes: MetadataEntityRepository<BusinessQuotaSourceProbe>;
+  businessQuotaPermissionProbes: MetadataEntityRepository<BusinessQuotaPermissionProbe>;
+  localCapabilityProbes: MetadataEntityRepository<LocalCapabilityProbe>;
+  forbiddenPathProbes: MetadataEntityRepository<ForbiddenPathProbe>;
+  quotaEvidenceMatrices: MetadataEntityRepository<QuotaEvidenceMatrix>;
+  quotaReadinessDebugReports: MetadataEntityRepository<QuotaReadinessDebugReport>;
   close(): Promise<void>;
 }
 

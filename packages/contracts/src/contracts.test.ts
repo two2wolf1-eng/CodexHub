@@ -563,6 +563,12 @@ import {
   HumanCheckpointSchema,
   LeaseSchema,
   QuotaSnapshotSchema,
+  BusinessQuotaPermissionProbeSchema,
+  BusinessQuotaSourceProbeSchema,
+  ForbiddenPathProbeSchema,
+  LocalCapabilityProbeSchema,
+  QuotaEvidenceMatrixSchema,
+  QuotaReadinessDebugReportSchema,
   WorkflowRunSchema,
 } from './index';
 
@@ -16769,6 +16775,269 @@ describe('contracts schemas', () => {
         exportHash: 'sha256:audit-export',
         manifestHash: 'sha256:audit-manifest',
         summary: 'Audit export cannot store raw records.',
+        metadata: {
+          rawBody: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M61 business quota debug contracts as metadata-only probes and reports', () => {
+    const sourceProbe = BusinessQuotaSourceProbeSchema.parse({
+      id: 'business_quota_source_probe_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceKind: 'app-server-rate-limits',
+      status: 'ready',
+      priority: 1,
+      stabilityScore: 90,
+      fieldCount: 4,
+      readableFieldCount: 3,
+      sourceRefHash: 'sha256:source-ref',
+      hashPolicy: 'store source refs and field names as hashes only',
+      candidateOnly: false,
+      evidenceRefIds: ['evidence_m61_source'],
+      auditEventIds: ['audit_m61_source'],
+      summary: 'App Server rate limit metadata is the preferred source candidate.',
+    });
+    const permissionProbe = BusinessQuotaPermissionProbeSchema.parse({
+      id: 'business_quota_permission_probe_1',
+      schemaVersion,
+      observedAt: createdAt,
+      role: 'admin',
+      status: 'ready',
+      workspaceHash: 'sha256:workspace',
+      accountHash: 'sha256:account',
+      canReadOwnQuota: true,
+      canReadWorkspaceQuota: true,
+      canReadMemberQuota: true,
+      canReadSeatState: true,
+      roleDeclaredByHuman: true,
+      evidenceRefIds: ['evidence_m61_permission'],
+      auditEventIds: ['audit_m61_permission'],
+      summary: 'Admin role can read workspace quota metadata after manual declaration.',
+    });
+    const localCapabilityProbe = LocalCapabilityProbeSchema.parse({
+      id: 'local_capability_probe_1',
+      schemaVersion,
+      observedAt: createdAt,
+      capabilityKind: 'codex-app-server',
+      status: 'ready',
+      fixtureOnly: false,
+      liveReadAvailable: false,
+      storeProjectionAvailable: true,
+      supervisorProjectionAvailable: true,
+      appServerMethodCount: 2,
+      evidenceRefIds: ['evidence_m61_capability'],
+      auditEventIds: ['audit_m61_capability'],
+      summary: 'Local App Server methods are present but live read remains gated.',
+    });
+    const forbiddenProbe = ForbiddenPathProbeSchema.parse({
+      id: 'forbidden_path_probe_1',
+      schemaVersion,
+      observedAt: createdAt,
+      pathKind: 'browser_storage',
+      status: 'blocked',
+      enforcementHash: 'sha256:forbidden-boundary',
+      evidenceRefIds: ['evidence_m61_forbidden'],
+      auditEventIds: ['audit_m61_forbidden'],
+      summary: 'Browser storage collection is blocked by M61 debug policy.',
+    });
+    const matrix = QuotaEvidenceMatrixSchema.parse({
+      id: 'quota_evidence_matrix_1',
+      schemaVersion,
+      createdAt,
+      matrixHash: 'sha256:matrix',
+      fieldCount: 3,
+      allowedFieldCount: 2,
+      forbiddenFieldCount: 1,
+      fields: [
+        {
+          fieldKeyHash: 'sha256:quota-status',
+          sourceKind: 'app-server-rate-limits',
+          sensitivity: 'status-only',
+          hashPolicy: 'status enum only',
+          persistedAs: 'status',
+          allowed: true,
+          summary: 'Quota status can be stored as an enum.',
+        },
+        {
+          fieldKeyHash: 'sha256:remaining-count',
+          sourceKind: 'app-server-rate-limits',
+          sensitivity: 'count-only',
+          hashPolicy: 'count only when provided by read-only source',
+          persistedAs: 'count',
+          allowed: true,
+          summary: 'Remaining count can be stored without raw account material.',
+        },
+        {
+          fieldKeyHash: 'sha256:account-identity',
+          sourceKind: 'manual-observation',
+          sensitivity: 'forbidden',
+          hashPolicy: 'not persisted',
+          persistedAs: 'not_persisted',
+          allowed: false,
+          summary: 'Raw identity material is never persisted.',
+        },
+      ],
+      evidenceRefIds: ['evidence_m61_matrix'],
+      auditEventIds: ['audit_m61_matrix'],
+      summary: 'Evidence matrix classifies readable quota fields and forbidden material.',
+    });
+    const report = QuotaReadinessDebugReportSchema.parse({
+      id: 'quota_readiness_debug_report_1',
+      schemaVersion,
+      createdAt,
+      reportHash: 'sha256:m61-report',
+      status: 'needs_adapter',
+      recommendedSourceKind: sourceProbe.sourceKind,
+      sourceProbeIds: [sourceProbe.id],
+      permissionProbeIds: [permissionProbe.id],
+      localCapabilityProbeIds: [localCapabilityProbe.id],
+      forbiddenPathProbeIds: [forbiddenProbe.id],
+      matrixId: matrix.id,
+      sourceProbeCount: 1,
+      permissionProbeCount: 1,
+      localCapabilityProbeCount: 1,
+      forbiddenPathProbeCount: 1,
+      humanCheckpointCount: 0,
+      goNoGoReasonHash: 'sha256:needs-adapter',
+      liveReadReady: false,
+      adapterActivationRecommended: true,
+      evidenceRefIds: ['evidence_m61_report'],
+      auditEventIds: ['audit_m61_report'],
+      summary: 'M61 debug concludes the data path is identified but live read is not enabled.',
+    });
+    const records = [sourceProbe, permissionProbe, localCapabilityProbe, forbiddenProbe, matrix, report];
+    const serialized = JSON.stringify(records);
+
+    expect(sourceProbe.rawSourceStored).toBe(false);
+    expect(permissionProbe.rawIdentityStored).toBe(false);
+    expect(localCapabilityProbe.directAdapterExecutionAllowed).toBe(false);
+    expect(forbiddenProbe.rawMaterialStored).toBe(false);
+    expect(matrix.allowedFieldCount).toBe(2);
+    expect(report.liveReadReady).toBe(false);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('rejects M61 business quota debug records that leak or overclaim authority', () => {
+    expect(() =>
+      BusinessQuotaSourceProbeSchema.parse({
+        id: 'business_quota_source_probe_bad_count',
+        schemaVersion,
+        observedAt: createdAt,
+        sourceKind: 'app-server-rate-limits',
+        status: 'ready',
+        priority: 1,
+        stabilityScore: 90,
+        fieldCount: 1,
+        readableFieldCount: 2,
+        hashPolicy: 'hash-only',
+        summary: 'Readable fields cannot exceed discovered fields.',
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessQuotaPermissionProbeSchema.parse({
+        id: 'business_quota_permission_probe_member_overreach',
+        schemaVersion,
+        observedAt: createdAt,
+        role: 'member',
+        status: 'ready',
+        canReadOwnQuota: true,
+        canReadWorkspaceQuota: false,
+        canReadMemberQuota: true,
+        summary: 'Member role cannot claim workspace member quota access.',
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessQuotaPermissionProbeSchema.parse({
+        id: 'business_quota_permission_probe_unknown_no_checkpoint',
+        schemaVersion,
+        observedAt: createdAt,
+        role: 'unknown',
+        status: 'unknown',
+        summary: 'Unknown permissions need a checkpoint.',
+      }),
+    ).toThrow();
+    expect(() =>
+      LocalCapabilityProbeSchema.parse({
+        id: 'local_capability_probe_direct_adapter',
+        schemaVersion,
+        observedAt: createdAt,
+        capabilityKind: 'chatgpt-business-adapter',
+        status: 'ready',
+        directAdapterExecutionAllowed: true,
+        summary: 'Direct adapter execution is never authority.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ForbiddenPathProbeSchema.parse({
+        id: 'forbidden_path_probe_attempted',
+        schemaVersion,
+        observedAt: createdAt,
+        pathKind: 'runtime_eval',
+        status: 'blocked',
+        attempted: true,
+        enforcementHash: 'sha256:blocked',
+        summary: 'Forbidden paths cannot be attempted during M61 debug.',
+      }),
+    ).toThrow();
+    expect(() =>
+      QuotaEvidenceMatrixSchema.parse({
+        id: 'quota_evidence_matrix_bad_count',
+        schemaVersion,
+        createdAt,
+        matrixHash: 'sha256:matrix',
+        fieldCount: 2,
+        allowedFieldCount: 2,
+        forbiddenFieldCount: 0,
+        fields: [
+          {
+            fieldKeyHash: 'sha256:quota-status',
+            sourceKind: 'app-server-rate-limits',
+            sensitivity: 'status-only',
+            hashPolicy: 'status enum only',
+            persistedAs: 'status',
+            allowed: true,
+            summary: 'Quota status can be stored as an enum.',
+          },
+        ],
+        summary: 'Matrix counts must match field entries.',
+      }),
+    ).toThrow();
+    expect(() =>
+      QuotaReadinessDebugReportSchema.parse({
+        id: 'quota_readiness_debug_report_live_without_go',
+        schemaVersion,
+        createdAt,
+        reportHash: 'sha256:m61-report',
+        status: 'needs_adapter',
+        recommendedSourceKind: 'app-server-rate-limits',
+        sourceProbeIds: ['source_1'],
+        sourceProbeCount: 1,
+        permissionProbeCount: 0,
+        localCapabilityProbeCount: 0,
+        forbiddenPathProbeCount: 0,
+        goNoGoReasonHash: 'sha256:reason',
+        liveReadReady: true,
+        summary: 'Live read cannot be ready unless the report is go.',
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessQuotaSourceProbeSchema.parse({
+        id: 'business_quota_source_probe_raw_metadata',
+        schemaVersion,
+        observedAt: createdAt,
+        sourceKind: 'manual-export',
+        status: 'blocked',
+        priority: 5,
+        stabilityScore: 20,
+        fieldCount: 0,
+        readableFieldCount: 0,
+        hashPolicy: 'hash-only',
+        blockReasons: ['raw export is not allowed'],
+        summary: 'Raw source data cannot be persisted.',
         metadata: {
           rawBody: adversarialPublicOutputFixture,
         },

@@ -28,6 +28,10 @@ export default defineConfig({
         workspaceRoot,
         'packages/production-ga-kernel/src/index.ts',
       ),
+      '@codexhub/business-quota-debug-kernel': resolve(
+        workspaceRoot,
+        'packages/business-quota-debug-kernel/src/index.ts',
+      ),
       '@codexhub/task-closure-kernel': resolve(
         workspaceRoot,
         'packages/task-closure-kernel/src/index.ts',

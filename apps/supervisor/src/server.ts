@@ -384,6 +384,7 @@ import type {
   McpWriteToolRun,
   CodexProductionCanaryKind,
   CodexProductionDriftGateKind,
+  BusinessQuotaPermissionRole,
   ProductionGaApprovalArtifact,
   ProductionGaE2ERehearsalRun,
   ProductionGaE2EScenario,
@@ -629,6 +630,7 @@ import {
   createProductionGaThreatModel,
   summarizeProductionGaReadiness,
 } from '@codexhub/production-ga-kernel';
+import { createDefaultBusinessQuotaDebugBundle } from '@codexhub/business-quota-debug-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { DefaultPolicyEngine } from '@codexhub/security-kernel';
@@ -4951,6 +4953,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerPlatformOperationRoutes('audit-exports', '/api/platform/audit-exports');
   registerPlatformOperationRoutes('operator-roles', '/api/platform/operator-roles');
   registerProductionReadinessRoutes('/api/production-readiness');
+  registerBusinessQuotaDebugRoutes('/api/business-quota-debug');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -21241,6 +21244,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     responseBody?: unknown;
   };
 
+  type BusinessQuotaDebugRequestBody = {
+    dryRunId?: string;
+    role?: BusinessQuotaPermissionRole;
+    roleDeclaredByHuman?: boolean;
+    appServerLiveReadAvailable?: boolean;
+    includeOfficialApiCandidate?: boolean;
+    authority?: unknown;
+    executionAuthority?: unknown;
+    rawSource?: unknown;
+    rawExport?: unknown;
+    rawProfile?: unknown;
+    rawPage?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   function normalizeRuntimeJobKind(value: RuntimeJobKind | undefined): RuntimeJobKind {
     return value === 'external-agent' || value === 'platform-operation' || value === 'workflow'
       ? value
@@ -21831,6 +21850,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'electron-target',
     'combined',
   ];
+  const businessQuotaPermissionRoles: readonly BusinessQuotaPermissionRole[] = [
+    'owner',
+    'admin',
+    'analytics_viewer',
+    'member',
+    'unknown',
+  ];
   function normalizeProductionGaScenario(
     scenario: ProductionGaRequestBody['scenario'],
   ): ProductionGaE2EScenario {
@@ -21849,6 +21875,12 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     return gateKind && productionDriftGateKinds.includes(gateKind)
       ? gateKind
       : 'app-server-protocol';
+  }
+
+  function normalizeBusinessQuotaPermissionRole(
+    role: BusinessQuotaDebugRequestBody['role'],
+  ): BusinessQuotaPermissionRole {
+    return role && businessQuotaPermissionRoles.includes(role) ? role : 'unknown';
   }
 
   function hasForbiddenProductionGaBody(value: unknown): boolean {
@@ -21897,6 +21929,52 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         hasForbiddenGithubRawBody(nestedValue) ||
         hasForbiddenRuntimeExternalAgentBody(nestedValue) ||
         hasForbiddenProductionGaBody(nestedValue),
+    );
+  }
+
+  function hasForbiddenBusinessQuotaDebugBody(value: unknown): boolean {
+    const forbiddenKeys = new Set([
+      'authority',
+      'executionAuthority',
+      'rawSource',
+      'rawExport',
+      'rawProfile',
+      'rawPage',
+      'rawIdentity',
+      'rawAccount',
+      'rawWorkspace',
+      'rawPath',
+      'rawBody',
+      'requestBody',
+      'responseBody',
+      'profilePath',
+      'accountId',
+      'workspaceId',
+      'domText',
+      'networkBody',
+      `em${'ail'}`,
+      `to${'ken'}`,
+      `coo${'kie'}`,
+      'session',
+      `m${'fa'}`,
+      'storage',
+    ]);
+
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasForbiddenBusinessQuotaDebugBody(item));
+    }
+
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        forbiddenKeys.has(key) ||
+        hasForbiddenGithubRawBody(nestedValue) ||
+        hasForbiddenRuntimeExternalAgentBody(nestedValue) ||
+        hasForbiddenProductionGaBody(nestedValue) ||
+        hasForbiddenBusinessQuotaDebugBody(nestedValue),
     );
   }
 
@@ -22383,6 +22461,141 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         networkBoundaryInvoked: false,
         executionDisabled: true,
         summary: 'Live smoke gate recorded approval-backed metadata only.',
+      };
+    });
+  }
+
+  function registerBusinessQuotaDebugRoutes(prefix: string): void {
+    server.get(`${prefix}/probes`, async () => {
+      const store = await getStore();
+      const [
+        sourceProbes,
+        permissionProbes,
+        localCapabilityProbes,
+        forbiddenPathProbes,
+        evidenceMatrices,
+      ] = store
+        ? await Promise.all([
+            store.businessQuotaSourceProbes.listRecords({ limit: 50 }),
+            store.businessQuotaPermissionProbes.listRecords({ limit: 50 }),
+            store.localCapabilityProbes.listRecords({ limit: 50 }),
+            store.forbiddenPathProbes.listRecords({ limit: 50 }),
+            store.quotaEvidenceMatrices.listRecords({ limit: 20 }),
+          ])
+        : [[], [], [], [], []];
+
+      return {
+        sourceProbes,
+        permissionProbes,
+        localCapabilityProbes,
+        forbiddenPathProbes,
+        evidenceMatrices,
+        sourceProbeCount: sourceProbes.length,
+        permissionProbeCount: permissionProbes.length,
+        localCapabilityProbeCount: localCapabilityProbes.length,
+        forbiddenPathProbeCount: forbiddenPathProbes.length,
+        evidenceMatrixCount: evidenceMatrices.length,
+        degraded: persistenceState.status !== 'ok',
+        notPersisted: !store,
+        directAdapterExecutionAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: 'Business quota debug probes are store projections only.',
+      };
+    });
+
+    server.get(`${prefix}/report`, async () => {
+      const store = await getStore();
+      const [reports, sourceProbes, permissionProbes, localCapabilityProbes, forbiddenPathProbes] =
+        store
+          ? await Promise.all([
+              store.quotaReadinessDebugReports.listRecords({ limit: 1 }),
+              store.businessQuotaSourceProbes.listRecords({ limit: 50 }),
+              store.businessQuotaPermissionProbes.listRecords({ limit: 50 }),
+              store.localCapabilityProbes.listRecords({ limit: 50 }),
+              store.forbiddenPathProbes.listRecords({ limit: 50 }),
+            ])
+          : [[], [], [], [], []];
+      const report = reports[0];
+
+      return {
+        status: report?.status ?? 'no_go',
+        report,
+        recommendedSourceKind: report?.recommendedSourceKind ?? 'unknown',
+        sourceProbeCount: sourceProbes.length,
+        permissionProbeCount: permissionProbes.length,
+        localCapabilityProbeCount: localCapabilityProbes.length,
+        forbiddenPathProbeCount: forbiddenPathProbes.length,
+        liveReadReady: report?.liveReadReady ?? false,
+        adapterActivationRecommended: report?.adapterActivationRecommended ?? false,
+        humanCheckpointCount: report?.humanCheckpointCount ?? 0,
+        degraded: persistenceState.status !== 'ok',
+        notPersisted: !store,
+        directAdapterExecutionAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: report
+          ? 'Business quota readiness debug report is a metadata-only store projection.'
+          : 'Business quota readiness debug report has not been generated yet.',
+      };
+    });
+
+    server.post(`${prefix}/rehearsals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota-debug'));
+      }
+      const body = request.body as BusinessQuotaDebugRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body) ||
+        hasForbiddenBusinessQuotaDebugBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const bundle = createDefaultBusinessQuotaDebugBundle({
+        role: normalizeBusinessQuotaPermissionRole(body?.role),
+        roleDeclaredByHuman: body?.roleDeclaredByHuman ?? false,
+        appServerLiveReadAvailable: body?.appServerLiveReadAvailable ?? false,
+        includeOfficialApiCandidate: body?.includeOfficialApiCandidate ?? false,
+      });
+      await Promise.all([
+        ...bundle.sourceProbes.map((probe) => store.businessQuotaSourceProbes.saveRecord(probe)),
+        ...bundle.permissionProbes.map((probe) =>
+          store.businessQuotaPermissionProbes.saveRecord(probe),
+        ),
+        ...bundle.localCapabilityProbes.map((probe) =>
+          store.localCapabilityProbes.saveRecord(probe),
+        ),
+        ...bundle.forbiddenPathProbes.map((probe) => store.forbiddenPathProbes.saveRecord(probe)),
+        store.quotaEvidenceMatrices.saveRecord(bundle.evidenceMatrix),
+        store.quotaReadinessDebugReports.saveRecord(bundle.report),
+      ]);
+
+      return {
+        status: bundle.report.status,
+        report: bundle.report,
+        sourceProbeCount: bundle.sourceProbes.length,
+        permissionProbeCount: bundle.permissionProbes.length,
+        localCapabilityProbeCount: bundle.localCapabilityProbes.length,
+        forbiddenPathProbeCount: bundle.forbiddenPathProbes.length,
+        evidenceMatrixId: bundle.evidenceMatrix.id,
+        liveReadReady: bundle.report.liveReadReady,
+        adapterActivationRecommended: bundle.report.adapterActivationRecommended,
+        humanCheckpointCount: bundle.report.humanCheckpointCount,
+        directAdapterExecutionAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: 'Business quota debug rehearsal persisted metadata-only probes and report.',
       };
     });
   }

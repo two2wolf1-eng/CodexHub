@@ -19556,6 +19556,352 @@ export type CodexProductionReadinessGate = z.infer<
   typeof CodexProductionReadinessGateSchema
 >;
 
+export const BusinessQuotaSourceKindSchema = z.enum([
+  'app-server-rate-limits',
+  'official-api',
+  'enterprise-analytics',
+  'business-credits',
+  'manual-export',
+  'manual-observation',
+  'ui-reference-only',
+  'unknown',
+]);
+export type BusinessQuotaSourceKind = z.infer<typeof BusinessQuotaSourceKindSchema>;
+
+export const BusinessQuotaProbeStatusSchema = z.enum([
+  'ready',
+  'blocked',
+  'unavailable',
+  'unknown',
+]);
+export type BusinessQuotaProbeStatus = z.infer<typeof BusinessQuotaProbeStatusSchema>;
+
+export const BusinessQuotaPermissionRoleSchema = z.enum([
+  'owner',
+  'admin',
+  'analytics_viewer',
+  'member',
+  'unknown',
+]);
+export type BusinessQuotaPermissionRole = z.infer<
+  typeof BusinessQuotaPermissionRoleSchema
+>;
+
+export const BusinessQuotaFieldSensitivitySchema = z.enum([
+  'public-summary',
+  'hash-only',
+  'count-only',
+  'status-only',
+  'forbidden',
+]);
+export type BusinessQuotaFieldSensitivity = z.infer<
+  typeof BusinessQuotaFieldSensitivitySchema
+>;
+
+export const LocalCapabilityProbeKindSchema = z.enum([
+  'codex-app-server',
+  'codex-desktop-cdp',
+  'supervisor',
+  'store',
+  'profile-registry',
+  'chatgpt-business-adapter',
+]);
+export type LocalCapabilityProbeKind = z.infer<typeof LocalCapabilityProbeKindSchema>;
+
+export const ForbiddenPathProbeKindSchema = z.enum([
+  'browser_storage',
+  'runtime_eval',
+  'dom_scrape',
+  'click_type',
+  'network_body',
+  'credential_material',
+  'login_automation',
+  'account_mutation',
+  'raw_identity',
+  'raw_path',
+  'raw_body',
+]);
+export type ForbiddenPathProbeKind = z.infer<typeof ForbiddenPathProbeKindSchema>;
+
+export const ForbiddenPathProbeStatusSchema = z.enum([
+  'blocked',
+  'verified_absent',
+  'unknown',
+]);
+export type ForbiddenPathProbeStatus = z.infer<typeof ForbiddenPathProbeStatusSchema>;
+
+export const QuotaReadinessDebugDecisionSchema = z.enum([
+  'go',
+  'no_go',
+  'manual_checkpoint',
+  'needs_adapter',
+]);
+export type QuotaReadinessDebugDecision = z.infer<
+  typeof QuotaReadinessDebugDecisionSchema
+>;
+
+export const QuotaEvidenceMatrixFieldSchema = z
+  .object({
+    fieldKeyHash: z.string().min(1),
+    sourceKind: BusinessQuotaSourceKindSchema,
+    sensitivity: BusinessQuotaFieldSensitivitySchema,
+    hashPolicy: z.string().min(1),
+    persistedAs: z.enum(['hash', 'count', 'status', 'summary', 'not_persisted']),
+    allowed: z.boolean(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type QuotaEvidenceMatrixField = z.infer<typeof QuotaEvidenceMatrixFieldSchema>;
+
+export const BusinessQuotaSourceProbeSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sourceKind: BusinessQuotaSourceKindSchema,
+    status: BusinessQuotaProbeStatusSchema,
+    priority: z.number().int().positive(),
+    stabilityScore: z.number().int().min(0).max(100),
+    fieldCount: z.number().int().nonnegative().default(0),
+    readableFieldCount: z.number().int().nonnegative().default(0),
+    sourceRefHash: z.string().min(1).optional(),
+    hashPolicy: z.string().min(1),
+    candidateOnly: z.boolean().default(true),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    humanCheckpointKind: HumanCheckpointKindSchema.optional(),
+    rawSourceStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.readableFieldCount > record.fieldCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'readable quota source field count cannot exceed field count',
+        path: ['readableFieldCount'],
+      });
+    }
+    if (record.status === 'blocked' && record.blockReasons.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked quota source probes require a block reason',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type BusinessQuotaSourceProbe = z.infer<typeof BusinessQuotaSourceProbeSchema>;
+
+export const BusinessQuotaPermissionProbeSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    role: BusinessQuotaPermissionRoleSchema,
+    status: BusinessQuotaProbeStatusSchema,
+    workspaceHash: z.string().min(1).optional(),
+    accountHash: z.string().min(1).optional(),
+    canReadOwnQuota: z.boolean().default(false),
+    canReadWorkspaceQuota: z.boolean().default(false),
+    canReadMemberQuota: z.boolean().default(false),
+    canReadSeatState: z.boolean().default(false),
+    roleDeclaredByHuman: z.boolean().default(false),
+    roleObservedByMetadata: z.boolean().default(false),
+    humanCheckpointKind: HumanCheckpointKindSchema.optional(),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawIdentityStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.role === 'member' && record.canReadMemberQuota) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'member role cannot read member-level workspace quota in M61 debug',
+        path: ['canReadMemberQuota'],
+      });
+    }
+    if (
+      (record.status === 'blocked' || record.status === 'unknown') &&
+      !record.humanCheckpointKind
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked or unknown permission probes require a human checkpoint',
+        path: ['humanCheckpointKind'],
+      });
+    }
+  });
+export type BusinessQuotaPermissionProbe = z.infer<
+  typeof BusinessQuotaPermissionProbeSchema
+>;
+
+export const LocalCapabilityProbeSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    capabilityKind: LocalCapabilityProbeKindSchema,
+    status: BusinessQuotaProbeStatusSchema,
+    fixtureOnly: z.boolean().default(false),
+    liveReadAvailable: z.boolean().default(false),
+    storeProjectionAvailable: z.boolean().default(false),
+    supervisorProjectionAvailable: z.boolean().default(false),
+    cdpLoopbackOnly: z.boolean().default(true),
+    cdpAllowedCommandCount: z.number().int().nonnegative().default(0),
+    appServerMethodCount: z.number().int().nonnegative().default(0),
+    directAdapterExecutionAllowed: z.literal(false).default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.directAdapterExecutionAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M61 debug capability probes cannot authorize direct adapter execution',
+        path: ['directAdapterExecutionAllowed'],
+      });
+    }
+    if (record.status === 'blocked' && record.blockReasons.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked local capability probes require a block reason',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type LocalCapabilityProbe = z.infer<typeof LocalCapabilityProbeSchema>;
+
+export const ForbiddenPathProbeSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    pathKind: ForbiddenPathProbeKindSchema,
+    status: ForbiddenPathProbeStatusSchema,
+    attempted: z.literal(false).default(false),
+    blocked: z.literal(true).default(true),
+    rawMaterialStored: z.literal(false).default(false),
+    enforcementHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'unknown') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M61 forbidden path probes must be blocked or verified absent',
+        path: ['status'],
+      });
+    }
+  });
+export type ForbiddenPathProbe = z.infer<typeof ForbiddenPathProbeSchema>;
+
+export const QuotaEvidenceMatrixSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    matrixHash: z.string().min(1),
+    fieldCount: z.number().int().nonnegative().default(0),
+    allowedFieldCount: z.number().int().nonnegative().default(0),
+    forbiddenFieldCount: z.number().int().nonnegative().default(0),
+    fields: z.array(QuotaEvidenceMatrixFieldSchema).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.fieldCount !== record.fields.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'quota evidence matrix field count must match fields length',
+        path: ['fieldCount'],
+      });
+    }
+    if (record.allowedFieldCount + record.forbiddenFieldCount !== record.fieldCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'quota evidence matrix counts must cover all fields',
+        path: ['allowedFieldCount'],
+      });
+    }
+    if (record.forbiddenFieldCount !== record.fields.filter((field) => !field.allowed).length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'quota evidence matrix forbidden count must match forbidden fields',
+        path: ['forbiddenFieldCount'],
+      });
+    }
+  });
+export type QuotaEvidenceMatrix = z.infer<typeof QuotaEvidenceMatrixSchema>;
+
+export const QuotaReadinessDebugReportSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    reportHash: z.string().min(1),
+    status: QuotaReadinessDebugDecisionSchema,
+    recommendedSourceKind: BusinessQuotaSourceKindSchema,
+    sourceProbeIds: z.array(z.string().min(1)).default([]),
+    permissionProbeIds: z.array(z.string().min(1)).default([]),
+    localCapabilityProbeIds: z.array(z.string().min(1)).default([]),
+    forbiddenPathProbeIds: z.array(z.string().min(1)).default([]),
+    matrixId: z.string().min(1).optional(),
+    sourceProbeCount: z.number().int().nonnegative().default(0),
+    permissionProbeCount: z.number().int().nonnegative().default(0),
+    localCapabilityProbeCount: z.number().int().nonnegative().default(0),
+    forbiddenPathProbeCount: z.number().int().nonnegative().default(0),
+    humanCheckpointCount: z.number().int().nonnegative().default(0),
+    goNoGoReasonHash: z.string().min(1),
+    liveReadReady: z.boolean().default(false),
+    adapterActivationRecommended: z.boolean().default(false),
+    rawReportStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.sourceProbeCount !== record.sourceProbeIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'source probe count must match sourceProbeIds length',
+        path: ['sourceProbeCount'],
+      });
+    }
+    if (record.permissionProbeCount !== record.permissionProbeIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'permission probe count must match permissionProbeIds length',
+        path: ['permissionProbeCount'],
+      });
+    }
+    if (record.localCapabilityProbeCount !== record.localCapabilityProbeIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'local capability probe count must match localCapabilityProbeIds length',
+        path: ['localCapabilityProbeCount'],
+      });
+    }
+    if (record.forbiddenPathProbeCount !== record.forbiddenPathProbeIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden path probe count must match forbiddenPathProbeIds length',
+        path: ['forbiddenPathProbeCount'],
+      });
+    }
+    if (record.liveReadReady && record.status !== 'go') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live quota read readiness can only be true for a go report',
+        path: ['liveReadReady'],
+      });
+    }
+  });
+export type QuotaReadinessDebugReport = z.infer<
+  typeof QuotaReadinessDebugReportSchema
+>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

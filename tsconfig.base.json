@@ -16,6 +16,9 @@
     "baseUrl": ".",
     "paths": {
       "@codexhub/approval-ux-kernel": ["packages/approval-ux-kernel/src/index.ts"],
+      "@codexhub/business-quota-debug-kernel": [
+        "packages/business-quota-debug-kernel/src/index.ts"
+      ],
       "@codexhub/browser-profile-kernel": ["packages/browser-profile-kernel/src/index.ts"],
       "@codexhub/capability-adapter-kernel": ["packages/capability-adapter-kernel/src/index.ts"],
       "@codexhub/chatgpt-business-adapter": [

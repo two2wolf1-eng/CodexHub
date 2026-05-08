@@ -6,6 +6,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const expectedProjects = [
   'approval-ux-kernel',
+  'business-quota-debug-kernel',
   'browser-profile-kernel',
   'capability-adapter-kernel',
   'chatgpt-business-adapter',
@@ -823,6 +824,12 @@ const requiredContractExports = [
   'CodexSchedulerPreflightCheckSchema',
   'CodexSchedulerSelectionSummarySchema',
   'EvidenceBundleSchema',
+  'BusinessQuotaSourceProbeSchema',
+  'BusinessQuotaPermissionProbeSchema',
+  'LocalCapabilityProbeSchema',
+  'ForbiddenPathProbeSchema',
+  'QuotaEvidenceMatrixSchema',
+  'QuotaReadinessDebugReportSchema',
 ];
 
 const projects = readNxProjects();

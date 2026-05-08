@@ -26,9 +26,15 @@ import {
   CodexTaskReviewProjectionSchema,
   CodexTaskRunSchema,
   CodexTaskVerificationProjectionSchema,
+  BusinessQuotaPermissionProbeSchema,
+  BusinessQuotaSourceProbeSchema,
   EvidenceBundleSchema,
+  ForbiddenPathProbeSchema,
   HumanCheckpointSchema,
   LeaseSchema,
+  LocalCapabilityProbeSchema,
+  QuotaEvidenceMatrixSchema,
+  QuotaReadinessDebugReportSchema,
   QuotaSnapshotSchema,
   SchemaVersionSchema,
 } from '@codexhub/contracts';
@@ -528,6 +534,148 @@ describe('M51 unified metadata store', () => {
     expect(driftGate.rawTargetStored).toBe(false);
     expect(auditExport.rawBodyStored).toBe(false);
     expect(readinessGate.rawReadinessDataStored).toBe(false);
+  });
+
+  it('round-trips M61 business quota readiness debug records as metadata-only JSON', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-m61-store-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const sourceProbe = BusinessQuotaSourceProbeSchema.parse({
+      id: 'business_quota_source_probe_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceKind: 'app-server-rate-limits',
+      status: 'ready',
+      priority: 1,
+      stabilityScore: 90,
+      fieldCount: 4,
+      readableFieldCount: 3,
+      sourceRefHash: 'sha256:source-ref',
+      hashPolicy: 'hash-only source refs and count-only quota fields',
+      candidateOnly: false,
+      summary: 'App Server rate limits are the preferred metadata source.',
+    });
+    const permissionProbe = BusinessQuotaPermissionProbeSchema.parse({
+      id: 'business_quota_permission_probe_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      role: 'admin',
+      status: 'ready',
+      workspaceHash: 'sha256:workspace',
+      accountHash: 'sha256:account',
+      canReadOwnQuota: true,
+      canReadWorkspaceQuota: true,
+      canReadMemberQuota: true,
+      canReadSeatState: true,
+      roleDeclaredByHuman: true,
+      summary: 'Role readiness stores hashes and booleans only.',
+    });
+    const localCapabilityProbe = LocalCapabilityProbeSchema.parse({
+      id: 'local_capability_probe_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      capabilityKind: 'codex-app-server',
+      status: 'ready',
+      fixtureOnly: false,
+      liveReadAvailable: false,
+      storeProjectionAvailable: true,
+      supervisorProjectionAvailable: true,
+      appServerMethodCount: 2,
+      summary: 'Local App Server methods are present but live read is gated.',
+    });
+    const forbiddenPathProbe = ForbiddenPathProbeSchema.parse({
+      id: 'forbidden_path_probe_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      pathKind: 'browser_storage',
+      status: 'blocked',
+      enforcementHash: 'sha256:forbidden',
+      summary: 'Forbidden browser storage collection is blocked.',
+    });
+    const evidenceMatrix = QuotaEvidenceMatrixSchema.parse({
+      id: 'quota_evidence_matrix_store_1',
+      schemaVersion,
+      createdAt,
+      matrixHash: 'sha256:m61-matrix',
+      fieldCount: 2,
+      allowedFieldCount: 1,
+      forbiddenFieldCount: 1,
+      fields: [
+        {
+          fieldKeyHash: 'sha256:quota-status',
+          sourceKind: 'app-server-rate-limits',
+          sensitivity: 'status-only',
+          hashPolicy: 'status enum only',
+          persistedAs: 'status',
+          allowed: true,
+          summary: 'Quota status can round-trip as metadata.',
+        },
+        {
+          fieldKeyHash: 'sha256:identity-material',
+          sourceKind: 'manual-export',
+          sensitivity: 'forbidden',
+          hashPolicy: 'not persisted',
+          persistedAs: 'not_persisted',
+          allowed: false,
+          summary: 'Identity material is not persisted.',
+        },
+      ],
+      summary: 'Evidence matrix stores only hashed field keys and sensitivity labels.',
+    });
+    const readinessReport = QuotaReadinessDebugReportSchema.parse({
+      id: 'quota_readiness_debug_report_store_1',
+      schemaVersion,
+      createdAt,
+      reportHash: 'sha256:m61-report',
+      status: 'needs_adapter',
+      recommendedSourceKind: 'app-server-rate-limits',
+      sourceProbeIds: [sourceProbe.id],
+      permissionProbeIds: [permissionProbe.id],
+      localCapabilityProbeIds: [localCapabilityProbe.id],
+      forbiddenPathProbeIds: [forbiddenPathProbe.id],
+      matrixId: evidenceMatrix.id,
+      sourceProbeCount: 1,
+      permissionProbeCount: 1,
+      localCapabilityProbeCount: 1,
+      forbiddenPathProbeCount: 1,
+      goNoGoReasonHash: 'sha256:needs-adapter',
+      liveReadReady: false,
+      adapterActivationRecommended: true,
+      summary: 'Debug report recommends adapter activation after gates are ready.',
+    });
+
+    const saved = [
+      await expectRoundTrip(first.businessQuotaSourceProbes, sourceProbe),
+      await expectRoundTrip(first.businessQuotaPermissionProbes, permissionProbe),
+      await expectRoundTrip(first.localCapabilityProbes, localCapabilityProbe),
+      await expectRoundTrip(first.forbiddenPathProbes, forbiddenPathProbe),
+      await expectRoundTrip(first.quotaEvidenceMatrices, evidenceMatrix),
+      await expectRoundTrip(first.quotaReadinessDebugReports, readinessReport),
+    ];
+    await expect(
+      first.quotaReadinessDebugReports.listRecords({ status: 'needs_adapter' }),
+    ).resolves.toEqual([readinessReport]);
+    await first.close();
+
+    const reopened = await createSqliteStore({ dbPath });
+    await expect(reopened.quotaReadinessDebugReports.getRecord(readinessReport.id)).resolves.toEqual(
+      readinessReport,
+    );
+    await expect(reopened.quotaEvidenceMatrices.getRecord(evidenceMatrix.id)).resolves.toEqual(
+      evidenceMatrix,
+    );
+    await reopened.close();
+
+    const serialized = JSON.stringify(saved);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(serialized).not.toContain('raw identity');
+    expect(serialized).not.toContain('profile path');
+    expect(findAdversarialPublicOutputRoundTripLeaks(saved)).toEqual([]);
+    expect(sourceProbe.rawSourceStored).toBe(false);
+    expect(permissionProbe.rawIdentityStored).toBe(false);
+    expect(localCapabilityProbe.directAdapterExecutionAllowed).toBe(false);
+    expect(forbiddenPathProbe.rawMaterialStored).toBe(false);
+    expect(readinessReport.rawReportStored).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

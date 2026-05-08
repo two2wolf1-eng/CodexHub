@@ -260,6 +260,12 @@ const lateStageSupervisorControlPlaneMatrix = [
     approvalManagedExternally: true,
     routeSuffixes: ['/rehearsals', '/live-smoke-gates', '/audit-exports'],
   },
+  {
+    family: 'business-quota-debug',
+    prefix: '/api/business-quota-debug',
+    approvalManagedExternally: true,
+    routeSuffixes: ['/rehearsals'],
+  },
 ] as const;
 function getLateStageMutatingRoutes(
   entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
@@ -299,6 +305,7 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/platform/',
   '/api/production-ga',
   '/api/production-readiness',
+  '/api/business-quota-debug',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -2255,6 +2262,12 @@ describe('supervisor mock development API', () => {
             `${prefix}/audit-exports`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerBusinessQuotaDebugRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [`${prefix}/rehearsals`]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -2376,6 +2389,11 @@ describe('supervisor mock development API', () => {
         helperName: 'registerProductionReadinessRoutes',
         variableName: 'prefix',
         suffixes: ['/rehearsals', '/live-smoke-gates', '/audit-exports'],
+      },
+      {
+        helperName: 'registerBusinessQuotaDebugRoutes',
+        variableName: 'prefix',
+        suffixes: ['/rehearsals'],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -3048,6 +3066,97 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private raw canary output');
       expect(body).not.toContain('private app server schema body');
       expect(body).not.toContain('private readiness body');
+      expect(body).not.toContain(localControlToken);
+    }
+  });
+
+  it('projects M61 business quota readiness debug probes and report without calling adapters', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-business-quota-debug-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const rehearsalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota-debug/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        role: 'admin',
+        roleDeclaredByHuman: true,
+        includeOfficialApiCandidate: true,
+      },
+    });
+    const probesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota-debug/probes',
+    });
+    const reportResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota-debug/report',
+    });
+    const forgedPayloadResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota-debug/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        role: 'owner',
+        rawSource: 'private business quota source body',
+        rawProfile: 'private browser profile contents',
+        profilePath: 'C:/Users/Thomas/private-profile',
+        authority: { live: true },
+      },
+    });
+
+    const persistedReports = await store.quotaReadinessDebugReports.listRecords({ limit: 10 });
+    const persistedForbiddenProbes = await store.forbiddenPathProbes.listRecords({ limit: 20 });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(rehearsalResponse.statusCode).toBe(200);
+    expect(rehearsalResponse.json()).toMatchObject({
+      status: 'needs_adapter',
+      liveReadReady: false,
+      adapterActivationRecommended: true,
+      directAdapterExecutionAllowed: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    });
+    expect(probesResponse.statusCode).toBe(200);
+    expect(probesResponse.json()).toMatchObject({
+      sourceProbeCount: 6,
+      permissionProbeCount: 1,
+      localCapabilityProbeCount: 6,
+      forbiddenPathProbeCount: 11,
+      directAdapterExecutionAllowed: false,
+      executionDisabled: true,
+    });
+    expect(reportResponse.statusCode).toBe(200);
+    expect(reportResponse.json()).toMatchObject({
+      status: 'needs_adapter',
+      recommendedSourceKind: 'app-server-rate-limits',
+      liveReadReady: false,
+      adapterActivationRecommended: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+      executionDisabled: true,
+    });
+    expect(forgedPayloadResponse.statusCode).toBe(400);
+    expect(persistedReports).toHaveLength(1);
+    expect(persistedForbiddenProbes.every((probe) => probe.attempted === false)).toBe(true);
+
+    for (const body of [
+      rehearsalResponse.body,
+      probesResponse.body,
+      reportResponse.body,
+      forgedPayloadResponse.body,
+    ]) {
+      expect(body).not.toContain('private business quota source body');
+      expect(body).not.toContain('private browser profile contents');
+      expect(body).not.toContain('C:/Users/Thomas/private-profile');
       expect(body).not.toContain(localControlToken);
     }
   });
