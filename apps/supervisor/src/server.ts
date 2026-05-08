@@ -21219,6 +21219,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     liveSmokeRequested?: boolean;
     approvalWaiting?: boolean;
     approvalArtifactSeed?: string;
+    readinessGateId?: string;
     gateKind?: CodexProductionDriftGateKind;
     baselineSeed?: string;
     observedSeed?: string;
@@ -22237,6 +22238,104 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         networkBoundaryInvoked: false,
         executionDisabled: true,
         summary: 'Production readiness rehearsal created metadata-only store projections.',
+      };
+    });
+
+    server.post(`${prefix}/live-smoke-gates`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-readiness'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const readinessGate = body?.readinessGateId
+        ? await store.codexProductionReadinessGates.getRecord(body.readinessGateId)
+        : (await store.codexProductionReadinessGates.listRecords({ limit: 1 }))[0];
+      if (!readinessGate) {
+        return reply.code(404).send({
+          error: 'production_readiness_gate_not_found',
+          status: 'blocked',
+          liveSmokeAllowed: false,
+          highRiskLiveTaskBlocked: true,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          networkBoundaryInvoked: false,
+          executionDisabled: true,
+        });
+      }
+      if (
+        readinessGate.status !== 'ready' ||
+        !readinessGate.liveSmokeAllowed ||
+        readinessGate.highRiskLiveTaskBlocked
+      ) {
+        return reply.code(409).send({
+          status: 'blocked',
+          reason: 'readiness_gate_blocks_live_smoke',
+          readinessGateId: readinessGate.id,
+          liveSmokeAllowed: false,
+          highRiskLiveTaskBlocked: true,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          networkBoundaryInvoked: false,
+          executionDisabled: true,
+          summary: 'Live smoke gate blocked by production readiness metadata.',
+        });
+      }
+      if (!body?.approvalArtifactSeed) {
+        return reply.code(409).send({
+          status: 'approval_waiting',
+          reason: 'live_smoke_approval_required',
+          readinessGateId: readinessGate.id,
+          liveSmokeAllowed: false,
+          highRiskLiveTaskBlocked: true,
+          processBoundaryInvoked: false,
+          externalProcessStarted: false,
+          networkBoundaryInvoked: false,
+          executionDisabled: true,
+          summary: 'Live smoke gate requires an approval artifact hash before any probe record.',
+        });
+      }
+
+      const canaryTask = createCodexProductionCanaryTask({
+        canaryKind: 'live-smoke',
+        taskSeed: body.taskSeed ?? readinessGate.id,
+        targetSeed: body.targetSeed ?? readinessGate.id,
+        liveSmoke: true,
+        approvalRequired: true,
+      });
+      const canaryRun = createCodexProductionCanaryRun({
+        canaryTask,
+        checkCount: body.checkCount,
+        passedCount: body.passedCount ?? (body.failedCount || body.blockerCount ? 0 : 1),
+        failedCount: body.failedCount,
+        blockerCount: body.blockerCount,
+        liveSmoke: true,
+        approvalArtifactSeed: body.approvalArtifactSeed,
+      });
+
+      await store.codexProductionCanaryTasks.saveRecord(canaryTask);
+      await store.codexProductionCanaryRuns.saveRecord(canaryRun);
+
+      return {
+        status: canaryRun.status,
+        readinessGateId: readinessGate.id,
+        canaryTask,
+        canaryRun,
+        liveSmokeAllowed: true,
+        highRiskLiveTaskBlocked: canaryRun.highRiskLiveTaskBlocked,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: 'Live smoke gate recorded approval-backed metadata only.',
       };
     });
   }

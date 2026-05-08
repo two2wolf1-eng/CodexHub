@@ -258,7 +258,7 @@ const lateStageSupervisorControlPlaneMatrix = [
     family: 'production-readiness',
     prefix: '/api/production-readiness',
     approvalManagedExternally: true,
-    routeSuffixes: ['/rehearsals'],
+    routeSuffixes: ['/rehearsals', '/live-smoke-gates'],
   },
 ] as const;
 function getLateStageMutatingRoutes(
@@ -2249,7 +2249,7 @@ describe('supervisor mock development API', () => {
         [...serverSource.matchAll(/registerProductionReadinessRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
-          .flatMap((prefix) => [`${prefix}/rehearsals`]),
+          .flatMap((prefix) => [`${prefix}/rehearsals`, `${prefix}/live-smoke-gates`]),
       )
       .sort();
     const registeredLateStageHelperPrefixes = [
@@ -2371,7 +2371,7 @@ describe('supervisor mock development API', () => {
       {
         helperName: 'registerProductionReadinessRoutes',
         variableName: 'prefix',
-        suffixes: ['/rehearsals'],
+        suffixes: ['/rehearsals', '/live-smoke-gates'],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -2825,6 +2825,44 @@ describe('supervisor mock development API', () => {
         driftBlockerCount: 1,
       },
     });
+    const missingLiveSmokeApprovalResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/live-smoke-gates',
+      headers: localControlHeaders,
+      payload: {
+        readinessGateId: readyResponse.json().readinessGate.id,
+      },
+    });
+    const liveSmokeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/live-smoke-gates',
+      headers: localControlHeaders,
+      payload: {
+        readinessGateId: readyResponse.json().readinessGate.id,
+        approvalArtifactSeed: 'private live smoke approval',
+        taskSeed: 'private live smoke canary task',
+        targetSeed: 'private live smoke target',
+      },
+    });
+    const failedLiveSmokeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/live-smoke-gates',
+      headers: localControlHeaders,
+      payload: {
+        readinessGateId: readyResponse.json().readinessGate.id,
+        approvalArtifactSeed: 'private live smoke failure approval',
+        failedCount: 1,
+      },
+    });
+    const blockedLiveSmokeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/live-smoke-gates',
+      headers: localControlHeaders,
+      payload: {
+        readinessGateId: blockedResponse.json().readinessGate.id,
+        approvalArtifactSeed: 'private blocked readiness approval',
+      },
+    });
     const canaryRunsResponse = await server.inject({
       method: 'GET',
       url: '/api/production-readiness/canary-runs',
@@ -2892,13 +2930,40 @@ describe('supervisor mock development API', () => {
       rawSchemaStored: false,
       rawTargetStored: false,
     });
+    expect(missingLiveSmokeApprovalResponse.statusCode).toBe(409);
+    expect(missingLiveSmokeApprovalResponse.json()).toMatchObject({
+      status: 'approval_waiting',
+      liveSmokeAllowed: false,
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(liveSmokeResponse.statusCode).toBe(200);
+    expect(liveSmokeResponse.json()).toMatchObject({
+      status: 'passed',
+      liveSmokeAllowed: true,
+      highRiskLiveTaskBlocked: false,
+    });
+    expect(liveSmokeResponse.json().canaryRun).toMatchObject({
+      liveSmoke: true,
+      status: 'passed',
+      rawOutputStored: false,
+    });
+    expect(failedLiveSmokeResponse.statusCode).toBe(200);
+    expect(failedLiveSmokeResponse.json()).toMatchObject({
+      status: 'failed',
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(blockedLiveSmokeResponse.statusCode).toBe(409);
+    expect(blockedLiveSmokeResponse.json()).toMatchObject({
+      status: 'blocked',
+      reason: 'readiness_gate_blocks_live_smoke',
+    });
     expect(canaryRunsResponse.statusCode).toBe(200);
-    expect(canaryRunsResponse.json().records).toHaveLength(2);
+    expect(canaryRunsResponse.json().records).toHaveLength(4);
     expect(driftGatesResponse.json().records).toHaveLength(2);
     expect(readinessGatesResponse.json().records).toHaveLength(2);
     expect(auditExportsResponse.json().records).toHaveLength(2);
     expect(summaryResponse.json()).toMatchObject({
-      canaryRunCount: 2,
+      canaryRunCount: 4,
       driftGateCount: 2,
       readinessGateCount: 2,
       auditExportSummaryCount: 2,
@@ -2907,12 +2972,16 @@ describe('supervisor mock development API', () => {
       executionDisabled: true,
     });
     expect(forgedPayloadResponse.statusCode).toBe(400);
-    expect(persistedCanaryRuns).toHaveLength(2);
+    expect(persistedCanaryRuns).toHaveLength(4);
     expect(persistedReadinessGates).toHaveLength(2);
 
     for (const body of [
       readyResponse.body,
       blockedResponse.body,
+      missingLiveSmokeApprovalResponse.body,
+      liveSmokeResponse.body,
+      failedLiveSmokeResponse.body,
+      blockedLiveSmokeResponse.body,
       canaryRunsResponse.body,
       driftGatesResponse.body,
       readinessGatesResponse.body,
@@ -2924,6 +2993,11 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private production readiness target');
       expect(body).not.toContain('private production readiness manifest');
       expect(body).not.toContain('private production readiness record');
+      expect(body).not.toContain('private live smoke approval');
+      expect(body).not.toContain('private live smoke failure approval');
+      expect(body).not.toContain('private blocked readiness approval');
+      expect(body).not.toContain('private live smoke canary task');
+      expect(body).not.toContain('private live smoke target');
       expect(body).not.toContain('private raw canary output');
       expect(body).not.toContain('private app server schema body');
       expect(body).not.toContain('private readiness body');
