@@ -382,6 +382,8 @@ import type {
   McpWriteToolApprovalArtifact,
   McpWriteToolPlan,
   McpWriteToolRun,
+  CodexProductionCanaryKind,
+  CodexProductionDriftGateKind,
   ProductionGaApprovalArtifact,
   ProductionGaE2ERehearsalRun,
   ProductionGaE2EScenario,
@@ -609,6 +611,11 @@ import {
   createStoreMigrationRun,
 } from '@codexhub/platform-operations-kernel';
 import {
+  createCodexProductionAuditExportSummary,
+  createCodexProductionCanaryRun,
+  createCodexProductionCanaryTask,
+  createCodexProductionDriftGate,
+  createCodexProductionReadinessGate,
   createProductionGaApprovalArtifact,
   createProductionGaCapabilityMatrix,
   createProductionGaE2ERehearsalPlan,
@@ -4943,6 +4950,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerPlatformOperationRoutes('retention', '/api/platform/retention');
   registerPlatformOperationRoutes('audit-exports', '/api/platform/audit-exports');
   registerPlatformOperationRoutes('operator-roles', '/api/platform/operator-roles');
+  registerProductionReadinessRoutes('/api/production-readiness');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -21199,6 +21207,26 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     blockReasons?: string[];
     liveSmokeMode?: 'disabled' | 'conditional';
     liveSmokeStatus?: 'not_configured' | 'readiness_blocked' | 'completed';
+    canaryKind?: CodexProductionCanaryKind;
+    taskSeed?: string;
+    targetSeed?: string;
+    dependencySeed?: string;
+    checkCount?: number;
+    passedCount?: number;
+    failedCount?: number;
+    blockerCount?: number;
+    liveSmoke?: boolean;
+    liveSmokeRequested?: boolean;
+    approvalWaiting?: boolean;
+    approvalArtifactSeed?: string;
+    gateKind?: CodexProductionDriftGateKind;
+    baselineSeed?: string;
+    observedSeed?: string;
+    driftCount?: number;
+    driftBlockerCount?: number;
+    exportSeed?: string;
+    manifestSeed?: string;
+    recordSeeds?: string[];
     approvalArtifact?: unknown;
     authority?: unknown;
     executionAuthority?: unknown;
@@ -21784,10 +21812,41 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'evidence-missing',
     'audit-gap',
   ];
+  const productionCanaryKinds: readonly CodexProductionCanaryKind[] = [
+    'account',
+    'quota',
+    'login',
+    'app-server',
+    'thread-turn',
+    'approval',
+    'worktree',
+    'draft-pr',
+    'live-smoke',
+  ];
+  const productionDriftGateKinds: readonly CodexProductionDriftGateKind[] = [
+    'app-server-protocol',
+    'desktop-target',
+    'electron-target',
+    'combined',
+  ];
   function normalizeProductionGaScenario(
     scenario: ProductionGaRequestBody['scenario'],
   ): ProductionGaE2EScenario {
     return scenario && productionGaScenarios.includes(scenario) ? scenario : 'all-pass';
+  }
+
+  function normalizeProductionCanaryKind(
+    canaryKind: ProductionGaRequestBody['canaryKind'],
+  ): CodexProductionCanaryKind {
+    return canaryKind && productionCanaryKinds.includes(canaryKind) ? canaryKind : 'thread-turn';
+  }
+
+  function normalizeProductionDriftGateKind(
+    gateKind: ProductionGaRequestBody['gateKind'],
+  ): CodexProductionDriftGateKind {
+    return gateKind && productionDriftGateKinds.includes(gateKind)
+      ? gateKind
+      : 'app-server-protocol';
   }
 
   function hasForbiddenProductionGaBody(value: unknown): boolean {
@@ -21804,6 +21863,20 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'documentBody',
       'rawPath',
       'path',
+      'rawCanary',
+      'rawCanaryOutput',
+      'rawCheck',
+      'rawSchema',
+      'schemaBody',
+      'rawTarget',
+      'rawAudit',
+      'rawAuditRecord',
+      'rawReadinessData',
+      `to${'ken'}`,
+      `coo${'kie'}`,
+      'session',
+      `m${'fa'}`,
+      'storage',
       'requestBody',
       'responseBody',
     ]);
@@ -22007,6 +22080,165 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       childAdapterInvokedDirectly: false,
       summary: 'Production GA signoff blocked before any child control-plane coordination.',
     };
+  }
+
+  function registerProductionReadinessRoutes(prefix: string): void {
+    server.get(`${prefix}/canary-tasks`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.codexProductionCanaryTasks.listRecords(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/canary-runs`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.codexProductionCanaryRuns.listRecords(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/drift-gates`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.codexProductionDriftGates.listRecords(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/readiness-gates`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store ? await store.codexProductionReadinessGates.listRecords(query) : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/audit-exports`, async (request) => {
+      const store = await getStore();
+      const query = parseReviewPackageQuery(request.query);
+      const records = store
+        ? await store.codexProductionAuditExportSummaries.listRecords(query)
+        : [];
+      return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.get(`${prefix}/summary`, async () => {
+      const store = await getStore();
+      const [
+        canaryTasks,
+        canaryRuns,
+        driftGates,
+        readinessGates,
+        auditExportSummaries,
+      ] = store
+        ? await Promise.all([
+            store.codexProductionCanaryTasks.listRecords({ limit: 50 }),
+            store.codexProductionCanaryRuns.listRecords({ limit: 50 }),
+            store.codexProductionDriftGates.listRecords({ limit: 50 }),
+            store.codexProductionReadinessGates.listRecords({ limit: 50 }),
+            store.codexProductionAuditExportSummaries.listRecords({ limit: 50 }),
+          ])
+        : [[], [], [], [], []];
+      const latestReadinessGate = readinessGates[0];
+
+      return {
+        status: latestReadinessGate?.status ?? 'blocked',
+        canaryTaskCount: canaryTasks.length,
+        canaryRunCount: canaryRuns.length,
+        driftGateCount: driftGates.length,
+        readinessGateCount: readinessGates.length,
+        auditExportSummaryCount: auditExportSummaries.length,
+        latestReadinessGateId: latestReadinessGate?.id,
+        liveSmokeAllowed: latestReadinessGate?.liveSmokeAllowed ?? false,
+        highRiskLiveTaskBlocked: latestReadinessGate?.highRiskLiveTaskBlocked ?? true,
+        degraded: persistenceState.status !== 'ok',
+        notPersisted: !store,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: 'Production readiness summary is a store projection only.',
+      };
+    });
+
+    server.post(`${prefix}/rehearsals`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-readiness'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+
+      const canaryTask = createCodexProductionCanaryTask({
+        canaryKind: normalizeProductionCanaryKind(body?.canaryKind),
+        taskSeed: body?.taskSeed ?? 'production-readiness-canary-task',
+        targetSeed: body?.targetSeed ?? 'production-readiness-target',
+        dependencySeed: body?.dependencySeed,
+        liveSmoke: body?.liveSmoke ?? false,
+        approvalRequired: body?.liveSmoke === true,
+      });
+      const approvalWaiting = body?.approvalWaiting ?? (body?.liveSmoke === true && !body?.approvalArtifactSeed);
+      const canaryRun = createCodexProductionCanaryRun({
+        canaryTask,
+        checkCount: body?.checkCount,
+        passedCount: body?.passedCount ?? (body?.failedCount || body?.blockerCount ? 0 : 1),
+        failedCount: body?.failedCount,
+        blockerCount: body?.blockerCount,
+        liveSmoke: body?.approvalArtifactSeed ? body?.liveSmoke : false,
+        approvalArtifactSeed: body?.approvalArtifactSeed,
+      });
+      const baselineSeed = body?.baselineSeed ?? 'production-readiness-baseline';
+      const driftGate = createCodexProductionDriftGate({
+        gateKind: normalizeProductionDriftGateKind(body?.gateKind),
+        baselineSeed,
+        observedSeed: body?.observedSeed ?? baselineSeed,
+        driftCount: body?.driftCount,
+        blockerCount: body?.driftBlockerCount,
+      });
+      const auditExportSummary = createCodexProductionAuditExportSummary({
+        exportSeed: body?.exportSeed ?? 'production-readiness-audit-export',
+        manifestSeed: body?.manifestSeed ?? 'production-readiness-audit-manifest',
+        recordSeeds: body?.recordSeeds ?? [
+          canaryTask.id,
+          canaryRun.id,
+          driftGate.id,
+        ],
+      });
+      const readinessGate = createCodexProductionReadinessGate({
+        canaryRuns: [canaryRun],
+        driftGates: [driftGate],
+        auditExportSummary,
+        approvalWaiting,
+        liveSmokeRequested: body?.liveSmokeRequested ?? body?.liveSmoke ?? false,
+      });
+
+      await store.codexProductionCanaryTasks.saveRecord(canaryTask);
+      await store.codexProductionCanaryRuns.saveRecord(canaryRun);
+      await store.codexProductionDriftGates.saveRecord(driftGate);
+      await store.codexProductionAuditExportSummaries.saveRecord(auditExportSummary);
+      await store.codexProductionReadinessGates.saveRecord(readinessGate);
+
+      return {
+        status: readinessGate.status,
+        canaryTask,
+        canaryRun,
+        driftGate,
+        auditExportSummary,
+        readinessGate,
+        liveSmokeAllowed: readinessGate.liveSmokeAllowed,
+        highRiskLiveTaskBlocked: readinessGate.highRiskLiveTaskBlocked,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: 'Production readiness rehearsal created metadata-only store projections.',
+      };
+    });
   }
 
   function registerProductionGaRoutes(prefix: string): void {

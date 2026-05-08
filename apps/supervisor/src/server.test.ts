@@ -254,6 +254,12 @@ const lateStageSupervisorControlPlaneMatrix = [
       '/training-completions',
     ],
   },
+  {
+    family: 'production-readiness',
+    prefix: '/api/production-readiness',
+    approvalManagedExternally: true,
+    routeSuffixes: ['/rehearsals'],
+  },
 ] as const;
 function getLateStageMutatingRoutes(
   entry: (typeof lateStageSupervisorControlPlaneMatrix)[number],
@@ -292,6 +298,7 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/agents/',
   '/api/platform/',
   '/api/production-ga',
+  '/api/production-readiness',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -2238,6 +2245,12 @@ describe('supervisor mock development API', () => {
             `${prefix}/training-completions`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerProductionReadinessRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [`${prefix}/rehearsals`]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -2354,6 +2367,11 @@ describe('supervisor mock development API', () => {
           '/rehearsals',
           '/training-completions',
         ],
+      },
+      {
+        helperName: 'registerProductionReadinessRoutes',
+        variableName: 'prefix',
+        suffixes: ['/rehearsals'],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -2773,6 +2791,143 @@ describe('supervisor mock development API', () => {
       expect(responseBody).not.toContain('raw patch verify pr merge');
       expect(responseBody).not.toContain('caller_supplied_child_artifact');
       expect(responseBody).not.toContain(localControlToken);
+    }
+  });
+
+  it('projects M60 production readiness canary, drift, audit, and readiness records', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-production-readiness-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const readyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        canaryKind: 'thread-turn',
+        taskSeed: 'private production readiness canary task',
+        targetSeed: 'private production readiness target',
+        manifestSeed: 'private production readiness manifest',
+        recordSeeds: ['private production readiness record'],
+        liveSmokeRequested: true,
+      },
+    });
+    const blockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        canaryKind: 'quota',
+        failedCount: 1,
+        gateKind: 'desktop-target',
+        baselineSeed: 'desktop baseline',
+        observedSeed: 'desktop drift',
+        driftBlockerCount: 1,
+      },
+    });
+    const canaryRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/canary-runs',
+    });
+    const driftGatesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/drift-gates',
+    });
+    const readinessGatesResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/readiness-gates',
+    });
+    const auditExportsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/audit-exports',
+    });
+    const summaryResponse = await server.inject({
+      method: 'GET',
+      url: '/api/production-readiness/summary',
+    });
+    const forgedPayloadResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        rawCanaryOutput: 'private raw canary output',
+        rawSchema: 'private app server schema body',
+        rawReadinessData: 'private readiness body',
+        authority: { live: true },
+      },
+    });
+
+    const persistedCanaryRuns = await store.codexProductionCanaryRuns.listRecords({ limit: 10 });
+    const persistedReadinessGates = await store.codexProductionReadinessGates.listRecords({
+      limit: 10,
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(readyResponse.statusCode).toBe(200);
+    expect(readyResponse.json()).toMatchObject({
+      status: 'ready',
+      liveSmokeAllowed: true,
+      highRiskLiveTaskBlocked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(readyResponse.json().canaryRun).toMatchObject({
+      status: 'passed',
+      rawCheckStored: false,
+      rawOutputStored: false,
+    });
+    expect(blockedResponse.statusCode).toBe(200);
+    expect(blockedResponse.json()).toMatchObject({
+      status: 'canary_blocked',
+      liveSmokeAllowed: false,
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(blockedResponse.json().driftGate).toMatchObject({
+      status: 'incompatible',
+      highRiskLiveTaskBlocked: true,
+      rawSchemaStored: false,
+      rawTargetStored: false,
+    });
+    expect(canaryRunsResponse.statusCode).toBe(200);
+    expect(canaryRunsResponse.json().records).toHaveLength(2);
+    expect(driftGatesResponse.json().records).toHaveLength(2);
+    expect(readinessGatesResponse.json().records).toHaveLength(2);
+    expect(auditExportsResponse.json().records).toHaveLength(2);
+    expect(summaryResponse.json()).toMatchObject({
+      canaryRunCount: 2,
+      driftGateCount: 2,
+      readinessGateCount: 2,
+      auditExportSummaryCount: 2,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(forgedPayloadResponse.statusCode).toBe(400);
+    expect(persistedCanaryRuns).toHaveLength(2);
+    expect(persistedReadinessGates).toHaveLength(2);
+
+    for (const body of [
+      readyResponse.body,
+      blockedResponse.body,
+      canaryRunsResponse.body,
+      driftGatesResponse.body,
+      readinessGatesResponse.body,
+      auditExportsResponse.body,
+      summaryResponse.body,
+      forgedPayloadResponse.body,
+    ]) {
+      expect(body).not.toContain('private production readiness canary task');
+      expect(body).not.toContain('private production readiness target');
+      expect(body).not.toContain('private production readiness manifest');
+      expect(body).not.toContain('private production readiness record');
+      expect(body).not.toContain('private raw canary output');
+      expect(body).not.toContain('private app server schema body');
+      expect(body).not.toContain('private readiness body');
+      expect(body).not.toContain(localControlToken);
     }
   });
 
