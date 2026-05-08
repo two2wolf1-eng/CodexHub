@@ -542,13 +542,18 @@ import {
   CodexSchedulerPreflightCheckSchema,
   CodexSchedulerSelectionSummarySchema,
   CodexTaskApprovalStatusSchema,
+  CodexTaskClosureRunSchema,
   CodexTaskDiagnosisKindSchema,
   CodexTaskDiagnosisSchema,
+  CodexTaskDiffSummaryProjectionSchema,
   CodexTaskDispatchModeSchema,
   CodexTaskEventStreamStatusSchema,
+  CodexTaskGithubClosureProjectionSchema,
   CodexTaskIntentSchema,
   CodexTaskPreflightStatusSchema,
+  CodexTaskReviewProjectionSchema,
   CodexTaskRunSchema,
+  CodexTaskVerificationProjectionSchema,
   EvidenceBundleSchema,
   HumanCheckpointSchema,
   LeaseSchema,
@@ -16135,6 +16140,153 @@ describe('contracts schemas', () => {
         ...recovery,
         id: 'codex_recovery_run_m58_raw_body',
         metadata: { body: adversarialPublicOutputFixture },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M59 task closure contracts as metadata-only review and GitHub dry-run projections', () => {
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m59_1',
+      schemaVersion,
+      createdAt,
+      intentId: 'codex_task_intent_m59_1',
+      status: 'completed',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      dispatchAllowed: true,
+      eventStreamStatus: 'completed',
+      ciStatus: 'pending',
+      diffSummaryId: 'codex_task_diff_summary_m59_1',
+      verificationProjectionId: 'codex_task_verification_m59_1',
+      reviewProjectionId: 'codex_task_review_m59_1',
+      githubClosureProjectionId: 'codex_task_github_closure_m59_1',
+      closureRunId: 'codex_task_closure_run_m59_1',
+      closureSummaryHash: 'sha256:closure-summary',
+      summary: 'M59 task run stores closure writeback ids and hashes only.',
+    });
+    const diffSummary = CodexTaskDiffSummaryProjectionSchema.parse({
+      id: taskRun.diffSummaryId,
+      schemaVersion,
+      observedAt: createdAt,
+      taskRunId: taskRun.id,
+      status: 'changed',
+      fileCount: 2,
+      pathHashCount: 2,
+      pathHashes: ['sha256:path-a', 'sha256:path-b'],
+      diffHash: 'sha256:diff',
+      diffSummaryHash: 'sha256:diff-summary',
+      emptyDiff: false,
+      evidenceRefIds: ['evidence_m59_diff'],
+      auditEventIds: ['audit_m59_diff'],
+      summary: 'Local diff summary stores path hashes and diff hash only.',
+    });
+    const verification = CodexTaskVerificationProjectionSchema.parse({
+      id: taskRun.verificationProjectionId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'passed',
+      targetCount: 3,
+      passedCount: 3,
+      failedCount: 0,
+      skippedCount: 0,
+      verificationRunIdHash: 'sha256:verification-run',
+      commandSummaryHash: 'sha256:verification-command',
+      outputSummaryHash: 'sha256:verification-output',
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      evidenceRefIds: ['evidence_m59_verification'],
+      auditEventIds: ['audit_m59_verification'],
+      summary: 'Verification projection stores counts and output hash only.',
+    });
+    const review = CodexTaskReviewProjectionSchema.parse({
+      id: taskRun.reviewProjectionId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'ready_for_review',
+      reviewPackageIdHash: 'sha256:review-package',
+      packageHash: 'sha256:package',
+      findingCount: 0,
+      blockerCount: 0,
+      readyForReviewDraftOnly: true,
+      evidenceRefIds: ['evidence_m59_review'],
+      auditEventIds: ['audit_m59_review'],
+      summary: 'Review package projection is draft-only and metadata-only.',
+    });
+    const githubClosure = CodexTaskGithubClosureProjectionSchema.parse({
+      id: taskRun.githubClosureProjectionId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'dry_run_planned',
+      branchPublishPlanIdHash: 'sha256:branch-plan',
+      draftPrPlanIdHash: 'sha256:draft-pr-plan',
+      ciStatus: 'pending',
+      branchPublishDryRunPlanned: true,
+      draftPrDryRunPlanned: true,
+      evidenceRefIds: ['evidence_m59_github'],
+      auditEventIds: ['audit_m59_github'],
+      summary: 'GitHub closure is dry-run only and waits for persisted approval.',
+    });
+    const closure = CodexTaskClosureRunSchema.parse({
+      id: taskRun.closureRunId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'dry_run_planned',
+      diffSummaryId: diffSummary.id,
+      verificationProjectionId: verification.id,
+      reviewProjectionId: review.id,
+      githubClosureProjectionId: githubClosure.id,
+      ciStatus: githubClosure.ciStatus,
+      changedFileCount: diffSummary.fileCount,
+      verificationTargetCount: verification.targetCount,
+      reviewFindingCount: review.findingCount,
+      blockerCount: 0,
+      branchPublishDryRunIdHash: 'sha256:branch-dry-run',
+      draftPrDryRunIdHash: 'sha256:draft-pr-dry-run',
+      closureHash: 'sha256:closure',
+      evidenceRefIds: ['evidence_m59_closure'],
+      auditEventIds: ['audit_m59_closure'],
+      summary: 'M59 closure run links diff, verification, review, and GitHub dry-run metadata.',
+    });
+
+    expect(diffSummary.rawDiffStored).toBe(false);
+    expect(verification.stdoutStored).toBe(false);
+    expect(review.rawFindingStored).toBe(false);
+    expect(githubClosure.remoteWriteAllowed).toBe(false);
+    expect(closure.liveRemoteWriteAllowed).toBe(false);
+    expect(JSON.stringify([taskRun, diffSummary, verification, review, githubClosure, closure])).not.toContain(
+      adversarialPublicOutputFixture,
+    );
+    expect(() =>
+      CodexTaskDiffSummaryProjectionSchema.parse({
+        ...diffSummary,
+        id: 'codex_task_diff_summary_m59_missing_hash',
+        diffHash: undefined,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexTaskReviewProjectionSchema.parse({
+        ...review,
+        id: 'codex_task_review_m59_not_draft',
+        readyForReviewDraftOnly: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexTaskGithubClosureProjectionSchema.parse({
+        ...githubClosure,
+        id: 'codex_task_github_closure_m59_live',
+        remoteWriteAllowed: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexTaskClosureRunSchema.parse({
+        ...closure,
+        id: 'codex_task_closure_run_m59_raw',
+        metadata: { rawDiff: adversarialPublicOutputFixture },
       }),
     ).toThrow();
   });

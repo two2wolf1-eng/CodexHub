@@ -18544,6 +18544,12 @@ export const CodexTaskRunSchema = createdEntityBaseSchema
     completedAt: IsoDateTimeSchema.optional(),
     failureDiagnosisId: z.string().min(1).optional(),
     ciStatus: z.enum(['not_run', 'pending', 'passed', 'failed', 'blocked']).default('not_run'),
+    diffSummaryId: z.string().min(1).optional(),
+    verificationProjectionId: z.string().min(1).optional(),
+    reviewProjectionId: z.string().min(1).optional(),
+    githubClosureProjectionId: z.string().min(1).optional(),
+    closureRunId: z.string().min(1).optional(),
+    closureSummaryHash: z.string().min(1).optional(),
     outputSummaryHash: z.string().min(1).optional(),
     liveExecution: z.boolean().default(false),
     noRealWrite: z.boolean().default(true),
@@ -18637,6 +18643,291 @@ export const CodexRecoveryRunSchema = createdEntityBaseSchema
     }
   });
 export type CodexRecoveryRun = z.infer<typeof CodexRecoveryRunSchema>;
+
+export const CodexTaskDiffSummaryStatusSchema = z.enum([
+  'empty',
+  'changed',
+  'blocked',
+  'unknown',
+]);
+export type CodexTaskDiffSummaryStatus = z.infer<
+  typeof CodexTaskDiffSummaryStatusSchema
+>;
+
+export const CodexTaskVerificationProjectionStatusSchema = z.enum([
+  'not_run',
+  'planned',
+  'running',
+  'passed',
+  'failed',
+  'blocked',
+  'aborted',
+]);
+export type CodexTaskVerificationProjectionStatus = z.infer<
+  typeof CodexTaskVerificationProjectionStatusSchema
+>;
+
+export const CodexTaskReviewProjectionStatusSchema = z.enum([
+  'not_started',
+  'ready_for_review',
+  'blocked_verification',
+  'blocked_patch',
+  'pending',
+  'approved',
+  'changes_requested',
+  'rejected',
+]);
+export type CodexTaskReviewProjectionStatus = z.infer<
+  typeof CodexTaskReviewProjectionStatusSchema
+>;
+
+export const CodexTaskGithubClosureStatusSchema = z.enum([
+  'not_started',
+  'dry_run_planned',
+  'blocked',
+  'approval_waiting',
+  'branch_publish_planned',
+  'draft_pr_planned',
+  'ci_pending',
+  'ci_passed',
+  'ci_failed',
+]);
+export type CodexTaskGithubClosureStatus = z.infer<
+  typeof CodexTaskGithubClosureStatusSchema
+>;
+
+export const CodexTaskClosureRunStatusSchema = z.enum([
+  'not_started',
+  'blocked',
+  'ready_for_review',
+  'dry_run_planned',
+  'waiting_approval',
+  'ci_pending',
+  'completed',
+  'failed',
+]);
+export type CodexTaskClosureRunStatus = z.infer<typeof CodexTaskClosureRunStatusSchema>;
+
+export const CodexTaskDiffSummaryProjectionSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    status: CodexTaskDiffSummaryStatusSchema,
+    fileCount: z.number().int().nonnegative().default(0),
+    pathHashCount: z.number().int().nonnegative().default(0),
+    pathHashes: z.array(z.string().min(1)).default([]),
+    diffHash: z.string().min(1).optional(),
+    diffSummaryHash: z.string().min(1).optional(),
+    emptyDiff: z.boolean().default(false),
+    sourceHash: z.string().min(1).optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.pathHashCount !== record.pathHashes.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'pathHashCount must match pathHashes length',
+        path: ['pathHashCount'],
+      });
+    }
+    if (record.fileCount < record.pathHashCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'fileCount cannot be smaller than pathHashCount',
+        path: ['fileCount'],
+      });
+    }
+    if (record.status === 'empty' && !record.emptyDiff) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'empty diff summaries must set emptyDiff',
+        path: ['emptyDiff'],
+      });
+    }
+    if (record.status === 'changed' && !record.diffHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'changed diff summaries require diffHash',
+        path: ['diffHash'],
+      });
+    }
+  });
+export type CodexTaskDiffSummaryProjection = z.infer<
+  typeof CodexTaskDiffSummaryProjectionSchema
+>;
+
+export const CodexTaskVerificationProjectionSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    status: CodexTaskVerificationProjectionStatusSchema,
+    targetCount: z.number().int().nonnegative().default(0),
+    passedCount: z.number().int().nonnegative().default(0),
+    failedCount: z.number().int().nonnegative().default(0),
+    skippedCount: z.number().int().nonnegative().default(0),
+    verificationRunIdHash: z.string().min(1).optional(),
+    commandSummaryHash: z.string().min(1).optional(),
+    outputSummaryHash: z.string().min(1).optional(),
+    stdoutStored: z.literal(false).default(false),
+    stderrStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.passedCount + record.failedCount + record.skippedCount > record.targetCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'verification result counts cannot exceed targetCount',
+        path: ['targetCount'],
+      });
+    }
+    if (record.status === 'passed' && record.failedCount > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed verification cannot include failed checks',
+        path: ['failedCount'],
+      });
+    }
+    if (record.status === 'failed' && record.failedCount === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'failed verification requires failedCount',
+        path: ['failedCount'],
+      });
+    }
+  });
+export type CodexTaskVerificationProjection = z.infer<
+  typeof CodexTaskVerificationProjectionSchema
+>;
+
+export const CodexTaskReviewProjectionSchema = createdEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    status: CodexTaskReviewProjectionStatusSchema,
+    reviewPackageIdHash: z.string().min(1).optional(),
+    packageHash: z.string().min(1).optional(),
+    findingCount: z.number().int().nonnegative().default(0),
+    blockerCount: z.number().int().nonnegative().default(0),
+    readyForReviewDraftOnly: z.boolean().default(false),
+    rawFindingStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.blockerCount > record.findingCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blockerCount cannot exceed findingCount',
+        path: ['blockerCount'],
+      });
+    }
+    if (record.status === 'ready_for_review' && !record.readyForReviewDraftOnly) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready review projections must remain draft-only',
+        path: ['readyForReviewDraftOnly'],
+      });
+    }
+  });
+export type CodexTaskReviewProjection = z.infer<typeof CodexTaskReviewProjectionSchema>;
+
+export const CodexTaskGithubClosureProjectionSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    status: CodexTaskGithubClosureStatusSchema,
+    branchPublishPlanIdHash: z.string().min(1).optional(),
+    draftPrPlanIdHash: z.string().min(1).optional(),
+    branchPublishRunIdHash: z.string().min(1).optional(),
+    draftPrRunIdHash: z.string().min(1).optional(),
+    pullRequestNumberHash: z.string().min(1).optional(),
+    pullRequestUrlHash: z.string().min(1).optional(),
+    ciStatus: z.enum(['not_run', 'pending', 'passed', 'failed', 'blocked']).default('not_run'),
+    dryRunOnly: z.literal(true).default(true),
+    approvalRequired: z.boolean().default(true),
+    remoteWriteAllowed: z.literal(false).default(false),
+    branchPublishDryRunPlanned: z.boolean().default(false),
+    draftPrDryRunPlanned: z.boolean().default(false),
+    rawPullRequestBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      record.status === 'dry_run_planned' &&
+      !record.branchPublishDryRunPlanned &&
+      !record.draftPrDryRunPlanned
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'dry-run planned closure requires a branch or draft PR dry-run plan',
+        path: ['status'],
+      });
+    }
+    if (record.remoteWriteAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M59 GitHub closure projection cannot allow remote writes',
+        path: ['remoteWriteAllowed'],
+      });
+    }
+  });
+export type CodexTaskGithubClosureProjection = z.infer<
+  typeof CodexTaskGithubClosureProjectionSchema
+>;
+
+export const CodexTaskClosureRunSchema = createdEntityBaseSchema
+  .merge(m51SafeBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    taskRunId: z.string().min(1),
+    status: CodexTaskClosureRunStatusSchema,
+    diffSummaryId: z.string().min(1).optional(),
+    verificationProjectionId: z.string().min(1).optional(),
+    reviewProjectionId: z.string().min(1).optional(),
+    githubClosureProjectionId: z.string().min(1).optional(),
+    ciStatus: z.enum(['not_run', 'pending', 'passed', 'failed', 'blocked']).default('not_run'),
+    changedFileCount: z.number().int().nonnegative().default(0),
+    verificationTargetCount: z.number().int().nonnegative().default(0),
+    reviewFindingCount: z.number().int().nonnegative().default(0),
+    blockerCount: z.number().int().nonnegative().default(0),
+    dryRunOnly: z.literal(true).default(true),
+    approvalRequired: z.boolean().default(true),
+    liveRemoteWriteAllowed: z.literal(false).default(false),
+    branchPublishDryRunIdHash: z.string().min(1).optional(),
+    draftPrDryRunIdHash: z.string().min(1).optional(),
+    closureHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.blockerCount > record.reviewFindingCount + record.verificationTargetCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'closure blockerCount cannot exceed review and verification signals',
+        path: ['blockerCount'],
+      });
+    }
+    if (record.liveRemoteWriteAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'M59 closure runs cannot allow live remote writes',
+        path: ['liveRemoteWriteAllowed'],
+      });
+    }
+  });
+export type CodexTaskClosureRun = z.infer<typeof CodexTaskClosureRunSchema>;
 
 export const AccountPoolSchema = observedEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)
