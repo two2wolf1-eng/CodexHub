@@ -3276,6 +3276,160 @@ describe('supervisor mock development API', () => {
     }
   });
 
+  it('blocks M72 admin writes and Codex dispatch when production readiness canary or drift blocks', async () => {
+    const originalGate = process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED;
+    process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED = 'true';
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m72-readiness-block-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    let fixedFlowRunnerCalls = 0;
+    const server = buildSupervisorServer({
+      store,
+      businessAdminUiFixedFlowRunner: async () => {
+        fixedFlowRunnerCalls += 1;
+        return {
+          selectorFingerprintMatched: true,
+          finalConfirmFingerprintHash: `sha256:${'3'.repeat(64)}`,
+          finalConfirmFingerprintMatched: true,
+          postWriteVerified: true,
+          postWritePageHash: `sha256:${'4'.repeat(64)}`,
+        };
+      },
+    });
+
+    const readinessResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/rehearsals',
+      headers: localControlHeaders,
+      payload: {
+        canaryKind: 'owner-admin-members',
+        gateKind: 'network-endpoint',
+        taskSeed: 'private owner admin members canary',
+        targetSeed: 'private owner admin members target',
+        baselineSeed: 'private owner admin endpoint baseline',
+        observedSeed: 'private owner admin endpoint drift',
+        driftBlockerCount: 1,
+      },
+    });
+    const adminRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-readiness-blocked-run-1',
+        actionKind: 'invite-member',
+        targetSeed: 'private blocked invite target',
+        selectorSeed: 'private blocked invite selector',
+        approvalArtifactId: 'stored-admin-live-approval-m72',
+        liveActionRequested: true,
+      },
+    });
+    const dispatchGateResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/quota-read-dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'business-quota-readiness-blocked-dispatch-1',
+        sourceKind: 'app-server-rate-limits',
+        sourceRefSeed: 'private blocked app server quota source',
+        subjectKind: 'codex-account',
+        subjectSeed: 'private blocked codex account subject',
+        quotaStatus: 'available',
+        limitCount: 10,
+        usedCount: 1,
+        remainingCount: 9,
+        canaryPassed: true,
+        liveDispatchRequested: true,
+      },
+    });
+    const quotaFusionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/quota-fusions',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'codex-quota-fusion-readiness-blocked-1',
+        sourceKind: 'app-server-rate-limits',
+        sourceRefSeed: 'private blocked fusion source',
+        subjectKind: 'codex-account',
+        subjectSeed: 'private blocked fusion account',
+        quotaStatus: 'available',
+        limitCount: 10,
+        usedCount: 1,
+        remainingCount: 9,
+        canaryPassed: true,
+        expectedWorkspaceSeed: 'private blocked workspace',
+        profileSeeds: ['private blocked fusion profile'],
+        accountSeeds: ['private blocked fusion account'],
+        observedWorkspaceSeeds: ['private blocked workspace'],
+        profileStatuses: ['business_workspace'],
+        memberInOwnerRoster: [true],
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    if (originalGate === undefined) {
+      delete process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED;
+    } else {
+      process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED = originalGate;
+    }
+
+    expect(readinessResponse.statusCode).toBe(200);
+    expect(readinessResponse.json()).toMatchObject({
+      status: 'drift_blocked',
+      liveSmokeAllowed: false,
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(readinessResponse.json().canaryTask).toMatchObject({
+      canaryKind: 'owner-admin-members',
+      rawCheckStored: false,
+    });
+    expect(readinessResponse.json().driftGate).toMatchObject({
+      gateKind: 'network-endpoint',
+      status: 'incompatible',
+      highRiskLiveTaskBlocked: true,
+    });
+    expect(adminRunResponse.statusCode).toBe(200);
+    expect(adminRunResponse.json()).toMatchObject({
+      status: 'blocked',
+      liveActionAllowed: false,
+      readinessGateBlocked: true,
+      processBoundaryInvoked: false,
+      executionDisabled: true,
+    });
+    expect(fixedFlowRunnerCalls).toBe(0);
+    expect(dispatchGateResponse.statusCode).toBe(200);
+    expect(dispatchGateResponse.json()).toMatchObject({
+      status: 'blocked',
+      dispatchAllowed: false,
+      productionReadinessBlocked: true,
+    });
+    expect(dispatchGateResponse.json().blockReasons).toContain('production_readiness_blocked');
+    expect(quotaFusionResponse.statusCode).toBe(200);
+    expect(quotaFusionResponse.json()).toMatchObject({
+      status: 'canary_failed',
+      dispatchAllowed: false,
+      canaryPassed: false,
+      productionReadinessBlocked: true,
+      liveCodexDispatchAllowed: false,
+    });
+    expect(quotaFusionResponse.json().blockReasons).toContain('production_readiness_blocked');
+
+    for (const body of [
+      readinessResponse.body,
+      adminRunResponse.body,
+      dispatchGateResponse.body,
+      quotaFusionResponse.body,
+    ]) {
+      expect(body).not.toContain('private owner admin members canary');
+      expect(body).not.toContain('private owner admin endpoint baseline');
+      expect(body).not.toContain('private blocked invite target');
+      expect(body).not.toContain('private blocked app server quota source');
+      expect(body).not.toContain('private blocked fusion source');
+      expect(body).not.toContain(localControlToken);
+    }
+  });
+
   it('projects M61 business quota readiness debug probes and report without calling adapters', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-business-quota-debug-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

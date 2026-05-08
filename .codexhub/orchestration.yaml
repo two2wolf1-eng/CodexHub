@@ -7009,3 +7009,39 @@ workflows:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m72.canary-drift-hardening:
+    risk: critical
+    trigger:
+      type: business-admin-canary-drift-hardening
+      entrypoint: contracts supervisor business-quota-kernel ui-automation-kernel docs
+      localControlRequired: true
+    scope:
+      - owner-admin-members-canary
+      - owner-admin-billing-canary
+      - pending-invites-canary
+      - manage-seats-canary
+      - app-server-quota-canary
+      - admin-write-live-smoke-canary
+      - network-endpoint-drift-gate
+      - production-readiness-blocks-admin-writes
+      - production-readiness-blocks-codex-dispatch
+    docs:
+      - docs/releases/m72-canary-drift-hardening.md
+      - docs/reviews/m72-canary-drift-hardening-review.md
+      - docs/runbooks/m72-canary-drift-hardening-runbook.md
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      reusesProductionReadinessControlPlane: true
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      fixedBusinessAdminFlowOnly: true
+      readinessGateBlocksAdminWriteRunner: true
+      readinessGateBlocksCodexDispatch: true
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

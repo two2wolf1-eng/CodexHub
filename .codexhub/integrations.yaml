@@ -3432,3 +3432,48 @@ integrations:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m72-canary-drift-hardening:
+    enabled: false
+    adapter: production-readiness-control-plane
+    provider: codexhub-readiness-metadata
+    providerType: internal
+    mode: metadata-only-canary-drift-hard-gate
+    stage: m72-canary-drift-hardening
+    release: docs/releases/m72-canary-drift-hardening.md
+    review: docs/reviews/m72-canary-drift-hardening-review.md
+    runbook: docs/runbooks/m72-canary-drift-hardening-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: dry-run
+    defaultRisk: critical
+    supervisorRoutes:
+      - POST /api/production-readiness/rehearsals
+      - GET /api/production-readiness/summary
+      - POST /api/business-quota/admin-ui/runs
+      - POST /api/business-quota/admin-ui/post-write-verifications
+      - POST /api/business-quota/quota-read-dry-runs
+      - POST /api/business-quota/quota-fusions
+    persistedStores:
+      - codex_production_canary_tasks
+      - codex_production_canary_runs
+      - codex_production_drift_gates
+      - codex_production_readiness_gates
+      - admin_write_runs
+      - codex_quota_source_health
+      - codex_quota_fusion_reports
+    safety:
+      noNewProvider: true
+      noNewRoute: true
+      noNewStoreRepository: true
+      directAdapterExecutionAllowed: false
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      readinessGateBlocksAdminWriteRunner: true
+      readinessGateBlocksCodexDispatch: true
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

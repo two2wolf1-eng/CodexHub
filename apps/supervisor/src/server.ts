@@ -22036,7 +22036,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'login',
     'workspace',
     'app-server',
+    'app-server-quota',
     'business-page-dom',
+    'owner-admin-members',
+    'owner-admin-billing',
+    'pending-invites',
+    'manage-seats',
+    'admin-write-live-smoke',
     'electron-renderer',
     'thread-turn',
     'approval',
@@ -22049,6 +22055,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'desktop-target',
     'electron-target',
     'selector',
+    'network-endpoint',
     'redaction',
     'combined',
   ];
@@ -22887,18 +22894,26 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         redactionReport: redactionReports[0],
         liveDispatchRequested: true,
       });
+      const productionReadinessBlocked = store
+        ? await hasBlockingProductionReadinessGate(store)
+        : true;
+      const readinessStatus = gate.dispatchAllowed && !productionReadinessBlocked ? 'ready' : 'blocked';
+      const blockReasons = productionReadinessBlocked
+        ? Array.from(new Set([...gate.blockReasons, 'production_readiness_blocked']))
+        : gate.blockReasons;
 
       return {
         id: foundationId('supervisor_business_quota_readiness'),
         schemaVersion: SchemaVersionSchema.value,
         observedAt: foundationTimestamp(),
-        status: gate.status,
-        readiness: gate.dispatchAllowed ? 'ready' : 'blocked',
-        dispatchAllowed: gate.dispatchAllowed,
+        status: readinessStatus,
+        readiness: readinessStatus,
+        dispatchAllowed: gate.dispatchAllowed && !productionReadinessBlocked,
         sourceStatus: gate.sourceStatus,
         quotaStatus: gate.quotaStatus,
         canaryPassed: gate.canaryPassed,
-        blockReasons: gate.blockReasons,
+        blockReasons,
+        productionReadinessBlocked,
         counts: {
           sources: sources.length,
           quotaSnapshots: quotaSnapshots.length,
@@ -23263,6 +23278,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         store.businessBillingSummaries.listRecords({ limit: 1 }),
         store.businessProfileWorkspaceObservations.listRecords({ limit: 20 }),
       ]);
+      const productionReadinessBlocked = await hasBlockingProductionReadinessGate(store);
+      const canaryPassed = body?.canaryPassed === true && !productionReadinessBlocked;
       const ownerRosterSnapshot = rosters[0];
       const billingSummary = billings[0];
       const shouldCreateProfiles =
@@ -23301,11 +23318,17 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const sourceHealth = summarizeQuotaSourceHealth({
         sourceKind: normalizeBusinessQuotaSourceKind(body?.sourceKind),
         sourceRefSeed: body?.sourceRefSeed ?? body?.dryRunId ?? 'codex-quota-fusion-source',
-        status: body?.canaryPassed === true ? 'healthy' : 'degraded',
-        failureKind: body?.canaryPassed === true ? 'none' : 'canary_failed',
-        blockReasons: body?.canaryPassed === true ? [] : ['quota_canary_required'],
-        canaryPassed: body?.canaryPassed ?? false,
-        liveReadReady: body?.canaryPassed === true,
+        status: canaryPassed ? 'healthy' : 'degraded',
+        failureKind: canaryPassed ? 'none' : 'canary_failed',
+        blockReasons: canaryPassed
+          ? []
+          : [
+              productionReadinessBlocked
+                ? 'production_readiness_blocked'
+                : 'quota_canary_required',
+            ],
+        canaryPassed,
+        liveReadReady: canaryPassed,
         observationCount: 1,
       });
       const quotaSnapshot = createQuotaSnapshotFromSource({
@@ -23323,7 +23346,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         sourceHealth,
         quotaSnapshots: [quotaSnapshot],
         profileObservations,
-        canaryPassed: body?.canaryPassed,
+        canaryPassed,
       });
 
       await Promise.all([
@@ -23357,6 +23380,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         canaryPassed: fusion.report.canaryPassed,
         dispatchAllowed: fusion.report.dispatchAllowed,
         blockReasons: fusion.report.blockReasons,
+        productionReadinessBlocked,
         sourceHealthId: sourceHealth.id,
         quotaSnapshotId: quotaSnapshot.id,
         ownerRosterSnapshotId: ownerRosterSnapshot?.id,
@@ -23681,14 +23705,22 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       if (hasForbiddenBusinessQuotaBody(body)) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
+      const productionReadinessBlocked = await hasBlockingProductionReadinessGate(store);
+      const canaryPassed = body?.canaryPassed === true && !productionReadinessBlocked;
       const sourceHealth = summarizeQuotaSourceHealth({
         sourceKind: normalizeBusinessQuotaSourceKind(body?.sourceKind),
         sourceRefSeed: body?.sourceRefSeed ?? body?.dryRunId ?? 'business-quota-source',
-        status: body?.canaryPassed === true ? 'healthy' : 'degraded',
-        failureKind: body?.canaryPassed === true ? 'none' : 'canary_failed',
-        blockReasons: body?.canaryPassed === true ? [] : ['quota_canary_required'],
-        canaryPassed: body?.canaryPassed ?? false,
-        liveReadReady: body?.canaryPassed === true,
+        status: canaryPassed ? 'healthy' : 'degraded',
+        failureKind: canaryPassed ? 'none' : 'canary_failed',
+        blockReasons: canaryPassed
+          ? []
+          : [
+              productionReadinessBlocked
+                ? 'production_readiness_blocked'
+                : 'quota_canary_required',
+            ],
+        canaryPassed,
+        liveReadReady: canaryPassed,
         observationCount: 1,
       });
       const quotaSnapshot = createQuotaSnapshotFromSource({
@@ -23704,7 +23736,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       const gate = createQuotaDispatchGate({
         sourceHealth,
         quotaSnapshot,
-        canaryPassed: body?.canaryPassed,
+        canaryPassed,
         liveDispatchRequested: body?.liveDispatchRequested,
       });
 
@@ -23721,6 +23753,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         attributionId: attribution.id,
         dispatchAllowed: gate.dispatchAllowed,
         blockReasons: gate.blockReasons,
+        productionReadinessBlocked,
         directAdapterExecutionAllowed: false,
         processBoundaryInvoked: false,
         externalProcessStarted: false,
@@ -23940,12 +23973,25 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       });
       const { fingerprint, intent, dryRun, authority } = records;
       let { run } = records;
-      const fixedFlowResult = await resolveBusinessAdminUiFixedFlowResult(body, {
-        intent,
-        dryRun,
-        authority,
-      });
-      if (fixedFlowResult) {
+      const readinessGateBlocked = await hasBlockingProductionReadinessGate(store);
+      const fixedFlowResult = readinessGateBlocked
+        ? undefined
+        : await resolveBusinessAdminUiFixedFlowResult(body, {
+            intent,
+            dryRun,
+            authority,
+          });
+      if (readinessGateBlocked) {
+        run = summarizeAdminWriteRun({
+          intent,
+          dryRunPlan: dryRun,
+          authority,
+          liveActionRequested: body?.liveActionRequested ?? true,
+          status: 'blocked',
+          duplicateSubmitDetected: body?.duplicateSubmitDetected,
+          ownerSelfAction: body?.ownerSelfAction,
+        });
+      } else if (fixedFlowResult) {
         run = summarizeAdminWriteRun({
           intent,
           dryRunPlan: dryRun,
@@ -23990,6 +24036,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         duplicateSubmitBlocked: run.duplicateSubmitBlocked,
         ownerSelfActionBlocked: run.ownerSelfActionBlocked,
         ownerSelfProtectionApplied: run.ownerSelfProtectionApplied,
+        readinessGateBlocked,
         requestBodyAuthorityAccepted: false,
         processBoundaryInvoked: run.processBoundaryInvoked,
         externalProcessStarted: false,
@@ -24016,12 +24063,25 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       });
       const { fingerprint, intent, dryRun, authority } = records;
       let { run } = records;
-      const fixedFlowResult = await resolveBusinessAdminUiFixedFlowResult(body, {
-        intent,
-        dryRun,
-        authority,
-      });
-      if (fixedFlowResult) {
+      const readinessGateBlocked = await hasBlockingProductionReadinessGate(store);
+      const fixedFlowResult = readinessGateBlocked
+        ? undefined
+        : await resolveBusinessAdminUiFixedFlowResult(body, {
+            intent,
+            dryRun,
+            authority,
+          });
+      if (readinessGateBlocked) {
+        run = summarizeAdminWriteRun({
+          intent,
+          dryRunPlan: dryRun,
+          authority,
+          liveActionRequested: body?.liveActionRequested ?? true,
+          status: 'blocked',
+          duplicateSubmitDetected: body?.duplicateSubmitDetected,
+          ownerSelfAction: body?.ownerSelfAction,
+        });
+      } else if (fixedFlowResult) {
         run = summarizeAdminWriteRun({
           intent,
           dryRunPlan: dryRun,
@@ -24054,6 +24114,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         postWriteVerified: run.postWriteVerified,
         postWriteVerificationHash: run.postWriteVerificationHash,
         targetFingerprintHash: fingerprint.fingerprintHash,
+        readinessGateBlocked,
         requestBodyAuthorityAccepted: false,
         processBoundaryInvoked: run.processBoundaryInvoked,
         externalProcessStarted: false,
@@ -24187,6 +24248,13 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   function isBusinessAdminUiLiveWriteEnabled(): boolean {
     return process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED === 'true';
+  }
+
+  async function hasBlockingProductionReadinessGate(store: CodexHubStore): Promise<boolean> {
+    const [latestReadinessGate] = await store.codexProductionReadinessGates.listRecords({
+      limit: 1,
+    });
+    return latestReadinessGate?.highRiskLiveTaskBlocked ?? false;
   }
 
   function hasForbiddenBusinessQuotaBody(body: unknown): boolean {
