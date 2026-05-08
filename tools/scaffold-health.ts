@@ -43,6 +43,7 @@ const expectedProjects = [
   'production-ga-kernel',
   'store-sqlite',
   'store-core',
+  'task-closure-kernel',
   'contracts',
   'codexhub-mcp-server',
   'orchestrator',
