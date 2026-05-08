@@ -516,6 +516,18 @@ const customWorkflowForbiddenMetadataKeys = new Set([
   'databaseRows',
   'backupBody',
   'rawBackupBody',
+  'rawDom',
+  'domText',
+  'rawText',
+  'networkBody',
+  'rawNetworkBody',
+  'rawIdentity',
+  'rawAccount',
+  'rawWorkspace',
+  'accountId',
+  'workspaceId',
+  'email',
+  'rawEmail',
   'auditBody',
   'rawAuditBody',
   'releaseBody',
@@ -19344,7 +19356,10 @@ export const CodexProductionCanaryKindSchema = z.enum([
   'account',
   'quota',
   'login',
+  'workspace',
   'app-server',
+  'business-page-dom',
+  'electron-renderer',
   'thread-turn',
   'approval',
   'worktree',
@@ -19367,6 +19382,8 @@ export const CodexProductionDriftGateKindSchema = z.enum([
   'app-server-protocol',
   'desktop-target',
   'electron-target',
+  'selector',
+  'redaction',
   'combined',
 ]);
 export type CodexProductionDriftGateKind = z.infer<
@@ -19561,6 +19578,11 @@ export const BusinessQuotaSourceKindSchema = z.enum([
   'official-api',
   'enterprise-analytics',
   'business-credits',
+  'business-page-dom',
+  'browser-cdp-dom',
+  'electron-renderer-dom',
+  'codex-desktop-ui',
+  'redacted-export',
   'manual-export',
   'manual-observation',
   'ui-reference-only',
@@ -19901,6 +19923,621 @@ export const QuotaReadinessDebugReportSchema = createdEntityBaseSchema
 export type QuotaReadinessDebugReport = z.infer<
   typeof QuotaReadinessDebugReportSchema
 >;
+
+export const BusinessCodexSeatStatusSchema = z.enum([
+  'active',
+  'pending',
+  'removed',
+  'disabled',
+  'unknown',
+]);
+export type BusinessCodexSeatStatus = z.infer<typeof BusinessCodexSeatStatusSchema>;
+
+export const CodexSeatUsageLimitKindSchema = z.enum([
+  'workspace-credit',
+  'seat-usage',
+  'rate-limit',
+  'message-limit',
+  'unknown',
+]);
+export type CodexSeatUsageLimitKind = z.infer<typeof CodexSeatUsageLimitKindSchema>;
+
+export const CodexSeatUsageLimitSubjectKindSchema = z.enum([
+  'business-codex-seat',
+  'business-workspace',
+  'business-member',
+  'codex-account',
+]);
+export type CodexSeatUsageLimitSubjectKind = z.infer<
+  typeof CodexSeatUsageLimitSubjectKindSchema
+>;
+
+export const CodexQuotaSourceHealthStatusSchema = z.enum([
+  'healthy',
+  'degraded',
+  'unavailable',
+  'blocked',
+  'unknown',
+]);
+export type CodexQuotaSourceHealthStatus = z.infer<
+  typeof CodexQuotaSourceHealthStatusSchema
+>;
+
+export const CodexQuotaSourceFailureKindSchema = z.enum([
+  'none',
+  'source_unavailable',
+  'permission_denied',
+  'login_required',
+  'workspace_mismatch',
+  'redaction_failed',
+  'protocol_drift',
+  'canary_failed',
+  'unknown',
+]);
+export type CodexQuotaSourceFailureKind = z.infer<
+  typeof CodexQuotaSourceFailureKindSchema
+>;
+
+export const QuotaAttributionStatusSchema = z.enum([
+  'attributed',
+  'partial',
+  'ambiguous',
+  'blocked',
+  'unknown',
+]);
+export type QuotaAttributionStatus = z.infer<typeof QuotaAttributionStatusSchema>;
+
+export const QuotaAttributionConfidenceSchema = z.enum([
+  'high',
+  'medium',
+  'low',
+  'unknown',
+]);
+export type QuotaAttributionConfidence = z.infer<
+  typeof QuotaAttributionConfidenceSchema
+>;
+
+export const AutomationCapabilitySurfaceSchema = z.enum([
+  'app-server',
+  'browser-dom',
+  'browser-cdp',
+  'electron-renderer-cdp',
+  'codex-desktop-ui',
+  'profile-registry',
+  'supervisor',
+  'store',
+  'scheduler',
+]);
+export type AutomationCapabilitySurface = z.infer<
+  typeof AutomationCapabilitySurfaceSchema
+>;
+
+export const AutomationActionClassSchema = z.enum([
+  'auto_observe',
+  'auto_read_projected',
+  'approved_guided_action',
+  'critical_approved_action',
+  'forbidden_credential_action',
+]);
+export type AutomationActionClass = z.infer<typeof AutomationActionClassSchema>;
+
+export const UiAutomationActionKindSchema = z.enum([
+  'navigate',
+  'reload',
+  'scroll',
+  'focus',
+  'open-known-page',
+  'click-allowlisted-control',
+  'type-allowlisted-field',
+  'restart-desktop',
+  'interrupt-turn',
+  'resume',
+  'fork',
+  'transfer',
+  'logout',
+  'switch-visible-workspace',
+  'credential-input',
+  'mfa-input',
+  'session-storage-read',
+]);
+export type UiAutomationActionKind = z.infer<typeof UiAutomationActionKindSchema>;
+
+export const UiAutomationStatusSchema = z.enum([
+  'planned',
+  'approval_waiting',
+  'authorized',
+  'running',
+  'completed',
+  'blocked',
+  'failed',
+  'aborted',
+]);
+export type UiAutomationStatus = z.infer<typeof UiAutomationStatusSchema>;
+
+export const UiObservationStatusSchema = z.enum([
+  'observed',
+  'blocked',
+  'failed',
+  'unknown',
+]);
+export type UiObservationStatus = z.infer<typeof UiObservationStatusSchema>;
+
+export const SensitiveRedactionStatusSchema = z.enum([
+  'passed',
+  'failed',
+  'blocked',
+  'unknown',
+]);
+export type SensitiveRedactionStatus = z.infer<typeof SensitiveRedactionStatusSchema>;
+
+export const BusinessCodexSeatSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceIdHash: z.string().min(1),
+    seatHash: z.string().min(1),
+    memberHash: z.string().min(1).optional(),
+    codexAccountHash: z.string().min(1).optional(),
+    status: BusinessCodexSeatStatusSchema,
+    codexEnabled: z.boolean().default(false),
+    sourceHealthId: z.string().min(1).optional(),
+    attributionId: z.string().min(1).optional(),
+    rawSeatBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type BusinessCodexSeat = z.infer<typeof BusinessCodexSeatSchema>;
+
+export const WorkspaceCreditSnapshotSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    workspaceIdHash: z.string().min(1),
+    status: QuotaSnapshotStatusSchema,
+    limitCount: z.number().int().nonnegative().optional(),
+    usedCount: z.number().int().nonnegative().optional(),
+    remainingCount: z.number().int().nonnegative().optional(),
+    resetAtHash: z.string().min(1).optional(),
+    sourceHealthId: z.string().min(1).optional(),
+    attributionId: z.string().min(1).optional(),
+    ambiguous: z.boolean().default(false),
+    rawCreditBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.ambiguous && record.status !== 'unknown' && record.status !== 'blocked') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ambiguous workspace credit snapshots must be unknown or blocked',
+        path: ['status'],
+      });
+    }
+  });
+export type WorkspaceCreditSnapshot = z.infer<typeof WorkspaceCreditSnapshotSchema>;
+
+export const CodexSeatUsageLimitSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    subjectKind: CodexSeatUsageLimitSubjectKindSchema,
+    subjectHash: z.string().min(1),
+    limitKind: CodexSeatUsageLimitKindSchema,
+    status: QuotaSnapshotStatusSchema,
+    limitCount: z.number().int().nonnegative().optional(),
+    usedCount: z.number().int().nonnegative().optional(),
+    remainingCount: z.number().int().nonnegative().optional(),
+    resetAtHash: z.string().min(1).optional(),
+    sourceHealthId: z.string().min(1).optional(),
+    quotaSnapshotId: z.string().min(1).optional(),
+    ambiguous: z.boolean().default(false),
+    rawLimitBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.ambiguous && record.status !== 'unknown' && record.status !== 'blocked') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ambiguous seat usage limits must be unknown or blocked',
+        path: ['status'],
+      });
+    }
+  });
+export type CodexSeatUsageLimit = z.infer<typeof CodexSeatUsageLimitSchema>;
+
+export const CodexQuotaSourceHealthSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sourceKind: BusinessQuotaSourceKindSchema,
+    status: CodexQuotaSourceHealthStatusSchema,
+    sourceRefHash: z.string().min(1).optional(),
+    priority: z.number().int().positive().default(1),
+    stabilityScore: z.number().int().min(0).max(100).default(0),
+    observationCount: z.number().int().nonnegative().default(0),
+    failureKind: CodexQuotaSourceFailureKindSchema.default('none'),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    recommendedHumanCheckpointKind: HumanCheckpointKindSchema.optional(),
+    liveReadReady: z.boolean().default(false),
+    canaryRequired: z.boolean().default(true),
+    canaryPassed: z.boolean().default(false),
+    rawSourceStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.status === 'blocked' || record.status === 'unavailable') &&
+      record.blockReasons.length === 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked or unavailable quota source health requires a block reason',
+        path: ['blockReasons'],
+      });
+    }
+    if (record.liveReadReady && record.status !== 'healthy') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live quota read readiness requires healthy source status',
+        path: ['liveReadReady'],
+      });
+    }
+  });
+export type CodexQuotaSourceHealth = z.infer<typeof CodexQuotaSourceHealthSchema>;
+
+export const QuotaAttributionSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    attributionHash: z.string().min(1),
+    sourceHealthId: z.string().min(1),
+    quotaSnapshotId: z.string().min(1).optional(),
+    workspaceIdHash: z.string().min(1).optional(),
+    membershipMirrorId: z.string().min(1).optional(),
+    accountBindingId: z.string().min(1).optional(),
+    businessCodexSeatId: z.string().min(1).optional(),
+    workspaceCreditSnapshotId: z.string().min(1).optional(),
+    seatUsageLimitId: z.string().min(1).optional(),
+    confidence: QuotaAttributionConfidenceSchema,
+    status: QuotaAttributionStatusSchema,
+    blockReasons: z.array(z.string().min(1)).default([]),
+    rawAttributionStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'blocked' && record.blockReasons.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked quota attribution requires a block reason',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type QuotaAttribution = z.infer<typeof QuotaAttributionSchema>;
+
+export const AutomationCapabilityPolicySchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    capabilitySurface: AutomationCapabilitySurfaceSchema,
+    actionClass: AutomationActionClassSchema,
+    riskLevel: RiskLevelSchema,
+    actionMode: ActionModeSchema,
+    dryRunRequired: z.literal(true).default(true),
+    approvalRequired: z.boolean().default(false),
+    credentialMaterialForbidden: z.literal(true).default(true),
+    rawPayloadPersistenceAllowed: z.literal(false).default(false),
+    storageAccessAllowed: z.literal(false).default(false),
+    networkBodyReadAllowed: z.literal(false).default(false),
+    allowedActionCount: z.number().int().nonnegative().default(0),
+    forbiddenActionCount: z.number().int().nonnegative().default(0),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.actionClass === 'critical_approved_action' ||
+        record.actionClass === 'forbidden_credential_action') &&
+      !record.approvalRequired
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'critical or forbidden automation classes require approval tracking',
+        path: ['approvalRequired'],
+      });
+    }
+  });
+export type AutomationCapabilityPolicy = z.infer<
+  typeof AutomationCapabilityPolicySchema
+>;
+
+export const SensitiveRedactionReportSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sourceHash: z.string().min(1),
+    status: SensitiveRedactionStatusSchema,
+    scannedFieldCount: z.number().int().nonnegative().default(0),
+    redactedFieldCount: z.number().int().nonnegative().default(0),
+    forbiddenFieldCount: z.number().int().nonnegative().default(0),
+    blockedPersistence: z.boolean().default(false),
+    credentialMaterialDetected: z.boolean().default(false),
+    tokenCookieSessionStorageDetected: z.boolean().default(false),
+    rawPayloadStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawTextStored: z.literal(false).default(false),
+    networkBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.credentialMaterialDetected || record.tokenCookieSessionStorageDetected) &&
+      record.status === 'passed'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'redaction cannot pass when credential or session material is detected',
+        path: ['status'],
+      });
+    }
+    if ((record.status === 'failed' || record.status === 'blocked') && !record.blockedPersistence) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'failed or blocked redaction must block persistence',
+        path: ['blockedPersistence'],
+      });
+    }
+  });
+export type SensitiveRedactionReport = z.infer<typeof SensitiveRedactionReportSchema>;
+
+export const UiObservationSourceSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sourceKind: BusinessQuotaSourceKindSchema,
+    targetHash: z.string().min(1),
+    selectorManifestHash: z.string().min(1).optional(),
+    status: UiObservationStatusSchema,
+    fieldCount: z.number().int().nonnegative().default(0),
+    readableFieldCount: z.number().int().nonnegative().default(0),
+    redactionReportId: z.string().min(1).optional(),
+    sourceHealthId: z.string().min(1).optional(),
+    rawDomStored: z.literal(false).default(false),
+    rawTextStored: z.literal(false).default(false),
+    networkBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.readableFieldCount > record.fieldCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'readable UI observation fields cannot exceed field count',
+        path: ['readableFieldCount'],
+      });
+    }
+  });
+export type UiObservationSource = z.infer<typeof UiObservationSourceSchema>;
+
+export const CdpDomObservationSummarySchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sourceId: z.string().min(1),
+    targetHash: z.string().min(1),
+    selectorManifestHash: z.string().min(1).optional(),
+    nodeCount: z.number().int().nonnegative().default(0),
+    textFieldCount: z.number().int().nonnegative().default(0),
+    hashedTextCount: z.number().int().nonnegative().default(0),
+    blockedSelectorCount: z.number().int().nonnegative().default(0),
+    cdpCommandCount: z.number().int().nonnegative().default(0),
+    cdpCommandHashes: z.array(z.string().min(1)).default([]),
+    runtimeEvaluateUsed: z.literal(false).default(false),
+    domMutationUsed: z.literal(false).default(false),
+    clickOrTypeUsed: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawTextStored: z.literal(false).default(false),
+    networkBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.hashedTextCount > record.textFieldCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'hashed text count cannot exceed observed text field count',
+        path: ['hashedTextCount'],
+      });
+    }
+    if (record.cdpCommandHashes.length > record.cdpCommandCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'CDP command hash count cannot exceed command count',
+        path: ['cdpCommandHashes'],
+      });
+    }
+  });
+export type CdpDomObservationSummary = z.infer<typeof CdpDomObservationSummarySchema>;
+
+export const ElectronRendererObservationSummarySchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sourceId: z.string().min(1),
+    endpointHash: z.string().min(1),
+    targetIdHash: z.string().min(1),
+    rendererTarget: z.literal(true).default(true),
+    mainInspectorUsed: z.literal(false).default(false),
+    domObservationSummaryId: z.string().min(1).optional(),
+    consoleErrorCount: z.number().int().nonnegative().default(0),
+    networkFailedRequestCount: z.number().int().nonnegative().default(0),
+    uiResponsive: z.boolean().default(false),
+    diagnosticHints: z.array(CodexDesktopDiagnosticHintSchema).default([]),
+    rawDomStored: z.literal(false).default(false),
+    rawTextStored: z.literal(false).default(false),
+    networkBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type ElectronRendererObservationSummary = z.infer<
+  typeof ElectronRendererObservationSummarySchema
+>;
+
+export const UiAutomationIntentSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentHash: z.string().min(1),
+    actionKind: UiAutomationActionKindSchema,
+    actionClass: AutomationActionClassSchema,
+    targetHash: z.string().min(1),
+    selectorManifestHash: z.string().min(1).optional(),
+    riskLevel: RiskLevelSchema,
+    dryRunRequired: z.literal(true).default(true),
+    approvalRequired: z.boolean().default(false),
+    credentialInputRequested: z.literal(false).default(false),
+    rawIntentStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      (record.actionClass === 'critical_approved_action' ||
+        record.actionClass === 'forbidden_credential_action') &&
+      !record.approvalRequired
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'critical or forbidden UI intents require approval tracking',
+        path: ['approvalRequired'],
+      });
+    }
+  });
+export type UiAutomationIntent = z.infer<typeof UiAutomationIntentSchema>;
+
+export const UiAutomationDryRunPlanSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentId: z.string().min(1),
+    planHash: z.string().min(1),
+    actionCount: z.number().int().nonnegative().default(0),
+    actionClass: AutomationActionClassSchema,
+    riskLevel: RiskLevelSchema,
+    approvalRequired: z.boolean().default(false),
+    authorityRequired: z.boolean().default(false),
+    blockedReasonHashes: z.array(z.string().min(1)).default([]),
+    credentialActionBlocked: z.boolean().default(false),
+    rawPlanStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.actionClass === 'forbidden_credential_action' && !record.credentialActionBlocked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden credential actions must be blocked in the dry-run plan',
+        path: ['credentialActionBlocked'],
+      });
+    }
+  });
+export type UiAutomationDryRunPlan = z.infer<typeof UiAutomationDryRunPlanSchema>;
+
+export const UiAutomationAuthoritySchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    dryRunPlanId: z.string().min(1),
+    authorityHash: z.string().min(1),
+    approvalArtifactIdHash: z.string().min(1).optional(),
+    allowed: z.boolean(),
+    actionClass: AutomationActionClassSchema,
+    riskLevel: RiskLevelSchema,
+    constraints: z.array(z.string().min(1)).default([]),
+    expiresAt: IsoDateTimeSchema.optional(),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    credentialMaterialAllowed: z.literal(false).default(false),
+    storageAccessAllowed: z.literal(false).default(false),
+    networkBodyReadAllowed: z.literal(false).default(false),
+    rawAuthorityStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      record.allowed &&
+      (record.riskLevel === 'high' || record.riskLevel === 'critical') &&
+      !record.approvalArtifactIdHash
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'high or critical UI authority requires an approval artifact hash',
+        path: ['approvalArtifactIdHash'],
+      });
+    }
+    if (record.actionClass === 'forbidden_credential_action' && record.allowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden credential actions cannot receive UI authority',
+        path: ['allowed'],
+      });
+    }
+  });
+export type UiAutomationAuthority = z.infer<typeof UiAutomationAuthoritySchema>;
+
+export const UiAutomationRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentId: z.string().min(1),
+    dryRunPlanId: z.string().min(1),
+    authorityId: z.string().min(1).optional(),
+    status: UiAutomationStatusSchema,
+    actionClass: AutomationActionClassSchema,
+    actionCount: z.number().int().nonnegative().default(0),
+    approvedActionCount: z.number().int().nonnegative().default(0),
+    blockedActionCount: z.number().int().nonnegative().default(0),
+    liveActionRequested: z.boolean().default(false),
+    liveActionAllowed: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawTextStored: z.literal(false).default(false),
+    networkBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.liveActionAllowed && !record.authorityId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live UI action requires store-resolved authority',
+        path: ['authorityId'],
+      });
+    }
+    if (record.approvedActionCount + record.blockedActionCount > record.actionCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'UI action result counts cannot exceed actionCount',
+        path: ['actionCount'],
+      });
+    }
+  });
+export type UiAutomationRun = z.infer<typeof UiAutomationRunSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

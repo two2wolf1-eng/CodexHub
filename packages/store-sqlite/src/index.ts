@@ -5,6 +5,8 @@ import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
   AccountPool,
+  AutomationCapabilityPolicy,
+  BusinessCodexSeat,
   BusinessMembershipMirror,
   BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
@@ -16,6 +18,7 @@ import type {
   ChatGptSessionHealth,
   ChromeProfileBinding,
   ClientPool,
+  CdpDomObservationSummary,
   CodexAccountBinding,
   CodexAppServerApprovalBridgeRecord,
   CodexAppServerEventSummary,
@@ -30,7 +33,9 @@ import type {
   CodexProductionCanaryTask,
   CodexProductionDriftGate,
   CodexProductionReadinessGate,
+  CodexQuotaSourceHealth,
   CodexRecoveryRun,
+  CodexSeatUsageLimit,
   CodexPatchChildRecord,
   CodexTaskClosureRun,
   CodexTaskDiagnosis,
@@ -47,6 +52,7 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  ElectronRendererObservationSummary,
   ElectronMainInspectorApprovalArtifact,
   ElectronMainInspectorPlan,
   ElectronMainInspectorRun,
@@ -202,8 +208,16 @@ import type {
   MockDevelopmentRun,
   Observation,
   QuotaEvidenceMatrix,
+  QuotaAttribution,
   QuotaReadinessDebugReport,
   QuotaSnapshot,
+  SensitiveRedactionReport,
+  UiAutomationAuthority,
+  UiAutomationDryRunPlan,
+  UiAutomationIntent,
+  UiAutomationRun,
+  UiObservationSource,
+  WorkspaceCreditSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
 import type {
@@ -636,6 +650,20 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly poolLeases: MetadataEntityRepository<Lease>;
   readonly quotaSnapshots: MetadataEntityRepository<QuotaSnapshot>;
   readonly evidenceBundles: MetadataEntityRepository<EvidenceBundle>;
+  readonly businessCodexSeats: MetadataEntityRepository<BusinessCodexSeat>;
+  readonly workspaceCreditSnapshots: MetadataEntityRepository<WorkspaceCreditSnapshot>;
+  readonly codexSeatUsageLimits: MetadataEntityRepository<CodexSeatUsageLimit>;
+  readonly codexQuotaSourceHealth: MetadataEntityRepository<CodexQuotaSourceHealth>;
+  readonly quotaAttributions: MetadataEntityRepository<QuotaAttribution>;
+  readonly automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
+  readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
+  readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
+  readonly electronRendererObservationSummaries: MetadataEntityRepository<ElectronRendererObservationSummary>;
+  readonly uiAutomationIntents: MetadataEntityRepository<UiAutomationIntent>;
+  readonly uiAutomationDryRunPlans: MetadataEntityRepository<UiAutomationDryRunPlan>;
+  readonly uiAutomationAuthorities: MetadataEntityRepository<UiAutomationAuthority>;
+  readonly uiAutomationRuns: MetadataEntityRepository<UiAutomationRun>;
+  readonly sensitiveRedactionReports: MetadataEntityRepository<SensitiveRedactionReport>;
   readonly businessQuotaSourceProbes: MetadataEntityRepository<BusinessQuotaSourceProbe>;
   readonly businessQuotaPermissionProbes: MetadataEntityRepository<BusinessQuotaPermissionProbe>;
   readonly localCapabilityProbes: MetadataEntityRepository<LocalCapabilityProbe>;
@@ -1119,6 +1147,70 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'evidence_bundles',
     );
+    this.businessCodexSeats = new SqliteMetadataEntityRepository<BusinessCodexSeat>(
+      database,
+      'business_codex_seats',
+    );
+    this.workspaceCreditSnapshots =
+      new SqliteMetadataEntityRepository<WorkspaceCreditSnapshot>(
+        database,
+        'workspace_credit_snapshots',
+      );
+    this.codexSeatUsageLimits = new SqliteMetadataEntityRepository<CodexSeatUsageLimit>(
+      database,
+      'codex_seat_usage_limits',
+    );
+    this.codexQuotaSourceHealth =
+      new SqliteMetadataEntityRepository<CodexQuotaSourceHealth>(
+        database,
+        'codex_quota_source_health',
+      );
+    this.quotaAttributions = new SqliteMetadataEntityRepository<QuotaAttribution>(
+      database,
+      'quota_attributions',
+    );
+    this.automationCapabilityPolicies =
+      new SqliteMetadataEntityRepository<AutomationCapabilityPolicy>(
+        database,
+        'automation_capability_policies',
+      );
+    this.uiObservationSources = new SqliteMetadataEntityRepository<UiObservationSource>(
+      database,
+      'ui_observation_sources',
+    );
+    this.cdpDomObservationSummaries =
+      new SqliteMetadataEntityRepository<CdpDomObservationSummary>(
+        database,
+        'cdp_dom_observation_summaries',
+      );
+    this.electronRendererObservationSummaries =
+      new SqliteMetadataEntityRepository<ElectronRendererObservationSummary>(
+        database,
+        'electron_renderer_observation_summaries',
+      );
+    this.uiAutomationIntents = new SqliteMetadataEntityRepository<UiAutomationIntent>(
+      database,
+      'ui_automation_intents',
+    );
+    this.uiAutomationDryRunPlans =
+      new SqliteMetadataEntityRepository<UiAutomationDryRunPlan>(
+        database,
+        'ui_automation_dry_run_plans',
+      );
+    this.uiAutomationAuthorities =
+      new SqliteMetadataEntityRepository<UiAutomationAuthority>(
+        database,
+        'ui_automation_authorities',
+      );
+    this.uiAutomationRuns = new SqliteMetadataEntityRepository<UiAutomationRun>(
+      database,
+      'ui_automation_runs',
+    );
+    this.sensitiveRedactionReports =
+      new SqliteMetadataEntityRepository<SensitiveRedactionReport>(
+        database,
+        'sensitive_redaction_reports',
+      );
     this.businessQuotaSourceProbes =
       new SqliteMetadataEntityRepository<BusinessQuotaSourceProbe>(
         database,
@@ -7282,6 +7374,90 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS evidence_bundles (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_codex_seats (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_credit_snapshots (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_seat_usage_limits (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_quota_source_health (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quota_attributions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_capability_policies (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ui_observation_sources (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS cdp_dom_observation_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS electron_renderer_observation_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ui_automation_intents (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ui_automation_dry_run_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ui_automation_authorities (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ui_automation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sensitive_redaction_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

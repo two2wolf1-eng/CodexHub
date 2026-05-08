@@ -1,6 +1,8 @@
 import type {
   AuditEvent,
   AccountPool,
+  AutomationCapabilityPolicy,
+  BusinessCodexSeat,
   BusinessMembershipMirror,
   BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
@@ -12,6 +14,7 @@ import type {
   ChatGptSessionHealth,
   ChromeProfileBinding,
   ClientPool,
+  CdpDomObservationSummary,
   CodexAccountBinding,
   CodexAppServerApprovalBridgeRecord,
   CodexAppServerEventSummary,
@@ -26,7 +29,9 @@ import type {
   CodexProductionCanaryTask,
   CodexProductionDriftGate,
   CodexProductionReadinessGate,
+  CodexQuotaSourceHealth,
   CodexRecoveryRun,
+  CodexSeatUsageLimit,
   CodexPatchChildRecord,
   CodexTaskClosureRun,
   CodexTaskDiagnosis,
@@ -40,6 +45,7 @@ import type {
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
   ElectronCdpObservationDryRunRecord,
+  ElectronRendererObservationSummary,
   ElectronMainInspectorApprovalArtifact,
   ElectronMainInspectorPlan,
   ElectronMainInspectorRun,
@@ -198,8 +204,16 @@ import type {
   MockDevelopmentRun,
   Observation,
   QuotaEvidenceMatrix,
+  QuotaAttribution,
   QuotaReadinessDebugReport,
   QuotaSnapshot,
+  SensitiveRedactionReport,
+  UiAutomationAuthority,
+  UiAutomationDryRunPlan,
+  UiAutomationIntent,
+  UiAutomationRun,
+  UiObservationSource,
+  WorkspaceCreditSnapshot,
   WorkflowRun,
 } from '@codexhub/contracts';
 
@@ -1754,6 +1768,20 @@ export interface CodexHubStore {
   poolLeases: MetadataEntityRepository<Lease>;
   quotaSnapshots: MetadataEntityRepository<QuotaSnapshot>;
   evidenceBundles: MetadataEntityRepository<EvidenceBundle>;
+  businessCodexSeats: MetadataEntityRepository<BusinessCodexSeat>;
+  workspaceCreditSnapshots: MetadataEntityRepository<WorkspaceCreditSnapshot>;
+  codexSeatUsageLimits: MetadataEntityRepository<CodexSeatUsageLimit>;
+  codexQuotaSourceHealth: MetadataEntityRepository<CodexQuotaSourceHealth>;
+  quotaAttributions: MetadataEntityRepository<QuotaAttribution>;
+  automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
+  uiObservationSources: MetadataEntityRepository<UiObservationSource>;
+  cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
+  electronRendererObservationSummaries: MetadataEntityRepository<ElectronRendererObservationSummary>;
+  uiAutomationIntents: MetadataEntityRepository<UiAutomationIntent>;
+  uiAutomationDryRunPlans: MetadataEntityRepository<UiAutomationDryRunPlan>;
+  uiAutomationAuthorities: MetadataEntityRepository<UiAutomationAuthority>;
+  uiAutomationRuns: MetadataEntityRepository<UiAutomationRun>;
+  sensitiveRedactionReports: MetadataEntityRepository<SensitiveRedactionReport>;
   businessQuotaSourceProbes: MetadataEntityRepository<BusinessQuotaSourceProbe>;
   businessQuotaPermissionProbes: MetadataEntityRepository<BusinessQuotaPermissionProbe>;
   localCapabilityProbes: MetadataEntityRepository<LocalCapabilityProbe>;

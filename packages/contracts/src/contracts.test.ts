@@ -559,16 +559,30 @@ import {
   CodexTaskReviewProjectionSchema,
   CodexTaskRunSchema,
   CodexTaskVerificationProjectionSchema,
+  AutomationCapabilityPolicySchema,
+  BusinessCodexSeatSchema,
+  CdpDomObservationSummarySchema,
+  CodexQuotaSourceHealthSchema,
+  CodexSeatUsageLimitSchema,
+  ElectronRendererObservationSummarySchema,
   EvidenceBundleSchema,
   HumanCheckpointSchema,
   LeaseSchema,
   QuotaSnapshotSchema,
+  QuotaAttributionSchema,
   BusinessQuotaPermissionProbeSchema,
   BusinessQuotaSourceProbeSchema,
   ForbiddenPathProbeSchema,
   LocalCapabilityProbeSchema,
   QuotaEvidenceMatrixSchema,
   QuotaReadinessDebugReportSchema,
+  SensitiveRedactionReportSchema,
+  UiAutomationAuthoritySchema,
+  UiAutomationDryRunPlanSchema,
+  UiAutomationIntentSchema,
+  UiAutomationRunSchema,
+  UiObservationSourceSchema,
+  WorkspaceCreditSnapshotSchema,
   WorkflowRunSchema,
 } from './index';
 
@@ -17040,6 +17054,296 @@ describe('contracts schemas', () => {
         summary: 'Raw source data cannot be persisted.',
         metadata: {
           rawBody: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+  });
+
+  it('parses M62 business quota and automation contracts as metadata-only records', () => {
+    const sourceHealth = CodexQuotaSourceHealthSchema.parse({
+      id: 'codex_quota_source_health_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceKind: 'business-page-dom',
+      status: 'healthy',
+      sourceRefHash: 'sha256:business-page',
+      priority: 1,
+      stabilityScore: 80,
+      observationCount: 2,
+      liveReadReady: true,
+      canaryPassed: true,
+      evidenceRefIds: ['evidence_source_health'],
+      auditEventIds: ['audit_source_health'],
+      summary: 'Business page DOM source is healthy after redacted observation.',
+    });
+    const seat = BusinessCodexSeatSchema.parse({
+      id: 'business_codex_seat_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceIdHash: 'sha256:workspace',
+      seatHash: 'sha256:seat',
+      memberHash: 'sha256:member',
+      codexAccountHash: 'sha256:codex-account',
+      status: 'active',
+      codexEnabled: true,
+      sourceHealthId: sourceHealth.id,
+      summary: 'Business Codex seat stores only hash-linked membership metadata.',
+    });
+    const workspaceCredit = WorkspaceCreditSnapshotSchema.parse({
+      id: 'workspace_credit_snapshot_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceIdHash: 'sha256:workspace',
+      status: 'available',
+      limitCount: 100,
+      usedCount: 25,
+      remainingCount: 75,
+      sourceHealthId: sourceHealth.id,
+      summary: 'Workspace credit snapshot stores counts only.',
+    });
+    const usageLimit = CodexSeatUsageLimitSchema.parse({
+      id: 'codex_seat_usage_limit_1',
+      schemaVersion,
+      observedAt: createdAt,
+      subjectKind: 'business-codex-seat',
+      subjectHash: seat.seatHash,
+      limitKind: 'seat-usage',
+      status: 'limited',
+      limitCount: 50,
+      usedCount: 10,
+      remainingCount: 40,
+      sourceHealthId: sourceHealth.id,
+      summary: 'Seat usage limit stores status and counts only.',
+    });
+    const attribution = QuotaAttributionSchema.parse({
+      id: 'quota_attribution_1',
+      schemaVersion,
+      observedAt: createdAt,
+      attributionHash: 'sha256:attribution',
+      sourceHealthId: sourceHealth.id,
+      workspaceIdHash: workspaceCredit.workspaceIdHash,
+      businessCodexSeatId: seat.id,
+      workspaceCreditSnapshotId: workspaceCredit.id,
+      seatUsageLimitId: usageLimit.id,
+      confidence: 'high',
+      status: 'attributed',
+      summary: 'Quota attribution links safe metadata records only.',
+    });
+    const redaction = SensitiveRedactionReportSchema.parse({
+      id: 'sensitive_redaction_report_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceHash: 'sha256:source',
+      status: 'passed',
+      scannedFieldCount: 4,
+      redactedFieldCount: 1,
+      forbiddenFieldCount: 0,
+      blockedPersistence: false,
+      summary: 'Redaction passed without credential or session material.',
+    });
+    const observation = UiObservationSourceSchema.parse({
+      id: 'ui_observation_source_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceKind: 'browser-cdp-dom',
+      targetHash: 'sha256:target',
+      selectorManifestHash: 'sha256:selector-manifest',
+      status: 'observed',
+      fieldCount: 3,
+      readableFieldCount: 2,
+      redactionReportId: redaction.id,
+      sourceHealthId: sourceHealth.id,
+      summary: 'UI observation source stores selector and target hashes only.',
+    });
+    const cdpDom = CdpDomObservationSummarySchema.parse({
+      id: 'cdp_dom_observation_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceId: observation.id,
+      targetHash: observation.targetHash,
+      selectorManifestHash: observation.selectorManifestHash,
+      nodeCount: 12,
+      textFieldCount: 3,
+      hashedTextCount: 3,
+      blockedSelectorCount: 0,
+      cdpCommandCount: 2,
+      cdpCommandHashes: ['sha256:get-document', 'sha256:query-selector'],
+      summary: 'CDP DOM summary stores counts and command hashes only.',
+    });
+    const electronRenderer = ElectronRendererObservationSummarySchema.parse({
+      id: 'electron_renderer_observation_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceId: observation.id,
+      endpointHash: 'sha256:endpoint',
+      targetIdHash: 'sha256:target-id',
+      rendererTarget: true,
+      domObservationSummaryId: cdpDom.id,
+      uiResponsive: true,
+      summary: 'Electron renderer observation avoids the main inspector.',
+    });
+    const automationPolicy = AutomationCapabilityPolicySchema.parse({
+      id: 'automation_capability_policy_1',
+      schemaVersion,
+      createdAt,
+      capabilitySurface: 'electron-renderer-cdp',
+      actionClass: 'critical_approved_action',
+      riskLevel: 'critical',
+      actionMode: 'write',
+      approvalRequired: true,
+      allowedActionCount: 2,
+      forbiddenActionCount: 1,
+      summary: 'Critical UI actions are possible only through approval authority.',
+    });
+    const intent = UiAutomationIntentSchema.parse({
+      id: 'ui_automation_intent_1',
+      schemaVersion,
+      createdAt,
+      intentHash: 'sha256:intent',
+      actionKind: 'interrupt-turn',
+      actionClass: 'critical_approved_action',
+      targetHash: 'sha256:target',
+      riskLevel: 'critical',
+      approvalRequired: true,
+      summary: 'Interrupt turn intent stores target hash only.',
+    });
+    const dryRun = UiAutomationDryRunPlanSchema.parse({
+      id: 'ui_automation_dry_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      planHash: 'sha256:plan',
+      actionCount: 1,
+      actionClass: intent.actionClass,
+      riskLevel: intent.riskLevel,
+      approvalRequired: true,
+      authorityRequired: true,
+      summary: 'UI automation dry-run is metadata-only.',
+    });
+    const authority = UiAutomationAuthoritySchema.parse({
+      id: 'ui_automation_authority_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: dryRun.id,
+      authorityHash: 'sha256:authority',
+      approvalArtifactIdHash: 'sha256:approval',
+      allowed: true,
+      actionClass: intent.actionClass,
+      riskLevel: intent.riskLevel,
+      constraints: ['no_credential_input', 'no_storage_access'],
+      summary: 'UI authority is store-resolved and does not accept request-body authority.',
+    });
+    const run = UiAutomationRunSchema.parse({
+      id: 'ui_automation_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      dryRunPlanId: dryRun.id,
+      authorityId: authority.id,
+      status: 'authorized',
+      actionClass: intent.actionClass,
+      actionCount: 1,
+      approvedActionCount: 1,
+      blockedActionCount: 0,
+      liveActionRequested: true,
+      liveActionAllowed: true,
+      summary: 'UI automation run stores counts and authority id only.',
+    });
+    const records = [
+      sourceHealth,
+      seat,
+      workspaceCredit,
+      usageLimit,
+      attribution,
+      redaction,
+      observation,
+      cdpDom,
+      electronRenderer,
+      automationPolicy,
+      intent,
+      dryRun,
+      authority,
+      run,
+    ];
+    const serialized = JSON.stringify(records);
+
+    expect(sourceHealth.rawSourceStored).toBe(false);
+    expect(seat.rawSeatBodyStored).toBe(false);
+    expect(workspaceCredit.rawCreditBodyStored).toBe(false);
+    expect(usageLimit.rawLimitBodyStored).toBe(false);
+    expect(attribution.rawAttributionStored).toBe(false);
+    expect(redaction.rawPayloadStored).toBe(false);
+    expect(observation.rawDomStored).toBe(false);
+    expect(cdpDom.runtimeEvaluateUsed).toBe(false);
+    expect(electronRenderer.mainInspectorUsed).toBe(false);
+    expect(automationPolicy.storageAccessAllowed).toBe(false);
+    expect(intent.credentialInputRequested).toBe(false);
+    expect(authority.requestBodyAuthorityAccepted).toBe(false);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('rejects M62 contracts that leak sensitive UI material or overclaim authority', () => {
+    expect(() =>
+      CodexQuotaSourceHealthSchema.parse({
+        id: 'codex_quota_source_health_blocked_without_reason',
+        schemaVersion,
+        observedAt: createdAt,
+        sourceKind: 'business-page-dom',
+        status: 'blocked',
+        failureKind: 'redaction_failed',
+        summary: 'Blocked source health requires reasons.',
+      }),
+    ).toThrow();
+    expect(() =>
+      SensitiveRedactionReportSchema.parse({
+        id: 'sensitive_redaction_report_bad_pass',
+        schemaVersion,
+        observedAt: createdAt,
+        sourceHash: 'sha256:source',
+        status: 'passed',
+        credentialMaterialDetected: true,
+        summary: 'Credential detection cannot pass.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CdpDomObservationSummarySchema.parse({
+        id: 'cdp_dom_observation_runtime_eval',
+        schemaVersion,
+        observedAt: createdAt,
+        sourceId: 'ui_observation_source_1',
+        targetHash: 'sha256:target',
+        runtimeEvaluateUsed: true,
+        summary: 'Runtime evaluate remains forbidden.',
+      }),
+    ).toThrow();
+    expect(() =>
+      UiAutomationAuthoritySchema.parse({
+        id: 'ui_automation_authority_no_approval',
+        schemaVersion,
+        createdAt,
+        dryRunPlanId: 'ui_automation_dry_run_1',
+        authorityHash: 'sha256:authority',
+        allowed: true,
+        actionClass: 'critical_approved_action',
+        riskLevel: 'critical',
+        summary: 'Critical UI authority requires approval hash.',
+      }),
+    ).toThrow();
+    expect(() =>
+      UiAutomationIntentSchema.parse({
+        id: 'ui_automation_intent_raw_metadata',
+        schemaVersion,
+        createdAt,
+        intentHash: 'sha256:intent',
+        actionKind: 'navigate',
+        actionClass: 'approved_guided_action',
+        targetHash: 'sha256:target',
+        riskLevel: 'high',
+        approvalRequired: true,
+        summary: 'Raw DOM metadata must be rejected.',
+        metadata: {
+          rawDom: adversarialPublicOutputFixture,
         },
       }),
     ).toThrow();

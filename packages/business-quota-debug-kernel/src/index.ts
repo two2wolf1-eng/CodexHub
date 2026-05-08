@@ -135,10 +135,15 @@ const sourceDefaults: Record<
   'official-api': { priority: 2, stabilityScore: 80, fieldCount: 0, readableFieldCount: 0 },
   'enterprise-analytics': { priority: 3, stabilityScore: 75, fieldCount: 0, readableFieldCount: 0 },
   'business-credits': { priority: 4, stabilityScore: 65, fieldCount: 3, readableFieldCount: 2 },
-  'manual-export': { priority: 5, stabilityScore: 45, fieldCount: 2, readableFieldCount: 1 },
-  'manual-observation': { priority: 6, stabilityScore: 30, fieldCount: 1, readableFieldCount: 0 },
-  'ui-reference-only': { priority: 7, stabilityScore: 15, fieldCount: 0, readableFieldCount: 0 },
-  unknown: { priority: 8, stabilityScore: 0, fieldCount: 0, readableFieldCount: 0 },
+  'business-page-dom': { priority: 5, stabilityScore: 55, fieldCount: 2, readableFieldCount: 1 },
+  'browser-cdp-dom': { priority: 6, stabilityScore: 50, fieldCount: 2, readableFieldCount: 1 },
+  'electron-renderer-dom': { priority: 7, stabilityScore: 50, fieldCount: 2, readableFieldCount: 1 },
+  'codex-desktop-ui': { priority: 8, stabilityScore: 45, fieldCount: 2, readableFieldCount: 1 },
+  'redacted-export': { priority: 9, stabilityScore: 45, fieldCount: 2, readableFieldCount: 1 },
+  'manual-export': { priority: 10, stabilityScore: 45, fieldCount: 2, readableFieldCount: 1 },
+  'manual-observation': { priority: 11, stabilityScore: 30, fieldCount: 1, readableFieldCount: 0 },
+  'ui-reference-only': { priority: 12, stabilityScore: 15, fieldCount: 0, readableFieldCount: 0 },
+  unknown: { priority: 13, stabilityScore: 0, fieldCount: 0, readableFieldCount: 0 },
 };
 
 const defaultForbiddenPathKinds: readonly ForbiddenPathProbeKind[] = [

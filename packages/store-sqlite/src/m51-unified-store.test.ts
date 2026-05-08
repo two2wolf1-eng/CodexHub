@@ -9,6 +9,9 @@ import {
   ChatGptSessionHealthSchema,
   ChromeProfileBindingSchema,
   ClientPoolSchema,
+  AutomationCapabilityPolicySchema,
+  BusinessCodexSeatSchema,
+  CdpDomObservationSummarySchema,
   CodexAccountBindingSchema,
   CodexAppServerSessionSchema,
   CodexClientInstanceSchema,
@@ -17,7 +20,9 @@ import {
   CodexProductionCanaryTaskSchema,
   CodexProductionDriftGateSchema,
   CodexProductionReadinessGateSchema,
+  CodexQuotaSourceHealthSchema,
   CodexRecoveryRunSchema,
+  CodexSeatUsageLimitSchema,
   CodexTaskClosureRunSchema,
   CodexTaskDiagnosisSchema,
   CodexTaskDiffSummaryProjectionSchema,
@@ -28,14 +33,23 @@ import {
   CodexTaskVerificationProjectionSchema,
   BusinessQuotaPermissionProbeSchema,
   BusinessQuotaSourceProbeSchema,
+  ElectronRendererObservationSummarySchema,
   EvidenceBundleSchema,
   ForbiddenPathProbeSchema,
   HumanCheckpointSchema,
   LeaseSchema,
+  QuotaAttributionSchema,
   LocalCapabilityProbeSchema,
   QuotaEvidenceMatrixSchema,
   QuotaReadinessDebugReportSchema,
   QuotaSnapshotSchema,
+  SensitiveRedactionReportSchema,
+  UiAutomationAuthoritySchema,
+  UiAutomationDryRunPlanSchema,
+  UiAutomationIntentSchema,
+  UiAutomationRunSchema,
+  UiObservationSourceSchema,
+  WorkspaceCreditSnapshotSchema,
   SchemaVersionSchema,
 } from '@codexhub/contracts';
 import type { MetadataEntityRepository } from '@codexhub/store-core';
@@ -676,6 +690,232 @@ describe('M51 unified metadata store', () => {
     expect(localCapabilityProbe.directAdapterExecutionAllowed).toBe(false);
     expect(forbiddenPathProbe.rawMaterialStored).toBe(false);
     expect(readinessReport.rawReportStored).toBe(false);
+  });
+
+  it('round-trips M62 quota and UI automation records as metadata-only JSON', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-m62-store-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const sourceHealth = CodexQuotaSourceHealthSchema.parse({
+      id: 'codex_quota_source_health_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceKind: 'browser-cdp-dom',
+      status: 'healthy',
+      sourceRefHash: 'sha256:source',
+      priority: 1,
+      stabilityScore: 80,
+      observationCount: 1,
+      liveReadReady: true,
+      canaryPassed: true,
+      summary: 'Quota source health stores status and hashes only.',
+    });
+    const seat = BusinessCodexSeatSchema.parse({
+      id: 'business_codex_seat_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceIdHash: 'sha256:workspace',
+      seatHash: 'sha256:seat',
+      memberHash: 'sha256:member',
+      codexAccountHash: 'sha256:account',
+      status: 'active',
+      codexEnabled: true,
+      sourceHealthId: sourceHealth.id,
+      summary: 'Seat stores no raw identity.',
+    });
+    const credit = WorkspaceCreditSnapshotSchema.parse({
+      id: 'workspace_credit_snapshot_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      workspaceIdHash: seat.workspaceIdHash,
+      status: 'available',
+      limitCount: 20,
+      usedCount: 5,
+      remainingCount: 15,
+      sourceHealthId: sourceHealth.id,
+      summary: 'Workspace credit stores counts only.',
+    });
+    const usageLimit = CodexSeatUsageLimitSchema.parse({
+      id: 'codex_seat_usage_limit_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      subjectKind: 'business-codex-seat',
+      subjectHash: seat.seatHash,
+      limitKind: 'rate-limit',
+      status: 'limited',
+      remainingCount: 15,
+      sourceHealthId: sourceHealth.id,
+      summary: 'Usage limit stores status only.',
+    });
+    const attribution = QuotaAttributionSchema.parse({
+      id: 'quota_attribution_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      attributionHash: 'sha256:attribution',
+      sourceHealthId: sourceHealth.id,
+      workspaceIdHash: seat.workspaceIdHash,
+      businessCodexSeatId: seat.id,
+      workspaceCreditSnapshotId: credit.id,
+      seatUsageLimitId: usageLimit.id,
+      confidence: 'high',
+      status: 'attributed',
+      summary: 'Attribution links safe metadata records.',
+    });
+    const redaction = SensitiveRedactionReportSchema.parse({
+      id: 'sensitive_redaction_report_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceHash: 'sha256:source',
+      status: 'passed',
+      scannedFieldCount: 2,
+      redactedFieldCount: 1,
+      summary: 'Redaction report stores counts only.',
+    });
+    const observation = UiObservationSourceSchema.parse({
+      id: 'ui_observation_source_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceKind: 'business-page-dom',
+      targetHash: 'sha256:target',
+      selectorManifestHash: 'sha256:selectors',
+      status: 'observed',
+      fieldCount: 2,
+      readableFieldCount: 2,
+      redactionReportId: redaction.id,
+      sourceHealthId: sourceHealth.id,
+      summary: 'UI observation stores no DOM text.',
+    });
+    const cdpDom = CdpDomObservationSummarySchema.parse({
+      id: 'cdp_dom_observation_summary_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceId: observation.id,
+      targetHash: observation.targetHash,
+      selectorManifestHash: observation.selectorManifestHash,
+      nodeCount: 10,
+      textFieldCount: 2,
+      hashedTextCount: 2,
+      cdpCommandCount: 2,
+      cdpCommandHashes: ['sha256:command-a', 'sha256:command-b'],
+      summary: 'CDP DOM summary stores hashes and counts.',
+    });
+    const electronRenderer = ElectronRendererObservationSummarySchema.parse({
+      id: 'electron_renderer_observation_summary_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      sourceId: observation.id,
+      endpointHash: 'sha256:endpoint',
+      targetIdHash: 'sha256:target-id',
+      rendererTarget: true,
+      domObservationSummaryId: cdpDom.id,
+      uiResponsive: true,
+      summary: 'Electron renderer observation stores metadata only.',
+    });
+    const automationPolicy = AutomationCapabilityPolicySchema.parse({
+      id: 'automation_capability_policy_store_1',
+      schemaVersion,
+      createdAt,
+      capabilitySurface: 'codex-desktop-ui',
+      actionClass: 'approved_guided_action',
+      riskLevel: 'high',
+      actionMode: 'write',
+      approvalRequired: true,
+      allowedActionCount: 1,
+      summary: 'Guided UI actions require approval.',
+    });
+    const intent = UiAutomationIntentSchema.parse({
+      id: 'ui_automation_intent_store_1',
+      schemaVersion,
+      createdAt,
+      intentHash: 'sha256:intent',
+      actionKind: 'click-allowlisted-control',
+      actionClass: 'approved_guided_action',
+      targetHash: 'sha256:target',
+      riskLevel: 'high',
+      approvalRequired: true,
+      summary: 'UI action intent stores a target hash.',
+    });
+    const dryRun = UiAutomationDryRunPlanSchema.parse({
+      id: 'ui_automation_dry_run_store_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      planHash: 'sha256:dry-run-plan',
+      actionCount: 1,
+      actionClass: intent.actionClass,
+      riskLevel: intent.riskLevel,
+      approvalRequired: true,
+      authorityRequired: true,
+      summary: 'UI dry-run stores a plan hash.',
+    });
+    const authority = UiAutomationAuthoritySchema.parse({
+      id: 'ui_automation_authority_store_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: dryRun.id,
+      authorityHash: 'sha256:authority',
+      approvalArtifactIdHash: 'sha256:approval',
+      allowed: true,
+      actionClass: intent.actionClass,
+      riskLevel: intent.riskLevel,
+      summary: 'UI authority stores approval hash only.',
+    });
+    const run = UiAutomationRunSchema.parse({
+      id: 'ui_automation_run_store_1',
+      schemaVersion,
+      createdAt,
+      intentId: intent.id,
+      dryRunPlanId: dryRun.id,
+      authorityId: authority.id,
+      status: 'authorized',
+      actionClass: intent.actionClass,
+      actionCount: 1,
+      approvedActionCount: 1,
+      liveActionRequested: true,
+      liveActionAllowed: true,
+      summary: 'UI run stores status and counts only.',
+    });
+
+    const saved = [
+      await expectRoundTrip(first.codexQuotaSourceHealth, sourceHealth),
+      await expectRoundTrip(first.businessCodexSeats, seat),
+      await expectRoundTrip(first.workspaceCreditSnapshots, credit),
+      await expectRoundTrip(first.codexSeatUsageLimits, usageLimit),
+      await expectRoundTrip(first.quotaAttributions, attribution),
+      await expectRoundTrip(first.sensitiveRedactionReports, redaction),
+      await expectRoundTrip(first.uiObservationSources, observation),
+      await expectRoundTrip(first.cdpDomObservationSummaries, cdpDom),
+      await expectRoundTrip(first.electronRendererObservationSummaries, electronRenderer),
+      await expectRoundTrip(first.automationCapabilityPolicies, automationPolicy),
+      await expectRoundTrip(first.uiAutomationIntents, intent),
+      await expectRoundTrip(first.uiAutomationDryRunPlans, dryRun),
+      await expectRoundTrip(first.uiAutomationAuthorities, authority),
+      await expectRoundTrip(first.uiAutomationRuns, run),
+    ];
+    await first.close();
+
+    const reopened = await createSqliteStore({ dbPath });
+    await expect(reopened.codexQuotaSourceHealth.getRecord(sourceHealth.id)).resolves.toEqual(
+      sourceHealth,
+    );
+    await expect(reopened.uiAutomationRuns.getRecord(run.id)).resolves.toEqual(run);
+    await reopened.close();
+
+    const serialized = JSON.stringify(saved);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(serialized).not.toContain('raw DOM');
+    expect(serialized).not.toContain('session storage');
+    expect(findAdversarialPublicOutputRoundTripLeaks(saved)).toEqual([]);
+    expect(sourceHealth.rawSourceStored).toBe(false);
+    expect(seat.rawSeatBodyStored).toBe(false);
+    expect(credit.rawCreditBodyStored).toBe(false);
+    expect(usageLimit.rawLimitBodyStored).toBe(false);
+    expect(attribution.rawAttributionStored).toBe(false);
+    expect(redaction.rawPayloadStored).toBe(false);
+    expect(observation.rawDomStored).toBe(false);
+    expect(cdpDom.networkBodyStored).toBe(false);
+    expect(electronRenderer.mainInspectorUsed).toBe(false);
+    expect(authority.requestBodyAuthorityAccepted).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

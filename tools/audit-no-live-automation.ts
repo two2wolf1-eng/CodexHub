@@ -511,6 +511,12 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/business-quota-kernel/src/index.ts',
+    terms: sensitiveConceptTerms,
+    reason: 'M62 redaction vocabulary only; no credential read or persistence path',
+  },
+  {
+    scope: 'production-source',
     file: 'packages/contracts/src/index.ts',
     terms: sensitiveConceptTerms,
     reason: 'contract metadata flags and hash-only credential readiness schemas only',
