@@ -561,6 +561,7 @@ import {
   CodexTaskVerificationProjectionSchema,
   AutomationCapabilityPolicySchema,
   BusinessCodexSeatSchema,
+  BusinessQuotaCrossCheckReportSchema,
   CdpDomObservationSummarySchema,
   CodexQuotaSourceHealthSchema,
   CodexSeatUsageLimitSchema,
@@ -17259,6 +17260,30 @@ describe('contracts schemas', () => {
       observation,
       cdpDom,
       electronRenderer,
+      BusinessQuotaCrossCheckReportSchema.parse({
+        id: 'business_quota_cross_check_report_1',
+        schemaVersion,
+        observedAt: createdAt,
+        appServerQuotaSnapshotId: 'quota_snapshot_1',
+        appServerSourceHealthId: sourceHealth.id,
+        uiObservationSourceId: observation.id,
+        cdpDomObservationSummaryId: cdpDom.id,
+        electronRendererObservationSummaryId: electronRenderer.id,
+        redactionReportId: redaction.id,
+        attributionId: attribution.id,
+        status: 'matched',
+        confidence: 'high',
+        comparedFieldCount: 4,
+        matchedFieldCount: 3,
+        mismatchFieldCount: 0,
+        unknownFieldCount: 1,
+        sensitiveFindingCount: 2,
+        fieldComparisonHashes: ['sha256:plan', 'sha256:quota', 'sha256:reset'],
+        privilegedAccessRequired: true,
+        highPrivilegeViewMode: 'redacted-summary',
+        summary:
+          'App Server quota and Electron DOM observation match through redacted metadata.',
+      }),
       automationPolicy,
       intent,
       dryRun,
@@ -17345,6 +17370,34 @@ describe('contracts schemas', () => {
         metadata: {
           rawDom: adversarialPublicOutputFixture,
         },
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessQuotaCrossCheckReportSchema.parse({
+        id: 'business_quota_cross_check_report_bad_raw',
+        schemaVersion,
+        observedAt: createdAt,
+        status: 'matched',
+        confidence: 'high',
+        comparedFieldCount: 1,
+        matchedFieldCount: 1,
+        summary: 'Raw UI evidence must be rejected even for privileged views.',
+        metadata: {
+          rawDom: adversarialPublicOutputFixture,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      BusinessQuotaCrossCheckReportSchema.parse({
+        id: 'business_quota_cross_check_report_bad_sensitive',
+        schemaVersion,
+        observedAt: createdAt,
+        status: 'matched',
+        confidence: 'medium',
+        comparedFieldCount: 1,
+        matchedFieldCount: 1,
+        sensitiveFindingCount: 1,
+        summary: 'Sensitive findings require a redaction report.',
       }),
     ).toThrow();
   });

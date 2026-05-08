@@ -224,6 +224,126 @@ describe('codex-app-server-adapter', () => {
     expect(serialized).not.toContain('rate-private-request');
   });
 
+  it('projects current App Server account and codex rate limit response shapes', async () => {
+    const transport = createInMemoryCodexAppServerJsonlTransport([
+      { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'configWarning',
+        params: { message: 'private config warning text' },
+      }),
+      {
+        jsonrpc: '2.0',
+        id: 'account-private-request',
+        result: {
+          account: {
+            type: 'chatgpt',
+            email: 'private@example.test',
+            planType: 'team',
+          },
+          requiresOpenaiAuth: true,
+        },
+      },
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'configWarning',
+        params: { message: 'private rate limit warning text' },
+      }),
+      {
+        jsonrpc: '2.0',
+        id: 'rate-private-request',
+        result: {
+          rateLimits: {
+            limitId: 'codex',
+            limitName: null,
+            primary: {
+              usedPercent: 23,
+              windowDurationMins: 300,
+              resetsAt: 1788888888,
+            },
+            secondary: {
+              usedPercent: 35,
+              windowDurationMins: 10080,
+              resetsAt: 1789999999,
+            },
+            credits: {
+              hasCredits: false,
+              unlimited: false,
+              balance: null,
+            },
+            planType: 'team',
+            rateLimitReachedType: null,
+          },
+          rateLimitsByLimitId: {
+            codex: {
+              limitId: 'codex',
+              primary: {
+                usedPercent: 23,
+                windowDurationMins: 300,
+                resetsAt: 1788888888,
+              },
+              secondary: {
+                usedPercent: 35,
+                windowDurationMins: 10080,
+                resetsAt: 1789999999,
+              },
+              credits: {
+                hasCredits: false,
+                unlimited: false,
+                balance: null,
+              },
+              planType: 'team',
+              rateLimitReachedType: null,
+            },
+          },
+        },
+      },
+    ]);
+    const controller = createCodexAppServerSessionController({
+      clientInstanceId: 'codex_client_1',
+      transport,
+      observedAt: '2026-05-07T00:00:00.000Z',
+    });
+
+    await controller.initialize({ requestId: 'initialize-private-id' });
+    const account = await controller.readAccount({
+      requestId: 'account-private-request',
+    });
+    const rateLimits = await controller.readRateLimits({
+      requestId: 'rate-private-request',
+    });
+    const serialized = JSON.stringify([account, rateLimits]);
+
+    expect(account.status).toBe('completed');
+    expect(account.accountBinding?.status).toBe('unverified');
+    expect(account.accountBinding?.codexAccountHash).toMatch(/^sha256:/);
+    expect(account.wireSummaries.map((summary) => summary.method)).toEqual([
+      'account/read',
+      'unknown',
+      'account/read',
+    ]);
+    expect(CodexAccountBindingSchema.safeParse(account.accountBinding).success).toBe(true);
+    expect(rateLimits.status).toBe('completed');
+    expect(rateLimits.quotaSnapshot?.status).toBe('limited');
+    expect(rateLimits.quotaSnapshot?.limitCount).toBe(100);
+    expect(rateLimits.quotaSnapshot?.usedCount).toBe(23);
+    expect(rateLimits.quotaSnapshot?.remainingCount).toBe(77);
+    expect(rateLimits.quotaSnapshot?.resetAtHash).toMatch(/^sha256:/);
+    expect(rateLimits.wireSummaries.map((summary) => summary.method)).toEqual([
+      'account/rateLimits/read',
+      'unknown',
+      'account/rateLimits/read',
+    ]);
+    expect(QuotaSnapshotSchema.safeParse(rateLimits.quotaSnapshot).success).toBe(true);
+    expect(serialized).not.toContain('private@example.test');
+    expect(serialized).not.toContain('private config warning text');
+    expect(serialized).not.toContain('private rate limit warning text');
+    expect(serialized).not.toContain('1788888888');
+    expect(serialized).not.toContain('1789999999');
+    expect(serialized).not.toContain('account-private-request');
+    expect(serialized).not.toContain('rate-private-request');
+  });
+
   it('starts/resumes threads, starts turns, and ingests events by metadata only', async () => {
     const transport = createInMemoryCodexAppServerJsonlTransport([
       { jsonrpc: '2.0', id: 'initialize-private-id', result: { ok: true } },

@@ -3172,3 +3172,33 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m65-5-business-quota-crosscheck-closeout:
+    enabled: false
+    adapter: business-quota-kernel
+    provider: codexhub-metadata
+    providerType: builtin
+    mode: closeout-only
+    stage: m65.5-business-quota-crosscheck-closeout
+    release: docs/releases/m65.5-business-quota-crosscheck-closeout.md
+    review: docs/reviews/m65.5-business-quota-crosscheck-closeout-review.md
+    runbook: docs/runbooks/m65.5-business-quota-crosscheck-closeout-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: high
+    persistedStores:
+      - business_quota_cross_check_reports
+    safety:
+      closeoutOnly: true
+      noNewProvider: true
+      noNewRoute: true
+      noNewLiveBoundary: true
+      directAdapterExecutionAllowed: false
+      metadataOnlyPublicOutput: true
+      noChatGptBusinessLiveOperation: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

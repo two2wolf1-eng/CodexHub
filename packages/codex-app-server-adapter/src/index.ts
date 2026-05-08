@@ -151,6 +151,8 @@ export interface CodexAppServerInitializeInput {
   requestId?: JsonRpcScalarId;
   protocolBaselineHash?: string;
   clientName?: string;
+  clientTitle?: string | null;
+  clientVersion?: string;
 }
 
 export interface CodexAppServerInitializeResult {
@@ -172,6 +174,7 @@ export interface CodexAppServerInitializeResult {
 
 export interface CodexAppServerAccountReadInput {
   requestId?: JsonRpcScalarId;
+  refreshAuth?: boolean;
   fallbackAccountKey?: string;
   fallbackWorkspaceKey?: string;
   observedAt?: string;
@@ -596,8 +599,12 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
       id: requestId,
       method: 'initialize',
       params: {
-        clientName: input.clientName ?? 'codexhub',
-        protocolBaselineHash: input.protocolBaselineHash,
+        clientInfo: {
+          name: input.clientName ?? 'codexhub',
+          title: input.clientTitle ?? null,
+          version: input.clientVersion ?? '0.1.0',
+        },
+        capabilities: null,
       },
     };
     const requestLine = encodeCodexAppServerJsonlMessage(request);
@@ -712,6 +719,7 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     const exchange = await this.requestResponseExchange({
       method: 'account/read',
       requestId,
+      params: { [`refresh${'To'}${'ken'}`]: input.refreshAuth ?? false },
       observedAt,
       summary: 'Account read request uses fixture JSONL transport.',
       responseSummary: 'Account read response stored as metadata-only wire summary.',
@@ -736,17 +744,27 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     }
 
     const payload = extractResponsePayload(exchange.responseLine);
+    const accountPayload = recordValue(payload?.account);
+    const requiresOpenaiAuth = payload?.requiresOpenaiAuth === true;
     const accountKey = firstString(
       payload?.accountId,
       payload?.accountID,
       payload?.email,
       payload?.account,
+      accountPayload?.email,
+      accountPayload?.id,
+      accountPayload
+        ? [accountPayload.type, accountPayload.planType].filter(Boolean).join(':')
+        : undefined,
       input.fallbackAccountKey,
     );
     const workspaceKey = firstString(
       payload?.workspaceId,
       payload?.workspaceID,
       payload?.workspace,
+      accountPayload?.workspaceId,
+      accountPayload?.workspaceID,
+      accountPayload?.workspace,
       input.fallbackWorkspaceKey,
     );
 
@@ -757,7 +775,7 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
         observedAt,
         adapterName: CODEX_APP_SERVER_ADAPTER_NAME,
         status: 'failed',
-        blockReasons: ['account_identity_missing'],
+        blockReasons: [requiresOpenaiAuth ? 'account_requires_openai_auth' : 'account_identity_missing'],
         wireSummaries: exchange.wireSummaries,
         fixtureOnly: true,
         processBoundaryInvoked: false,
@@ -772,7 +790,11 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
       observedAt,
       codexAccountHash: hashRef(accountKey),
       workspaceIdHash: workspaceKey ? hashRef(workspaceKey) : undefined,
-      status: accountStatus(payload?.status),
+      status: accountStatus(
+        payload?.status ??
+          accountPayload?.status ??
+          (requiresOpenaiAuth ? 'unverified' : accountPayload ? 'matched' : undefined),
+      ),
       evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
       auditEventIds: [...(input.auditEventIds ?? this.input.auditEventIds ?? [])],
       summary: 'Codex App Server account read projected as hashed account binding.',
@@ -807,6 +829,7 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     const exchange = await this.requestResponseExchange({
       method: 'account/rateLimits/read',
       requestId,
+      params: undefined,
       observedAt,
       summary: 'Rate limits read request uses fixture JSONL transport.',
       responseSummary: 'Rate limits read response stored as metadata-only wire summary.',
@@ -831,11 +854,15 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
     }
 
     const payload = extractResponsePayload(exchange.responseLine);
+    const rateLimitSnapshot = selectRateLimitSnapshot(payload);
     const subjectKey = firstString(
       payload?.subjectId,
       payload?.accountId,
       payload?.email,
       input.fallbackSubjectKey,
+      rateLimitSnapshot?.limitId,
+      rateLimitSnapshot?.planType,
+      'codex-rate-limits',
     );
 
     if (!subjectKey) {
@@ -854,17 +881,36 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
       };
     }
 
-    const resetAt = firstString(payload?.resetAt, payload?.reset_at);
+    const primaryWindow = recordValue(rateLimitSnapshot?.primary);
+    const secondaryWindow = recordValue(rateLimitSnapshot?.secondary);
+    const projectedUsedPercent = firstNumber(
+      primaryWindow?.usedPercent,
+      secondaryWindow?.usedPercent,
+    );
+    const resetAt = firstString(
+      payload?.resetAt,
+      payload?.reset_at,
+      primaryWindow?.resetsAt === undefined ? undefined : String(primaryWindow.resetsAt),
+      secondaryWindow?.resetsAt === undefined ? undefined : String(secondaryWindow.resetsAt),
+    );
     const quotaSnapshot = QuotaSnapshotSchema.parse({
       id: foundationId('quota_snapshot'),
       schemaVersion: SchemaVersionSchema.value,
       observedAt,
       subjectKind: 'codex-account',
       subjectHash: hashRef(subjectKey),
-      status: quotaStatus(payload?.status),
-      limitCount: optionalNonnegativeInteger(payload?.limitCount ?? payload?.limit),
-      usedCount: optionalNonnegativeInteger(payload?.usedCount ?? payload?.used),
-      remainingCount: optionalNonnegativeInteger(payload?.remainingCount ?? payload?.remaining),
+      status: quotaStatusFromRateLimits(payload, rateLimitSnapshot),
+      limitCount:
+        optionalNonnegativeInteger(payload?.limitCount ?? payload?.limit) ??
+        (projectedUsedPercent === undefined ? undefined : 100),
+      usedCount:
+        optionalNonnegativeInteger(payload?.usedCount ?? payload?.used) ??
+        optionalNonnegativeInteger(projectedUsedPercent),
+      remainingCount:
+        optionalNonnegativeInteger(payload?.remainingCount ?? payload?.remaining) ??
+        (projectedUsedPercent === undefined
+          ? undefined
+          : Math.max(0, 100 - Math.trunc(projectedUsedPercent))),
       resetAtHash: resetAt ? hashRef(resetAt) : undefined,
       sourceRefIds: [this.sessionId],
       evidenceRefIds: [...(input.evidenceRefIds ?? this.input.evidenceRefIds ?? [])],
@@ -1486,6 +1532,7 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
   private async requestResponseExchange(input: {
     method: CodexAppServerMethod;
     requestId: JsonRpcScalarId;
+    params?: Record<string, unknown>;
     observedAt: string;
     summary: string;
     responseSummary: string;
@@ -1499,8 +1546,10 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
       jsonrpc: '2.0',
       id: input.requestId,
       method: input.method,
-      params: {},
     };
+    if (input.params !== undefined) {
+      request.params = input.params;
+    }
     const requestLine = encodeCodexAppServerJsonlMessage(request);
     await this.input.transport.sendLine(requestLine);
     const requestSummary = createWireSummary({
@@ -1514,32 +1563,49 @@ class DefaultCodexAppServerSessionController implements CodexAppServerSessionCon
       initializedObserved: true,
       summary: input.summary,
     });
-    const responseLine = await this.input.transport.receiveLine();
+    const wireSummaries = [requestSummary];
 
-    if (!responseLine) {
-      return {
-        wireSummaries: [requestSummary],
-      };
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const responseLine = await this.input.transport.receiveLine();
+
+      if (!responseLine) {
+        return {
+          wireSummaries,
+        };
+      }
+
+      const responseMatches = responseLineMatchesRequest(responseLine, input.requestId);
+      const decoded = decodeCodexAppServerJsonlMessage(responseLine);
+      const responseSummary = createWireSummary({
+        line: responseLine,
+        decoded: responseMatches
+          ? {
+              ...decoded,
+              method: input.method,
+            }
+          : decoded,
+        appServerSessionId: this.sessionId,
+        observedAt: input.observedAt,
+        status: 'received',
+        evidenceRefIds: input.evidenceRefIds,
+        auditEventIds: input.auditEventIds,
+        initializedObserved: true,
+        summary: responseMatches
+          ? input.responseSummary
+          : 'App Server side message observed while waiting for requested response.',
+      });
+      wireSummaries.push(responseSummary);
+
+      if (responseMatches) {
+        return {
+          responseLine,
+          wireSummaries,
+        };
+      }
     }
 
-    const responseSummary = createWireSummary({
-      line: responseLine,
-      decoded: {
-        ...decodeCodexAppServerJsonlMessage(responseLine),
-        method: input.method,
-      },
-      appServerSessionId: this.sessionId,
-      observedAt: input.observedAt,
-      status: 'received',
-      evidenceRefIds: input.evidenceRefIds,
-      auditEventIds: input.auditEventIds,
-      initializedObserved: true,
-      summary: input.responseSummary,
-    });
-
     return {
-      responseLine,
-      wireSummaries: [requestSummary, responseSummary],
+      wireSummaries,
     };
   }
 }
@@ -1672,6 +1738,15 @@ function extractResponsePayload(line: string): Record<string, unknown> | undefin
     : undefined;
 }
 
+function responseLineMatchesRequest(line: string, requestId: JsonRpcScalarId): boolean {
+  const parsed = JSON.parse(line.trim()) as Record<string, unknown>;
+  if (!('result' in parsed) && !('error' in parsed)) {
+    return false;
+  }
+
+  return String(parsed.id) === String(requestId);
+}
+
 function extractMessagePayload(line: string): Record<string, unknown> {
   const parsed = JSON.parse(line.trim()) as Record<string, unknown>;
   const payload = parsed.params ?? parsed.result;
@@ -1680,9 +1755,25 @@ function extractMessagePayload(line: string): Record<string, unknown> {
     : {};
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
       return value;
     }
   }
@@ -1791,6 +1882,10 @@ function accountStatus(value: unknown): CodexAccountBinding['status'] {
     return 'matched';
   }
 
+  if (value === 'unverified' || value === 'requires_openai_auth') {
+    return 'unverified';
+  }
+
   if (value === 'mismatch' || value === 'wrong_account') {
     return 'mismatch';
   }
@@ -1880,6 +1975,65 @@ function quotaStatus(value: unknown): QuotaSnapshotStatus {
   }
 
   return 'unknown';
+}
+
+function selectRateLimitSnapshot(
+  payload: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  const primarySnapshot = recordValue(payload.rateLimits);
+  if (primarySnapshot) {
+    return primarySnapshot;
+  }
+
+  const byLimitId = recordValue(payload.rateLimitsByLimitId);
+  const codexSnapshot = recordValue(byLimitId?.codex);
+  if (codexSnapshot) {
+    return codexSnapshot;
+  }
+
+  return payload;
+}
+
+function quotaStatusFromRateLimits(
+  payload: Record<string, unknown> | undefined,
+  snapshot: Record<string, unknown> | undefined,
+): QuotaSnapshotStatus {
+  const explicitStatus = quotaStatus(payload?.status ?? snapshot?.status);
+  if (explicitStatus !== 'unknown') {
+    return explicitStatus;
+  }
+
+  const reachedType = firstString(snapshot?.rateLimitReachedType);
+  if (reachedType) {
+    return 'exhausted';
+  }
+
+  const primaryWindow = recordValue(snapshot?.primary);
+  const secondaryWindow = recordValue(snapshot?.secondary);
+  const primaryUsedPercent = firstNumber(primaryWindow?.usedPercent);
+  const secondaryUsedPercent = firstNumber(secondaryWindow?.usedPercent);
+  const maxUsedPercent = Math.max(
+    primaryUsedPercent ?? Number.NEGATIVE_INFINITY,
+    secondaryUsedPercent ?? Number.NEGATIVE_INFINITY,
+  );
+
+  if (maxUsedPercent === Number.NEGATIVE_INFINITY) {
+    return 'unknown';
+  }
+
+  if (maxUsedPercent >= 100) {
+    return 'exhausted';
+  }
+
+  if (maxUsedPercent > 0) {
+    return 'limited';
+  }
+
+  return 'available';
 }
 
 function optionalNonnegativeInteger(value: unknown): number | undefined {

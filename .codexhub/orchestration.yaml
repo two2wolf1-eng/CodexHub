@@ -6800,3 +6800,34 @@ workflows:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m65_5.business-quota-crosscheck-closeout:
+    risk: high
+    trigger:
+      type: business-quota-crosscheck-closeout
+      entrypoint: contracts business-quota-kernel codex-app-server-adapter store-sqlite docs
+      localControlRequired: false
+    scope:
+      - business-quota-cross-check-contract
+      - app-server-current-account-rate-limit-projection
+      - business-quota-cross-check-kernel
+      - sqlite-metadata-round-trip
+      - local-business-quota-reading-ignore
+      - release-review-runbook-closeout
+    docs:
+      - docs/releases/m65.5-business-quota-crosscheck-closeout.md
+      - docs/reviews/m65.5-business-quota-crosscheck-closeout-review.md
+      - docs/runbooks/m65.5-business-quota-crosscheck-closeout-runbook.md
+    safety:
+      closeoutOnly: true
+      noNewProvider: true
+      noNewRoute: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+      noChromeProfileConnection: true
+      noCodexAppServerProcessLaunch: true
+      noElectronCdpConnection: true
+      noTokenCookieSessionCollection: true
+      noRawPromptDiffPatchEventLogPathBodyStorage: true

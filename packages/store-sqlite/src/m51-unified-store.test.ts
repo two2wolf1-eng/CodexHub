@@ -11,6 +11,7 @@ import {
   ClientPoolSchema,
   AutomationCapabilityPolicySchema,
   BusinessCodexSeatSchema,
+  BusinessQuotaCrossCheckReportSchema,
   CdpDomObservationSummarySchema,
   CodexAccountBindingSchema,
   CodexAppServerSessionSchema,
@@ -811,6 +812,27 @@ describe('M51 unified metadata store', () => {
       uiResponsive: true,
       summary: 'Electron renderer observation stores metadata only.',
     });
+    const crossCheck = BusinessQuotaCrossCheckReportSchema.parse({
+      id: 'business_quota_cross_check_report_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      appServerQuotaSnapshotId: 'quota_snapshot_store_1',
+      appServerSourceHealthId: sourceHealth.id,
+      uiObservationSourceId: observation.id,
+      cdpDomObservationSummaryId: cdpDom.id,
+      electronRendererObservationSummaryId: electronRenderer.id,
+      redactionReportId: redaction.id,
+      attributionId: attribution.id,
+      status: 'partial',
+      confidence: 'low',
+      comparedFieldCount: 5,
+      matchedFieldCount: 4,
+      mismatchFieldCount: 0,
+      unknownFieldCount: 1,
+      sensitiveFindingCount: 1,
+      fieldComparisonHashes: ['sha256:status', 'sha256:limit', 'sha256:usage'],
+      summary: 'Cross-check report stores comparison hashes and counts only.',
+    });
     const automationPolicy = AutomationCapabilityPolicySchema.parse({
       id: 'automation_capability_policy_store_1',
       schemaVersion,
@@ -886,6 +908,7 @@ describe('M51 unified metadata store', () => {
       await expectRoundTrip(first.uiObservationSources, observation),
       await expectRoundTrip(first.cdpDomObservationSummaries, cdpDom),
       await expectRoundTrip(first.electronRendererObservationSummaries, electronRenderer),
+      await expectRoundTrip(first.businessQuotaCrossCheckReports, crossCheck),
       await expectRoundTrip(first.automationCapabilityPolicies, automationPolicy),
       await expectRoundTrip(first.uiAutomationIntents, intent),
       await expectRoundTrip(first.uiAutomationDryRunPlans, dryRun),
@@ -899,6 +922,9 @@ describe('M51 unified metadata store', () => {
       sourceHealth,
     );
     await expect(reopened.uiAutomationRuns.getRecord(run.id)).resolves.toEqual(run);
+    await expect(reopened.businessQuotaCrossCheckReports.getRecord(crossCheck.id)).resolves.toEqual(
+      crossCheck,
+    );
     await reopened.close();
 
     const serialized = JSON.stringify(saved);
@@ -915,6 +941,7 @@ describe('M51 unified metadata store', () => {
     expect(observation.rawDomStored).toBe(false);
     expect(cdpDom.networkBodyStored).toBe(false);
     expect(electronRenderer.mainInspectorUsed).toBe(false);
+    expect(crossCheck.rawSensitiveStored).toBe(false);
     expect(authority.requestBodyAuthorityAccepted).toBe(false);
   });
 

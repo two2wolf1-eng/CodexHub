@@ -19997,6 +19997,17 @@ export type QuotaAttributionConfidence = z.infer<
   typeof QuotaAttributionConfidenceSchema
 >;
 
+export const BusinessQuotaCrossCheckStatusSchema = z.enum([
+  'matched',
+  'mismatch',
+  'partial',
+  'blocked',
+  'unknown',
+]);
+export type BusinessQuotaCrossCheckStatus = z.infer<
+  typeof BusinessQuotaCrossCheckStatusSchema
+>;
+
 export const AutomationCapabilitySurfaceSchema = z.enum([
   'app-server',
   'browser-dom',
@@ -20222,6 +20233,73 @@ export const QuotaAttributionSchema = observedEntityBaseSchema
     }
   });
 export type QuotaAttribution = z.infer<typeof QuotaAttributionSchema>;
+
+export const BusinessQuotaCrossCheckReportSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    appServerQuotaSnapshotId: z.string().min(1).optional(),
+    appServerSourceHealthId: z.string().min(1).optional(),
+    uiObservationSourceId: z.string().min(1).optional(),
+    cdpDomObservationSummaryId: z.string().min(1).optional(),
+    electronRendererObservationSummaryId: z.string().min(1).optional(),
+    redactionReportId: z.string().min(1).optional(),
+    attributionId: z.string().min(1).optional(),
+    status: BusinessQuotaCrossCheckStatusSchema,
+    confidence: QuotaAttributionConfidenceSchema,
+    comparedFieldCount: z.number().int().nonnegative().default(0),
+    matchedFieldCount: z.number().int().nonnegative().default(0),
+    mismatchFieldCount: z.number().int().nonnegative().default(0),
+    unknownFieldCount: z.number().int().nonnegative().default(0),
+    sensitiveFindingCount: z.number().int().nonnegative().default(0),
+    fieldComparisonHashes: z.array(z.string().min(1)).default([]),
+    privilegedAccessRequired: z.literal(true).default(true),
+    highPrivilegeViewMode: z.enum(['redacted-summary', 'hash-evidence']).default('redacted-summary'),
+    rawAppServerPayloadStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawAxStored: z.literal(false).default(false),
+    rawSensitiveStored: z.literal(false).default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.fieldComparisonHashes.length > record.comparedFieldCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'field comparison hashes cannot exceed compared field count',
+        path: ['fieldComparisonHashes'],
+      });
+    }
+    if (
+      record.matchedFieldCount + record.mismatchFieldCount + record.unknownFieldCount >
+      record.comparedFieldCount
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'field comparison counts cannot exceed compared field count',
+        path: ['comparedFieldCount'],
+      });
+    }
+    if (record.status === 'blocked' && record.blockReasons.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked cross-check reports require a block reason',
+        path: ['blockReasons'],
+      });
+    }
+    if (record.sensitiveFindingCount > 0 && record.redactionReportId === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'sensitive findings require a redaction report reference',
+        path: ['redactionReportId'],
+      });
+    }
+  });
+export type BusinessQuotaCrossCheckReport = z.infer<
+  typeof BusinessQuotaCrossCheckReportSchema
+>;
 
 export const AutomationCapabilityPolicySchema = createdEntityBaseSchema
   .merge(m51EvidenceAuditSchema)

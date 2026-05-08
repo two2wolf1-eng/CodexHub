@@ -193,6 +193,7 @@ import type {
   CodexExecReportReviewQuery,
   CodexExecReportReviewRecord,
   CodexReplayRecord,
+  BusinessQuotaCrossCheckReport,
   BusinessQuotaPermissionProbe,
   BusinessQuotaSourceProbe,
   EvidenceBundle,
@@ -1773,6 +1774,7 @@ export interface CodexHubStore {
   codexSeatUsageLimits: MetadataEntityRepository<CodexSeatUsageLimit>;
   codexQuotaSourceHealth: MetadataEntityRepository<CodexQuotaSourceHealth>;
   quotaAttributions: MetadataEntityRepository<QuotaAttribution>;
+  businessQuotaCrossCheckReports: MetadataEntityRepository<BusinessQuotaCrossCheckReport>;
   automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;

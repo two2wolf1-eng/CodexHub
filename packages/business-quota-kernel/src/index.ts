@@ -1,5 +1,6 @@
 import {
   BusinessQuotaSourceKindSchema,
+  BusinessQuotaCrossCheckReportSchema,
   CdpDomObservationSummarySchema,
   CodexQuotaSourceHealthSchema,
   QuotaAttributionSchema,
@@ -10,10 +11,13 @@ import {
   foundationId,
   foundationTimestamp,
   type BusinessQuotaSourceKind,
+  type BusinessQuotaCrossCheckReport,
+  type BusinessQuotaCrossCheckStatus,
   type CdpDomObservationSummary,
   type CodexQuotaSourceFailureKind,
   type CodexQuotaSourceHealth,
   type CodexQuotaSourceHealthStatus,
+  type ElectronRendererObservationSummary,
   type QuotaAttribution,
   type QuotaAttributionConfidence,
   type QuotaAttributionStatus,
@@ -101,6 +105,26 @@ export interface QuotaDispatchGate {
   canaryPassed: boolean;
   blockReasons: string[];
   summary: string;
+}
+
+export interface BusinessQuotaCrossCheckInput {
+  appServerQuotaSnapshot?: QuotaSnapshot;
+  appServerSourceHealth?: CodexQuotaSourceHealth;
+  uiObservation?: UiObservationSource;
+  domSummary?: CdpDomObservationSummary;
+  electronRendererObservation?: ElectronRendererObservationSummary;
+  redactionReport?: SensitiveRedactionReport;
+  attribution?: QuotaAttribution;
+  uiQuotaStatus?: QuotaSnapshotStatus;
+  uiLimitCount?: number;
+  uiUsedCount?: number;
+  uiRemainingCount?: number;
+  uiResetObserved?: boolean;
+  sensitiveFindingCount?: number;
+  blockReasons?: readonly string[];
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
 }
 
 export function redactSensitiveObservation(
@@ -323,6 +347,88 @@ export function createQuotaDispatchGate(input: QuotaDispatchGateInput = {}): Quo
   };
 }
 
+export function createBusinessQuotaCrossCheckReport(
+  input: BusinessQuotaCrossCheckInput,
+): BusinessQuotaCrossCheckReport {
+  const blockReasons = [...(input.blockReasons ?? [])];
+  const comparisons = [
+    compareField('status', input.appServerQuotaSnapshot?.status, input.uiQuotaStatus),
+    compareField('limit', input.appServerQuotaSnapshot?.limitCount, input.uiLimitCount),
+    compareField('used', input.appServerQuotaSnapshot?.usedCount, input.uiUsedCount),
+    compareField('remaining', input.appServerQuotaSnapshot?.remainingCount, input.uiRemainingCount),
+    compareField(
+      'reset-present',
+      input.appServerQuotaSnapshot?.resetAtHash ? true : undefined,
+      input.uiResetObserved,
+    ),
+  ];
+  const knownComparisons = comparisons.filter((comparison) => comparison.outcome !== 'unknown');
+  const matchedFieldCount = knownComparisons.filter(
+    (comparison) => comparison.outcome === 'matched',
+  ).length;
+  const mismatchFieldCount = knownComparisons.filter(
+    (comparison) => comparison.outcome === 'mismatch',
+  ).length;
+  const unknownFieldCount = comparisons.length - knownComparisons.length;
+
+  if (!input.appServerQuotaSnapshot) blockReasons.push('app_server_quota_missing');
+  if (!input.uiObservation && !input.domSummary && !input.electronRendererObservation) {
+    blockReasons.push('ui_observation_missing');
+  }
+  if (input.redactionReport && input.redactionReport.status !== 'passed') {
+    blockReasons.push(`redaction_${input.redactionReport.status}`);
+  }
+
+  const sensitiveFindingCount =
+    input.sensitiveFindingCount ??
+    Math.max(
+      input.redactionReport?.forbiddenFieldCount ?? 0,
+      input.domSummary?.blockedSelectorCount ?? 0,
+    );
+  const status = crossCheckStatus({
+    blockReasons,
+    matchedFieldCount,
+    mismatchFieldCount,
+    unknownFieldCount,
+  });
+  const confidence: QuotaAttributionConfidence =
+    status === 'matched'
+      ? 'high'
+      : status === 'mismatch'
+        ? 'medium'
+        : status === 'partial'
+          ? 'low'
+          : 'unknown';
+
+  return BusinessQuotaCrossCheckReportSchema.parse({
+    id: foundationId('business_quota_cross_check_report'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: input.observedAt ?? foundationTimestamp(),
+    appServerQuotaSnapshotId: input.appServerQuotaSnapshot?.id,
+    appServerSourceHealthId: input.appServerSourceHealth?.id,
+    uiObservationSourceId: input.uiObservation?.id,
+    cdpDomObservationSummaryId: input.domSummary?.id,
+    electronRendererObservationSummaryId: input.electronRendererObservation?.id,
+    redactionReportId: input.redactionReport?.id,
+    attributionId: input.attribution?.id,
+    status,
+    confidence,
+    comparedFieldCount: comparisons.length,
+    matchedFieldCount,
+    mismatchFieldCount,
+    unknownFieldCount,
+    sensitiveFindingCount,
+    fieldComparisonHashes: comparisons.map((comparison) => hashRef(comparison)),
+    blockReasons,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary:
+      status === 'matched'
+        ? 'App Server quota and UI observation match through redacted metadata.'
+        : 'App Server quota and UI observation need review through redacted metadata.',
+  });
+}
+
 export function createQuotaSnapshotFromSource(input: {
   subjectKind: QuotaSnapshot['subjectKind'];
   subjectSeed: string;
@@ -350,6 +456,42 @@ export function createQuotaSnapshotFromSource(input: {
     auditEventIds: [...(input.auditEventIds ?? [])],
     summary: 'Quota snapshot created from a governed quota source.',
   });
+}
+
+function compareField(
+  fieldKey: string,
+  appServerValue: string | number | boolean | undefined,
+  uiValue: string | number | boolean | undefined,
+): { fieldKey: string; outcome: 'matched' | 'mismatch' | 'unknown' } {
+  if (appServerValue === undefined || uiValue === undefined) {
+    return { fieldKey, outcome: 'unknown' };
+  }
+
+  return {
+    fieldKey,
+    outcome: appServerValue === uiValue ? 'matched' : 'mismatch',
+  };
+}
+
+function crossCheckStatus(input: {
+  blockReasons: readonly string[];
+  matchedFieldCount: number;
+  mismatchFieldCount: number;
+  unknownFieldCount: number;
+}): BusinessQuotaCrossCheckStatus {
+  if (input.blockReasons.length > 0) {
+    return 'blocked';
+  }
+  if (input.mismatchFieldCount > 0) {
+    return 'mismatch';
+  }
+  if (input.matchedFieldCount > 0 && input.unknownFieldCount > 0) {
+    return 'partial';
+  }
+  if (input.matchedFieldCount > 0) {
+    return 'matched';
+  }
+  return 'unknown';
 }
 
 function normalizeOptionalCount(value: number | undefined): number | undefined {

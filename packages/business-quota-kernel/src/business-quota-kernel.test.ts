@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attributeBusinessQuota,
+  createBusinessQuotaCrossCheckReport,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
   redactSensitiveObservation,
@@ -105,5 +106,73 @@ describe('business quota kernel', () => {
     expect(attribution.rawAttributionStored).toBe(false);
     expect(blockedAttribution.status).toBe('blocked');
     expect(blockedAttribution.blockReasons).toContain('redaction_failed');
+  });
+
+  it('cross-checks App Server quota with redacted DOM and renderer observation metadata', () => {
+    const sourceHealth = summarizeQuotaSourceHealth({
+      sourceKind: 'app-server-rate-limits',
+      status: 'healthy',
+      canaryPassed: true,
+      liveReadReady: true,
+    });
+    const quotaSnapshot = createQuotaSnapshotFromSource({
+      subjectKind: 'codex-account',
+      subjectSeed: 'codex-account-ref',
+      status: 'limited',
+      limitCount: 100,
+      usedCount: 43,
+      remainingCount: 57,
+      sourceHealth,
+    });
+    const observation = summarizeUiObservation({
+      sourceKind: 'electron-renderer-dom',
+      targetSeed: 'codex-desktop-renderer',
+      selectorManifestSeed: 'quota-visible-fields-v1',
+      fieldKeys: ['quotaStatus', 'usedPercent', 'remainingPercent', 'resetPresent'],
+      readableFieldCount: 4,
+    });
+    const attribution = attributeBusinessQuota({
+      sourceHealth,
+      quotaSnapshot,
+      confidence: 'high',
+    });
+    const report = createBusinessQuotaCrossCheckReport({
+      appServerQuotaSnapshot: quotaSnapshot,
+      appServerSourceHealth: sourceHealth,
+      uiObservation: observation.observation,
+      domSummary: observation.domSummary,
+      redactionReport: observation.redactionReport,
+      attribution,
+      uiQuotaStatus: 'limited',
+      uiLimitCount: 100,
+      uiUsedCount: 43,
+      uiRemainingCount: 57,
+      uiResetObserved: undefined,
+      sensitiveFindingCount: 2,
+    });
+    const mismatch = createBusinessQuotaCrossCheckReport({
+      appServerQuotaSnapshot: quotaSnapshot,
+      appServerSourceHealth: sourceHealth,
+      uiObservation: observation.observation,
+      domSummary: observation.domSummary,
+      redactionReport: observation.redactionReport,
+      uiQuotaStatus: 'limited',
+      uiLimitCount: 100,
+      uiUsedCount: 44,
+      uiRemainingCount: 56,
+    });
+    const serialized = JSON.stringify([report, mismatch]);
+
+    expect(report.status).toBe('partial');
+    expect(report.matchedFieldCount).toBe(4);
+    expect(report.unknownFieldCount).toBe(1);
+    expect(report.privilegedAccessRequired).toBe(true);
+    expect(report.rawDomStored).toBe(false);
+    expect(report.rawAxStored).toBe(false);
+    expect(report.rawSensitiveStored).toBe(false);
+    expect(mismatch.status).toBe('mismatch');
+    expect(mismatch.mismatchFieldCount).toBe(2);
+    expect(serialized).not.toContain('codex-account-ref');
+    expect(serialized).not.toContain('codex-desktop-renderer');
   });
 });

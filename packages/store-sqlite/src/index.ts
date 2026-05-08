@@ -7,6 +7,7 @@ import type {
   AccountPool,
   AutomationCapabilityPolicy,
   BusinessCodexSeat,
+  BusinessQuotaCrossCheckReport,
   BusinessMembershipMirror,
   BusinessWorkspace,
   BrowserObservationApprovalArtifactRecord,
@@ -655,6 +656,7 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexSeatUsageLimits: MetadataEntityRepository<CodexSeatUsageLimit>;
   readonly codexQuotaSourceHealth: MetadataEntityRepository<CodexQuotaSourceHealth>;
   readonly quotaAttributions: MetadataEntityRepository<QuotaAttribution>;
+  readonly businessQuotaCrossCheckReports: MetadataEntityRepository<BusinessQuotaCrossCheckReport>;
   readonly automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
@@ -1169,6 +1171,11 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'quota_attributions',
     );
+    this.businessQuotaCrossCheckReports =
+      new SqliteMetadataEntityRepository<BusinessQuotaCrossCheckReport>(
+        database,
+        'business_quota_cross_check_reports',
+      );
     this.automationCapabilityPolicies =
       new SqliteMetadataEntityRepository<AutomationCapabilityPolicy>(
         database,
@@ -7404,6 +7411,12 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS quota_attributions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_quota_cross_check_reports (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL
