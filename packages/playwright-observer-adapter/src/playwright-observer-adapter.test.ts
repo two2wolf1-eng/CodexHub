@@ -17,7 +17,9 @@ import {
   createPlaywrightReadOnlyRealRunner,
   executePlaywrightObserverAdapter,
   isAllowedReadOnlyTargetUrl,
+  probeChromeCdpConnectionReadiness,
   runControlledBrowserActionBoundary,
+  runChromeCdpActionBoundary,
 } from './index';
 
 const createdAt = '2026-05-03T00:00:00.000Z';
@@ -48,6 +50,167 @@ function createProfileRef() {
 }
 
 describe('playwright-observer-adapter', () => {
+  it('connects to explicit loopback Chrome CDP endpoints without returning raw endpoint data', async () => {
+    const readiness = await probeChromeCdpConnectionReadiness({
+      endpointUrl: 'http://127.0.0.1:9222',
+      observedAt: createdAt,
+      loadPlaywright: async () => ({
+        chromium: {
+          async connectOverCDP(endpointURL: string) {
+            expect(endpointURL).toBe('http://127.0.0.1:9222');
+            return {
+              contexts() {
+                return [
+                  {
+                    pages() {
+                      return [
+                        {
+                          url: () => 'https://chatgpt.com/admin',
+                          title: async () => 'Private title',
+                          locator: () => ({
+                            click: async () => undefined,
+                            fill: async () => undefined,
+                          }),
+                        },
+                      ];
+                    },
+                  },
+                ];
+              },
+              close: async () => undefined,
+            };
+          },
+        },
+      }),
+    });
+    const serialized = JSON.stringify(readiness);
+
+    expect(readiness.status).toBe('ready');
+    expect(readiness.surface).toBe('chrome-cdp');
+    expect(readiness.endpointHash).toMatch(/^sha256:/);
+    expect(readiness.contextCount).toBe(1);
+    expect(readiness.pageCount).toBe(1);
+    expect(readiness.rawEndpointStored).toBe(false);
+    expect(readiness.credentialMaterialStored).toBe(false);
+    expect(serialized).not.toContain('127.0.0.1:9222');
+    expect(serialized).not.toContain('Private title');
+  });
+
+  it('blocks non-loopback Chrome CDP endpoints before invoking a boundary', async () => {
+    const readiness = await probeChromeCdpConnectionReadiness({
+      endpointUrl: 'http://example.com:9222',
+      observedAt: createdAt,
+      loadPlaywright: async () => {
+        throw new Error('should not load playwright');
+      },
+    });
+
+    expect(readiness.status).toBe('blocked');
+    expect(readiness.blockReasons).toContain('non_loopback_endpoint_forbidden');
+    expect(readiness.cdpHttpBoundaryInvoked).toBe(false);
+    expect(readiness.endpointHash).toMatch(/^sha256:/);
+    expect(JSON.stringify(readiness)).not.toContain('example.com');
+  });
+
+  it('runs approved Chrome CDP click/type/submit steps as fixed visible UI actions', async () => {
+    const calls: string[] = [];
+    const targetUrl = 'https://chatgpt.com/admin/members';
+    const selector = 'button[data-testid="invite-member"]';
+    const typedText = 'member@example.com';
+    const result = await runChromeCdpActionBoundary({
+      endpointUrl: 'http://localhost:9222',
+      steps: [
+        {
+          actionKind: 'type',
+          targetUrl,
+          targetUrlHash: sha256Ref(targetUrl),
+          selector,
+          selectorHash: sha256Ref(selector),
+          typedText,
+          typedTextHash: sha256Ref(typedText),
+        },
+        {
+          actionKind: 'submit',
+          selector,
+          selectorHash: sha256Ref(selector),
+        },
+      ],
+      createdAt,
+      loadPlaywright: async () => ({
+        chromium: {
+          async connectOverCDP() {
+            return {
+              contexts() {
+                return [
+                  {
+                    pages() {
+                      return [
+                        {
+                          url: () => targetUrl,
+                          title: async () => 'Members',
+                          goto: async () => {
+                            calls.push('goto');
+                          },
+                          locator: () => ({
+                            click: async () => {
+                              calls.push('click');
+                            },
+                            fill: async (value: string) => {
+                              calls.push(`fill:${value}`);
+                            },
+                            press: async (key: string) => {
+                              calls.push(`press:${key}`);
+                            },
+                          }),
+                        },
+                      ];
+                    },
+                  },
+                ];
+              },
+              close: async () => undefined,
+            };
+          },
+        },
+      }),
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result.status).toBe('completed');
+    expect(result.browserActionInvoked).toBe(true);
+    expect(result.visibleUiExecution).toBe(true);
+    expect(result.rawSelectorStored).toBe(false);
+    expect(result.rawTypedTextStored).toBe(false);
+    expect(calls).toEqual(['goto', `fill:${typedText}`, 'press:Enter']);
+    expect(serialized).not.toContain(selector);
+    expect(serialized).not.toContain(typedText);
+    expect(serialized).not.toContain('localhost:9222');
+  });
+
+  it('blocks Chrome CDP action steps when selector or typed text hashes do not match', async () => {
+    const result = await runChromeCdpActionBoundary({
+      endpointUrl: 'http://localhost:9222',
+      steps: [
+        {
+          actionKind: 'type',
+          selector: 'input[name=email]',
+          selectorHash: sha256Ref('other-selector'),
+          typedText: 'member@example.com',
+          typedTextHash: sha256Ref('member@example.com'),
+        },
+      ],
+      createdAt,
+      loadPlaywright: async () => {
+        throw new Error('should not connect');
+      },
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.browserActionInvoked).toBe(false);
+    expect(result.blockedActionCount).toBe(1);
+    expect(JSON.stringify(result)).not.toContain('member@example.com');
+  });
+
   it('keeps controlled browser actions limited to fixed click and type operations', () => {
     const source = readFileSync(new URL('./action-boundary.ts', sourceDir), 'utf8');
     const forbiddenTerms = [

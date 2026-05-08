@@ -12,7 +12,7 @@
     "audit:no-live-automation": "tsx tools/audit-no-live-automation.ts",
     "audit:skills": "tsx tools/audit-skills.ts",
     "scaffold:health": "tsx tools/scaffold-health.ts",
-    "verify:foundation": "pnpm scaffold:health && pnpm audit:boundaries && pnpm audit:sqlite-isolation && pnpm audit:no-live-automation && pnpm audit:skills && pnpm nx run-many -t lint,test,build --output-style=static > NUL",
+    "verify:foundation": "pnpm scaffold:health && pnpm audit:boundaries && pnpm audit:sqlite-isolation && pnpm audit:no-live-automation && pnpm audit:skills && pnpm lint && pnpm test && pnpm build",
     "lint": "pnpm nx run-many -t lint",
     "test": "pnpm nx run-many -t test",
     "build": "pnpm nx run-many -t build",

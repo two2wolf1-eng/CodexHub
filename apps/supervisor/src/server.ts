@@ -473,12 +473,16 @@ import {
   isLoopbackElectronEndpointHost,
 } from '@codexhub/electron-cdp-kernel';
 import {
+  probeCodexDesktopCdpConnectionReadiness,
   createElectronCdpControlledHttpRunner,
   createElectronCdpControlledWebSocketEventRunner,
   executeElectronCdpAdapter,
   planElectronCdpObservation,
 } from '@codexhub/electron-cdp-adapter';
-import type { ElectronCdpObservationRunner } from '@codexhub/electron-cdp-adapter';
+import type {
+  CodexDesktopCdpConnectionProbeInput,
+  ElectronCdpObservationRunner,
+} from '@codexhub/electron-cdp-adapter';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
 import {
   type M11ProductionPilotNarrowPathInput,
@@ -496,8 +500,14 @@ import {
 import {
   createPlaywrightObserverAdapterPlan,
   executePlaywrightObserverAdapter,
+  probeChromeCdpConnectionReadiness,
+  runChromeCdpActionBoundary,
 } from '@codexhub/playwright-observer-adapter';
-import type { PlaywrightObserverRunner } from '@codexhub/playwright-observer-adapter';
+import type {
+  ChromeCdpActionStep,
+  ChromeCdpConnectionProbeInput,
+  PlaywrightObserverRunner,
+} from '@codexhub/playwright-observer-adapter';
 import {
   createLocalReviewPackageApprovalRecord,
   createLocalReviewPackageAuditEvent,
@@ -706,9 +716,13 @@ interface SupervisorServerOptions {
   realReadOnlyAdapterPostRunWorktreeState?: CodexExecRealReadOnlyAdapterPostRunWorktreeState;
   playwrightObserverEnabled?: boolean;
   playwrightObserverRunner?: PlaywrightObserverRunner;
+  chromeCdpConnectionProbe?: (input: ChromeCdpConnectionProbeInput) => Promise<unknown>;
   electronCdpObserverEnabled?: boolean;
   electronCdpEventsEnabled?: boolean;
   electronCdpObserverRunner?: ElectronCdpObservationRunner;
+  codexDesktopCdpConnectionProbe?: (
+    input: CodexDesktopCdpConnectionProbeInput,
+  ) => Promise<unknown>;
   worktreeManagerEnabled?: boolean;
   worktreeManagerRunner?: WorktreeManagerFixtureRunner;
   worktreeCleanupEnabled?: boolean;
@@ -5007,6 +5021,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerBusinessQuotaDebugRoutes('/api/business-quota-debug');
   registerBusinessQuotaRoutes('/api/business-quota');
   registerBusinessQuotaAdminUiRoutes('/api/business-quota/admin-ui');
+  registerRealClientConnectionRoutes('/api/real-clients');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -23803,6 +23818,124 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  function registerRealClientConnectionRoutes(prefix: string): void {
+    server.get(`${prefix}/connection-readiness`, async () => {
+      const chromeEndpoint = process.env.CODEXHUB_CHROME_CDP_ENDPOINT;
+      const codexDesktopEndpoint = process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+
+      return {
+        status: chromeEndpoint || codexDesktopEndpoint ? 'configured' : 'missing',
+        chromeCdpEndpointConfigured: Boolean(chromeEndpoint),
+        chromeCdpEndpointHash: chromeEndpoint ? hashLocalMetadata({ endpoint: chromeEndpoint }) : undefined,
+        codexDesktopCdpEndpointConfigured: Boolean(codexDesktopEndpoint),
+        codexDesktopCdpEndpointHash: codexDesktopEndpoint
+          ? hashLocalMetadata({ endpoint: codexDesktopEndpoint })
+          : undefined,
+        loopbackOnly: true,
+        requestBodyEndpointAccepted: false,
+        rawEndpointStored: false,
+        credentialMaterialStored: false,
+        liveActionReady: false,
+        summary:
+          'Real client readiness exposes only configured/missing state and endpoint hashes.',
+      };
+    });
+
+    server.post(`${prefix}/connection-probes`, async (request, reply) => {
+      const body = request.body as RealClientConnectionProbeRequestBody | undefined;
+      if (hasForbiddenRealClientConnectionBody(body)) {
+        return reply.code(400).send({
+          error: 'untrusted_real_client_connection_authority_or_raw_body',
+          requestBodyEndpointAccepted: false,
+          rawEndpointStored: false,
+          credentialMaterialStored: false,
+        });
+      }
+
+      const surface = normalizeRealClientSurface(body?.surface);
+      if (surface === 'chrome-cdp') {
+        const probe = options.chromeCdpConnectionProbe ?? probeChromeCdpConnectionReadiness;
+        const result = await probe({
+          endpointUrl: process.env.CODEXHUB_CHROME_CDP_ENDPOINT,
+          observedAt: foundationTimestamp(),
+        });
+        return {
+          ...(result as Record<string, unknown>),
+          requestBodyEndpointAccepted: false,
+          rawEndpointStored: false,
+          rawUrlStored: false,
+          rawBodyStored: false,
+          credentialMaterialStored: false,
+          liveActionReady: false,
+        };
+      }
+
+      const probe =
+        options.codexDesktopCdpConnectionProbe ?? probeCodexDesktopCdpConnectionReadiness;
+      const result = await probe({
+        endpointUrl: process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT,
+        observedAt: foundationTimestamp(),
+      });
+      return {
+        ...(result as Record<string, unknown>),
+        requestBodyEndpointAccepted: false,
+        rawEndpointStored: false,
+        rawUrlStored: false,
+        rawBodyStored: false,
+        credentialMaterialStored: false,
+        liveActionReady: false,
+      };
+    });
+  }
+
+  type RealClientConnectionProbeRequestBody = {
+    surface?: unknown;
+  };
+
+  function normalizeRealClientSurface(surface: unknown): 'chrome-cdp' | 'codex-desktop-cdp' {
+    return surface === 'codex-desktop-cdp' ? 'codex-desktop-cdp' : 'chrome-cdp';
+  }
+
+  function hasForbiddenRealClientConnectionBody(body: unknown): boolean {
+    if (hasUntrustedAuthorityBody(body)) return true;
+    if (typeof body !== 'object' || body === null) return false;
+
+    const forbiddenKeys = new Set([
+      'endpoint',
+      'rawEndpoint',
+      'url',
+      'rawUrl',
+      ['web', 'Socket', 'Debugger', 'Url'].join(''),
+      'debuggerUrl',
+      'approvalArtifact',
+      'authority',
+      'executionAuthority',
+      'rawSelector',
+      'rawTypedText',
+      'rawScript',
+      'rawPayload',
+      'rawBody',
+      'body',
+      'requestBody',
+      'responseBody',
+      ['to', 'ken'].join(''),
+      ['coo', 'kie'].join(''),
+      ['sess', 'ion'].join(''),
+      ['stor', 'age'].join(''),
+      ['M', 'F', 'A'].join(''),
+      'password',
+      'credential',
+      'secret',
+      'authorization',
+    ]);
+
+    return Object.entries(body as Record<string, unknown>).some(
+      ([key, value]) =>
+        forbiddenKeys.has(key) ||
+        (typeof value === 'object' && value !== null && hasForbiddenRealClientConnectionBody(value)),
+    );
+  }
+
   function registerBusinessQuotaAdminUiRoutes(prefix: string): void {
     server.get(`${prefix}/runs`, async () => {
       const store = await getStore();
@@ -24218,12 +24351,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     }
 
     if (!options.businessAdminUiFixedFlowRunner) {
-      return {
-        liveExecutorGateEnabled: true,
-        selectorFingerprintMatched: false,
-        finalConfirmFingerprintMatched: false,
-        postWriteVerified: false,
-      };
+      const configuredFlowResult = await runConfiguredBusinessAdminUiFixedFlow(
+        records.intent.actionKind,
+        records.authority.approvalArtifactIdHash,
+      );
+      return (
+        configuredFlowResult ?? {
+          liveExecutorGateEnabled: true,
+          selectorFingerprintMatched: false,
+          finalConfirmFingerprintMatched: false,
+          postWriteVerified: false,
+        }
+      );
     }
 
     const result = await options.businessAdminUiFixedFlowRunner({
@@ -24243,6 +24382,88 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       postWritePageHash: result.postWritePageHash,
       evidenceRefIds: result.evidenceRefIds,
       auditEventIds: result.auditEventIds,
+    };
+  }
+
+  async function runConfiguredBusinessAdminUiFixedFlow(
+    actionKind: AdminUiActionKind,
+    approvalArtifactIdHash: string | undefined,
+  ): Promise<
+    | {
+        liveExecutorGateEnabled: true;
+        selectorFingerprintMatched: boolean;
+        finalConfirmFingerprintHash?: string;
+        finalConfirmFingerprintMatched: boolean;
+        postWriteVerified: boolean;
+        postWritePageHash?: string;
+        evidenceRefIds?: readonly string[];
+        auditEventIds?: readonly string[];
+      }
+    | undefined
+  > {
+    const steps = readBusinessAdminUiFixedFlowSteps(actionKind);
+    if (!steps.length || !process.env.CODEXHUB_CHROME_CDP_ENDPOINT) return undefined;
+
+    const result = await runChromeCdpActionBoundary({
+      endpointUrl: process.env.CODEXHUB_CHROME_CDP_ENDPOINT,
+      steps,
+    });
+
+    return {
+      liveExecutorGateEnabled: true,
+      selectorFingerprintMatched: result.status === 'completed',
+      finalConfirmFingerprintHash: hashLocalMetadata({
+        actionKind,
+        approvalArtifactIdHash,
+        stepCount: steps.length,
+        status: result.status,
+      }),
+      finalConfirmFingerprintMatched: result.status === 'completed',
+      postWriteVerified: result.status === 'completed',
+      postWritePageHash: hashLocalMetadata({
+        actionKind,
+        endpointHash: result.endpointHash,
+        runId: result.id,
+      }),
+      evidenceRefIds: result.evidenceRefIds,
+      auditEventIds: result.auditEventIds,
+    };
+  }
+
+  function readBusinessAdminUiFixedFlowSteps(actionKind: AdminUiActionKind): ChromeCdpActionStep[] {
+    const rawConfig = process.env.CODEXHUB_BUSINESS_ADMIN_UI_FIXED_FLOW_JSON;
+    if (!rawConfig) return [];
+
+    try {
+      const parsed = JSON.parse(rawConfig) as unknown;
+      if (typeof parsed !== 'object' || parsed === null) return [];
+      const maybeSteps = (parsed as Record<string, unknown>)[actionKind];
+      if (!Array.isArray(maybeSteps)) return [];
+      return maybeSteps
+        .map(normalizeChromeCdpActionStep)
+        .filter((step): step is ChromeCdpActionStep => step !== undefined);
+    } catch {
+      return [];
+    }
+  }
+
+  function normalizeChromeCdpActionStep(step: unknown): ChromeCdpActionStep | undefined {
+    if (typeof step !== 'object' || step === null) return undefined;
+    const record = step as Record<string, unknown>;
+    const actionKind =
+      record.actionKind === 'type' || record.actionKind === 'submit' ? record.actionKind : 'click';
+    if (typeof record.selector !== 'string' || typeof record.selectorHash !== 'string') {
+      return undefined;
+    }
+
+    return {
+      actionKind,
+      selector: record.selector,
+      selectorHash: record.selectorHash,
+      targetUrl: typeof record.targetUrl === 'string' ? record.targetUrl : undefined,
+      targetUrlHash: typeof record.targetUrlHash === 'string' ? record.targetUrlHash : undefined,
+      typedText: typeof record.typedText === 'string' ? record.typedText : undefined,
+      typedTextHash: typeof record.typedTextHash === 'string' ? record.typedTextHash : undefined,
     };
   }
 

@@ -3477,3 +3477,39 @@ integrations:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m73-real-client-direct-automation:
+    enabled: false
+    adapter: playwright-observer-adapter electron-cdp-adapter
+    provider: real-client-loopback-cdp
+    providerType: builtin
+    mode: governed-direct-client-connection-and-fixed-action
+    stage: m73-real-client-direct-automation
+    release: docs/releases/m73-real-client-direct-automation.md
+    review: docs/reviews/m73-real-client-direct-automation-review.md
+    runbook: docs/runbooks/m73-real-client-direct-automation-runbook.md
+    processBoundary: false
+    networkBoundary: true
+    remoteProviderBoundary: false
+    defaultActionMode: admin
+    defaultRisk: critical
+    runtimeGates:
+      - CODEXHUB_CHROME_CDP_ENDPOINT
+      - CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT
+      - CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED
+    supervisorRoutes:
+      - GET /api/real-clients/connection-readiness
+      - POST /api/real-clients/connection-probes
+      - POST /api/business-quota/admin-ui/runs
+    safety:
+      directClientConnectionAllowed: true
+      loopbackCdpOnly: true
+      fixedBusinessAdminFlowOnly: true
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      requestBodyEndpointTrusted: false
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

@@ -586,6 +586,8 @@ import {
   PrivilegedBusinessAccessLogSchema,
   PrivilegedBusinessDataRecordSchema,
   PrivilegedBusinessExportManifestSchema,
+  RealClientActionRunSchema,
+  RealClientConnectionReadinessSchema,
   WorkspaceCodexQuotaReadinessSchema,
   QuotaSnapshotSchema,
   QuotaAttributionSchema,
@@ -17334,6 +17336,38 @@ describe('contracts schemas', () => {
       targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
       summary: 'Admin UI write is authorized but still disabled until the executor round.',
     });
+    const chromeConnection = RealClientConnectionReadinessSchema.parse({
+      id: 'real_client_connection_chrome_1',
+      schemaVersion,
+      observedAt: createdAt,
+      surface: 'chrome-cdp',
+      status: 'ready',
+      endpointConfigured: true,
+      endpointHash: 'sha256:chrome-endpoint',
+      contextCount: 1,
+      pageCount: 2,
+      targetCount: 2,
+      cdpHttpBoundaryInvoked: true,
+      realClientConnected: true,
+      summary: 'Chrome CDP connection readiness is represented by hashes and counts.',
+    });
+    const chromeActionRun = RealClientActionRunSchema.parse({
+      id: 'real_client_action_run_1',
+      schemaVersion,
+      createdAt,
+      surface: 'chrome-cdp',
+      actionKind: 'click',
+      status: 'completed',
+      endpointHash: 'sha256:chrome-endpoint',
+      targetUrlHash: 'sha256:target-url',
+      selectorHash: 'sha256:selector',
+      actionCount: 1,
+      approvedActionCount: 1,
+      cdpHttpBoundaryInvoked: true,
+      browserActionInvoked: true,
+      visibleUiExecution: true,
+      summary: 'Chrome CDP visible click run stores only hashes, counts, and boundary booleans.',
+    });
     const ownerAdminSurface = OwnerAdminReadSurfaceSummarySchema.parse({
       id: 'owner_admin_read_surface_1',
       schemaVersion,
@@ -17585,6 +17619,8 @@ describe('contracts schemas', () => {
       adminDryRun,
       adminAuthority,
       adminRun,
+      chromeConnection,
+      chromeActionRun,
       ownerAdminSurface,
       rosterSnapshot,
       billingSummary,
@@ -17616,6 +17652,11 @@ describe('contracts schemas', () => {
     expect(adminIntent.credentialInputRequested).toBe(false);
     expect(adminAuthority.requestBodyAuthorityAccepted).toBe(false);
     expect(adminRun.executionDisabled).toBe(true);
+    expect(chromeConnection.rawEndpointStored).toBe(false);
+    expect(chromeConnection.credentialMaterialStored).toBe(false);
+    expect(chromeActionRun.requestBodyAuthorityAccepted).toBe(false);
+    expect(chromeActionRun.rawSelectorStored).toBe(false);
+    expect(chromeActionRun.rawTypedTextStored).toBe(false);
     expect(ownerAdminSurface.rawDomStored).toBe(false);
     expect(ownerAdminReport.directAdapterExecutionAllowed).toBe(false);
     expect(profileObservation.cookieSessionTokenRead).toBe(false);
@@ -17634,6 +17675,37 @@ describe('contracts schemas', () => {
     );
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+    expect(() =>
+      RealClientConnectionReadinessSchema.parse({
+        id: 'real_client_connection_raw_1',
+        schemaVersion,
+        observedAt: createdAt,
+        surface: 'chrome-cdp',
+        status: 'ready',
+        endpointConfigured: true,
+        endpointHash: 'sha256:chrome-endpoint',
+        realClientConnected: true,
+        rawEndpoint: 'http://127.0.0.1:9222',
+        summary: 'Raw endpoint must not be accepted.',
+      }),
+    ).toThrow();
+    expect(() =>
+      RealClientActionRunSchema.parse({
+        id: 'real_client_action_raw_1',
+        schemaVersion,
+        createdAt,
+        surface: 'chrome-cdp',
+        actionKind: 'type',
+        status: 'completed',
+        endpointHash: 'sha256:chrome-endpoint',
+        actionCount: 1,
+        approvedActionCount: 1,
+        browserActionInvoked: true,
+        visibleUiExecution: true,
+        rawTypedText: 'private input body',
+        summary: 'Raw typed text must not be accepted.',
+      }),
+    ).toThrow();
   });
 
   it('rejects M62 contracts that leak sensitive UI material or overclaim authority', () => {

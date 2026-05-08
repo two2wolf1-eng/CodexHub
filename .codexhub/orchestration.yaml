@@ -7045,3 +7045,35 @@ workflows:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m73.real-client-direct-automation:
+    risk: critical
+    trigger:
+      type: real-client-direct-automation
+      entrypoint: contracts playwright-observer-adapter electron-cdp-adapter supervisor docs
+      localControlRequired: true
+    scope:
+      - real-client-connection-readiness-contracts
+      - chrome-cdp-loopback-connection-probe
+      - chrome-cdp-fixed-click-type-submit-boundary
+      - codex-desktop-cdp-loopback-readiness-probe
+      - supervisor-real-client-connection-probe-route
+      - business-admin-env-configured-fixed-flow-runner
+    docs:
+      - docs/releases/m73-real-client-direct-automation.md
+      - docs/reviews/m73-real-client-direct-automation-review.md
+      - docs/runbooks/m73-real-client-direct-automation-runbook.md
+    safety:
+      noNewProvider: false
+      noNewStoreRepository: true
+      directClientConnectionAllowed: true
+      loopbackCdpOnly: true
+      fixedBusinessAdminFlowOnly: true
+      genericCdpCommandPassthroughAllowed: false
+      requestBodyEndpointTrusted: false
+      requestBodyAuthorityTrusted: false
+      highPrivilegeApprovalRequired: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

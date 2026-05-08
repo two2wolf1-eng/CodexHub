@@ -21513,6 +21513,114 @@ export const AdminWriteRunSchema = createdEntityBaseSchema
   });
 export type AdminWriteRun = z.infer<typeof AdminWriteRunSchema>;
 
+export const RealClientSurfaceSchema = z.enum(['chrome-cdp', 'codex-desktop-cdp']);
+export type RealClientSurface = z.infer<typeof RealClientSurfaceSchema>;
+
+export const RealClientConnectionStatusSchema = z.enum(['ready', 'blocked', 'failed']);
+export type RealClientConnectionStatus = z.infer<typeof RealClientConnectionStatusSchema>;
+
+export const RealClientActionKindSchema = z.enum(['click', 'type', 'submit']);
+export type RealClientActionKind = z.infer<typeof RealClientActionKindSchema>;
+
+export const RealClientConnectionReadinessSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    surface: RealClientSurfaceSchema,
+    status: RealClientConnectionStatusSchema,
+    endpointConfigured: z.boolean().default(false),
+    endpointHash: z.string().min(1).optional(),
+    loopbackOnly: z.literal(true).default(true),
+    contextCount: z.number().int().nonnegative().default(0),
+    pageCount: z.number().int().nonnegative().default(0),
+    targetCount: z.number().int().nonnegative().default(0),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    realClientConnected: z.boolean().default(false),
+    liveActionReady: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawUrlStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.endpointConfigured && !record.endpointHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'configured real client endpoints must be represented by a hash',
+        path: ['endpointHash'],
+      });
+    }
+    if (record.status === 'ready' && !record.realClientConnected) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready real client connection requires a successful connection boundary',
+        path: ['realClientConnected'],
+      });
+    }
+  });
+export type RealClientConnectionReadiness = z.infer<
+  typeof RealClientConnectionReadinessSchema
+>;
+
+export const RealClientActionRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    surface: RealClientSurfaceSchema,
+    actionKind: RealClientActionKindSchema,
+    status: UiAutomationStatusSchema,
+    endpointHash: z.string().min(1),
+    targetUrlHash: z.string().min(1).optional(),
+    selectorHash: z.string().min(1).optional(),
+    typedTextHash: z.string().min(1).optional(),
+    actionCount: z.number().int().nonnegative().default(0),
+    approvedActionCount: z.number().int().nonnegative().default(0),
+    blockedActionCount: z.number().int().nonnegative().default(0),
+    dryRunRequired: z.literal(true).default(true),
+    approvalRequired: z.literal(true).default(true),
+    authorityRequired: z.literal(true).default(true),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    loopbackOnly: z.literal(true).default(true),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    browserActionInvoked: z.boolean().default(false),
+    visibleUiExecution: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawTypedTextStored: z.literal(false).default(false),
+    rawUrlStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.browserActionInvoked && !record.visibleUiExecution) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'real client action execution requires visible UI evidence',
+        path: ['visibleUiExecution'],
+      });
+    }
+    if (record.approvedActionCount + record.blockedActionCount > record.actionCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'real client action result counts cannot exceed actionCount',
+        path: ['actionCount'],
+      });
+    }
+  });
+export type RealClientActionRun = z.infer<typeof RealClientActionRunSchema>;
+
 export function foundationTimestamp(): string {
   return new Date().toISOString();
 }

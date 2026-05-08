@@ -32,6 +32,7 @@ import {
   CodexTaskIntentSchema,
   CodexTaskRunSchema,
   QuotaSnapshotSchema,
+  RealClientConnectionReadinessSchema,
 } from '@codexhub/contracts';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
@@ -279,6 +280,12 @@ const lateStageSupervisorControlPlaneMatrix = [
     ],
   },
   {
+    family: 'real-clients',
+    prefix: '/api/real-clients',
+    approvalManagedExternally: true,
+    routeSuffixes: ['/connection-probes'],
+  },
+  {
     family: 'business-quota',
     prefix: '/api/business-quota',
     approvalManagedExternally: true,
@@ -336,6 +343,7 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/production-readiness',
   '/api/business-quota-debug',
   '/api/business-quota',
+  '/api/real-clients',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -2327,6 +2335,12 @@ describe('supervisor mock development API', () => {
             `${prefix}/post-write-verifications`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerRealClientConnectionRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [`${prefix}/connection-probes`]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -2480,6 +2494,11 @@ describe('supervisor mock development API', () => {
           '/runs',
           '/post-write-verifications',
         ],
+      },
+      {
+        helperName: 'registerRealClientConnectionRoutes',
+        variableName: 'prefix',
+        suffixes: ['/connection-probes'],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -4192,6 +4211,106 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private owner member target');
       expect(body).not.toContain('private seat assign target');
       expect(body).not.toContain(localControlToken);
+    }
+  });
+
+  it('probes real Chrome and Codex Desktop client connections through env-only loopback endpoints', async () => {
+    const originalChromeEndpoint = process.env.CODEXHUB_CHROME_CDP_ENDPOINT;
+    const originalCodexEndpoint = process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+    const observedAt = '2026-05-08T00:00:00.000Z';
+    process.env.CODEXHUB_CHROME_CDP_ENDPOINT = 'http://127.0.0.1:9222';
+    process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT = 'http://127.0.0.1:43325';
+    const server = buildSupervisorServer({
+      chromeCdpConnectionProbe: async ({ endpointUrl }) =>
+        RealClientConnectionReadinessSchema.parse({
+          id: 'real_client_connection_chrome_test',
+          schemaVersion: '2026-04-28.foundation',
+          observedAt,
+          surface: 'chrome-cdp',
+          status: 'ready',
+          endpointConfigured: true,
+          endpointHash: hashTestMetadata({ endpointUrl }),
+          contextCount: 1,
+          pageCount: 1,
+          targetCount: 1,
+          cdpHttpBoundaryInvoked: true,
+          realClientConnected: true,
+          summary: 'Injected Chrome CDP readiness probe completed.',
+        }),
+      codexDesktopCdpConnectionProbe: async ({ endpointUrl }) =>
+        RealClientConnectionReadinessSchema.parse({
+          id: 'real_client_connection_codex_test',
+          schemaVersion: '2026-04-28.foundation',
+          observedAt,
+          surface: 'codex-desktop-cdp',
+          status: 'ready',
+          endpointConfigured: true,
+          endpointHash: hashTestMetadata({ endpointUrl }),
+          targetCount: 2,
+          cdpHttpBoundaryInvoked: true,
+          realClientConnected: true,
+          summary: 'Injected Codex Desktop CDP readiness probe completed.',
+        }),
+    });
+
+    const chromeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/connection-probes',
+      headers: localControlHeaders,
+      payload: { surface: 'chrome-cdp' },
+    });
+    const codexResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/connection-probes',
+      headers: localControlHeaders,
+      payload: { surface: 'codex-desktop-cdp' },
+    });
+    const rejectedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/connection-probes',
+      headers: localControlHeaders,
+      payload: {
+        surface: 'chrome-cdp',
+        endpoint: 'http://127.0.0.1:9222',
+        authority: { allowed: true },
+      },
+    });
+
+    await server.close();
+    if (originalChromeEndpoint === undefined) {
+      delete process.env.CODEXHUB_CHROME_CDP_ENDPOINT;
+    } else {
+      process.env.CODEXHUB_CHROME_CDP_ENDPOINT = originalChromeEndpoint;
+    }
+    if (originalCodexEndpoint === undefined) {
+      delete process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+    } else {
+      process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT = originalCodexEndpoint;
+    }
+
+    expect(chromeResponse.statusCode).toBe(200);
+    expect(chromeResponse.json()).toMatchObject({
+      surface: 'chrome-cdp',
+      status: 'ready',
+      requestBodyEndpointAccepted: false,
+      rawEndpointStored: false,
+      credentialMaterialStored: false,
+      liveActionReady: false,
+    });
+    expect(codexResponse.statusCode).toBe(200);
+    expect(codexResponse.json()).toMatchObject({
+      surface: 'codex-desktop-cdp',
+      status: 'ready',
+      requestBodyEndpointAccepted: false,
+      rawEndpointStored: false,
+    });
+    expect(rejectedResponse.statusCode).toBe(400);
+
+    for (const body of [chromeResponse.body, codexResponse.body, rejectedResponse.body]) {
+      expect(body).not.toContain('127.0.0.1:9222');
+      expect(body).not.toContain('127.0.0.1:43325');
+      expect(body).not.toContain(localControlToken);
+      expect(body).not.toContain('"allowed":true');
     }
   });
 

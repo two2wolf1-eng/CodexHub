@@ -86,7 +86,18 @@ function expectNoCliLocalControlMutationSurface(source: string): void {
 
 describe('cli development mock-run fallback', () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.resetModules();
     process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = 'test-local-control-token';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.resetModules();
+    delete process.env.CODEXHUB_SUPERVISOR_URL;
+    delete process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN;
   });
 
   it('keeps M45 controlled write CLI mutations exact, metadata-only, and env-token gated', () => {

@@ -37,9 +37,11 @@ const approvedLocalArtifactWriteBoundaryFiles = new Set([
 ]);
 const approvedLiveAutomationBoundaryFiles = new Set([
   'packages/playwright-observer-adapter/src/action-boundary.ts',
+  'packages/playwright-observer-adapter/src/chrome-cdp-boundary.ts',
   'packages/playwright-observer-adapter/src/real-runner.ts',
 ]);
 const approvedCdpHttpBoundaryFiles = new Set([
+  'packages/electron-cdp-adapter/src/codex-desktop-cdp-readiness.ts',
   'packages/electron-cdp-adapter/src/controlled-http-runner.ts',
   'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
   'packages/electron-cdp-adapter/src/main-inspector-boundary.ts',

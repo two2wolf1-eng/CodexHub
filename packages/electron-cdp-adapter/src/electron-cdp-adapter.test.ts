@@ -16,6 +16,7 @@ import { hashText } from '@codexhub/evidence-kernel';
 import { describe, expect, it } from 'vitest';
 
 import { createElectronCdpControlledHttpRunner } from './controlled-http-runner';
+import { probeCodexDesktopCdpConnectionReadiness } from './codex-desktop-cdp-readiness';
 import { createElectronCdpControlledWebSocketEventRunner } from './controlled-websocket-event-runner';
 import { executeElectronCdpAdapter } from './execute';
 import { createElectronCdpFixtureRunner } from './fixture';
@@ -39,6 +40,54 @@ const authority: ExecutionAuthority = {
 const sourceDir = new URL('.', import.meta.url);
 
 describe('electron-cdp-adapter', () => {
+  it('probes real Codex Desktop CDP loopback endpoints as metadata-only readiness', async () => {
+    const requestedUrls: string[] = [];
+    const readiness = await probeCodexDesktopCdpConnectionReadiness({
+      endpointUrl: 'http://127.0.0.1:43325',
+      observedAt: '2026-05-08T00:00:00.000Z',
+      fetch: async (url: string) => {
+        requestedUrls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            url.endsWith('/json/list')
+              ? JSON.stringify([{ id: 'private-target', title: 'Private Codex Window' }])
+              : JSON.stringify({ Browser: 'Codex private build' }),
+        };
+      },
+    });
+    const serialized = JSON.stringify(readiness);
+
+    expect(readiness.status).toBe('ready');
+    expect(readiness.surface).toBe('codex-desktop-cdp');
+    expect(readiness.endpointHash).toMatch(/^sha256:/);
+    expect(readiness.targetCount).toBe(1);
+    expect(readiness.cdpHttpBoundaryInvoked).toBe(true);
+    expect(readiness.rawEndpointStored).toBe(false);
+    expect(requestedUrls).toEqual([
+      'http://127.0.0.1:43325/json/version',
+      'http://127.0.0.1:43325/json/list',
+    ]);
+    expect(serialized).not.toContain('127.0.0.1:43325');
+    expect(serialized).not.toContain('Private Codex Window');
+  });
+
+  it('blocks non-loopback Codex Desktop CDP endpoints before HTTP observation', async () => {
+    const readiness = await probeCodexDesktopCdpConnectionReadiness({
+      endpointUrl: 'http://example.com:43325',
+      observedAt: '2026-05-08T00:00:00.000Z',
+      fetch: async () => {
+        throw new Error('should not fetch');
+      },
+    });
+
+    expect(readiness.status).toBe('blocked');
+    expect(readiness.blockReasons).toContain('non_loopback_endpoint_forbidden');
+    expect(readiness.cdpHttpBoundaryInvoked).toBe(false);
+    expect(JSON.stringify(readiness)).not.toContain('example.com');
+  });
+
   it('keeps Electron main inspector constrained to named snippet hash execution', () => {
     const source = readFileSync(new URL('./main-inspector-boundary.ts', sourceDir), 'utf8');
     const forbiddenTerms = [
