@@ -1094,6 +1094,184 @@ describe('supervisor mock development API', () => {
     );
   });
 
+  it('rehearses M59 closure failure states through the Supervisor shell and store', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m59-closure-rehearsal-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const server = buildSupervisorServer({ store });
+    const scenarios = [
+      {
+        name: 'all-pass',
+        expectedClosureStatus: 'completed',
+        payload: {
+          changedFilePathHashes: ['sha256:path-a', 'sha256:path-b'],
+          changedFileCount: 2,
+          diffHash: 'sha256:diff',
+          diffSummaryHash: 'sha256:diff-summary',
+          verificationTargetCount: 3,
+          verificationPassedCount: 3,
+          outputSummaryHash: 'sha256:verification-output',
+          reviewReady: true,
+          reviewPackageIdHash: 'sha256:review-package',
+          reviewPackageHash: 'sha256:review-package-body',
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          ciStatus: 'passed',
+        },
+      },
+      {
+        name: 'empty-diff',
+        expectedClosureStatus: 'blocked',
+        payload: {
+          changedFilePathHashes: [],
+          changedFileCount: 0,
+          verificationTargetCount: 3,
+          verificationPassedCount: 3,
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          ciStatus: 'passed',
+        },
+      },
+      {
+        name: 'verification-failed',
+        expectedClosureStatus: 'blocked',
+        payload: {
+          changedFilePathHashes: ['sha256:path-a'],
+          changedFileCount: 1,
+          diffHash: 'sha256:diff',
+          verificationTargetCount: 3,
+          verificationPassedCount: 2,
+          verificationFailedCount: 1,
+          reviewReady: true,
+          reviewPackageIdHash: 'sha256:review-package',
+          reviewPackageHash: 'sha256:review-package-body',
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          ciStatus: 'passed',
+        },
+      },
+      {
+        name: 'review-blocked',
+        expectedClosureStatus: 'blocked',
+        payload: {
+          changedFilePathHashes: ['sha256:path-a'],
+          changedFileCount: 1,
+          diffHash: 'sha256:diff',
+          verificationTargetCount: 3,
+          verificationPassedCount: 3,
+          reviewStatus: 'blocked_patch',
+          reviewFindingCount: 1,
+          reviewBlockerCount: 1,
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          ciStatus: 'passed',
+        },
+      },
+      {
+        name: 'dry-run-approval-missing',
+        expectedClosureStatus: 'waiting_approval',
+        payload: {
+          changedFilePathHashes: ['sha256:path-a'],
+          changedFileCount: 1,
+          diffHash: 'sha256:diff',
+          verificationTargetCount: 3,
+          verificationPassedCount: 3,
+          reviewReady: true,
+          reviewPackageIdHash: 'sha256:review-package',
+          reviewPackageHash: 'sha256:review-package-body',
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          approvalWaiting: true,
+        },
+      },
+      {
+        name: 'ci-failed',
+        expectedClosureStatus: 'failed',
+        payload: {
+          changedFilePathHashes: ['sha256:path-a'],
+          changedFileCount: 1,
+          diffHash: 'sha256:diff',
+          verificationTargetCount: 3,
+          verificationPassedCount: 3,
+          reviewReady: true,
+          reviewPackageIdHash: 'sha256:review-package',
+          reviewPackageHash: 'sha256:review-package-body',
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          ciStatus: 'failed',
+        },
+      },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const taskRun = CodexTaskRunSchema.parse({
+        id: `codex_task_run_m59_supervisor_${scenario.name.replaceAll('-', '_')}`,
+        schemaVersion: '2026-04-28.foundation',
+        createdAt,
+        intentId: `codex_task_intent_m59_supervisor_${scenario.name.replaceAll('-', '_')}`,
+        status: 'completed',
+        dispatchMode: 'live_app_server',
+        preflightStatus: 'ready',
+        approvalStatus: 'approved',
+        eventStreamStatus: 'completed',
+        dispatchAllowed: true,
+        liveExecution: false,
+        evidenceRefIds: [`evidence_m59_${scenario.name}`],
+        auditEventIds: [`audit_m59_${scenario.name}`],
+        summary: `M59 closure rehearsal task run for ${scenario.name}.`,
+      });
+      await store.codexTaskRuns.saveRecord(taskRun);
+
+      const response = await server.inject({
+        method: 'POST',
+        url: `/tasks/${taskRun.id}/closure`,
+        headers: localControlHeaders,
+        payload: scenario.payload,
+      });
+      const updatedRun = await store.codexTaskRuns.getRecord(taskRun.id);
+
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({
+        status: 'closure-recorded',
+        closureStatus: scenario.expectedClosureStatus,
+        dryRunOnly: true,
+        liveRemoteWriteAllowed: false,
+        directAdapterExecutionAllowed: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+      expect(updatedRun?.closureRunId).toEqual(expect.stringMatching(/^codex_task_closure_run_/));
+      expect(response.body).not.toContain(localControlToken);
+      expect(response.body).not.toContain('review-package-body');
+    }
+
+    const closuresResponse = await server.inject({
+      method: 'GET',
+      url: '/tasks/closures',
+    });
+    const closureRuns = await store.codexTaskClosureRuns.listRecords({ limit: 20 });
+    const githubClosures = await store.codexTaskGithubClosureProjections.listRecords({ limit: 20 });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(closureRuns).toHaveLength(scenarios.length);
+    expect(githubClosures.every((record) => record.remoteWriteAllowed === false)).toBe(true);
+    expect(githubClosures.every((record) => record.rawPullRequestBodyStored === false)).toBe(true);
+    expect(closuresResponse.json()).toMatchObject({
+      status: 'available-readonly',
+      counts: {
+        closureRuns: scenarios.length,
+        githubClosureProjections: scenarios.length,
+        remoteWritesAllowed: 0,
+      },
+    });
+    expect(closuresResponse.body).not.toContain('review-package-body');
+    expect(closuresResponse.body).not.toContain(process.cwd());
+  });
+
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
