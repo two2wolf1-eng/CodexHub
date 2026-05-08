@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyUiActionAuthority,
+  classifyAdminUiActionRisk,
   classifyUiActionRisk,
+  createAdminWriteDryRun,
+  createUiTargetFingerprint,
   createUiActionDryRun,
   planUiAutomationIntent,
+  planAdminWriteIntent,
+  resolveAdminWriteAuthority,
+  summarizeAdminWriteRun,
   summarizeUiAutomationResult,
 } from './index';
 
@@ -74,6 +80,70 @@ describe('ui automation kernel', () => {
     expect(authority.allowed).toBe(false);
     expect(authority.credentialMaterialAllowed).toBe(false);
     expect(authority.storageAccessAllowed).toBe(false);
+    expect(run.status).toBe('blocked');
+    expect(run.liveActionAllowed).toBe(false);
+  });
+
+  it('plans high-privilege admin writes with fingerprint-bound authority only', () => {
+    const fingerprint = createUiTargetFingerprint({
+      targetSeed: 'private business admin member row',
+      selectorSeed: 'private remove member button selector',
+      axRoleSeed: 'button',
+      axNameSeed: 'Remove member',
+      pageSeed: 'members page hash input',
+    });
+    const intent = planAdminWriteIntent({
+      actionKind: 'remove-member',
+      targetSeed: 'private business admin member row',
+      fingerprint,
+    });
+    const dryRun = createAdminWriteDryRun(intent, fingerprint);
+    const deniedAuthority = resolveAdminWriteAuthority({ dryRunPlan: dryRun });
+    const approvedAuthority = resolveAdminWriteAuthority({
+      dryRunPlan: dryRun,
+      approvalArtifactSeed: 'stored-admin-approval-1',
+    });
+    const run = summarizeAdminWriteRun({ intent, dryRunPlan: dryRun, authority: approvedAuthority });
+
+    expect(classifyAdminUiActionRisk('remove-member')).toMatchObject({
+      actionClass: 'approved_admin_write',
+      riskLevel: 'critical',
+      approvalRequired: true,
+    });
+    expect(fingerprint.fingerprintHash).toMatch(/^sha256:/);
+    expect(intent.actionClass).toBe('approved_admin_write');
+    expect(dryRun.targetFingerprintHash).toBe(fingerprint.fingerprintHash);
+    expect(deniedAuthority.allowed).toBe(false);
+    expect(approvedAuthority.allowed).toBe(true);
+    expect(approvedAuthority.requestBodyAuthorityAccepted).toBe(false);
+    expect(run.status).toBe('authorized');
+    expect(run.liveActionAllowed).toBe(true);
+    expect(run.executionDisabled).toBe(true);
+    expect(run.processBoundaryInvoked).toBe(false);
+    expect(JSON.stringify(run)).not.toContain('private business admin member row');
+  });
+
+  it('blocks credential admin actions before authority can execute', () => {
+    const fingerprint = createUiTargetFingerprint({
+      targetSeed: 'private credential field',
+      selectorSeed: 'credential input selector',
+    });
+    const intent = planAdminWriteIntent({
+      actionKind: 'credential-input',
+      targetSeed: 'private credential field',
+      fingerprint,
+    });
+    const dryRun = createAdminWriteDryRun(intent, fingerprint);
+    const authority = resolveAdminWriteAuthority({
+      dryRunPlan: dryRun,
+      approvalArtifactSeed: 'stored-admin-approval-credential',
+    });
+    const run = summarizeAdminWriteRun({ intent, dryRunPlan: dryRun, authority });
+
+    expect(intent.actionClass).toBe('forbidden_credential_action');
+    expect(dryRun.credentialActionBlocked).toBe(true);
+    expect(authority.allowed).toBe(false);
+    expect(authority.credentialMaterialAllowed).toBe(false);
     expect(run.status).toBe('blocked');
     expect(run.liveActionAllowed).toBe(false);
   });

@@ -267,6 +267,18 @@ const lateStageSupervisorControlPlaneMatrix = [
     routeSuffixes: ['/rehearsals'],
   },
   {
+    family: 'business-quota-admin-ui',
+    prefix: '/api/business-quota/admin-ui',
+    approvalManagedExternally: true,
+    routeSuffixes: [
+      '/dry-runs',
+      '/approval-requests',
+      '/authority-resolutions',
+      '/runs',
+      '/post-write-verifications',
+    ],
+  },
+  {
     family: 'business-quota',
     prefix: '/api/business-quota',
     approvalManagedExternally: true,
@@ -2293,6 +2305,18 @@ describe('supervisor mock development API', () => {
             `${prefix}/critical-action-requests`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerBusinessQuotaAdminUiRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/dry-runs`,
+            `${prefix}/approval-requests`,
+            `${prefix}/authority-resolutions`,
+            `${prefix}/runs`,
+            `${prefix}/post-write-verifications`,
+          ]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -2432,6 +2456,17 @@ describe('supervisor mock development API', () => {
         ],
       },
       {
+        helperName: 'registerBusinessQuotaAdminUiRoutes',
+        variableName: 'prefix',
+        suffixes: [
+          '/dry-runs',
+          '/approval-requests',
+          '/authority-resolutions',
+          '/runs',
+          '/post-write-verifications',
+        ],
+      },
+      {
         helperName: 'registerRealPolicyBackendRoutes',
         variableName: 'prefix',
         suffixes: standardApprovalSuffixes,
@@ -2470,8 +2505,13 @@ describe('supervisor mock development API', () => {
     expect(new Set(coveredLateStageRoutes).size).toBe(coveredLateStageRoutes.length);
 
     for (const entry of lateStageSupervisorControlPlaneMatrix) {
-      const routes = coveredLateStageRoutes.filter((route) =>
-        route.startsWith(`${entry.prefix}/`),
+      const nestedPrefixes = lateStageSupervisorRoutePrefixes.filter(
+        (prefix) => prefix !== entry.prefix && prefix.startsWith(`${entry.prefix}/`),
+      );
+      const routes = coveredLateStageRoutes.filter(
+        (route) =>
+          route.startsWith(`${entry.prefix}/`) &&
+          !nestedPrefixes.some((prefix) => route.startsWith(`${prefix}/`)),
       );
       const expectedRoutes = getLateStageMutatingRoutes(entry);
 
@@ -3483,6 +3523,147 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private forged target');
       expect(body).not.toContain('private raw page');
       expect(body).not.toContain('must not grant authority from body');
+      expect(body).not.toContain(localControlToken);
+    }
+  });
+
+  it('records M66 admin UI authority shells without executing browser actions', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-admin-ui-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({ store });
+
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-dry-run-1',
+        actionKind: 'invite-member',
+        targetSeed: 'private business member target',
+        selectorSeed: 'private invite button selector',
+        axRoleSeed: 'button',
+        axNameSeed: 'Invite member',
+        pageSeed: 'private admin page snapshot',
+      },
+    });
+    const authorityResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/authority-resolutions',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-authority-1',
+        actionKind: 'add-credits',
+        targetSeed: 'private billing target',
+        selectorSeed: 'private add credits selector',
+        approvalArtifactId: 'stored-admin-approval-1',
+      },
+    });
+    const runResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-run-1',
+        actionKind: 'remove-member',
+        targetSeed: 'private removable member target',
+        selectorSeed: 'private remove member selector',
+        approvalArtifactId: 'stored-admin-approval-2',
+        liveActionRequested: true,
+      },
+    });
+    const verificationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/post-write-verifications',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-verify-1',
+        actionKind: 'assign-seat',
+        targetSeed: 'private seat target',
+        selectorSeed: 'private assign seat selector',
+        approvalArtifactId: 'stored-admin-approval-3',
+      },
+    });
+    const forgedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-forged-1',
+        actionKind: 'invite-member',
+        targetSeed: 'private forged admin target',
+        authority: { allowed: true },
+        rawSelector: 'private raw selector',
+      },
+    });
+    const runsListResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/admin-ui/runs',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRunResponse.json()).toMatchObject({
+      status: 'planned',
+      actionClass: 'approved_admin_write',
+      riskLevel: 'critical',
+      approvalRequired: true,
+      authorityRequired: true,
+      requestBodyAuthorityAccepted: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(authorityResponse.statusCode).toBe(200);
+    expect(authorityResponse.json()).toMatchObject({
+      status: 'authorized',
+      actionClass: 'critical_payment_write',
+      allowed: true,
+      requestBodyAuthorityAccepted: false,
+      credentialMaterialAllowed: false,
+      networkBodyReadAllowed: false,
+      executionDisabled: true,
+    });
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json()).toMatchObject({
+      status: 'authorized',
+      actionClass: 'approved_admin_write',
+      liveActionRequested: true,
+      liveActionAllowed: true,
+      postWriteVerified: false,
+      ownerSelfProtectionApplied: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(verificationResponse.statusCode).toBe(200);
+    expect(verificationResponse.json()).toMatchObject({
+      status: 'blocked',
+      postWriteVerified: false,
+      executionDisabled: true,
+    });
+    expect(forgedResponse.statusCode).toBe(400);
+    expect(runsListResponse.statusCode).toBe(200);
+    expect(runsListResponse.json().counts.runs).toBe(3);
+
+    for (const body of [
+      dryRunResponse.body,
+      authorityResponse.body,
+      runResponse.body,
+      verificationResponse.body,
+      forgedResponse.body,
+      runsListResponse.body,
+    ]) {
+      expect(body).not.toContain('private business member target');
+      expect(body).not.toContain('private invite button selector');
+      expect(body).not.toContain('private admin page snapshot');
+      expect(body).not.toContain('private billing target');
+      expect(body).not.toContain('private add credits selector');
+      expect(body).not.toContain('private removable member target');
+      expect(body).not.toContain('private remove member selector');
+      expect(body).not.toContain('private raw selector');
       expect(body).not.toContain(localControlToken);
     }
   });

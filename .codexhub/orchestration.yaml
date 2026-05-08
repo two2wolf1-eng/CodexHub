@@ -6831,3 +6831,36 @@ workflows:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m66.high-privilege-ui-authority:
+    risk: critical
+    trigger:
+      type: high-privilege-ui-authority
+      entrypoint: contracts ui-automation-kernel store supervisor docs
+      localControlRequired: true
+    scope:
+      - admin-ui-action-contracts
+      - ui-target-fingerprint-contract
+      - admin-write-dry-run-authority-run-records
+      - store-resolved-authority-shell
+      - supervisor-admin-ui-governance-routes
+    docs:
+      - docs/releases/m66-high-privilege-ui-authority.md
+      - docs/reviews/m66-high-privilege-ui-authority-review.md
+      - docs/runbooks/m66-high-privilege-ui-authority-runbook.md
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noRemoteWrite: true
+      noPush: true
+      noOpenPullRequest: true
+      metadataOnlyPublicOutput: true
+      businessAdminWriteExecutionDisabledUntilM71: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      uiCliMcpDirectAdapterExecuteAllowed: false
+      directAdapterExecutionAllowed: false
+      noGenericCdpCommandPassthrough: true
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noRawSelectorDomPathBodyStorage: true

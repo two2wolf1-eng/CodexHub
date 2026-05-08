@@ -559,6 +559,10 @@ import {
   CodexTaskReviewProjectionSchema,
   CodexTaskRunSchema,
   CodexTaskVerificationProjectionSchema,
+  AdminWriteAuthoritySchema,
+  AdminWriteDryRunPlanSchema,
+  AdminWriteIntentSchema,
+  AdminWriteRunSchema,
   AutomationCapabilityPolicySchema,
   BusinessCodexSeatSchema,
   BusinessQuotaCrossCheckReportSchema,
@@ -578,6 +582,7 @@ import {
   QuotaEvidenceMatrixSchema,
   QuotaReadinessDebugReportSchema,
   SensitiveRedactionReportSchema,
+  UiTargetFingerprintSchema,
   UiAutomationAuthoritySchema,
   UiAutomationDryRunPlanSchema,
   UiAutomationIntentSchema,
@@ -17250,6 +17255,71 @@ describe('contracts schemas', () => {
       liveActionAllowed: true,
       summary: 'UI automation run stores counts and authority id only.',
     });
+    const uiTargetFingerprint = UiTargetFingerprintSchema.parse({
+      id: 'ui_target_fingerprint_1',
+      schemaVersion,
+      observedAt: createdAt,
+      targetHash: 'sha256:admin-target',
+      selectorHash: 'sha256:selector',
+      axRoleHash: 'sha256:button',
+      pageHash: 'sha256:page',
+      fingerprintHash: 'sha256:fingerprint',
+      summary: 'Admin UI target fingerprint stores hashed selector and page evidence.',
+    });
+    const adminIntent = AdminWriteIntentSchema.parse({
+      id: 'admin_write_intent_1',
+      schemaVersion,
+      createdAt,
+      intentHash: 'sha256:admin-intent',
+      actionKind: 'invite-member',
+      actionClass: 'approved_admin_write',
+      targetHash: 'sha256:admin-target',
+      uiTargetFingerprintId: uiTargetFingerprint.id,
+      selectorFingerprintHash: uiTargetFingerprint.selectorHash,
+      riskLevel: 'critical',
+      summary: 'Admin write intent stores target and selector hashes only.',
+    });
+    const adminDryRun = AdminWriteDryRunPlanSchema.parse({
+      id: 'admin_write_dry_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: adminIntent.id,
+      planHash: 'sha256:admin-plan',
+      actionCount: 1,
+      actionClass: adminIntent.actionClass,
+      riskLevel: adminIntent.riskLevel,
+      targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
+      summary: 'Admin write dry-run is metadata-only and approval-gated.',
+    });
+    const adminAuthority = AdminWriteAuthoritySchema.parse({
+      id: 'admin_write_authority_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: adminDryRun.id,
+      authorityHash: 'sha256:admin-authority',
+      approvalArtifactIdHash: 'sha256:admin-approval',
+      allowed: true,
+      actionClass: adminIntent.actionClass,
+      riskLevel: adminIntent.riskLevel,
+      constraints: ['store-resolved-approval-required', 'no-generic-cdp-passthrough'],
+      summary: 'Admin UI authority is store-resolved and cannot come from request bodies.',
+    });
+    const adminRun = AdminWriteRunSchema.parse({
+      id: 'admin_write_run_1',
+      schemaVersion,
+      createdAt,
+      intentId: adminIntent.id,
+      dryRunPlanId: adminDryRun.id,
+      authorityId: adminAuthority.id,
+      status: 'authorized',
+      actionClass: adminIntent.actionClass,
+      actionCount: 1,
+      approvedActionCount: 1,
+      liveActionRequested: true,
+      liveActionAllowed: true,
+      targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
+      summary: 'Admin UI write is authorized but still disabled until the executor round.',
+    });
     const records = [
       sourceHealth,
       seat,
@@ -17289,6 +17359,11 @@ describe('contracts schemas', () => {
       dryRun,
       authority,
       run,
+      uiTargetFingerprint,
+      adminIntent,
+      adminDryRun,
+      adminAuthority,
+      adminRun,
     ];
     const serialized = JSON.stringify(records);
 
@@ -17304,6 +17379,9 @@ describe('contracts schemas', () => {
     expect(automationPolicy.storageAccessAllowed).toBe(false);
     expect(intent.credentialInputRequested).toBe(false);
     expect(authority.requestBodyAuthorityAccepted).toBe(false);
+    expect(adminIntent.credentialInputRequested).toBe(false);
+    expect(adminAuthority.requestBodyAuthorityAccepted).toBe(false);
+    expect(adminRun.executionDisabled).toBe(true);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
@@ -17398,6 +17476,35 @@ describe('contracts schemas', () => {
         matchedFieldCount: 1,
         sensitiveFindingCount: 1,
         summary: 'Sensitive findings require a redaction report.',
+      }),
+    ).toThrow();
+    expect(() =>
+      AdminWriteAuthoritySchema.parse({
+        id: 'admin_write_authority_bad_approval',
+        schemaVersion,
+        createdAt,
+        dryRunPlanId: 'admin_write_dry_run_1',
+        authorityHash: 'sha256:admin-authority',
+        allowed: true,
+        actionClass: 'approved_admin_write',
+        riskLevel: 'critical',
+        summary: 'Critical admin UI authority requires an approval hash.',
+      }),
+    ).toThrow();
+    expect(() =>
+      AdminWriteIntentSchema.parse({
+        id: 'admin_write_intent_raw_metadata',
+        schemaVersion,
+        createdAt,
+        intentHash: 'sha256:admin-intent',
+        actionKind: 'remove-member',
+        actionClass: 'approved_admin_write',
+        targetHash: 'sha256:admin-target',
+        riskLevel: 'critical',
+        summary: 'Raw admin UI payloads must be rejected.',
+        metadata: {
+          rawSelector: adversarialPublicOutputFixture,
+        },
       }),
     ).toThrow();
   });

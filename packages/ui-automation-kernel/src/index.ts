@@ -1,5 +1,10 @@
 import {
+  AdminWriteAuthoritySchema,
+  AdminWriteDryRunPlanSchema,
+  AdminWriteIntentSchema,
+  AdminWriteRunSchema,
   SchemaVersionSchema,
+  UiTargetFingerprintSchema,
   UiAutomationAuthoritySchema,
   UiAutomationDryRunPlanSchema,
   UiAutomationIntentSchema,
@@ -7,7 +12,13 @@ import {
   foundationId,
   foundationTimestamp,
   type AutomationActionClass,
+  type AdminUiActionKind,
+  type AdminWriteAuthority,
+  type AdminWriteDryRunPlan,
+  type AdminWriteIntent,
+  type AdminWriteRun,
   type RiskLevel,
+  type UiTargetFingerprint,
   type UiAutomationActionKind,
   type UiAutomationAuthority,
   type UiAutomationDryRunPlan,
@@ -23,6 +34,17 @@ export interface UiActionRiskClassification {
   riskLevel: RiskLevel;
   approvalRequired: boolean;
   authorityRequired: boolean;
+  forbidden: boolean;
+  blockedReasonSeeds: string[];
+  summary: string;
+}
+
+export interface AdminUiActionRiskClassification {
+  actionKind: AdminUiActionKind;
+  actionClass: AutomationActionClass;
+  riskLevel: RiskLevel;
+  approvalRequired: true;
+  authorityRequired: true;
   forbidden: boolean;
   blockedReasonSeeds: string[];
   summary: string;
@@ -58,6 +80,49 @@ export interface UiAutomationResultInput {
   createdAt?: string;
 }
 
+export interface UiTargetFingerprintInput {
+  targetSeed: string;
+  selectorSeed?: string;
+  axRoleSeed?: string;
+  axNameSeed?: string;
+  pageSeed?: string;
+  networkEndpointSeed?: string;
+  screenshotSeed?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+  observedAt?: string;
+}
+
+export interface AdminWriteIntentInput {
+  actionKind: AdminUiActionKind;
+  targetSeed: string;
+  fingerprint?: UiTargetFingerprint;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+  createdAt?: string;
+}
+
+export interface AdminWriteAuthorityInput {
+  dryRunPlan: AdminWriteDryRunPlan;
+  approvalArtifactSeed?: string;
+  constraints?: readonly string[];
+  expiresAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+  createdAt?: string;
+}
+
+export interface AdminWriteRunInput {
+  intent: AdminWriteIntent;
+  dryRunPlan: AdminWriteDryRunPlan;
+  authority?: AdminWriteAuthority;
+  liveActionRequested?: boolean;
+  status?: UiAutomationStatus;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+  createdAt?: string;
+}
+
 const guidedActions = new Set<UiAutomationActionKind>([
   'navigate',
   'reload',
@@ -79,6 +144,37 @@ const criticalActions = new Set<UiAutomationActionKind>([
 ]);
 
 const forbiddenActions = new Set<UiAutomationActionKind>([
+  'credential-input',
+  'mfa-input',
+  'session-storage-read',
+]);
+
+const readClickAdminActions = new Set<AdminUiActionKind>([
+  'owner-admin-open-members',
+  'owner-admin-open-billing',
+  'owner-admin-open-pending-invites',
+  'owner-admin-open-manage-seats',
+  'owner-admin-open-add-credits',
+  'owner-admin-open-usage-alerts',
+]);
+
+const guidedPrepareAdminActions = new Set<AdminUiActionKind>([
+  'workspace-switch-visible-click',
+]);
+
+const approvedAdminWriteActions = new Set<AdminUiActionKind>([
+  'invite-member',
+  'cancel-invite',
+  'remove-member',
+  'change-member-role',
+  'assign-seat',
+  'unassign-seat',
+  'update-usage-alert',
+]);
+
+const criticalPaymentAdminActions = new Set<AdminUiActionKind>(['add-credits']);
+
+const forbiddenAdminActions = new Set<AdminUiActionKind>([
   'credential-input',
   'mfa-input',
   'session-storage-read',
@@ -141,6 +237,86 @@ export function classifyUiActionRisk(
   };
 }
 
+export function classifyAdminUiActionRisk(
+  actionKind: AdminUiActionKind,
+): AdminUiActionRiskClassification {
+  if (forbiddenAdminActions.has(actionKind)) {
+    return {
+      actionKind,
+      actionClass: 'forbidden_credential_action',
+      riskLevel: 'critical',
+      approvalRequired: true,
+      authorityRequired: true,
+      forbidden: true,
+      blockedReasonSeeds: ['credential_material_forbidden'],
+      summary: 'This admin UI action is permanently forbidden by the compliance baseline.',
+    };
+  }
+
+  if (criticalPaymentAdminActions.has(actionKind)) {
+    return {
+      actionKind,
+      actionClass: 'critical_payment_write',
+      riskLevel: 'critical',
+      approvalRequired: true,
+      authorityRequired: true,
+      forbidden: false,
+      blockedReasonSeeds: [],
+      summary: 'This admin UI payment action requires explicit critical approval authority.',
+    };
+  }
+
+  if (approvedAdminWriteActions.has(actionKind)) {
+    return {
+      actionKind,
+      actionClass: 'approved_admin_write',
+      riskLevel: 'critical',
+      approvalRequired: true,
+      authorityRequired: true,
+      forbidden: false,
+      blockedReasonSeeds: [],
+      summary: 'This admin UI write requires dry-run, approval, evidence, and audit.',
+    };
+  }
+
+  if (guidedPrepareAdminActions.has(actionKind)) {
+    return {
+      actionKind,
+      actionClass: 'guided_prepare_write',
+      riskLevel: 'high',
+      approvalRequired: true,
+      authorityRequired: true,
+      forbidden: false,
+      blockedReasonSeeds: [],
+      summary: 'This admin UI preparation action requires visible guided approval authority.',
+    };
+  }
+
+  if (readClickAdminActions.has(actionKind)) {
+    return {
+      actionKind,
+      actionClass: 'read_click',
+      riskLevel: 'high',
+      approvalRequired: true,
+      authorityRequired: true,
+      forbidden: false,
+      blockedReasonSeeds: [],
+      summary: 'This admin UI read-click is allowed only through governed dry-run authority.',
+    };
+  }
+
+  return {
+    actionKind,
+    actionClass: 'forbidden_credential_action',
+    riskLevel: 'critical',
+    approvalRequired: true,
+    authorityRequired: true,
+    forbidden: true,
+    blockedReasonSeeds: ['unknown_admin_ui_action'],
+    summary: 'Unknown admin UI actions are blocked before authority can execute.',
+  };
+}
+
 export function planUiAutomationIntent(input: UiAutomationIntentInput): UiAutomationIntent {
   const classification = classifyUiActionRisk(input.actionKind);
   const targetHash = hashRef(input.targetSeed);
@@ -172,6 +348,118 @@ export function planUiAutomationIntent(input: UiAutomationIntentInput): UiAutoma
   });
 }
 
+export function createUiTargetFingerprint(input: UiTargetFingerprintInput): UiTargetFingerprint {
+  const targetHash = hashRef(input.targetSeed);
+  const selectorHash = input.selectorSeed ? hashRef(input.selectorSeed) : undefined;
+  const axRoleHash = input.axRoleSeed ? hashRef(input.axRoleSeed) : undefined;
+  const axNameHash = input.axNameSeed ? hashRef(input.axNameSeed) : undefined;
+  const pageHash = input.pageSeed ? hashRef(input.pageSeed) : undefined;
+  const networkEndpointHash = input.networkEndpointSeed
+    ? hashRef(input.networkEndpointSeed)
+    : undefined;
+  const screenshotHash = input.screenshotSeed ? hashRef(input.screenshotSeed) : undefined;
+
+  return UiTargetFingerprintSchema.parse({
+    id: foundationId('ui_target_fingerprint'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: input.observedAt ?? foundationTimestamp(),
+    targetHash,
+    selectorHash,
+    axRoleHash,
+    axNameHash,
+    pageHash,
+    networkEndpointHash,
+    screenshotHash,
+    fingerprintHash: hashRef({
+      targetHash,
+      selectorHash,
+      axRoleHash,
+      axNameHash,
+      pageHash,
+      networkEndpointHash,
+      screenshotHash,
+    }),
+    rawSelectorStored: false,
+    rawAxStored: false,
+    rawPageStored: false,
+    rawNetworkBodyStored: false,
+    rawScreenshotStored: false,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    metadataOnly: true,
+    liveExecution: false,
+    externalProcessStarted: false,
+    summary: 'UI target fingerprint records hashes only for governed admin action binding.',
+  });
+}
+
+export function planAdminWriteIntent(input: AdminWriteIntentInput): AdminWriteIntent {
+  const classification = classifyAdminUiActionRisk(input.actionKind);
+  const targetHash = hashRef(input.targetSeed);
+
+  return AdminWriteIntentSchema.parse({
+    id: foundationId('admin_write_intent'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.createdAt ?? foundationTimestamp(),
+    intentHash: hashRef({
+      actionKind: input.actionKind,
+      targetHash,
+      fingerprintHash: input.fingerprint?.fingerprintHash,
+    }),
+    actionKind: input.actionKind,
+    actionClass: classification.actionClass,
+    targetHash,
+    uiTargetFingerprintId: input.fingerprint?.id,
+    selectorFingerprintHash: input.fingerprint?.selectorHash,
+    riskLevel: classification.riskLevel,
+    dryRunRequired: true,
+    approvalRequired: true,
+    credentialInputRequested: false,
+    businessCleartextAllowed: false,
+    rawIntentStored: false,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: classification.summary,
+  });
+}
+
+export function createAdminWriteDryRun(
+  intent: AdminWriteIntent,
+  fingerprint?: UiTargetFingerprint,
+): AdminWriteDryRunPlan {
+  const classification = classifyAdminUiActionRisk(intent.actionKind);
+  const blockedReasonHashes = classification.blockedReasonSeeds.map(hashRef);
+
+  return AdminWriteDryRunPlanSchema.parse({
+    id: foundationId('admin_write_dry_run_plan'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: foundationTimestamp(),
+    intentId: intent.id,
+    planHash: hashRef({
+      intentHash: intent.intentHash,
+      actionClass: intent.actionClass,
+      riskLevel: intent.riskLevel,
+      fingerprintHash: fingerprint?.fingerprintHash,
+      blockedReasonHashes,
+    }),
+    actionCount: 1,
+    actionClass: intent.actionClass,
+    riskLevel: intent.riskLevel,
+    approvalRequired: true,
+    authorityRequired: true,
+    blockedReasonHashes,
+    targetFingerprintHash: fingerprint?.fingerprintHash,
+    beforePageHash: fingerprint?.pageHash,
+    credentialActionBlocked: classification.forbidden,
+    rawPlanStored: false,
+    evidenceRefIds: [...intent.evidenceRefIds],
+    auditEventIds: [...intent.auditEventIds],
+    summary: classification.forbidden
+      ? 'Admin UI dry-run blocks the forbidden action before authority can execute.'
+      : 'Admin UI dry-run is ready for policy and approval evaluation.',
+  });
+}
+
 export function createUiActionDryRun(intent: UiAutomationIntent): UiAutomationDryRunPlan {
   const classification = classifyUiActionRisk(intent.actionKind);
   const blockedReasonHashes = classification.blockedReasonSeeds.map(hashRef);
@@ -200,6 +488,54 @@ export function createUiActionDryRun(intent: UiAutomationIntent): UiAutomationDr
     summary: classification.forbidden
       ? 'UI automation dry-run blocks the forbidden action before authority can execute.'
       : 'UI automation dry-run is ready for policy and approval evaluation.',
+  });
+}
+
+export function resolveAdminWriteAuthority(
+  input: AdminWriteAuthorityInput,
+): AdminWriteAuthority {
+  const plan = input.dryRunPlan;
+  const allowed =
+    plan.actionClass !== 'forbidden_credential_action' &&
+    plan.blockedReasonHashes.length === 0 &&
+    input.approvalArtifactSeed !== undefined;
+
+  return AdminWriteAuthoritySchema.parse({
+    id: foundationId('admin_write_authority'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.createdAt ?? foundationTimestamp(),
+    dryRunPlanId: plan.id,
+    authorityHash: hashRef({
+      dryRunPlanId: plan.id,
+      allowed,
+      approvalArtifactSeed: input.approvalArtifactSeed,
+      constraints: input.constraints ?? [],
+    }),
+    approvalArtifactIdHash: input.approvalArtifactSeed
+      ? hashRef(input.approvalArtifactSeed)
+      : undefined,
+    allowed,
+    actionClass: plan.actionClass,
+    riskLevel: plan.riskLevel,
+    constraints: [
+      ...(input.constraints ?? [
+        'metadata-only',
+        'store-resolved-approval-required',
+        'no-credential-material',
+        'no-generic-cdp-passthrough',
+      ]),
+    ],
+    requestBodyAuthorityAccepted: false,
+    credentialMaterialAllowed: false,
+    storageAccessAllowed: false,
+    networkBodyReadAllowed: false,
+    rawAuthorityStored: false,
+    expiresAt: input.expiresAt,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: allowed
+      ? 'Admin UI authority was resolved from approved governance metadata.'
+      : 'Admin UI authority is denied until store-resolved approval and policy gates pass.',
   });
 }
 
@@ -241,6 +577,54 @@ export function applyUiActionAuthority(
     summary: allowed
       ? 'UI automation authority was resolved from approved governance metadata.'
       : 'UI automation authority is denied until approval and policy gates pass.',
+  });
+}
+
+export function summarizeAdminWriteRun(input: AdminWriteRunInput): AdminWriteRun {
+  const authorityAllowed = input.authority?.allowed === true;
+  const liveActionRequested = input.liveActionRequested ?? true;
+  const liveActionAllowed = liveActionRequested && authorityAllowed;
+  const status =
+    input.status ??
+    (input.dryRunPlan.credentialActionBlocked || input.dryRunPlan.blockedReasonHashes.length > 0
+      ? 'blocked'
+      : liveActionAllowed
+        ? 'authorized'
+        : liveActionRequested
+          ? 'approval_waiting'
+          : 'planned');
+
+  return AdminWriteRunSchema.parse({
+    id: foundationId('admin_write_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: input.createdAt ?? foundationTimestamp(),
+    intentId: input.intent.id,
+    dryRunPlanId: input.dryRunPlan.id,
+    authorityId: input.authority?.id,
+    status,
+    actionClass: input.intent.actionClass,
+    actionCount: input.dryRunPlan.actionCount,
+    approvedActionCount: liveActionAllowed ? input.dryRunPlan.actionCount : 0,
+    blockedActionCount: status === 'blocked' ? input.dryRunPlan.actionCount : 0,
+    liveActionRequested,
+    liveActionAllowed,
+    processBoundaryInvoked: false,
+    externalProcessStarted: false,
+    networkBoundaryInvoked: false,
+    executionDisabled: true,
+    preWritePageHash: input.dryRunPlan.beforePageHash,
+    postWritePageHash: input.dryRunPlan.afterPageHash,
+    targetFingerprintHash: input.dryRunPlan.targetFingerprintHash,
+    postWriteVerified: false,
+    duplicateSubmitBlocked: false,
+    ownerSelfProtectionApplied: true,
+    requestBodyAuthorityAccepted: false,
+    rawRunStored: false,
+    evidenceRefIds: [...(input.evidenceRefIds ?? input.intent.evidenceRefIds)],
+    auditEventIds: [...(input.auditEventIds ?? input.intent.auditEventIds)],
+    summary: liveActionAllowed
+      ? 'Admin UI action is authorized but execution remains disabled until the live executor round.'
+      : 'Admin UI action has not executed and remains waiting or blocked by governance.',
   });
 }
 

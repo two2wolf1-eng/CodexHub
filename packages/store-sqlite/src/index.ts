@@ -5,6 +5,10 @@ import type { DatabaseSync as NodeSqliteDatabaseSync } from 'node:sqlite';
 import type {
   AuditEvent,
   AccountPool,
+  AdminWriteAuthority,
+  AdminWriteDryRunPlan,
+  AdminWriteIntent,
+  AdminWriteRun,
   AutomationCapabilityPolicy,
   BusinessCodexSeat,
   BusinessQuotaCrossCheckReport,
@@ -213,6 +217,7 @@ import type {
   QuotaReadinessDebugReport,
   QuotaSnapshot,
   SensitiveRedactionReport,
+  UiTargetFingerprint,
   UiAutomationAuthority,
   UiAutomationDryRunPlan,
   UiAutomationIntent,
@@ -661,10 +666,15 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
   readonly electronRendererObservationSummaries: MetadataEntityRepository<ElectronRendererObservationSummary>;
+  readonly uiTargetFingerprints: MetadataEntityRepository<UiTargetFingerprint>;
   readonly uiAutomationIntents: MetadataEntityRepository<UiAutomationIntent>;
   readonly uiAutomationDryRunPlans: MetadataEntityRepository<UiAutomationDryRunPlan>;
   readonly uiAutomationAuthorities: MetadataEntityRepository<UiAutomationAuthority>;
   readonly uiAutomationRuns: MetadataEntityRepository<UiAutomationRun>;
+  readonly adminWriteIntents: MetadataEntityRepository<AdminWriteIntent>;
+  readonly adminWriteDryRunPlans: MetadataEntityRepository<AdminWriteDryRunPlan>;
+  readonly adminWriteAuthorities: MetadataEntityRepository<AdminWriteAuthority>;
+  readonly adminWriteRuns: MetadataEntityRepository<AdminWriteRun>;
   readonly sensitiveRedactionReports: MetadataEntityRepository<SensitiveRedactionReport>;
   readonly businessQuotaSourceProbes: MetadataEntityRepository<BusinessQuotaSourceProbe>;
   readonly businessQuotaPermissionProbes: MetadataEntityRepository<BusinessQuotaPermissionProbe>;
@@ -1195,6 +1205,10 @@ class SqliteCodexHubStore implements CodexHubStore {
         database,
         'electron_renderer_observation_summaries',
       );
+    this.uiTargetFingerprints = new SqliteMetadataEntityRepository<UiTargetFingerprint>(
+      database,
+      'ui_target_fingerprints',
+    );
     this.uiAutomationIntents = new SqliteMetadataEntityRepository<UiAutomationIntent>(
       database,
       'ui_automation_intents',
@@ -1212,6 +1226,24 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.uiAutomationRuns = new SqliteMetadataEntityRepository<UiAutomationRun>(
       database,
       'ui_automation_runs',
+    );
+    this.adminWriteIntents = new SqliteMetadataEntityRepository<AdminWriteIntent>(
+      database,
+      'admin_write_intents',
+    );
+    this.adminWriteDryRunPlans =
+      new SqliteMetadataEntityRepository<AdminWriteDryRunPlan>(
+        database,
+        'admin_write_dry_run_plans',
+      );
+    this.adminWriteAuthorities =
+      new SqliteMetadataEntityRepository<AdminWriteAuthority>(
+        database,
+        'admin_write_authorities',
+      );
+    this.adminWriteRuns = new SqliteMetadataEntityRepository<AdminWriteRun>(
+      database,
+      'admin_write_runs',
     );
     this.sensitiveRedactionReports =
       new SqliteMetadataEntityRepository<SensitiveRedactionReport>(
@@ -7446,6 +7478,12 @@ function initializeDatabase(database: SqliteDatabase): void {
       payload TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS ui_target_fingerprints (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS ui_automation_intents (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
@@ -7465,6 +7503,30 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS ui_automation_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_write_intents (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_write_dry_run_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_write_authorities (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_write_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

@@ -3202,3 +3202,45 @@ integrations:
       noElectronCdpConnection: true
       noTokenCookieSessionCollection: true
       noRawPromptDiffPatchEventLogPathBodyStorage: true
+  m66-high-privilege-ui-authority:
+    enabled: false
+    adapter: ui-automation-kernel
+    provider: codexhub-metadata
+    providerType: builtin
+    mode: governed-authority-shell
+    stage: m66-high-privilege-ui-authority
+    release: docs/releases/m66-high-privilege-ui-authority.md
+    review: docs/reviews/m66-high-privilege-ui-authority-review.md
+    runbook: docs/runbooks/m66-high-privilege-ui-authority-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: write
+    defaultRisk: critical
+    runtimeGate: CODEXHUB_BUSINESS_ADMIN_UI_WRITE_ENABLED
+    supervisorRoutes:
+      - POST /api/business-quota/admin-ui/dry-runs
+      - POST /api/business-quota/admin-ui/approval-requests
+      - POST /api/business-quota/admin-ui/authority-resolutions
+      - POST /api/business-quota/admin-ui/runs
+      - POST /api/business-quota/admin-ui/post-write-verifications
+      - GET /api/business-quota/admin-ui/runs
+    persistedStores:
+      - ui_target_fingerprints
+      - admin_write_intents
+      - admin_write_dry_run_plans
+      - admin_write_authorities
+      - admin_write_runs
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      directAdapterExecutionAllowed: false
+      businessAdminWriteExecutionDisabledUntilM71: true
+      metadataOnlyPublicOutput: true
+      requestBodyApprovalArtifactTrusted: false
+      requestBodyAuthorityTrusted: false
+      noGenericCdpCommandPassthrough: true
+      noBrowserStorageRead: true
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noRawSelectorDomPathBodyStorage: true

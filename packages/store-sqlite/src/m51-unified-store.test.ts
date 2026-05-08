@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   AccountPoolSchema,
+  AdminWriteAuthoritySchema,
+  AdminWriteDryRunPlanSchema,
+  AdminWriteIntentSchema,
+  AdminWriteRunSchema,
   BusinessMembershipMirrorSchema,
   BusinessWorkspaceSchema,
   ChatGptSessionHealthSchema,
@@ -45,6 +49,7 @@ import {
   QuotaReadinessDebugReportSchema,
   QuotaSnapshotSchema,
   SensitiveRedactionReportSchema,
+  UiTargetFingerprintSchema,
   UiAutomationAuthoritySchema,
   UiAutomationDryRunPlanSchema,
   UiAutomationIntentSchema,
@@ -897,6 +902,69 @@ describe('M51 unified metadata store', () => {
       liveActionAllowed: true,
       summary: 'UI run stores status and counts only.',
     });
+    const uiTargetFingerprint = UiTargetFingerprintSchema.parse({
+      id: 'ui_target_fingerprint_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      targetHash: 'sha256:admin-target',
+      selectorHash: 'sha256:admin-selector',
+      axRoleHash: 'sha256:button',
+      fingerprintHash: 'sha256:admin-fingerprint',
+      summary: 'UI target fingerprint persists hashes only.',
+    });
+    const adminIntent = AdminWriteIntentSchema.parse({
+      id: 'admin_write_intent_store_1',
+      schemaVersion,
+      createdAt,
+      intentHash: 'sha256:admin-intent',
+      actionKind: 'assign-seat',
+      actionClass: 'approved_admin_write',
+      targetHash: 'sha256:admin-target',
+      uiTargetFingerprintId: uiTargetFingerprint.id,
+      selectorFingerprintHash: uiTargetFingerprint.selectorHash,
+      riskLevel: 'critical',
+      summary: 'Admin write intent stores target hashes only.',
+    });
+    const adminDryRun = AdminWriteDryRunPlanSchema.parse({
+      id: 'admin_write_dry_run_store_1',
+      schemaVersion,
+      createdAt,
+      intentId: adminIntent.id,
+      planHash: 'sha256:admin-plan',
+      actionCount: 1,
+      actionClass: adminIntent.actionClass,
+      riskLevel: adminIntent.riskLevel,
+      targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
+      summary: 'Admin write dry-run stores a plan hash only.',
+    });
+    const adminAuthority = AdminWriteAuthoritySchema.parse({
+      id: 'admin_write_authority_store_1',
+      schemaVersion,
+      createdAt,
+      dryRunPlanId: adminDryRun.id,
+      authorityHash: 'sha256:admin-authority',
+      approvalArtifactIdHash: 'sha256:admin-approval',
+      allowed: true,
+      actionClass: adminIntent.actionClass,
+      riskLevel: adminIntent.riskLevel,
+      summary: 'Admin write authority stores approval hash only.',
+    });
+    const adminRun = AdminWriteRunSchema.parse({
+      id: 'admin_write_run_store_1',
+      schemaVersion,
+      createdAt,
+      intentId: adminIntent.id,
+      dryRunPlanId: adminDryRun.id,
+      authorityId: adminAuthority.id,
+      status: 'authorized',
+      actionClass: adminIntent.actionClass,
+      actionCount: 1,
+      approvedActionCount: 1,
+      liveActionRequested: true,
+      liveActionAllowed: true,
+      targetFingerprintHash: uiTargetFingerprint.fingerprintHash,
+      summary: 'Admin write run stores metadata-only status.',
+    });
 
     const saved = [
       await expectRoundTrip(first.codexQuotaSourceHealth, sourceHealth),
@@ -914,6 +982,11 @@ describe('M51 unified metadata store', () => {
       await expectRoundTrip(first.uiAutomationDryRunPlans, dryRun),
       await expectRoundTrip(first.uiAutomationAuthorities, authority),
       await expectRoundTrip(first.uiAutomationRuns, run),
+      await expectRoundTrip(first.uiTargetFingerprints, uiTargetFingerprint),
+      await expectRoundTrip(first.adminWriteIntents, adminIntent),
+      await expectRoundTrip(first.adminWriteDryRunPlans, adminDryRun),
+      await expectRoundTrip(first.adminWriteAuthorities, adminAuthority),
+      await expectRoundTrip(first.adminWriteRuns, adminRun),
     ];
     await first.close();
 
@@ -922,6 +995,7 @@ describe('M51 unified metadata store', () => {
       sourceHealth,
     );
     await expect(reopened.uiAutomationRuns.getRecord(run.id)).resolves.toEqual(run);
+    await expect(reopened.adminWriteRuns.getRecord(adminRun.id)).resolves.toEqual(adminRun);
     await expect(reopened.businessQuotaCrossCheckReports.getRecord(crossCheck.id)).resolves.toEqual(
       crossCheck,
     );
@@ -943,6 +1017,8 @@ describe('M51 unified metadata store', () => {
     expect(electronRenderer.mainInspectorUsed).toBe(false);
     expect(crossCheck.rawSensitiveStored).toBe(false);
     expect(authority.requestBodyAuthorityAccepted).toBe(false);
+    expect(adminAuthority.requestBodyAuthorityAccepted).toBe(false);
+    expect(adminRun.executionDisabled).toBe(true);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

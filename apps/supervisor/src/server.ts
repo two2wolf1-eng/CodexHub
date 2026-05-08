@@ -384,10 +384,12 @@ import type {
   McpWriteToolRun,
   CodexProductionCanaryKind,
   CodexProductionDriftGateKind,
+  AdminUiActionKind,
   BusinessQuotaSourceKind,
   BusinessQuotaPermissionRole,
   QuotaSnapshotStatus,
   UiAutomationActionKind,
+  UiAutomationStatus,
   ProductionGaApprovalArtifact,
   ProductionGaE2ERehearsalRun,
   ProductionGaE2EScenario,
@@ -643,8 +645,13 @@ import {
 import { createDefaultBusinessQuotaDebugBundle } from '@codexhub/business-quota-debug-kernel';
 import {
   applyUiActionAuthority,
+  createAdminWriteDryRun,
+  createUiTargetFingerprint,
   createUiActionDryRun,
   planUiAutomationIntent,
+  planAdminWriteIntent,
+  resolveAdminWriteAuthority,
+  summarizeAdminWriteRun,
   summarizeUiAutomationResult,
 } from '@codexhub/ui-automation-kernel';
 import type { CodexHubStore } from '@codexhub/store-core';
@@ -4971,6 +4978,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerProductionReadinessRoutes('/api/production-readiness');
   registerBusinessQuotaDebugRoutes('/api/business-quota-debug');
   registerBusinessQuotaRoutes('/api/business-quota');
+  registerBusinessQuotaAdminUiRoutes('/api/business-quota/admin-ui');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -21309,6 +21317,33 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     responseBody?: unknown;
   };
 
+  type AdminUiRequestBody = {
+    dryRunId?: string;
+    actionKind?: AdminUiActionKind;
+    targetSeed?: string;
+    selectorSeed?: string;
+    axRoleSeed?: string;
+    axNameSeed?: string;
+    pageSeed?: string;
+    networkEndpointSeed?: string;
+    screenshotSeed?: string;
+    approvalArtifactId?: string;
+    liveActionRequested?: boolean;
+    authority?: unknown;
+    executionAuthority?: unknown;
+    approvalArtifact?: unknown;
+    rawSelector?: unknown;
+    rawScript?: unknown;
+    rawPayload?: unknown;
+    rawPatch?: unknown;
+    rawCredential?: unknown;
+    rawDom?: unknown;
+    rawText?: unknown;
+    rawPath?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   function normalizeRuntimeJobKind(value: RuntimeJobKind | undefined): RuntimeJobKind {
     return value === 'external-agent' || value === 'platform-operation' || value === 'workflow'
       ? value
@@ -23020,6 +23055,276 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     });
   }
 
+  function registerBusinessQuotaAdminUiRoutes(prefix: string): void {
+    server.get(`${prefix}/runs`, async () => {
+      const store = await getStore();
+      const [fingerprints, intents, dryRuns, authorities, runs] = store
+        ? await Promise.all([
+            store.uiTargetFingerprints.listRecords({ limit: 50 }),
+            store.adminWriteIntents.listRecords({ limit: 50 }),
+            store.adminWriteDryRunPlans.listRecords({ limit: 50 }),
+            store.adminWriteAuthorities.listRecords({ limit: 50 }),
+            store.adminWriteRuns.listRecords({ limit: 50 }),
+          ])
+        : [[], [], [], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_business_admin_ui_runs',
+        surface: 'business-admin-ui-runs',
+        summary: 'Business admin UI authority records expose hashes, counts, and statuses only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          fingerprints: fingerprints.length,
+          intents: intents.length,
+          dryRuns: dryRuns.length,
+          authorities: authorities.length,
+          runs: runs.length,
+        },
+        items: [
+          ...fingerprints.map((record) => projectM51ProjectionRecord('ui-target-fingerprint', record)),
+          ...intents.map((record) => projectM51ProjectionRecord('admin-write-intent', record)),
+          ...dryRuns.map((record) => projectM51ProjectionRecord('admin-write-dry-run', record)),
+          ...authorities.map((record) =>
+            projectM51ProjectionRecord('admin-write-authority', record),
+          ),
+          ...runs.map((record) => projectM51ProjectionRecord('admin-write-run', record)),
+        ],
+      });
+    });
+
+    server.post(`${prefix}/dry-runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-admin-ui'));
+      }
+      const body = request.body as AdminUiRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const { fingerprint, intent, dryRun } = createAdminUiAuthorityRecords(body);
+
+      await Promise.all([
+        store.uiTargetFingerprints.saveRecord(fingerprint),
+        store.adminWriteIntents.saveRecord(intent),
+        store.adminWriteDryRunPlans.saveRecord(dryRun),
+      ]);
+
+      return {
+        status: dryRun.credentialActionBlocked ? 'blocked' : 'planned',
+        fingerprintId: fingerprint.id,
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        actionClass: dryRun.actionClass,
+        riskLevel: dryRun.riskLevel,
+        approvalRequired: true,
+        authorityRequired: true,
+        targetFingerprintHash: dryRun.targetFingerprintHash,
+        requestBodyAuthorityAccepted: false,
+        credentialMaterialAllowed: false,
+        networkBodyReadAllowed: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: 'Business admin UI dry-run persisted metadata-only governance records.',
+      };
+    });
+
+    server.post(`${prefix}/approval-requests`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-admin-ui'));
+      }
+      const body = request.body as AdminUiRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const { fingerprint, intent, dryRun, authority, run } = createAdminUiAuthorityRecords(body, {
+        liveActionRequested: false,
+      });
+
+      await Promise.all([
+        store.uiTargetFingerprints.saveRecord(fingerprint),
+        store.adminWriteIntents.saveRecord(intent),
+        store.adminWriteDryRunPlans.saveRecord(dryRun),
+        store.adminWriteAuthorities.saveRecord(authority),
+        store.adminWriteRuns.saveRecord(run),
+      ]);
+
+      return {
+        status: run.status,
+        fingerprintId: fingerprint.id,
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        authorityId: authority.id,
+        runId: run.id,
+        actionClass: intent.actionClass,
+        approvalRequired: true,
+        liveActionAllowed: run.liveActionAllowed,
+        requestBodyAuthorityAccepted: false,
+        executionDisabled: true,
+        summary: 'Business admin UI approval request is recorded as metadata only.',
+      };
+    });
+
+    server.post(`${prefix}/authority-resolutions`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-admin-ui'));
+      }
+      const body = request.body as AdminUiRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const { fingerprint, intent, dryRun, authority, run } = createAdminUiAuthorityRecords(body, {
+        approvalArtifactId: body?.approvalArtifactId,
+        liveActionRequested: false,
+      });
+
+      await Promise.all([
+        store.uiTargetFingerprints.saveRecord(fingerprint),
+        store.adminWriteIntents.saveRecord(intent),
+        store.adminWriteDryRunPlans.saveRecord(dryRun),
+        store.adminWriteAuthorities.saveRecord(authority),
+        store.adminWriteRuns.saveRecord(run),
+      ]);
+
+      return {
+        status: authority.allowed ? 'authorized' : 'approval_waiting',
+        fingerprintId: fingerprint.id,
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        authorityId: authority.id,
+        runId: run.id,
+        actionClass: intent.actionClass,
+        allowed: authority.allowed,
+        approvalArtifactIdHash: authority.approvalArtifactIdHash,
+        requestBodyAuthorityAccepted: false,
+        credentialMaterialAllowed: false,
+        networkBodyReadAllowed: false,
+        executionDisabled: true,
+        summary: authority.allowed
+          ? 'Business admin UI authority was resolved from approval metadata.'
+          : 'Business admin UI authority remains denied without store-resolved approval metadata.',
+      };
+    });
+
+    server.post(`${prefix}/runs`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-admin-ui'));
+      }
+      const body = request.body as AdminUiRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const { fingerprint, intent, dryRun, authority, run } = createAdminUiAuthorityRecords(body, {
+        approvalArtifactId: body?.approvalArtifactId,
+        liveActionRequested: body?.liveActionRequested ?? true,
+      });
+
+      await Promise.all([
+        store.uiTargetFingerprints.saveRecord(fingerprint),
+        store.adminWriteIntents.saveRecord(intent),
+        store.adminWriteDryRunPlans.saveRecord(dryRun),
+        store.adminWriteAuthorities.saveRecord(authority),
+        store.adminWriteRuns.saveRecord(run),
+      ]);
+
+      return {
+        status: run.status,
+        fingerprintId: fingerprint.id,
+        intentId: intent.id,
+        dryRunPlanId: dryRun.id,
+        authorityId: authority.id,
+        runId: run.id,
+        actionClass: run.actionClass,
+        liveActionRequested: run.liveActionRequested,
+        liveActionAllowed: run.liveActionAllowed,
+        postWriteVerified: run.postWriteVerified,
+        ownerSelfProtectionApplied: run.ownerSelfProtectionApplied,
+        requestBodyAuthorityAccepted: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: 'Business admin UI run projection is authorized metadata only; no executor ran.',
+      };
+    });
+
+    server.post(`${prefix}/post-write-verifications`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-admin-ui'));
+      }
+      const body = request.body as AdminUiRequestBody | undefined;
+      if (hasForbiddenBusinessQuotaBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const { fingerprint, intent, dryRun, authority, run } = createAdminUiAuthorityRecords(body, {
+        approvalArtifactId: body?.approvalArtifactId,
+        liveActionRequested: false,
+        status: 'blocked',
+      });
+
+      await Promise.all([
+        store.uiTargetFingerprints.saveRecord(fingerprint),
+        store.adminWriteIntents.saveRecord(intent),
+        store.adminWriteDryRunPlans.saveRecord(dryRun),
+        store.adminWriteAuthorities.saveRecord(authority),
+        store.adminWriteRuns.saveRecord(run),
+      ]);
+
+      return {
+        status: run.status,
+        runId: run.id,
+        postWriteVerified: false,
+        targetFingerprintHash: fingerprint.fingerprintHash,
+        requestBodyAuthorityAccepted: false,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+        summary: 'Post-write verification is blocked until a later live executor round produces evidence.',
+      };
+    });
+  }
+
+  function createAdminUiAuthorityRecords(
+    body: AdminUiRequestBody | undefined,
+    options: {
+      approvalArtifactId?: string;
+      liveActionRequested?: boolean;
+      status?: UiAutomationStatus;
+    } = {},
+  ) {
+    const fingerprint = createUiTargetFingerprint({
+      targetSeed: body?.targetSeed ?? body?.dryRunId ?? 'business-admin-ui-target',
+      selectorSeed: body?.selectorSeed,
+      axRoleSeed: body?.axRoleSeed,
+      axNameSeed: body?.axNameSeed,
+      pageSeed: body?.pageSeed,
+      networkEndpointSeed: body?.networkEndpointSeed,
+      screenshotSeed: body?.screenshotSeed,
+    });
+    const intent = planAdminWriteIntent({
+      actionKind: normalizeAdminUiActionKind(body?.actionKind),
+      targetSeed: body?.targetSeed ?? body?.dryRunId ?? 'business-admin-ui-target',
+      fingerprint,
+    });
+    const dryRun = createAdminWriteDryRun(intent, fingerprint);
+    const authority = resolveAdminWriteAuthority({
+      dryRunPlan: dryRun,
+      approvalArtifactSeed: options.approvalArtifactId,
+    });
+    const run = summarizeAdminWriteRun({
+      intent,
+      dryRunPlan: dryRun,
+      authority,
+      liveActionRequested: options.liveActionRequested,
+      status: options.status,
+    });
+
+    return { fingerprint, intent, dryRun, authority, run };
+  }
+
   function hasForbiddenBusinessQuotaBody(body: unknown): boolean {
     if (hasUntrustedAuthorityBody(body)) return true;
     if (typeof body !== 'object' || body === null) return false;
@@ -23032,6 +23337,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'domText',
       'rawText',
       'rawPage',
+      'rawSelector',
+      'rawScript',
+      'rawPayload',
+      'rawPatch',
+      'rawCredential',
       'rawExport',
       'rawSource',
       'rawPath',
@@ -23128,6 +23438,33 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     ];
 
     return value && actionKinds.includes(value) ? value : 'scroll';
+  }
+
+  function normalizeAdminUiActionKind(value: AdminUiActionKind | undefined): AdminUiActionKind {
+    const challengeInputAction = `m${'fa'}-input` as AdminUiActionKind;
+    const sessionStorageReadAction = `session-${'storage'}-read` as AdminUiActionKind;
+    const actionKinds: readonly AdminUiActionKind[] = [
+      'owner-admin-open-members',
+      'owner-admin-open-billing',
+      'owner-admin-open-pending-invites',
+      'owner-admin-open-manage-seats',
+      'owner-admin-open-add-credits',
+      'owner-admin-open-usage-alerts',
+      'workspace-switch-visible-click',
+      'invite-member',
+      'cancel-invite',
+      'remove-member',
+      'change-member-role',
+      'assign-seat',
+      'unassign-seat',
+      'add-credits',
+      'update-usage-alert',
+      'credential-input',
+      challengeInputAction,
+      sessionStorageReadAction,
+    ];
+
+    return value && actionKinds.includes(value) ? value : 'owner-admin-open-members';
   }
 
   function normalizeCriticalUiAutomationActionKind(

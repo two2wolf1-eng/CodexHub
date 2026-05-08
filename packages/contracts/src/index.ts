@@ -517,6 +517,10 @@ const customWorkflowForbiddenMetadataKeys = new Set([
   'backupBody',
   'rawBackupBody',
   'rawDom',
+  'rawSelector',
+  'rawScript',
+  'rawPayload',
+  'rawCredential',
   'domText',
   'rawText',
   'networkBody',
@@ -20026,7 +20030,11 @@ export type AutomationCapabilitySurface = z.infer<
 export const AutomationActionClassSchema = z.enum([
   'auto_observe',
   'auto_read_projected',
+  'read_click',
+  'guided_prepare_write',
   'approved_guided_action',
+  'approved_admin_write',
+  'critical_payment_write',
   'critical_approved_action',
   'forbidden_credential_action',
 ]);
@@ -20052,6 +20060,28 @@ export const UiAutomationActionKindSchema = z.enum([
   'session-storage-read',
 ]);
 export type UiAutomationActionKind = z.infer<typeof UiAutomationActionKindSchema>;
+
+export const AdminUiActionKindSchema = z.enum([
+  'owner-admin-open-members',
+  'owner-admin-open-billing',
+  'owner-admin-open-pending-invites',
+  'owner-admin-open-manage-seats',
+  'owner-admin-open-add-credits',
+  'owner-admin-open-usage-alerts',
+  'workspace-switch-visible-click',
+  'invite-member',
+  'cancel-invite',
+  'remove-member',
+  'change-member-role',
+  'assign-seat',
+  'unassign-seat',
+  'add-credits',
+  'update-usage-alert',
+  'credential-input',
+  'mfa-input',
+  'session-storage-read',
+]);
+export type AdminUiActionKind = z.infer<typeof AdminUiActionKindSchema>;
 
 export const UiAutomationStatusSchema = z.enum([
   'planned',
@@ -20474,6 +20504,29 @@ export type ElectronRendererObservationSummary = z.infer<
   typeof ElectronRendererObservationSummarySchema
 >;
 
+export const UiTargetFingerprintSchema = observedEntityBaseSchema
+  .merge(m51ReadOnlyBoundarySchema)
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    targetHash: z.string().min(1),
+    selectorHash: z.string().min(1).optional(),
+    axRoleHash: z.string().min(1).optional(),
+    axNameHash: z.string().min(1).optional(),
+    pageHash: z.string().min(1).optional(),
+    networkEndpointHash: z.string().min(1).optional(),
+    screenshotHash: z.string().min(1).optional(),
+    fingerprintHash: z.string().min(1),
+    rawSelectorStored: z.literal(false).default(false),
+    rawAxStored: z.literal(false).default(false),
+    rawPageStored: z.literal(false).default(false),
+    rawNetworkBodyStored: z.literal(false).default(false),
+    rawScreenshotStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine(rejectCustomWorkflowRawMetadata);
+export type UiTargetFingerprint = z.infer<typeof UiTargetFingerprintSchema>;
+
 export const UiAutomationIntentSchema = createdEntityBaseSchema
   .merge(m51EvidenceAuditSchema)
   .extend({
@@ -20616,6 +20669,159 @@ export const UiAutomationRunSchema = createdEntityBaseSchema
     }
   });
 export type UiAutomationRun = z.infer<typeof UiAutomationRunSchema>;
+
+export const AdminWriteIntentSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentHash: z.string().min(1),
+    actionKind: AdminUiActionKindSchema,
+    actionClass: AutomationActionClassSchema,
+    targetHash: z.string().min(1),
+    uiTargetFingerprintId: z.string().min(1).optional(),
+    selectorFingerprintHash: z.string().min(1).optional(),
+    riskLevel: RiskLevelSchema,
+    dryRunRequired: z.literal(true).default(true),
+    approvalRequired: z.literal(true).default(true),
+    credentialInputRequested: z.literal(false).default(false),
+    businessCleartextAllowed: z.boolean().default(false),
+    rawIntentStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      record.actionClass === 'auto_observe' ||
+      record.actionClass === 'auto_read_projected'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin write intents must not be classified as automatic observation',
+        path: ['actionClass'],
+      });
+    }
+  });
+export type AdminWriteIntent = z.infer<typeof AdminWriteIntentSchema>;
+
+export const AdminWriteDryRunPlanSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentId: z.string().min(1),
+    planHash: z.string().min(1),
+    actionCount: z.number().int().nonnegative().default(0),
+    actionClass: AutomationActionClassSchema,
+    riskLevel: RiskLevelSchema,
+    approvalRequired: z.literal(true).default(true),
+    authorityRequired: z.literal(true).default(true),
+    blockedReasonHashes: z.array(z.string().min(1)).default([]),
+    targetFingerprintHash: z.string().min(1).optional(),
+    beforePageHash: z.string().min(1).optional(),
+    afterPageHash: z.string().min(1).optional(),
+    credentialActionBlocked: z.boolean().default(false),
+    rawPlanStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.actionClass === 'forbidden_credential_action' && !record.credentialActionBlocked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden credential actions must be blocked by admin write dry-runs',
+        path: ['credentialActionBlocked'],
+      });
+    }
+  });
+export type AdminWriteDryRunPlan = z.infer<typeof AdminWriteDryRunPlanSchema>;
+
+export const AdminWriteAuthoritySchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    dryRunPlanId: z.string().min(1),
+    authorityHash: z.string().min(1),
+    approvalArtifactIdHash: z.string().min(1).optional(),
+    allowed: z.boolean(),
+    actionClass: AutomationActionClassSchema,
+    riskLevel: RiskLevelSchema,
+    constraints: z.array(z.string().min(1)).default([]),
+    expiresAt: IsoDateTimeSchema.optional(),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    credentialMaterialAllowed: z.literal(false).default(false),
+    storageAccessAllowed: z.literal(false).default(false),
+    networkBodyReadAllowed: z.literal(false).default(false),
+    rawAuthorityStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (
+      record.allowed &&
+      (record.riskLevel === 'high' || record.riskLevel === 'critical') &&
+      !record.approvalArtifactIdHash
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'high or critical admin UI authority requires an approval artifact hash',
+        path: ['approvalArtifactIdHash'],
+      });
+    }
+    if (record.actionClass === 'forbidden_credential_action' && record.allowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden credential actions cannot receive admin UI authority',
+        path: ['allowed'],
+      });
+    }
+  });
+export type AdminWriteAuthority = z.infer<typeof AdminWriteAuthoritySchema>;
+
+export const AdminWriteRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    intentId: z.string().min(1),
+    dryRunPlanId: z.string().min(1),
+    authorityId: z.string().min(1).optional(),
+    status: UiAutomationStatusSchema,
+    actionClass: AutomationActionClassSchema,
+    actionCount: z.number().int().nonnegative().default(0),
+    approvedActionCount: z.number().int().nonnegative().default(0),
+    blockedActionCount: z.number().int().nonnegative().default(0),
+    liveActionRequested: z.boolean().default(false),
+    liveActionAllowed: z.boolean().default(false),
+    processBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    networkBoundaryInvoked: z.boolean().default(false),
+    executionDisabled: z.literal(true).default(true),
+    preWritePageHash: z.string().min(1).optional(),
+    postWritePageHash: z.string().min(1).optional(),
+    targetFingerprintHash: z.string().min(1).optional(),
+    postWriteVerified: z.boolean().default(false),
+    duplicateSubmitBlocked: z.boolean().default(false),
+    ownerSelfProtectionApplied: z.boolean().default(true),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    rawRunStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.liveActionAllowed && !record.authorityId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live admin UI action requires store-resolved authority',
+        path: ['authorityId'],
+      });
+    }
+    if (record.approvedActionCount + record.blockedActionCount > record.actionCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin UI action result counts cannot exceed actionCount',
+        path: ['actionCount'],
+      });
+    }
+  });
+export type AdminWriteRun = z.infer<typeof AdminWriteRunSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

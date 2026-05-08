@@ -1,6 +1,10 @@
 import type {
   AuditEvent,
   AccountPool,
+  AdminWriteAuthority,
+  AdminWriteDryRunPlan,
+  AdminWriteIntent,
+  AdminWriteRun,
   AutomationCapabilityPolicy,
   BusinessCodexSeat,
   BusinessMembershipMirror,
@@ -209,6 +213,7 @@ import type {
   QuotaReadinessDebugReport,
   QuotaSnapshot,
   SensitiveRedactionReport,
+  UiTargetFingerprint,
   UiAutomationAuthority,
   UiAutomationDryRunPlan,
   UiAutomationIntent,
@@ -1779,10 +1784,15 @@ export interface CodexHubStore {
   uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
   electronRendererObservationSummaries: MetadataEntityRepository<ElectronRendererObservationSummary>;
+  uiTargetFingerprints: MetadataEntityRepository<UiTargetFingerprint>;
   uiAutomationIntents: MetadataEntityRepository<UiAutomationIntent>;
   uiAutomationDryRunPlans: MetadataEntityRepository<UiAutomationDryRunPlan>;
   uiAutomationAuthorities: MetadataEntityRepository<UiAutomationAuthority>;
   uiAutomationRuns: MetadataEntityRepository<UiAutomationRun>;
+  adminWriteIntents: MetadataEntityRepository<AdminWriteIntent>;
+  adminWriteDryRunPlans: MetadataEntityRepository<AdminWriteDryRunPlan>;
+  adminWriteAuthorities: MetadataEntityRepository<AdminWriteAuthority>;
+  adminWriteRuns: MetadataEntityRepository<AdminWriteRun>;
   sensitiveRedactionReports: MetadataEntityRepository<SensitiveRedactionReport>;
   businessQuotaSourceProbes: MetadataEntityRepository<BusinessQuotaSourceProbe>;
   businessQuotaPermissionProbes: MetadataEntityRepository<BusinessQuotaPermissionProbe>;
