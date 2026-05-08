@@ -1468,6 +1468,114 @@ describe('supervisor mock development API', () => {
     }
   });
 
+  it('mirrors M59 CI status back to the task run without storing raw closure data', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m59-ci-mirror-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m59_ci_mirror',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      intentId: 'codex_task_intent_m59_ci_mirror',
+      status: 'completed',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      eventStreamStatus: 'completed',
+      dispatchAllowed: true,
+      liveExecution: false,
+      evidenceRefIds: ['evidence_m59_ci_mirror'],
+      auditEventIds: ['audit_m59_ci_mirror'],
+      summary: 'M59 CI mirror task run fixture.',
+    });
+    await store.codexTaskRuns.saveRecord(taskRun);
+    const server = buildSupervisorServer({ store });
+    const basePayload = {
+      changedFilePathHashes: ['sha256:path-a', 'sha256:path-b'],
+      changedFileCount: 2,
+      diffHash: 'sha256:diff',
+      diffSummaryHash: 'sha256:diff-summary',
+      verificationTargetCount: 3,
+      verificationPassedCount: 3,
+      outputSummaryHash: 'sha256:verification-output',
+      reviewReady: true,
+      reviewPackageIdHash: 'sha256:review-package',
+      reviewPackageHash: 'sha256:review-package-body',
+      branchPublishPlanIdHash: 'sha256:branch-plan',
+      draftPrPlanIdHash: 'sha256:draft-pr-plan',
+    };
+
+    const pendingResponse = await server.inject({
+      method: 'POST',
+      url: `/tasks/${taskRun.id}/closure`,
+      headers: localControlHeaders,
+      payload: {
+        ...basePayload,
+        ciStatus: 'pending',
+      },
+    });
+    const passedResponse = await server.inject({
+      method: 'POST',
+      url: `/tasks/${taskRun.id}/closure`,
+      headers: localControlHeaders,
+      payload: {
+        ...basePayload,
+        ciStatus: 'passed',
+      },
+    });
+    const tasksResponse = await server.inject({
+      method: 'GET',
+      url: '/tasks',
+    });
+    const closuresResponse = await server.inject({
+      method: 'GET',
+      url: '/tasks/closures',
+    });
+    const updatedRun = await store.codexTaskRuns.getRecord(taskRun.id);
+    const closureRuns = await store.codexTaskClosureRuns.listRecords({ limit: 10 });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(pendingResponse.statusCode).toBe(202);
+    expect(pendingResponse.json()).toMatchObject({
+      closureStatus: 'ci_pending',
+      ciStatus: 'pending',
+      liveRemoteWriteAllowed: false,
+      externalProcessStarted: false,
+    });
+    expect(passedResponse.statusCode).toBe(202);
+    expect(passedResponse.json()).toMatchObject({
+      closureStatus: 'completed',
+      ciStatus: 'passed',
+      liveRemoteWriteAllowed: false,
+      externalProcessStarted: false,
+    });
+    expect(updatedRun).toMatchObject({
+      ciStatus: 'passed',
+      closureRunId: expect.stringMatching(/^codex_task_closure_run_/),
+      closureSummaryHash: expect.stringMatching(/^sha256:/),
+    });
+    expect(closureRuns).toHaveLength(2);
+    expect(closureRuns.map((run) => run.ciStatus).sort()).toEqual(['passed', 'pending']);
+    expect(tasksResponse.body).toContain('task-closure-run');
+    expect(closuresResponse.json()).toMatchObject({
+      status: 'available-readonly',
+      counts: {
+        closureRuns: 2,
+        ciPending: 1,
+        ciFailed: 0,
+        remoteWritesAllowed: 0,
+      },
+    });
+    for (const body of [pendingResponse.body, passedResponse.body, tasksResponse.body]) {
+      expect(body).not.toContain('review-package-body');
+      expect(body).not.toContain('diff --git');
+      expect(body).not.toContain(process.cwd());
+    }
+  });
+
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
