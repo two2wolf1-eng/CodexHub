@@ -1272,6 +1272,202 @@ describe('supervisor mock development API', () => {
     expect(closuresResponse.body).not.toContain(process.cwd());
   });
 
+  it('links M59 closure to GitHub dry-run plan metadata without running GitHub children', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m59-github-closure-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const server = buildSupervisorServer({ store });
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m59_github_closure',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      intentId: 'codex_task_intent_m59_github_closure',
+      status: 'completed',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      eventStreamStatus: 'completed',
+      dispatchAllowed: true,
+      liveExecution: false,
+      evidenceRefIds: ['evidence_m59_github_closure'],
+      auditEventIds: ['audit_m59_github_closure'],
+      summary: 'M59 GitHub dry-run closure task run fixture.',
+    });
+    await store.codexTaskRuns.saveRecord(taskRun);
+
+    const branchDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        sourceKind: 'local_rc_readiness',
+        sourceId: taskRun.id,
+        sourceSummary: 'Task closure ready for branch publish dry-run.',
+        worktreePathHash: 'sha256:worktree',
+        branchSlug: 'm59-closure',
+        commitMessageSummary: 'Publish M59 closure dry-run patch',
+        files: [
+          {
+            relativePath: 'packages/example/src/index.ts',
+            contentHash: `sha256:${hashTestText('export const value = 1;\n')}`,
+            byteCount: Buffer.byteLength('export const value = 1;\n', 'utf8'),
+            text: true,
+          },
+        ],
+        runnerMode: 'controlled-github-branch-publish',
+      },
+    });
+    const branchDryRun = branchDryRunResponse.json();
+    const draftPrDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/draft-prs/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        owner: 'octo-org',
+        repo: 'codexhub',
+        baseBranch: 'main',
+        headBranch: 'codexhub/m59-closure',
+        sourceKind: 'local_rc_readiness',
+        sourceId: taskRun.id,
+        sourceSummary: 'Task closure ready for draft PR dry-run.',
+        titleSummary: 'Draft PR for M59 closure',
+        bodySectionSummaries: ['Closure metadata ready', 'Verification passed'],
+        remoteHeadBranchExists: true,
+        existingPullRequestCount: 0,
+        runnerMode: 'controlled-github-draft-pr',
+      },
+    });
+    const draftPrDryRun = draftPrDryRunResponse.json();
+    const chainDryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/publish-draft-pr-chains/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sourceKind: 'local_rc_readiness',
+        sourceId: taskRun.id,
+        branchPublishDryRunId: branchDryRun.dryRunId,
+        draftPrDryRunId: draftPrDryRun.dryRunId,
+      },
+    });
+    const branchApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/branch-publishes/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: branchDryRun.dryRunId,
+        reason: 'request branch publish approval for M59 dry-run closure',
+      },
+    });
+    const draftApprovalRequestResponse = await server.inject({
+      method: 'POST',
+      url: '/api/github/draft-prs/approval-requests',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: draftPrDryRun.dryRunId,
+        reason: 'request draft PR approval for M59 dry-run closure',
+      },
+    });
+    const closureResponse = await server.inject({
+      method: 'POST',
+      url: `/tasks/${taskRun.id}/closure`,
+      headers: localControlHeaders,
+      payload: {
+        changedFilePathHashes: ['sha256:path-a'],
+        changedFileCount: 1,
+        diffHash: 'sha256:diff',
+        diffSummaryHash: 'sha256:diff-summary',
+        verificationTargetCount: 2,
+        verificationPassedCount: 2,
+        outputSummaryHash: 'sha256:verification-output',
+        reviewReady: true,
+        reviewPackageIdHash: 'sha256:review-package',
+        reviewPackageHash: 'sha256:review-package-body',
+        branchPublishPlanIdHash: `sha256:${hashTestText(branchDryRun.recordId)}`,
+        draftPrPlanIdHash: `sha256:${hashTestText(draftPrDryRun.recordId)}`,
+        approvalWaiting: true,
+      },
+    });
+    const branchRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/branch-publishes/runs',
+    });
+    const draftPrRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/draft-prs/runs',
+    });
+    const chainRunsResponse = await server.inject({
+      method: 'GET',
+      url: '/api/github/publish-draft-pr-chains/runs',
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(branchDryRunResponse.statusCode).toBe(200);
+    expect(branchDryRun).toMatchObject({
+      status: 'planned',
+      requiresApproval: true,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      pushAllowed: false,
+    });
+    expect(draftPrDryRunResponse.statusCode).toBe(200);
+    expect(draftPrDryRun).toMatchObject({
+      status: 'planned',
+      requiresApproval: true,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      draft: true,
+    });
+    expect(chainDryRunResponse.statusCode).toBe(200);
+    expect(chainDryRunResponse.json()).toMatchObject({
+      separateApprovalsRequired: true,
+      networkBoundaryInvoked: false,
+      noRealWrite: true,
+      pushAllowed: false,
+    });
+    expect(branchApprovalRequestResponse.statusCode).toBe(200);
+    expect(branchApprovalRequestResponse.json()).toMatchObject({
+      status: 'requested',
+      networkBoundaryInvoked: false,
+    });
+    expect(draftApprovalRequestResponse.statusCode).toBe(200);
+    expect(draftApprovalRequestResponse.json()).toMatchObject({
+      status: 'requested',
+      networkBoundaryInvoked: false,
+    });
+    expect(closureResponse.statusCode).toBe(202);
+    expect(closureResponse.json()).toMatchObject({
+      closureStatus: 'waiting_approval',
+      dryRunOnly: true,
+      approvalRequired: true,
+      liveRemoteWriteAllowed: false,
+      directAdapterExecutionAllowed: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(branchRunsResponse.json().count).toBe(0);
+    expect(draftPrRunsResponse.json().count).toBe(0);
+    expect(chainRunsResponse.json().count).toBe(0);
+    for (const body of [
+      branchDryRunResponse.body,
+      draftPrDryRunResponse.body,
+      chainDryRunResponse.body,
+      closureResponse.body,
+    ]) {
+      expect(body).not.toContain('octo-org');
+      expect(body).not.toContain('codexhub/m59-closure');
+      expect(body).not.toContain('packages/example/src/index.ts');
+      expect(body).not.toContain('Publish M59 closure dry-run patch');
+      expect(body).not.toContain('Draft PR for M59 closure');
+      expect(body).not.toContain('review-package-body');
+    }
+  });
+
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
