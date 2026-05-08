@@ -13,9 +13,14 @@ import {
   CodexAppServerSessionSchema,
   CodexClientInstanceSchema,
   CodexRecoveryRunSchema,
+  CodexTaskClosureRunSchema,
   CodexTaskDiagnosisSchema,
+  CodexTaskDiffSummaryProjectionSchema,
+  CodexTaskGithubClosureProjectionSchema,
   CodexTaskIntentSchema,
+  CodexTaskReviewProjectionSchema,
   CodexTaskRunSchema,
+  CodexTaskVerificationProjectionSchema,
   EvidenceBundleSchema,
   HumanCheckpointSchema,
   LeaseSchema,
@@ -273,6 +278,140 @@ describe('M51 unified metadata store', () => {
     expect(intent.rawPromptStored).toBe(false);
     expect(recovery.executionDisabled).toBe(true);
     expect(lease.leaseSecretStored).toBe(false);
+  });
+
+  it('round-trips M59 task closure projections without raw diff, path, or PR body', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-m59-store-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m59_store_1',
+      schemaVersion,
+      createdAt,
+      intentId: 'codex_task_intent_m59_store_1',
+      status: 'completed',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      dispatchAllowed: true,
+      eventStreamStatus: 'completed',
+      ciStatus: 'pending',
+      diffSummaryId: 'codex_task_diff_summary_m59_store_1',
+      verificationProjectionId: 'codex_task_verification_m59_store_1',
+      reviewProjectionId: 'codex_task_review_m59_store_1',
+      githubClosureProjectionId: 'codex_task_github_closure_m59_store_1',
+      closureRunId: 'codex_task_closure_run_m59_store_1',
+      closureSummaryHash: 'sha256:closure-summary',
+      summary: 'Completed task run has metadata-only closure writeback ids.',
+    });
+    const diffSummary = CodexTaskDiffSummaryProjectionSchema.parse({
+      id: taskRun.diffSummaryId,
+      schemaVersion,
+      observedAt: createdAt,
+      taskRunId: taskRun.id,
+      status: 'changed',
+      fileCount: 1,
+      pathHashCount: 1,
+      pathHashes: ['sha256:path'],
+      diffHash: 'sha256:diff',
+      diffSummaryHash: 'sha256:diff-summary',
+      summary: 'Diff summary stores only path and diff hashes.',
+    });
+    const verification = CodexTaskVerificationProjectionSchema.parse({
+      id: taskRun.verificationProjectionId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'passed',
+      targetCount: 3,
+      passedCount: 3,
+      failedCount: 0,
+      skippedCount: 0,
+      verificationRunIdHash: 'sha256:verification-run',
+      commandSummaryHash: 'sha256:verification-command',
+      outputSummaryHash: 'sha256:verification-output',
+      processBoundaryInvoked: true,
+      externalProcessStarted: true,
+      summary: 'Verification projection stores counts and hashes only.',
+    });
+    const review = CodexTaskReviewProjectionSchema.parse({
+      id: taskRun.reviewProjectionId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'ready_for_review',
+      reviewPackageIdHash: 'sha256:review-package',
+      packageHash: 'sha256:package',
+      findingCount: 0,
+      blockerCount: 0,
+      readyForReviewDraftOnly: true,
+      summary: 'Review projection remains draft-only.',
+    });
+    const githubClosure = CodexTaskGithubClosureProjectionSchema.parse({
+      id: taskRun.githubClosureProjectionId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'dry_run_planned',
+      branchPublishPlanIdHash: 'sha256:branch-plan',
+      draftPrPlanIdHash: 'sha256:draft-pr-plan',
+      ciStatus: 'pending',
+      branchPublishDryRunPlanned: true,
+      draftPrDryRunPlanned: true,
+      summary: 'GitHub closure stores dry-run plan hashes only.',
+    });
+    const closureRun = CodexTaskClosureRunSchema.parse({
+      id: taskRun.closureRunId,
+      schemaVersion,
+      createdAt,
+      taskRunId: taskRun.id,
+      status: 'dry_run_planned',
+      diffSummaryId: diffSummary.id,
+      verificationProjectionId: verification.id,
+      reviewProjectionId: review.id,
+      githubClosureProjectionId: githubClosure.id,
+      ciStatus: githubClosure.ciStatus,
+      changedFileCount: diffSummary.fileCount,
+      verificationTargetCount: verification.targetCount,
+      reviewFindingCount: review.findingCount,
+      blockerCount: 0,
+      branchPublishDryRunIdHash: 'sha256:branch-dry-run',
+      draftPrDryRunIdHash: 'sha256:draft-pr-dry-run',
+      closureHash: 'sha256:closure',
+      summary: 'Closure run links safe child projections.',
+    });
+
+    const saved = [
+      await expectRoundTrip(first.codexTaskRuns, taskRun),
+      await expectRoundTrip(first.codexTaskDiffSummaries, diffSummary),
+      await expectRoundTrip(first.codexTaskVerificationProjections, verification),
+      await expectRoundTrip(first.codexTaskReviewProjections, review),
+      await expectRoundTrip(first.codexTaskGithubClosureProjections, githubClosure),
+      await expectRoundTrip(first.codexTaskClosureRuns, closureRun),
+    ];
+    await expect(first.codexTaskClosureRuns.listRecords({ status: 'dry_run_planned' })).resolves.toEqual([
+      closureRun,
+    ]);
+    await first.close();
+
+    const reopened = await createSqliteStore({ dbPath });
+    await expect(reopened.codexTaskClosureRuns.getRecord(closureRun.id)).resolves.toEqual(
+      closureRun,
+    );
+    await expect(reopened.codexTaskGithubClosureProjections.getRecord(githubClosure.id)).resolves.toEqual(
+      githubClosure,
+    );
+    await reopened.close();
+
+    const serialized = JSON.stringify(saved);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(serialized).not.toContain('diff --git');
+    expect(serialized).not.toContain('pull request body');
+    expect(findAdversarialPublicOutputRoundTripLeaks(saved)).toEqual([]);
+    expect(diffSummary.rawDiffStored).toBe(false);
+    expect(githubClosure.rawPullRequestBodyStored).toBe(false);
+    expect(githubClosure.remoteWriteAllowed).toBe(false);
+    expect(closureRun.liveRemoteWriteAllowed).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

@@ -23,9 +23,14 @@ import type {
   CodexClientInstance,
   CodexRecoveryRun,
   CodexPatchChildRecord,
+  CodexTaskClosureRun,
   CodexTaskDiagnosis,
+  CodexTaskDiffSummaryProjection,
+  CodexTaskGithubClosureProjection,
   CodexTaskIntent,
+  CodexTaskReviewProjection,
   CodexTaskRun,
+  CodexTaskVerificationProjection,
   CodexExecLiveRunRecord,
   ElectronCdpObservationApprovalArtifactRecord,
   ElectronCdpObservationControlPlaneRun,
@@ -1723,6 +1728,11 @@ export interface CodexHubStore {
   codexTaskRuns: MetadataEntityRepository<CodexTaskRun>;
   codexTaskDiagnoses: MetadataEntityRepository<CodexTaskDiagnosis>;
   codexRecoveryRuns: MetadataEntityRepository<CodexRecoveryRun>;
+  codexTaskDiffSummaries: MetadataEntityRepository<CodexTaskDiffSummaryProjection>;
+  codexTaskVerificationProjections: MetadataEntityRepository<CodexTaskVerificationProjection>;
+  codexTaskReviewProjections: MetadataEntityRepository<CodexTaskReviewProjection>;
+  codexTaskGithubClosureProjections: MetadataEntityRepository<CodexTaskGithubClosureProjection>;
+  codexTaskClosureRuns: MetadataEntityRepository<CodexTaskClosureRun>;
   accountPools: MetadataEntityRepository<AccountPool>;
   clientPools: MetadataEntityRepository<ClientPool>;
   poolLeases: MetadataEntityRepository<Lease>;

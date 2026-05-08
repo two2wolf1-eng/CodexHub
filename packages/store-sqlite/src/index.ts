@@ -27,9 +27,14 @@ import type {
   CodexClientInstance,
   CodexRecoveryRun,
   CodexPatchChildRecord,
+  CodexTaskClosureRun,
   CodexTaskDiagnosis,
+  CodexTaskDiffSummaryProjection,
+  CodexTaskGithubClosureProjection,
   CodexTaskIntent,
+  CodexTaskReviewProjection,
   CodexTaskRun,
+  CodexTaskVerificationProjection,
   CodexExecLiveAdapterAdrDecisionQuery,
   CodexExecLiveAdapterAdrDecisionRecord,
   CodexExecLiveRunRecord,
@@ -605,6 +610,11 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexTaskRuns: MetadataEntityRepository<CodexTaskRun>;
   readonly codexTaskDiagnoses: MetadataEntityRepository<CodexTaskDiagnosis>;
   readonly codexRecoveryRuns: MetadataEntityRepository<CodexRecoveryRun>;
+  readonly codexTaskDiffSummaries: MetadataEntityRepository<CodexTaskDiffSummaryProjection>;
+  readonly codexTaskVerificationProjections: MetadataEntityRepository<CodexTaskVerificationProjection>;
+  readonly codexTaskReviewProjections: MetadataEntityRepository<CodexTaskReviewProjection>;
+  readonly codexTaskGithubClosureProjections: MetadataEntityRepository<CodexTaskGithubClosureProjection>;
+  readonly codexTaskClosureRuns: MetadataEntityRepository<CodexTaskClosureRun>;
   readonly accountPools: MetadataEntityRepository<AccountPool>;
   readonly clientPools: MetadataEntityRepository<ClientPool>;
   readonly poolLeases: MetadataEntityRepository<Lease>;
@@ -1023,6 +1033,30 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.codexRecoveryRuns = new SqliteMetadataEntityRepository<CodexRecoveryRun>(
       database,
       'codex_recovery_runs',
+    );
+    this.codexTaskDiffSummaries =
+      new SqliteMetadataEntityRepository<CodexTaskDiffSummaryProjection>(
+        database,
+        'codex_task_diff_summaries',
+      );
+    this.codexTaskVerificationProjections =
+      new SqliteMetadataEntityRepository<CodexTaskVerificationProjection>(
+        database,
+        'codex_task_verification_projections',
+      );
+    this.codexTaskReviewProjections =
+      new SqliteMetadataEntityRepository<CodexTaskReviewProjection>(
+        database,
+        'codex_task_review_projections',
+      );
+    this.codexTaskGithubClosureProjections =
+      new SqliteMetadataEntityRepository<CodexTaskGithubClosureProjection>(
+        database,
+        'codex_task_github_closure_projections',
+      );
+    this.codexTaskClosureRuns = new SqliteMetadataEntityRepository<CodexTaskClosureRun>(
+      database,
+      'codex_task_closure_runs',
     );
     this.accountPools = new SqliteMetadataEntityRepository<AccountPool>(
       database,
@@ -7084,6 +7118,36 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_recovery_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_diff_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_verification_projections (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_review_projections (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_github_closure_projections (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_task_closure_runs (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL
