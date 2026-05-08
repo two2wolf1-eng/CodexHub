@@ -12,6 +12,7 @@ import {
   createTaskClosureReviewProjection,
   createTaskClosureRun,
   createTaskClosureVerificationProjection,
+  runTaskClosureRehearsalScenario,
 } from './index';
 
 const createdAt = '2026-05-08T00:00:00.000Z';
@@ -146,6 +147,37 @@ describe('task-closure-kernel', () => {
     expect(writeback.diffSummaryId).toBe(diffSummary.id);
     expect(writeback.outputSummaryHash).toBe('sha256:output');
     expect(githubClosure.rawPullRequestBodyStored).toBe(false);
+  });
+
+  it('rehearses M59 closure failure and approval-waiting scenarios without live writes', () => {
+    const results = [
+      runTaskClosureRehearsalScenario('all-pass', { createdAt }),
+      runTaskClosureRehearsalScenario('empty-diff', { createdAt }),
+      runTaskClosureRehearsalScenario('verification-failed', { createdAt }),
+      runTaskClosureRehearsalScenario('review-blocked', { createdAt }),
+      runTaskClosureRehearsalScenario('dry-run-approval-missing', { createdAt }),
+      runTaskClosureRehearsalScenario('ci-failed', { createdAt }),
+    ];
+
+    expect(results.map((result) => [result.scenario, result.status])).toEqual([
+      ['all-pass', 'passed'],
+      ['empty-diff', 'blocked'],
+      ['verification-failed', 'blocked'],
+      ['review-blocked', 'blocked'],
+      ['dry-run-approval-missing', 'blocked'],
+      ['ci-failed', 'failed'],
+    ]);
+    expect(results.map((result) => [result.scenario, result.closureStatus])).toEqual([
+      ['all-pass', 'completed'],
+      ['empty-diff', 'blocked'],
+      ['verification-failed', 'blocked'],
+      ['review-blocked', 'blocked'],
+      ['dry-run-approval-missing', 'waiting_approval'],
+      ['ci-failed', 'failed'],
+    ]);
+    expect(results.every((result) => result.liveRemoteWriteAllowed === false)).toBe(true);
+    expect(results.every((result) => result.externalProcessStarted === false)).toBe(true);
+    expect(JSON.stringify(results)).not.toContain(adversarialPublicOutputFixture);
   });
 });
 

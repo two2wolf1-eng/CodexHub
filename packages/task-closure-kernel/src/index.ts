@@ -106,6 +106,31 @@ export interface TaskClosureProjectionBundle {
   externalProcessStarted: boolean;
 }
 
+export type TaskClosureRehearsalScenario =
+  | 'all-pass'
+  | 'empty-diff'
+  | 'verification-failed'
+  | 'review-blocked'
+  | 'dry-run-approval-missing'
+  | 'ci-failed';
+
+export interface TaskClosureRehearsalResult {
+  scenario: TaskClosureRehearsalScenario;
+  status: 'passed' | 'blocked' | 'failed';
+  closureStatus: CodexTaskClosureRun['status'];
+  diffStatus: CodexTaskDiffSummaryProjection['status'];
+  verificationStatus: CodexTaskVerificationProjection['status'];
+  reviewStatus: CodexTaskReviewProjection['status'];
+  githubClosureStatus: CodexTaskGithubClosureProjection['status'];
+  ciStatus: CodexTaskGithubClosureProjection['ciStatus'];
+  blockerCount: number;
+  bundle: TaskClosureProjectionBundle;
+  metadataOnly: true;
+  liveRemoteWriteAllowed: false;
+  externalProcessStarted: false;
+  summary: string;
+}
+
 export function createTaskClosureDiffSummary(
   input: TaskClosureDiffSummaryInput,
 ): CodexTaskDiffSummaryProjection {
@@ -393,6 +418,7 @@ export function createTaskClosureProjectionBundle(input: {
   const review = createTaskClosureReviewProjection({
     taskRun: input.taskRun,
     createdAt: input.createdAt,
+    ...(input.review ?? {}),
     status:
       input.review?.status ??
       (diffSummary.status === 'empty'
@@ -402,18 +428,17 @@ export function createTaskClosureProjectionBundle(input: {
             verification.status === 'aborted'
           ? 'blocked_verification'
           : undefined),
-    ...(input.review ?? {}),
   });
   const githubClosure = createTaskClosureGithubProjection({
     taskRun: input.taskRun,
     createdAt: input.createdAt,
+    ...(input.github ?? {}),
     blocked:
       input.github?.blocked ??
       (review.status !== 'ready_for_review' ||
         verification.status === 'failed' ||
         verification.status === 'blocked' ||
         verification.status === 'aborted'),
-    ...(input.github ?? {}),
   });
   const closureRun = createTaskClosureRun({
     taskRun: input.taskRun,
@@ -449,17 +474,44 @@ export function createTaskClosureProjectionBundle(input: {
   };
 }
 
+export function runTaskClosureRehearsalScenario(
+  scenario: TaskClosureRehearsalScenario,
+  input: { taskRun?: CodexTaskRun; createdAt?: string } = {},
+): TaskClosureRehearsalResult {
+  const taskRun = input.taskRun ?? createRehearsalTaskRun(scenario, input.createdAt);
+  const bundle = createTaskClosureProjectionBundle({
+    taskRun,
+    createdAt: input.createdAt,
+    ...createRehearsalBundleInput(scenario),
+  });
+  const status =
+    bundle.closureRun.status === 'completed'
+      ? 'passed'
+      : bundle.closureRun.status === 'failed'
+        ? 'failed'
+        : 'blocked';
+
+  return {
+    scenario,
+    status,
+    closureStatus: bundle.closureRun.status,
+    diffStatus: bundle.diffSummary.status,
+    verificationStatus: bundle.verification.status,
+    reviewStatus: bundle.review.status,
+    githubClosureStatus: bundle.githubClosure.status,
+    ciStatus: bundle.githubClosure.ciStatus,
+    blockerCount: bundle.closureRun.blockerCount,
+    bundle,
+    metadataOnly: true,
+    liveRemoteWriteAllowed: false,
+    externalProcessStarted: false,
+    summary: `Task closure rehearsal ${scenario} finished as ${status}.`,
+  };
+}
+
 function classifyClosureRunStatus(input: TaskClosureRunInput): CodexTaskClosureRun['status'] {
   if (input.githubClosure.ciStatus === 'failed' || input.githubClosure.status === 'ci_failed') {
     return 'failed';
-  }
-
-  if (input.githubClosure.ciStatus === 'passed' || input.githubClosure.status === 'ci_passed') {
-    return 'completed';
-  }
-
-  if (input.githubClosure.ciStatus === 'pending' || input.githubClosure.status === 'ci_pending') {
-    return 'ci_pending';
   }
 
   if (
@@ -478,6 +530,14 @@ function classifyClosureRunStatus(input: TaskClosureRunInput): CodexTaskClosureR
 
   if (input.githubClosure.status === 'approval_waiting') {
     return 'waiting_approval';
+  }
+
+  if (input.githubClosure.ciStatus === 'passed' || input.githubClosure.status === 'ci_passed') {
+    return 'completed';
+  }
+
+  if (input.githubClosure.ciStatus === 'pending' || input.githubClosure.status === 'ci_pending') {
+    return 'ci_pending';
   }
 
   if (input.githubClosure.status === 'dry_run_planned') {
@@ -516,4 +576,109 @@ function stableHash(value: string): string {
 
 function stableId(prefix: string, seed: string): string {
   return `${prefix}_${hashText(seed).slice(0, 16)}`;
+}
+
+function createRehearsalTaskRun(
+  scenario: TaskClosureRehearsalScenario,
+  createdAt: string | undefined,
+): CodexTaskRun {
+  return CodexTaskRunSchema.parse({
+    id: stableId('codex_task_run_rehearsal', scenario),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: createdAt ?? foundationTimestamp(),
+    intentId: stableId('codex_task_intent_rehearsal', scenario),
+    status: 'completed',
+    dispatchMode: 'live_app_server',
+    preflightStatus: 'ready',
+    approvalStatus: 'approved',
+    dispatchAllowed: true,
+    eventStreamStatus: 'completed',
+    liveExecution: false,
+    noRealWrite: true,
+    summary: `Task closure rehearsal task run for ${scenario}.`,
+  });
+}
+
+function createRehearsalBundleInput(
+  scenario: TaskClosureRehearsalScenario,
+): Omit<Parameters<typeof createTaskClosureProjectionBundle>[0], 'taskRun' | 'createdAt'> {
+  const changedDiff = {
+    pathHashes: ['sha256:path-a', 'sha256:path-b'],
+    fileCount: 2,
+    diffHash: 'sha256:diff',
+    diffSummaryHash: 'sha256:diff-summary',
+  };
+  const passedVerification = {
+    targetCount: 3,
+    passedCount: 3,
+    outputSummaryHash: 'sha256:verification-output',
+  };
+  const readyReview = {
+    status: 'ready_for_review' as const,
+    reviewPackageIdHash: 'sha256:review-package',
+    packageHash: 'sha256:review-package-summary',
+    readyForReviewDraftOnly: true,
+  };
+  const plannedGithub = {
+    branchPublishPlanIdHash: 'sha256:branch-plan',
+    draftPrPlanIdHash: 'sha256:draft-pr-plan',
+    ciStatus: 'passed' as const,
+  };
+
+  switch (scenario) {
+    case 'all-pass':
+      return {
+        diff: changedDiff,
+        verification: passedVerification,
+        review: readyReview,
+        github: plannedGithub,
+      };
+    case 'empty-diff':
+      return {
+        diff: { pathHashes: [], fileCount: 0 },
+        verification: passedVerification,
+        github: plannedGithub,
+      };
+    case 'verification-failed':
+      return {
+        diff: changedDiff,
+        verification: { targetCount: 3, passedCount: 2, failedCount: 1 },
+        review: readyReview,
+        github: plannedGithub,
+      };
+    case 'review-blocked':
+      return {
+        diff: changedDiff,
+        verification: passedVerification,
+        review: {
+          status: 'blocked_patch',
+          findingCount: 1,
+          blockerCount: 1,
+          readyForReviewDraftOnly: false,
+        },
+        github: plannedGithub,
+      };
+    case 'dry-run-approval-missing':
+      return {
+        diff: changedDiff,
+        verification: passedVerification,
+        review: readyReview,
+        github: {
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          approvalWaiting: true,
+        },
+      };
+    case 'ci-failed':
+      return {
+        diff: changedDiff,
+        verification: passedVerification,
+        review: readyReview,
+        github: {
+          branchPublishPlanIdHash: 'sha256:branch-plan',
+          draftPrPlanIdHash: 'sha256:draft-pr-plan',
+          ciStatus: 'failed',
+        },
+      };
+  }
 }
