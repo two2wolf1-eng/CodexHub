@@ -25,6 +25,11 @@ import type {
   CodexAppServerTurnMirror,
   CodexAppServerWireMessageSummary,
   CodexClientInstance,
+  CodexProductionAuditExportSummary,
+  CodexProductionCanaryRun,
+  CodexProductionCanaryTask,
+  CodexProductionDriftGate,
+  CodexProductionReadinessGate,
   CodexRecoveryRun,
   CodexPatchChildRecord,
   CodexTaskClosureRun,
@@ -615,6 +620,11 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly codexTaskReviewProjections: MetadataEntityRepository<CodexTaskReviewProjection>;
   readonly codexTaskGithubClosureProjections: MetadataEntityRepository<CodexTaskGithubClosureProjection>;
   readonly codexTaskClosureRuns: MetadataEntityRepository<CodexTaskClosureRun>;
+  readonly codexProductionCanaryTasks: MetadataEntityRepository<CodexProductionCanaryTask>;
+  readonly codexProductionCanaryRuns: MetadataEntityRepository<CodexProductionCanaryRun>;
+  readonly codexProductionDriftGates: MetadataEntityRepository<CodexProductionDriftGate>;
+  readonly codexProductionReadinessGates: MetadataEntityRepository<CodexProductionReadinessGate>;
+  readonly codexProductionAuditExportSummaries: MetadataEntityRepository<CodexProductionAuditExportSummary>;
   readonly accountPools: MetadataEntityRepository<AccountPool>;
   readonly clientPools: MetadataEntityRepository<ClientPool>;
   readonly poolLeases: MetadataEntityRepository<Lease>;
@@ -1058,6 +1068,31 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'codex_task_closure_runs',
     );
+    this.codexProductionCanaryTasks =
+      new SqliteMetadataEntityRepository<CodexProductionCanaryTask>(
+        database,
+        'codex_production_canary_tasks',
+      );
+    this.codexProductionCanaryRuns =
+      new SqliteMetadataEntityRepository<CodexProductionCanaryRun>(
+        database,
+        'codex_production_canary_runs',
+      );
+    this.codexProductionDriftGates =
+      new SqliteMetadataEntityRepository<CodexProductionDriftGate>(
+        database,
+        'codex_production_drift_gates',
+      );
+    this.codexProductionReadinessGates =
+      new SqliteMetadataEntityRepository<CodexProductionReadinessGate>(
+        database,
+        'codex_production_readiness_gates',
+      );
+    this.codexProductionAuditExportSummaries =
+      new SqliteMetadataEntityRepository<CodexProductionAuditExportSummary>(
+        database,
+        'codex_production_audit_export_summaries',
+      );
     this.accountPools = new SqliteMetadataEntityRepository<AccountPool>(
       database,
       'account_pools',
@@ -7148,6 +7183,36 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_task_closure_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_production_canary_tasks (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_production_canary_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_production_drift_gates (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_production_readiness_gates (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS codex_production_audit_export_summaries (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

@@ -21,6 +21,11 @@ import type {
   CodexAppServerTurnMirror,
   CodexAppServerWireMessageSummary,
   CodexClientInstance,
+  CodexProductionAuditExportSummary,
+  CodexProductionCanaryRun,
+  CodexProductionCanaryTask,
+  CodexProductionDriftGate,
+  CodexProductionReadinessGate,
   CodexRecoveryRun,
   CodexPatchChildRecord,
   CodexTaskClosureRun,
@@ -1733,6 +1738,11 @@ export interface CodexHubStore {
   codexTaskReviewProjections: MetadataEntityRepository<CodexTaskReviewProjection>;
   codexTaskGithubClosureProjections: MetadataEntityRepository<CodexTaskGithubClosureProjection>;
   codexTaskClosureRuns: MetadataEntityRepository<CodexTaskClosureRun>;
+  codexProductionCanaryTasks: MetadataEntityRepository<CodexProductionCanaryTask>;
+  codexProductionCanaryRuns: MetadataEntityRepository<CodexProductionCanaryRun>;
+  codexProductionDriftGates: MetadataEntityRepository<CodexProductionDriftGate>;
+  codexProductionReadinessGates: MetadataEntityRepository<CodexProductionReadinessGate>;
+  codexProductionAuditExportSummaries: MetadataEntityRepository<CodexProductionAuditExportSummary>;
   accountPools: MetadataEntityRepository<AccountPool>;
   clientPools: MetadataEntityRepository<ClientPool>;
   poolLeases: MetadataEntityRepository<Lease>;

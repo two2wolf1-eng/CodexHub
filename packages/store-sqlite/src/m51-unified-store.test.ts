@@ -12,6 +12,11 @@ import {
   CodexAccountBindingSchema,
   CodexAppServerSessionSchema,
   CodexClientInstanceSchema,
+  CodexProductionAuditExportSummarySchema,
+  CodexProductionCanaryRunSchema,
+  CodexProductionCanaryTaskSchema,
+  CodexProductionDriftGateSchema,
+  CodexProductionReadinessGateSchema,
   CodexRecoveryRunSchema,
   CodexTaskClosureRunSchema,
   CodexTaskDiagnosisSchema,
@@ -412,6 +417,117 @@ describe('M51 unified metadata store', () => {
     expect(githubClosure.rawPullRequestBodyStored).toBe(false);
     expect(githubClosure.remoteWriteAllowed).toBe(false);
     expect(closureRun.liveRemoteWriteAllowed).toBe(false);
+  });
+
+  it('round-trips M60 production readiness records without raw canary, drift, audit, or readiness data', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-m60-store-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const canaryTask = CodexProductionCanaryTaskSchema.parse({
+      id: 'codex_production_canary_task_store_1',
+      schemaVersion,
+      createdAt,
+      canaryKind: 'thread-turn',
+      taskHash: 'sha256:canary-task',
+      status: 'planned',
+      targetHash: 'sha256:target',
+      dryRunOnly: true,
+      approvalRequired: false,
+      liveSmoke: false,
+      highRisk: false,
+      summary: 'Thread turn canary task stores a hashed target only.',
+    });
+    const canaryRun = CodexProductionCanaryRunSchema.parse({
+      id: 'codex_production_canary_run_store_1',
+      schemaVersion,
+      createdAt,
+      canaryTaskId: canaryTask.id,
+      canaryKind: canaryTask.canaryKind,
+      status: 'passed',
+      checkCount: 2,
+      passedCount: 2,
+      failedCount: 0,
+      blockerCount: 0,
+      liveSmoke: false,
+      highRiskLiveTaskBlocked: false,
+      summary: 'Canary run stores counts and status only.',
+    });
+    const driftGate = CodexProductionDriftGateSchema.parse({
+      id: 'codex_production_drift_gate_store_1',
+      schemaVersion,
+      observedAt: createdAt,
+      gateKind: 'app-server-protocol',
+      baselineHash: 'sha256:baseline-schema',
+      observedHash: 'sha256:observed-schema',
+      status: 'compatible',
+      driftCount: 0,
+      blockerCount: 0,
+      highRiskLiveTaskBlocked: false,
+      summary: 'Protocol drift gate stores schema hashes only.',
+    });
+    const auditExport = CodexProductionAuditExportSummarySchema.parse({
+      id: 'codex_production_audit_export_store_1',
+      schemaVersion,
+      createdAt,
+      exportHash: 'sha256:audit-export',
+      manifestHash: 'sha256:audit-manifest',
+      recordCount: 5,
+      evidenceRefCount: 2,
+      auditEventCount: 3,
+      metadataOnly: true,
+      summary: 'Audit export summary stores manifest hash and counts.',
+    });
+    const readinessGate = CodexProductionReadinessGateSchema.parse({
+      id: 'codex_production_readiness_gate_store_1',
+      schemaVersion,
+      createdAt,
+      status: 'ready',
+      canaryRunCount: 1,
+      failedCanaryCount: 0,
+      driftGateCount: 1,
+      blockingDriftCount: 0,
+      auditExportSummaryId: auditExport.id,
+      highRiskLiveTaskBlocked: false,
+      liveSmokeAllowed: true,
+      approvalRequiredForLiveSmoke: true,
+      summary: 'Production readiness links canary, drift, and audit metadata.',
+    });
+
+    const saved = [
+      await expectRoundTrip(first.codexProductionCanaryTasks, canaryTask),
+      await expectRoundTrip(first.codexProductionCanaryRuns, canaryRun),
+      await expectRoundTrip(first.codexProductionDriftGates, driftGate),
+      await expectRoundTrip(first.codexProductionAuditExportSummaries, auditExport),
+      await expectRoundTrip(first.codexProductionReadinessGates, readinessGate),
+    ];
+    await expect(first.codexProductionCanaryRuns.listRecords({ status: 'passed' })).resolves.toEqual([
+      canaryRun,
+    ]);
+    await expect(
+      first.codexProductionDriftGates.listRecords({ status: 'compatible' }),
+    ).resolves.toEqual([driftGate]);
+    await first.close();
+
+    const reopened = await createSqliteStore({ dbPath });
+    await expect(reopened.codexProductionReadinessGates.getRecord(readinessGate.id)).resolves.toEqual(
+      readinessGate,
+    );
+    await expect(
+      reopened.codexProductionAuditExportSummaries.getRecord(auditExport.id),
+    ).resolves.toEqual(auditExport);
+    await reopened.close();
+
+    const serialized = JSON.stringify(saved);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(serialized).not.toContain('raw canary check');
+    expect(serialized).not.toContain('app server json schema body');
+    expect(findAdversarialPublicOutputRoundTripLeaks(saved)).toEqual([]);
+    expect(canaryTask.rawCheckStored).toBe(false);
+    expect(canaryRun.rawOutputStored).toBe(false);
+    expect(driftGate.rawSchemaStored).toBe(false);
+    expect(driftGate.rawTargetStored).toBe(false);
+    expect(auditExport.rawBodyStored).toBe(false);
+    expect(readinessGate.rawReadinessDataStored).toBe(false);
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {
