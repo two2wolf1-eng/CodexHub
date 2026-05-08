@@ -13,6 +13,9 @@ import {
   CodexQuotaSourceHealthSchema,
   OwnerAdminExtractionReportSchema,
   OwnerAdminReadSurfaceSummarySchema,
+  PrivilegedBusinessAccessLogSchema,
+  PrivilegedBusinessDataRecordSchema,
+  PrivilegedBusinessExportManifestSchema,
   QuotaAttributionSchema,
   QuotaSnapshotSchema,
   SchemaVersionSchema,
@@ -44,6 +47,10 @@ import {
   type OwnerAdminExtractionStatus,
   type OwnerAdminReadSurfaceSummary,
   type OwnerAdminSurfaceKind,
+  type PrivilegedBusinessAccessLog,
+  type PrivilegedBusinessDataKind,
+  type PrivilegedBusinessDataRecord,
+  type PrivilegedBusinessExportManifest,
   type QuotaAttribution,
   type QuotaAttributionConfidence,
   type QuotaAttributionStatus,
@@ -59,6 +66,10 @@ import { hashText } from '@codexhub/evidence-kernel';
 
 const forbiddenObservationKeyPattern =
   /token|cookie|session|storage|password|credential|mfa|secret|authorization|accountid|workspaceid|email|raw/i;
+const forbiddenPrivilegedBusinessKeyPattern =
+  /token|cookie|session|storage|password|credential|mfa|secret|authorization|privatekey|networkbody/i;
+const forbiddenPrivilegedBusinessValuePattern =
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----|session=|cookie=|authorization:|bearer\s+[a-z0-9._-]+|sk-[a-z0-9]/i;
 
 export interface QuotaSourceHealthInput {
   sourceKind: BusinessQuotaSourceKind;
@@ -225,6 +236,39 @@ export interface CodexQuotaFusionBundle {
   workspaceReadiness: WorkspaceCodexQuotaReadiness;
   accountReadiness: AccountCodexQuotaReadiness[];
   report: CodexQuotaFusionReport;
+}
+
+export interface PrivilegedBusinessDataInput {
+  recordKind?: PrivilegedBusinessDataKind;
+  workspaceSeed: string;
+  subjectSeed: string;
+  businessFields?: Record<string, string | number | boolean | null | undefined>;
+  approvalArtifactSeed?: string;
+  operatorSeed?: string;
+  retentionExpiresAt?: string;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface PrivilegedBusinessStoreBundle {
+  record: PrivilegedBusinessDataRecord;
+  accessLog: PrivilegedBusinessAccessLog;
+}
+
+export interface PrivilegedBusinessExportInput {
+  records: readonly PrivilegedBusinessDataRecord[];
+  approvalArtifactSeed: string;
+  operatorSeed?: string;
+  retentionExpiresAt?: string;
+  observedAt?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}
+
+export interface PrivilegedBusinessExportBundle {
+  accessLog: PrivilegedBusinessAccessLog;
+  manifest: PrivilegedBusinessExportManifest;
 }
 
 export function redactSensitiveObservation(
@@ -900,6 +944,126 @@ export function createCodexQuotaFusionBundle(input: CodexQuotaFusionInput): Code
   return { workspaceReadiness, accountReadiness, report };
 }
 
+export function createPrivilegedBusinessStoreBundle(
+  input: PrivilegedBusinessDataInput,
+): PrivilegedBusinessStoreBundle {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const businessFields = normalizePrivilegedBusinessFields(input.businessFields ?? {});
+  const recordKind = input.recordKind ?? 'member-profile';
+  const record = PrivilegedBusinessDataRecordSchema.parse({
+    id: foundationId('privileged_business_data_record'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt,
+    recordKind,
+    workspaceHash: hashRef(input.workspaceSeed),
+    subjectHash: hashRef(input.subjectSeed),
+    businessFields,
+    fieldCount: Object.keys(businessFields).length,
+    businessFieldHash: hashRef({
+      recordKind,
+      workspaceSeed: input.workspaceSeed,
+      subjectSeed: input.subjectSeed,
+      businessFields,
+    }),
+    cleartextBusinessDataStored: true,
+    credentialMaterialStored: false,
+    tokenCookieSessionStored: false,
+    browserStorageStored: false,
+    rawNetworkBodyStored: false,
+    retentionExpiresAt: input.retentionExpiresAt,
+    accessPolicyHash: hashRef({
+      recordKind,
+      approvalArtifactSeed: input.approvalArtifactSeed,
+      operatorSeed: input.operatorSeed,
+    }),
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary:
+      'Privileged Business data record stores approved Business management fields only; credential material is rejected before persistence.',
+  });
+  const accessLog = PrivilegedBusinessAccessLogSchema.parse({
+    id: foundationId('privileged_business_access_log'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    accessKind: 'record-create',
+    recordIds: [record.id],
+    recordCount: 1,
+    operatorHash: input.operatorSeed ? hashRef(input.operatorSeed) : undefined,
+    approvalArtifactIdHash: input.approvalArtifactSeed
+      ? hashRef(input.approvalArtifactSeed)
+      : undefined,
+    highPrivilegeApprovalRequired: true,
+    approvalProvided: input.approvalArtifactSeed !== undefined,
+    cleartextReturned: false,
+    credentialMaterialReturned: false,
+    accessApproved: input.approvalArtifactSeed !== undefined,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary:
+      'Privileged Business record creation was logged without returning cleartext Business fields in the public projection.',
+  });
+
+  return { record, accessLog };
+}
+
+export function createPrivilegedBusinessExportBundle(
+  input: PrivilegedBusinessExportInput,
+): PrivilegedBusinessExportBundle {
+  const observedAt = input.observedAt ?? foundationTimestamp();
+  const recordIds = input.records.map((record) => record.id);
+  const accessLog = PrivilegedBusinessAccessLogSchema.parse({
+    id: foundationId('privileged_business_access_log'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    accessKind: 'export-manifest',
+    recordIds,
+    recordCount: recordIds.length,
+    operatorHash: input.operatorSeed ? hashRef(input.operatorSeed) : undefined,
+    approvalArtifactIdHash: hashRef(input.approvalArtifactSeed),
+    highPrivilegeApprovalRequired: true,
+    approvalProvided: true,
+    cleartextReturned: false,
+    credentialMaterialReturned: false,
+    accessApproved: true,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary:
+      'Privileged Business export manifest access was approved and logged without returning credential material.',
+  });
+  const fieldHashCount = input.records.reduce(
+    (count, record) => count + Object.keys(record.businessFields).length,
+    0,
+  );
+  const manifest = PrivilegedBusinessExportManifestSchema.parse({
+    id: foundationId('privileged_business_export_manifest'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: observedAt,
+    exportHash: hashRef({
+      recordIds,
+      fieldHashes: input.records.map((record) => record.businessFieldHash),
+      approvalArtifactSeed: input.approvalArtifactSeed,
+    }),
+    recordIds,
+    recordCount: recordIds.length,
+    fieldHashCount,
+    operatorHash: input.operatorSeed ? hashRef(input.operatorSeed) : undefined,
+    approvalArtifactIdHash: hashRef(input.approvalArtifactSeed),
+    accessLogId: accessLog.id,
+    highPrivilegeApprovalRequired: true,
+    cleartextBusinessDataExportPrepared: true,
+    credentialMaterialExported: false,
+    tokenCookieSessionExported: false,
+    rawNetworkBodyExported: false,
+    retentionExpiresAt: input.retentionExpiresAt,
+    evidenceRefIds: [...(input.evidenceRefIds ?? [])],
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary:
+      'Privileged Business export manifest records approved record ids and hashes; raw export contents stay outside public projections.',
+  });
+
+  return { accessLog, manifest };
+}
+
 export function createQuotaSnapshotFromSource(input: {
   subjectKind: QuotaSnapshot['subjectKind'];
   subjectSeed: string;
@@ -967,6 +1131,25 @@ function crossCheckStatus(input: {
 
 function normalizeOptionalCount(value: number | undefined): number | undefined {
   return value === undefined ? undefined : Math.max(0, Math.trunc(value));
+}
+
+function normalizePrivilegedBusinessFields(
+  fields: Record<string, string | number | boolean | null | undefined>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(fields)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => {
+        const stringValue = String(value);
+        if (
+          forbiddenPrivilegedBusinessKeyPattern.test(key) ||
+          forbiddenPrivilegedBusinessValuePattern.test(stringValue)
+        ) {
+          throw new Error('privileged_business_credential_material_rejected');
+        }
+        return [key, stringValue];
+      }),
+  );
 }
 
 function projectedFieldCount(

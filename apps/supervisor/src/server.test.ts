@@ -287,6 +287,8 @@ const lateStageSupervisorControlPlaneMatrix = [
       '/owner-admin-extractions',
       '/reconciliations',
       '/quota-fusions',
+      '/privileged-business-records',
+      '/privileged-business-exports',
       '/ui-action-dry-runs',
       '/approval-requests',
       '/quota-read-dry-runs',
@@ -2305,6 +2307,8 @@ describe('supervisor mock development API', () => {
             `${prefix}/owner-admin-extractions`,
             `${prefix}/reconciliations`,
             `${prefix}/quota-fusions`,
+            `${prefix}/privileged-business-records`,
+            `${prefix}/privileged-business-exports`,
             `${prefix}/ui-action-dry-runs`,
             `${prefix}/approval-requests`,
             `${prefix}/quota-read-dry-runs`,
@@ -2458,6 +2462,8 @@ describe('supervisor mock development API', () => {
           '/owner-admin-extractions',
           '/reconciliations',
           '/quota-fusions',
+          '/privileged-business-records',
+          '/privileged-business-exports',
           '/ui-action-dry-runs',
           '/approval-requests',
           '/quota-read-dry-runs',
@@ -3463,6 +3469,48 @@ describe('supervisor mock development API', () => {
         memberInOwnerRoster: [true],
       },
     });
+    const privilegedRecordResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/privileged-business-records',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'privileged-business-record-1',
+        recordKind: 'member-profile',
+        workspaceSeed: 'private privileged workspace',
+        subjectSeed: 'private privileged member',
+        businessFields: {
+          memberEmail: 'member@example.com',
+          memberRole: 'admin',
+          codexSeat: 'assigned',
+        },
+        approvalArtifactId: 'stored-privileged-business-approval-1',
+        operatorSeed: 'private privileged operator',
+      },
+    });
+    const privilegedCredentialResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/privileged-business-records',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'privileged-business-record-credential-1',
+        workspaceSeed: 'private privileged workspace',
+        subjectSeed: 'private privileged member',
+        businessFields: {
+          sessionToken: 'credential material must not persist',
+        },
+        approvalArtifactId: 'stored-privileged-business-approval-2',
+      },
+    });
+    const privilegedExportResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/privileged-business-exports',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'privileged-business-export-1',
+        approvalArtifactId: 'stored-privileged-business-export-approval-1',
+        operatorSeed: 'private privileged operator',
+      },
+    });
     const approvalResponse = await server.inject({
       method: 'POST',
       url: '/api/business-quota/approval-requests',
@@ -3532,6 +3580,10 @@ describe('supervisor mock development API', () => {
     const quotaFusionProjectionResponse = await server.inject({
       method: 'GET',
       url: '/api/business-quota/quota-fusion',
+    });
+    const privilegedStoreResponse = await server.inject({
+      method: 'GET',
+      url: '/api/business-quota/privileged-business-store',
     });
     const workspaceSwitchesResponse = await server.inject({
       method: 'GET',
@@ -3608,6 +3660,29 @@ describe('supervisor mock development API', () => {
       liveCodexDispatchAllowed: true,
       executionDisabled: true,
     });
+    expect(privilegedRecordResponse.statusCode).toBe(200);
+    expect(privilegedRecordResponse.json()).toMatchObject({
+      status: 'stored',
+      recordKind: 'member-profile',
+      businessFieldCount: 3,
+      cleartextBusinessDataStored: true,
+      credentialMaterialStored: false,
+      cleartextReturned: false,
+      requestBodyAuthorityAccepted: false,
+      directAdapterExecutionAllowed: false,
+    });
+    expect(privilegedCredentialResponse.statusCode).toBe(400);
+    expect(privilegedExportResponse.statusCode).toBe(200);
+    expect(privilegedExportResponse.json()).toMatchObject({
+      status: 'prepared',
+      recordCount: 1,
+      fieldHashCount: 3,
+      cleartextBusinessDataExportPrepared: true,
+      credentialMaterialExported: false,
+      cleartextReturned: false,
+      requestBodyAuthorityAccepted: false,
+      directAdapterExecutionAllowed: false,
+    });
     expect(approvalResponse.statusCode).toBe(200);
     expect(approvalResponse.json()).toMatchObject({
       status: 'approval_waiting',
@@ -3633,6 +3708,9 @@ describe('supervisor mock development API', () => {
     expect(reconciliationsResponse.json().counts.workspaceSwitchDryRuns).toBe(1);
     expect(quotaFusionProjectionResponse.json().counts.reports).toBe(1);
     expect(quotaFusionProjectionResponse.json().counts.accountReadiness).toBe(1);
+    expect(privilegedStoreResponse.json().counts.records).toBe(1);
+    expect(privilegedStoreResponse.json().counts.accessLogs).toBe(2);
+    expect(privilegedStoreResponse.json().counts.exportManifests).toBe(1);
     expect(workspaceSwitchesResponse.json().counts.dryRuns).toBe(1);
     expect(automationRunsResponse.json().counts.runs).toBe(2);
     expect(accountsResponse.json().counts.quotaSourceHealth).toBeGreaterThanOrEqual(2);
@@ -3644,6 +3722,9 @@ describe('supervisor mock development API', () => {
       ownerAdminExtractionResponse.body,
       reconciliationResponse.body,
       quotaFusionResponse.body,
+      privilegedRecordResponse.body,
+      privilegedCredentialResponse.body,
+      privilegedExportResponse.body,
       approvalResponse.body,
       criticalResponse.body,
       forgedResponse.body,
@@ -3657,6 +3738,7 @@ describe('supervisor mock development API', () => {
       seatAllocationResponse.body,
       reconciliationsResponse.body,
       quotaFusionProjectionResponse.body,
+      privilegedStoreResponse.body,
       workspaceSwitchesResponse.body,
       automationRunsResponse.body,
       accountsResponse.body,
@@ -3677,6 +3759,11 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private fusion codex account');
       expect(body).not.toContain('private fusion profile');
       expect(body).not.toContain('private fusion account');
+      expect(body).not.toContain('private privileged workspace');
+      expect(body).not.toContain('private privileged member');
+      expect(body).not.toContain('private privileged operator');
+      expect(body).not.toContain('member@example.com');
+      expect(body).not.toContain('credential material must not persist');
       expect(body).not.toContain('private approval target');
       expect(body).not.toContain('private desktop target');
       expect(body).not.toContain('private forged target');

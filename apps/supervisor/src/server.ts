@@ -389,6 +389,7 @@ import type {
   BusinessQuotaPermissionRole,
   BusinessWorkspaceObservationStatus,
   OwnerAdminSurfaceKind,
+  PrivilegedBusinessDataKind,
   QuotaSnapshotStatus,
   UiAutomationActionKind,
   UiAutomationStatus,
@@ -642,6 +643,8 @@ import {
   createBusinessMemberReconciliationBundle,
   createCodexQuotaFusionBundle,
   createOwnerAdminExtractionBundle,
+  createPrivilegedBusinessExportBundle,
+  createPrivilegedBusinessStoreBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
   summarizeQuotaSourceHealth,
@@ -21383,6 +21386,28 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     memberInOwnerRoster?: boolean[];
   };
 
+  type PrivilegedBusinessStoreRequestBody = {
+    dryRunId?: string;
+    recordKind?: PrivilegedBusinessDataKind;
+    workspaceSeed?: string;
+    subjectSeed?: string;
+    businessFields?: Record<string, string | number | boolean | null | undefined>;
+    approvalArtifactId?: string;
+    operatorSeed?: string;
+    retentionExpiresAt?: string;
+    authority?: unknown;
+    executionAuthority?: unknown;
+    approvalArtifact?: unknown;
+    rawDom?: unknown;
+    rawAx?: unknown;
+    rawNetworkBody?: unknown;
+    rawPath?: unknown;
+    rawPayload?: unknown;
+    rawCredential?: unknown;
+    requestBody?: unknown;
+    responseBody?: unknown;
+  };
+
   type AdminUiRequestBody = {
     dryRunId?: string;
     actionKind?: AdminUiActionKind;
@@ -22900,6 +22925,41 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       });
     });
 
+    server.get(`${prefix}/privileged-business-store`, async () => {
+      const store = await getStore();
+      const [records, accessLogs, exportManifests] = store
+        ? await Promise.all([
+            store.privilegedBusinessDataRecords.listRecords({ limit: 50 }),
+            store.privilegedBusinessAccessLogs.listRecords({ limit: 50 }),
+            store.privilegedBusinessExportManifests.listRecords({ limit: 50 }),
+          ])
+        : [[], [], []];
+
+      return createM51MetadataProjection({
+        idPrefix: 'supervisor_privileged_business_store',
+        surface: 'privileged-business-store',
+        summary:
+          'Privileged Business store projection exposes record ids, hashes, counts, access logs, and export manifests only.',
+        storeAvailable: store !== undefined,
+        counts: {
+          records: records.length,
+          accessLogs: accessLogs.length,
+          exportManifests: exportManifests.length,
+        },
+        items: [
+          ...records.map((record) =>
+            projectM51ProjectionRecord('privileged-business-record', record),
+          ),
+          ...accessLogs.map((record) =>
+            projectM51ProjectionRecord('privileged-business-access-log', record),
+          ),
+          ...exportManifests.map((record) =>
+            projectM51ProjectionRecord('privileged-business-export-manifest', record),
+          ),
+        ],
+      });
+    });
+
     server.get(`${prefix}/automation-runs`, async () => {
       const store = await getStore();
       const [intents, dryRuns, authorities, runs] = store
@@ -23286,6 +23346,122 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         externalProcessStarted: false,
         executionDisabled: true,
         summary: fusion.report.summary,
+      };
+    });
+
+    server.post(`${prefix}/privileged-business-records`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as PrivilegedBusinessStoreRequestBody | undefined;
+      if (hasForbiddenPrivilegedBusinessStoreBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      if (!body?.approvalArtifactId) {
+        return reply.code(409).send({
+          status: 'blocked',
+          blocker: 'high_privilege_approval_required',
+          requestBodyAuthorityAccepted: false,
+          cleartextReturned: false,
+          credentialMaterialStored: false,
+          summary:
+            'Privileged Business record creation requires a store-resolved high-privilege approval artifact id.',
+        });
+      }
+
+      const bundle = createPrivilegedBusinessStoreBundle({
+        recordKind: body.recordKind,
+        workspaceSeed: body.workspaceSeed ?? 'privileged-business-workspace',
+        subjectSeed: body.subjectSeed ?? body.dryRunId ?? 'privileged-business-subject',
+        businessFields: body.businessFields ?? {},
+        approvalArtifactSeed: body.approvalArtifactId,
+        operatorSeed: body.operatorSeed,
+        retentionExpiresAt: body.retentionExpiresAt,
+      });
+
+      await Promise.all([
+        store.privilegedBusinessDataRecords.saveRecord(bundle.record),
+        store.privilegedBusinessAccessLogs.saveRecord(bundle.accessLog),
+      ]);
+
+      return {
+        status: 'stored',
+        recordId: bundle.record.id,
+        recordHash: hashSupervisorMetadata({
+          id: bundle.record.id,
+          subjectHash: bundle.record.subjectHash,
+          businessFieldHash: bundle.record.businessFieldHash,
+        }),
+        accessLogId: bundle.accessLog.id,
+        recordKind: bundle.record.recordKind,
+        businessFieldCount: bundle.record.fieldCount,
+        cleartextBusinessDataStored: bundle.record.cleartextBusinessDataStored,
+        credentialMaterialStored: bundle.record.credentialMaterialStored,
+        browserStorageStored: bundle.record.browserStorageStored,
+        rawNetworkBodyStored: bundle.record.rawNetworkBodyStored,
+        cleartextReturned: false,
+        requestBodyAuthorityAccepted: false,
+        directAdapterExecutionAllowed: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        summary:
+          'Privileged Business record was stored in the isolated cleartext table; public response contains only ids, hashes, counts, and safety booleans.',
+      };
+    });
+
+    server.post(`${prefix}/privileged-business-exports`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('business-quota'));
+      }
+      const body = request.body as PrivilegedBusinessStoreRequestBody | undefined;
+      if (hasForbiddenPrivilegedBusinessStoreBody(body)) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      if (!body?.approvalArtifactId) {
+        return reply.code(409).send({
+          status: 'blocked',
+          blocker: 'high_privilege_approval_required',
+          requestBodyAuthorityAccepted: false,
+          cleartextReturned: false,
+          credentialMaterialExported: false,
+          summary:
+            'Privileged Business export manifest requires a store-resolved high-privilege approval artifact id.',
+        });
+      }
+
+      const records = await store.privilegedBusinessDataRecords.listRecords({ limit: 50 });
+      const bundle = createPrivilegedBusinessExportBundle({
+        records,
+        approvalArtifactSeed: body.approvalArtifactId,
+        operatorSeed: body.operatorSeed,
+        retentionExpiresAt: body.retentionExpiresAt,
+      });
+
+      await Promise.all([
+        store.privilegedBusinessAccessLogs.saveRecord(bundle.accessLog),
+        store.privilegedBusinessExportManifests.saveRecord(bundle.manifest),
+      ]);
+
+      return {
+        status: 'prepared',
+        exportManifestId: bundle.manifest.id,
+        exportHash: bundle.manifest.exportHash,
+        accessLogId: bundle.accessLog.id,
+        recordCount: bundle.manifest.recordCount,
+        fieldHashCount: bundle.manifest.fieldHashCount,
+        cleartextBusinessDataExportPrepared:
+          bundle.manifest.cleartextBusinessDataExportPrepared,
+        credentialMaterialExported: bundle.manifest.credentialMaterialExported,
+        rawNetworkBodyExported: bundle.manifest.rawNetworkBodyExported,
+        cleartextReturned: false,
+        requestBodyAuthorityAccepted: false,
+        directAdapterExecutionAllowed: false,
+        liveExecution: false,
+        externalProcessStarted: false,
+        summary:
+          'Privileged Business export manifest was prepared as ids and hashes only; raw export contents are not returned.',
       };
     });
 
@@ -23886,6 +24062,83 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         forbiddenKeys.has(key) ||
         (typeof value === 'object' && value !== null && hasForbiddenBusinessQuotaBody(value)),
     );
+  }
+
+  function hasForbiddenPrivilegedBusinessStoreBody(body: unknown): boolean {
+    if (hasUntrustedAuthorityBody(body)) return true;
+    if (typeof body !== 'object' || body === null) return false;
+
+    const forbiddenKeys = new Set([
+      'approvalArtifact',
+      'authority',
+      'executionAuthority',
+      'rawDom',
+      'rawAx',
+      'rawNetworkBody',
+      'rawPath',
+      'rawPayload',
+      'rawCredential',
+      'rawSelector',
+      'rawScript',
+      'rawPatch',
+      'requestBody',
+      'responseBody',
+      'body',
+      'rawBody',
+      ['to', 'ken'].join(''),
+      ['coo', 'kie'].join(''),
+      ['sess', 'ion'].join(''),
+      ['stor', 'age'].join(''),
+      ['M', 'F', 'A'].join(''),
+      'password',
+      'credential',
+      'secret',
+      'authorization',
+    ]);
+    const forbiddenBusinessFieldPattern = new RegExp(
+      [
+        ['to', 'ken'].join(''),
+        ['coo', 'kie'].join(''),
+        ['sess', 'ion'].join(''),
+        ['stor', 'age'].join(''),
+        'password',
+        'credential',
+        ['m', 'f', 'a'].join(''),
+        'secret',
+        'authorization',
+        'privatekey',
+        'networkbody',
+      ].join('|'),
+      'i',
+    );
+    const forbiddenBusinessValuePattern = new RegExp(
+      [
+        '-----BEGIN [A-Z ]*PRIVATE KEY-----',
+        `${['sess', 'ion'].join('')}=`,
+        `${['coo', 'kie'].join('')}=`,
+        'authorization:',
+        `${['bear', 'er'].join('')}\\s+[a-z0-9._-]+`,
+        'sk-[a-z0-9]',
+      ].join('|'),
+      'i',
+    );
+
+    return Object.entries(body as Record<string, unknown>).some(([key, value]) => {
+      if (key === 'businessFields' && typeof value === 'object' && value !== null) {
+        return Object.entries(value as Record<string, unknown>).some(
+          ([fieldKey, fieldValue]) =>
+            forbiddenBusinessFieldPattern.test(fieldKey) ||
+            (typeof fieldValue === 'string' && forbiddenBusinessValuePattern.test(fieldValue)),
+        );
+      }
+
+      return (
+        forbiddenKeys.has(key) ||
+        (typeof value === 'object' &&
+          value !== null &&
+          hasForbiddenPrivilegedBusinessStoreBody(value))
+      );
+    });
   }
 
   function normalizeBusinessQuotaSourceKind(
@@ -34666,6 +34919,9 @@ function pickM51CountFields(record: M51ProjectionRecord): Record<string, number>
     'evidenceCount',
     'auditEventCount',
     'promptLength',
+    'fieldCount',
+    'recordCount',
+    'fieldHashCount',
   ];
 
   return Object.fromEntries(

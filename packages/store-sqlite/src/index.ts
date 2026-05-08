@@ -131,6 +131,9 @@ import type {
   NxVerificationChildRecord,
   OwnerAdminExtractionReport,
   OwnerAdminReadSurfaceSummary,
+  PrivilegedBusinessAccessLog,
+  PrivilegedBusinessDataRecord,
+  PrivilegedBusinessExportManifest,
   RealPolicyBackendApprovalArtifact,
   RealPolicyBackendEvaluationPlan,
   RealPolicyBackendEvaluationRun,
@@ -684,6 +687,9 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly workspaceCodexQuotaReadiness: MetadataEntityRepository<WorkspaceCodexQuotaReadiness>;
   readonly accountCodexQuotaReadiness: MetadataEntityRepository<AccountCodexQuotaReadiness>;
   readonly codexQuotaFusionReports: MetadataEntityRepository<CodexQuotaFusionReport>;
+  readonly privilegedBusinessDataRecords: MetadataEntityRepository<PrivilegedBusinessDataRecord>;
+  readonly privilegedBusinessAccessLogs: MetadataEntityRepository<PrivilegedBusinessAccessLog>;
+  readonly privilegedBusinessExportManifests: MetadataEntityRepository<PrivilegedBusinessExportManifest>;
   readonly automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   readonly uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   readonly cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;
@@ -1262,6 +1268,21 @@ class SqliteCodexHubStore implements CodexHubStore {
       new SqliteMetadataEntityRepository<CodexQuotaFusionReport>(
         database,
         'codex_quota_fusion_reports',
+      );
+    this.privilegedBusinessDataRecords =
+      new SqliteMetadataEntityRepository<PrivilegedBusinessDataRecord>(
+        database,
+        'privileged_business_data_records',
+      );
+    this.privilegedBusinessAccessLogs =
+      new SqliteMetadataEntityRepository<PrivilegedBusinessAccessLog>(
+        database,
+        'privileged_business_access_logs',
+      );
+    this.privilegedBusinessExportManifests =
+      new SqliteMetadataEntityRepository<PrivilegedBusinessExportManifest>(
+        database,
+        'privileged_business_export_manifests',
       );
     this.automationCapabilityPolicies =
       new SqliteMetadataEntityRepository<AutomationCapabilityPolicy>(
@@ -7592,6 +7613,24 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS codex_quota_fusion_reports (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS privileged_business_data_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS privileged_business_access_logs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS privileged_business_export_manifests (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

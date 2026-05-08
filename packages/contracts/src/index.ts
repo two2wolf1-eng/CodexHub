@@ -20990,6 +20990,142 @@ export const CodexQuotaFusionReportSchema = observedEntityBaseSchema
   });
 export type CodexQuotaFusionReport = z.infer<typeof CodexQuotaFusionReportSchema>;
 
+export const PrivilegedBusinessDataKindSchema = z.enum([
+  'member-profile',
+  'member-role',
+  'seat-allocation',
+  'pending-invite',
+  'invoice-summary',
+  'credit-balance',
+  'usage-alert-config',
+]);
+export type PrivilegedBusinessDataKind = z.infer<typeof PrivilegedBusinessDataKindSchema>;
+
+export const PrivilegedBusinessAccessKindSchema = z.enum([
+  'record-create',
+  'view-request',
+  'export-manifest',
+  'retention-scan',
+]);
+export type PrivilegedBusinessAccessKind = z.infer<typeof PrivilegedBusinessAccessKindSchema>;
+
+const privilegedBusinessForbiddenFieldPattern =
+  /token|cookie|session|storage|password|credential|mfa|secret|authorization|privatekey|networkbody/i;
+const privilegedBusinessForbiddenValuePattern =
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----|session=|cookie=|authorization:|bearer\s+[a-z0-9._-]+|sk-[a-z0-9]/i;
+
+export const PrivilegedBusinessDataRecordSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    recordKind: PrivilegedBusinessDataKindSchema,
+    workspaceHash: z.string().min(1),
+    subjectHash: z.string().min(1),
+    businessFields: z.record(z.string().min(1), z.string().min(1)).default({}),
+    fieldCount: z.number().int().nonnegative().default(0),
+    businessFieldHash: z.string().min(1),
+    cleartextBusinessDataStored: z.literal(true).default(true),
+    credentialMaterialStored: z.literal(false).default(false),
+    tokenCookieSessionStored: z.literal(false).default(false),
+    browserStorageStored: z.literal(false).default(false),
+    rawNetworkBodyStored: z.literal(false).default(false),
+    retentionExpiresAt: z.string().min(1).optional(),
+    accessPolicyHash: z.string().min(1),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (record.fieldCount !== Object.keys(record.businessFields).length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'privileged business field count must match stored business field keys',
+        path: ['fieldCount'],
+      });
+    }
+    for (const [key, value] of Object.entries(record.businessFields)) {
+      if (privilegedBusinessForbiddenFieldPattern.test(key)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'credential-like business field keys are forbidden',
+          path: ['businessFields', key],
+        });
+      }
+      if (privilegedBusinessForbiddenValuePattern.test(value)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'credential-like business field values are forbidden',
+          path: ['businessFields', key],
+        });
+      }
+    }
+  });
+export type PrivilegedBusinessDataRecord = z.infer<typeof PrivilegedBusinessDataRecordSchema>;
+
+export const PrivilegedBusinessAccessLogSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    accessKind: PrivilegedBusinessAccessKindSchema,
+    recordIds: z.array(z.string().min(1)).default([]),
+    recordCount: z.number().int().nonnegative().default(0),
+    operatorHash: z.string().min(1).optional(),
+    approvalArtifactIdHash: z.string().min(1).optional(),
+    highPrivilegeApprovalRequired: z.literal(true).default(true),
+    approvalProvided: z.boolean().default(false),
+    cleartextReturned: z.literal(false).default(false),
+    credentialMaterialReturned: z.literal(false).default(false),
+    accessApproved: z.boolean().default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (record.recordCount !== record.recordIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'privileged business access log count must match record ids',
+        path: ['recordCount'],
+      });
+    }
+    if (record.accessApproved && !record.approvalArtifactIdHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'privileged business access approval requires an approval artifact id hash',
+        path: ['approvalArtifactIdHash'],
+      });
+    }
+  });
+export type PrivilegedBusinessAccessLog = z.infer<typeof PrivilegedBusinessAccessLogSchema>;
+
+export const PrivilegedBusinessExportManifestSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    exportHash: z.string().min(1),
+    recordIds: z.array(z.string().min(1)).default([]),
+    recordCount: z.number().int().nonnegative().default(0),
+    fieldHashCount: z.number().int().nonnegative().default(0),
+    operatorHash: z.string().min(1).optional(),
+    approvalArtifactIdHash: z.string().min(1),
+    accessLogId: z.string().min(1),
+    highPrivilegeApprovalRequired: z.literal(true).default(true),
+    cleartextBusinessDataExportPrepared: z.literal(true).default(true),
+    credentialMaterialExported: z.literal(false).default(false),
+    tokenCookieSessionExported: z.literal(false).default(false),
+    rawNetworkBodyExported: z.literal(false).default(false),
+    retentionExpiresAt: z.string().min(1).optional(),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (record.recordCount !== record.recordIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'privileged business export count must match record ids',
+        path: ['recordCount'],
+      });
+    }
+  });
+export type PrivilegedBusinessExportManifest = z.infer<
+  typeof PrivilegedBusinessExportManifestSchema
+>;
+
 export const UiTargetFingerprintSchema = observedEntityBaseSchema
   .merge(m51ReadOnlyBoundarySchema)
   .merge(m51EvidenceAuditSchema)

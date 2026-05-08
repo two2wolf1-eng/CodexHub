@@ -53,6 +53,9 @@ import {
   LeaseSchema,
   OwnerAdminExtractionReportSchema,
   OwnerAdminReadSurfaceSummarySchema,
+  PrivilegedBusinessAccessLogSchema,
+  PrivilegedBusinessDataRecordSchema,
+  PrivilegedBusinessExportManifestSchema,
   QuotaAttributionSchema,
   LocalCapabilityProbeSchema,
   QuotaEvidenceMatrixSchema,
@@ -1224,6 +1227,103 @@ describe('M51 unified metadata store', () => {
     expect(workspaceQuotaReadiness.rawQuotaPayloadStored).toBe(false);
     expect(accountQuotaReadiness.rawAccountStored).toBe(false);
     expect(quotaFusionReport.rawBillingBodyStored).toBe(false);
+  });
+
+  it('round-trips M70 privileged Business records in isolated cleartext tables', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-m70-privileged-business-store-'));
+    const dbPath = join(dir, 'codexhub.sqlite');
+    const first = await createSqliteStore({ dbPath });
+    const record = PrivilegedBusinessDataRecordSchema.parse({
+      id: 'privileged_business_record_1',
+      schemaVersion,
+      observedAt: createdAt,
+      recordKind: 'member-profile',
+      workspaceHash: 'sha256:workspace',
+      subjectHash: 'sha256:member',
+      businessFields: {
+        memberEmail: 'member@example.com',
+        memberRole: 'admin',
+        codexSeat: 'assigned',
+      },
+      fieldCount: 3,
+      businessFieldHash: 'sha256:business-fields',
+      cleartextBusinessDataStored: true,
+      credentialMaterialStored: false,
+      tokenCookieSessionStored: false,
+      browserStorageStored: false,
+      rawNetworkBodyStored: false,
+      accessPolicyHash: 'sha256:access-policy',
+      evidenceRefIds: ['evidence:m70'],
+      auditEventIds: ['audit:m70'],
+      summary: 'Privileged Business cleartext record is isolated from public projections.',
+    });
+    const accessLog = PrivilegedBusinessAccessLogSchema.parse({
+      id: 'privileged_business_access_log_1',
+      schemaVersion,
+      createdAt,
+      accessKind: 'record-create',
+      recordIds: [record.id],
+      recordCount: 1,
+      operatorHash: 'sha256:operator',
+      approvalArtifactIdHash: 'sha256:approval',
+      highPrivilegeApprovalRequired: true,
+      approvalProvided: true,
+      cleartextReturned: false,
+      credentialMaterialReturned: false,
+      accessApproved: true,
+      evidenceRefIds: ['evidence:m70'],
+      auditEventIds: ['audit:m70'],
+      summary: 'Access log stores approval and record ids, not cleartext fields.',
+    });
+    const manifest = PrivilegedBusinessExportManifestSchema.parse({
+      id: 'privileged_business_export_manifest_1',
+      schemaVersion,
+      createdAt,
+      exportHash: 'sha256:export',
+      recordIds: [record.id],
+      recordCount: 1,
+      fieldHashCount: 3,
+      operatorHash: 'sha256:operator',
+      approvalArtifactIdHash: 'sha256:approval',
+      accessLogId: accessLog.id,
+      highPrivilegeApprovalRequired: true,
+      cleartextBusinessDataExportPrepared: true,
+      credentialMaterialExported: false,
+      tokenCookieSessionExported: false,
+      rawNetworkBodyExported: false,
+      evidenceRefIds: ['evidence:m70'],
+      auditEventIds: ['audit:m70'],
+      summary: 'Export manifest stores ids and hashes for an approved local export.',
+    });
+
+    await expectRoundTrip(first.privilegedBusinessDataRecords, record);
+    await expectRoundTrip(first.privilegedBusinessAccessLogs, accessLog);
+    await expectRoundTrip(first.privilegedBusinessExportManifests, manifest);
+    await first.close();
+
+    const reopened = await createSqliteStore({ dbPath });
+    await expect(reopened.privilegedBusinessDataRecords.getRecord(record.id)).resolves.toEqual(
+      record,
+    );
+    const reopenedAccessLog = await reopened.privilegedBusinessAccessLogs.getRecord(accessLog.id);
+    const reopenedManifest = await reopened.privilegedBusinessExportManifests.getRecord(manifest.id);
+    await reopened.close();
+
+    expect(record.businessFields.memberEmail).toBe('member@example.com');
+    expect(JSON.stringify([reopenedAccessLog, reopenedManifest])).not.toContain(
+      'member@example.com',
+    );
+    expect(manifest.credentialMaterialExported).toBe(false);
+    expect(() =>
+      PrivilegedBusinessDataRecordSchema.parse({
+        ...record,
+        id: 'privileged_business_record_credential_1',
+        businessFields: {
+          sessionToken: 'should-never-persist',
+        },
+        fieldCount: 1,
+      }),
+    ).toThrow();
   });
 
   it('rejects forbidden M51 raw fields before metadata records are persisted', async () => {

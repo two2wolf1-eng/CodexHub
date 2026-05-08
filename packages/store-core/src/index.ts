@@ -117,6 +117,9 @@ import type {
   NxVerificationChildRecord,
   OwnerAdminExtractionReport,
   OwnerAdminReadSurfaceSummary,
+  PrivilegedBusinessAccessLog,
+  PrivilegedBusinessDataRecord,
+  PrivilegedBusinessExportManifest,
   RealPolicyBackendApprovalArtifact,
   RealPolicyBackendEvaluationPlan,
   RealPolicyBackendEvaluationRun,
@@ -1802,6 +1805,9 @@ export interface CodexHubStore {
   workspaceCodexQuotaReadiness: MetadataEntityRepository<WorkspaceCodexQuotaReadiness>;
   accountCodexQuotaReadiness: MetadataEntityRepository<AccountCodexQuotaReadiness>;
   codexQuotaFusionReports: MetadataEntityRepository<CodexQuotaFusionReport>;
+  privilegedBusinessDataRecords: MetadataEntityRepository<PrivilegedBusinessDataRecord>;
+  privilegedBusinessAccessLogs: MetadataEntityRepository<PrivilegedBusinessAccessLog>;
+  privilegedBusinessExportManifests: MetadataEntityRepository<PrivilegedBusinessExportManifest>;
   automationCapabilityPolicies: MetadataEntityRepository<AutomationCapabilityPolicy>;
   uiObservationSources: MetadataEntityRepository<UiObservationSource>;
   cdpDomObservationSummaries: MetadataEntityRepository<CdpDomObservationSummary>;

@@ -6951,3 +6951,30 @@ workflows:
       noRawQuotaPayloadStorage: true
       codexDispatchBlockedOnQuotaConflict: true
       codexDispatchBlockedOnCanaryFailure: true
+  m70.privileged-business-data-store:
+    risk: critical
+    trigger:
+      type: privileged-business-data-store
+      entrypoint: contracts business-quota-kernel store supervisor docs
+      localControlRequired: true
+    scope:
+      - privileged-business-data-record
+      - privileged-business-access-log
+      - privileged-business-export-manifest
+      - supervisor-privileged-business-store-projection
+    docs:
+      - docs/releases/m70-privileged-business-data-store.md
+      - docs/reviews/m70-privileged-business-data-store-review.md
+      - docs/runbooks/m70-privileged-business-data-store-runbook.md
+    safety:
+      noNewProvider: true
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      highPrivilegeApprovalRequired: true
+      privilegedBusinessCleartextStoreAllowed: true
+      credentialMaterialStored: false
+      tokenCookieSessionStored: false
+      browserStorageStored: false
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

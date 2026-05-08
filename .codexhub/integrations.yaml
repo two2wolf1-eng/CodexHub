@@ -3356,3 +3356,37 @@ integrations:
       noRawQuotaPayloadStorage: true
       codexDispatchBlockedOnQuotaConflict: true
       codexDispatchBlockedOnCanaryFailure: true
+  m70-privileged-business-data-store:
+    enabled: false
+    adapter: business-quota-kernel
+    provider: codexhub-local-privileged-store
+    providerType: builtin
+    mode: privileged-business-cleartext-store
+    stage: m70-privileged-business-data-store
+    release: docs/releases/m70-privileged-business-data-store.md
+    review: docs/reviews/m70-privileged-business-data-store-review.md
+    runbook: docs/runbooks/m70-privileged-business-data-store-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: admin
+    defaultRisk: critical
+    supervisorRoutes:
+      - POST /api/business-quota/privileged-business-records
+      - POST /api/business-quota/privileged-business-exports
+      - GET /api/business-quota/privileged-business-store
+    persistedStores:
+      - privileged_business_data_records
+      - privileged_business_access_logs
+      - privileged_business_export_manifests
+    safety:
+      highPrivilegeApprovalRequired: true
+      directAdapterExecutionAllowed: false
+      noNewLiveBoundary: true
+      noChromeProfileConnection: true
+      noCdpConnection: true
+      publicProjectionMetadataOnly: true
+      credentialMaterialStored: false
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false

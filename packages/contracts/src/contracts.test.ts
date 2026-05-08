@@ -583,6 +583,9 @@ import {
   BusinessWorkspaceSwitchRunSchema,
   AccountCodexQuotaReadinessSchema,
   CodexQuotaFusionReportSchema,
+  PrivilegedBusinessAccessLogSchema,
+  PrivilegedBusinessDataRecordSchema,
+  PrivilegedBusinessExportManifestSchema,
   WorkspaceCodexQuotaReadinessSchema,
   QuotaSnapshotSchema,
   QuotaAttributionSchema,
@@ -17495,6 +17498,49 @@ describe('contracts schemas', () => {
       canaryPassed: true,
       summary: 'Quota fusion allows dispatch from ready workspace and account metadata.',
     });
+    const privilegedBusinessRecord = PrivilegedBusinessDataRecordSchema.parse({
+      id: 'privileged_business_data_record_1',
+      schemaVersion,
+      observedAt: createdAt,
+      recordKind: 'member-profile',
+      workspaceHash: rosterSnapshot.workspaceHash,
+      subjectHash: 'sha256:business-member',
+      businessFields: {
+        memberEmail: 'member@example.com',
+        memberRole: 'admin',
+        seatType: 'codex',
+      },
+      fieldCount: 3,
+      businessFieldHash: 'sha256:privileged-business-fields',
+      accessPolicyHash: 'sha256:privileged-access-policy',
+      summary: 'Privileged Business record stores approved management cleartext only.',
+    });
+    const privilegedAccessLog = PrivilegedBusinessAccessLogSchema.parse({
+      id: 'privileged_business_access_log_1',
+      schemaVersion,
+      createdAt,
+      accessKind: 'view-request',
+      recordIds: [privilegedBusinessRecord.id],
+      recordCount: 1,
+      operatorHash: 'sha256:operator',
+      approvalArtifactIdHash: 'sha256:approval',
+      approvalProvided: true,
+      accessApproved: true,
+      summary: 'Privileged Business access requires high-privilege approval.',
+    });
+    const privilegedExportManifest = PrivilegedBusinessExportManifestSchema.parse({
+      id: 'privileged_business_export_manifest_1',
+      schemaVersion,
+      createdAt,
+      exportHash: 'sha256:privileged-business-export',
+      recordIds: [privilegedBusinessRecord.id],
+      recordCount: 1,
+      fieldHashCount: 1,
+      operatorHash: 'sha256:operator',
+      approvalArtifactIdHash: 'sha256:approval',
+      accessLogId: privilegedAccessLog.id,
+      summary: 'Privileged Business export manifest stores hashes and counts only.',
+    });
     const records = [
       sourceHealth,
       seat,
@@ -17550,6 +17596,8 @@ describe('contracts schemas', () => {
       workspaceQuotaReadiness,
       accountQuotaReadiness,
       quotaFusionReport,
+      privilegedAccessLog,
+      privilegedExportManifest,
     ];
     const serialized = JSON.stringify(records);
 
@@ -17578,6 +17626,12 @@ describe('contracts schemas', () => {
     expect(workspaceQuotaReadiness.rawQuotaPayloadStored).toBe(false);
     expect(accountQuotaReadiness.rawAccountStored).toBe(false);
     expect(quotaFusionReport.dispatchAllowed).toBe(true);
+    expect(privilegedBusinessRecord.credentialMaterialStored).toBe(false);
+    expect(privilegedAccessLog.cleartextReturned).toBe(false);
+    expect(privilegedExportManifest.credentialMaterialExported).toBe(false);
+    expect(JSON.stringify([privilegedAccessLog, privilegedExportManifest])).not.toContain(
+      'member@example.com',
+    );
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
   });
@@ -17772,6 +17826,35 @@ describe('contracts schemas', () => {
         workspaceHash: 'sha256:workspace',
         dispatchAllowed: true,
         summary: 'Source conflicts cannot allow dispatch.',
+      }),
+    ).toThrow();
+    expect(() =>
+      PrivilegedBusinessDataRecordSchema.parse({
+        id: 'privileged_business_data_record_bad_credential',
+        schemaVersion,
+        observedAt: createdAt,
+        recordKind: 'member-profile',
+        workspaceHash: 'sha256:workspace',
+        subjectHash: 'sha256:member',
+        businessFields: {
+          sessionToken: adversarialPublicOutputFixture,
+        },
+        fieldCount: 1,
+        businessFieldHash: 'sha256:fields',
+        accessPolicyHash: 'sha256:policy',
+        summary: 'Credential-like Business fields are forbidden.',
+      }),
+    ).toThrow();
+    expect(() =>
+      PrivilegedBusinessAccessLogSchema.parse({
+        id: 'privileged_business_access_log_bad_approval',
+        schemaVersion,
+        createdAt,
+        accessKind: 'export-manifest',
+        recordIds: ['privileged_business_data_record_1'],
+        recordCount: 1,
+        accessApproved: true,
+        summary: 'Approved access requires approval artifact hash.',
       }),
     ).toThrow();
   });

@@ -5,6 +5,8 @@ import {
   createBusinessQuotaCrossCheckReport,
   createCodexQuotaFusionBundle,
   createOwnerAdminExtractionBundle,
+  createPrivilegedBusinessExportBundle,
+  createPrivilegedBusinessStoreBundle,
   createQuotaDispatchGate,
   createQuotaSnapshotFromSource,
   redactSensitiveObservation,
@@ -333,5 +335,44 @@ describe('business quota kernel', () => {
     expect(serialized).not.toContain('private app server source');
     expect(serialized).not.toContain('private codex account');
     expect(serialized).not.toContain('private chrome profile');
+  });
+
+  it('stores privileged Business cleartext only with approval and rejects credentials', () => {
+    const bundle = createPrivilegedBusinessStoreBundle({
+      recordKind: 'member-profile',
+      workspaceSeed: 'private workspace',
+      subjectSeed: 'private member',
+      businessFields: {
+        memberEmail: 'member@example.com',
+        memberRole: 'admin',
+      },
+      approvalArtifactSeed: 'approved privileged store artifact',
+      operatorSeed: 'private operator',
+    });
+    const exportBundle = createPrivilegedBusinessExportBundle({
+      records: [bundle.record],
+      approvalArtifactSeed: 'approved privileged export artifact',
+      operatorSeed: 'private operator',
+    });
+
+    expect(bundle.record.cleartextBusinessDataStored).toBe(true);
+    expect(bundle.record.businessFields.memberEmail).toBe('member@example.com');
+    expect(bundle.record.credentialMaterialStored).toBe(false);
+    expect(bundle.accessLog.cleartextReturned).toBe(false);
+    expect(exportBundle.manifest.recordCount).toBe(1);
+    expect(exportBundle.manifest.credentialMaterialExported).toBe(false);
+    expect(JSON.stringify([bundle.accessLog, exportBundle.manifest])).not.toContain(
+      'member@example.com',
+    );
+    expect(() =>
+      createPrivilegedBusinessStoreBundle({
+        workspaceSeed: 'private workspace',
+        subjectSeed: 'private member',
+        businessFields: {
+          sessionToken: 'unsafe',
+        },
+        approvalArtifactSeed: 'approved privileged store artifact',
+      }),
+    ).toThrow('privileged_business_credential_material_rejected');
   });
 });
