@@ -3914,6 +3914,133 @@ describe('supervisor mock development API', () => {
     }
   });
 
+  it('records M71 fixed-flow admin write execution only with approval and fingerprint safeguards', async () => {
+    const originalGate = process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED;
+    process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED = 'true';
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-admin-ui-live-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const server = buildSupervisorServer({
+      store,
+      businessAdminUiFixedFlowRunner: async ({ actionKind }) =>
+        actionKind === 'assign-seat'
+          ? {
+              selectorFingerprintMatched: false,
+              finalConfirmFingerprintMatched: true,
+              postWriteVerified: false,
+            }
+          : {
+              selectorFingerprintMatched: true,
+              finalConfirmFingerprintHash: `sha256:${'1'.repeat(64)}`,
+              finalConfirmFingerprintMatched: true,
+              postWriteVerified: true,
+              postWritePageHash: `sha256:${'2'.repeat(64)}`,
+              evidenceRefIds: ['evidence-admin-ui-fixed-flow'],
+              auditEventIds: ['audit-admin-ui-fixed-flow'],
+            },
+    });
+
+    const completedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-live-run-1',
+        actionKind: 'invite-member',
+        targetSeed: 'private live invite target',
+        selectorSeed: 'private live invite selector',
+        approvalArtifactId: 'stored-admin-live-approval-1',
+        liveActionRequested: true,
+      },
+    });
+    const ownerBlockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-owner-block-1',
+        actionKind: 'remove-member',
+        targetSeed: 'private owner member target',
+        selectorSeed: 'private owner remove selector',
+        approvalArtifactId: 'stored-admin-live-approval-2',
+        liveActionRequested: true,
+        ownerSelfAction: true,
+      },
+    });
+    const driftBlockedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/post-write-verifications',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-drift-block-1',
+        actionKind: 'assign-seat',
+        targetSeed: 'private seat assign target',
+        selectorSeed: 'private assign seat selector',
+        approvalArtifactId: 'stored-admin-live-approval-3',
+        liveActionRequested: true,
+      },
+    });
+    const forgedEvidenceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/business-quota/admin-ui/runs',
+      headers: localControlHeaders,
+      payload: {
+        dryRunId: 'admin-ui-forged-evidence-1',
+        actionKind: 'invite-member',
+        approvalArtifactId: 'stored-admin-live-approval-4',
+        postWriteVerified: true,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    if (originalGate === undefined) {
+      delete process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED;
+    } else {
+      process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED = originalGate;
+    }
+
+    expect(completedResponse.statusCode).toBe(200);
+    expect(completedResponse.json()).toMatchObject({
+      status: 'completed',
+      liveActionAllowed: true,
+      visibleUiExecution: true,
+      processBoundaryInvoked: true,
+      networkBoundaryInvoked: true,
+      executionDisabled: false,
+      postWriteVerified: true,
+      selectorFingerprintMatched: true,
+      finalConfirmFingerprintMatched: true,
+      requestBodyAuthorityAccepted: false,
+    });
+    expect(ownerBlockedResponse.statusCode).toBe(200);
+    expect(ownerBlockedResponse.json()).toMatchObject({
+      status: 'blocked',
+      liveActionAllowed: false,
+      ownerSelfActionBlocked: true,
+      executionDisabled: true,
+    });
+    expect(driftBlockedResponse.statusCode).toBe(200);
+    expect(driftBlockedResponse.json()).toMatchObject({
+      status: 'blocked',
+      postWriteVerified: false,
+      executionDisabled: true,
+    });
+    expect(forgedEvidenceResponse.statusCode).toBe(400);
+
+    for (const body of [
+      completedResponse.body,
+      ownerBlockedResponse.body,
+      driftBlockedResponse.body,
+      forgedEvidenceResponse.body,
+    ]) {
+      expect(body).not.toContain('private live invite target');
+      expect(body).not.toContain('private owner member target');
+      expect(body).not.toContain('private seat assign target');
+      expect(body).not.toContain(localControlToken);
+    }
+  });
+
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-external-agent-raw-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

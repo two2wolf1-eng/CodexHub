@@ -21414,14 +21414,26 @@ export const AdminWriteRunSchema = createdEntityBaseSchema
     processBoundaryInvoked: z.boolean().default(false),
     externalProcessStarted: z.boolean().default(false),
     networkBoundaryInvoked: z.boolean().default(false),
-    executionDisabled: z.literal(true).default(true),
+    executionDisabled: z.boolean().default(true),
+    fixedBusinessAdminFlow: z.literal(true).default(true),
+    liveExecutorGateEnabled: z.boolean().default(false),
+    visibleUiExecution: z.boolean().default(false),
     preWritePageHash: z.string().min(1).optional(),
     postWritePageHash: z.string().min(1).optional(),
     targetFingerprintHash: z.string().min(1).optional(),
+    selectorFingerprintMatched: z.boolean().default(false),
+    finalConfirmFingerprintHash: z.string().min(1).optional(),
+    finalConfirmFingerprintMatched: z.boolean().default(false),
+    postWriteVerificationHash: z.string().min(1).optional(),
     postWriteVerified: z.boolean().default(false),
     duplicateSubmitBlocked: z.boolean().default(false),
+    ownerSelfActionBlocked: z.boolean().default(false),
     ownerSelfProtectionApplied: z.boolean().default(true),
     requestBodyAuthorityAccepted: z.literal(false).default(false),
+    genericAutomationPassthroughAllowed: z.literal(false).default(false),
+    rawSelectorAccepted: z.literal(false).default(false),
+    rawScriptAccepted: z.literal(false).default(false),
+    rawPayloadAccepted: z.literal(false).default(false),
     rawRunStored: z.literal(false).default(false),
     summary: z.string().min(1),
   })
@@ -21433,6 +21445,55 @@ export const AdminWriteRunSchema = createdEntityBaseSchema
         code: z.ZodIssueCode.custom,
         message: 'live admin UI action requires store-resolved authority',
         path: ['authorityId'],
+      });
+    }
+    if (!record.executionDisabled && !record.liveActionAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'enabled admin UI execution requires live action authority',
+        path: ['executionDisabled'],
+      });
+    }
+    if (!record.executionDisabled && !record.visibleUiExecution) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'enabled admin UI execution requires visible UI execution evidence',
+        path: ['visibleUiExecution'],
+      });
+    }
+    if (record.visibleUiExecution && !record.selectorFingerprintMatched) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'visible admin UI execution requires selector fingerprint match',
+        path: ['selectorFingerprintMatched'],
+      });
+    }
+    if (record.visibleUiExecution && !record.finalConfirmFingerprintMatched) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'visible admin UI execution requires final confirmation fingerprint match',
+        path: ['finalConfirmFingerprintMatched'],
+      });
+    }
+    if (record.postWriteVerified && !record.postWriteVerificationHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'post-write verification requires a verification hash',
+        path: ['postWriteVerificationHash'],
+      });
+    }
+    if (record.postWriteVerified && record.executionDisabled) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'post-write verification requires enabled governed execution',
+        path: ['executionDisabled'],
+      });
+    }
+    if ((record.ownerSelfActionBlocked || record.duplicateSubmitBlocked) && record.liveActionAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'blocked admin UI safeguards cannot allow live action',
+        path: ['liveActionAllowed'],
       });
     }
     if (record.approvedActionCount + record.blockedActionCount > record.actionCount) {

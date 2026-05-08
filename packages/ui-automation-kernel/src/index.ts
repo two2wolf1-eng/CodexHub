@@ -117,6 +117,16 @@ export interface AdminWriteRunInput {
   dryRunPlan: AdminWriteDryRunPlan;
   authority?: AdminWriteAuthority;
   liveActionRequested?: boolean;
+  liveExecutorGateEnabled?: boolean;
+  selectorFingerprintMatched?: boolean;
+  finalConfirmFingerprintSeed?: string;
+  finalConfirmFingerprintHash?: string;
+  finalConfirmFingerprintMatched?: boolean;
+  postWriteVerified?: boolean;
+  postWritePageSeed?: string;
+  postWritePageHash?: string;
+  duplicateSubmitDetected?: boolean;
+  ownerSelfAction?: boolean;
   status?: UiAutomationStatus;
   evidenceRefIds?: readonly string[];
   auditEventIds?: readonly string[];
@@ -178,6 +188,12 @@ const forbiddenAdminActions = new Set<AdminUiActionKind>([
   'credential-input',
   'mfa-input',
   'session-storage-read',
+]);
+
+const ownerProtectedAdminActions = new Set<AdminUiActionKind>([
+  'remove-member',
+  'change-member-role',
+  'unassign-seat',
 ]);
 
 export function classifyUiActionRisk(
@@ -583,16 +599,53 @@ export function applyUiActionAuthority(
 export function summarizeAdminWriteRun(input: AdminWriteRunInput): AdminWriteRun {
   const authorityAllowed = input.authority?.allowed === true;
   const liveActionRequested = input.liveActionRequested ?? true;
-  const liveActionAllowed = liveActionRequested && authorityAllowed;
-  const status =
-    input.status ??
-    (input.dryRunPlan.credentialActionBlocked || input.dryRunPlan.blockedReasonHashes.length > 0
-      ? 'blocked'
-      : liveActionAllowed
-        ? 'authorized'
-        : liveActionRequested
-          ? 'approval_waiting'
-          : 'planned');
+  const liveExecutorGateEnabled = input.liveExecutorGateEnabled ?? false;
+  const selectorFingerprintMatched = input.selectorFingerprintMatched ?? false;
+  const finalConfirmFingerprintMatched = input.finalConfirmFingerprintMatched ?? false;
+  const duplicateSubmitBlocked = input.duplicateSubmitDetected === true;
+  const forcedBlocked = input.status === 'blocked';
+  const ownerSelfActionBlocked =
+    input.ownerSelfAction === true && ownerProtectedAdminActions.has(input.intent.actionKind);
+  const fixedFlowSafeguardsPassed =
+    !liveExecutorGateEnabled ||
+    (selectorFingerprintMatched && finalConfirmFingerprintMatched && !duplicateSubmitBlocked);
+  const liveActionAllowed =
+    liveActionRequested &&
+    authorityAllowed &&
+    !forcedBlocked &&
+    !ownerSelfActionBlocked &&
+    !duplicateSubmitBlocked &&
+    fixedFlowSafeguardsPassed;
+  const visibleUiExecution = liveExecutorGateEnabled && liveActionAllowed;
+  const postWriteVerified = input.postWriteVerified === true && visibleUiExecution;
+  const finalConfirmFingerprintHash = input.finalConfirmFingerprintHash ?? (input.finalConfirmFingerprintSeed
+    ? hashRef(input.finalConfirmFingerprintSeed)
+    : undefined);
+  const postWritePageHash = input.postWritePageHash ?? (input.postWritePageSeed
+    ? hashRef(input.postWritePageSeed)
+    : input.dryRunPlan.afterPageHash);
+  const postWriteVerificationHash = postWriteVerified
+    ? hashRef({
+        intentId: input.intent.id,
+        dryRunPlanId: input.dryRunPlan.id,
+        authorityId: input.authority?.id,
+        targetFingerprintHash: input.dryRunPlan.targetFingerprintHash,
+        postWritePageHash,
+      })
+    : undefined;
+  let derivedStatus: UiAutomationStatus;
+  if (input.dryRunPlan.credentialActionBlocked || input.dryRunPlan.blockedReasonHashes.length > 0) {
+    derivedStatus = 'blocked';
+  } else if (ownerSelfActionBlocked || duplicateSubmitBlocked) {
+    derivedStatus = 'blocked';
+  } else if (liveExecutorGateEnabled && authorityAllowed && !fixedFlowSafeguardsPassed) {
+    derivedStatus = 'blocked';
+  } else if (liveActionAllowed) {
+    derivedStatus = postWriteVerified ? 'completed' : liveExecutorGateEnabled ? 'running' : 'authorized';
+  } else {
+    derivedStatus = liveActionRequested ? 'approval_waiting' : 'planned';
+  }
+  const status = input.status ?? derivedStatus;
 
   return AdminWriteRunSchema.parse({
     id: foundationId('admin_write_run'),
@@ -608,23 +661,39 @@ export function summarizeAdminWriteRun(input: AdminWriteRunInput): AdminWriteRun
     blockedActionCount: status === 'blocked' ? input.dryRunPlan.actionCount : 0,
     liveActionRequested,
     liveActionAllowed,
-    processBoundaryInvoked: false,
+    processBoundaryInvoked: visibleUiExecution,
     externalProcessStarted: false,
-    networkBoundaryInvoked: false,
-    executionDisabled: true,
+    networkBoundaryInvoked: visibleUiExecution,
+    executionDisabled: !visibleUiExecution,
+    fixedBusinessAdminFlow: true,
+    liveExecutorGateEnabled,
+    visibleUiExecution,
     preWritePageHash: input.dryRunPlan.beforePageHash,
-    postWritePageHash: input.dryRunPlan.afterPageHash,
+    postWritePageHash,
     targetFingerprintHash: input.dryRunPlan.targetFingerprintHash,
-    postWriteVerified: false,
-    duplicateSubmitBlocked: false,
+    selectorFingerprintMatched,
+    finalConfirmFingerprintHash,
+    finalConfirmFingerprintMatched,
+    postWriteVerificationHash,
+    postWriteVerified,
+    duplicateSubmitBlocked,
+    ownerSelfActionBlocked,
     ownerSelfProtectionApplied: true,
     requestBodyAuthorityAccepted: false,
+    genericAutomationPassthroughAllowed: false,
+    rawSelectorAccepted: false,
+    rawScriptAccepted: false,
+    rawPayloadAccepted: false,
     rawRunStored: false,
     evidenceRefIds: [...(input.evidenceRefIds ?? input.intent.evidenceRefIds)],
     auditEventIds: [...(input.auditEventIds ?? input.intent.auditEventIds)],
-    summary: liveActionAllowed
-      ? 'Admin UI action is authorized but execution remains disabled until the live executor round.'
-      : 'Admin UI action has not executed and remains waiting or blocked by governance.',
+    summary: visibleUiExecution
+      ? postWriteVerified
+        ? 'Governed admin UI fixed-flow execution completed and post-write verification matched.'
+        : 'Governed admin UI fixed-flow execution reached the visible UI boundary and awaits verification.'
+      : liveActionAllowed
+        ? 'Admin UI action is authorized but execution remains disabled until the live executor gate is enabled.'
+        : 'Admin UI action has not executed and remains waiting or blocked by governance safeguards.',
   });
 }
 

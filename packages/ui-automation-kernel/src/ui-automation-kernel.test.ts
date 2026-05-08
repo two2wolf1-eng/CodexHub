@@ -123,6 +123,108 @@ describe('ui automation kernel', () => {
     expect(JSON.stringify(run)).not.toContain('private business admin member row');
   });
 
+  it('executes approved admin writes only through fixed-flow fingerprints and post-write verification', () => {
+    const fingerprint = createUiTargetFingerprint({
+      targetSeed: 'private invite member target',
+      selectorSeed: 'private invite submit selector',
+      axRoleSeed: 'button',
+      axNameSeed: 'Send invite',
+      pageSeed: 'members invite page',
+    });
+    const intent = planAdminWriteIntent({
+      actionKind: 'invite-member',
+      targetSeed: 'private invite member target',
+      fingerprint,
+    });
+    const dryRun = createAdminWriteDryRun(intent, fingerprint);
+    const authority = resolveAdminWriteAuthority({
+      dryRunPlan: dryRun,
+      approvalArtifactSeed: 'stored-admin-approval-execute',
+    });
+    const run = summarizeAdminWriteRun({
+      intent,
+      dryRunPlan: dryRun,
+      authority,
+      liveActionRequested: true,
+      liveExecutorGateEnabled: true,
+      selectorFingerprintMatched: true,
+      finalConfirmFingerprintSeed: 'private final confirm button',
+      finalConfirmFingerprintMatched: true,
+      postWriteVerified: true,
+      postWritePageSeed: 'members invite success page',
+    });
+
+    expect(run.status).toBe('completed');
+    expect(run.fixedBusinessAdminFlow).toBe(true);
+    expect(run.liveActionAllowed).toBe(true);
+    expect(run.visibleUiExecution).toBe(true);
+    expect(run.processBoundaryInvoked).toBe(true);
+    expect(run.networkBoundaryInvoked).toBe(true);
+    expect(run.executionDisabled).toBe(false);
+    expect(run.selectorFingerprintMatched).toBe(true);
+    expect(run.finalConfirmFingerprintMatched).toBe(true);
+    expect(run.postWriteVerified).toBe(true);
+    expect(run.postWriteVerificationHash).toMatch(/^sha256:/);
+    expect(run.genericAutomationPassthroughAllowed).toBe(false);
+    expect(run.rawSelectorAccepted).toBe(false);
+    expect(JSON.stringify(run)).not.toContain('private invite member target');
+    expect(JSON.stringify(run)).not.toContain('private final confirm button');
+  });
+
+  it('blocks fixed-flow execution on owner self-action, duplicate submit, or fingerprint drift', () => {
+    const fingerprint = createUiTargetFingerprint({
+      targetSeed: 'private protected owner row',
+      selectorSeed: 'private role change selector',
+    });
+    const intent = planAdminWriteIntent({
+      actionKind: 'change-member-role',
+      targetSeed: 'private protected owner row',
+      fingerprint,
+    });
+    const dryRun = createAdminWriteDryRun(intent, fingerprint);
+    const authority = resolveAdminWriteAuthority({
+      dryRunPlan: dryRun,
+      approvalArtifactSeed: 'stored-admin-approval-owner-protect',
+    });
+    const ownerRun = summarizeAdminWriteRun({
+      intent,
+      dryRunPlan: dryRun,
+      authority,
+      liveExecutorGateEnabled: true,
+      selectorFingerprintMatched: true,
+      finalConfirmFingerprintMatched: true,
+      ownerSelfAction: true,
+    });
+    const duplicateRun = summarizeAdminWriteRun({
+      intent,
+      dryRunPlan: dryRun,
+      authority,
+      liveExecutorGateEnabled: true,
+      selectorFingerprintMatched: true,
+      finalConfirmFingerprintMatched: true,
+      duplicateSubmitDetected: true,
+    });
+    const driftRun = summarizeAdminWriteRun({
+      intent,
+      dryRunPlan: dryRun,
+      authority,
+      liveExecutorGateEnabled: true,
+      selectorFingerprintMatched: false,
+      finalConfirmFingerprintMatched: true,
+    });
+
+    expect(ownerRun.status).toBe('blocked');
+    expect(ownerRun.ownerSelfActionBlocked).toBe(true);
+    expect(ownerRun.liveActionAllowed).toBe(false);
+    expect(ownerRun.executionDisabled).toBe(true);
+    expect(duplicateRun.status).toBe('blocked');
+    expect(duplicateRun.duplicateSubmitBlocked).toBe(true);
+    expect(duplicateRun.liveActionAllowed).toBe(false);
+    expect(driftRun.status).toBe('blocked');
+    expect(driftRun.selectorFingerprintMatched).toBe(false);
+    expect(driftRun.visibleUiExecution).toBe(false);
+  });
+
   it('blocks credential admin actions before authority can execute', () => {
     const fingerprint = createUiTargetFingerprint({
       targetSeed: 'private credential field',

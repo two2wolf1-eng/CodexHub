@@ -6978,3 +6978,34 @@ workflows:
       browserStorageStored: false
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m71.admin-write-automation-cdp:
+    risk: critical
+    trigger:
+      type: admin-write-automation-cdp
+      entrypoint: contracts ui-automation-kernel supervisor docs
+      localControlRequired: true
+    scope:
+      - admin-write-fixed-flow-run
+      - selector-final-confirm-fingerprint-binding
+      - owner-self-protection
+      - duplicate-submit-block
+      - post-write-verification-hash
+    docs:
+      - docs/releases/m71-admin-write-automation-cdp.md
+      - docs/reviews/m71-admin-write-automation-cdp-review.md
+      - docs/runbooks/m71-admin-write-automation-cdp-runbook.md
+    safety:
+      noNewProvider: true
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      fixedBusinessAdminFlowOnly: true
+      runtimeGateRequired: CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED
+      fixedFlowRunnerRequired: true
+      highPrivilegeApprovalRequired: true
+      requestBodyAuthorityTrusted: false
+      requestBodyExecutionEvidenceTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

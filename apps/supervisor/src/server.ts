@@ -384,6 +384,9 @@ import type {
   McpWriteToolRun,
   CodexProductionCanaryKind,
   CodexProductionDriftGateKind,
+  AdminWriteAuthority,
+  AdminWriteDryRunPlan,
+  AdminWriteIntent,
   AdminUiActionKind,
   BusinessQuotaSourceKind,
   BusinessQuotaPermissionRole,
@@ -762,7 +765,24 @@ interface SupervisorServerOptions {
   localProductionWorkflowPilotEnabled?: boolean;
   githubProviderFetch?: typeof fetch;
   githubProviderCredential?: string;
+  businessAdminUiFixedFlowRunner?: BusinessAdminUiFixedFlowRunner;
 }
+
+type BusinessAdminUiFixedFlowRunner = (input: {
+  actionKind: AdminUiActionKind;
+  dryRunPlanId: string;
+  authorityId: string;
+  approvalArtifactIdHash?: string;
+  targetFingerprintHash?: string;
+}) => Promise<{
+  selectorFingerprintMatched: boolean;
+  finalConfirmFingerprintHash?: string;
+  finalConfirmFingerprintMatched: boolean;
+  postWriteVerified: boolean;
+  postWritePageHash?: string;
+  evidenceRefIds?: readonly string[];
+  auditEventIds?: readonly string[];
+}>;
 
 interface PersistenceState {
   status: 'ok' | 'degraded' | 'disabled';
@@ -21420,6 +21440,8 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     screenshotSeed?: string;
     approvalArtifactId?: string;
     liveActionRequested?: boolean;
+    duplicateSubmitDetected?: boolean;
+    ownerSelfAction?: boolean;
     authority?: unknown;
     executionAuthority?: unknown;
     approvalArtifact?: unknown;
@@ -23910,10 +23932,37 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       if (hasForbiddenBusinessQuotaBody(body)) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
-      const { fingerprint, intent, dryRun, authority, run } = createAdminUiAuthorityRecords(body, {
+      const records = createAdminUiAuthorityRecords(body, {
         approvalArtifactId: body?.approvalArtifactId,
         liveActionRequested: body?.liveActionRequested ?? true,
+        duplicateSubmitDetected: body?.duplicateSubmitDetected,
+        ownerSelfAction: body?.ownerSelfAction,
       });
+      const { fingerprint, intent, dryRun, authority } = records;
+      let { run } = records;
+      const fixedFlowResult = await resolveBusinessAdminUiFixedFlowResult(body, {
+        intent,
+        dryRun,
+        authority,
+      });
+      if (fixedFlowResult) {
+        run = summarizeAdminWriteRun({
+          intent,
+          dryRunPlan: dryRun,
+          authority,
+          liveActionRequested: body?.liveActionRequested ?? true,
+          liveExecutorGateEnabled: fixedFlowResult.liveExecutorGateEnabled,
+          selectorFingerprintMatched: fixedFlowResult.selectorFingerprintMatched,
+          finalConfirmFingerprintHash: fixedFlowResult.finalConfirmFingerprintHash,
+          finalConfirmFingerprintMatched: fixedFlowResult.finalConfirmFingerprintMatched,
+          postWriteVerified: fixedFlowResult.postWriteVerified,
+          postWritePageHash: fixedFlowResult.postWritePageHash,
+          duplicateSubmitDetected: body?.duplicateSubmitDetected,
+          ownerSelfAction: body?.ownerSelfAction,
+          evidenceRefIds: fixedFlowResult.evidenceRefIds,
+          auditEventIds: fixedFlowResult.auditEventIds,
+        });
+      }
 
       await Promise.all([
         store.uiTargetFingerprints.saveRecord(fingerprint),
@@ -23934,12 +23983,18 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         liveActionRequested: run.liveActionRequested,
         liveActionAllowed: run.liveActionAllowed,
         postWriteVerified: run.postWriteVerified,
+        selectorFingerprintMatched: run.selectorFingerprintMatched,
+        finalConfirmFingerprintMatched: run.finalConfirmFingerprintMatched,
+        visibleUiExecution: run.visibleUiExecution,
+        networkBoundaryInvoked: run.networkBoundaryInvoked,
+        duplicateSubmitBlocked: run.duplicateSubmitBlocked,
+        ownerSelfActionBlocked: run.ownerSelfActionBlocked,
         ownerSelfProtectionApplied: run.ownerSelfProtectionApplied,
         requestBodyAuthorityAccepted: false,
-        processBoundaryInvoked: false,
+        processBoundaryInvoked: run.processBoundaryInvoked,
         externalProcessStarted: false,
-        executionDisabled: true,
-        summary: 'Business admin UI run projection is authorized metadata only; no executor ran.',
+        executionDisabled: run.executionDisabled,
+        summary: run.summary,
       };
     });
 
@@ -23952,11 +24007,38 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       if (hasForbiddenBusinessQuotaBody(body)) {
         return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
       }
-      const { fingerprint, intent, dryRun, authority, run } = createAdminUiAuthorityRecords(body, {
+      const records = createAdminUiAuthorityRecords(body, {
         approvalArtifactId: body?.approvalArtifactId,
-        liveActionRequested: false,
+        liveActionRequested: body?.liveActionRequested ?? true,
         status: 'blocked',
+        duplicateSubmitDetected: body?.duplicateSubmitDetected,
+        ownerSelfAction: body?.ownerSelfAction,
       });
+      const { fingerprint, intent, dryRun, authority } = records;
+      let { run } = records;
+      const fixedFlowResult = await resolveBusinessAdminUiFixedFlowResult(body, {
+        intent,
+        dryRun,
+        authority,
+      });
+      if (fixedFlowResult) {
+        run = summarizeAdminWriteRun({
+          intent,
+          dryRunPlan: dryRun,
+          authority,
+          liveActionRequested: body?.liveActionRequested ?? true,
+          liveExecutorGateEnabled: fixedFlowResult.liveExecutorGateEnabled,
+          selectorFingerprintMatched: fixedFlowResult.selectorFingerprintMatched,
+          finalConfirmFingerprintHash: fixedFlowResult.finalConfirmFingerprintHash,
+          finalConfirmFingerprintMatched: fixedFlowResult.finalConfirmFingerprintMatched,
+          postWriteVerified: fixedFlowResult.postWriteVerified,
+          postWritePageHash: fixedFlowResult.postWritePageHash,
+          duplicateSubmitDetected: body?.duplicateSubmitDetected,
+          ownerSelfAction: body?.ownerSelfAction,
+          evidenceRefIds: fixedFlowResult.evidenceRefIds,
+          auditEventIds: fixedFlowResult.auditEventIds,
+        });
+      }
 
       await Promise.all([
         store.uiTargetFingerprints.saveRecord(fingerprint),
@@ -23969,13 +24051,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return {
         status: run.status,
         runId: run.id,
-        postWriteVerified: false,
+        postWriteVerified: run.postWriteVerified,
+        postWriteVerificationHash: run.postWriteVerificationHash,
         targetFingerprintHash: fingerprint.fingerprintHash,
         requestBodyAuthorityAccepted: false,
-        processBoundaryInvoked: false,
+        processBoundaryInvoked: run.processBoundaryInvoked,
         externalProcessStarted: false,
-        executionDisabled: true,
-        summary: 'Post-write verification is blocked until a later live executor round produces evidence.',
+        executionDisabled: run.executionDisabled,
+        summary: run.summary,
       };
     });
   }
@@ -23985,6 +24068,16 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     options: {
       approvalArtifactId?: string;
       liveActionRequested?: boolean;
+      liveExecutorGateEnabled?: boolean;
+      selectorFingerprintMatched?: boolean;
+      finalConfirmFingerprintSeed?: string;
+      finalConfirmFingerprintHash?: string;
+      finalConfirmFingerprintMatched?: boolean;
+      postWriteVerified?: boolean;
+      postWritePageSeed?: string;
+      postWritePageHash?: string;
+      duplicateSubmitDetected?: boolean;
+      ownerSelfAction?: boolean;
       status?: UiAutomationStatus;
     } = {},
   ) {
@@ -24012,10 +24105,88 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       dryRunPlan: dryRun,
       authority,
       liveActionRequested: options.liveActionRequested,
+      liveExecutorGateEnabled: options.liveExecutorGateEnabled,
+      selectorFingerprintMatched: options.selectorFingerprintMatched,
+      finalConfirmFingerprintSeed: options.finalConfirmFingerprintSeed,
+      finalConfirmFingerprintHash: options.finalConfirmFingerprintHash,
+      finalConfirmFingerprintMatched: options.finalConfirmFingerprintMatched,
+      postWriteVerified: options.postWriteVerified,
+      postWritePageSeed: options.postWritePageSeed,
+      postWritePageHash: options.postWritePageHash,
+      duplicateSubmitDetected: options.duplicateSubmitDetected,
+      ownerSelfAction: options.ownerSelfAction,
       status: options.status,
     });
 
     return { fingerprint, intent, dryRun, authority, run };
+  }
+
+  async function resolveBusinessAdminUiFixedFlowResult(
+    body: AdminUiRequestBody | undefined,
+    records: {
+      intent: AdminWriteIntent;
+      dryRun: AdminWriteDryRunPlan;
+      authority: AdminWriteAuthority;
+    },
+  ): Promise<
+    | {
+        liveExecutorGateEnabled: true;
+        selectorFingerprintMatched: boolean;
+        finalConfirmFingerprintHash?: string;
+        finalConfirmFingerprintMatched: boolean;
+        postWriteVerified: boolean;
+        postWritePageHash?: string;
+        evidenceRefIds?: readonly string[];
+        auditEventIds?: readonly string[];
+      }
+    | undefined
+  > {
+    const fixedFlowRequested =
+      isBusinessAdminUiLiveWriteEnabled() && body?.liveActionRequested !== false;
+    if (!fixedFlowRequested || records.authority.allowed !== true) {
+      return undefined;
+    }
+
+    if (body?.ownerSelfAction === true || body?.duplicateSubmitDetected === true) {
+      return {
+        liveExecutorGateEnabled: true,
+        selectorFingerprintMatched: false,
+        finalConfirmFingerprintMatched: false,
+        postWriteVerified: false,
+      };
+    }
+
+    if (!options.businessAdminUiFixedFlowRunner) {
+      return {
+        liveExecutorGateEnabled: true,
+        selectorFingerprintMatched: false,
+        finalConfirmFingerprintMatched: false,
+        postWriteVerified: false,
+      };
+    }
+
+    const result = await options.businessAdminUiFixedFlowRunner({
+      actionKind: records.intent.actionKind,
+      dryRunPlanId: records.dryRun.id,
+      authorityId: records.authority.id,
+      approvalArtifactIdHash: records.authority.approvalArtifactIdHash,
+      targetFingerprintHash: records.dryRun.targetFingerprintHash,
+    });
+
+    return {
+      liveExecutorGateEnabled: true,
+      selectorFingerprintMatched: result.selectorFingerprintMatched,
+      finalConfirmFingerprintHash: result.finalConfirmFingerprintHash,
+      finalConfirmFingerprintMatched: result.finalConfirmFingerprintMatched,
+      postWriteVerified: result.postWriteVerified,
+      postWritePageHash: result.postWritePageHash,
+      evidenceRefIds: result.evidenceRefIds,
+      auditEventIds: result.auditEventIds,
+    };
+  }
+
+  function isBusinessAdminUiLiveWriteEnabled(): boolean {
+    return process.env.CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED === 'true';
   }
 
   function hasForbiddenBusinessQuotaBody(body: unknown): boolean {
@@ -24038,6 +24209,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       'rawAx',
       'rawNetworkBody',
       'rawExport',
+      'liveExecutorGateEnabled',
+      'selectorFingerprintMatched',
+      'finalConfirmFingerprintSeed',
+      'finalConfirmFingerprintHash',
+      'finalConfirmFingerprintMatched',
+      'postWriteVerified',
+      'postWritePageSeed',
+      'postWritePageHash',
       'rawSource',
       'rawPath',
       'rawProfile',

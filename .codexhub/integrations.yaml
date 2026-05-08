@@ -3390,3 +3390,45 @@ integrations:
       noTokenCookieSessionCollection: true
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
+  m71-admin-write-automation-cdp:
+    enabled: false
+    adapter: ui-automation-kernel
+    provider: codexhub-fixed-business-admin-ui-runner
+    providerType: injected
+    mode: governed-fixed-flow-admin-write
+    stage: m71-admin-write-automation-cdp
+    release: docs/releases/m71-admin-write-automation-cdp.md
+    review: docs/reviews/m71-admin-write-automation-cdp-review.md
+    runbook: docs/runbooks/m71-admin-write-automation-cdp-runbook.md
+    processBoundary: true
+    networkBoundary: true
+    remoteProviderBoundary: false
+    defaultActionMode: admin
+    defaultRisk: critical
+    runtimeGate: CODEXHUB_BUSINESS_ADMIN_UI_LIVE_WRITES_ENABLED
+    supervisorRoutes:
+      - POST /api/business-quota/admin-ui/dry-runs
+      - POST /api/business-quota/admin-ui/approval-requests
+      - POST /api/business-quota/admin-ui/authority-resolutions
+      - POST /api/business-quota/admin-ui/runs
+      - POST /api/business-quota/admin-ui/post-write-verifications
+      - GET /api/business-quota/admin-ui/runs
+    persistedStores:
+      - ui_target_fingerprints
+      - admin_write_intents
+      - admin_write_dry_run_plans
+      - admin_write_authorities
+      - admin_write_runs
+    safety:
+      fixedBusinessAdminFlowOnly: true
+      highPrivilegeApprovalRequired: true
+      directAdapterExecutionAllowed: false
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      requestBodyAuthorityTrusted: false
+      requestBodyExecutionEvidenceTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true
