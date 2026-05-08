@@ -21228,6 +21228,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     exportSeed?: string;
     manifestSeed?: string;
     recordSeeds?: string[];
+    auditEventIds?: string[];
     approvalArtifact?: unknown;
     authority?: unknown;
     executionAuthority?: unknown;
@@ -22119,6 +22120,52 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         ? await store.codexProductionAuditExportSummaries.listRecords(query)
         : [];
       return createControlPlaneListResponse(records, (record) => record, store, false);
+    });
+
+    server.post(`${prefix}/audit-exports`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) {
+        return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('production-readiness'));
+      }
+      const body = request.body as ProductionGaRequestBody | undefined;
+      if (
+        hasUntrustedAuthorityBody(body) ||
+        hasForbiddenGithubRawBody(body) ||
+        hasForbiddenRuntimeExternalAgentBody(body) ||
+        hasForbiddenProductionGaBody(body)
+      ) {
+        return reply.code(400).send(createNewSurfaceRejectedBodyResponse(body?.dryRunId));
+      }
+      const [canaryRuns, driftGates, readinessGates] = await Promise.all([
+        store.codexProductionCanaryRuns.listRecords({ limit: 50 }),
+        store.codexProductionDriftGates.listRecords({ limit: 50 }),
+        store.codexProductionReadinessGates.listRecords({ limit: 50 }),
+      ]);
+      const recordSeeds = body?.recordSeeds ?? [
+        ...canaryRuns.map((record) => record.id),
+        ...driftGates.map((record) => record.id),
+        ...readinessGates.map((record) => record.id),
+      ];
+      const auditExportSummary = createCodexProductionAuditExportSummary({
+        exportSeed: body?.exportSeed ?? 'production-readiness-audit-export',
+        manifestSeed: body?.manifestSeed ?? 'production-readiness-audit-manifest',
+        recordSeeds,
+        auditEventIds: body?.auditEventIds,
+      });
+
+      await store.codexProductionAuditExportSummaries.saveRecord(auditExportSummary);
+
+      return {
+        status: 'planned',
+        auditExportSummary,
+        recordCount: auditExportSummary.recordCount,
+        metadataOnly: true,
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        networkBoundaryInvoked: false,
+        executionDisabled: true,
+        summary: 'Production readiness audit export summary stores manifest hash and counts only.',
+      };
     });
 
     server.get(`${prefix}/summary`, async () => {

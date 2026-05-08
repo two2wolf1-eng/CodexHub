@@ -258,7 +258,7 @@ const lateStageSupervisorControlPlaneMatrix = [
     family: 'production-readiness',
     prefix: '/api/production-readiness',
     approvalManagedExternally: true,
-    routeSuffixes: ['/rehearsals', '/live-smoke-gates'],
+    routeSuffixes: ['/rehearsals', '/live-smoke-gates', '/audit-exports'],
   },
 ] as const;
 function getLateStageMutatingRoutes(
@@ -2249,7 +2249,11 @@ describe('supervisor mock development API', () => {
         [...serverSource.matchAll(/registerProductionReadinessRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
-          .flatMap((prefix) => [`${prefix}/rehearsals`, `${prefix}/live-smoke-gates`]),
+          .flatMap((prefix) => [
+            `${prefix}/rehearsals`,
+            `${prefix}/live-smoke-gates`,
+            `${prefix}/audit-exports`,
+          ]),
       )
       .sort();
     const registeredLateStageHelperPrefixes = [
@@ -2371,7 +2375,7 @@ describe('supervisor mock development API', () => {
       {
         helperName: 'registerProductionReadinessRoutes',
         variableName: 'prefix',
-        suffixes: ['/rehearsals', '/live-smoke-gates'],
+        suffixes: ['/rehearsals', '/live-smoke-gates', '/audit-exports'],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -2863,6 +2867,17 @@ describe('supervisor mock development API', () => {
         approvalArtifactSeed: 'private blocked readiness approval',
       },
     });
+    const auditExportPostResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/audit-exports',
+      headers: localControlHeaders,
+      payload: {
+        exportSeed: 'private production audit export',
+        manifestSeed: 'private production audit manifest',
+        recordSeeds: ['private production audit record'],
+        auditEventIds: ['audit_m60_supervisor_1'],
+      },
+    });
     const canaryRunsResponse = await server.inject({
       method: 'GET',
       url: '/api/production-readiness/canary-runs',
@@ -2892,6 +2907,15 @@ describe('supervisor mock development API', () => {
         rawSchema: 'private app server schema body',
         rawReadinessData: 'private readiness body',
         authority: { live: true },
+      },
+    });
+    const rawAuditExportResponse = await server.inject({
+      method: 'POST',
+      url: '/api/production-readiness/audit-exports',
+      headers: localControlHeaders,
+      payload: {
+        rawAuditRecord: 'private raw audit export record',
+        rawReadinessData: 'private raw audit readiness body',
       },
     });
 
@@ -2957,21 +2981,37 @@ describe('supervisor mock development API', () => {
       status: 'blocked',
       reason: 'readiness_gate_blocks_live_smoke',
     });
+    expect(auditExportPostResponse.statusCode).toBe(200);
+    expect(auditExportPostResponse.json()).toMatchObject({
+      status: 'planned',
+      recordCount: 1,
+      metadataOnly: true,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      networkBoundaryInvoked: false,
+    });
+    expect(auditExportPostResponse.json().auditExportSummary).toMatchObject({
+      recordCount: 1,
+      metadataOnly: true,
+      rawRecordStored: false,
+      rawBodyStored: false,
+    });
     expect(canaryRunsResponse.statusCode).toBe(200);
     expect(canaryRunsResponse.json().records).toHaveLength(4);
     expect(driftGatesResponse.json().records).toHaveLength(2);
     expect(readinessGatesResponse.json().records).toHaveLength(2);
-    expect(auditExportsResponse.json().records).toHaveLength(2);
+    expect(auditExportsResponse.json().records).toHaveLength(3);
     expect(summaryResponse.json()).toMatchObject({
       canaryRunCount: 4,
       driftGateCount: 2,
       readinessGateCount: 2,
-      auditExportSummaryCount: 2,
+      auditExportSummaryCount: 3,
       processBoundaryInvoked: false,
       externalProcessStarted: false,
       executionDisabled: true,
     });
     expect(forgedPayloadResponse.statusCode).toBe(400);
+    expect(rawAuditExportResponse.statusCode).toBe(400);
     expect(persistedCanaryRuns).toHaveLength(4);
     expect(persistedReadinessGates).toHaveLength(2);
 
@@ -2982,12 +3022,14 @@ describe('supervisor mock development API', () => {
       liveSmokeResponse.body,
       failedLiveSmokeResponse.body,
       blockedLiveSmokeResponse.body,
+      auditExportPostResponse.body,
       canaryRunsResponse.body,
       driftGatesResponse.body,
       readinessGatesResponse.body,
       auditExportsResponse.body,
       summaryResponse.body,
       forgedPayloadResponse.body,
+      rawAuditExportResponse.body,
     ]) {
       expect(body).not.toContain('private production readiness canary task');
       expect(body).not.toContain('private production readiness target');
@@ -2998,6 +3040,11 @@ describe('supervisor mock development API', () => {
       expect(body).not.toContain('private blocked readiness approval');
       expect(body).not.toContain('private live smoke canary task');
       expect(body).not.toContain('private live smoke target');
+      expect(body).not.toContain('private production audit export');
+      expect(body).not.toContain('private production audit manifest');
+      expect(body).not.toContain('private production audit record');
+      expect(body).not.toContain('private raw audit export record');
+      expect(body).not.toContain('private raw audit readiness body');
       expect(body).not.toContain('private raw canary output');
       expect(body).not.toContain('private app server schema body');
       expect(body).not.toContain('private readiness body');
