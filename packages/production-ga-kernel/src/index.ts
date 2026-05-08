@@ -1,5 +1,20 @@
 import {
   type EvidenceRef,
+  type CodexProductionAuditExportSummary,
+  CodexProductionAuditExportSummarySchema,
+  type CodexProductionCanaryKind,
+  type CodexProductionCanaryRun,
+  CodexProductionCanaryRunSchema,
+  type CodexProductionCanaryStatus,
+  type CodexProductionCanaryTask,
+  CodexProductionCanaryTaskSchema,
+  type CodexProductionDriftGate,
+  CodexProductionDriftGateSchema,
+  type CodexProductionDriftGateKind,
+  type CodexProductionDriftGateStatus,
+  type CodexProductionReadinessGate,
+  CodexProductionReadinessGateSchema,
+  type CodexProductionReadinessGateStatus,
   type ProductionGaApprovalArtifact,
   ProductionGaApprovalArtifactSchema,
   type ProductionGaCapabilityMatrix,
@@ -202,6 +217,78 @@ export interface ProductionGaEvidenceBundleInput {
   now?: () => string;
 }
 
+export interface CodexProductionCanaryTaskInput {
+  canaryKind: CodexProductionCanaryKind;
+  taskSeed: string;
+  status?: CodexProductionCanaryStatus;
+  targetSeed?: string;
+  dependencySeed?: string;
+  dryRunOnly?: boolean;
+  approvalRequired?: boolean;
+  liveSmoke?: boolean;
+  highRisk?: boolean;
+  evidenceRefs?: readonly EvidenceRef[];
+  auditEventIds?: readonly string[];
+  now?: () => string;
+}
+
+export interface CodexProductionCanaryRunInput {
+  canaryTask: CodexProductionCanaryTask;
+  status?: CodexProductionCanaryStatus;
+  checkCount?: number;
+  passedCount?: number;
+  failedCount?: number;
+  blockerCount?: number;
+  liveSmoke?: boolean;
+  approvalArtifactSeed?: string;
+  highRiskLiveTaskBlocked?: boolean;
+  evidenceRefs?: readonly EvidenceRef[];
+  auditEventIds?: readonly string[];
+  now?: () => string;
+}
+
+export interface CodexProductionDriftGateInput {
+  gateKind: CodexProductionDriftGateKind;
+  baselineSeed: string;
+  observedSeed: string;
+  status?: CodexProductionDriftGateStatus;
+  driftCount?: number;
+  blockerCount?: number;
+  highRiskLiveTaskBlocked?: boolean;
+  evidenceRefs?: readonly EvidenceRef[];
+  auditEventIds?: readonly string[];
+  now?: () => string;
+}
+
+export interface CodexProductionAuditExportSummaryInput {
+  exportSeed: string;
+  manifestSeed: string;
+  recordSeeds?: readonly string[];
+  evidenceRefs?: readonly EvidenceRef[];
+  auditEventIds?: readonly string[];
+  now?: () => string;
+}
+
+export interface CodexProductionReadinessGateInput {
+  canaryRuns?: readonly CodexProductionCanaryRun[];
+  driftGates?: readonly CodexProductionDriftGate[];
+  auditExportSummary?: CodexProductionAuditExportSummary;
+  approvalWaiting?: boolean;
+  liveSmokeRequested?: boolean;
+  evidenceRefs?: readonly EvidenceRef[];
+  auditEventIds?: readonly string[];
+  now?: () => string;
+}
+
+export interface CodexProductionReadinessBundleInput {
+  canaryTasks: readonly CodexProductionCanaryTask[];
+  canaryRuns: readonly CodexProductionCanaryRun[];
+  driftGates: readonly CodexProductionDriftGate[];
+  auditExportSummary: CodexProductionAuditExportSummary;
+  liveSmokeRequested?: boolean;
+  now?: () => string;
+}
+
 function now(inputNow?: () => string): string {
   return (inputNow ?? foundationTimestamp)();
 }
@@ -219,6 +306,57 @@ function statusFromParts(parts: readonly ProductionGaStatus[]): ProductionGaStat
   }
   if (parts.includes('conditionally_ready')) {
     return 'conditionally_ready';
+  }
+  return 'ready';
+}
+
+function canaryStatusFromCounts(
+  passedCount: number,
+  failedCount: number,
+  blockerCount: number,
+): CodexProductionCanaryStatus {
+  if (blockerCount > 0) {
+    return 'blocked';
+  }
+  if (failedCount > 0) {
+    return 'failed';
+  }
+  if (passedCount > 0) {
+    return 'passed';
+  }
+  return 'planned';
+}
+
+function driftStatusFromCounts(
+  driftCount: number,
+  blockerCount: number,
+): CodexProductionDriftGateStatus {
+  if (blockerCount > 0) {
+    return 'incompatible';
+  }
+  if (driftCount > 0) {
+    return 'minor_drift';
+  }
+  return 'compatible';
+}
+
+function readinessStatusFromParts(
+  failedCanaryCount: number,
+  blockingDriftCount: number,
+  auditExportSummary: CodexProductionAuditExportSummary | undefined,
+  approvalWaiting: boolean,
+): CodexProductionReadinessGateStatus {
+  if (failedCanaryCount > 0) {
+    return 'canary_blocked';
+  }
+  if (blockingDriftCount > 0) {
+    return 'drift_blocked';
+  }
+  if (approvalWaiting) {
+    return 'approval_waiting';
+  }
+  if (!auditExportSummary) {
+    return 'blocked';
   }
   return 'ready';
 }
@@ -361,6 +499,187 @@ export function createProductionGaCapabilityMatrix(
     publicOutputMetadataOnly: true,
     summary: 'Production GA capability matrix is metadata-only and aggregates existing surfaces.',
   });
+}
+
+export function createCodexProductionCanaryTask(
+  input: CodexProductionCanaryTaskInput,
+): CodexProductionCanaryTask {
+  return CodexProductionCanaryTaskSchema.parse({
+    id: foundationId('codex_production_canary_task'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(input.now),
+    canaryKind: input.canaryKind,
+    taskHash: hashText(input.taskSeed),
+    status: input.status ?? 'planned',
+    targetHash: input.targetSeed ? hashText(input.targetSeed) : undefined,
+    dependencyHash: input.dependencySeed ? hashText(input.dependencySeed) : undefined,
+    dryRunOnly: input.dryRunOnly ?? true,
+    approvalRequired: input.approvalRequired ?? input.liveSmoke === true,
+    liveSmoke: input.liveSmoke ?? false,
+    highRisk: input.highRisk ?? false,
+    rawCheckStored: false,
+    evidenceRefIds: [...(input.evidenceRefs ?? [])].map((ref) => ref.id),
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: `Production canary task ${input.canaryKind} stores hashed target metadata only.`,
+  });
+}
+
+export function createCodexProductionCanaryRun(
+  input: CodexProductionCanaryRunInput,
+): CodexProductionCanaryRun {
+  const passedCount = input.passedCount ?? 0;
+  const failedCount = input.failedCount ?? 0;
+  const blockerCount = input.blockerCount ?? 0;
+  const checkCount = input.checkCount ?? passedCount + failedCount + blockerCount;
+  const status = input.status ?? canaryStatusFromCounts(passedCount, failedCount, blockerCount);
+  const liveSmoke = input.liveSmoke ?? input.canaryTask.liveSmoke;
+  const highRiskLiveTaskBlocked =
+    input.highRiskLiveTaskBlocked ??
+    (status === 'failed' || status === 'blocked' || input.canaryTask.highRisk);
+
+  return CodexProductionCanaryRunSchema.parse({
+    id: foundationId('codex_production_canary_run'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(input.now),
+    canaryTaskId: input.canaryTask.id,
+    canaryKind: input.canaryTask.canaryKind,
+    status,
+    checkCount,
+    passedCount,
+    failedCount,
+    blockerCount,
+    liveSmoke,
+    approvalArtifactIdHash: input.approvalArtifactSeed
+      ? hashText(input.approvalArtifactSeed)
+      : undefined,
+    highRiskLiveTaskBlocked,
+    rawCheckStored: false,
+    rawOutputStored: false,
+    evidenceRefIds: [...(input.evidenceRefs ?? [])].map((ref) => ref.id),
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: `Production canary run ${input.canaryTask.canaryKind} stores counts and gate status only.`,
+  });
+}
+
+export function createCodexProductionDriftGate(
+  input: CodexProductionDriftGateInput,
+): CodexProductionDriftGate {
+  const driftCount = input.driftCount ?? (input.baselineSeed === input.observedSeed ? 0 : 1);
+  const blockerCount = input.blockerCount ?? 0;
+  const status = input.status ?? driftStatusFromCounts(driftCount, blockerCount);
+  const highRiskLiveTaskBlocked =
+    input.highRiskLiveTaskBlocked ?? (status === 'incompatible' || status === 'unknown');
+
+  return CodexProductionDriftGateSchema.parse({
+    id: foundationId('codex_production_drift_gate'),
+    schemaVersion: SchemaVersionSchema.value,
+    observedAt: now(input.now),
+    gateKind: input.gateKind,
+    baselineHash: hashText(input.baselineSeed),
+    observedHash: hashText(input.observedSeed),
+    status,
+    driftCount,
+    blockerCount,
+    highRiskLiveTaskBlocked,
+    rawSchemaStored: false,
+    rawTargetStored: false,
+    evidenceRefIds: [...(input.evidenceRefs ?? [])].map((ref) => ref.id),
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: `Production drift gate ${input.gateKind} stores baseline and observed hashes only.`,
+  });
+}
+
+export function createCodexProductionAuditExportSummary(
+  input: CodexProductionAuditExportSummaryInput,
+): CodexProductionAuditExportSummary {
+  const recordSeeds = input.recordSeeds ?? [];
+  const evidenceRefs = [...(input.evidenceRefs ?? [])];
+  const auditEventIds = [...(input.auditEventIds ?? [])];
+
+  return CodexProductionAuditExportSummarySchema.parse({
+    id: foundationId('codex_production_audit_export'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(input.now),
+    exportHash: hashText(input.exportSeed),
+    manifestHash: hashList([input.manifestSeed, ...recordSeeds]),
+    recordCount: recordSeeds.length,
+    evidenceRefCount: evidenceRefs.length,
+    auditEventCount: auditEventIds.length,
+    metadataOnly: true,
+    rawRecordStored: false,
+    rawPromptStored: false,
+    rawDiffStored: false,
+    rawPathStored: false,
+    rawBodyStored: false,
+    evidenceRefIds: evidenceRefs.map((ref) => ref.id),
+    auditEventIds,
+    summary: 'Production audit export summary stores only manifest hashes and counts.',
+  });
+}
+
+export function createCodexProductionReadinessGate(
+  input: CodexProductionReadinessGateInput = {},
+): CodexProductionReadinessGate {
+  const canaryRuns = [...(input.canaryRuns ?? [])];
+  const driftGates = [...(input.driftGates ?? [])];
+  const failedCanaryCount = canaryRuns.filter(
+    (run) => run.status === 'failed' || run.status === 'blocked',
+  ).length;
+  const blockingDriftCount = driftGates.filter(
+    (gate) => gate.status === 'incompatible' || gate.status === 'unknown',
+  ).length;
+  const status = readinessStatusFromParts(
+    failedCanaryCount,
+    blockingDriftCount,
+    input.auditExportSummary,
+    input.approvalWaiting ?? false,
+  );
+  const liveSmokeAllowed = status === 'ready' && input.liveSmokeRequested === true;
+
+  return CodexProductionReadinessGateSchema.parse({
+    id: foundationId('codex_production_readiness_gate'),
+    schemaVersion: SchemaVersionSchema.value,
+    createdAt: now(input.now),
+    status,
+    canaryRunCount: canaryRuns.length,
+    failedCanaryCount,
+    driftGateCount: driftGates.length,
+    blockingDriftCount,
+    auditExportSummaryId: input.auditExportSummary?.id,
+    highRiskLiveTaskBlocked: status !== 'ready',
+    liveSmokeAllowed,
+    approvalRequiredForLiveSmoke: true,
+    rawReadinessDataStored: false,
+    evidenceRefIds: [...(input.evidenceRefs ?? [])].map((ref) => ref.id),
+    auditEventIds: [...(input.auditEventIds ?? [])],
+    summary: 'Production readiness gate derives live-task blockers from canary, drift, and audit metadata.',
+  });
+}
+
+export function createCodexProductionReadinessBundle(
+  input: CodexProductionReadinessBundleInput,
+): {
+  canaryTasks: readonly CodexProductionCanaryTask[];
+  canaryRuns: readonly CodexProductionCanaryRun[];
+  driftGates: readonly CodexProductionDriftGate[];
+  auditExportSummary: CodexProductionAuditExportSummary;
+  readinessGate: CodexProductionReadinessGate;
+} {
+  const readinessGate = createCodexProductionReadinessGate({
+    canaryRuns: input.canaryRuns,
+    driftGates: input.driftGates,
+    auditExportSummary: input.auditExportSummary,
+    liveSmokeRequested: input.liveSmokeRequested,
+    now: input.now,
+  });
+
+  return {
+    canaryTasks: [...input.canaryTasks],
+    canaryRuns: [...input.canaryRuns],
+    driftGates: [...input.driftGates],
+    auditExportSummary: input.auditExportSummary,
+    readinessGate,
+  };
 }
 
 export function createProductionGaThreatModel(

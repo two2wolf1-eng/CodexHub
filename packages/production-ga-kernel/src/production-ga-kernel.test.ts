@@ -7,6 +7,12 @@ import {
   findAdversarialPublicOutputRoundTripLeaks,
 } from '../../../test-fixtures/adversarial-public-output-fixture';
 import {
+  createCodexProductionAuditExportSummary,
+  createCodexProductionCanaryRun,
+  createCodexProductionCanaryTask,
+  createCodexProductionDriftGate,
+  createCodexProductionReadinessBundle,
+  createCodexProductionReadinessGate,
   createProductionGaApprovalArtifact,
   createProductionGaCapabilityMatrix,
   createProductionGaE2ERehearsalPlan,
@@ -152,6 +158,103 @@ describe('production-ga-kernel', () => {
     expect(signoff.childAdapterInvokedDirectly).toBe(false);
     expect(serialized).not.toContain(adversarialPublicOutputFixture);
     expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('builds M60 production readiness metadata without leaking canary, drift, audit, or readiness source material', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const canaryTask = createCodexProductionCanaryTask({
+      canaryKind: 'thread-turn',
+      taskSeed: adversarialPublicOutputFixture,
+      targetSeed: `app-server:${adversarialPublicOutputFixture}`,
+      dependencySeed: `approval:${adversarialPublicOutputFixture}`,
+      now,
+    });
+    const canaryRun = createCodexProductionCanaryRun({
+      canaryTask,
+      passedCount: 2,
+      now,
+    });
+    const driftGate = createCodexProductionDriftGate({
+      gateKind: 'app-server-protocol',
+      baselineSeed: adversarialPublicOutputFixture,
+      observedSeed: adversarialPublicOutputFixture,
+      now,
+    });
+    const auditExportSummary = createCodexProductionAuditExportSummary({
+      exportSeed: adversarialPublicOutputFixture,
+      manifestSeed: `manifest:${adversarialPublicOutputFixture}`,
+      recordSeeds: [`record:${adversarialPublicOutputFixture}`],
+      auditEventIds: ['audit_m60_kernel_1'],
+      now,
+    });
+    const readinessGate = createCodexProductionReadinessGate({
+      canaryRuns: [canaryRun],
+      driftGates: [driftGate],
+      auditExportSummary,
+      liveSmokeRequested: true,
+      now,
+    });
+    const bundle = createCodexProductionReadinessBundle({
+      canaryTasks: [canaryTask],
+      canaryRuns: [canaryRun],
+      driftGates: [driftGate],
+      auditExportSummary,
+      liveSmokeRequested: true,
+      now,
+    });
+    const records = [canaryTask, canaryRun, driftGate, auditExportSummary, readinessGate, bundle];
+    const serialized = JSON.stringify(records);
+
+    expect(canaryRun.status).toBe('passed');
+    expect(driftGate.status).toBe('compatible');
+    expect(readinessGate.status).toBe('ready');
+    expect(readinessGate.liveSmokeAllowed).toBe(true);
+    expect(readinessGate.highRiskLiveTaskBlocked).toBe(false);
+    expect(canaryTask.taskHash).toMatch(sha256HexPattern);
+    expect(driftGate.baselineHash).toMatch(sha256HexPattern);
+    expect(auditExportSummary.manifestHash).toMatch(sha256HexPattern);
+    expect(serialized).not.toContain(adversarialPublicOutputFixture);
+    expect(findAdversarialPublicOutputRoundTripLeaks(records)).toEqual([]);
+  });
+
+  it('blocks M60 production readiness when canary or drift gates fail', () => {
+    const now = () => '2026-05-07T00:00:00.000Z';
+    const canaryTask = createCodexProductionCanaryTask({
+      canaryKind: 'quota',
+      taskSeed: 'quota-canary',
+      now,
+    });
+    const failedCanaryRun = createCodexProductionCanaryRun({
+      canaryTask,
+      failedCount: 1,
+      now,
+    });
+    const unknownDriftGate = createCodexProductionDriftGate({
+      gateKind: 'desktop-target',
+      baselineSeed: 'desktop-baseline',
+      observedSeed: 'desktop-observed',
+      status: 'unknown',
+      now,
+    });
+    const auditExportSummary = createCodexProductionAuditExportSummary({
+      exportSeed: 'audit-export',
+      manifestSeed: 'audit-manifest',
+      now,
+    });
+    const readinessGate = createCodexProductionReadinessGate({
+      canaryRuns: [failedCanaryRun],
+      driftGates: [unknownDriftGate],
+      auditExportSummary,
+      liveSmokeRequested: true,
+      now,
+    });
+
+    expect(failedCanaryRun.highRiskLiveTaskBlocked).toBe(true);
+    expect(unknownDriftGate.highRiskLiveTaskBlocked).toBe(true);
+    expect(readinessGate.status).toBe('canary_blocked');
+    expect(readinessGate.highRiskLiveTaskBlocked).toBe(true);
+    expect(readinessGate.liveSmokeAllowed).toBe(false);
+    expect(findAdversarialPublicOutputRoundTripLeaks([readinessGate])).toEqual([]);
   });
 
   it('keeps M48-D8 upstream kernel projection seeds hash-only', () => {
