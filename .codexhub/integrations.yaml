@@ -3513,3 +3513,67 @@ integrations:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m74-production-sovereign-real-client-automation:
+    enabled: false
+    adapter: production-real-client-kernel
+    provider: registered-real-client-surfaces
+    providerType: governed
+    mode: surface-manifest-authority-production-automation
+    stage: m74-production-sovereign-real-client-automation
+    release: docs/releases/m74-production-sovereign-real-client-automation.md
+    review: docs/reviews/m74-production-sovereign-real-client-automation-review.md
+    runbook: docs/runbooks/m74-production-real-client-automation-runbook.md
+    processBoundary: true
+    networkBoundary: true
+    remoteProviderBoundary: false
+    defaultActionMode: admin
+    defaultRisk: critical
+    runtimeGates:
+      - CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED
+      - CODEXHUB_CHROME_CDP_ENDPOINT
+      - CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT
+      - CODEXHUB_CODEX_CLI_PATH
+    supervisorRoutes:
+      - GET /api/real-clients/clients
+      - GET /api/real-clients/surfaces
+      - GET /api/real-clients/capabilities
+      - POST /api/real-clients/dry-run
+      - POST /api/real-clients/execute
+      - POST /api/real-clients/break-glass
+      - GET /api/real-clients/evidence/:id
+      - GET /api/real-clients/audit/:actionId
+      - POST /api/real-clients/jobs
+      - GET /api/real-clients/jobs/:jobId
+    persistedStores:
+      - production_real_client_surfaces
+      - production_real_client_operation_manifests
+      - production_real_client_dry_runs
+      - production_real_client_approval_bindings
+      - production_real_client_authorities
+      - production_real_client_runs
+      - production_evidence_vault_records
+      - production_audit_ledger_entries
+      - production_real_client_jobs
+      - production_real_client_canary_drift_reports
+      - production_break_glass_sessions
+    safety:
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      dryRunRequired: true
+      highRiskApprovalRequired: true
+      breakGlassTwoApprovalsRequired: true
+      directAdapterExecutionAllowed: false
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      arbitrarySelectorRunnerAllowed: false
+      arbitraryJavascriptRunnerAllowed: false
+      operateAnyPageAllowed: false
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

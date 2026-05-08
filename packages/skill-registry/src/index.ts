@@ -168,6 +168,29 @@ export function createMockSkillDescriptors(): SkillDescriptor[] {
       keywords: ['browser', 'profile', 'chrome', 'workspace', 'health'],
     }),
     descriptor({
+      id: 'codexhub-production-real-automation-governor',
+      displayName: 'CodexHub Production Real Automation Governor',
+      description:
+        'Use when implementing explicitly approved production real-client automation, including Browser/Chrome CDP, Electron/CDP, Codex Web, Codex Desktop, Codex CLI, cross-profile, cross-workspace, delegated admin, or break-glass write surfaces.',
+      capabilityId: 'production.real_automation_governance',
+      capabilityDescription:
+        'Govern approved real client write automation with registered surfaces, operation manifests, authority, evidence, and audit.',
+      keywords: [
+        'production',
+        'real',
+        'automation',
+        'browser',
+        'chrome',
+        'electron',
+        'cdp',
+        'codex',
+        'cli',
+        'write',
+        'break',
+        'glass',
+      ],
+    }),
+    descriptor({
       id: 'codexhub-playwright-qa',
       displayName: 'CodexHub Playwright QA',
       description:

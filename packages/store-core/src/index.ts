@@ -160,6 +160,17 @@ import type {
   ProductionGaResidualRiskRegister,
   ProductionGaSignoffRun,
   ProductionGaThreatModel,
+  ProductionAuditLedgerEntry,
+  ProductionBreakGlassSession,
+  ProductionEvidenceVaultRecord,
+  ProductionRealClientApprovalBinding,
+  ProductionRealClientAuthorityRef,
+  ProductionRealClientCanaryDriftReport,
+  ProductionRealClientDryRun,
+  ProductionRealClientJob,
+  ProductionRealClientOperationManifest,
+  ProductionRealClientRun,
+  ProductionRealClientSurfaceRegistration,
   RetentionPolicyPlan,
   RetentionPolicyRun,
   RuntimeCheckpoint,
@@ -1727,6 +1738,17 @@ export interface CodexHubStore {
   productionGaTrainingCompletions: ProductionGaTrainingCompletionRepository;
   productionGaThreatModels: ProductionGaThreatModelRepository;
   productionGaResidualRiskRegisters: ProductionGaResidualRiskRegisterRepository;
+  productionRealClientSurfaces: MetadataEntityRepository<ProductionRealClientSurfaceRegistration>;
+  productionRealClientOperationManifests: MetadataEntityRepository<ProductionRealClientOperationManifest>;
+  productionRealClientDryRuns: MetadataEntityRepository<ProductionRealClientDryRun>;
+  productionRealClientApprovalBindings: MetadataEntityRepository<ProductionRealClientApprovalBinding>;
+  productionRealClientAuthorities: MetadataEntityRepository<ProductionRealClientAuthorityRef>;
+  productionRealClientRuns: MetadataEntityRepository<ProductionRealClientRun>;
+  productionEvidenceVaultRecords: MetadataEntityRepository<ProductionEvidenceVaultRecord>;
+  productionAuditLedgerEntries: MetadataEntityRepository<ProductionAuditLedgerEntry>;
+  productionRealClientJobs: MetadataEntityRepository<ProductionRealClientJob>;
+  productionRealClientCanaryDriftReports: MetadataEntityRepository<ProductionRealClientCanaryDriftReport>;
+  productionBreakGlassSessions: MetadataEntityRepository<ProductionBreakGlassSession>;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

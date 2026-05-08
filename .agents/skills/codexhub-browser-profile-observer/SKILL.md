@@ -7,6 +7,12 @@ description: Use when working on Browser Profile, Chrome Profile, workspace obse
 
 Use this skill before touching Browser Profile modules.
 
+For explicitly approved production real-client automation rounds, also use
+`codexhub-production-real-automation-governor`. In those rounds, this skill's read-only rules
+remain the foundation default, but reviewed real clicks, typing, submits, uploads, downloads,
+profile switching, and workspace switching are allowed only through registered surfaces,
+operation manifests, dry-run, approval, store-resolved authority, evidence, and audit.
+
 Inputs:
 
 - Profile model, health model, observation model, and read-only scope.
@@ -14,12 +20,12 @@ Inputs:
 
 Process:
 
-- Do not open or connect to real browser profiles.
+- In foundation and observer rounds, do not open or connect to real browser profiles.
 - Do not read cookies, tokens, sessions, accounts, or MFA data.
-- Do not perform browser input or click automation.
+- In foundation and observer rounds, do not perform browser input or click automation.
 - Prefer Playwright read-only observation plans that expose title, URL, accessibility snapshots, console summaries, and network metadata only.
 - Hash profile paths and forbid network body storage by default.
-- Keep workspace observation as interface-only until separately approved.
+- Keep workspace observation as interface-only until separately approved through the production real automation governor.
 
 Output:
 

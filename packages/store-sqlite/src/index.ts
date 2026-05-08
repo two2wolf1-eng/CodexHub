@@ -174,6 +174,17 @@ import type {
   ProductionGaResidualRiskRegister,
   ProductionGaSignoffRun,
   ProductionGaThreatModel,
+  ProductionAuditLedgerEntry,
+  ProductionBreakGlassSession,
+  ProductionEvidenceVaultRecord,
+  ProductionRealClientApprovalBinding,
+  ProductionRealClientAuthorityRef,
+  ProductionRealClientCanaryDriftReport,
+  ProductionRealClientDryRun,
+  ProductionRealClientJob,
+  ProductionRealClientOperationManifest,
+  ProductionRealClientRun,
+  ProductionRealClientSurfaceRegistration,
   RetentionPolicyPlan,
   RetentionPolicyRun,
   RuntimeCheckpoint,
@@ -609,6 +620,17 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly productionGaTrainingCompletions: ProductionGaTrainingCompletionRepository;
   readonly productionGaThreatModels: ProductionGaThreatModelRepository;
   readonly productionGaResidualRiskRegisters: ProductionGaResidualRiskRegisterRepository;
+  readonly productionRealClientSurfaces: MetadataEntityRepository<ProductionRealClientSurfaceRegistration>;
+  readonly productionRealClientOperationManifests: MetadataEntityRepository<ProductionRealClientOperationManifest>;
+  readonly productionRealClientDryRuns: MetadataEntityRepository<ProductionRealClientDryRun>;
+  readonly productionRealClientApprovalBindings: MetadataEntityRepository<ProductionRealClientApprovalBinding>;
+  readonly productionRealClientAuthorities: MetadataEntityRepository<ProductionRealClientAuthorityRef>;
+  readonly productionRealClientRuns: MetadataEntityRepository<ProductionRealClientRun>;
+  readonly productionEvidenceVaultRecords: MetadataEntityRepository<ProductionEvidenceVaultRecord>;
+  readonly productionAuditLedgerEntries: MetadataEntityRepository<ProductionAuditLedgerEntry>;
+  readonly productionRealClientJobs: MetadataEntityRepository<ProductionRealClientJob>;
+  readonly productionRealClientCanaryDriftReports: MetadataEntityRepository<ProductionRealClientCanaryDriftReport>;
+  readonly productionBreakGlassSessions: MetadataEntityRepository<ProductionBreakGlassSession>;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -1001,6 +1023,61 @@ class SqliteCodexHubStore implements CodexHubStore {
     this.productionGaThreatModels = new SqliteProductionGaThreatModelRepository(database);
     this.productionGaResidualRiskRegisters =
       new SqliteProductionGaResidualRiskRegisterRepository(database);
+    this.productionRealClientSurfaces =
+      new SqliteMetadataEntityRepository<ProductionRealClientSurfaceRegistration>(
+        database,
+        'production_real_client_surfaces',
+      );
+    this.productionRealClientOperationManifests =
+      new SqliteMetadataEntityRepository<ProductionRealClientOperationManifest>(
+        database,
+        'production_real_client_operation_manifests',
+      );
+    this.productionRealClientDryRuns =
+      new SqliteMetadataEntityRepository<ProductionRealClientDryRun>(
+        database,
+        'production_real_client_dry_runs',
+      );
+    this.productionRealClientApprovalBindings =
+      new SqliteMetadataEntityRepository<ProductionRealClientApprovalBinding>(
+        database,
+        'production_real_client_approval_bindings',
+      );
+    this.productionRealClientAuthorities =
+      new SqliteMetadataEntityRepository<ProductionRealClientAuthorityRef>(
+        database,
+        'production_real_client_authorities',
+      );
+    this.productionRealClientRuns =
+      new SqliteMetadataEntityRepository<ProductionRealClientRun>(
+        database,
+        'production_real_client_runs',
+      );
+    this.productionEvidenceVaultRecords =
+      new SqliteMetadataEntityRepository<ProductionEvidenceVaultRecord>(
+        database,
+        'production_evidence_vault_records',
+      );
+    this.productionAuditLedgerEntries =
+      new SqliteMetadataEntityRepository<ProductionAuditLedgerEntry>(
+        database,
+        'production_audit_ledger_entries',
+      );
+    this.productionRealClientJobs =
+      new SqliteMetadataEntityRepository<ProductionRealClientJob>(
+        database,
+        'production_real_client_jobs',
+      );
+    this.productionRealClientCanaryDriftReports =
+      new SqliteMetadataEntityRepository<ProductionRealClientCanaryDriftReport>(
+        database,
+        'production_real_client_canary_drift_reports',
+      );
+    this.productionBreakGlassSessions =
+      new SqliteMetadataEntityRepository<ProductionBreakGlassSession>(
+        database,
+        'production_break_glass_sessions',
+      );
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -7145,6 +7222,72 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS production_ga_residual_risk_registers (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_surfaces (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_operation_manifests (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_dry_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_approval_bindings (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_authorities (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_evidence_vault_records (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_audit_ledger_entries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_jobs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_real_client_canary_drift_reports (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_break_glass_sessions (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

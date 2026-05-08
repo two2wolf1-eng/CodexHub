@@ -525,6 +525,13 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/production-real-client-kernel/src/index.ts',
+    terms: sensitiveConceptTerms,
+    reason:
+      'M74 production real-client forbidden capability and redaction vocabulary only; no credential read or persistence path',
+  },
+  {
+    scope: 'production-source',
     file: 'packages/contracts/src/index.ts',
     terms: sensitiveConceptTerms,
     reason: 'contract metadata flags and hash-only credential readiness schemas only',
@@ -544,8 +551,9 @@ const allowlistRules: AllowlistEntry[] = [
   {
     scope: 'production-source',
     file: 'apps/supervisor/src/server.ts',
-    terms: [['sess', 'ion'].join('')],
-    reason: 'M51 metadata projection names for session health only; no credential read path',
+    terms: sensitiveConceptTerms,
+    reason:
+      'M51 session metadata and M74 real-client forbidden-body/redaction vocabulary only; no credential read path',
   },
   {
     scope: 'production-source',

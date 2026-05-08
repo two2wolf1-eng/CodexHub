@@ -17,6 +17,7 @@ Contracts are the only shared DTO/schema/type language. When shared contracts ch
 - Browser and Electron automation are read-only by default.
 - Browser click/input automation is not allowed in the foundation scaffold.
 - Electron main inspector connections are not allowed in the foundation scaffold.
+- Explicitly approved production real automation rounds may enter real Browser/Electron/Codex write surfaces only through `codexhub-production-real-automation-governor`: registered surface, reviewed operation manifest, dry-run, approval, store-resolved authority, evidence, audit, runtime gates, and fixed adapter boundaries.
 - All write operations must pass policy, approval, evidence, and audit gates.
 - No token, cookie, session, MFA, account, or credential collection is allowed.
 - New features must include focused tests.
@@ -84,6 +85,7 @@ After workflow skills are read, every round must declare which project skills ar
 - `codexhub-codex-exec-adapter`: use when modifying `codex-kernel` or the Codex exec control plane.
 - `codexhub-electron-cdp-observer`: use when modifying Electron/CDP observation modules.
 - `codexhub-browser-profile-observer`: use when modifying Browser Profile or Chrome Profile modules.
+- `codexhub-production-real-automation-governor`: use when implementing explicitly approved production real-client automation or real write expansion for Chrome/ChatGPT, Codex Web, Codex Desktop/Electron, Codex CLI, cross-profile, cross-workspace, delegated admin, or break-glass surfaces.
 - `codexhub-playwright-qa`: use when modifying Dashboard browser QA or smoke-test behavior.
 - `codexhub-release-auditor`: use during every round closeout, verification, commit, and release-note summary.
 

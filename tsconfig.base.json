@@ -56,6 +56,9 @@
         "packages/platform-operations-kernel/src/index.ts"
       ],
       "@codexhub/production-ga-kernel": ["packages/production-ga-kernel/src/index.ts"],
+      "@codexhub/production-real-client-kernel": [
+        "packages/production-real-client-kernel/src/index.ts"
+      ],
       "@codexhub/release-candidate-kernel": [
         "packages/release-candidate-kernel/src/index.ts"
       ],

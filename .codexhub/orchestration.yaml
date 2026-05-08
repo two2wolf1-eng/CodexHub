@@ -7077,3 +7077,42 @@ workflows:
       noBrowserStorageRead: true
       rawNetworkBodyStored: false
       publicProjectionMetadataOnly: true
+  m74.production-sovereign-real-client-automation:
+    risk: critical
+    trigger:
+      type: production-sovereign-real-client-automation
+      entrypoint: contracts production-real-client-kernel supervisor store docs
+      localControlRequired: true
+    scope:
+      - surface-registry-v2
+      - operation-manifest-registry
+      - authority-engine
+      - approval-binder
+      - evidence-vault
+      - audit-ledger
+      - production-real-client-jobs
+      - canary-drift-report
+      - break-glass-controller
+    docs:
+      - docs/releases/m74-production-sovereign-real-client-automation.md
+      - docs/reviews/m74-production-sovereign-real-client-automation-review.md
+      - docs/runbooks/m74-production-real-client-automation-runbook.md
+    safety:
+      noNewProvider: false
+      noGenericCdpPassthrough: true
+      noArbitrarySelectorRunner: true
+      noArbitraryJavascriptRunner: true
+      noOperateAnyPageRoute: true
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      highRiskApprovalRequired: true
+      breakGlassTwoApprovalsRequired: true
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawNetworkBodyStored: false
+      publicProjectionMetadataOnly: true

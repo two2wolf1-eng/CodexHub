@@ -10,6 +10,13 @@ Workflow skills are mandatory for every round:
 
 Project/domain skills are selected by the touched area. CodexHub custom skills add project-specific rules for contracts, policy, Codex control-plane work, observer modules, QA, and release audit.
 
+When a round explicitly approves production real-client automation, also use
+`codexhub-production-real-automation-governor`. That skill is the project-approved exception path
+for real Browser/Electron/Codex write surfaces. It requires registered surfaces, reviewed operation
+manifests, dry-run, approval, store-resolved authority, evidence, audit, runtime gates, and fixed
+adapter boundaries. It does not allow credential extraction, login/MFA bypass, permission bypass,
+generic CDP passthrough, arbitrary JavaScript, arbitrary selectors, generic shell, or operate-any-page behavior.
+
 ## Required Round Flow
 
 Every round should start by declaring:
@@ -42,6 +49,7 @@ Project skills:
 - `codexhub-codex-exec-adapter`: required because the change touches `packages/codex-kernel` and Codex exec control-plane behavior.
 - `codexhub-workflow-policy-reviewer`: required because policy, evidence, approval, and audit semantics are affected.
 - `codexhub-contract-designer`: required if contracts, Zod schemas, DTOs, or inferred shared types change.
+- `codexhub-production-real-automation-governor`: required if the round explicitly enters real Browser/Electron/Codex write surfaces.
 - `codexhub-release-auditor`: required for closeout, verification, commit, and summary.
 
 Skills not used:

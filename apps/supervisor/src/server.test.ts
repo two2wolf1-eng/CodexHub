@@ -34,6 +34,12 @@ import {
   QuotaSnapshotSchema,
   RealClientConnectionReadinessSchema,
 } from '@codexhub/contracts';
+import {
+  createProductionRealClientApprovalBinding,
+  createProductionRealClientOperationManifest,
+  createProductionRealClientSurfaceRegistration,
+  resolveProductionRealClientAuthority,
+} from '@codexhub/production-real-client-kernel';
 import { createSqliteStore } from '@codexhub/store-sqlite';
 import { buildSupervisorServer } from './server';
 
@@ -283,7 +289,7 @@ const lateStageSupervisorControlPlaneMatrix = [
     family: 'real-clients',
     prefix: '/api/real-clients',
     approvalManagedExternally: true,
-    routeSuffixes: ['/connection-probes'],
+    routeSuffixes: ['/connection-probes', '/dry-run', '/execute', '/break-glass', '/jobs'],
   },
   {
     family: 'business-quota',
@@ -2339,7 +2345,13 @@ describe('supervisor mock development API', () => {
         [...serverSource.matchAll(/registerRealClientConnectionRoutes\('([^']+)'\)/g)]
           .map((match) => match[1])
           .filter((prefix): prefix is string => Boolean(prefix))
-          .flatMap((prefix) => [`${prefix}/connection-probes`]),
+          .flatMap((prefix) => [
+            `${prefix}/connection-probes`,
+            `${prefix}/dry-run`,
+            `${prefix}/execute`,
+            `${prefix}/break-glass`,
+            `${prefix}/jobs`,
+          ]),
       )
       .sort();
     const registeredLateStageHelperPrefixes = [
@@ -2498,7 +2510,7 @@ describe('supervisor mock development API', () => {
       {
         helperName: 'registerRealClientConnectionRoutes',
         variableName: 'prefix',
-        suffixes: ['/connection-probes'],
+        suffixes: ['/connection-probes', '/dry-run', '/execute', '/break-glass', '/jobs'],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -4275,6 +4287,12 @@ describe('supervisor mock development API', () => {
         authority: { allowed: true },
       },
     });
+    const unknownSurfaceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/connection-probes',
+      headers: localControlHeaders,
+      payload: { surface: 'operate-any-page' },
+    });
 
     await server.close();
     if (originalChromeEndpoint === undefined) {
@@ -4305,13 +4323,215 @@ describe('supervisor mock development API', () => {
       rawEndpointStored: false,
     });
     expect(rejectedResponse.statusCode).toBe(400);
+    expect(unknownSurfaceResponse.statusCode).toBe(400);
+    expect(unknownSurfaceResponse.json()).toMatchObject({
+      error: 'unknown_real_client_surface',
+      requestBodyEndpointAccepted: false,
+    });
 
-    for (const body of [chromeResponse.body, codexResponse.body, rejectedResponse.body]) {
+    for (const body of [
+      chromeResponse.body,
+      codexResponse.body,
+      rejectedResponse.body,
+      unknownSurfaceResponse.body,
+    ]) {
       expect(body).not.toContain('127.0.0.1:9222');
       expect(body).not.toContain('127.0.0.1:43325');
       expect(body).not.toContain(localControlToken);
       expect(body).not.toContain('"allowed":true');
     }
+  });
+
+  it('guards production real-client dry-run, execution, jobs, and break-glass routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-real-client-production-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const originalProductionRealClientsEnabled =
+      process.env.CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED;
+    delete process.env.CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED;
+    const server = buildSupervisorServer({ store });
+    const now = () => '2026-05-09T00:00:00.000Z';
+    const surface = createProductionRealClientSurfaceRegistration({
+      surfaceId: 'chatgpt-primary',
+      surfaceKind: 'chatgpt-web',
+      registeredBySeed: 'operator',
+      allowedOperationIds: ['chatgpt.submit_prompt'],
+      now,
+    });
+    const manifest = createProductionRealClientOperationManifest({
+      operationId: 'chatgpt.submit_prompt',
+      operationKind: 'submitPrompt',
+      surfaceKind: 'chatgpt-web',
+      capabilityClass: 'high-risk-production',
+      now,
+    });
+    await store.productionRealClientSurfaces.saveRecord(surface);
+    await store.productionRealClientOperationManifests.saveRecord(manifest);
+
+    const rejectedRawBodyResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/dry-run',
+      headers: localControlHeaders,
+      payload: {
+        surfaceRegistrationId: surface.id,
+        manifestId: manifest.id,
+        inputRefId: 'input_ref_chatgpt_submit',
+        rawSelector: '#prompt-textarea',
+        authority: { allowed: true },
+      },
+    });
+    const dryRunResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/dry-run',
+      headers: localControlHeaders,
+      payload: {
+        surfaceRegistrationId: surface.id,
+        manifestId: manifest.id,
+        inputRefId: 'input_ref_chatgpt_submit',
+        targetRefId: 'target_ref_chatgpt_thread',
+        plannedStepCount: 2,
+      },
+    });
+    const dryRun = dryRunResponse.json();
+    const disabledExecuteResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/execute',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.id },
+    });
+
+    process.env.CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED = 'true';
+    const missingAuthorityExecuteResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/execute',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.id },
+    });
+    const approval = createProductionRealClientApprovalBinding({
+      dryRunId: dryRun.id,
+      approvalArtifactSeed: 'approval-artifact-one',
+      approverSeed: 'operator-a',
+      reasonSeed: 'approved-governed-submit',
+      now,
+    });
+    const authority = resolveProductionRealClientAuthority({
+      dryRun,
+      manifest,
+      surface,
+      approvalBindings: [approval],
+      now,
+    });
+    await store.productionRealClientApprovalBindings.saveRecord(approval);
+    await store.productionRealClientAuthorities.saveRecord(authority);
+    const executeResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/execute',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.id, authorityRefId: authority.id },
+    });
+    const jobResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/jobs',
+      headers: localControlHeaders,
+      payload: { dryRunId: dryRun.id, timeoutMs: 30_000 },
+    });
+    const job = jobResponse.json();
+    const jobShowResponse = await server.inject({
+      method: 'GET',
+      url: `/api/real-clients/jobs/${job.jobId}`,
+    });
+    const breakGlassDeniedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/break-glass',
+      headers: localControlHeaders,
+      payload: {
+        requestedCapability: 'temporarySurfaceRegistration',
+        incidentRefId: 'incident-one',
+        ttlSeconds: 900,
+        approvalBindingIds: [approval.id],
+      },
+    });
+    const approvalTwo = createProductionRealClientApprovalBinding({
+      dryRunId: dryRun.id,
+      approvalArtifactSeed: 'approval-artifact-two',
+      approverSeed: 'operator-b',
+      reasonSeed: 'second-approved-governed-submit',
+      now,
+    });
+    await store.productionRealClientApprovalBindings.saveRecord(approvalTwo);
+    const breakGlassResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-clients/break-glass',
+      headers: localControlHeaders,
+      payload: {
+        requestedCapability: 'temporarySurfaceRegistration',
+        incidentRefId: 'incident-one',
+        ttlSeconds: 900,
+        approvalBindingIds: [approval.id, approvalTwo.id],
+        temporarySurfaceRegistrationAllowed: true,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    if (originalProductionRealClientsEnabled === undefined) {
+      delete process.env.CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED;
+    } else {
+      process.env.CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED =
+        originalProductionRealClientsEnabled;
+    }
+
+    expect(rejectedRawBodyResponse.statusCode).toBe(400);
+    expectNoCallerSuppliedAuthorityPayloadLeak(
+      JSON.stringify({
+        rejected: rejectedRawBodyResponse.body,
+        execute: executeResponse.body,
+        breakGlass: breakGlassResponse.body,
+      }),
+    );
+    expect(rejectedRawBodyResponse.body).not.toContain('#prompt-textarea');
+    expect(dryRunResponse.statusCode).toBe(200);
+    expect(dryRun).toMatchObject({
+      status: 'ready',
+      requestBodyAuthorityAccepted: false,
+      requestBodyEndpointAccepted: false,
+      requestBodySelectorAccepted: false,
+      rawSelectorStored: false,
+    });
+    expect(disabledExecuteResponse.statusCode).toBe(403);
+    expect(disabledExecuteResponse.json()).toMatchObject({
+      error: 'production_real_client_execution_disabled',
+      executionDisabled: true,
+    });
+    expect(missingAuthorityExecuteResponse.statusCode).toBe(403);
+    expect(missingAuthorityExecuteResponse.json()).toMatchObject({
+      error: 'production_real_client_authority_required',
+      requestBodyAuthorityAccepted: false,
+    });
+    expect(executeResponse.statusCode).toBe(200);
+    expect(executeResponse.json()).toMatchObject({
+      status: 'completed',
+      liveActionAllowed: true,
+      authorityRequired: true,
+      browserActionInvoked: false,
+      genericCdpPassthroughUsed: false,
+      arbitrarySelectorUsed: false,
+      arbitraryJsUsed: false,
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      credentialMaterialStored: false,
+    });
+    expect(jobResponse.statusCode).toBe(200);
+    expect(jobShowResponse.statusCode).toBe(200);
+    expect(jobShowResponse.json()).toMatchObject({ jobId: job.jobId, status: 'queued' });
+    expect(breakGlassDeniedResponse.statusCode).toBe(403);
+    expect(breakGlassResponse.statusCode).toBe(200);
+    expect(breakGlassResponse.json()).toMatchObject({
+      requestedCapability: 'temporarySurfaceRegistration',
+      status: 'authorized',
+      distinctApproverHashCount: 2,
+      temporarySurfaceRegistrationAllowed: true,
+    });
   });
 
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {

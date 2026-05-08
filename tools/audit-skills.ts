@@ -27,6 +27,7 @@ const projectSkills = [
   'codexhub-codex-exec-adapter',
   'codexhub-electron-cdp-observer',
   'codexhub-browser-profile-observer',
+  'codexhub-production-real-automation-governor',
   'codexhub-playwright-qa',
   'codexhub-release-auditor',
 ];

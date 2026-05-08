@@ -404,6 +404,7 @@ import type {
   ProductionGaResidualRiskRegister,
   ProductionGaStatus,
   ProductionGaThreatModel,
+  ProductionRealClientOperationKind,
 } from '@codexhub/contracts';
 import {
   ApprovalDecisionRequestSchema,
@@ -503,6 +504,13 @@ import {
   probeChromeCdpConnectionReadiness,
   runChromeCdpActionBoundary,
 } from '@codexhub/playwright-observer-adapter';
+import {
+  containsForbiddenProductionRealClientRequestBody,
+  createProductionBreakGlassSession,
+  createProductionRealClientDryRun,
+  createProductionRealClientJob,
+  createProductionRealClientRun,
+} from '@codexhub/production-real-client-kernel';
 import type {
   ChromeCdpActionStep,
   ChromeCdpConnectionProbeInput,
@@ -23853,6 +23861,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       }
 
       const surface = normalizeRealClientSurface(body?.surface);
+      if (surface === 'unknown') {
+        return reply.code(400).send({
+          error: 'unknown_real_client_surface',
+          requestBodyEndpointAccepted: false,
+          rawEndpointStored: false,
+          credentialMaterialStored: false,
+        });
+      }
       if (surface === 'chrome-cdp') {
         const probe = options.chromeCdpConnectionProbe ?? probeChromeCdpConnectionReadiness;
         const result = await probe({
@@ -23886,14 +23902,364 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         liveActionReady: false,
       };
     });
+
+    server.get(`${prefix}/clients`, async () => {
+      const chromeEndpoint = process.env.CODEXHUB_CHROME_CDP_ENDPOINT;
+      const codexDesktopEndpoint = process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+      const codexCliConfigured = Boolean(process.env.CODEXHUB_CODEX_CLI_PATH);
+      return {
+        status: chromeEndpoint || codexDesktopEndpoint || codexCliConfigured ? 'configured' : 'missing',
+        clients: [
+          {
+            clientKind: 'chrome-cdp',
+            configured: Boolean(chromeEndpoint),
+            endpointHash: chromeEndpoint ? hashLocalMetadata({ endpoint: chromeEndpoint }) : undefined,
+          },
+          {
+            clientKind: 'codex-desktop-cdp',
+            configured: Boolean(codexDesktopEndpoint),
+            endpointHash: codexDesktopEndpoint
+              ? hashLocalMetadata({ endpoint: codexDesktopEndpoint })
+              : undefined,
+          },
+          {
+            clientKind: 'codex-cli',
+            configured: codexCliConfigured,
+            executableHash: process.env.CODEXHUB_CODEX_CLI_PATH
+              ? hashLocalMetadata({ executable: process.env.CODEXHUB_CODEX_CLI_PATH })
+              : undefined,
+          },
+        ],
+        rawEndpointStored: false,
+        rawExecutablePathStored: false,
+        credentialMaterialStored: false,
+        summary: 'Real client clients expose configured state and hashes only.',
+      };
+    });
+
+    server.get(`${prefix}/surfaces`, async () => {
+      const store = await getStore();
+      const records = store
+        ? await store.productionRealClientSurfaces.listRecords({ limit: 100 })
+        : [];
+      return {
+        storeAvailable: store !== undefined,
+        records,
+        rawEndpointStored: false,
+        rawSelectorStored: false,
+        rawScriptStored: false,
+        credentialMaterialStored: false,
+      };
+    });
+
+    server.get(`${prefix}/capabilities`, async () => ({
+      capabilityClasses: [
+        'standard-production',
+        'restricted-production',
+        'high-risk-production',
+        'break-glass-production',
+        'forbidden',
+      ],
+      surfaces: [
+        'chrome-cdp',
+        'chatgpt-web',
+        'chatgpt-shared-links',
+        'chatgpt-connectors',
+        'chatgpt-workspace-admin',
+        'codex-web-cloud',
+        'codex-desktop-cdp',
+        'codex-cli',
+        'local-repo-workflow',
+      ],
+      forbiddenCapabilities: [
+        'readCookies',
+        'readSessionTokens',
+        'readPasswordFields',
+        'readMfaFields',
+        'bypassLogin',
+        'bypassMfa',
+        'bypassOrgPermission',
+        'bypassWorkspacePermission',
+        'impersonateUser',
+        'extractBrowserProfileCredentials',
+        'replaySessionMaterial',
+        'operateWithUnownedSession',
+      ],
+      genericCdpPassthroughAllowed: false,
+      arbitrarySelectorAllowed: false,
+      arbitraryJsAllowed: false,
+      operateAnyPageAllowed: false,
+      summary: 'M74 production capabilities are available only through registered manifests.',
+    }));
+
+    server.post(`${prefix}/dry-run`, async (request, reply) => {
+      const body = request.body as ProductionRealClientDryRunRequestBody | undefined;
+      if (hasForbiddenProductionRealClientRouteBody(body)) {
+        return reply.code(400).send(createProductionRealClientRejectedBodyResponse());
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const surface = body?.surfaceRegistrationId
+        ? await store.productionRealClientSurfaces.getRecord(body.surfaceRegistrationId)
+        : undefined;
+      const manifest = body?.manifestId
+        ? await store.productionRealClientOperationManifests.getRecord(body.manifestId)
+        : undefined;
+      if (!surface || !manifest) {
+        return reply.code(404).send({
+          error: 'registered_surface_or_operation_manifest_missing',
+          requestBodyEndpointAccepted: false,
+          requestBodySelectorAccepted: false,
+          requestBodyScriptAccepted: false,
+          requestBodyAuthorityAccepted: false,
+        });
+      }
+      const dryRun = createProductionRealClientDryRun({
+        surface,
+        manifest,
+        inputRefSeed: body?.inputRefId,
+        targetSeed: body?.targetRefId,
+        plannedStepCount: body?.plannedStepCount,
+      });
+      await store.productionRealClientDryRuns.saveRecord(dryRun);
+      return dryRun;
+    });
+
+    server.post(`${prefix}/execute`, async (request, reply) => {
+      const body = request.body as ProductionRealClientExecuteRequestBody | undefined;
+      if (hasForbiddenProductionRealClientRouteBody(body)) {
+        return reply.code(400).send(createProductionRealClientRejectedBodyResponse());
+      }
+      if (process.env.CODEXHUB_PRODUCTION_REAL_CLIENTS_ENABLED !== 'true') {
+        return reply.code(403).send({
+          error: 'production_real_client_execution_disabled',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const dryRun = body?.dryRunId
+        ? await store.productionRealClientDryRuns.getRecord(body.dryRunId)
+        : undefined;
+      if (!dryRun) {
+        return reply.code(404).send({ error: 'production_real_client_dry_run_missing' });
+      }
+      const [manifest, surface, authority] = await Promise.all([
+        store.productionRealClientOperationManifests.getRecord(dryRun.manifestId),
+        store.productionRealClientSurfaces.getRecord(dryRun.surfaceRegistrationId),
+        body?.authorityRefId
+          ? store.productionRealClientAuthorities.getRecord(body.authorityRefId)
+          : Promise.resolve(undefined),
+      ]);
+      if (!manifest || !surface) {
+        return reply.code(404).send({ error: 'production_real_client_manifest_or_surface_missing' });
+      }
+      if (dryRun.status !== 'ready') {
+        return reply.code(403).send({
+          error: 'production_real_client_dry_run_not_ready',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+      if (manifest.authorityRequired && authority?.allowed !== true) {
+        return reply.code(403).send({
+          error: 'production_real_client_authority_required',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+          requestBodyAuthorityAccepted: false,
+        });
+      }
+      const run = createProductionRealClientRun({
+        dryRun,
+        manifest,
+        surface,
+        authority,
+        liveActionRequested: true,
+        boundaryReached: false,
+      });
+      await store.productionRealClientRuns.saveRecord(run);
+      return run;
+    });
+
+    server.post(`${prefix}/break-glass`, async (request, reply) => {
+      const body = request.body as ProductionRealClientBreakGlassRequestBody | undefined;
+      if (hasForbiddenProductionRealClientRouteBody(body)) {
+        return reply.code(400).send(createProductionRealClientRejectedBodyResponse());
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const approvalBindings = [];
+      for (const id of body?.approvalBindingIds ?? []) {
+        const record = await store.productionRealClientApprovalBindings.getRecord(id);
+        if (record) approvalBindings.push(record);
+      }
+      if (approvalBindings.length < 2 || !body?.incidentRefId || !body.ttlSeconds) {
+        return reply.code(403).send({
+          error: 'break_glass_requires_two_approvals_incident_and_ttl',
+          liveExecution: false,
+          externalProcessStarted: false,
+          executionDisabled: true,
+        });
+      }
+      const requestedCapability = normalizeProductionOperationKind(body.requestedCapability);
+      if (!requestedCapability) {
+        return reply.code(400).send({ error: 'unknown_production_real_client_operation' });
+      }
+      const session = createProductionBreakGlassSession({
+        requestedCapability,
+        incidentIdSeed: body.incidentRefId,
+        approvalBindings,
+        ttlSeconds: body.ttlSeconds,
+        temporarySurfaceRegistrationAllowed: body.temporarySurfaceRegistrationAllowed === true,
+        temporarySelectorOverrideAllowed: body.temporarySelectorOverrideAllowed === true,
+        temporaryNamedScriptRegistrationAllowed: body.temporaryNamedScriptRegistrationAllowed === true,
+        temporaryDelegatedAdminWorkflowAllowed: body.temporaryDelegatedAdminWorkflowAllowed === true,
+        emergencyBulkAutomationAllowed: body.emergencyBulkAutomationAllowed === true,
+      });
+      await store.productionBreakGlassSessions.saveRecord(session);
+      return session;
+    });
+
+    server.get(`${prefix}/evidence/:id`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const record = await store.productionEvidenceVaultRecords.getRecord(
+        (request.params as { id: string }).id,
+      );
+      return record ?? reply.code(404).send({ error: 'production_evidence_not_found' });
+    });
+
+    server.get(`${prefix}/audit/:actionId`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const actionId = (request.params as { actionId: string }).actionId;
+      const records = (await store.productionAuditLedgerEntries.listRecords({ limit: 100 })).filter(
+        (record) => record.actionId === actionId,
+      );
+      return { records, rawAuditBodyStored: false, credentialMaterialStored: false };
+    });
+
+    server.post(`${prefix}/jobs`, async (request, reply) => {
+      const body = request.body as ProductionRealClientJobRequestBody | undefined;
+      if (hasForbiddenProductionRealClientRouteBody(body)) {
+        return reply.code(400).send(createProductionRealClientRejectedBodyResponse());
+      }
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const dryRun = body?.dryRunId
+        ? await store.productionRealClientDryRuns.getRecord(body.dryRunId)
+        : undefined;
+      if (!dryRun) return reply.code(404).send({ error: 'production_real_client_dry_run_missing' });
+      const [manifest, surface] = await Promise.all([
+        store.productionRealClientOperationManifests.getRecord(dryRun.manifestId),
+        store.productionRealClientSurfaces.getRecord(dryRun.surfaceRegistrationId),
+      ]);
+      if (!manifest || !surface) {
+        return reply.code(404).send({ error: 'production_real_client_manifest_or_surface_missing' });
+      }
+      const job = createProductionRealClientJob({
+        dryRun,
+        manifest,
+        surface,
+        timeoutMs: body?.timeoutMs,
+      });
+      await store.productionRealClientJobs.saveRecord(job);
+      return job;
+    });
+
+    server.get(`${prefix}/jobs/:jobId`, async (request, reply) => {
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('real-clients'));
+      const jobId = (request.params as { jobId: string }).jobId;
+      const records = await store.productionRealClientJobs.listRecords({ limit: 100 });
+      const record = records.find((item) => item.jobId === jobId || item.id === jobId);
+      return record ?? reply.code(404).send({ error: 'production_real_client_job_not_found' });
+    });
   }
 
   type RealClientConnectionProbeRequestBody = {
     surface?: unknown;
   };
 
-  function normalizeRealClientSurface(surface: unknown): 'chrome-cdp' | 'codex-desktop-cdp' {
-    return surface === 'codex-desktop-cdp' ? 'codex-desktop-cdp' : 'chrome-cdp';
+  type ProductionRealClientDryRunRequestBody = {
+    surfaceRegistrationId?: string;
+    manifestId?: string;
+    inputRefId?: string;
+    targetRefId?: string;
+    plannedStepCount?: number;
+  };
+
+  type ProductionRealClientExecuteRequestBody = {
+    dryRunId?: string;
+    authorityRefId?: string;
+  };
+
+  type ProductionRealClientBreakGlassRequestBody = {
+    requestedCapability?: unknown;
+    incidentRefId?: string;
+    ttlSeconds?: number;
+    approvalBindingIds?: string[];
+    temporarySurfaceRegistrationAllowed?: boolean;
+    temporarySelectorOverrideAllowed?: boolean;
+    temporaryNamedScriptRegistrationAllowed?: boolean;
+    temporaryDelegatedAdminWorkflowAllowed?: boolean;
+    emergencyBulkAutomationAllowed?: boolean;
+  };
+
+  type ProductionRealClientJobRequestBody = {
+    dryRunId?: string;
+    timeoutMs?: number;
+  };
+
+  const productionRealClientOperationKinds = new Set<ProductionRealClientOperationKind>([
+    'readConversationSummary',
+    'createNewChat',
+    'submitPrompt',
+    'waitForAssistantCompletion',
+    'stopGeneration',
+    'retryGeneration',
+    'uploadFile',
+    'downloadFile',
+    'createSharedLink',
+    'deleteSharedLink',
+    'changeConnectorSettings',
+    'changeWorkspaceAdminSettings',
+    'createCodexAskTask',
+    'createCodexCodeTask',
+    'selectCodexRepoEnvironment',
+    'monitorCodexTask',
+    'readCodexWorklogSummary',
+    'readCodexDiffSummary',
+    'openCodexPrResult',
+    'stopCodexTask',
+    'submitCodexDesktopTask',
+    'readCodexDesktopTaskState',
+    'stopCodexDesktopTask',
+    'codexCliSuggest',
+    'codexCliAutoEdit',
+    'codexCliFullAuto',
+    'applyPatch',
+    'createOrUpdatePr',
+    'crossProfileAutomation',
+    'crossWorkspaceAutomation',
+    'bulkConversationExport',
+    'temporarySurfaceRegistration',
+    'temporarySelectorOverride',
+    'temporaryNamedScriptRegistration',
+    'temporaryDelegatedAdminWorkflow',
+    'emergencyBulkAutomation',
+  ]);
+
+  function normalizeRealClientSurface(
+    surface: unknown,
+  ): 'chrome-cdp' | 'codex-desktop-cdp' | 'unknown' {
+    if (surface === 'chrome-cdp' || surface === undefined) return 'chrome-cdp';
+    if (surface === 'codex-desktop-cdp') return 'codex-desktop-cdp';
+    return 'unknown';
   }
 
   function hasForbiddenRealClientConnectionBody(body: unknown): boolean {
@@ -23934,6 +24300,33 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         forbiddenKeys.has(key) ||
         (typeof value === 'object' && value !== null && hasForbiddenRealClientConnectionBody(value)),
     );
+  }
+
+  function hasForbiddenProductionRealClientRouteBody(body: unknown): boolean {
+    return hasUntrustedAuthorityBody(body) || containsForbiddenProductionRealClientRequestBody(body);
+  }
+
+  function createProductionRealClientRejectedBodyResponse(): Record<string, unknown> {
+    return {
+      error: 'untrusted_production_real_client_raw_body_or_authority',
+      requestBodyEndpointAccepted: false,
+      requestBodySelectorAccepted: false,
+      requestBodyScriptAccepted: false,
+      requestBodyAuthorityAccepted: false,
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      credentialMaterialStored: false,
+    };
+  }
+
+  function normalizeProductionOperationKind(
+    value: unknown,
+  ): ProductionRealClientOperationKind | undefined {
+    return typeof value === 'string' &&
+      productionRealClientOperationKinds.has(value as ProductionRealClientOperationKind)
+      ? (value as ProductionRealClientOperationKind)
+      : undefined;
   }
 
   function registerBusinessQuotaAdminUiRoutes(prefix: string): void {

@@ -294,6 +294,16 @@ export const EvidenceRefSchema = createdEntityBaseSchema.extend({
     'production_ga.signoff_run',
     'production_ga.residual_risk_register',
     'production_ga.evidence_bundle_summary',
+    'real_client.surface_registry',
+    'real_client.operation_manifest',
+    'real_client.dry_run',
+    'real_client.authority',
+    'real_client.execution_summary',
+    'real_client.evidence_vault',
+    'real_client.audit_ledger',
+    'real_client.job_summary',
+    'real_client.canary_drift',
+    'real_client.break_glass',
     'github.publish_draft_pr_rehearsal',
     'rework.loop_plan',
     'rework.loop_summary',
@@ -21620,6 +21630,553 @@ export const RealClientActionRunSchema = createdEntityBaseSchema
     }
   });
 export type RealClientActionRun = z.infer<typeof RealClientActionRunSchema>;
+
+export const ProductionCapabilityClassSchema = z.enum([
+  'standard-production',
+  'restricted-production',
+  'high-risk-production',
+  'break-glass-production',
+  'forbidden',
+]);
+export type ProductionCapabilityClass = z.infer<typeof ProductionCapabilityClassSchema>;
+
+export const ProductionEvidenceLevelSchema = z.enum(['E0', 'E1', 'E2', 'E3', 'E4', 'E5']);
+export type ProductionEvidenceLevel = z.infer<typeof ProductionEvidenceLevelSchema>;
+
+export const ProductionForbiddenCapabilitySchema = z.enum([
+  'readCookies',
+  'readSessionTokens',
+  'readPasswordFields',
+  'readMfaFields',
+  'bypassLogin',
+  'bypassMfa',
+  'bypassOrgPermission',
+  'bypassWorkspacePermission',
+  'impersonateUser',
+  'extractBrowserProfileCredentials',
+  'replaySessionMaterial',
+  'operateWithUnownedSession',
+]);
+export type ProductionForbiddenCapability = z.infer<typeof ProductionForbiddenCapabilitySchema>;
+
+export const ProductionRealClientSurfaceKindSchema = z.enum([
+  'chrome-cdp',
+  'chatgpt-web',
+  'chatgpt-shared-links',
+  'chatgpt-connectors',
+  'chatgpt-workspace-admin',
+  'codex-web-cloud',
+  'codex-desktop-cdp',
+  'codex-cli',
+  'local-repo-workflow',
+]);
+export type ProductionRealClientSurfaceKind = z.infer<
+  typeof ProductionRealClientSurfaceKindSchema
+>;
+
+export const ProductionRealClientOperationKindSchema = z.enum([
+  'readConversationSummary',
+  'createNewChat',
+  'submitPrompt',
+  'waitForAssistantCompletion',
+  'stopGeneration',
+  'retryGeneration',
+  'uploadFile',
+  'downloadFile',
+  'createSharedLink',
+  'deleteSharedLink',
+  'changeConnectorSettings',
+  'changeWorkspaceAdminSettings',
+  'createCodexAskTask',
+  'createCodexCodeTask',
+  'selectCodexRepoEnvironment',
+  'monitorCodexTask',
+  'readCodexWorklogSummary',
+  'readCodexDiffSummary',
+  'openCodexPrResult',
+  'stopCodexTask',
+  'submitCodexDesktopTask',
+  'readCodexDesktopTaskState',
+  'stopCodexDesktopTask',
+  'codexCliSuggest',
+  'codexCliAutoEdit',
+  'codexCliFullAuto',
+  'applyPatch',
+  'createOrUpdatePr',
+  'crossProfileAutomation',
+  'crossWorkspaceAutomation',
+  'bulkConversationExport',
+  'temporarySurfaceRegistration',
+  'temporarySelectorOverride',
+  'temporaryNamedScriptRegistration',
+  'temporaryDelegatedAdminWorkflow',
+  'emergencyBulkAutomation',
+]);
+export type ProductionRealClientOperationKind = z.infer<
+  typeof ProductionRealClientOperationKindSchema
+>;
+
+export const ProductionRealClientSurfaceRegistrationSchema = createdEntityBaseSchema
+  .extend({
+    surfaceId: z.string().min(1),
+    surfaceKind: ProductionRealClientSurfaceKindSchema,
+    capabilityClass: ProductionCapabilityClassSchema,
+    clientIdHash: z.string().min(1).optional(),
+    endpointHash: z.string().min(1).optional(),
+    profileHash: z.string().min(1).optional(),
+    workspaceHash: z.string().min(1).optional(),
+    originHash: z.string().min(1).optional(),
+    registeredByHash: z.string().min(1),
+    allowedOperationIds: z.array(z.string().min(1)).default([]),
+    allowlistedOriginHashes: z.array(z.string().min(1)).default([]),
+    loopbackOnly: z.literal(true).default(true),
+    temporary: z.boolean().default(false),
+    expiresAt: IsoDateTimeSchema.optional(),
+    breakGlassSessionId: z.string().min(1).optional(),
+    requestBodyEndpointAccepted: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.capabilityClass === 'forbidden' && record.allowedOperationIds.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden production surfaces cannot allow operations',
+        path: ['allowedOperationIds'],
+      });
+    }
+    if (record.temporary && !record.breakGlassSessionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'temporary production surfaces require a break-glass session',
+        path: ['breakGlassSessionId'],
+      });
+    }
+  });
+export type ProductionRealClientSurfaceRegistration = z.infer<
+  typeof ProductionRealClientSurfaceRegistrationSchema
+>;
+
+export const ProductionRealClientOperationManifestSchema = createdEntityBaseSchema
+  .extend({
+    operationId: z.string().min(1),
+    operationKind: ProductionRealClientOperationKindSchema,
+    surfaceKind: ProductionRealClientSurfaceKindSchema,
+    capabilityClass: ProductionCapabilityClassSchema,
+    riskLevel: RiskLevelSchema,
+    actionMode: ActionModeSchema,
+    evidenceLevel: ProductionEvidenceLevelSchema,
+    selectorHash: z.string().min(1).optional(),
+    namedScriptId: z.string().min(1).optional(),
+    namedScriptHash: z.string().min(1).optional(),
+    inputSchemaHash: z.string().min(1).optional(),
+    filePolicyHash: z.string().min(1).optional(),
+    approvalRequired: z.boolean().default(false),
+    authorityRequired: z.boolean().default(false),
+    delegatedAuthorityRequired: z.boolean().default(false),
+    crossProfileAllowed: z.boolean().default(false),
+    crossWorkspaceAllowed: z.boolean().default(false),
+    breakGlassAllowed: z.boolean().default(false),
+    genericCdpPassthroughAllowed: z.literal(false).default(false),
+    arbitrarySelectorAllowed: z.literal(false).default(false),
+    arbitraryJsAllowed: z.literal(false).default(false),
+    operateAnyPageAllowed: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.capabilityClass === 'forbidden') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'forbidden production operations must not be registered',
+        path: ['capabilityClass'],
+      });
+    }
+    if (
+      (record.capabilityClass === 'high-risk-production' ||
+        record.capabilityClass === 'break-glass-production' ||
+        record.actionMode === 'write' ||
+        record.actionMode === 'admin') &&
+      (!record.approvalRequired || !record.authorityRequired)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'high-risk, break-glass, write, and admin operations require approval and authority',
+        path: ['approvalRequired'],
+      });
+    }
+    if (record.capabilityClass === 'break-glass-production' && !record.breakGlassAllowed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'break-glass operations must explicitly allow break-glass handling',
+        path: ['breakGlassAllowed'],
+      });
+    }
+  });
+export type ProductionRealClientOperationManifest = z.infer<
+  typeof ProductionRealClientOperationManifestSchema
+>;
+
+export const ProductionRealClientDryRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    surfaceRegistrationId: z.string().min(1),
+    manifestId: z.string().min(1),
+    operationKind: ProductionRealClientOperationKindSchema,
+    capabilityClass: ProductionCapabilityClassSchema,
+    riskLevel: RiskLevelSchema,
+    actionMode: ActionModeSchema,
+    inputRefHash: z.string().min(1).optional(),
+    targetHash: z.string().min(1).optional(),
+    plannedStepCount: z.number().int().nonnegative().default(0),
+    approvalRequired: z.boolean().default(false),
+    authorityRequired: z.boolean().default(false),
+    delegatedAuthorityRequired: z.boolean().default(false),
+    breakGlassRequired: z.boolean().default(false),
+    canaryRequired: z.boolean().default(false),
+    status: z.enum(['ready', 'blocked']).default('blocked'),
+    blockReasons: z.array(z.string().min(1)).default([]),
+    requestBodyEndpointAccepted: z.literal(false).default(false),
+    requestBodySelectorAccepted: z.literal(false).default(false),
+    requestBodyScriptAccepted: z.literal(false).default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'ready' && record.blockReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'ready dry-runs cannot have block reasons',
+        path: ['blockReasons'],
+      });
+    }
+  });
+export type ProductionRealClientDryRun = z.infer<typeof ProductionRealClientDryRunSchema>;
+
+export const ProductionRealClientApprovalBindingSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    approvalArtifactIdHash: z.string().min(1),
+    approverHash: z.string().min(1),
+    decision: z.enum(['approved', 'denied', 'revoked']),
+    reasonHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    consumedAt: IsoDateTimeSchema.optional(),
+    revokedAt: IsoDateTimeSchema.optional(),
+    rawReasonStored: z.literal(false).default(false),
+    requestBodyApprovalArtifactAccepted: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.decision !== 'approved' && record.consumedAt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only approved bindings can be consumed',
+        path: ['consumedAt'],
+      });
+    }
+  });
+export type ProductionRealClientApprovalBinding = z.infer<
+  typeof ProductionRealClientApprovalBindingSchema
+>;
+
+export const ProductionRealClientAuthorityRefSchema = createdEntityBaseSchema
+  .extend({
+    dryRunId: z.string().min(1),
+    manifestId: z.string().min(1),
+    surfaceRegistrationId: z.string().min(1),
+    authorityRefHash: z.string().min(1),
+    capabilityClass: ProductionCapabilityClassSchema,
+    allowed: z.boolean(),
+    approvalBindingIds: z.array(z.string().min(1)).default([]),
+    approverHashCount: z.number().int().nonnegative().default(0),
+    distinctApproverHashCount: z.number().int().nonnegative().default(0),
+    delegatedAuthorityHash: z.string().min(1).optional(),
+    incidentIdHash: z.string().min(1).optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    ttlSeconds: z.number().int().positive().optional(),
+    constraints: z.array(z.string().min(1)).default([]),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    requestBodyApprovalArtifactAccepted: z.literal(false).default(false),
+    rawAuthorityStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.allowed && record.capabilityClass === 'high-risk-production' && record.approvalBindingIds.length < 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'high-risk production authority requires an approval binding',
+        path: ['approvalBindingIds'],
+      });
+    }
+    if (record.allowed && record.capabilityClass === 'break-glass-production') {
+      if (record.distinctApproverHashCount < 2) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'break-glass authority requires two distinct approver hashes',
+          path: ['distinctApproverHashCount'],
+        });
+      }
+      if (!record.incidentIdHash || !record.ttlSeconds || !record.expiresAt) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'break-glass authority requires incident hash, TTL, and expiry',
+          path: ['incidentIdHash'],
+        });
+      }
+    }
+  });
+export type ProductionRealClientAuthorityRef = z.infer<
+  typeof ProductionRealClientAuthorityRefSchema
+>;
+
+export const ProductionRealClientRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    dryRunId: z.string().min(1),
+    manifestId: z.string().min(1),
+    surfaceRegistrationId: z.string().min(1),
+    authorityRefId: z.string().min(1).optional(),
+    jobId: z.string().min(1).optional(),
+    operationKind: ProductionRealClientOperationKindSchema,
+    capabilityClass: ProductionCapabilityClassSchema,
+    riskLevel: RiskLevelSchema,
+    actionMode: ActionModeSchema,
+    status: UiAutomationStatusSchema,
+    plannedStepCount: z.number().int().nonnegative().default(0),
+    completedStepCount: z.number().int().nonnegative().default(0),
+    blockedStepCount: z.number().int().nonnegative().default(0),
+    liveActionRequested: z.boolean().default(false),
+    liveActionAllowed: z.boolean().default(false),
+    approvalConsumedCount: z.number().int().nonnegative().default(0),
+    dryRunRequired: z.literal(true).default(true),
+    authorityRequired: z.boolean().default(false),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    browserActionInvoked: z.boolean().default(false),
+    electronActionInvoked: z.boolean().default(false),
+    codexCliProcessBoundaryInvoked: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    genericCdpPassthroughUsed: z.literal(false).default(false),
+    arbitrarySelectorUsed: z.literal(false).default(false),
+    arbitraryJsUsed: z.literal(false).default(false),
+    operateAnyPageUsed: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.liveActionAllowed && record.authorityRequired && !record.authorityRefId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live governed production execution requires a store-resolved authority ref',
+        path: ['authorityRefId'],
+      });
+    }
+    if (record.completedStepCount + record.blockedStepCount > record.plannedStepCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'production real client run step counts cannot exceed the planned count',
+        path: ['plannedStepCount'],
+      });
+    }
+  });
+export type ProductionRealClientRun = z.infer<typeof ProductionRealClientRunSchema>;
+
+export const ProductionEvidenceVaultRecordSchema = createdEntityBaseSchema
+  .extend({
+    actionId: z.string().min(1),
+    evidenceLevel: ProductionEvidenceLevelSchema,
+    artifactHash: z.string().min(1),
+    byteCount: z.number().int().nonnegative().default(0),
+    itemCount: z.number().int().nonnegative().default(0),
+    redacted: z.boolean().default(true),
+    encrypted: z.boolean().default(false),
+    ttlSeconds: z.number().int().positive().optional(),
+    expiresAt: IsoDateTimeSchema.optional(),
+    breakGlassSessionId: z.string().min(1).optional(),
+    rawArtifactStored: z.boolean().default(false),
+    secretMaterialStored: z.literal(false).default(false),
+    cookieStored: z.literal(false).default(false),
+    sessionTokenStored: z.literal(false).default(false),
+    passwordStored: z.literal(false).default(false),
+    mfaStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawNetworkBodyStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.evidenceLevel === 'E5') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'E5 forbidden secret material must never be stored',
+        path: ['evidenceLevel'],
+      });
+    }
+    if (record.evidenceLevel === 'E4') {
+      if (!record.encrypted || !record.ttlSeconds || !record.expiresAt || !record.breakGlassSessionId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'E4 evidence requires encryption, TTL, expiry, and break-glass linkage',
+          path: ['evidenceLevel'],
+        });
+      }
+    } else if (record.rawArtifactStored) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'raw artifacts are only allowed for encrypted short-TTL E4 evidence',
+        path: ['rawArtifactStored'],
+      });
+    }
+  });
+export type ProductionEvidenceVaultRecord = z.infer<
+  typeof ProductionEvidenceVaultRecordSchema
+>;
+
+export const ProductionAuditLedgerEntrySchema = createdEntityBaseSchema
+  .extend({
+    actionId: z.string().min(1),
+    previousEntryHash: z.string().min(1).optional(),
+    entryHash: z.string().min(1),
+    actorHash: z.string().min(1),
+    operationKind: ProductionRealClientOperationKindSchema,
+    capabilityClass: ProductionCapabilityClassSchema,
+    outcome: z.string().min(1),
+    liveExecution: z.boolean().default(false),
+    externalProcessStarted: z.boolean().default(false),
+    boundaryReached: z.boolean().default(false),
+    evidenceVaultRecordIds: z.array(z.string().min(1)).default([]),
+    authorityRefId: z.string().min(1).optional(),
+    appendOnly: z.literal(true).default(true),
+    rawAuditBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type ProductionAuditLedgerEntry = z.infer<typeof ProductionAuditLedgerEntrySchema>;
+
+export const ProductionRealClientJobSchema = createdEntityBaseSchema
+  .extend({
+    jobId: z.string().min(1),
+    dryRunId: z.string().min(1),
+    operationKind: ProductionRealClientOperationKindSchema,
+    surfaceRegistrationId: z.string().min(1),
+    manifestId: z.string().min(1),
+    status: z.enum(['queued', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'timed_out']),
+    queuePosition: z.number().int().nonnegative().default(0),
+    lockHash: z.string().min(1).optional(),
+    profileLockHash: z.string().min(1).optional(),
+    workspaceLockHash: z.string().min(1).optional(),
+    retryCount: z.number().int().nonnegative().default(0),
+    timeoutMs: z.number().int().positive().optional(),
+    stopRequested: z.boolean().default(false),
+    rawPayloadStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type ProductionRealClientJob = z.infer<typeof ProductionRealClientJobSchema>;
+
+export const ProductionRealClientCanaryDriftReportSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    surfaceRegistrationId: z.string().min(1),
+    manifestId: z.string().min(1).optional(),
+    status: z.enum(['compatible', 'drifted', 'unknown', 'blocked']),
+    selectorDriftCount: z.number().int().nonnegative().default(0),
+    originDriftCount: z.number().int().nonnegative().default(0),
+    profileWorkspaceDriftCount: z.number().int().nonnegative().default(0),
+    codexCliVersionDrift: z.boolean().default(false),
+    highRiskExecutionBlocked: z.boolean().default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if ((record.status === 'drifted' || record.status === 'unknown') && !record.highRiskExecutionBlocked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'drifted or unknown canary state must block high-risk execution',
+        path: ['highRiskExecutionBlocked'],
+      });
+    }
+  });
+export type ProductionRealClientCanaryDriftReport = z.infer<
+  typeof ProductionRealClientCanaryDriftReportSchema
+>;
+
+export const ProductionBreakGlassSessionSchema = createdEntityBaseSchema
+  .extend({
+    incidentIdHash: z.string().min(1),
+    requestedCapability: ProductionRealClientOperationKindSchema,
+    status: z.enum(['requested', 'authorized', 'expired', 'completed', 'blocked', 'post_review_required']),
+    approvalBindingIds: z.array(z.string().min(1)).min(2),
+    approverHashCount: z.number().int().min(2),
+    distinctApproverHashCount: z.number().int().min(2),
+    ttlSeconds: z.number().int().positive(),
+    expiresAt: IsoDateTimeSchema,
+    temporarySurfaceRegistrationAllowed: z.boolean().default(false),
+    temporarySelectorOverrideAllowed: z.boolean().default(false),
+    temporaryNamedScriptRegistrationAllowed: z.boolean().default(false),
+    temporaryDelegatedAdminWorkflowAllowed: z.boolean().default(false),
+    emergencyBulkAutomationAllowed: z.boolean().default(false),
+    postRunReviewRequired: z.literal(true).default(true),
+    forbiddenCapabilitiesRemainForbidden: z.literal(true).default(true),
+    appendOnlyAudit: z.literal(true).default(true),
+    rawIncidentBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'authorized' && record.distinctApproverHashCount < 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'authorized break-glass sessions require two distinct approvers',
+        path: ['distinctApproverHashCount'],
+      });
+    }
+  });
+export type ProductionBreakGlassSession = z.infer<typeof ProductionBreakGlassSessionSchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

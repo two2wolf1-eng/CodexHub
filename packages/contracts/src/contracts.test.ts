@@ -586,6 +586,22 @@ import {
   PrivilegedBusinessAccessLogSchema,
   PrivilegedBusinessDataRecordSchema,
   PrivilegedBusinessExportManifestSchema,
+  ProductionAuditLedgerEntrySchema,
+  ProductionBreakGlassSessionSchema,
+  ProductionCapabilityClassSchema,
+  ProductionEvidenceLevelSchema,
+  ProductionEvidenceVaultRecordSchema,
+  ProductionForbiddenCapabilitySchema,
+  ProductionRealClientApprovalBindingSchema,
+  ProductionRealClientAuthorityRefSchema,
+  ProductionRealClientCanaryDriftReportSchema,
+  ProductionRealClientDryRunSchema,
+  ProductionRealClientJobSchema,
+  ProductionRealClientOperationManifestSchema,
+  ProductionRealClientOperationKindSchema,
+  ProductionRealClientRunSchema,
+  ProductionRealClientSurfaceKindSchema,
+  ProductionRealClientSurfaceRegistrationSchema,
   RealClientActionRunSchema,
   RealClientConnectionReadinessSchema,
   WorkspaceCodexQuotaReadinessSchema,
@@ -17368,6 +17384,175 @@ describe('contracts schemas', () => {
       visibleUiExecution: true,
       summary: 'Chrome CDP visible click run stores only hashes, counts, and boundary booleans.',
     });
+    const surfaceRegistration = ProductionRealClientSurfaceRegistrationSchema.parse({
+      id: 'production_real_client_surface_1',
+      schemaVersion,
+      createdAt,
+      surfaceId: 'chatgpt-primary',
+      surfaceKind: 'chatgpt-web',
+      capabilityClass: 'restricted-production',
+      endpointHash: 'sha256:endpoint',
+      profileHash: 'sha256:profile',
+      workspaceHash: 'sha256:workspace',
+      originHash: 'sha256:origin',
+      registeredByHash: 'sha256:operator',
+      allowedOperationIds: ['chatgpt.submit_prompt'],
+      allowlistedOriginHashes: ['sha256:origin'],
+      summary: 'Registered ChatGPT surface stores endpoint, profile, workspace, and origin hashes.',
+    });
+    const operationManifest = ProductionRealClientOperationManifestSchema.parse({
+      id: 'production_real_client_manifest_1',
+      schemaVersion,
+      createdAt,
+      operationId: 'chatgpt.submit_prompt',
+      operationKind: 'submitPrompt',
+      surfaceKind: 'chatgpt-web',
+      capabilityClass: 'high-risk-production',
+      riskLevel: 'high',
+      actionMode: 'write',
+      evidenceLevel: 'E2',
+      selectorHash: 'sha256:selector',
+      inputSchemaHash: 'sha256:input-schema',
+      approvalRequired: true,
+      authorityRequired: true,
+      summary: 'ChatGPT prompt submission is manifest-bound and approval-gated.',
+    });
+    const productionDryRun = ProductionRealClientDryRunSchema.parse({
+      id: 'production_real_client_dry_run_1',
+      schemaVersion,
+      createdAt,
+      surfaceRegistrationId: surfaceRegistration.id,
+      manifestId: operationManifest.id,
+      operationKind: operationManifest.operationKind,
+      capabilityClass: operationManifest.capabilityClass,
+      riskLevel: operationManifest.riskLevel,
+      actionMode: operationManifest.actionMode,
+      inputRefHash: 'sha256:input-ref',
+      plannedStepCount: 2,
+      approvalRequired: true,
+      authorityRequired: true,
+      status: 'ready',
+      summary: 'Production real-client dry-run is metadata-only and ready for approval.',
+    });
+    const approvalBinding = ProductionRealClientApprovalBindingSchema.parse({
+      id: 'production_real_client_approval_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: productionDryRun.id,
+      approvalArtifactIdHash: 'sha256:approval-artifact',
+      approverHash: 'sha256:operator-a',
+      decision: 'approved',
+      reasonHash: 'sha256:reason',
+      summary: 'Approval binding stores hashes and redacted reason summaries.',
+    });
+    const authorityRef = ProductionRealClientAuthorityRefSchema.parse({
+      id: 'production_real_client_authority_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: productionDryRun.id,
+      manifestId: operationManifest.id,
+      surfaceRegistrationId: surfaceRegistration.id,
+      authorityRefHash: 'sha256:authority',
+      capabilityClass: operationManifest.capabilityClass,
+      allowed: true,
+      approvalBindingIds: [approvalBinding.id],
+      approverHashCount: 1,
+      distinctApproverHashCount: 1,
+      constraints: ['registered-surface', 'manifest-bound-operation'],
+      summary: 'High-risk production authority is resolved from a stored approval binding.',
+    });
+    const productionRun = ProductionRealClientRunSchema.parse({
+      id: 'production_real_client_run_1',
+      schemaVersion,
+      createdAt,
+      dryRunId: productionDryRun.id,
+      manifestId: operationManifest.id,
+      surfaceRegistrationId: surfaceRegistration.id,
+      authorityRefId: authorityRef.id,
+      operationKind: operationManifest.operationKind,
+      capabilityClass: operationManifest.capabilityClass,
+      riskLevel: operationManifest.riskLevel,
+      actionMode: operationManifest.actionMode,
+      status: 'completed',
+      plannedStepCount: 2,
+      completedStepCount: 2,
+      liveActionRequested: true,
+      liveActionAllowed: true,
+      approvalConsumedCount: 1,
+      authorityRequired: true,
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: true,
+      browserActionInvoked: true,
+      summary: 'Production real-client execution stores only hashes, counts, and boundary truth.',
+    });
+    const evidenceVault = ProductionEvidenceVaultRecordSchema.parse({
+      id: 'production_evidence_vault_1',
+      schemaVersion,
+      createdAt,
+      actionId: productionRun.id,
+      evidenceLevel: 'E2',
+      artifactHash: 'sha256:redacted-screenshot',
+      byteCount: 128,
+      itemCount: 1,
+      redacted: true,
+      summary: 'Redacted screenshot evidence is represented by a hash and count summary.',
+    });
+    const auditLedger = ProductionAuditLedgerEntrySchema.parse({
+      id: 'production_audit_ledger_1',
+      schemaVersion,
+      createdAt,
+      actionId: productionRun.id,
+      entryHash: 'sha256:ledger-entry',
+      actorHash: 'sha256:operator-a',
+      operationKind: operationManifest.operationKind,
+      capabilityClass: operationManifest.capabilityClass,
+      outcome: 'completed',
+      liveExecution: true,
+      boundaryReached: true,
+      evidenceVaultRecordIds: [evidenceVault.id],
+      authorityRefId: authorityRef.id,
+      summary: 'Audit ledger is append-only and metadata-only.',
+    });
+    const productionJob = ProductionRealClientJobSchema.parse({
+      id: 'production_real_client_job_1',
+      schemaVersion,
+      createdAt,
+      jobId: 'job_real_client_1',
+      dryRunId: productionDryRun.id,
+      operationKind: operationManifest.operationKind,
+      surfaceRegistrationId: surfaceRegistration.id,
+      manifestId: operationManifest.id,
+      status: 'queued',
+      queuePosition: 1,
+      profileLockHash: 'sha256:profile-lock',
+      workspaceLockHash: 'sha256:workspace-lock',
+      timeoutMs: 60000,
+      summary: 'Production job stores queue and lock hashes only.',
+    });
+    const driftReport = ProductionRealClientCanaryDriftReportSchema.parse({
+      id: 'production_real_client_drift_1',
+      schemaVersion,
+      observedAt: createdAt,
+      surfaceRegistrationId: surfaceRegistration.id,
+      manifestId: operationManifest.id,
+      status: 'compatible',
+      summary: 'Surface and manifest canary is compatible.',
+    });
+    const breakGlassSession = ProductionBreakGlassSessionSchema.parse({
+      id: 'production_break_glass_1',
+      schemaVersion,
+      createdAt,
+      incidentIdHash: 'sha256:incident',
+      requestedCapability: 'temporarySurfaceRegistration',
+      status: 'authorized',
+      approvalBindingIds: ['approval_a', 'approval_b'],
+      approverHashCount: 2,
+      distinctApproverHashCount: 2,
+      ttlSeconds: 900,
+      expiresAt: '2026-04-28T00:15:00.000Z',
+      temporarySurfaceRegistrationAllowed: true,
+      summary: 'Break-glass session has two approvers, TTL, and post-run review.',
+    });
     const ownerAdminSurface = OwnerAdminReadSurfaceSummarySchema.parse({
       id: 'owner_admin_read_surface_1',
       schemaVersion,
@@ -17621,6 +17806,17 @@ describe('contracts schemas', () => {
       adminRun,
       chromeConnection,
       chromeActionRun,
+      surfaceRegistration,
+      operationManifest,
+      productionDryRun,
+      approvalBinding,
+      authorityRef,
+      productionRun,
+      evidenceVault,
+      auditLedger,
+      productionJob,
+      driftReport,
+      breakGlassSession,
       ownerAdminSurface,
       rosterSnapshot,
       billingSummary,
@@ -17657,6 +17853,22 @@ describe('contracts schemas', () => {
     expect(chromeActionRun.requestBodyAuthorityAccepted).toBe(false);
     expect(chromeActionRun.rawSelectorStored).toBe(false);
     expect(chromeActionRun.rawTypedTextStored).toBe(false);
+    expect(ProductionCapabilityClassSchema.options).toContain('break-glass-production');
+    expect(ProductionEvidenceLevelSchema.options).toContain('E5');
+    expect(ProductionForbiddenCapabilitySchema.options).toContain('readCookies');
+    expect(ProductionRealClientSurfaceKindSchema.options).toContain('codex-web-cloud');
+    expect(ProductionRealClientOperationKindSchema.options).toContain('codexCliFullAuto');
+    expect(surfaceRegistration.rawEndpointStored).toBe(false);
+    expect(operationManifest.genericCdpPassthroughAllowed).toBe(false);
+    expect(productionDryRun.requestBodyAuthorityAccepted).toBe(false);
+    expect(approvalBinding.rawReasonStored).toBe(false);
+    expect(authorityRef.requestBodyAuthorityAccepted).toBe(false);
+    expect(productionRun.genericCdpPassthroughUsed).toBe(false);
+    expect(evidenceVault.secretMaterialStored).toBe(false);
+    expect(auditLedger.appendOnly).toBe(true);
+    expect(productionJob.rawPayloadStored).toBe(false);
+    expect(driftReport.highRiskExecutionBlocked).toBe(false);
+    expect(breakGlassSession.distinctApproverHashCount).toBe(2);
     expect(ownerAdminSurface.rawDomStored).toBe(false);
     expect(ownerAdminReport.directAdapterExecutionAllowed).toBe(false);
     expect(profileObservation.cookieSessionTokenRead).toBe(false);
@@ -17704,6 +17916,75 @@ describe('contracts schemas', () => {
         visibleUiExecution: true,
         rawTypedText: 'private input body',
         summary: 'Raw typed text must not be accepted.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionRealClientSurfaceRegistrationSchema.parse({
+        id: 'production_real_client_surface_raw',
+        schemaVersion,
+        createdAt,
+        surfaceId: 'bad-surface',
+        surfaceKind: 'chrome-cdp',
+        capabilityClass: 'restricted-production',
+        registeredByHash: 'sha256:operator',
+        rawEndpoint: 'http://127.0.0.1:9222',
+        summary: 'Raw endpoint must be rejected.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionRealClientOperationManifestSchema.parse({
+        id: 'production_real_client_manifest_forbidden',
+        schemaVersion,
+        createdAt,
+        operationId: 'bad.read_cookie',
+        operationKind: 'readConversationSummary',
+        surfaceKind: 'chatgpt-web',
+        capabilityClass: 'forbidden',
+        riskLevel: 'critical',
+        actionMode: 'admin',
+        evidenceLevel: 'E5',
+        approvalRequired: true,
+        authorityRequired: true,
+        summary: 'Forbidden operations must not be registered.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionRealClientAuthorityRefSchema.parse({
+        id: 'production_real_client_break_glass_bad',
+        schemaVersion,
+        createdAt,
+        dryRunId: 'dry_run_1',
+        manifestId: 'manifest_1',
+        surfaceRegistrationId: 'surface_1',
+        authorityRefHash: 'sha256:authority',
+        capabilityClass: 'break-glass-production',
+        allowed: true,
+        approvalBindingIds: ['approval_a'],
+        approverHashCount: 1,
+        distinctApproverHashCount: 1,
+        summary: 'Break-glass requires two approvers, incident id, TTL, and expiry.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionEvidenceVaultRecordSchema.parse({
+        id: 'production_evidence_e5_bad',
+        schemaVersion,
+        createdAt,
+        actionId: 'action_1',
+        evidenceLevel: 'E5',
+        artifactHash: 'sha256:secret',
+        summary: 'E5 must never be stored.',
+      }),
+    ).toThrow();
+    expect(() =>
+      ProductionRealClientCanaryDriftReportSchema.parse({
+        id: 'production_real_client_drift_bad',
+        schemaVersion,
+        observedAt: createdAt,
+        surfaceRegistrationId: 'surface_1',
+        status: 'drifted',
+        highRiskExecutionBlocked: false,
+        summary: 'Drift must block high-risk execution.',
       }),
     ).toThrow();
   });

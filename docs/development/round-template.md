@@ -29,6 +29,7 @@
 - Clean git state before/after:
 - No scope creep:
 - No unreviewed live automation:
+- Production real automation exception, if explicitly approved:
 
 ## Workflow Skills Used
 
