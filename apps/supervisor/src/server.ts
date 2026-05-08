@@ -492,6 +492,7 @@ import {
   createLocalReviewPackageProjection,
   executeLocalReviewPackageExport,
 } from '@codexhub/review-package-kernel';
+import { createTaskClosureProjectionBundle } from '@codexhub/task-closure-kernel';
 import {
   createLocalRcBundleApprovalRecord,
   createLocalRcBundleAuditEvent,
@@ -2334,6 +2335,10 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     createM58TaskRecoveriesProjection(await getStore()),
   );
 
+  server.get('/tasks/closures', async () =>
+    createM59TaskClosuresProjection(await getStore()),
+  );
+
   server.get('/workflows', async () => {
     const store = await getStore();
     const workflowRuns = store ? await store.workflowRuns.list() : [];
@@ -2895,6 +2900,184 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       approvalRequired: recoveryRun.approvalRequired,
       approvalStatus: recoveryRun.approvalStatus,
       liveActionAllowed: recoveryRun.liveActionAllowed,
+      evidenceRefIds: trace.evidenceRefIds,
+      auditEventIds: trace.auditEventIds,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+  });
+
+  server.post('/tasks/:taskId/closure', async (request, reply) => {
+    const params = request.params as { taskId?: string };
+    const body = request.body as Record<string, unknown> | undefined;
+
+    if (hasUntrustedAuthorityBody(body)) {
+      return reply.code(400).send(createM50RejectedAuthorityShellResponse('task-closure'));
+    }
+
+    if (
+      hasForbiddenGithubRawBody(body) ||
+      hasForbiddenReviewPackageRawBody(body) ||
+      hasForbiddenCustomWorkflowRawBody(body)
+    ) {
+      return reply.code(400).send(createM59TaskClosureForbiddenRawBodyResponse(params.taskId));
+    }
+
+    const taskIdHash = hashSupervisorMetadata({ taskId: params.taskId ?? '' });
+    const requestHash = hashSupervisorMetadata({
+      surface: 'task-closure',
+      taskIdHash,
+      body: body ?? {},
+    });
+    const store = await getStore();
+    if (!store) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('task-closure', requestHash));
+    }
+
+    const trace = await createM50MutationShellTrace({
+      surface: 'task-closure',
+      requestHash,
+      status: 'closure-recorded',
+      summary: 'Task closure shell recorded metadata only; no GitHub or verification adapter was executed.',
+    });
+
+    if (!trace.storeAvailable) {
+      return reply
+        .code(503)
+        .send(createM50StoreUnavailableShellResponse('task-closure', requestHash));
+    }
+
+    const taskRun = params.taskId ? await store.codexTaskRuns.getRecord(params.taskId) : undefined;
+    if (!taskRun) {
+      return reply.code(404).send({
+        id: foundationId('supervisor_task_closure_missing_task'),
+        schemaVersion: SchemaVersionSchema.value,
+        observedAt: foundationTimestamp(),
+        status: 'task-not-found',
+        summary: 'Task closure shell requires an existing task run from the store.',
+        taskIdHash,
+        requestHash,
+        evidenceRefIds: trace.evidenceRefIds,
+        auditEventIds: trace.auditEventIds,
+        liveExecution: false,
+        externalProcessStarted: false,
+        executionDisabled: true,
+      });
+    }
+
+    const createdAt = foundationTimestamp();
+    const closure = createTaskClosureProjectionBundle({
+      taskRun,
+      createdAt,
+      diff: {
+        pathHashes: getM59StringArray(body?.changedFilePathHashes ?? body?.pathHashes),
+        fileCount: getM59NonnegativeInteger(body?.changedFileCount ?? body?.fileCount),
+        diffHash: getM59OptionalString(body?.diffHash),
+        diffSummaryHash: getM59OptionalString(body?.diffSummaryHash),
+        status: getM59DiffStatus(body?.diffStatus),
+        evidenceRefIds: trace.evidenceRefIds,
+        auditEventIds: trace.auditEventIds,
+      },
+      verification: {
+        status: getM59VerificationStatus(body?.verificationStatus),
+        targetCount: getM59NonnegativeInteger(body?.verificationTargetCount ?? body?.targetCount),
+        passedCount: getM59NonnegativeInteger(body?.verificationPassedCount ?? body?.passedCount),
+        failedCount: getM59NonnegativeInteger(body?.verificationFailedCount ?? body?.failedCount),
+        skippedCount: getM59NonnegativeInteger(
+          body?.verificationSkippedCount ?? body?.skippedCount,
+        ),
+        verificationRunIdHash: getM59OptionalString(body?.verificationRunIdHash),
+        commandSummaryHash: getM59OptionalString(body?.commandSummaryHash),
+        outputSummaryHash: getM59OptionalString(body?.outputSummaryHash),
+        processBoundaryInvoked: false,
+        externalProcessStarted: false,
+        evidenceRefIds: trace.evidenceRefIds,
+        auditEventIds: trace.auditEventIds,
+      },
+      review: {
+        status: getM59ReviewStatus(body?.reviewStatus, body?.reviewReady),
+        reviewPackageIdHash: getM59OptionalString(body?.reviewPackageIdHash),
+        packageHash: getM59OptionalString(body?.reviewPackageHash ?? body?.packageHash),
+        findingCount: getM59NonnegativeInteger(body?.reviewFindingCount ?? body?.findingCount),
+        blockerCount: getM59NonnegativeInteger(body?.reviewBlockerCount ?? body?.blockerCount),
+        readyForReviewDraftOnly:
+          body?.reviewReady === true || body?.readyForReviewDraftOnly === true,
+        evidenceRefIds: trace.evidenceRefIds,
+        auditEventIds: trace.auditEventIds,
+      },
+      github: {
+        branchPublishPlanIdHash: getM59OptionalString(
+          body?.branchPublishPlanIdHash ?? body?.branchPlanHash,
+        ),
+        draftPrPlanIdHash: getM59OptionalString(body?.draftPrPlanIdHash ?? body?.draftPrPlanHash),
+        ciStatus: getM59CiStatus(body?.ciStatus),
+        approvalWaiting: body?.approvalWaiting === true,
+        evidenceRefIds: trace.evidenceRefIds,
+        auditEventIds: trace.auditEventIds,
+      },
+    });
+
+    await store.codexTaskDiffSummaries.saveRecord(closure.diffSummary);
+    await store.codexTaskVerificationProjections.saveRecord(closure.verification);
+    await store.codexTaskReviewProjections.saveRecord(closure.review);
+    await store.codexTaskGithubClosureProjections.saveRecord(closure.githubClosure);
+    await store.codexTaskClosureRuns.saveRecord(closure.closureRun);
+    await store.codexTaskRuns.saveRecord(closure.taskRun);
+
+    return reply.code(202).send({
+      id: foundationId('supervisor_task_closure_shell'),
+      schemaVersion: SchemaVersionSchema.value,
+      observedAt: foundationTimestamp(),
+      status: 'closure-recorded',
+      summary:
+        'Task closure shell accepted metadata only; GitHub publish and draft PR remain dry-run projections.',
+      taskIdHash,
+      requestHash,
+      taskRunHash: hashSupervisorMetadata({
+        id: closure.taskRun.id,
+        ciStatus: closure.taskRun.ciStatus,
+        closureRunId: closure.taskRun.closureRunId,
+        closureSummaryHash: closure.taskRun.closureSummaryHash,
+      }),
+      diffSummaryHash: hashSupervisorMetadata({
+        id: closure.diffSummary.id,
+        status: closure.diffSummary.status,
+        fileCount: closure.diffSummary.fileCount,
+        diffHash: closure.diffSummary.diffHash,
+      }),
+      verificationHash: hashSupervisorMetadata({
+        id: closure.verification.id,
+        status: closure.verification.status,
+        targetCount: closure.verification.targetCount,
+        passedCount: closure.verification.passedCount,
+        failedCount: closure.verification.failedCount,
+      }),
+      reviewHash: hashSupervisorMetadata({
+        id: closure.review.id,
+        status: closure.review.status,
+        findingCount: closure.review.findingCount,
+        blockerCount: closure.review.blockerCount,
+      }),
+      githubClosureHash: hashSupervisorMetadata({
+        id: closure.githubClosure.id,
+        status: closure.githubClosure.status,
+        ciStatus: closure.githubClosure.ciStatus,
+        branchPublishDryRunPlanned: closure.githubClosure.branchPublishDryRunPlanned,
+        draftPrDryRunPlanned: closure.githubClosure.draftPrDryRunPlanned,
+      }),
+      closureHash: closure.closureRun.closureHash,
+      closureStatus: closure.closureRun.status,
+      ciStatus: closure.closureRun.ciStatus,
+      changedFileCount: closure.closureRun.changedFileCount,
+      verificationTargetCount: closure.closureRun.verificationTargetCount,
+      blockerCount: closure.closureRun.blockerCount,
+      dryRunOnly: closure.closureRun.dryRunOnly,
+      approvalRequired: closure.closureRun.approvalRequired,
+      liveRemoteWriteAllowed: closure.closureRun.liveRemoteWriteAllowed,
+      directAdapterExecutionAllowed: false,
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
       liveExecution: false,
@@ -28298,6 +28481,113 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     };
   }
 
+  function createM59TaskClosureForbiddenRawBodyResponse(taskId: string | undefined) {
+    return {
+      error: 'forbidden_task_closure_raw_body',
+      taskIdHash: hashSupervisorMetadata({ taskId: taskId ?? '' }),
+      status: 'blocked',
+      networkBoundaryInvoked: false,
+      processBoundaryInvoked: false,
+      externalProcessStarted: false,
+      noRealWrite: true,
+      rawDiffStored: false,
+      rawPrBodyStored: false,
+      rawPathStored: false,
+      bodyStored: false,
+    };
+  }
+
+  function getM59StringArray(value: unknown): string[] | undefined {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+
+  function getM59OptionalString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+  }
+
+  function getM59NonnegativeInteger(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(0, Math.trunc(value));
+    }
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : undefined;
+    }
+
+    return undefined;
+  }
+
+  function getM59DiffStatus(
+    value: unknown,
+  ): 'empty' | 'changed' | 'blocked' | 'unknown' | undefined {
+    return value === 'empty' ||
+      value === 'changed' ||
+      value === 'blocked' ||
+      value === 'unknown'
+      ? value
+      : undefined;
+  }
+
+  function getM59VerificationStatus(
+    value: unknown,
+  ): 'not_run' | 'planned' | 'running' | 'passed' | 'failed' | 'blocked' | 'aborted' | undefined {
+    return value === 'not_run' ||
+      value === 'planned' ||
+      value === 'running' ||
+      value === 'passed' ||
+      value === 'failed' ||
+      value === 'blocked' ||
+      value === 'aborted'
+      ? value
+      : undefined;
+  }
+
+  function getM59ReviewStatus(
+    value: unknown,
+    reviewReady: unknown,
+  ):
+    | 'not_started'
+    | 'ready_for_review'
+    | 'blocked_verification'
+    | 'blocked_patch'
+    | 'pending'
+    | 'approved'
+    | 'changes_requested'
+    | 'rejected'
+    | undefined {
+    if (reviewReady === true) {
+      return 'ready_for_review';
+    }
+
+    return value === 'not_started' ||
+      value === 'ready_for_review' ||
+      value === 'blocked_verification' ||
+      value === 'blocked_patch' ||
+      value === 'pending' ||
+      value === 'approved' ||
+      value === 'changes_requested' ||
+      value === 'rejected'
+      ? value
+      : undefined;
+  }
+
+  function getM59CiStatus(
+    value: unknown,
+  ): 'not_run' | 'pending' | 'passed' | 'failed' | 'blocked' | undefined {
+    return value === 'not_run' ||
+      value === 'pending' ||
+      value === 'passed' ||
+      value === 'failed' ||
+      value === 'blocked'
+      ? value
+      : undefined;
+  }
+
   function createGithubPrLifecycleForbiddenRawBodyResponse(dryRunId: string | undefined) {
     return {
       error: 'forbidden_github_pr_lifecycle_raw_body',
@@ -31770,6 +32060,11 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
     diagnoses,
     recoveries,
     evidenceBundles,
+    diffSummaries,
+    verificationProjections,
+    reviewProjections,
+    githubClosureProjections,
+    closureRuns,
     accountBindings,
     quotaSnapshots,
     clients,
@@ -31780,6 +32075,11 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
     store.codexTaskDiagnoses.listRecords({ limit: 50 }),
     store.codexRecoveryRuns.listRecords({ limit: 50 }),
     store.evidenceBundles.listRecords({ limit: 50 }),
+    store.codexTaskDiffSummaries.listRecords({ limit: 50 }),
+    store.codexTaskVerificationProjections.listRecords({ limit: 50 }),
+    store.codexTaskReviewProjections.listRecords({ limit: 50 }),
+    store.codexTaskGithubClosureProjections.listRecords({ limit: 50 }),
+    store.codexTaskClosureRuns.listRecords({ limit: 50 }),
     store.codexAccountBindings.listRecords({ limit: 50 }),
     store.quotaSnapshots.listRecords({ limit: 50 }),
     store.codexClientInstances.listRecords({ limit: 50 }),
@@ -31804,6 +32104,11 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
       diagnoses: diagnoses.length,
       recoveries: recoveries.length,
       evidenceBundles: evidenceBundles.length,
+      diffSummaries: diffSummaries.length,
+      verificationProjections: verificationProjections.length,
+      reviewProjections: reviewProjections.length,
+      githubClosureProjections: githubClosureProjections.length,
+      closureRuns: closureRuns.length,
       schedulerAccounts: accountBindings.length,
       schedulerClients: clients.length,
       schedulerLeases: leases.length,
@@ -31814,6 +32119,15 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
       ...diagnoses.map((record) => projectM51ProjectionRecord('task-diagnosis', record)),
       ...recoveries.map((record) => projectM51ProjectionRecord('recovery-run', record)),
       ...evidenceBundles.map((record) => projectM51ProjectionRecord('evidence-bundle', record)),
+      ...diffSummaries.map((record) => projectM51ProjectionRecord('task-diff-summary', record)),
+      ...verificationProjections.map((record) =>
+        projectM51ProjectionRecord('task-verification', record),
+      ),
+      ...reviewProjections.map((record) => projectM51ProjectionRecord('task-review', record)),
+      ...githubClosureProjections.map((record) =>
+        projectM51ProjectionRecord('task-github-closure', record),
+      ),
+      ...closureRuns.map((record) => projectM51ProjectionRecord('task-closure-run', record)),
     ],
   });
 }
@@ -31873,6 +32187,63 @@ async function createM58TaskRecoveriesProjection(store: CodexHubStore | undefine
       executionDisabled: recoveries.filter((record) => record.executionDisabled).length,
     },
     items: recoveries.map((record) => projectM51ProjectionRecord('recovery-run', record)),
+  });
+}
+
+async function createM59TaskClosuresProjection(store: CodexHubStore | undefined) {
+  if (!store) {
+    return createM51MetadataProjection({
+      idPrefix: 'supervisor_task_closures',
+      surface: 'task-closures',
+      summary: 'Task closure projection requires the store and returns no raw closure data.',
+      counts: {},
+      items: [],
+      storeAvailable: false,
+    });
+  }
+
+  const [
+    diffSummaries,
+    verificationProjections,
+    reviewProjections,
+    githubClosureProjections,
+    closureRuns,
+  ] = await Promise.all([
+    store.codexTaskDiffSummaries.listRecords({ limit: 50 }),
+    store.codexTaskVerificationProjections.listRecords({ limit: 50 }),
+    store.codexTaskReviewProjections.listRecords({ limit: 50 }),
+    store.codexTaskGithubClosureProjections.listRecords({ limit: 50 }),
+    store.codexTaskClosureRuns.listRecords({ limit: 50 }),
+  ]);
+
+  return createM51MetadataProjection({
+    idPrefix: 'supervisor_task_closures',
+    surface: 'task-closures',
+    summary:
+      'M59 task closure projection is available read-only from the store and remains dry-run only.',
+    storeAvailable: true,
+    counts: {
+      diffSummaries: diffSummaries.length,
+      verificationProjections: verificationProjections.length,
+      reviewProjections: reviewProjections.length,
+      githubClosureProjections: githubClosureProjections.length,
+      closureRuns: closureRuns.length,
+      dryRunOnly: closureRuns.filter((record) => record.dryRunOnly).length,
+      remoteWritesAllowed: closureRuns.filter((record) => record.liveRemoteWriteAllowed).length,
+      ciPending: closureRuns.filter((record) => record.ciStatus === 'pending').length,
+      ciFailed: closureRuns.filter((record) => record.ciStatus === 'failed').length,
+    },
+    items: [
+      ...diffSummaries.map((record) => projectM51ProjectionRecord('task-diff-summary', record)),
+      ...verificationProjections.map((record) =>
+        projectM51ProjectionRecord('task-verification', record),
+      ),
+      ...reviewProjections.map((record) => projectM51ProjectionRecord('task-review', record)),
+      ...githubClosureProjections.map((record) =>
+        projectM51ProjectionRecord('task-github-closure', record),
+      ),
+      ...closureRuns.map((record) => projectM51ProjectionRecord('task-closure-run', record)),
+    ],
   });
 }
 

@@ -64,6 +64,7 @@
       "@codexhub/skill-registry": ["packages/skill-registry/src/index.ts"],
       "@codexhub/store-core": ["packages/store-core/src/index.ts"],
       "@codexhub/store-sqlite": ["packages/store-sqlite/src/index.ts"],
+      "@codexhub/task-closure-kernel": ["packages/task-closure-kernel/src/index.ts"],
       "@codexhub/worktree-manager": ["packages/worktree-manager/src/index.ts"],
       "@codexhub/workflow-kernel": ["packages/workflow-kernel/src/index.ts"]
     }

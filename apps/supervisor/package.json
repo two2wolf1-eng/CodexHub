@@ -25,6 +25,7 @@
     "@codexhub/secret-governance-kernel": "workspace:*",
     "@codexhub/store-core": "workspace:*",
     "@codexhub/store-sqlite": "workspace:*",
+    "@codexhub/task-closure-kernel": "workspace:*",
     "@codexhub/worktree-manager": "workspace:*",
     "@codexhub/workflow-kernel": "workspace:*",
     "fastify": "^5.2.1"

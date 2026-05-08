@@ -973,6 +973,127 @@ describe('supervisor mock development API', () => {
     expect(JSON.stringify([...diagnoses, ...recoveries])).not.toContain(process.cwd());
   });
 
+  it('records M59 task closure projections without trusting raw diff or GitHub bodies', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m59-closure-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m59_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      intentId: 'codex_task_intent_m59_supervisor',
+      status: 'completed',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      eventStreamStatus: 'completed',
+      dispatchAllowed: true,
+      liveExecution: false,
+      evidenceRefIds: ['evidence_m59_task'],
+      auditEventIds: ['audit_m59_task'],
+      summary: 'M59 completed task run fixture.',
+    });
+    await store.codexTaskRuns.saveRecord(taskRun);
+
+    const server = buildSupervisorServer({ store });
+    const closureResponse = await server.inject({
+      method: 'POST',
+      url: `/tasks/${taskRun.id}/closure`,
+      headers: localControlHeaders,
+      payload: {
+        changedFilePathHashes: ['sha256:path-a', 'sha256:path-b'],
+        changedFileCount: 2,
+        diffHash: 'sha256:diff',
+        diffSummaryHash: 'sha256:diff-summary',
+        verificationTargetCount: 3,
+        verificationPassedCount: 3,
+        outputSummaryHash: 'sha256:verification-output',
+        reviewReady: true,
+        reviewPackageIdHash: 'sha256:review-package',
+        reviewPackageHash: 'sha256:review-package-body',
+        branchPublishPlanIdHash: 'sha256:branch-plan',
+        draftPrPlanIdHash: 'sha256:draft-pr-plan',
+        ciStatus: 'pending',
+      },
+    });
+    const rawRejected = await server.inject({
+      method: 'POST',
+      url: `/tasks/${taskRun.id}/closure`,
+      headers: localControlHeaders,
+      payload: {
+        rawDiff: 'diff --git a/private b/private',
+        rawPath: process.cwd(),
+        rawPullRequestBody: 'private PR body',
+      },
+    });
+    const closuresResponse = await server.inject({
+      method: 'GET',
+      url: '/tasks/closures',
+    });
+    const updatedRun = await store.codexTaskRuns.getRecord(taskRun.id);
+    const diffSummaries = await store.codexTaskDiffSummaries.listRecords({ limit: 10 });
+    const verificationProjections = await store.codexTaskVerificationProjections.listRecords({
+      limit: 10,
+    });
+    const reviewProjections = await store.codexTaskReviewProjections.listRecords({ limit: 10 });
+    const githubClosures = await store.codexTaskGithubClosureProjections.listRecords({ limit: 10 });
+    const closureRuns = await store.codexTaskClosureRuns.listRecords({ limit: 10 });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(closureResponse.statusCode).toBe(202);
+    expect(closureResponse.json()).toMatchObject({
+      status: 'closure-recorded',
+      closureStatus: 'ci_pending',
+      ciStatus: 'pending',
+      changedFileCount: 2,
+      verificationTargetCount: 3,
+      dryRunOnly: true,
+      approvalRequired: true,
+      liveRemoteWriteAllowed: false,
+      directAdapterExecutionAllowed: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(rawRejected.statusCode).toBe(400);
+    expect(diffSummaries).toHaveLength(1);
+    expect(verificationProjections).toHaveLength(1);
+    expect(reviewProjections).toHaveLength(1);
+    expect(githubClosures).toHaveLength(1);
+    expect(closureRuns).toHaveLength(1);
+    expect(updatedRun).toMatchObject({
+      ciStatus: 'pending',
+      closureRunId: closureRuns[0].id,
+      diffSummaryId: diffSummaries[0].id,
+      verificationProjectionId: verificationProjections[0].id,
+      reviewProjectionId: reviewProjections[0].id,
+      githubClosureProjectionId: githubClosures[0].id,
+    });
+    expect(githubClosures[0]).toMatchObject({
+      remoteWriteAllowed: false,
+      rawPullRequestBodyStored: false,
+      branchPublishDryRunPlanned: true,
+      draftPrDryRunPlanned: true,
+    });
+    expect(closuresResponse.json()).toMatchObject({
+      status: 'available-readonly',
+      counts: {
+        closureRuns: 1,
+        githubClosureProjections: 1,
+        dryRunOnly: 1,
+        remoteWritesAllowed: 0,
+      },
+    });
+    expect(closureResponse.body).not.toContain('private PR body');
+    expect(closuresResponse.body).not.toContain('diff --git');
+    expect(JSON.stringify([updatedRun, ...closureRuns, ...githubClosures])).not.toContain(
+      'private PR body',
+    );
+  });
+
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
