@@ -580,6 +580,8 @@ import {
   createSecretReadinessPlan,
   createSecretReadinessRun,
 } from '@codexhub/secret-governance-kernel';
+import { diagnoseCodexTask } from '@codexhub/diagnosis-kernel';
+import { planCodexTaskRecovery } from '@codexhub/recovery-kernel';
 import {
   EXTERNAL_AGENT_FIXED_ARGV_SHAPE_HASHES,
   createExternalAgentReadiness,
@@ -2324,6 +2326,14 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
 
   server.get('/tasks', async () => createM51TasksProjection(await getStore()));
 
+  server.get('/tasks/diagnoses', async () =>
+    createM58TaskDiagnosesProjection(await getStore()),
+  );
+
+  server.get('/tasks/recoveries', async () =>
+    createM58TaskRecoveriesProjection(await getStore()),
+  );
+
   server.get('/workflows', async () => {
     const store = await getStore();
     const workflowRuns = store ? await store.workflowRuns.list() : [];
@@ -2807,15 +2817,50 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
         .send(createM50StoreUnavailableShellResponse('task-recover', requestHash));
     }
 
-    const recoveryRun = CodexRecoveryRunSchema.parse({
+    const taskRun = params.taskId ? await store.codexTaskRuns.getRecord(params.taskId) : undefined;
+    const existingDiagnoses = taskRun
+      ? await store.codexTaskDiagnoses.listRecords({ limit: 50 })
+      : [];
+    const existingDiagnosis = taskRun
+      ? existingDiagnoses.find((diagnosis) => diagnosis.taskRunId === taskRun.id)
+      : undefined;
+    const diagnosisResult =
+      taskRun && !existingDiagnosis
+        ? diagnoseCodexTask({
+            taskRun,
+            observedAt: foundationTimestamp(),
+            evidenceRefIds: trace.evidenceRefIds,
+            auditEventIds: trace.auditEventIds,
+          })
+        : undefined;
+    const diagnosis = existingDiagnosis ?? diagnosisResult?.diagnosis;
+    if (diagnosisResult) {
+      await store.codexTaskDiagnoses.saveRecord(diagnosisResult.diagnosis);
+    }
+    const recoveryPlan =
+      taskRun && diagnosis
+        ? planCodexTaskRecovery({
+            taskRun,
+            diagnosis,
+            dryRunId: requestHash,
+            createdAt: foundationTimestamp(),
+            evidenceRefIds: trace.evidenceRefIds,
+            auditEventIds: trace.auditEventIds,
+          })
+        : undefined;
+    const recoveryRun = recoveryPlan?.recoveryRun ?? CodexRecoveryRunSchema.parse({
       id: foundationId('codex_recovery_run'),
       schemaVersion: SchemaVersionSchema.value,
       createdAt: foundationTimestamp(),
       taskRunId: taskIdHash,
       recoveryKind: 'manual_review',
       status: 'needs_human',
+      recoveryPlanHash: hashSupervisorMetadata({ taskIdHash, requestHash }),
+      actionCount: 1,
+      riskLevel: 'medium',
       dryRunId: requestHash,
       approvalRequired: true,
+      approvalStatus: 'waiting',
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
       summary: 'Task recovery plan recorded as a metadata shell and awaits human review.',
@@ -2833,8 +2878,23 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       recoveryRunHash: hashSupervisorMetadata({
         id: recoveryRun.id,
         status: recoveryRun.status,
+        recoveryKind: recoveryRun.recoveryKind,
+        approvalStatus: recoveryRun.approvalStatus,
+        highRisk: recoveryRun.highRisk,
         summary: recoveryRun.summary,
       }),
+      diagnosisHash: diagnosis
+        ? hashSupervisorMetadata({
+            id: diagnosis.id,
+            diagnosisKind: diagnosis.diagnosisKind,
+            status: diagnosis.status,
+          })
+        : undefined,
+      recoveryPlanHash: recoveryRun.recoveryPlanHash,
+      recoveryKind: recoveryRun.recoveryKind,
+      approvalRequired: recoveryRun.approvalRequired,
+      approvalStatus: recoveryRun.approvalStatus,
+      liveActionAllowed: recoveryRun.liveActionAllowed,
       evidenceRefIds: trace.evidenceRefIds,
       auditEventIds: trace.auditEventIds,
       liveExecution: false,
@@ -31755,6 +31815,64 @@ async function createM51TasksProjection(store: CodexHubStore | undefined) {
       ...recoveries.map((record) => projectM51ProjectionRecord('recovery-run', record)),
       ...evidenceBundles.map((record) => projectM51ProjectionRecord('evidence-bundle', record)),
     ],
+  });
+}
+
+async function createM58TaskDiagnosesProjection(store: CodexHubStore | undefined) {
+  if (!store) {
+    return createM51MetadataProjection({
+      idPrefix: 'supervisor_task_diagnoses',
+      surface: 'task-diagnoses',
+      summary: 'Task diagnosis projection requires the store and returns no raw task data.',
+      counts: {},
+      items: [],
+      storeAvailable: false,
+    });
+  }
+
+  const diagnoses = await store.codexTaskDiagnoses.listRecords({ limit: 50 });
+
+  return createM51MetadataProjection({
+    idPrefix: 'supervisor_task_diagnoses',
+    surface: 'task-diagnoses',
+    summary: 'M58 task diagnosis projection is available read-only from the store.',
+    storeAvailable: true,
+    counts: {
+      diagnoses: diagnoses.length,
+      actionable: diagnoses.filter((record) => record.status === 'actionable').length,
+      blocked: diagnoses.filter((record) => record.status === 'blocked').length,
+      healthy: diagnoses.filter((record) => record.status === 'healthy').length,
+    },
+    items: diagnoses.map((record) => projectM51ProjectionRecord('task-diagnosis', record)),
+  });
+}
+
+async function createM58TaskRecoveriesProjection(store: CodexHubStore | undefined) {
+  if (!store) {
+    return createM51MetadataProjection({
+      idPrefix: 'supervisor_task_recoveries',
+      surface: 'task-recoveries',
+      summary: 'Task recovery projection requires the store and returns no raw recovery data.',
+      counts: {},
+      items: [],
+      storeAvailable: false,
+    });
+  }
+
+  const recoveries = await store.codexRecoveryRuns.listRecords({ limit: 50 });
+
+  return createM51MetadataProjection({
+    idPrefix: 'supervisor_task_recoveries',
+    surface: 'task-recoveries',
+    summary: 'M58 task recovery projection is available read-only from the store.',
+    storeAvailable: true,
+    counts: {
+      recoveries: recoveries.length,
+      highRisk: recoveries.filter((record) => record.highRisk).length,
+      approvalRequired: recoveries.filter((record) => record.approvalRequired).length,
+      executionDisabled: recoveries.filter((record) => record.executionDisabled).length,
+    },
+    items: recoveries.map((record) => projectM51ProjectionRecord('recovery-run', record)),
   });
 }
 

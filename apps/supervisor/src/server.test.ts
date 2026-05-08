@@ -880,6 +880,99 @@ describe('supervisor mock development API', () => {
     );
   });
 
+  it('records M58 recovery dry-run plans and read-only diagnosis projections', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m58-recovery-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const createdAt = new Date().toISOString();
+    const taskRun = CodexTaskRunSchema.parse({
+      id: 'codex_task_run_m58_supervisor',
+      schemaVersion: '2026-04-28.foundation',
+      createdAt,
+      intentId: 'codex_task_intent_m58_supervisor',
+      status: 'failed',
+      dispatchMode: 'live_app_server',
+      preflightStatus: 'ready',
+      approvalStatus: 'approved',
+      eventStreamStatus: 'failed',
+      dispatchAllowed: true,
+      liveExecution: false,
+      evidenceRefIds: ['evidence_m58_task'],
+      auditEventIds: ['audit_m58_task'],
+      summary: 'M58 failed task run fixture.',
+    });
+    await store.codexTaskRuns.saveRecord(taskRun);
+
+    const server = buildSupervisorServer({ store });
+    const recoverResponse = await server.inject({
+      method: 'POST',
+      url: `/tasks/${taskRun.id}/recover`,
+      headers: localControlHeaders,
+      payload: {
+        reason: 'private recovery reason',
+        rawPath: process.cwd(),
+        approvalArtifactId: 'forged-recovery-approval',
+      },
+    });
+    const diagnosisResponse = await server.inject({
+      method: 'GET',
+      url: '/tasks/diagnoses',
+    });
+    const recoveryResponse = await server.inject({
+      method: 'GET',
+      url: '/tasks/recoveries',
+    });
+    const diagnoses = await store.codexTaskDiagnoses.listRecords({ limit: 10 });
+    const recoveries = await store.codexRecoveryRuns.listRecords({ limit: 10 });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(recoverResponse.statusCode).toBe(202);
+    expect(recoverResponse.json()).toMatchObject({
+      status: 'recovery-recorded',
+      recoveryKind: 'interrupt_turn',
+      approvalRequired: true,
+      approvalStatus: 'waiting',
+      liveActionAllowed: false,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+    });
+    expect(diagnoses).toHaveLength(1);
+    expect(diagnoses[0]).toMatchObject({
+      taskRunId: taskRun.id,
+      diagnosisKind: 'tool_stuck',
+    });
+    expect(recoveries).toHaveLength(1);
+    expect(recoveries[0]).toMatchObject({
+      taskRunId: taskRun.id,
+      diagnosisId: diagnoses[0].id,
+      recoveryKind: 'interrupt_turn',
+      highRisk: true,
+      approvalRequired: true,
+      approvalStatus: 'waiting',
+      liveActionAllowed: false,
+      executionDisabled: true,
+    });
+    expect(diagnosisResponse.json()).toMatchObject({
+      status: 'available-readonly',
+      counts: { diagnoses: 1, actionable: 0, blocked: 1 },
+    });
+    expect(recoveryResponse.json()).toMatchObject({
+      status: 'available-readonly',
+      counts: { recoveries: 1, highRisk: 1, approvalRequired: 1, executionDisabled: 1 },
+    });
+    for (const response of [recoverResponse, diagnosisResponse, recoveryResponse]) {
+      expect(response.body).not.toContain('private recovery reason');
+      expect(response.body).not.toContain('forged-recovery-approval');
+      expect(response.body).not.toContain(process.cwd());
+    }
+    expect(JSON.stringify([...diagnoses, ...recoveries])).not.toContain('private recovery reason');
+    expect(JSON.stringify([...diagnoses, ...recoveries])).not.toContain('forged-recovery-approval');
+    expect(JSON.stringify([...diagnoses, ...recoveries])).not.toContain(process.cwd());
+  });
+
   it('records M50.3 mutation shells as guarded metadata-only traces', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m50-shells-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

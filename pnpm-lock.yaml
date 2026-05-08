@@ -244,6 +244,9 @@ importers:
       '@codexhub/deployment-provider-adapter':
         specifier: workspace:*
         version: link:../../packages/deployment-provider-adapter
+      '@codexhub/diagnosis-kernel':
+        specifier: workspace:*
+        version: link:../../packages/diagnosis-kernel
       '@codexhub/electron-cdp-adapter':
         specifier: workspace:*
         version: link:../../packages/electron-cdp-adapter
@@ -262,6 +265,9 @@ importers:
       '@codexhub/playwright-observer-adapter':
         specifier: workspace:*
         version: link:../../packages/playwright-observer-adapter
+      '@codexhub/recovery-kernel':
+        specifier: workspace:*
+        version: link:../../packages/recovery-kernel
       '@codexhub/release-candidate-kernel':
         specifier: workspace:*
         version: link:../../packages/release-candidate-kernel
