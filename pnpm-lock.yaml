@@ -232,6 +232,9 @@ importers:
       '@codexhub/browser-profile-kernel':
         specifier: workspace:*
         version: link:../../packages/browser-profile-kernel
+      '@codexhub/business-quota-debug-kernel':
+        specifier: workspace:*
+        version: link:../../packages/business-quota-debug-kernel
       '@codexhub/business-quota-kernel':
         specifier: workspace:*
         version: link:../../packages/business-quota-kernel
@@ -256,6 +259,9 @@ importers:
       '@codexhub/electron-cdp-kernel':
         specifier: workspace:*
         version: link:../../packages/electron-cdp-kernel
+      '@codexhub/external-agent-adapter':
+        specifier: workspace:*
+        version: link:../../packages/external-agent-adapter
       '@codexhub/github-provider-adapter':
         specifier: workspace:*
         version: link:../../packages/github-provider-adapter
@@ -265,9 +271,15 @@ importers:
       '@codexhub/orchestrator-kernel':
         specifier: workspace:*
         version: link:../../packages/orchestrator-kernel
+      '@codexhub/platform-operations-kernel':
+        specifier: workspace:*
+        version: link:../../packages/platform-operations-kernel
       '@codexhub/playwright-observer-adapter':
         specifier: workspace:*
         version: link:../../packages/playwright-observer-adapter
+      '@codexhub/production-ga-kernel':
+        specifier: workspace:*
+        version: link:../../packages/production-ga-kernel
       '@codexhub/recovery-kernel':
         specifier: workspace:*
         version: link:../../packages/recovery-kernel
@@ -280,6 +292,9 @@ importers:
       '@codexhub/review-package-kernel':
         specifier: workspace:*
         version: link:../../packages/review-package-kernel
+      '@codexhub/runtime-operations-kernel':
+        specifier: workspace:*
+        version: link:../../packages/runtime-operations-kernel
       '@codexhub/secret-governance-kernel':
         specifier: workspace:*
         version: link:../../packages/secret-governance-kernel
