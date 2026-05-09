@@ -238,6 +238,9 @@ importers:
       '@codexhub/business-quota-kernel':
         specifier: workspace:*
         version: link:../../packages/business-quota-kernel
+      '@codexhub/codex-desktop-orchestration-kernel':
+        specifier: workspace:*
+        version: link:../../packages/codex-desktop-orchestration-kernel
       '@codexhub/codex-kernel':
         specifier: workspace:*
         version: link:../../packages/codex-kernel
@@ -280,6 +283,12 @@ importers:
       '@codexhub/production-ga-kernel':
         specifier: workspace:*
         version: link:../../packages/production-ga-kernel
+      '@codexhub/production-real-client-kernel':
+        specifier: workspace:*
+        version: link:../../packages/production-real-client-kernel
+      '@codexhub/real-client-calibration-kernel':
+        specifier: workspace:*
+        version: link:../../packages/real-client-calibration-kernel
       '@codexhub/recovery-kernel':
         specifier: workspace:*
         version: link:../../packages/recovery-kernel
