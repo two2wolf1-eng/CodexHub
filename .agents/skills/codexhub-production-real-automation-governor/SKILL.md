@@ -18,8 +18,8 @@ Process:
 
 - Treat real clicks, typing, submits, uploads, downloads, process starts, and repo-changing tasks as production actions.
 - Require every production action to resolve through registered surfaces and reviewed operation manifests.
-- Reject caller-supplied raw CDP endpoints, selectors, JavaScript, authority material, prompt bodies, file bodies, profile paths, tokens, cookies, sessions, passwords, MFA fields, raw DOM, and raw network bodies.
-- Keep forbidden capabilities impossible: cookie/session/token reads, credential extraction, login or MFA bypass, permission bypass, impersonation, session replay, and unowned-session operation.
+- Reject caller-supplied raw CDP endpoints, selectors, JavaScript, authority material, prompt bodies, file bodies, profile paths, tokens, cookies, session tokens, refresh tokens, passwords, MFA fields, raw DOM, and raw network bodies.
+- Account identity, workspace identity, login/session health, quota/capacity, task state, and business administration data may be read as governed operational state when a registered manifest requires it. Keep forbidden capabilities impossible: cookie/session-token/refresh-token reads, credential extraction, login or MFA bypass, permission bypass, impersonation, session replay, and unowned-session operation.
 - Standard and restricted production actions may execute only from registered manifests.
 - High-risk production actions require dry-run, persisted approval, store-resolved authority, evidence, and audit.
 - Break-glass production actions require two distinct approver hashes, incident id, TTL, append-only audit, and post-run review.

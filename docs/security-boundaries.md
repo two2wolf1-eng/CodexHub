@@ -26,17 +26,22 @@ adapter execution directly.
 The following values must not be collected, stored, printed, returned, indexed,
 or placed in public summaries:
 
-- token, cookie, session, MFA, password, passkey, private key, account secret,
-  raw env, credential, or authorization header values;
+- token, cookie, session token, refresh token, MFA, password, passkey, private
+  key, account secret, raw env, credential, browser credential store, raw profile
+  material, or authorization header values;
 - raw prompt, raw instruction, raw completion, raw tool output, raw stdout,
   raw stderr, raw JSONL event body, raw App Server response, or raw terminal body;
 - raw diff, raw patch, raw file body, raw path, raw URL, raw request body,
   raw response body, raw trace payload, raw network body, raw audit body, or raw
   database row.
 
-Allowed public/store-safe replacements are ids, hashes, counts, statuses,
+Allowed governed operational reads include account identity, workspace identity,
+login/session health, quota/capacity, task state, and business administration
+data when they are required by a registered manifest and pass policy, evidence,
+and audit. Public/store-safe replacements are ids, hashes, counts, statuses,
 timestamps, summaries, lengths, evidence refs, audit ids, and explicit boundary
-booleans.
+booleans unless a privileged business store explicitly authorizes business-field
+plaintext. Credential-bearing session material remains forbidden everywhere.
 
 ## Action Modes
 
@@ -55,7 +60,7 @@ return metadata-only responses.
 
 | Capability | Boundary |
 | --- | --- |
-| Browser | Read-only by default. No real profile connection, no cookie/session/token/storage extraction, and no click/type/submit automation in M49/M50. |
+| Browser | Read-only by default. No real profile connection, no cookie/session-token/token/storage extraction, and no click/type/submit automation in M49/M50. Later approved real automation rounds may read account/workspace/session-health state through registered manifests only. |
 | Electron/CDP | Read-only and loopback-only by default. No main inspector, no `Runtime.evaluate`, no DOM mutation, no generic CDP passthrough. |
 | Codex App Server | Missing real adapter. No process launch, no raw server response storage, no task dispatch, and no approval write-back before M54. |
 | ChatGPT Business | Missing real adapter. Membership/quota work starts read-first; invite/remove/replace live admin actions remain disabled. |
@@ -105,7 +110,8 @@ Stop a round immediately if any of these appear:
 - A route, CLI command, Dashboard view, MCP tool, or test calls an adapter execute
   function directly.
 - A public response includes raw prompt, diff, path, URL, body, token, cookie,
-  session, MFA, credential, trace, log, or database row content.
+  session token, MFA, credential, trace, log, browser credential store, raw
+  profile material, or database row content.
 - A write/admin action lacks dry-run, policy, approval, evidence, or audit.
 - A request-body approval artifact or execution authority is accepted.
 - A capability provider becomes an authority provider.

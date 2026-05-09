@@ -19,7 +19,12 @@ Contracts are the only shared DTO/schema/type language. When shared contracts ch
 - Electron main inspector connections are not allowed in the foundation scaffold.
 - Explicitly approved production real automation rounds may enter real Browser/Electron/Codex write surfaces only through `codexhub-production-real-automation-governor`: registered surface, reviewed operation manifest, dry-run, approval, store-resolved authority, evidence, audit, runtime gates, and fixed adapter boundaries.
 - All write operations must pass policy, approval, evidence, and audit gates.
-- No token, cookie, session, MFA, account, or credential collection is allowed.
+- No credential material collection is allowed. Governed real automation rounds may
+  read account identity, workspace, login/session health, quota/capacity, task
+  state, and business administration data as operational state, but must not read,
+  save, print, or return cookie values, session tokens, refresh tokens, passwords,
+  MFA/passkey material, browser credential stores, raw profile material, or other
+  secret-bearing session material.
 - New features must include focused tests.
 - Capability providers are not authority providers: adapters may execute or observe, but only CodexHub governance can allow execution.
 - All capability adapters must declare a manifest, produce a dry-run plan, receive an execution authority, and emit evidence plus audit.
