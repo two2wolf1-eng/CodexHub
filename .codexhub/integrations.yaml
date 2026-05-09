@@ -3559,6 +3559,7 @@ integrations:
       - POST /api/real-client-calibration/sessions/authority-grants
       - POST /api/real-client-calibration/sessions/runs
       - POST /api/real-client-calibration/codex-desktop/state-calibrations
+      - POST /api/real-client-calibration/codex-desktop/structure-map-runs
       - POST /api/real-client-calibration/codex-desktop/task-dispatch-calibrations
       - POST /api/real-client-calibration/chatgpt/workspace-member/remove-add-calibrations
       - POST /api/real-client-calibration/corrections/apply-to-registry
@@ -3594,6 +3595,44 @@ integrations:
       rawPromptStored: false
       rawDomStored: false
       credentialMaterialStored: false
+  m77-codex-desktop-structure-map:
+    enabled: false
+    adapter: electron-cdp-adapter
+    provider: codex-desktop-loopback-cdp
+    providerType: governed
+    mode: metadata-only-structure-map
+    stage: m77-codex-desktop-structure-map
+    release: docs/releases/m77-codex-desktop-structure-map.md
+    review: docs/reviews/m77-codex-desktop-structure-map-review.md
+    runbook: docs/runbooks/m77-codex-desktop-structure-map-runbook.md
+    processBoundary: false
+    networkBoundary: true
+    remoteProviderBoundary: false
+    defaultActionMode: read
+    defaultRisk: critical
+    runtimeGates:
+      - CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED
+      - CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT
+    supervisorRoutes:
+      - POST /api/real-client-calibration/codex-desktop/structure-map-runs
+    persistedStores:
+      - calibration_observations
+      - calibration_runs
+    safety:
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      loopbackCdpOnly: true
+      rawDomTransientOnly: true
+      rawSnapshotTransientOnly: true
+      genericCdpCommandPassthroughAllowed: false
+      arbitrarySelectorRunnerAllowed: false
+      arbitraryJavascriptRunnerAllowed: false
+      runtimeEvaluateAllowed: false
+      networkBodyReadAllowed: false
+      cookieSessionTokenReadAllowed: false
+      browserStorageReadAllowed: false
+      dangerousControlsExecuted: false
+      publicProjectionMetadataOnly: true
   m72-canary-drift-hardening:
     enabled: false
     adapter: production-readiness-control-plane

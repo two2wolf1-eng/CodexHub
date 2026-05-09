@@ -21723,9 +21723,353 @@ export const ProductionRealClientOperationKindSchema = z.enum([
   'chatgptWorkspaceMemberRemoveAddCalibration',
   'chromeChatgptLiveUiCalibration',
   'manifestCorrectionCalibration',
+  'codexDesktopStructureMap',
 ]);
 export type ProductionRealClientOperationKind = z.infer<
   typeof ProductionRealClientOperationKindSchema
+>;
+
+export const CodexDesktopCdpProbeKindSchema = z.enum([
+  'target_metadata',
+  'page_metadata',
+  'dom_tree',
+  'dom_layout',
+  'dom_snapshot',
+  'css_structure',
+  'accessibility_tree',
+  'network_metadata',
+  'log_runtime_metadata',
+  'safe_input_read_click',
+]);
+export type CodexDesktopCdpProbeKind = z.infer<typeof CodexDesktopCdpProbeKindSchema>;
+
+export const CodexDesktopCdpProbeSummarySchema = observedEntityBaseSchema
+  .extend({
+    probeKind: CodexDesktopCdpProbeKindSchema,
+    commandCount: z.number().int().nonnegative().default(0),
+    successCount: z.number().int().nonnegative().default(0),
+    failureCount: z.number().int().nonnegative().default(0),
+    payloadHashCount: z.number().int().nonnegative().default(0),
+    payloadHashes: z.array(z.string().min(1)).default([]),
+    rawPayloadStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawSnapshotStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.successCount + record.failureCount > record.commandCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'probe result counts cannot exceed commandCount',
+        path: ['commandCount'],
+      });
+    }
+    if (record.payloadHashes.length > record.payloadHashCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'payloadHashes cannot exceed payloadHashCount',
+        path: ['payloadHashes'],
+      });
+    }
+  });
+export type CodexDesktopCdpProbeSummary = z.infer<
+  typeof CodexDesktopCdpProbeSummarySchema
+>;
+
+export const CodexDesktopDomStructureSummarySchema = observedEntityBaseSchema
+  .extend({
+    rootNodeHash: z.string().min(1),
+    nodeCount: z.number().int().nonnegative().default(0),
+    elementCount: z.number().int().nonnegative().default(0),
+    textNodeHashCount: z.number().int().nonnegative().default(0),
+    roleHashCount: z.number().int().nonnegative().default(0),
+    landmarkHashCount: z.number().int().nonnegative().default(0),
+    treeDepthEstimate: z.number().int().nonnegative().default(0),
+    rawDomStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CodexDesktopDomStructureSummary = z.infer<
+  typeof CodexDesktopDomStructureSummarySchema
+>;
+
+export const CodexDesktopDomSnapshotSummarySchema = observedEntityBaseSchema
+  .extend({
+    snapshotHash: z.string().min(1),
+    documentCount: z.number().int().nonnegative().default(0),
+    nodeCount: z.number().int().nonnegative().default(0),
+    layoutNodeCount: z.number().int().nonnegative().default(0),
+    styleHashCount: z.number().int().nonnegative().default(0),
+    textHashCount: z.number().int().nonnegative().default(0),
+    rawSnapshotStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CodexDesktopDomSnapshotSummary = z.infer<
+  typeof CodexDesktopDomSnapshotSummarySchema
+>;
+
+export const CodexDesktopLayoutRegionSummarySchema = observedEntityBaseSchema
+  .extend({
+    regionKind: z.enum([
+      'app_shell',
+      'top_bar',
+      'sidebar',
+      'main_content',
+      'conversation',
+      'settings',
+      'quota',
+      'account',
+      'project',
+      'changes',
+      'unknown',
+    ]),
+    regionHash: z.string().min(1),
+    nodeHash: z.string().min(1).optional(),
+    boxHash: z.string().min(1).optional(),
+    quadHash: z.string().min(1).optional(),
+    cssHash: z.string().min(1).optional(),
+    visible: z.boolean().default(true),
+    interactiveCandidate: z.boolean().default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CodexDesktopLayoutRegionSummary = z.infer<
+  typeof CodexDesktopLayoutRegionSummarySchema
+>;
+
+export const CodexDesktopPanelKindSchema = z.enum([
+  'main_shell',
+  'settings',
+  'quota',
+  'account',
+  'project_sidebar',
+  'conversation_list',
+  'conversation_detail',
+  'branch_detail',
+  'changes',
+  'git_status',
+  'result',
+  'automation',
+  'plugins',
+  'search',
+  'file_menu',
+  'edit_menu',
+  'view_menu',
+  'window_menu',
+  'help_menu',
+  'workspace_settings',
+  'unknown',
+]);
+export type CodexDesktopPanelKind = z.infer<typeof CodexDesktopPanelKindSchema>;
+
+export const CodexDesktopPanelMapSchema = observedEntityBaseSchema
+  .extend({
+    panelKind: CodexDesktopPanelKindSchema,
+    panelHash: z.string().min(1),
+    locatorCandidateIds: z.array(z.string().min(1)).default([]),
+    blockedControlIds: z.array(z.string().min(1)).default([]),
+    regionIds: z.array(z.string().min(1)).default([]),
+    visibleControlCount: z.number().int().nonnegative().default(0),
+    readClickCount: z.number().int().nonnegative().default(0),
+    rawDomStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CodexDesktopPanelMap = z.infer<typeof CodexDesktopPanelMapSchema>;
+
+export const CodexDesktopBlockedControlSchema = observedEntityBaseSchema
+  .extend({
+    controlKind: z.enum([
+      'logout',
+      'purchase',
+      'upgrade',
+      'add_credits',
+      'save',
+      'submit',
+      'delete',
+      'account_switch',
+      'git_write',
+      'new_task',
+      'external_link',
+      'unknown_dangerous',
+    ]),
+    controlHash: z.string().min(1),
+    labelHash: z.string().min(1).optional(),
+    panelKind: CodexDesktopPanelKindSchema,
+    blockedReason: z.string().min(1),
+    clickAttempted: z.literal(false).default(false),
+    rawLabelStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CodexDesktopBlockedControl = z.infer<typeof CodexDesktopBlockedControlSchema>;
+
+export const CodexDesktopLocatorCandidateSchema = observedEntityBaseSchema
+  .extend({
+    candidateId: z.string().min(1),
+    panelKind: CodexDesktopPanelKindSchema,
+    roleHash: z.string().min(1).optional(),
+    textHash: z.string().min(1).optional(),
+    maskedText: z.string().min(1).optional(),
+    domPathHash: z.string().min(1).optional(),
+    layoutRegionHash: z.string().min(1).optional(),
+    stabilityScore: z.number().min(0).max(1).default(0),
+    readOnlyClickAllowed: z.boolean().default(false),
+    dangerousActionBlocked: z.boolean().default(false),
+    rawTextStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CodexDesktopLocatorCandidate = z.infer<
+  typeof CodexDesktopLocatorCandidateSchema
+>;
+
+export const CodexDesktopStructureDriftSignatureSchema = observedEntityBaseSchema
+  .extend({
+    status: z.enum(['compatible', 'layout_drift', 'selector_drift', 'role_drift', 'unknown']),
+    baselineRunId: z.string().min(1).optional(),
+    currentRunId: z.string().min(1).optional(),
+    changedPanelCount: z.number().int().nonnegative().default(0),
+    changedLocatorCount: z.number().int().nonnegative().default(0),
+    changedLayoutRegionCount: z.number().int().nonnegative().default(0),
+    highRiskExecutionBlocked: z.boolean().default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawSnapshotStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status !== 'compatible' && !record.highRiskExecutionBlocked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Codex Desktop structure drift must block high-risk execution',
+        path: ['highRiskExecutionBlocked'],
+      });
+    }
+  });
+export type CodexDesktopStructureDriftSignature = z.infer<
+  typeof CodexDesktopStructureDriftSignatureSchema
+>;
+
+export const CodexDesktopStructureMapRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    operationKind: z.literal('codexDesktopStructureMap').default('codexDesktopStructureMap'),
+    surface: z.literal('codex-desktop-cdp').default('codex-desktop-cdp'),
+    status: z.enum(['completed', 'blocked', 'failed', 'drift_blocked']),
+    endpointConfigured: z.boolean().default(false),
+    endpointHash: z.string().min(1).optional(),
+    targetCount: z.number().int().nonnegative().default(0),
+    pageTargetCount: z.number().int().nonnegative().default(0),
+    workerTargetCount: z.number().int().nonnegative().default(0),
+    webSocketTargetCount: z.number().int().nonnegative().default(0),
+    plannedRoundCount: z.number().int().positive().default(30),
+    completedRoundCount: z.number().int().nonnegative().default(0),
+    probeKinds: z.array(CodexDesktopCdpProbeKindSchema).default([]),
+    probeSummaries: z.array(CodexDesktopCdpProbeSummarySchema).default([]),
+    domStructureSummary: CodexDesktopDomStructureSummarySchema.optional(),
+    domSnapshotSummary: CodexDesktopDomSnapshotSummarySchema.optional(),
+    layoutRegions: z.array(CodexDesktopLayoutRegionSummarySchema).default([]),
+    panelMaps: z.array(CodexDesktopPanelMapSchema).default([]),
+    blockedControls: z.array(CodexDesktopBlockedControlSchema).default([]),
+    locatorCandidates: z.array(CodexDesktopLocatorCandidateSchema).default([]),
+    driftSignatures: z.array(CodexDesktopStructureDriftSignatureSchema).default([]),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    safeInputBoundaryInvoked: z.boolean().default(false),
+    targetMetadataUsed: z.boolean().default(false),
+    pageMetadataUsed: z.boolean().default(false),
+    domTreeUsed: z.boolean().default(false),
+    domLayoutUsed: z.boolean().default(false),
+    domSnapshotUsed: z.boolean().default(false),
+    cssStructureUsed: z.boolean().default(false),
+    accessibilityTreeUsed: z.boolean().default(false),
+    networkMetadataUsed: z.boolean().default(false),
+    logRuntimeMetadataUsed: z.boolean().default(false),
+    safeInputReadClickUsed: z.boolean().default(false),
+    runtimeEvaluateUsed: z.literal(false).default(false),
+    networkBodyRead: z.literal(false).default(false),
+    cookieOrStorageRead: z.literal(false).default(false),
+    credentialMaterialRead: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawSnapshotStored: z.literal(false).default(false),
+    rawConsoleTextStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    writeSubmitted: z.literal(false).default(false),
+    blockedReasons: z.array(z.string().min(1)).default([]),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.endpointConfigured && !record.endpointHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'configured structure-map endpoints must be represented by a hash',
+        path: ['endpointHash'],
+      });
+    }
+    if (record.completedRoundCount > record.plannedRoundCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed rounds cannot exceed planned rounds',
+        path: ['completedRoundCount'],
+      });
+    }
+    if (record.status === 'completed' && record.probeKinds.length < 4) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed structure map runs require at least four CDP probe kinds',
+        path: ['probeKinds'],
+      });
+    }
+    if (record.status === 'completed' && !record.cdpWebSocketBoundaryInvoked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'completed structure map runs require the WebSocket CDP boundary',
+        path: ['cdpWebSocketBoundaryInvoked'],
+      });
+    }
+  });
+export type CodexDesktopStructureMapRun = z.infer<
+  typeof CodexDesktopStructureMapRunSchema
 >;
 
 export const ProductionRealClientSurfaceRegistrationSchema = createdEntityBaseSchema
@@ -22933,6 +23277,7 @@ export const CalibrationObservationSchema = observedEntityBaseSchema
       'after_remove',
       'after_restore',
       'codex_desktop_state',
+      'codex_desktop_structure_map',
       'task_status',
       'drift_sample',
     ]),

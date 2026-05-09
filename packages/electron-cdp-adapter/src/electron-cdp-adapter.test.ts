@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createElectronCdpControlledHttpRunner } from './controlled-http-runner';
 import { probeCodexDesktopCdpConnectionReadiness } from './codex-desktop-cdp-readiness';
+import { probeCodexDesktopStructureMap } from './codex-desktop-structure-map';
 import { createElectronCdpControlledWebSocketEventRunner } from './controlled-websocket-event-runner';
 import { executeElectronCdpAdapter } from './execute';
 import { createElectronCdpFixtureRunner } from './fixture';
@@ -39,7 +40,168 @@ const authority: ExecutionAuthority = {
 };
 const sourceDir = new URL('.', import.meta.url);
 
+function createStructureMapCdpResult(method: string): unknown {
+  switch (method) {
+    case 'Page.getFrameTree':
+      return { frameTree: { frame: { id: 'frame-1', url: 'app://private-codex-window' } } };
+    case 'Page.getNavigationHistory':
+      return { currentIndex: 0, entries: [{ id: 1, url: 'app://private-codex-window' }] };
+    case 'DOM.getDocument':
+      return { root: { nodeId: 1, nodeName: 'HTML', nodeType: 1, childNodeCount: 12 } };
+    case 'DOM.getFlattenedDocument':
+      return {
+        nodes: [
+          { nodeId: 1, backendNodeId: 1, nodeName: 'HTML', nodeType: 1 },
+          { nodeId: 2, backendNodeId: 2, nodeName: 'BUTTON', nodeType: 1 },
+          { nodeId: 3, backendNodeId: 3, nodeName: 'BUTTON', nodeType: 1 },
+          { nodeId: 4, backendNodeId: 4, nodeName: 'BUTTON', nodeType: 1 },
+        ],
+      };
+    case 'Accessibility.getFullAXTree':
+      return {
+        nodes: [
+          { nodeId: 2, backendDOMNodeId: 2, role: { value: 'button' }, name: { value: '设置' } },
+          {
+            nodeId: 3,
+            backendDOMNodeId: 3,
+            role: { value: 'menuitem' },
+            name: { value: '剩余额度' },
+          },
+          {
+            nodeId: 4,
+            backendDOMNodeId: 4,
+            role: { value: 'menuitem' },
+            name: { value: '退出登录' },
+          },
+        ],
+      };
+    case 'DOMSnapshot.captureSnapshot':
+      return {
+        documents: [
+          {
+            nodes: { nodeName: [0, 1, 1], backendNodeId: [1, 2, 3] },
+            layout: { nodeIndex: [0, 1], bounds: [[0, 0, 320, 600], [8, 8, 80, 24]], styles: [0, 1] },
+          },
+        ],
+        strings: ['HTML', 'BUTTON'],
+      };
+    case 'DOM.getBoxModel':
+      return { model: { content: [10, 10, 120, 10, 120, 40, 10, 40] } };
+    case 'DOM.getContentQuads':
+      return { quads: [[10, 10, 120, 10, 120, 40, 10, 40]] };
+    case 'CSS.getComputedStyleForNode':
+      return {
+        computedStyle: [
+          { name: 'display', value: 'block' },
+          { name: 'visibility', value: 'visible' },
+          { name: 'overflow', value: 'hidden' },
+          { name: 'position', value: 'relative' },
+        ],
+      };
+    default:
+      return {};
+  }
+}
+
 describe('electron-cdp-adapter', () => {
+  it('builds a Codex Desktop multi-domain structure map without generic CDP passthrough', async () => {
+    const requestedUrls: string[] = [];
+    const sentMethods: string[] = [];
+    class FakeWebSocket {
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data?: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(readonly url: string) {
+        setTimeout(() => this.onopen?.(), 0);
+      }
+
+      send(data: string): void {
+        const request = JSON.parse(data) as { id: number; method: string };
+        sentMethods.push(request.method);
+        setTimeout(() => {
+          this.onmessage?.({
+            data: JSON.stringify({
+              id: request.id,
+              result: createStructureMapCdpResult(request.method),
+            }),
+          });
+        }, 0);
+      }
+
+      close(): void {
+        this.onclose?.();
+      }
+    }
+
+    const structureMap = await probeCodexDesktopStructureMap({
+      endpointUrl: 'http://127.0.0.1:43326',
+      observedAt: '2026-05-09T00:00:00.000Z',
+      fetch: async (url: string) => {
+        requestedUrls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            url.endsWith('/json/list')
+              ? JSON.stringify([
+                  {
+                    id: 'private-target',
+                    type: 'page',
+                    title: 'Private Codex Window',
+                    url: 'app://private-codex-window',
+                    webSocketDebuggerUrl: 'ws://127.0.0.1:43326/devtools/page/private-target',
+                  },
+                  { id: 'worker-1', type: 'worker' },
+                ])
+              : JSON.stringify({ Browser: 'Codex private build' }),
+        };
+      },
+      webSocketFactory: (url: string) => new FakeWebSocket(url),
+    });
+    const serialized = JSON.stringify(structureMap);
+
+    expect(structureMap.status).toBe('completed');
+    expect(structureMap.targetCount).toBe(2);
+    expect(structureMap.pageTargetCount).toBe(1);
+    expect(structureMap.workerTargetCount).toBe(1);
+    expect(structureMap.probeKinds).toEqual(
+      expect.arrayContaining([
+        'target_metadata',
+        'page_metadata',
+        'dom_tree',
+        'dom_layout',
+        'dom_snapshot',
+        'css_structure',
+        'accessibility_tree',
+        'network_metadata',
+        'log_runtime_metadata',
+      ]),
+    );
+    expect(structureMap.cdpHttpBoundaryInvoked).toBe(true);
+    expect(structureMap.cdpWebSocketBoundaryInvoked).toBe(true);
+    expect(structureMap.runtimeEvaluateUsed).toBe(false);
+    expect(structureMap.networkBodyRead).toBe(false);
+    expect(structureMap.cookieOrStorageRead).toBe(false);
+    expect(structureMap.rawDomStored).toBe(false);
+    expect(structureMap.rawSnapshotStored).toBe(false);
+    expect(structureMap.blockedControls.some((control) => control.controlKind === 'logout')).toBe(true);
+    expect(sentMethods).toContain('DOMSnapshot.captureSnapshot');
+    expect(sentMethods).toContain('DOM.getFlattenedDocument');
+    expect(sentMethods).toContain('CSS.getComputedStyleForNode');
+    expect(sentMethods).toContain('Accessibility.getFullAXTree');
+    expect(sentMethods).toContain('Input.dispatchMouseEvent');
+    expect(sentMethods).not.toContain('Runtime.evaluate');
+    expect(requestedUrls).toEqual([
+      'http://127.0.0.1:43326/json/version',
+      'http://127.0.0.1:43326/json/list',
+    ]);
+    expect(serialized).not.toContain('127.0.0.1:43326');
+    expect(serialized).not.toContain('Private Codex Window');
+    expect(serialized).not.toContain('app://private-codex-window');
+  });
+
   it('probes real Codex Desktop CDP loopback endpoints as metadata-only readiness', async () => {
     const requestedUrls: string[] = [];
     const readiness = await probeCodexDesktopCdpConnectionReadiness({

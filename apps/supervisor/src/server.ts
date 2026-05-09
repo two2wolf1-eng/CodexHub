@@ -467,6 +467,7 @@ import {
   BrowserActionPlanSchema,
   BrowserActionRunSchema,
   BrowserActionStepSummarySchema,
+  CodexDesktopStructureMapRunSchema,
   ElectronMainInspectorApprovalArtifactSchema,
   ElectronMainInspectorPlanSchema,
   ElectronMainInspectorRunSchema,
@@ -501,6 +502,7 @@ import {
 } from '@codexhub/electron-cdp-kernel';
 import {
   probeCodexDesktopCdpConnectionReadiness,
+  probeCodexDesktopStructureMap,
   createElectronCdpControlledHttpRunner,
   createElectronCdpControlledWebSocketEventRunner,
   executeElectronCdpAdapter,
@@ -508,6 +510,7 @@ import {
 } from '@codexhub/electron-cdp-adapter';
 import type {
   CodexDesktopCdpConnectionProbeInput,
+  CodexDesktopStructureMapProbeInput,
   ElectronCdpObservationRunner,
 } from '@codexhub/electron-cdp-adapter';
 import { MockObservationSource, aggregateSourceHealth } from '@codexhub/observer-kernel';
@@ -756,6 +759,9 @@ interface SupervisorServerOptions {
   electronCdpObserverRunner?: ElectronCdpObservationRunner;
   codexDesktopCdpConnectionProbe?: (
     input: CodexDesktopCdpConnectionProbeInput,
+  ) => Promise<unknown>;
+  codexDesktopStructureMapProbe?: (
+    input: CodexDesktopStructureMapProbeInput,
   ) => Promise<unknown>;
   worktreeManagerEnabled?: boolean;
   worktreeManagerRunner?: WorktreeManagerFixtureRunner;
@@ -25031,6 +25037,74 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       await resolved.store.calibrationObservations.saveRecord(observation);
       await resolved.store.calibrationRuns.saveRecord(run);
       return { observation, run };
+    });
+
+    server.post(`${prefix}/codex-desktop/structure-map-runs`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const probe = options.codexDesktopStructureMapProbe ?? probeCodexDesktopStructureMap;
+      const structureMap = CodexDesktopStructureMapRunSchema.parse(
+        await probe({
+          endpointUrl: process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT,
+          observedAt: foundationTimestamp(),
+        }),
+      );
+      const completed = structureMap.status === 'completed';
+      const observation = createCalibrationObservation({
+        session: resolved.session,
+        operationKind: 'codexDesktopStructureMap',
+        observationKind: 'codex_desktop_structure_map',
+        beforeStateSeed: readBodyString(body, 'beforeStateRefId'),
+        afterStateSeed:
+          readBodyString(body, 'afterStateRefId') ??
+          hashLocalMetadata({
+            status: structureMap.status,
+            endpointHash: structureMap.endpointHash,
+            probeKinds: structureMap.probeKinds,
+            panelCount: structureMap.panelMaps.length,
+            locatorCount: structureMap.locatorCandidates.length,
+          }),
+        cdpHttpBoundaryInvoked: structureMap.cdpHttpBoundaryInvoked,
+        cdpWebSocketBoundaryInvoked: structureMap.cdpWebSocketBoundaryInvoked,
+        electronActionInvoked: structureMap.safeInputBoundaryInvoked,
+      });
+      const run = createCalibrationRun({
+        session: resolved.session,
+        authorityGrant: resolved.grant,
+        operationKind: 'codexDesktopStructureMap',
+        status: completed
+          ? 'passed'
+          : structureMap.status === 'drift_blocked'
+            ? 'drift_blocked'
+            : structureMap.status === 'failed'
+              ? 'failed_requires_manual_repair'
+              : 'readiness_blocked',
+        preflightStatus: completed ? 'ready' : 'blocked',
+        codexDesktopStatus: structureMap.status,
+        realBoundaryReached:
+          structureMap.cdpHttpBoundaryInvoked || structureMap.cdpWebSocketBoundaryInvoked,
+        liveClientTouched: structureMap.cdpWebSocketBoundaryInvoked,
+        codexDesktopTouched: true,
+        postWriteVerified: false,
+        blockedReasons: structureMap.blockedReasons,
+      });
+      await resolved.store.calibrationObservations.saveRecord(observation);
+      await resolved.store.calibrationRuns.saveRecord(run);
+      return {
+        structureMap,
+        observation,
+        run,
+        rawEndpointStored: false,
+        rawSelectorStored: false,
+        rawScriptStored: false,
+        rawDomStored: false,
+        rawSnapshotStored: false,
+        credentialMaterialStored: false,
+      };
     });
 
     server.post(`${prefix}/codex-desktop/task-dispatch-calibrations`, async (request, reply) => {

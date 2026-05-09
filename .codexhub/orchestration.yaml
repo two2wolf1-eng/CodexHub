@@ -7124,6 +7124,41 @@ workflows:
       rawPromptStored: false
       rawDomStored: false
       publicProjectionMetadataOnly: true
+  m77.codex-desktop-structure-map:
+    risk: critical
+    trigger:
+      type: codex-desktop-cdp-structure-map
+      entrypoint: contracts electron-cdp-adapter supervisor docs
+      localControlRequired: true
+    scope:
+      - codex-desktop-cdp-probe-summary
+      - codex-desktop-dom-structure-summary
+      - codex-desktop-dom-snapshot-summary
+      - codex-desktop-layout-region-summary
+      - codex-desktop-panel-map
+      - codex-desktop-blocked-control
+      - codex-desktop-locator-candidate
+      - codex-desktop-structure-drift-signature
+      - codex-desktop-structure-map-run
+    docs:
+      - docs/releases/m77-codex-desktop-structure-map.md
+      - docs/reviews/m77-codex-desktop-structure-map-review.md
+      - docs/runbooks/m77-codex-desktop-structure-map-runbook.md
+    safety:
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      loopbackCdpOnly: true
+      rawDomTransientOnly: true
+      rawSnapshotTransientOnly: true
+      noGenericCdpPassthrough: true
+      noArbitrarySelectorRunner: true
+      noArbitraryJavascriptRunner: true
+      noRuntimeEvaluate: true
+      noNetworkBodyRead: true
+      noCookieSessionTokenRead: true
+      noBrowserStorageRead: true
+      blockedDangerousControls: true
+      publicProjectionMetadataOnly: true
   m72.canary-drift-hardening:
     risk: critical
     trigger:

@@ -31,6 +31,7 @@ import {
   CodexClientInstanceSchema,
   CodexTaskIntentSchema,
   CodexTaskRunSchema,
+  CodexDesktopStructureMapRunSchema,
   QuotaSnapshotSchema,
   RealClientConnectionReadinessSchema,
 } from '@codexhub/contracts';
@@ -323,6 +324,7 @@ const lateStageSupervisorControlPlaneMatrix = [
       '/sessions/authority-grants',
       '/sessions/runs',
       '/codex-desktop/state-calibrations',
+      '/codex-desktop/structure-map-runs',
       '/codex-desktop/task-dispatch-calibrations',
       '/chatgpt/workspace-member/remove-add-calibrations',
       '/corrections/apply-to-registry',
@@ -2149,7 +2151,7 @@ describe('supervisor mock development API', () => {
 
     await server.close();
     await store.close();
-  });
+  }, 60000);
 
   it('keeps late-stage mutating route gate coverage synced with server POST registrations', () => {
     const serverSource = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
@@ -2431,6 +2433,7 @@ describe('supervisor mock development API', () => {
             `${prefix}/sessions/authority-grants`,
             `${prefix}/sessions/runs`,
             `${prefix}/codex-desktop/state-calibrations`,
+            `${prefix}/codex-desktop/structure-map-runs`,
             `${prefix}/codex-desktop/task-dispatch-calibrations`,
             `${prefix}/chatgpt/workspace-member/remove-add-calibrations`,
             `${prefix}/corrections/apply-to-registry`,
@@ -2624,6 +2627,7 @@ describe('supervisor mock development API', () => {
           '/sessions/authority-grants',
           '/sessions/runs',
           '/codex-desktop/state-calibrations',
+          '/codex-desktop/structure-map-runs',
           '/codex-desktop/task-dispatch-calibrations',
           '/chatgpt/workspace-member/remove-add-calibrations',
           '/corrections/apply-to-registry',
@@ -4924,6 +4928,138 @@ describe('supervisor mock development API', () => {
     });
     expect(calibrationResponse.body).not.toContain('127.0.0.1:43326');
     expect(calibrationResponse.body).not.toContain(localControlToken);
+  });
+
+  it('makes M77 Codex Desktop structure map run invoke the governed multi-domain CDP boundary', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m77-structure-map-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const originalCalibrationEnabled = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED;
+    const originalCodexEndpoint = process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED = 'true';
+    process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT = 'http://127.0.0.1:43326';
+    let probeCallCount = 0;
+    const server = buildSupervisorServer({
+      store,
+      codexDesktopStructureMapProbe: async ({ endpointUrl }) => {
+        probeCallCount += 1;
+        return CodexDesktopStructureMapRunSchema.parse({
+          id: 'codex_desktop_structure_map_m77_test',
+          schemaVersion: '2026-04-28.foundation',
+          createdAt: '2026-05-09T00:00:00.000Z',
+          status: 'completed',
+          endpointConfigured: true,
+          endpointHash: hashTestMetadata({ endpointUrl }),
+          targetCount: 5,
+          pageTargetCount: 1,
+          workerTargetCount: 4,
+          webSocketTargetCount: 5,
+          plannedRoundCount: 30,
+          completedRoundCount: 30,
+          probeKinds: [
+            'target_metadata',
+            'page_metadata',
+            'dom_tree',
+            'dom_layout',
+            'dom_snapshot',
+            'css_structure',
+            'accessibility_tree',
+            'network_metadata',
+            'log_runtime_metadata',
+            'safe_input_read_click',
+          ],
+          cdpHttpBoundaryInvoked: true,
+          cdpWebSocketBoundaryInvoked: true,
+          safeInputBoundaryInvoked: true,
+          targetMetadataUsed: true,
+          pageMetadataUsed: true,
+          domTreeUsed: true,
+          domLayoutUsed: true,
+          domSnapshotUsed: true,
+          cssStructureUsed: true,
+          accessibilityTreeUsed: true,
+          networkMetadataUsed: true,
+          logRuntimeMetadataUsed: true,
+          safeInputReadClickUsed: true,
+          summary: 'Injected M77 Codex Desktop structure map boundary completed.',
+        });
+      },
+    });
+    const now = () => '2026-05-09T00:00:00.000Z';
+    const surface = createProductionRealClientSurfaceRegistration({
+      surfaceId: 'codex-desktop-structure-map',
+      surfaceKind: 'codex-desktop-cdp',
+      registeredBySeed: 'operator',
+      allowedOperationIds: ['codex.desktop.structure_map.v1'],
+      now,
+    });
+    const manifest = createProductionRealClientOperationManifest({
+      operationId: 'codex.desktop.structure_map.v1',
+      operationKind: 'codexDesktopStructureMap',
+      surfaceKind: 'codex-desktop-cdp',
+      capabilityClass: 'restricted-production',
+      now,
+    });
+    await store.productionRealClientSurfaces.saveRecord(surface);
+    await store.productionRealClientOperationManifests.saveRecord(manifest);
+
+    const sessionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/sessions/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sessionKind: 'codex_desktop_state',
+        surfaceRegistrationIds: [surface.id],
+        manifestIds: [manifest.id],
+        liveWritesAllowed: false,
+        adminWriteAllowed: false,
+        ttlSeconds: 900,
+      },
+    });
+    const session = sessionResponse.json().session;
+    const structureResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/codex-desktop/structure-map-runs',
+      headers: localControlHeaders,
+      payload: {
+        sessionId: session.id,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED', originalCalibrationEnabled);
+    restoreEnv('CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT', originalCodexEndpoint);
+
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(structureResponse.statusCode).toBe(200);
+    expect(probeCallCount).toBe(1);
+    expect(structureResponse.json().structureMap).toMatchObject({
+      operationKind: 'codexDesktopStructureMap',
+      status: 'completed',
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: true,
+      runtimeEvaluateUsed: false,
+      rawDomStored: false,
+      rawSnapshotStored: false,
+      credentialMaterialRead: false,
+    });
+    expect(structureResponse.json().observation).toMatchObject({
+      operationKind: 'codexDesktopStructureMap',
+      observationKind: 'codex_desktop_structure_map',
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: true,
+    });
+    expect(structureResponse.json().run).toMatchObject({
+      status: 'passed',
+      preflightStatus: 'ready',
+      codexDesktopStatus: 'completed',
+      realBoundaryReached: true,
+      liveClientTouched: true,
+      codexDesktopTouched: true,
+    });
+    expect(structureResponse.body).not.toContain('127.0.0.1:43326');
+    expect(structureResponse.body).not.toContain(localControlToken);
   });
 
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {

@@ -602,6 +602,15 @@ import {
   ProductionRealClientRunSchema,
   ProductionRealClientSurfaceKindSchema,
   ProductionRealClientSurfaceRegistrationSchema,
+  CodexDesktopCdpProbeSummarySchema,
+  CodexDesktopDomSnapshotSummarySchema,
+  CodexDesktopDomStructureSummarySchema,
+  CodexDesktopLayoutRegionSummarySchema,
+  CodexDesktopPanelMapSchema,
+  CodexDesktopBlockedControlSchema,
+  CodexDesktopLocatorCandidateSchema,
+  CodexDesktopStructureDriftSignatureSchema,
+  CodexDesktopStructureMapRunSchema,
   RealClientActionRunSchema,
   RealClientConnectionReadinessSchema,
   WorkspaceCodexQuotaReadinessSchema,
@@ -17384,6 +17393,147 @@ describe('contracts schemas', () => {
       visibleUiExecution: true,
       summary: 'Chrome CDP visible click run stores only hashes, counts, and boundary booleans.',
     });
+    const cdpProbeSummary = CodexDesktopCdpProbeSummarySchema.parse({
+      id: 'codex_desktop_cdp_probe_summary_1',
+      schemaVersion,
+      observedAt: createdAt,
+      probeKind: 'dom_snapshot',
+      commandCount: 1,
+      successCount: 1,
+      payloadHashCount: 1,
+      payloadHashes: ['sha256:dom-snapshot'],
+      summary: 'Codex Desktop CDP probe stores command counts and payload hashes only.',
+    });
+    const domStructureSummary = CodexDesktopDomStructureSummarySchema.parse({
+      id: 'codex_desktop_dom_structure_1',
+      schemaVersion,
+      observedAt: createdAt,
+      rootNodeHash: 'sha256:root-node',
+      nodeCount: 42,
+      elementCount: 24,
+      textNodeHashCount: 12,
+      roleHashCount: 9,
+      landmarkHashCount: 5,
+      treeDepthEstimate: 6,
+      summary: 'DOM tree is transiently reduced to counts and hashes.',
+    });
+    const domSnapshotSummary = CodexDesktopDomSnapshotSummarySchema.parse({
+      id: 'codex_desktop_dom_snapshot_1',
+      schemaVersion,
+      observedAt: createdAt,
+      snapshotHash: 'sha256:snapshot',
+      documentCount: 1,
+      nodeCount: 42,
+      layoutNodeCount: 20,
+      styleHashCount: 4,
+      textHashCount: 12,
+      summary: 'DOMSnapshot is transiently reduced to hashed structure metadata.',
+    });
+    const layoutRegion = CodexDesktopLayoutRegionSummarySchema.parse({
+      id: 'codex_desktop_layout_region_1',
+      schemaVersion,
+      observedAt: createdAt,
+      regionKind: 'settings',
+      regionHash: 'sha256:settings-region',
+      boxHash: 'sha256:settings-box',
+      cssHash: 'sha256:settings-css',
+      visible: true,
+      interactiveCandidate: true,
+      summary: 'Layout region stores hashed box and structural CSS only.',
+    });
+    const panelMap = CodexDesktopPanelMapSchema.parse({
+      id: 'codex_desktop_panel_map_1',
+      schemaVersion,
+      observedAt: createdAt,
+      panelKind: 'settings',
+      panelHash: 'sha256:settings-panel',
+      regionIds: [layoutRegion.id],
+      visibleControlCount: 8,
+      readClickCount: 1,
+      summary: 'Settings panel map stores counts and linked metadata-only regions.',
+    });
+    const blockedControl = CodexDesktopBlockedControlSchema.parse({
+      id: 'codex_desktop_blocked_control_1',
+      schemaVersion,
+      observedAt: createdAt,
+      controlKind: 'logout',
+      controlHash: 'sha256:logout-control',
+      labelHash: 'sha256:logout-label',
+      panelKind: 'settings',
+      blockedReason: 'dangerous_control_blocked_in_m77_read_map',
+      summary: 'Logout was identified as a blocked control and was not clicked.',
+    });
+    const locatorCandidate = CodexDesktopLocatorCandidateSchema.parse({
+      id: 'codex_desktop_locator_1',
+      schemaVersion,
+      observedAt: createdAt,
+      candidateId: 'locator_candidate_1',
+      panelKind: 'settings',
+      roleHash: 'sha256:button-role',
+      textHash: 'sha256:settings-text',
+      maskedText: '设置',
+      domPathHash: 'sha256:dom-path',
+      layoutRegionHash: layoutRegion.regionHash,
+      stabilityScore: 0.82,
+      readOnlyClickAllowed: true,
+      summary: 'Locator candidate is role/text/layout hash based.',
+    });
+    const structureDrift = CodexDesktopStructureDriftSignatureSchema.parse({
+      id: 'codex_desktop_structure_drift_1',
+      schemaVersion,
+      observedAt: createdAt,
+      status: 'compatible',
+      highRiskExecutionBlocked: false,
+      summary: 'Structure drift is compatible for this baseline.',
+    });
+    const structureMapRun = CodexDesktopStructureMapRunSchema.parse({
+      id: 'codex_desktop_structure_map_1',
+      schemaVersion,
+      createdAt,
+      status: 'completed',
+      endpointConfigured: true,
+      endpointHash: 'sha256:codex-desktop-endpoint',
+      targetCount: 5,
+      pageTargetCount: 1,
+      workerTargetCount: 4,
+      webSocketTargetCount: 5,
+      plannedRoundCount: 30,
+      completedRoundCount: 30,
+      probeKinds: [
+        'target_metadata',
+        'page_metadata',
+        'dom_tree',
+        'dom_layout',
+        'dom_snapshot',
+        'css_structure',
+        'accessibility_tree',
+        'network_metadata',
+        'log_runtime_metadata',
+        'safe_input_read_click',
+      ],
+      probeSummaries: [cdpProbeSummary],
+      domStructureSummary,
+      domSnapshotSummary,
+      layoutRegions: [layoutRegion],
+      panelMaps: [panelMap],
+      blockedControls: [blockedControl],
+      locatorCandidates: [locatorCandidate],
+      driftSignatures: [structureDrift],
+      cdpHttpBoundaryInvoked: true,
+      cdpWebSocketBoundaryInvoked: true,
+      safeInputBoundaryInvoked: true,
+      targetMetadataUsed: true,
+      pageMetadataUsed: true,
+      domTreeUsed: true,
+      domLayoutUsed: true,
+      domSnapshotUsed: true,
+      cssStructureUsed: true,
+      accessibilityTreeUsed: true,
+      networkMetadataUsed: true,
+      logRuntimeMetadataUsed: true,
+      safeInputReadClickUsed: true,
+      summary: 'M77 structure map run stores only counts, hashes, blocked controls, and locator candidates.',
+    });
     const surfaceRegistration = ProductionRealClientSurfaceRegistrationSchema.parse({
       id: 'production_real_client_surface_1',
       schemaVersion,
@@ -17806,6 +17956,15 @@ describe('contracts schemas', () => {
       adminRun,
       chromeConnection,
       chromeActionRun,
+      cdpProbeSummary,
+      domStructureSummary,
+      domSnapshotSummary,
+      layoutRegion,
+      panelMap,
+      blockedControl,
+      locatorCandidate,
+      structureDrift,
+      structureMapRun,
       surfaceRegistration,
       operationManifest,
       productionDryRun,
@@ -17853,11 +18012,19 @@ describe('contracts schemas', () => {
     expect(chromeActionRun.requestBodyAuthorityAccepted).toBe(false);
     expect(chromeActionRun.rawSelectorStored).toBe(false);
     expect(chromeActionRun.rawTypedTextStored).toBe(false);
+    expect(structureMapRun.rawDomStored).toBe(false);
+    expect(structureMapRun.rawSnapshotStored).toBe(false);
+    expect(structureMapRun.runtimeEvaluateUsed).toBe(false);
+    expect(structureMapRun.cookieOrStorageRead).toBe(false);
+    expect(structureMapRun.networkBodyRead).toBe(false);
+    expect(structureMapRun.writeSubmitted).toBe(false);
+    expect(structureMapRun.blockedControls[0]?.clickAttempted).toBe(false);
     expect(ProductionCapabilityClassSchema.options).toContain('break-glass-production');
     expect(ProductionEvidenceLevelSchema.options).toContain('E5');
     expect(ProductionForbiddenCapabilitySchema.options).toContain('readCookies');
     expect(ProductionRealClientSurfaceKindSchema.options).toContain('codex-web-cloud');
     expect(ProductionRealClientOperationKindSchema.options).toContain('codexCliFullAuto');
+    expect(ProductionRealClientOperationKindSchema.options).toContain('codexDesktopStructureMap');
     expect(surfaceRegistration.rawEndpointStored).toBe(false);
     expect(operationManifest.genericCdpPassthroughAllowed).toBe(false);
     expect(productionDryRun.requestBodyAuthorityAccepted).toBe(false);
@@ -17985,6 +18152,22 @@ describe('contracts schemas', () => {
         status: 'drifted',
         highRiskExecutionBlocked: false,
         summary: 'Drift must block high-risk execution.',
+      }),
+    ).toThrow();
+    expect(() =>
+      CodexDesktopStructureMapRunSchema.parse({
+        id: 'codex_desktop_structure_map_raw',
+        schemaVersion,
+        createdAt,
+        status: 'completed',
+        endpointConfigured: true,
+        endpointHash: 'sha256:endpoint',
+        plannedRoundCount: 30,
+        completedRoundCount: 30,
+        probeKinds: ['target_metadata', 'page_metadata', 'dom_tree', 'dom_snapshot'],
+        cdpWebSocketBoundaryInvoked: true,
+        rawDom: '<div>private</div>',
+        summary: 'Raw DOM must not be accepted.',
       }),
     ).toThrow();
   });

@@ -42,11 +42,13 @@ const approvedLiveAutomationBoundaryFiles = new Set([
 ]);
 const approvedCdpHttpBoundaryFiles = new Set([
   'packages/electron-cdp-adapter/src/codex-desktop-cdp-readiness.ts',
+  'packages/electron-cdp-adapter/src/codex-desktop-structure-map.ts',
   'packages/electron-cdp-adapter/src/controlled-http-runner.ts',
   'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
   'packages/electron-cdp-adapter/src/main-inspector-boundary.ts',
 ]);
 const approvedCdpWebSocketBoundaryFiles = new Set([
+  'packages/electron-cdp-adapter/src/codex-desktop-structure-map.ts',
   'packages/electron-cdp-adapter/src/controlled-websocket-event-runner.ts',
   'packages/electron-cdp-adapter/src/main-inspector-boundary.ts',
 ]);
@@ -716,13 +718,13 @@ console.log(
 );
 
 function validateBoundaryAllowlists(): void {
-  if (approvedCdpWebSocketBoundaryFiles.size !== 2) {
+  if (approvedCdpWebSocketBoundaryFiles.size !== 3) {
     violations.push({
       file: resolve(workspaceRoot, 'tools', 'audit-no-live-automation.ts'),
       line: 1,
       term: 'approvedCdpWebSocketBoundaryFiles',
       reason:
-        'Electron/CDP WebSocket observation and main-inspector write execution must have exactly two audited boundary files.',
+        'Electron/CDP WebSocket observation, structure-map read calibration, and main-inspector write execution must have exactly three audited boundary files.',
     });
   }
 
