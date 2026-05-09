@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "real-client-calibration-kernel",
+  "projectType": "library",
+  "sourceRoot": "packages/real-client-calibration-kernel/src",
+  "implicitDependencies": ["contracts", "evidence-kernel", "production-real-client-kernel"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json",
+        "cwd": "packages/real-client-calibration-kernel"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint . --max-warnings=0",
+        "cwd": "packages/real-client-calibration-kernel"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --passWithNoTests --config ../../vitest.config.ts",
+        "cwd": "packages/real-client-calibration-kernel"
+      }
+    }
+  }
+}

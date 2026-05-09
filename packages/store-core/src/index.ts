@@ -171,13 +171,24 @@ import type {
   ProductionRealClientOperationManifest,
   ProductionRealClientRun,
   ProductionRealClientSurfaceRegistration,
+  CalibrationAuthorityGrant,
+  CalibrationDriftSignature,
+  CalibrationManifestCorrectionProposal,
+  CalibrationObservation,
+  CalibrationRetentionPolicy,
+  CalibrationRun,
+  CalibrationSelectorSample,
   AccountSwitchEvidence,
   ClaudeCodeRepairRun,
   CodexAccountCapacityState,
   CodexAccountRecord,
   CodexDesktopObservedState,
   CodexTaskRoutingDecision,
+  M75RealRehearsalAcceptancePlan,
+  M75RealRehearsalAcceptanceRun,
+  M75RealRehearsalEvidenceSummary,
   M75RehearsalRun,
+  RealClientCalibrationSession,
   TaskDispatchEvidence,
   WorkspaceMemberActionEvidence,
   WorkspaceMemberState,
@@ -1769,6 +1780,17 @@ export interface CodexHubStore {
   workspaceMemberActionEvidenceRecords: MetadataEntityRepository<WorkspaceMemberActionEvidence>;
   claudeCodeRepairRuns: MetadataEntityRepository<ClaudeCodeRepairRun>;
   m75RehearsalRuns: MetadataEntityRepository<M75RehearsalRun>;
+  m75RealRehearsalAcceptancePlans: MetadataEntityRepository<M75RealRehearsalAcceptancePlan>;
+  m75RealRehearsalEvidenceSummaries: MetadataEntityRepository<M75RealRehearsalEvidenceSummary>;
+  m75RealRehearsalAcceptanceRuns: MetadataEntityRepository<M75RealRehearsalAcceptanceRun>;
+  realClientCalibrationSessions: MetadataEntityRepository<RealClientCalibrationSession>;
+  calibrationAuthorityGrants: MetadataEntityRepository<CalibrationAuthorityGrant>;
+  calibrationObservations: MetadataEntityRepository<CalibrationObservation>;
+  calibrationDriftSignatures: MetadataEntityRepository<CalibrationDriftSignature>;
+  calibrationSelectorSamples: MetadataEntityRepository<CalibrationSelectorSample>;
+  calibrationManifestCorrectionProposals: MetadataEntityRepository<CalibrationManifestCorrectionProposal>;
+  calibrationRuns: MetadataEntityRepository<CalibrationRun>;
+  calibrationRetentionPolicies: MetadataEntityRepository<CalibrationRetentionPolicy>;
   githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;

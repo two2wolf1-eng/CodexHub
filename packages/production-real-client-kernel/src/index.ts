@@ -47,6 +47,10 @@ const highRiskOperations = new Set<ProductionRealClientOperationKind>([
   'chatgptWorkspaceMemberAdd',
   'chatgptWorkspaceMemberRemove',
   'claudeCodeRepairProposal',
+  'codexDesktopLiveTaskDispatchCalibration',
+  'chatgptWorkspaceMemberRemoveAddCalibration',
+  'chromeChatgptLiveUiCalibration',
+  'manifestCorrectionCalibration',
 ]);
 
 const breakGlassOperations = new Set<ProductionRealClientOperationKind>([
@@ -79,6 +83,7 @@ const restrictedOperations = new Set<ProductionRealClientOperationKind>([
   'codexCliSuggest',
   'codexDesktopReadState',
   'chatgptWorkspaceMemberStateRead',
+  'codexDesktopLiveStateCalibration',
 ]);
 
 const forbiddenRequestKeys = new Set([
@@ -286,10 +291,6 @@ export function createProductionRealClientDryRun(
   if (input.surface.capabilityClass === 'forbidden' || input.manifest.capabilityClass === 'forbidden') {
     blockReasons.push('forbidden_capability');
   }
-  if (input.manifest.delegatedAuthorityRequired) {
-    blockReasons.push('delegated_authority_required');
-  }
-
   const status = blockReasons.length === 0 ? 'ready' : 'blocked';
 
   return ProductionRealClientDryRunSchema.parse({

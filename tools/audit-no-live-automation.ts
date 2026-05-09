@@ -539,6 +539,13 @@ const allowlistRules: AllowlistEntry[] = [
   },
   {
     scope: 'production-source',
+    file: 'packages/real-client-calibration-kernel/src/index.ts',
+    terms: sensitiveConceptTerms,
+    reason:
+      'M76 real-client calibration forbidden-body and retention vocabulary only; no credential read or persistence path',
+  },
+  {
+    scope: 'production-source',
     file: 'packages/contracts/src/index.ts',
     terms: sensitiveConceptTerms,
     reason: 'contract metadata flags and hash-only credential readiness schemas only',

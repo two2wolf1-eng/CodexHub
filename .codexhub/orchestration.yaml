@@ -7050,6 +7050,80 @@ workflows:
       noBrowserStorageRead: true
       rawPromptStored: false
       publicProjectionMetadataOnly: true
+  m75.5.real-rehearsal-acceptance:
+    risk: critical
+    trigger:
+      type: codex-desktop-real-rehearsal-acceptance
+      entrypoint: contracts real-client-calibration-kernel supervisor store dashboard docs
+      localControlRequired: true
+    scope:
+      - m75-real-acceptance-plan
+      - m75-real-acceptance-evidence-summary
+      - m75-real-acceptance-run
+      - live-client-touched-truth
+      - post-write-verification-truth
+    docs:
+      - docs/releases/m75.5-real-rehearsal-acceptance.md
+      - docs/reviews/m75.5-real-rehearsal-acceptance-review.md
+      - docs/runbooks/m75.5-real-rehearsal-acceptance-runbook.md
+    safety:
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      dryRunRequired: true
+      storeResolvedAuthorityRequired: true
+      requestBodyAuthorityTrusted: false
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      rawPromptStored: false
+      rawDomStored: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      publicProjectionMetadataOnly: true
+  m76.real-client-calibration:
+    risk: critical
+    trigger:
+      type: real-client-calibration-live-admin-rehearsal
+      entrypoint: contracts real-client-calibration-kernel supervisor store dashboard docs
+      localControlRequired: true
+    scope:
+      - real-client-calibration-session
+      - calibration-authority-grant
+      - calibration-observations
+      - calibration-drift-signatures
+      - calibration-selector-samples
+      - calibration-manifest-correction-proposals
+      - codex-desktop-live-state-calibration
+      - codex-desktop-task-dispatch-calibration
+      - chatgpt-workspace-member-remove-add-calibration
+    docs:
+      - docs/releases/m76-real-client-calibration.md
+      - docs/reviews/m76-real-client-calibration-review.md
+      - docs/runbooks/m76-real-client-calibration-runbook.md
+    safety:
+      liveWritesAllowedOnlyInTtlSession: true
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      calibrationAuthorityRequired: true
+      delegatedAdminRequiredForMemberMutation: true
+      calibrationSafeTargetRequired: true
+      ownerAdminLastAdminTargetBlocked: true
+      restoreVerificationRequired: true
+      restoreFailureStopsAutomation: true
+      noGenericCdpPassthrough: true
+      noArbitrarySelectorRunner: true
+      noArbitraryJavascriptRunner: true
+      noOperateAnyPageRoute: true
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      requestBodyAuthorityTrusted: false
+      noCredentialInput: true
+      noTokenCookieSessionCollection: true
+      noBrowserStorageRead: true
+      rawPromptStored: false
+      rawDomStored: false
+      publicProjectionMetadataOnly: true
   m72.canary-drift-hardening:
     risk: critical
     trigger:

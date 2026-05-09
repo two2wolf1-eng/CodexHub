@@ -32,6 +32,10 @@ export default defineConfig({
         workspaceRoot,
         'packages/codex-desktop-orchestration-kernel/src/index.ts',
       ),
+      '@codexhub/real-client-calibration-kernel': resolve(
+        workspaceRoot,
+        'packages/real-client-calibration-kernel/src/index.ts',
+      ),
       '@codexhub/production-real-client-kernel': resolve(
         workspaceRoot,
         'packages/production-real-client-kernel/src/index.ts',

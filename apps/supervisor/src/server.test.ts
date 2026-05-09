@@ -36,6 +36,7 @@ import {
 } from '@codexhub/contracts';
 import {
   createProductionRealClientApprovalBinding,
+  createProductionRealClientDryRun,
   createProductionRealClientOperationManifest,
   createProductionRealClientSurfaceRegistration,
   resolveProductionRealClientAuthority,
@@ -292,6 +293,42 @@ const lateStageSupervisorControlPlaneMatrix = [
     routeSuffixes: ['/connection-probes', '/dry-run', '/execute', '/break-glass', '/jobs'],
   },
   {
+    family: 'codex-desktop-orchestration',
+    prefix: '/api/codex-desktop-orchestration',
+    approvalManagedExternally: true,
+    routeSuffixes: [
+      '/state-reads',
+      '/routing-decisions',
+      '/account-switches/dry-runs',
+      '/account-switches/approval-requests',
+      '/account-switches/runs',
+      '/task-dispatches/dry-runs',
+      '/task-dispatches/approval-requests',
+      '/task-dispatches/runs',
+      '/workspace-members/state-reads',
+      '/workspace-members/actions/dry-runs',
+      '/workspace-members/actions/approval-requests',
+      '/workspace-members/actions/runs',
+      '/claude-repairs',
+      '/rehearsals',
+      '/real-acceptances',
+    ],
+  },
+  {
+    family: 'real-client-calibration',
+    prefix: '/api/real-client-calibration',
+    approvalManagedExternally: true,
+    routeSuffixes: [
+      '/sessions/dry-runs',
+      '/sessions/authority-grants',
+      '/sessions/runs',
+      '/codex-desktop/state-calibrations',
+      '/codex-desktop/task-dispatch-calibrations',
+      '/chatgpt/workspace-member/remove-add-calibrations',
+      '/corrections/apply-to-registry',
+    ],
+  },
+  {
     family: 'business-quota',
     prefix: '/api/business-quota',
     approvalManagedExternally: true,
@@ -350,6 +387,8 @@ const lateStageSupervisorHelperRouteNamespaces = [
   '/api/business-quota-debug',
   '/api/business-quota',
   '/api/real-clients',
+  '/api/codex-desktop-orchestration',
+  '/api/real-client-calibration',
 ] as const;
 
 process.env.CODEXHUB_SUPERVISOR_LOCAL_TOKEN = localControlToken;
@@ -364,6 +403,14 @@ function hashTestText(text: string): string {
 
 function hashTestMetadata(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 function extractHelperPostSuffixes(
@@ -2353,6 +2400,42 @@ describe('supervisor mock development API', () => {
             `${prefix}/jobs`,
           ]),
       )
+      .concat(
+        [...serverSource.matchAll(/registerCodexDesktopOrchestrationRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/state-reads`,
+            `${prefix}/routing-decisions`,
+            `${prefix}/account-switches/dry-runs`,
+            `${prefix}/account-switches/approval-requests`,
+            `${prefix}/account-switches/runs`,
+            `${prefix}/task-dispatches/dry-runs`,
+            `${prefix}/task-dispatches/approval-requests`,
+            `${prefix}/task-dispatches/runs`,
+            `${prefix}/workspace-members/state-reads`,
+            `${prefix}/workspace-members/actions/dry-runs`,
+            `${prefix}/workspace-members/actions/approval-requests`,
+            `${prefix}/workspace-members/actions/runs`,
+            `${prefix}/claude-repairs`,
+            `${prefix}/rehearsals`,
+            `${prefix}/real-acceptances`,
+          ]),
+      )
+      .concat(
+        [...serverSource.matchAll(/registerRealClientCalibrationRoutes\('([^']+)'\)/g)]
+          .map((match) => match[1])
+          .filter((prefix): prefix is string => Boolean(prefix))
+          .flatMap((prefix) => [
+            `${prefix}/sessions/dry-runs`,
+            `${prefix}/sessions/authority-grants`,
+            `${prefix}/sessions/runs`,
+            `${prefix}/codex-desktop/state-calibrations`,
+            `${prefix}/codex-desktop/task-dispatch-calibrations`,
+            `${prefix}/chatgpt/workspace-member/remove-add-calibrations`,
+            `${prefix}/corrections/apply-to-registry`,
+          ]),
+      )
       .sort();
     const registeredLateStageHelperPrefixes = [
       ...serverSource.matchAll(/register[A-Za-z0-9]+Routes\(([^)]*)\)/g),
@@ -2511,6 +2594,40 @@ describe('supervisor mock development API', () => {
         helperName: 'registerRealClientConnectionRoutes',
         variableName: 'prefix',
         suffixes: ['/connection-probes', '/dry-run', '/execute', '/break-glass', '/jobs'],
+      },
+      {
+        helperName: 'registerCodexDesktopOrchestrationRoutes',
+        variableName: 'prefix',
+        suffixes: [
+          '/state-reads',
+          '/routing-decisions',
+          '/account-switches/dry-runs',
+          '/account-switches/approval-requests',
+          '/account-switches/runs',
+          '/task-dispatches/dry-runs',
+          '/task-dispatches/approval-requests',
+          '/task-dispatches/runs',
+          '/workspace-members/state-reads',
+          '/workspace-members/actions/dry-runs',
+          '/workspace-members/actions/approval-requests',
+          '/workspace-members/actions/runs',
+          '/claude-repairs',
+          '/rehearsals',
+          '/real-acceptances',
+        ],
+      },
+      {
+        helperName: 'registerRealClientCalibrationRoutes',
+        variableName: 'prefix',
+        suffixes: [
+          '/sessions/dry-runs',
+          '/sessions/authority-grants',
+          '/sessions/runs',
+          '/codex-desktop/state-calibrations',
+          '/codex-desktop/task-dispatch-calibrations',
+          '/chatgpt/workspace-member/remove-add-calibrations',
+          '/corrections/apply-to-registry',
+        ],
       },
       {
         helperName: 'registerRealPolicyBackendRoutes',
@@ -4532,6 +4649,177 @@ describe('supervisor mock development API', () => {
       distinctApproverHashCount: 2,
       temporarySurfaceRegistrationAllowed: true,
     });
+  });
+
+  it('guards M75 real acceptance and M76 live calibration routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-real-calibration-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const originalCalibrationEnabled = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED;
+    const originalCalibrationLive = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED;
+    const originalCalibrationAdmin = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED;
+    const originalM75Enabled = process.env.CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED;
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED = 'true';
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED = 'true';
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED = 'true';
+    process.env.CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED = 'true';
+    const server = buildSupervisorServer({ store });
+    const now = () => '2026-05-09T00:00:00.000Z';
+    const surface = createProductionRealClientSurfaceRegistration({
+      surfaceId: 'chatgpt-admin-calibration',
+      surfaceKind: 'chatgpt-workspace-admin',
+      registeredBySeed: 'operator',
+      allowedOperationIds: ['chatgpt.workspace.calibration_member_remove_then_add.v1'],
+      now,
+    });
+    const manifest = createProductionRealClientOperationManifest({
+      operationId: 'chatgpt.workspace.calibration_member_remove_then_add.v1',
+      operationKind: 'chatgptWorkspaceMemberRemoveAddCalibration',
+      surfaceKind: 'chatgpt-workspace-admin',
+      capabilityClass: 'high-risk-production',
+      delegatedAuthorityRequired: true,
+      now,
+    });
+    const dryRun = createProductionRealClientDryRun({
+      surface,
+      manifest,
+      inputRefSeed: 'calibration-input-ref',
+      targetSeed: 'calibration-member-ref',
+      plannedStepCount: 5,
+      now,
+    });
+    const approval = createProductionRealClientApprovalBinding({
+      dryRunId: dryRun.id,
+      approvalArtifactSeed: 'calibration-approval',
+      approverSeed: 'operator-a',
+      now,
+    });
+    const authority = resolveProductionRealClientAuthority({
+      dryRun,
+      manifest,
+      surface,
+      approvalBindings: [approval],
+      delegatedAuthoritySeed: 'delegated-admin',
+      now,
+    });
+    await store.productionRealClientSurfaces.saveRecord(surface);
+    await store.productionRealClientOperationManifests.saveRecord(manifest);
+    await store.productionRealClientDryRuns.saveRecord(dryRun);
+    await store.productionRealClientApprovalBindings.saveRecord(approval);
+    await store.productionRealClientAuthorities.saveRecord(authority);
+
+    const rejectedSessionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/sessions/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        surfaceRegistrationIds: [surface.id],
+        manifestIds: [manifest.id],
+        rawSelector: 'button[aria-label="Remove"]',
+      },
+    });
+    const sessionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/sessions/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sessionKind: 'chatgpt_workspace_member_remove_add',
+        surfaceRegistrationIds: [surface.id],
+        manifestIds: [manifest.id],
+        calibrationTargetRefId: 'calibration-member-ref',
+        calibrationSafe: true,
+        restoreAllowed: true,
+        delegatedAdminAuthorityRequired: true,
+        liveWritesAllowed: true,
+        adminWriteAllowed: true,
+        ttlSeconds: 900,
+      },
+    });
+    const session = sessionResponse.json().session;
+    const missingGrantResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/chatgpt/workspace-member/remove-add-calibrations',
+      headers: localControlHeaders,
+      payload: { sessionId: session.id, targetMemberRefId: 'calibration-member-ref' },
+    });
+    const grantResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/sessions/authority-grants',
+      headers: localControlHeaders,
+      payload: {
+        sessionId: session.id,
+        authorityRefId: authority.id,
+        approvalBindingIds: [approval.id],
+      },
+    });
+    const grant = grantResponse.json();
+    const removeAddResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/chatgpt/workspace-member/remove-add-calibrations',
+      headers: localControlHeaders,
+      payload: {
+        sessionId: session.id,
+        authorityGrantId: grant.id,
+        targetMemberRefId: 'calibration-member-ref',
+        realBoundaryReached: true,
+        liveClientTouched: true,
+        postWriteVerified: true,
+      },
+    });
+    const acceptanceResponse = await server.inject({
+      method: 'POST',
+      url: '/api/codex-desktop-orchestration/real-acceptances',
+      headers: localControlHeaders,
+      payload: {
+        rehearsalRunId: 'm75-rehearsal-acceptance',
+        expectedOperationKinds: ['chatgptWorkspaceMemberRemoveAddCalibration'],
+        expectedSurfaceRegistrationIds: [surface.id],
+        expectedManifestIds: [manifest.id],
+        conditionalLiveAllowed: true,
+        adminWriteExpected: true,
+        boundaryEventCount: 1,
+        liveClientTouched: true,
+        adminWriteTouched: true,
+        postWriteVerified: true,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED', originalCalibrationEnabled);
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED', originalCalibrationLive);
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED', originalCalibrationAdmin);
+    restoreEnv('CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED', originalM75Enabled);
+
+    expect(rejectedSessionResponse.statusCode).toBe(400);
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(missingGrantResponse.statusCode).toBe(403);
+    expect(grantResponse.statusCode).toBe(200);
+    expect(removeAddResponse.statusCode).toBe(200);
+    expect(removeAddResponse.json()).toMatchObject({
+      status: 'restored_with_pending_invite',
+      adminWriteTouched: true,
+      postWriteVerified: true,
+      rawSelectorStored: false,
+      credentialMaterialStored: false,
+    });
+    expect(acceptanceResponse.statusCode).toBe(200);
+    expect(acceptanceResponse.json().run).toMatchObject({
+      status: 'real_live_accepted',
+      adminWriteTouched: true,
+      postWriteVerified: true,
+    });
+    for (const body of [
+      rejectedSessionResponse.body,
+      sessionResponse.body,
+      grantResponse.body,
+      removeAddResponse.body,
+      acceptanceResponse.body,
+    ]) {
+      expect(body).not.toContain('button[aria-label="Remove"]');
+      expect(body).not.toContain('calibration-member-ref');
+      expect(body).not.toContain(localControlToken);
+    }
   });
 
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {

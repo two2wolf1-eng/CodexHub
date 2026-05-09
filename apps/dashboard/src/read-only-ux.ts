@@ -57,6 +57,7 @@ export const DASHBOARD_VIEWS = [
   'runtime',
   'operations',
   'codex-desktop',
+  'real-calibration',
   'workflows',
   'production-ga',
 ] as const;
@@ -718,6 +719,34 @@ export interface CodexDesktopOrchestrationReadOnlySummary {
   arbitraryJsAllowed: false;
   credentialViewerAllowed: false;
   rawPromptViewerAllowed: false;
+  localControlKeyRead: false;
+  summary: string;
+}
+
+export interface RealClientCalibrationReadOnlySummary {
+  manifestName: string;
+  manifestVersion: string;
+  status: 'blocked' | 'degraded';
+  calibrationWindowCount: number;
+  observationCount: number;
+  driftSignatureCount: number;
+  correctionProposalCount: number;
+  m75AcceptanceCount: number;
+  latestRunStatus: string;
+  latestDriftStatus: string;
+  productDefaultEnabled: false;
+  liveWritesDefaultEnabled: false;
+  adminWriteDefaultEnabled: false;
+  registeredSurfaceRequired: true;
+  registeredManifestRequired: true;
+  calibrationAuthorityRequired: true;
+  delegatedAdminRequiredForMemberMutation: true;
+  genericCdpPassthroughAllowed: false;
+  arbitrarySelectorAllowed: false;
+  arbitraryJsAllowed: false;
+  credentialViewerAllowed: false;
+  rawPromptViewerAllowed: false;
+  rawDomViewerAllowed: false;
   localControlKeyRead: false;
   summary: string;
 }
@@ -2280,6 +2309,47 @@ export function createCodexDesktopOrchestrationReadOnlySummary(input: {
   };
 }
 
+export function createRealClientCalibrationReadOnlySummary(input: {
+  calibrationWindowCount?: number;
+  observationCount?: number;
+  driftSignatureCount?: number;
+  correctionProposalCount?: number;
+  m75AcceptanceCount?: number;
+  latestRunStatus?: string;
+  latestDriftStatus?: string;
+  blockerCount?: number;
+} = {}): RealClientCalibrationReadOnlySummary {
+  const blockerCount = input.blockerCount ?? 0;
+  return {
+    manifestName: 'real-client-calibration',
+    manifestVersion: '0.76.0-live-calibration',
+    status: blockerCount > 0 ? 'blocked' : 'degraded',
+    calibrationWindowCount: input.calibrationWindowCount ?? 0,
+    observationCount: input.observationCount ?? 0,
+    driftSignatureCount: input.driftSignatureCount ?? 0,
+    correctionProposalCount: input.correctionProposalCount ?? 0,
+    m75AcceptanceCount: input.m75AcceptanceCount ?? 0,
+    latestRunStatus: normalizeProductionGaPublicStatus(input.latestRunStatus, 'none'),
+    latestDriftStatus: normalizeProductionGaPublicStatus(input.latestDriftStatus, 'unknown'),
+    productDefaultEnabled: false,
+    liveWritesDefaultEnabled: false,
+    adminWriteDefaultEnabled: false,
+    registeredSurfaceRequired: true,
+    registeredManifestRequired: true,
+    calibrationAuthorityRequired: true,
+    delegatedAdminRequiredForMemberMutation: true,
+    genericCdpPassthroughAllowed: false,
+    arbitrarySelectorAllowed: false,
+    arbitraryJsAllowed: false,
+    credentialViewerAllowed: false,
+    rawPromptViewerAllowed: false,
+    rawDomViewerAllowed: false,
+    localControlKeyRead: false,
+    summary:
+      'Real-client calibration records live acceptance, drift, and correction metadata only. Live writes remain TTL-bound and require registered surfaces, manifests, calibration authority, evidence, and audit.',
+  };
+}
+
 function normalizeProductionGaPublicStatus(
   value: string | undefined,
   fallback = 'unknown',
@@ -2290,7 +2360,15 @@ function normalizeProductionGaPublicStatus(
     'blocked',
     'failed',
     'completed',
+    'passed',
+    'restored_with_pending_invite',
+    'restore_failed',
+    'drift_blocked',
+    'failed_requires_manual_repair',
     'readiness_blocked',
+    'no_drift',
+    'drift_detected',
+    'incompatible',
     'none',
     'unknown',
   ]);

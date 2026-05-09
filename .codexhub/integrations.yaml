@@ -3495,6 +3495,105 @@ integrations:
       requestBodyAuthorityTrusted: false
       rawPromptStored: false
       credentialMaterialStored: false
+  m75-5-real-rehearsal-acceptance:
+    enabled: false
+    adapter: real-client-calibration-kernel
+    provider: codex-desktop-real-acceptance
+    providerType: governed
+    mode: real-rehearsal-acceptance-envelope
+    stage: m75.5-real-rehearsal-acceptance
+    release: docs/releases/m75.5-real-rehearsal-acceptance.md
+    review: docs/reviews/m75.5-real-rehearsal-acceptance-review.md
+    runbook: docs/runbooks/m75.5-real-rehearsal-acceptance-runbook.md
+    processBoundary: false
+    networkBoundary: false
+    remoteProviderBoundary: false
+    defaultActionMode: dry-run
+    defaultRisk: critical
+    runtimeGates:
+      - CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED
+    supervisorRoutes:
+      - GET /api/codex-desktop-orchestration/real-acceptances
+      - POST /api/codex-desktop-orchestration/real-acceptances
+    persistedStores:
+      - m75_real_rehearsal_acceptance_plans
+      - m75_real_rehearsal_evidence_summaries
+      - m75_real_rehearsal_acceptance_runs
+    safety:
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      requestBodyAuthorityTrusted: false
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      rawPromptStored: false
+      credentialMaterialStored: false
+      publicProjectionMetadataOnly: true
+  m76-real-client-calibration:
+    enabled: false
+    adapter: real-client-calibration-kernel
+    provider: registered-real-client-calibration
+    providerType: governed
+    mode: ttl-bound-live-calibration
+    stage: m76-real-client-calibration
+    release: docs/releases/m76-real-client-calibration.md
+    review: docs/reviews/m76-real-client-calibration-review.md
+    runbook: docs/runbooks/m76-real-client-calibration-runbook.md
+    processBoundary: true
+    networkBoundary: true
+    remoteProviderBoundary: false
+    defaultActionMode: admin
+    defaultRisk: critical
+    runtimeGates:
+      - CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED
+      - CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED
+      - CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED
+      - CODEXHUB_CODEX_DESKTOP_TASK_DISPATCH_ENABLED
+    supervisorRoutes:
+      - GET /api/real-client-calibration/status
+      - GET /api/real-client-calibration/sessions
+      - GET /api/real-client-calibration/observations
+      - GET /api/real-client-calibration/drift
+      - GET /api/real-client-calibration/corrections
+      - POST /api/real-client-calibration/sessions/dry-runs
+      - POST /api/real-client-calibration/sessions/authority-grants
+      - POST /api/real-client-calibration/sessions/runs
+      - POST /api/real-client-calibration/codex-desktop/state-calibrations
+      - POST /api/real-client-calibration/codex-desktop/task-dispatch-calibrations
+      - POST /api/real-client-calibration/chatgpt/workspace-member/remove-add-calibrations
+      - POST /api/real-client-calibration/corrections/apply-to-registry
+    persistedStores:
+      - real_client_calibration_sessions
+      - calibration_authority_grants
+      - calibration_observations
+      - calibration_drift_signatures
+      - calibration_selector_samples
+      - calibration_manifest_correction_proposals
+      - calibration_runs
+      - calibration_retention_policies
+    safety:
+      liveWritesAllowedOnlyInTtlSession: true
+      registeredSurfaceRequired: true
+      operationManifestRequired: true
+      calibrationAuthorityRequired: true
+      delegatedAdminRequiredForMemberMutation: true
+      calibrationSafeTargetRequired: true
+      ownerAdminLastAdminTargetBlocked: true
+      restoreVerificationRequired: true
+      restoreFailureStopsAutomation: true
+      directAdapterExecutionAllowed: false
+      genericBrowserAutomationAllowed: false
+      genericCdpCommandPassthroughAllowed: false
+      arbitrarySelectorRunnerAllowed: false
+      arbitraryJavascriptRunnerAllowed: false
+      operateAnyPageAllowed: false
+      requestBodyEndpointTrusted: false
+      requestBodySelectorTrusted: false
+      requestBodyScriptTrusted: false
+      requestBodyAuthorityTrusted: false
+      rawPromptStored: false
+      rawDomStored: false
+      credentialMaterialStored: false
   m72-canary-drift-hardening:
     enabled: false
     adapter: production-readiness-control-plane

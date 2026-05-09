@@ -96,6 +96,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(getDashboardViewFromHash('#/release-candidates')).toBe('release-candidates');
     expect(getDashboardViewFromHash('#/operations')).toBe('operations');
     expect(getDashboardViewFromHash('#/codex-desktop')).toBe('codex-desktop');
+    expect(getDashboardViewFromHash('#/real-calibration')).toBe('real-calibration');
     expect(getDashboardViewFromHash('#/workflows')).toBe('workflows');
     expect(getDashboardViewFromHash('#/production-ga')).toBe('production-ga');
     expect(getDashboardViewFromHash('#verification')).toBe('verification');
@@ -114,6 +115,7 @@ describe('dashboard read-only UX helpers', () => {
       'runtime',
       'operations',
       'codex-desktop',
+      'real-calibration',
       'production-ga',
       'policy-telemetry',
       'browser-profiles',
@@ -144,6 +146,7 @@ describe('dashboard read-only UX helpers', () => {
       { view: 'runtime', firstPanel: 'Runtime Scheduler' },
       { view: 'operations', firstPanel: 'Platform Operations' },
       { view: 'codex-desktop', firstPanel: 'Codex Desktop Orchestration' },
+      { view: 'real-calibration', firstPanel: 'Real Calibration' },
       { view: 'production-ga', firstPanel: 'Production GA Readiness' },
     ] as const;
 
@@ -173,6 +176,7 @@ describe('dashboard read-only UX helpers', () => {
     expect(serialized).toContain('#/runtime');
     expect(serialized).toContain('#/operations');
     expect(serialized).toContain('#/codex-desktop');
+    expect(serialized).toContain('#/real-calibration');
     expectNoForbiddenRawOutputTerms(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');
     expect(serialized).not.toContain('localStorage');
@@ -193,6 +197,7 @@ describe('dashboard read-only UX helpers', () => {
       { view: 'runtime', firstPanel: 'Runtime Scheduler' },
       { view: 'operations', firstPanel: 'Platform Operations' },
       { view: 'codex-desktop', firstPanel: 'Codex Desktop Orchestration' },
+      { view: 'real-calibration', firstPanel: 'Real Calibration' },
       { view: 'production-ga', firstPanel: 'Production GA Readiness' },
     ] as const;
 
@@ -207,6 +212,7 @@ describe('dashboard read-only UX helpers', () => {
       'runtime',
       'operations',
       'codex-desktop',
+      'real-calibration',
       'production-ga',
     ]);
 
@@ -237,9 +243,10 @@ describe('dashboard read-only UX helpers', () => {
     });
     const serialized = JSON.stringify(smokeMatrix);
 
-    expect(smokeMatrix).toHaveLength(11);
+    expect(smokeMatrix).toHaveLength(12);
     expect(serialized).toContain('#/production-ga');
     expect(serialized).toContain('#/codex-desktop');
+    expect(serialized).toContain('#/real-calibration');
     expect(serialized).toContain('Supervisor unavailable');
     expectNoForbiddenRawOutputTerms(serialized);
     expect(serialized).not.toContain('CODEXHUB_SUPERVISOR_LOCAL_TOKEN');

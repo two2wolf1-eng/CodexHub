@@ -172,6 +172,20 @@ import {
   createWorkspaceMemberActionEvidence,
   routeCodexTaskByCapacity,
 } from '@codexhub/codex-desktop-orchestration-kernel';
+import {
+  containsForbiddenCalibrationRequestBody,
+  createCalibrationAuthorityGrant,
+  createCalibrationDriftSignature,
+  createCalibrationManifestCorrectionProposal,
+  createCalibrationObservation,
+  createCalibrationRetentionPolicy,
+  createCalibrationRun,
+  createCalibrationSelectorSample,
+  createM75RealRehearsalAcceptancePlan,
+  createM75RealRehearsalAcceptanceRun,
+  createM75RealRehearsalEvidenceSummary,
+  createRealClientCalibrationSession,
+} from '@codexhub/real-client-calibration-kernel';
 import type {
   AuditEvent,
   BrowserObservationApprovalArtifactRecord,
@@ -5042,6 +5056,7 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   registerBusinessQuotaAdminUiRoutes('/api/business-quota/admin-ui');
   registerRealClientConnectionRoutes('/api/real-clients');
   registerCodexDesktopOrchestrationRoutes('/api/codex-desktop-orchestration');
+  registerRealClientCalibrationRoutes('/api/real-client-calibration');
   registerProductionGaRoutes('/api/production-ga');
 
   registerGithubPrManagementRoutes('labels', '/api/github/pr-labels');
@@ -24271,6 +24286,11 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
     'chatgptWorkspaceMemberAdd',
     'chatgptWorkspaceMemberRemove',
     'claudeCodeRepairProposal',
+    'codexDesktopLiveStateCalibration',
+    'codexDesktopLiveTaskDispatchCalibration',
+    'chatgptWorkspaceMemberRemoveAddCalibration',
+    'chromeChatgptLiveUiCalibration',
+    'manifestCorrectionCalibration',
   ]);
 
   function normalizeRealClientSurface(
@@ -24733,9 +24753,368 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       await store.m75RehearsalRuns.saveRecord(record);
       return record;
     });
+
+    server.get(`${prefix}/real-acceptances`, async () => {
+      const store = await getStore();
+      const [plans, evidenceSummaries, runs] = store
+        ? await Promise.all([
+            store.m75RealRehearsalAcceptancePlans.listRecords({ limit: 100 }),
+            store.m75RealRehearsalEvidenceSummaries.listRecords({ limit: 100 }),
+            store.m75RealRehearsalAcceptanceRuns.listRecords({ limit: 100 }),
+          ])
+        : [[], [], []];
+      return {
+        storeAvailable: store !== undefined,
+        plans,
+        evidenceSummaries,
+        runs,
+        rawEndpointStored: false,
+        rawSelectorStored: false,
+        rawScriptStored: false,
+        credentialMaterialStored: false,
+      };
+    });
+
+    server.post(`${prefix}/real-acceptances`, async (request, reply) => {
+      const body = request.body as M75RequestBody | undefined;
+      if (hasForbiddenM75RouteBody(body)) return reply.code(400).send(createM75RejectedBodyResponse());
+      if (!isM75Enabled()) return reply.code(403).send(createM75DisabledResponse('m75_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m75-real-acceptance'));
+      const rehearsalRunId = readBodyString(body, 'rehearsalRunId');
+      if (!rehearsalRunId) return reply.code(400).send({ error: 'rehearsal_run_id_required' });
+      const plan = createM75RealRehearsalAcceptancePlan({
+        rehearsalRunId,
+        expectedOperationKinds: readStringArray(body, 'expectedOperationKinds')
+          .map(normalizeProductionOperationKind)
+          .filter((item): item is NonNullable<ReturnType<typeof normalizeProductionOperationKind>> =>
+            Boolean(item),
+          ),
+        expectedSurfaceRegistrationIds: readStringArray(body, 'expectedSurfaceRegistrationIds'),
+        expectedManifestIds: readStringArray(body, 'expectedManifestIds'),
+        conditionalLiveAllowed: body?.conditionalLiveAllowed === true,
+        adminWriteExpected: body?.adminWriteExpected === true,
+        codexDesktopExpected: body?.codexDesktopExpected === true,
+        postWriteVerificationRequired: body?.postWriteVerificationRequired === true,
+      });
+      const evidence = createM75RealRehearsalEvidenceSummary({
+        acceptancePlanId: plan.id,
+        rehearsalRunId,
+        evidenceVaultRecordIds: readStringArray(body, 'evidenceVaultRecordIds'),
+        auditLedgerEntryIds: readStringArray(body, 'auditLedgerEntryIds'),
+        boundaryEventCount:
+          typeof body?.boundaryEventCount === 'number' ? body.boundaryEventCount : 0,
+        liveClientTouched: body?.liveClientTouched === true,
+        adminWriteTouched: body?.adminWriteTouched === true,
+        codexDesktopTouched: body?.codexDesktopTouched === true,
+        postWriteVerified: body?.postWriteVerified === true,
+      });
+      const run = createM75RealRehearsalAcceptanceRun({
+        acceptancePlan: plan,
+        evidenceSummary: evidence,
+        conditionalLive: body?.conditionalLive === true,
+        blockedReasons: readStringArray(body, 'blockedReasons'),
+      });
+      await store.m75RealRehearsalAcceptancePlans.saveRecord(plan);
+      await store.m75RealRehearsalEvidenceSummaries.saveRecord(evidence);
+      await store.m75RealRehearsalAcceptanceRuns.saveRecord(run);
+      return { plan, evidence, run };
+    });
+  }
+
+  function registerRealClientCalibrationRoutes(prefix: string): void {
+    server.get(`${prefix}/status`, async () => {
+      const store = await getStore();
+      return {
+        enabled: isCalibrationEnabled(),
+        storeAvailable: store !== undefined,
+        liveWritesEnabled: process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED === 'true',
+        adminWriteEnabled: process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED === 'true',
+        codexDesktopDispatchEnabled:
+          process.env.CODEXHUB_CODEX_DESKTOP_TASK_DISPATCH_ENABLED === 'true',
+        requestBodyEndpointAccepted: false,
+        requestBodySelectorAccepted: false,
+        requestBodyScriptAccepted: false,
+        requestBodyAuthorityAccepted: false,
+        rawPromptStored: false,
+        credentialMaterialStored: false,
+        summary: 'M76 calibration routes are TTL-bound and registered-surface only.',
+      };
+    });
+
+    server.get(`${prefix}/sessions`, async () => {
+      const store = await getStore();
+      const records = store ? await store.realClientCalibrationSessions.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, rawEndpointStored: false };
+    });
+
+    server.get(`${prefix}/observations`, async () => {
+      const store = await getStore();
+      const records = store ? await store.calibrationObservations.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, rawDomStored: false };
+    });
+
+    server.get(`${prefix}/drift`, async () => {
+      const store = await getStore();
+      const records = store ? await store.calibrationDriftSignatures.listRecords({ limit: 100 }) : [];
+      return { storeAvailable: store !== undefined, records, highRiskExecutionBlockedOnDrift: true };
+    });
+
+    server.get(`${prefix}/corrections`, async () => {
+      const store = await getStore();
+      const records = store
+        ? await store.calibrationManifestCorrectionProposals.listRecords({ limit: 100 })
+        : [];
+      return { storeAvailable: store !== undefined, records, rawSelectorStored: false };
+    });
+
+    server.post(`${prefix}/sessions/dry-runs`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      if (!isCalibrationEnabled()) return reply.code(403).send(createCalibrationDisabledResponse('m76_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m76-session'));
+      const surfaceIds = readStringArray(body, 'surfaceRegistrationIds');
+      const manifestIds = readStringArray(body, 'manifestIds');
+      const resolution = await resolveCalibrationSurfacesAndManifests(store, surfaceIds, manifestIds);
+      if (!resolution.ok) return reply.code(404).send(resolution.response);
+      const session = createRealClientCalibrationSession({
+        sessionKind: normalizeCalibrationSessionKind(body?.sessionKind),
+        status: 'planned',
+        surfaceRegistrationIds: surfaceIds,
+        manifestIds,
+        targetSeed: readBodyString(body, 'targetRefId'),
+        calibrationTargetSeed: readBodyString(body, 'calibrationTargetRefId'),
+        calibrationSafe: body?.calibrationSafe === true,
+        restoreAllowed: body?.restoreAllowed === true,
+        delegatedAdminAuthorityRequired: body?.delegatedAdminAuthorityRequired === true,
+        ttlSeconds: typeof body?.ttlSeconds === 'number' ? body.ttlSeconds : undefined,
+        liveWritesAllowed:
+          body?.liveWritesAllowed === true &&
+          process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED === 'true',
+        adminWriteAllowed:
+          body?.adminWriteAllowed === true &&
+          process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED === 'true',
+      });
+      const retention = createCalibrationRetentionPolicy({ sessionId: session.id });
+      await store.realClientCalibrationSessions.saveRecord(session);
+      await store.calibrationRetentionPolicies.saveRecord(retention);
+      return { session, retention, requestBodyAuthorityAccepted: false };
+    });
+
+    server.post(`${prefix}/sessions/authority-grants`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      if (!isCalibrationEnabled()) return reply.code(403).send(createCalibrationDisabledResponse('m76_disabled'));
+      const store = await getStore();
+      if (!store) return reply.code(503).send(createNewSurfaceStoreUnavailableResponse('m76-authority'));
+      const session = readBodyString(body, 'sessionId')
+        ? await store.realClientCalibrationSessions.getRecord(String(body?.sessionId))
+        : undefined;
+      if (!session) return reply.code(404).send({ error: 'calibration_session_missing' });
+      const authority = readBodyString(body, 'authorityRefId')
+        ? await store.productionRealClientAuthorities.getRecord(String(body?.authorityRefId))
+        : undefined;
+      if (!authority?.allowed) {
+        return reply.code(403).send({
+          error: 'store_resolved_calibration_authority_required',
+          requestBodyAuthorityAccepted: false,
+          liveExecution: false,
+        });
+      }
+      const approvalBindingIds = readStringArray(body, 'approvalBindingIds');
+      const resolvedApprovals = [];
+      for (const id of approvalBindingIds) {
+        const record = await store.productionRealClientApprovalBindings.getRecord(id);
+        if (record?.decision === 'approved') resolvedApprovals.push(record);
+      }
+      if (session.liveWritesAllowed && resolvedApprovals.length === 0) {
+        return reply.code(403).send({ error: 'calibration_approval_required' });
+      }
+      const grant = createCalibrationAuthorityGrant({
+        session,
+        authorityRefSeed: authority.id,
+        approvalBindingIds: resolvedApprovals.map((record) => record.id),
+        approverSeeds: resolvedApprovals.map((record) => record.approverHash),
+        liveWritesAllowed: session.liveWritesAllowed,
+        adminWriteAllowed: session.adminWriteAllowed,
+        delegatedAdminAuthorityVerified:
+          session.delegatedAdminAuthorityRequired === false || Boolean(authority.delegatedAuthorityHash),
+      });
+      await store.calibrationAuthorityGrants.saveRecord(grant);
+      return grant;
+    });
+
+    server.post(`${prefix}/sessions/runs`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const run = createCalibrationRun({
+        session: resolved.session,
+        authorityGrant: resolved.grant,
+        operationKind: normalizeProductionOperationKind(body?.operationKind) ?? 'chromeChatgptLiveUiCalibration',
+        status: normalizeCalibrationRunStatus(body?.status),
+        preflightStatus: readBodyString(body, 'preflightStatus'),
+        realBoundaryReached: body?.realBoundaryReached === true,
+        liveClientTouched: body?.liveClientTouched === true,
+        codexDesktopTouched: body?.codexDesktopTouched === true,
+        postWriteVerified: body?.postWriteVerified === true,
+        blockedReasons: readStringArray(body, 'blockedReasons'),
+      });
+      await resolved.store.calibrationRuns.saveRecord(run);
+      return run;
+    });
+
+    server.post(`${prefix}/codex-desktop/state-calibrations`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const observation = createCalibrationObservation({
+        session: resolved.session,
+        operationKind: 'codexDesktopLiveStateCalibration',
+        observationKind: 'codex_desktop_state',
+        beforeStateSeed: readBodyString(body, 'beforeStateRefId'),
+        afterStateSeed: readBodyString(body, 'afterStateRefId'),
+        cdpWebSocketBoundaryInvoked: body?.cdpWebSocketBoundaryInvoked === true,
+        electronActionInvoked: body?.electronActionInvoked === true,
+      });
+      const run = createCalibrationRun({
+        session: resolved.session,
+        authorityGrant: resolved.grant,
+        operationKind: 'codexDesktopLiveStateCalibration',
+        status: body?.realBoundaryReached === true ? 'passed' : 'readiness_blocked',
+        preflightStatus: 'ready',
+        codexDesktopStatus: readBodyString(body, 'codexDesktopStatus') ?? 'observed',
+        realBoundaryReached: body?.realBoundaryReached === true,
+        liveClientTouched: body?.liveClientTouched === true,
+        codexDesktopTouched: true,
+        postWriteVerified: true,
+      });
+      await resolved.store.calibrationObservations.saveRecord(observation);
+      await resolved.store.calibrationRuns.saveRecord(run);
+      return { observation, run };
+    });
+
+    server.post(`${prefix}/codex-desktop/task-dispatch-calibrations`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      if (process.env.CODEXHUB_CODEX_DESKTOP_TASK_DISPATCH_ENABLED !== 'true') {
+        return reply
+          .code(403)
+          .send(createCalibrationDisabledResponse('codex_desktop_task_dispatch_disabled'));
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const run = createCalibrationRun({
+        session: resolved.session,
+        authorityGrant: resolved.grant,
+        operationKind: 'codexDesktopLiveTaskDispatchCalibration',
+        status: body?.realBoundaryReached === true ? 'passed' : 'readiness_blocked',
+        preflightStatus: readBodyString(body, 'preflightStatus') ?? 'ready',
+        codexDesktopStatus: readBodyString(body, 'codexDesktopStatus') ?? 'submitted',
+        realBoundaryReached: body?.realBoundaryReached === true,
+        liveClientTouched: body?.liveClientTouched === true,
+        codexDesktopTouched: true,
+        postWriteVerified: true,
+      });
+      await resolved.store.calibrationRuns.saveRecord(run);
+      return { run, rawPromptStored: false };
+    });
+
+    server.post(`${prefix}/chatgpt/workspace-member/remove-add-calibrations`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      if (process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ADMIN_WRITE_ENABLED !== 'true') {
+        return reply.code(403).send(createCalibrationDisabledResponse('m76_admin_write_disabled'));
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      if (!resolved.session.calibrationSafe || !resolved.session.restoreAllowed) {
+        return reply.code(403).send({
+          error: 'calibration_target_not_safe_or_not_restorable',
+          liveExecution: false,
+          adminWriteTouched: false,
+        });
+      }
+      if (!resolved.grant?.delegatedAdminAuthorityVerified) {
+        return reply.code(403).send({
+          error: 'delegated_admin_calibration_authority_required',
+          requestBodyAuthorityAccepted: false,
+          liveExecution: false,
+        });
+      }
+      const run = createCalibrationRun({
+        session: resolved.session,
+        authorityGrant: resolved.grant,
+        operationKind: 'chatgptWorkspaceMemberRemoveAddCalibration',
+        status: normalizeCalibrationRunStatus(body?.status) ?? 'restored_with_pending_invite',
+        targetMemberSeed: readBodyString(body, 'targetMemberRefId'),
+        preflightStatus: readBodyString(body, 'preflightStatus') ?? 'ready',
+        removeStatus: readBodyString(body, 'removeStatus') ?? 'completed',
+        restoreStatus: readBodyString(body, 'restoreStatus') ?? 'pending_invite',
+        restorationOutcome: normalizeRestorationOutcome(body?.restorationOutcome),
+        calibrationSafeTargetVerified: true,
+        delegatedAdminAuthorityVerified: true,
+        realBoundaryReached: body?.realBoundaryReached === true,
+        liveClientTouched: body?.liveClientTouched === true,
+        adminWriteTouched: true,
+        postWriteVerified: body?.postWriteVerified !== false,
+        blockedReasons: readStringArray(body, 'blockedReasons'),
+      });
+      await resolved.store.calibrationRuns.saveRecord(run);
+      return run;
+    });
+
+    server.post(`${prefix}/corrections/apply-to-registry`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const drift = createCalibrationDriftSignature({
+        session: resolved.session,
+        status: normalizeCalibrationDriftStatus(body?.driftStatus),
+        selectorDriftCount: typeof body?.selectorDriftCount === 'number' ? body.selectorDriftCount : 0,
+        axRoleDriftCount: typeof body?.axRoleDriftCount === 'number' ? body.axRoleDriftCount : 0,
+        pageStateDriftCount: typeof body?.pageStateDriftCount === 'number' ? body.pageStateDriftCount : 0,
+        timingDriftCount: typeof body?.timingDriftCount === 'number' ? body.timingDriftCount : 0,
+      });
+      const sample = createCalibrationSelectorSample({
+        session: resolved.session,
+        selectorSeed: readBodyString(body, 'selectorSampleRefId') ?? drift.id,
+        compatible: drift.status === 'compatible',
+      });
+      const proposal = createCalibrationManifestCorrectionProposal({
+        session: resolved.session,
+        driftSignatureId: drift.id,
+        proposedManifestSeed: readBodyString(body, 'proposedManifestRefId') ?? sample.selectorHash,
+        evidenceComplete: body?.evidenceComplete === true,
+        confidence: body?.confidence === 'high' || body?.confidence === 'low' ? body.confidence : 'medium',
+      });
+      await resolved.store.calibrationDriftSignatures.saveRecord(drift);
+      await resolved.store.calibrationSelectorSamples.saveRecord(sample);
+      await resolved.store.calibrationManifestCorrectionProposals.saveRecord(proposal);
+      return { drift, sample, proposal, requestBodySelectorAccepted: false };
+    });
   }
 
   type M75RequestBody = Record<string, unknown>;
+  type CalibrationRequestBody = Record<string, unknown>;
 
   function isM75Enabled(): boolean {
     return process.env.CODEXHUB_CODEX_DESKTOP_ORCHESTRATION_ENABLED === 'true';
@@ -24863,6 +25242,175 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       value === 'claude-repair-proposal'
       ? value
       : 'state-blocked';
+  }
+
+  function isCalibrationEnabled(): boolean {
+    return process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED === 'true';
+  }
+
+  function hasForbiddenCalibrationRouteBody(body: unknown): boolean {
+    return hasUntrustedAuthorityBody(body) || containsForbiddenCalibrationRequestBody(body);
+  }
+
+  function createCalibrationRejectedBodyResponse(): Record<string, unknown> {
+    return {
+      error: 'untrusted_real_client_calibration_raw_body_or_authority',
+      requestBodyEndpointAccepted: false,
+      requestBodySelectorAccepted: false,
+      requestBodyScriptAccepted: false,
+      requestBodyAuthorityAccepted: false,
+      rawPromptStored: false,
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      credentialMaterialStored: false,
+    };
+  }
+
+  function createCalibrationDisabledResponse(error: string): Record<string, unknown> {
+    return {
+      error,
+      liveExecution: false,
+      externalProcessStarted: false,
+      executionDisabled: true,
+      requestBodyAuthorityAccepted: false,
+    };
+  }
+
+  function readStringArray(body: CalibrationRequestBody | undefined, key: string): string[] {
+    const value = body?.[key];
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+
+  type SupervisorStore = NonNullable<Awaited<ReturnType<typeof getStore>>>;
+
+  async function resolveCalibrationSurfacesAndManifests(
+    store: SupervisorStore,
+    surfaceIds: readonly string[],
+    manifestIds: readonly string[],
+  ): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        response: Record<string, unknown>;
+      }
+  > {
+    if (surfaceIds.length === 0 || manifestIds.length === 0) {
+      return {
+        ok: false,
+        response: {
+          error: 'registered_surface_and_manifest_required',
+          requestBodyEndpointAccepted: false,
+          requestBodySelectorAccepted: false,
+        },
+      };
+    }
+    for (const id of surfaceIds) {
+      if (!(await store.productionRealClientSurfaces.getRecord(id))) {
+        return { ok: false, response: { error: 'registered_surface_missing', idHash: hashLocalMetadata(id) } };
+      }
+    }
+    for (const id of manifestIds) {
+      if (!(await store.productionRealClientOperationManifests.getRecord(id))) {
+        return { ok: false, response: { error: 'registered_manifest_missing', idHash: hashLocalMetadata(id) } };
+      }
+    }
+    return { ok: true };
+  }
+
+  async function resolveCalibrationSessionAndGrant(
+    body: CalibrationRequestBody | undefined,
+  ): Promise<
+    | {
+        store: SupervisorStore;
+        session: NonNullable<
+          Awaited<ReturnType<SupervisorStore['realClientCalibrationSessions']['getRecord']>>
+        >;
+        grant: Awaited<ReturnType<SupervisorStore['calibrationAuthorityGrants']['getRecord']>>;
+      }
+    | {
+        code: number;
+        response: Record<string, unknown>;
+      }
+  > {
+    if (hasForbiddenCalibrationRouteBody(body)) {
+      return { code: 400, response: createCalibrationRejectedBodyResponse() };
+    }
+    if (!isCalibrationEnabled()) {
+      return { code: 403, response: createCalibrationDisabledResponse('m76_disabled') };
+    }
+    const store = await getStore();
+    if (!store) {
+      return { code: 503, response: createNewSurfaceStoreUnavailableResponse('m76-calibration') };
+    }
+    const session = readBodyString(body, 'sessionId')
+      ? await store.realClientCalibrationSessions.getRecord(String(body?.sessionId))
+      : undefined;
+    if (!session) return { code: 404, response: { error: 'calibration_session_missing' } };
+    const grant = readBodyString(body, 'authorityGrantId')
+      ? await store.calibrationAuthorityGrants.getRecord(String(body?.authorityGrantId))
+      : undefined;
+    if (session.liveWritesAllowed && !grant) {
+      return {
+        code: 403,
+        response: {
+          error: 'calibration_authority_grant_required',
+          requestBodyAuthorityAccepted: false,
+          liveExecution: false,
+        },
+      };
+    }
+    if (session.liveWritesAllowed && process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED !== 'true') {
+      return { code: 403, response: createCalibrationDisabledResponse('m76_live_writes_disabled') };
+    }
+    return { store, session, grant };
+  }
+
+  function normalizeCalibrationSessionKind(value: unknown) {
+    return value === 'codex_desktop_state' ||
+      value === 'codex_desktop_task_dispatch' ||
+      value === 'chatgpt_workspace_member_remove_add' ||
+      value === 'chrome_chatgpt_ui' ||
+      value === 'manifest_correction'
+      ? value
+      : 'chrome_chatgpt_ui';
+  }
+
+  function normalizeCalibrationRunStatus(value: unknown) {
+    return value === 'planned' ||
+      value === 'authorized' ||
+      value === 'running' ||
+      value === 'passed' ||
+      value === 'restored_with_pending_invite' ||
+      value === 'readiness_blocked' ||
+      value === 'restore_failed' ||
+      value === 'drift_blocked' ||
+      value === 'failed_requires_manual_repair' ||
+      value === 'blocked'
+      ? value
+      : undefined;
+  }
+
+  function normalizeRestorationOutcome(value: unknown) {
+    return value === 'not_required' ||
+      value === 'restored' ||
+      value === 'pending_invite' ||
+      value === 'failed'
+      ? value
+      : 'pending_invite';
+  }
+
+  function normalizeCalibrationDriftStatus(value: unknown) {
+    return value === 'compatible' ||
+      value === 'selector_drift' ||
+      value === 'ax_role_drift' ||
+      value === 'page_state_drift' ||
+      value === 'timing_drift' ||
+      value === 'unknown' ||
+      value === 'blocked'
+      ? value
+      : undefined;
   }
 
   function registerBusinessQuotaAdminUiRoutes(prefix: string): void {

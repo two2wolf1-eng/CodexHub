@@ -35,6 +35,9 @@
       "@codexhub/codex-desktop-orchestration-kernel": [
         "packages/codex-desktop-orchestration-kernel/src/index.ts"
       ],
+      "@codexhub/real-client-calibration-kernel": [
+        "packages/real-client-calibration-kernel/src/index.ts"
+      ],
       "@codexhub/codex-scheduler-kernel": [
         "packages/codex-scheduler-kernel/src/index.ts"
       ],

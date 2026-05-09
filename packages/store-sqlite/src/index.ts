@@ -185,13 +185,24 @@ import type {
   ProductionRealClientOperationManifest,
   ProductionRealClientRun,
   ProductionRealClientSurfaceRegistration,
+  CalibrationAuthorityGrant,
+  CalibrationDriftSignature,
+  CalibrationManifestCorrectionProposal,
+  CalibrationObservation,
+  CalibrationRetentionPolicy,
+  CalibrationRun,
+  CalibrationSelectorSample,
   AccountSwitchEvidence,
   ClaudeCodeRepairRun,
   CodexAccountCapacityState,
   CodexAccountRecord,
   CodexDesktopObservedState,
   CodexTaskRoutingDecision,
+  M75RealRehearsalAcceptancePlan,
+  M75RealRehearsalAcceptanceRun,
+  M75RealRehearsalEvidenceSummary,
   M75RehearsalRun,
+  RealClientCalibrationSession,
   TaskDispatchEvidence,
   WorkspaceMemberActionEvidence,
   WorkspaceMemberState,
@@ -651,6 +662,17 @@ class SqliteCodexHubStore implements CodexHubStore {
   readonly workspaceMemberActionEvidenceRecords: MetadataEntityRepository<WorkspaceMemberActionEvidence>;
   readonly claudeCodeRepairRuns: MetadataEntityRepository<ClaudeCodeRepairRun>;
   readonly m75RehearsalRuns: MetadataEntityRepository<M75RehearsalRun>;
+  readonly m75RealRehearsalAcceptancePlans: MetadataEntityRepository<M75RealRehearsalAcceptancePlan>;
+  readonly m75RealRehearsalEvidenceSummaries: MetadataEntityRepository<M75RealRehearsalEvidenceSummary>;
+  readonly m75RealRehearsalAcceptanceRuns: MetadataEntityRepository<M75RealRehearsalAcceptanceRun>;
+  readonly realClientCalibrationSessions: MetadataEntityRepository<RealClientCalibrationSession>;
+  readonly calibrationAuthorityGrants: MetadataEntityRepository<CalibrationAuthorityGrant>;
+  readonly calibrationObservations: MetadataEntityRepository<CalibrationObservation>;
+  readonly calibrationDriftSignatures: MetadataEntityRepository<CalibrationDriftSignature>;
+  readonly calibrationSelectorSamples: MetadataEntityRepository<CalibrationSelectorSample>;
+  readonly calibrationManifestCorrectionProposals: MetadataEntityRepository<CalibrationManifestCorrectionProposal>;
+  readonly calibrationRuns: MetadataEntityRepository<CalibrationRun>;
+  readonly calibrationRetentionPolicies: MetadataEntityRepository<CalibrationRetentionPolicy>;
   readonly githubRemoteCleanupDryRuns: GithubRemoteCleanupDryRunRepository;
   readonly githubRemoteCleanupApprovals: GithubRemoteCleanupApprovalRepository;
   readonly githubRemoteCleanupRuns: GithubRemoteCleanupRunRepository;
@@ -1144,6 +1166,59 @@ class SqliteCodexHubStore implements CodexHubStore {
       database,
       'm75_rehearsal_runs',
     );
+    this.m75RealRehearsalAcceptancePlans =
+      new SqliteMetadataEntityRepository<M75RealRehearsalAcceptancePlan>(
+        database,
+        'm75_real_rehearsal_acceptance_plans',
+      );
+    this.m75RealRehearsalEvidenceSummaries =
+      new SqliteMetadataEntityRepository<M75RealRehearsalEvidenceSummary>(
+        database,
+        'm75_real_rehearsal_evidence_summaries',
+      );
+    this.m75RealRehearsalAcceptanceRuns =
+      new SqliteMetadataEntityRepository<M75RealRehearsalAcceptanceRun>(
+        database,
+        'm75_real_rehearsal_acceptance_runs',
+      );
+    this.realClientCalibrationSessions =
+      new SqliteMetadataEntityRepository<RealClientCalibrationSession>(
+        database,
+        'real_client_calibration_sessions',
+      );
+    this.calibrationAuthorityGrants =
+      new SqliteMetadataEntityRepository<CalibrationAuthorityGrant>(
+        database,
+        'calibration_authority_grants',
+      );
+    this.calibrationObservations = new SqliteMetadataEntityRepository<CalibrationObservation>(
+      database,
+      'calibration_observations',
+    );
+    this.calibrationDriftSignatures =
+      new SqliteMetadataEntityRepository<CalibrationDriftSignature>(
+        database,
+        'calibration_drift_signatures',
+      );
+    this.calibrationSelectorSamples =
+      new SqliteMetadataEntityRepository<CalibrationSelectorSample>(
+        database,
+        'calibration_selector_samples',
+      );
+    this.calibrationManifestCorrectionProposals =
+      new SqliteMetadataEntityRepository<CalibrationManifestCorrectionProposal>(
+        database,
+        'calibration_manifest_correction_proposals',
+      );
+    this.calibrationRuns = new SqliteMetadataEntityRepository<CalibrationRun>(
+      database,
+      'calibration_runs',
+    );
+    this.calibrationRetentionPolicies =
+      new SqliteMetadataEntityRepository<CalibrationRetentionPolicy>(
+        database,
+        'calibration_retention_policies',
+      );
     this.githubRemoteCleanupDryRuns = new SqliteGithubRemoteCleanupDryRunRepository(database);
     this.githubRemoteCleanupApprovals = new SqliteGithubRemoteCleanupApprovalRepository(database);
     this.githubRemoteCleanupRuns = new SqliteGithubRemoteCleanupRunRepository(database);
@@ -7414,6 +7489,72 @@ function initializeDatabase(database: SqliteDatabase): void {
     );
 
     CREATE TABLE IF NOT EXISTS m75_rehearsal_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS m75_real_rehearsal_acceptance_plans (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS m75_real_rehearsal_evidence_summaries (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS m75_real_rehearsal_acceptance_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS real_client_calibration_sessions (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_authority_grants (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_observations (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_drift_signatures (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_selector_samples (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_manifest_correction_proposals (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_runs (
+      id TEXT PRIMARY KEY,
+      recorded_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calibration_retention_policies (
       id TEXT PRIMARY KEY,
       recorded_at TEXT NOT NULL,
       payload TEXT NOT NULL

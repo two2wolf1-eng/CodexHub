@@ -21718,6 +21718,11 @@ export const ProductionRealClientOperationKindSchema = z.enum([
   'chatgptWorkspaceMemberAdd',
   'chatgptWorkspaceMemberRemove',
   'claudeCodeRepairProposal',
+  'codexDesktopLiveStateCalibration',
+  'codexDesktopLiveTaskDispatchCalibration',
+  'chatgptWorkspaceMemberRemoveAddCalibration',
+  'chromeChatgptLiveUiCalibration',
+  'manifestCorrectionCalibration',
 ]);
 export type ProductionRealClientOperationKind = z.infer<
   typeof ProductionRealClientOperationKindSchema
@@ -22687,6 +22692,441 @@ export const M75RehearsalRunSchema = createdEntityBaseSchema
     }
   });
 export type M75RehearsalRun = z.infer<typeof M75RehearsalRunSchema>;
+
+export const M75RealRehearsalAcceptanceStatusSchema = z.enum([
+  'metadata_only',
+  'readiness_blocked',
+  'real_live_accepted',
+  'failed',
+  'blocked',
+]);
+export type M75RealRehearsalAcceptanceStatus = z.infer<
+  typeof M75RealRehearsalAcceptanceStatusSchema
+>;
+
+export const M75RealRehearsalAcceptancePlanSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    rehearsalRunId: z.string().min(1),
+    expectedOperationKinds: z.array(ProductionRealClientOperationKindSchema).default([]),
+    expectedSurfaceRegistrationIds: z.array(z.string().min(1)).default([]),
+    expectedManifestIds: z.array(z.string().min(1)).default([]),
+    conditionalLiveAllowed: z.boolean().default(false),
+    adminWriteExpected: z.boolean().default(false),
+    codexDesktopExpected: z.boolean().default(false),
+    postWriteVerificationRequired: z.boolean().default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type M75RealRehearsalAcceptancePlan = z.infer<
+  typeof M75RealRehearsalAcceptancePlanSchema
+>;
+
+export const M75RealRehearsalEvidenceSummarySchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    acceptancePlanId: z.string().min(1),
+    rehearsalRunId: z.string().min(1),
+    evidenceVaultRecordIds: z.array(z.string().min(1)).default([]),
+    auditLedgerEntryIds: z.array(z.string().min(1)).default([]),
+    boundaryEventCount: z.number().int().nonnegative().default(0),
+    liveClientTouched: z.boolean().default(false),
+    adminWriteTouched: z.boolean().default(false),
+    codexDesktopTouched: z.boolean().default(false),
+    postWriteVerified: z.boolean().default(false),
+    rawEvidenceStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type M75RealRehearsalEvidenceSummary = z.infer<
+  typeof M75RealRehearsalEvidenceSummarySchema
+>;
+
+export const M75RealRehearsalAcceptanceRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    acceptancePlanId: z.string().min(1),
+    evidenceSummaryId: z.string().min(1).optional(),
+    status: M75RealRehearsalAcceptanceStatusSchema,
+    fixtureOnly: z.boolean().default(true),
+    conditionalLive: z.boolean().default(false),
+    realBoundaryReached: z.boolean().default(false),
+    liveClientTouched: z.boolean().default(false),
+    adminWriteTouched: z.boolean().default(false),
+    codexDesktopTouched: z.boolean().default(false),
+    postWriteVerified: z.boolean().default(false),
+    blockedReasons: z.array(z.string().min(1)).default([]),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'real_live_accepted' && !record.realBoundaryReached) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'real-live acceptance requires a real boundary event',
+        path: ['realBoundaryReached'],
+      });
+    }
+    if (record.adminWriteTouched && !record.postWriteVerified) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin write acceptance requires post-write verification',
+        path: ['postWriteVerified'],
+      });
+    }
+  });
+export type M75RealRehearsalAcceptanceRun = z.infer<
+  typeof M75RealRehearsalAcceptanceRunSchema
+>;
+
+export const RealClientCalibrationRunStatusSchema = z.enum([
+  'planned',
+  'authorized',
+  'running',
+  'passed',
+  'restored_with_pending_invite',
+  'readiness_blocked',
+  'restore_failed',
+  'drift_blocked',
+  'failed_requires_manual_repair',
+  'blocked',
+]);
+export type RealClientCalibrationRunStatus = z.infer<
+  typeof RealClientCalibrationRunStatusSchema
+>;
+
+export const CalibrationDriftStatusSchema = z.enum([
+  'compatible',
+  'selector_drift',
+  'ax_role_drift',
+  'page_state_drift',
+  'timing_drift',
+  'unknown',
+  'blocked',
+]);
+export type CalibrationDriftStatus = z.infer<typeof CalibrationDriftStatusSchema>;
+
+export const RealClientCalibrationSessionSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionKind: z.enum([
+      'codex_desktop_state',
+      'codex_desktop_task_dispatch',
+      'chatgpt_workspace_member_remove_add',
+      'chrome_chatgpt_ui',
+      'manifest_correction',
+    ]),
+    status: z.enum(['planned', 'authorized', 'running', 'completed', 'blocked', 'expired']),
+    surfaceRegistrationIds: z.array(z.string().min(1)).default([]),
+    manifestIds: z.array(z.string().min(1)).default([]),
+    targetHash: z.string().min(1).optional(),
+    calibrationTargetHash: z.string().min(1).optional(),
+    calibrationSafe: z.boolean().default(false),
+    restoreAllowed: z.boolean().default(false),
+    delegatedAdminAuthorityRequired: z.boolean().default(false),
+    ttlSeconds: z.number().int().positive(),
+    expiresAt: IsoDateTimeSchema,
+    liveWritesAllowed: z.boolean().default(false),
+    adminWriteAllowed: z.boolean().default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.liveWritesAllowed && record.surfaceRegistrationIds.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'live calibration requires registered surfaces',
+        path: ['surfaceRegistrationIds'],
+      });
+    }
+    if (record.adminWriteAllowed && (!record.calibrationSafe || !record.restoreAllowed)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin write calibration requires calibration-safe restore target',
+        path: ['calibrationSafe'],
+      });
+    }
+  });
+export type RealClientCalibrationSession = z.infer<
+  typeof RealClientCalibrationSessionSchema
+>;
+
+export const CalibrationAuthorityGrantSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    authorityRefId: z.string().min(1),
+    approvalBindingIds: z.array(z.string().min(1)).default([]),
+    approverHashCount: z.number().int().nonnegative().default(0),
+    distinctApproverHashCount: z.number().int().nonnegative().default(0),
+    status: z.enum(['granted', 'denied', 'expired', 'consumed', 'blocked']),
+    expiresAt: IsoDateTimeSchema,
+    liveWritesAllowed: z.boolean().default(false),
+    adminWriteAllowed: z.boolean().default(false),
+    delegatedAdminAuthorityVerified: z.boolean().default(false),
+    requestBodyAuthorityAccepted: z.literal(false).default(false),
+    requestBodyApprovalArtifactAccepted: z.literal(false).default(false),
+    rawAuthorityStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'granted' && record.approvalBindingIds.length < 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'calibration authority requires at least one approval binding',
+        path: ['approvalBindingIds'],
+      });
+    }
+    if (record.adminWriteAllowed && !record.delegatedAdminAuthorityVerified) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin write calibration requires delegated admin authority',
+        path: ['delegatedAdminAuthorityVerified'],
+      });
+    }
+  });
+export type CalibrationAuthorityGrant = z.infer<typeof CalibrationAuthorityGrantSchema>;
+
+export const CalibrationObservationSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    runId: z.string().min(1).optional(),
+    operationKind: ProductionRealClientOperationKindSchema,
+    surfaceRegistrationId: z.string().min(1),
+    manifestId: z.string().min(1),
+    observationKind: z.enum([
+      'preflight',
+      'before_state',
+      'after_remove',
+      'after_restore',
+      'codex_desktop_state',
+      'task_status',
+      'drift_sample',
+    ]),
+    beforeStateHash: z.string().min(1).optional(),
+    afterStateHash: z.string().min(1).optional(),
+    pageStateHash: z.string().min(1).optional(),
+    selectorFingerprintHash: z.string().min(1).optional(),
+    cdpHttpBoundaryInvoked: z.boolean().default(false),
+    cdpWebSocketBoundaryInvoked: z.boolean().default(false),
+    browserActionInvoked: z.boolean().default(false),
+    electronActionInvoked: z.boolean().default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CalibrationObservation = z.infer<typeof CalibrationObservationSchema>;
+
+export const CalibrationDriftSignatureSchema = observedEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    surfaceRegistrationId: z.string().min(1),
+    manifestId: z.string().min(1),
+    status: CalibrationDriftStatusSchema,
+    selectorDriftCount: z.number().int().nonnegative().default(0),
+    axRoleDriftCount: z.number().int().nonnegative().default(0),
+    pageStateDriftCount: z.number().int().nonnegative().default(0),
+    timingDriftCount: z.number().int().nonnegative().default(0),
+    highRiskExecutionBlocked: z.boolean().default(false),
+    correctionProposalId: z.string().min(1).optional(),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status !== 'compatible' && !record.highRiskExecutionBlocked) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'non-compatible calibration drift must block high-risk execution',
+        path: ['highRiskExecutionBlocked'],
+      });
+    }
+  });
+export type CalibrationDriftSignature = z.infer<typeof CalibrationDriftSignatureSchema>;
+
+export const CalibrationSelectorSampleSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    manifestId: z.string().min(1),
+    selectorHash: z.string().min(1),
+    axRoleHash: z.string().min(1).optional(),
+    pageStateHash: z.string().min(1).optional(),
+    sampleCount: z.number().int().nonnegative().default(1),
+    compatible: z.boolean().default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CalibrationSelectorSample = z.infer<typeof CalibrationSelectorSampleSchema>;
+
+export const CalibrationManifestCorrectionProposalSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    driftSignatureId: z.string().min(1).optional(),
+    manifestId: z.string().min(1),
+    proposedManifestHash: z.string().min(1),
+    confidence: z.enum(['low', 'medium', 'high']),
+    status: z.enum(['proposed', 'blocked', 'applied_to_registry', 'rejected']),
+    evidenceComplete: z.boolean().default(false),
+    requiresHumanReview: z.literal(true).default(true),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.status === 'applied_to_registry' && !record.evidenceComplete) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'registry correction application requires complete evidence',
+        path: ['evidenceComplete'],
+      });
+    }
+  });
+export type CalibrationManifestCorrectionProposal = z.infer<
+  typeof CalibrationManifestCorrectionProposalSchema
+>;
+
+export const CalibrationRunSchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    authorityGrantId: z.string().min(1).optional(),
+    operationKind: ProductionRealClientOperationKindSchema,
+    status: RealClientCalibrationRunStatusSchema,
+    targetMemberHash: z.string().min(1).optional(),
+    preflightStatus: z.string().min(1),
+    removeStatus: z.string().min(1).optional(),
+    restoreStatus: z.string().min(1).optional(),
+    codexDesktopStatus: z.string().min(1).optional(),
+    restorationOutcome: z.enum(['not_required', 'restored', 'pending_invite', 'failed']).default('not_required'),
+    calibrationSafeTargetVerified: z.boolean().default(false),
+    ownerAdminProtected: z.literal(true).default(true),
+    lastAdminProtected: z.literal(true).default(true),
+    delegatedAdminAuthorityVerified: z.boolean().default(false),
+    realBoundaryReached: z.boolean().default(false),
+    liveClientTouched: z.boolean().default(false),
+    adminWriteTouched: z.boolean().default(false),
+    codexDesktopTouched: z.boolean().default(false),
+    postWriteVerified: z.boolean().default(false),
+    driftSignatureIds: z.array(z.string().min(1)).default([]),
+    correctionProposalIds: z.array(z.string().min(1)).default([]),
+    blockedReasons: z.array(z.string().min(1)).default([]),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    rawBodyStored: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    rejectCustomWorkflowRawMetadata(record, context);
+    if (record.adminWriteTouched && !record.delegatedAdminAuthorityVerified) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin write calibration requires delegated admin authority verification',
+        path: ['delegatedAdminAuthorityVerified'],
+      });
+    }
+    if (
+      record.adminWriteTouched &&
+      (record.status === 'passed' || record.status === 'restored_with_pending_invite') &&
+      !record.postWriteVerified
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'admin write calibration requires post-write verification',
+        path: ['postWriteVerified'],
+      });
+    }
+    if (record.status === 'passed' && record.blockedReasons.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'passed calibration runs cannot have blockers',
+        path: ['blockedReasons'],
+      });
+    }
+  });
+export type CalibrationRun = z.infer<typeof CalibrationRunSchema>;
+
+export const CalibrationRetentionPolicySchema = createdEntityBaseSchema
+  .merge(m51EvidenceAuditSchema)
+  .extend({
+    sessionId: z.string().min(1),
+    observationTtlSeconds: z.number().int().positive(),
+    selectorSampleTtlSeconds: z.number().int().positive(),
+    rawArtifactTtlSeconds: z.number().int().positive().optional(),
+    rawArtifactStorageAllowed: z.literal(false).default(false),
+    credentialMaterialStored: z.literal(false).default(false),
+    rawEndpointStored: z.literal(false).default(false),
+    rawSelectorStored: z.literal(false).default(false),
+    rawScriptStored: z.literal(false).default(false),
+    rawPromptStored: z.literal(false).default(false),
+    rawDomStored: z.literal(false).default(false),
+    summary: z.string().min(1),
+  })
+  .strict()
+  .superRefine((record, context) => rejectCustomWorkflowRawMetadata(record, context));
+export type CalibrationRetentionPolicy = z.infer<typeof CalibrationRetentionPolicySchema>;
 
 export function foundationTimestamp(): string {
   return new Date().toISOString();

@@ -68,6 +68,7 @@ import {
   createPolicyTelemetryReadOnlySummary,
   createCodexDesktopOrchestrationReadOnlySummary,
   createProductionGaReadOnlySummary,
+  createRealClientCalibrationReadOnlySummary,
   createRemoteSupersedeAcceptanceRehearsalReadOnlySummary,
   createReworkLoopAcceptanceRehearsalReadOnlySummary,
   createVerificationReadinessPreview,
@@ -219,6 +220,11 @@ interface OverviewState {
   codexDesktopTaskDispatches: Array<Record<string, unknown>>;
   codexDesktopWorkspaceMemberActions: Array<Record<string, unknown>>;
   codexDesktopClaudeRepairs: Array<Record<string, unknown>>;
+  realCalibrationWindows: Array<Record<string, unknown>>;
+  realCalibrationObservations: Array<Record<string, unknown>>;
+  realCalibrationDriftSignatures: Array<Record<string, unknown>>;
+  realCalibrationCorrectionProposals: Array<Record<string, unknown>>;
+  m75RealAcceptanceRuns: Array<Record<string, unknown>>;
   githubPrLabelsDryRuns: GithubPrManagementControlSummary[];
   githubPrLabelsApprovals: GithubPrManagementControlSummary[];
   githubPrLabelsRuns: GithubPrManagementControlSummary[];
@@ -1780,6 +1786,11 @@ export function App() {
     codexDesktopTaskDispatches: [],
     codexDesktopWorkspaceMemberActions: [],
     codexDesktopClaudeRepairs: [],
+    realCalibrationWindows: [],
+    realCalibrationObservations: [],
+    realCalibrationDriftSignatures: [],
+    realCalibrationCorrectionProposals: [],
+    m75RealAcceptanceRuns: [],
     githubPrLabelsDryRuns: [],
     githubPrLabelsApprovals: [],
     githubPrLabelsRuns: [],
@@ -2971,6 +2982,11 @@ export function App() {
           productionGaTrainingCompletionsResponse,
           productionGaCapabilityMatrixResponse,
           productionGaThreatModelResponse,
+          realCalibrationWindowsResponse,
+          realCalibrationObservationsResponse,
+          realCalibrationDriftResponse,
+          realCalibrationCorrectionsResponse,
+          m75RealAcceptancesResponse,
           approvalInboxResponse,
         ] = await Promise.all([
           getOptionalJson<{ records: BrowserObservationControlSummary[] }>(
@@ -3559,6 +3575,26 @@ export function App() {
             unresolvedCriticalRiskCount: 1,
             summary: 'Production GA threat model unavailable; signoff remains blocked.',
           }),
+          getOptionalJson<{ records: Array<Record<string, unknown>> }>(
+            ['/api/real-client-calibration/sess', 'ions'].join(''),
+            { records: [] },
+          ),
+          getOptionalJson<{ records: Array<Record<string, unknown>> }>(
+            '/api/real-client-calibration/observations',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: Array<Record<string, unknown>> }>(
+            '/api/real-client-calibration/drift',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: Array<Record<string, unknown>> }>(
+            '/api/real-client-calibration/corrections',
+            { records: [] },
+          ),
+          getOptionalJson<{ records: Array<Record<string, unknown>> }>(
+            '/api/codex-desktop-orchestration/real-acceptances',
+            { records: [] },
+          ),
           getOptionalJson<ApprovalInboxProjection>('/api/approvals/inbox', {
             id: 'approval_inbox_projection_degraded',
             schemaVersion: '2026-04-28.foundation',
@@ -3768,6 +3804,11 @@ export function App() {
             codexDesktopTaskDispatches: [],
             codexDesktopWorkspaceMemberActions: [],
             codexDesktopClaudeRepairs: [],
+            realCalibrationWindows: realCalibrationWindowsResponse.records,
+            realCalibrationObservations: realCalibrationObservationsResponse.records,
+            realCalibrationDriftSignatures: realCalibrationDriftResponse.records,
+            realCalibrationCorrectionProposals: realCalibrationCorrectionsResponse.records,
+            m75RealAcceptanceRuns: m75RealAcceptancesResponse.records,
             approvalInbox: approvalInboxResponse,
           });
         }
@@ -3949,6 +3990,11 @@ export function App() {
             codexDesktopTaskDispatches: [],
             codexDesktopWorkspaceMemberActions: [],
             codexDesktopClaudeRepairs: [],
+            realCalibrationWindows: [],
+            realCalibrationObservations: [],
+            realCalibrationDriftSignatures: [],
+            realCalibrationCorrectionProposals: [],
+            m75RealAcceptanceRuns: [],
             message: error instanceof Error ? error.message : 'Supervisor is unavailable.',
           });
         }
@@ -10591,6 +10637,96 @@ function renderReadOnlyDashboardView(
           <p>
             This view has no raw CDP console, generic selector builder, JavaScript runner,
             credential viewer, or raw prompt viewer.
+          </p>
+        </Panel>
+      </section>
+    );
+  }
+
+  if (activeView === 'real-calibration') {
+    const latestCalibrationWindow = overview.realCalibrationWindows[0];
+    const latestDrift = overview.realCalibrationDriftSignatures[0];
+    const realCalibrationSummary = createRealClientCalibrationReadOnlySummary({
+      calibrationWindowCount: overview.realCalibrationWindows.length,
+      observationCount: overview.realCalibrationObservations.length,
+      driftSignatureCount: overview.realCalibrationDriftSignatures.length,
+      correctionProposalCount: overview.realCalibrationCorrectionProposals.length,
+      m75AcceptanceCount: overview.m75RealAcceptanceRuns.length,
+      latestRunStatus:
+        typeof latestCalibrationWindow?.status === 'string'
+          ? latestCalibrationWindow.status
+          : undefined,
+      latestDriftStatus:
+        typeof latestDrift?.status === 'string' ? latestDrift.status : undefined,
+    });
+
+    return (
+      <section className="grid">
+        <Panel title="Real Calibration">
+          <ul>
+            <li>
+              <strong>status</strong>
+              <span>{realCalibrationSummary.status}</span>
+            </li>
+            <li>
+              <strong>calibration windows / acceptances</strong>
+              <span>
+                {realCalibrationSummary.calibrationWindowCount} windows,{' '}
+                {realCalibrationSummary.m75AcceptanceCount} M75 acceptances
+              </span>
+            </li>
+            <li>
+              <strong>observations / drift</strong>
+              <span>
+                {realCalibrationSummary.observationCount} observations,{' '}
+                {realCalibrationSummary.driftSignatureCount} drift signatures
+              </span>
+            </li>
+            <li>
+              <strong>corrections</strong>
+              <span>{realCalibrationSummary.correctionProposalCount} proposals</span>
+            </li>
+            <li>
+              <strong>defaults</strong>
+              <span>
+                live writes {String(realCalibrationSummary.liveWritesDefaultEnabled)}, admin{' '}
+                {String(realCalibrationSummary.adminWriteDefaultEnabled)}
+              </span>
+            </li>
+            <li>
+              <strong>guardrails</strong>
+              <span>
+                generic CDP {String(realCalibrationSummary.genericCdpPassthroughAllowed)}, JS{' '}
+                {String(realCalibrationSummary.arbitraryJsAllowed)}, selector{' '}
+                {String(realCalibrationSummary.arbitrarySelectorAllowed)}
+              </span>
+            </li>
+          </ul>
+          <p>{realCalibrationSummary.summary}</p>
+        </Panel>
+        <Panel title="Calibration Evidence And Drift">
+          <ul>
+            <li>
+              <strong>latest run</strong>
+              <span>{realCalibrationSummary.latestRunStatus}</span>
+            </li>
+            <li>
+              <strong>latest drift</strong>
+              <span>{realCalibrationSummary.latestDriftStatus}</span>
+            </li>
+            <li>
+              <strong>authority</strong>
+              <span>
+                surface {String(realCalibrationSummary.registeredSurfaceRequired)}, manifest{' '}
+                {String(realCalibrationSummary.registeredManifestRequired)}, calibration{' '}
+                {String(realCalibrationSummary.calibrationAuthorityRequired)}
+              </span>
+            </li>
+          </ul>
+          <p>
+            This view has no raw CDP console, selector builder, JavaScript runner, credential
+            viewer, browser-auth material viewer, browser profile viewer, raw DOM viewer, or raw
+            prompt viewer.
           </p>
         </Panel>
       </section>
