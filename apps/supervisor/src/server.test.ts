@@ -4822,6 +4822,110 @@ describe('supervisor mock development API', () => {
     }
   });
 
+  it('makes M76 Codex Desktop state calibration invoke the registered CDP readiness boundary', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m76-codex-state-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const originalCalibrationEnabled = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED;
+    const originalCalibrationLive = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED;
+    const originalCodexEndpoint = process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED = 'true';
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED = 'true';
+    process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT = 'http://127.0.0.1:43326';
+    let probeCallCount = 0;
+    const server = buildSupervisorServer({
+      store,
+      codexDesktopCdpConnectionProbe: async ({ endpointUrl }) => {
+        probeCallCount += 1;
+        return RealClientConnectionReadinessSchema.parse({
+          id: 'real_client_connection_m76_codex_state_test',
+          schemaVersion: '2026-04-28.foundation',
+          observedAt: '2026-05-09T00:00:00.000Z',
+          surface: 'codex-desktop-cdp',
+          status: 'ready',
+          endpointConfigured: true,
+          endpointHash: hashTestMetadata({ endpointUrl }),
+          targetCount: 1,
+          cdpHttpBoundaryInvoked: true,
+          realClientConnected: true,
+          summary: 'Injected Codex Desktop CDP readiness boundary completed.',
+        });
+      },
+    });
+    const now = () => '2026-05-09T00:00:00.000Z';
+    const surface = createProductionRealClientSurfaceRegistration({
+      surfaceId: 'codex-desktop-state-calibration',
+      surfaceKind: 'codex-desktop-cdp',
+      registeredBySeed: 'operator',
+      allowedOperationIds: ['codex.desktop.live_state_calibration.v1'],
+      now,
+    });
+    const manifest = createProductionRealClientOperationManifest({
+      operationId: 'codex.desktop.live_state_calibration.v1',
+      operationKind: 'codexDesktopLiveStateCalibration',
+      surfaceKind: 'codex-desktop-cdp',
+      capabilityClass: 'restricted-production',
+      now,
+    });
+    await store.productionRealClientSurfaces.saveRecord(surface);
+    await store.productionRealClientOperationManifests.saveRecord(manifest);
+
+    const sessionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/sessions/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sessionKind: 'codex_desktop_state',
+        surfaceRegistrationIds: [surface.id],
+        manifestIds: [manifest.id],
+        liveWritesAllowed: false,
+        adminWriteAllowed: false,
+        ttlSeconds: 900,
+      },
+    });
+    const session = sessionResponse.json().session;
+    const calibrationResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/codex-desktop/state-calibrations',
+      headers: localControlHeaders,
+      payload: {
+        sessionId: session.id,
+        beforeStateRefId: 'before-state-ref',
+        afterStateRefId: 'after-state-ref',
+        realBoundaryReached: false,
+        liveClientTouched: false,
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED', originalCalibrationEnabled);
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_LIVE_WRITES_ENABLED', originalCalibrationLive);
+    restoreEnv('CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT', originalCodexEndpoint);
+
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(calibrationResponse.statusCode).toBe(200);
+    expect(probeCallCount).toBe(1);
+    expect(calibrationResponse.json().observation).toMatchObject({
+      operationKind: 'codexDesktopLiveStateCalibration',
+      cdpHttpBoundaryInvoked: true,
+      rawEndpointStored: false,
+      credentialMaterialStored: false,
+    });
+    expect(calibrationResponse.json().run).toMatchObject({
+      status: 'passed',
+      preflightStatus: 'ready',
+      codexDesktopStatus: 'ready',
+      realBoundaryReached: true,
+      liveClientTouched: true,
+      codexDesktopTouched: true,
+      postWriteVerified: true,
+      credentialMaterialStored: false,
+    });
+    expect(calibrationResponse.body).not.toContain('127.0.0.1:43326');
+    expect(calibrationResponse.body).not.toContain(localControlToken);
+  });
+
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-external-agent-raw-'));
     const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });

@@ -473,6 +473,7 @@ import {
   McpWriteToolApprovalArtifactSchema,
   McpWriteToolPlanSchema,
   McpWriteToolRunSchema,
+  RealClientConnectionReadinessSchema,
   RealPolicyAdvisoryDecisionSummarySchema,
   RealPolicyBackendApprovalArtifactSchema,
   RealPolicyBackendEvaluationPlanSchema,
@@ -24979,26 +24980,53 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       }
       const resolved = await resolveCalibrationSessionAndGrant(body);
       if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const probe =
+        options.codexDesktopCdpConnectionProbe ?? probeCodexDesktopCdpConnectionReadiness;
+      const readiness = RealClientConnectionReadinessSchema.parse(
+        await probe({
+          endpointUrl: process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT,
+          observedAt: foundationTimestamp(),
+        }),
+      );
+      const codexDesktopReady =
+        readiness.status === 'ready' &&
+        readiness.realClientConnected === true &&
+        readiness.cdpHttpBoundaryInvoked === true;
+      const blockedReasons = codexDesktopReady
+        ? []
+        : [
+            ...readiness.blockReasons,
+            ...(readiness.endpointConfigured ? [] : ['codex_desktop_cdp_endpoint_missing']),
+            ...(readiness.realClientConnected ? [] : ['codex_desktop_cdp_unreachable']),
+          ];
       const observation = createCalibrationObservation({
         session: resolved.session,
         operationKind: 'codexDesktopLiveStateCalibration',
         observationKind: 'codex_desktop_state',
         beforeStateSeed: readBodyString(body, 'beforeStateRefId'),
-        afterStateSeed: readBodyString(body, 'afterStateRefId'),
-        cdpWebSocketBoundaryInvoked: body?.cdpWebSocketBoundaryInvoked === true,
-        electronActionInvoked: body?.electronActionInvoked === true,
+        afterStateSeed:
+          readBodyString(body, 'afterStateRefId') ??
+          hashLocalMetadata({
+            status: readiness.status,
+            endpointHash: readiness.endpointHash,
+            targetCount: readiness.targetCount,
+          }),
+        cdpHttpBoundaryInvoked: readiness.cdpHttpBoundaryInvoked,
+        cdpWebSocketBoundaryInvoked: readiness.cdpWebSocketBoundaryInvoked,
+        electronActionInvoked: false,
       });
       const run = createCalibrationRun({
         session: resolved.session,
         authorityGrant: resolved.grant,
         operationKind: 'codexDesktopLiveStateCalibration',
-        status: body?.realBoundaryReached === true ? 'passed' : 'readiness_blocked',
-        preflightStatus: 'ready',
-        codexDesktopStatus: readBodyString(body, 'codexDesktopStatus') ?? 'observed',
-        realBoundaryReached: body?.realBoundaryReached === true,
-        liveClientTouched: body?.liveClientTouched === true,
+        status: codexDesktopReady ? 'passed' : 'readiness_blocked',
+        preflightStatus: codexDesktopReady ? 'ready' : 'blocked',
+        codexDesktopStatus: readiness.status,
+        realBoundaryReached: codexDesktopReady,
+        liveClientTouched: readiness.realClientConnected,
         codexDesktopTouched: true,
-        postWriteVerified: true,
+        postWriteVerified: codexDesktopReady,
+        blockedReasons,
       });
       await resolved.store.calibrationObservations.saveRecord(observation);
       await resolved.store.calibrationRuns.saveRecord(run);
