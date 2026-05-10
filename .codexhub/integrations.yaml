@@ -3614,6 +3614,9 @@ integrations:
       - CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED
       - CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT
     supervisorRoutes:
+      - GET /api/real-client-calibration/codex-desktop/structure-map-jobs
+      - GET /api/real-client-calibration/codex-desktop/structure-map-jobs/:jobId
+      - POST /api/real-client-calibration/codex-desktop/structure-map-jobs
       - POST /api/real-client-calibration/codex-desktop/structure-map-runs
     persistedStores:
       - calibration_observations

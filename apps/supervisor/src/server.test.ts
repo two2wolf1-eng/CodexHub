@@ -324,6 +324,7 @@ const lateStageSupervisorControlPlaneMatrix = [
       '/sessions/authority-grants',
       '/sessions/runs',
       '/codex-desktop/state-calibrations',
+      '/codex-desktop/structure-map-jobs',
       '/codex-desktop/structure-map-runs',
       '/codex-desktop/task-dispatch-calibrations',
       '/chatgpt/workspace-member/remove-add-calibrations',
@@ -2433,6 +2434,7 @@ describe('supervisor mock development API', () => {
             `${prefix}/sessions/authority-grants`,
             `${prefix}/sessions/runs`,
             `${prefix}/codex-desktop/state-calibrations`,
+            `${prefix}/codex-desktop/structure-map-jobs`,
             `${prefix}/codex-desktop/structure-map-runs`,
             `${prefix}/codex-desktop/task-dispatch-calibrations`,
             `${prefix}/chatgpt/workspace-member/remove-add-calibrations`,
@@ -2627,6 +2629,7 @@ describe('supervisor mock development API', () => {
           '/sessions/authority-grants',
           '/sessions/runs',
           '/codex-desktop/state-calibrations',
+          '/codex-desktop/structure-map-jobs',
           '/codex-desktop/structure-map-runs',
           '/codex-desktop/task-dispatch-calibrations',
           '/chatgpt/workspace-member/remove-add-calibrations',
@@ -5060,6 +5063,162 @@ describe('supervisor mock development API', () => {
     });
     expect(structureResponse.body).not.toContain('127.0.0.1:43326');
     expect(structureResponse.body).not.toContain(localControlToken);
+  });
+
+  it('queues M77 Codex Desktop structure map exploration in the Supervisor background job runner', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codexhub-supervisor-m77-structure-map-job-'));
+    const store = await createSqliteStore({ dbPath: join(dir, 'codexhub.sqlite') });
+    const originalCalibrationEnabled = process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED;
+    const originalCodexEndpoint = process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT;
+    process.env.CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED = 'true';
+    process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT = 'http://127.0.0.1:43326';
+    let probeCallCount = 0;
+    let releaseProbe: (() => void) | undefined;
+    const probeWait = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    const server = buildSupervisorServer({
+      store,
+      codexDesktopStructureMapProbe: async ({ endpointUrl, plannedRoundCount }) => {
+        probeCallCount += 1;
+        await probeWait;
+        return CodexDesktopStructureMapRunSchema.parse({
+          id: 'codex_desktop_structure_map_m77_job_test',
+          schemaVersion: '2026-04-28.foundation',
+          createdAt: '2026-05-09T00:00:00.000Z',
+          status: 'completed',
+          endpointConfigured: true,
+          endpointHash: hashTestMetadata({ endpointUrl }),
+          targetCount: 5,
+          pageTargetCount: 1,
+          workerTargetCount: 4,
+          webSocketTargetCount: 5,
+          plannedRoundCount: plannedRoundCount ?? 30,
+          completedRoundCount: plannedRoundCount ?? 30,
+          probeKinds: [
+            'target_metadata',
+            'page_metadata',
+            'dom_tree',
+            'dom_layout',
+            'dom_snapshot',
+            'css_structure',
+            'accessibility_tree',
+            'network_metadata',
+            'log_runtime_metadata',
+            'safe_input_read_click',
+          ],
+          cdpHttpBoundaryInvoked: true,
+          cdpWebSocketBoundaryInvoked: true,
+          safeInputBoundaryInvoked: true,
+          targetMetadataUsed: true,
+          pageMetadataUsed: true,
+          domTreeUsed: true,
+          domLayoutUsed: true,
+          domSnapshotUsed: true,
+          cssStructureUsed: true,
+          accessibilityTreeUsed: true,
+          networkMetadataUsed: true,
+          logRuntimeMetadataUsed: true,
+          safeInputReadClickUsed: true,
+          summary: 'Injected M77 background structure map boundary completed.',
+        });
+      },
+    });
+    const now = () => '2026-05-09T00:00:00.000Z';
+    const surface = createProductionRealClientSurfaceRegistration({
+      surfaceId: 'codex-desktop-structure-map-job',
+      surfaceKind: 'codex-desktop-cdp',
+      registeredBySeed: 'operator',
+      allowedOperationIds: ['codex.desktop.structure_map.v1'],
+      now,
+    });
+    const manifest = createProductionRealClientOperationManifest({
+      operationId: 'codex.desktop.structure_map.v1',
+      operationKind: 'codexDesktopStructureMap',
+      surfaceKind: 'codex-desktop-cdp',
+      capabilityClass: 'restricted-production',
+      now,
+    });
+    await store.productionRealClientSurfaces.saveRecord(surface);
+    await store.productionRealClientOperationManifests.saveRecord(manifest);
+
+    const sessionResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/sessions/dry-runs',
+      headers: localControlHeaders,
+      payload: {
+        sessionKind: 'codex_desktop_state',
+        surfaceRegistrationIds: [surface.id],
+        manifestIds: [manifest.id],
+        liveWritesAllowed: false,
+        adminWriteAllowed: false,
+        ttlSeconds: 900,
+      },
+    });
+    const session = sessionResponse.json().session;
+    const jobResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/codex-desktop/structure-map-jobs',
+      headers: localControlHeaders,
+      payload: {
+        sessionId: session.id,
+        plannedRoundCount: 30,
+      },
+    });
+    const jobId = jobResponse.json().job.jobId;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const runningResponse = await server.inject({
+      method: 'GET',
+      url: `/api/real-client-calibration/codex-desktop/structure-map-jobs/${jobId}`,
+      headers: localControlHeaders,
+    });
+    releaseProbe?.();
+    let completedResponse = runningResponse;
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      completedResponse = await server.inject({
+        method: 'GET',
+        url: `/api/real-client-calibration/codex-desktop/structure-map-jobs/${jobId}`,
+        headers: localControlHeaders,
+      });
+      if (completedResponse.json().job.status === 'completed') break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const rejectedResponse = await server.inject({
+      method: 'POST',
+      url: '/api/real-client-calibration/codex-desktop/structure-map-jobs',
+      headers: localControlHeaders,
+      payload: {
+        sessionId: session.id,
+        rawSelector: '#unsafe',
+      },
+    });
+
+    await server.close();
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    restoreEnv('CODEXHUB_REAL_CLIENT_CALIBRATION_ENABLED', originalCalibrationEnabled);
+    restoreEnv('CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT', originalCodexEndpoint);
+
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(jobResponse.statusCode).toBe(202);
+    expect(['queued', 'running']).toContain(jobResponse.json().job.status);
+    expect(probeCallCount).toBe(1);
+    expect(['queued', 'running']).toContain(runningResponse.json().job.status);
+    expect(completedResponse.json().job).toMatchObject({
+      status: 'completed',
+      structureMapRunId: 'codex_desktop_structure_map_m77_job_test',
+      completedRoundCount: 30,
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      rawDomStored: false,
+      credentialMaterialStored: false,
+    });
+    expect(rejectedResponse.statusCode).toBe(400);
+    expect(jobResponse.body).not.toContain('127.0.0.1:43326');
+    expect(completedResponse.body).not.toContain('127.0.0.1:43326');
+    expect(completedResponse.body).not.toContain(localControlToken);
+    expect(rejectedResponse.body).not.toContain('#unsafe');
   });
 
   it('rejects raw prompt, patch, command, and path fields on external agent dry-runs', async () => {

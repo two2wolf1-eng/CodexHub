@@ -7140,6 +7140,7 @@ workflows:
       - codex-desktop-locator-candidate
       - codex-desktop-structure-drift-signature
       - codex-desktop-structure-map-run
+      - codex-desktop-structure-map-background-job
     docs:
       - docs/releases/m77-codex-desktop-structure-map.md
       - docs/reviews/m77-codex-desktop-structure-map-review.md

@@ -2266,6 +2266,48 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   let persistenceState: PersistenceState = options.disableStore
     ? { status: 'disabled', reason: 'store disabled by test configuration' }
     : { status: 'ok' };
+  type CodexDesktopStructureMapBackgroundJobStatus =
+    | 'queued'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'blocked';
+  type CodexDesktopStructureMapRunRecord = ReturnType<
+    typeof CodexDesktopStructureMapRunSchema.parse
+  >;
+  interface CodexDesktopStructureMapBackgroundJob {
+    jobId: string;
+    sessionId: string;
+    authorityGrantId?: string;
+    status: CodexDesktopStructureMapBackgroundJobStatus;
+    createdAt: string;
+    updatedAt: string;
+    startedAt?: string;
+    completedAt?: string;
+    plannedRoundCount: number;
+    completedRoundCount: number;
+    structureMapRunId?: string;
+    observationId?: string;
+    calibrationRunId?: string;
+    endpointConfigured: boolean;
+    endpointHash?: string;
+    targetCount: number;
+    pageTargetCount: number;
+    workerTargetCount: number;
+    webSocketTargetCount: number;
+    probeKinds: readonly string[];
+    blockReasons: readonly string[];
+    errorHash?: string;
+    rawEndpointStored: false;
+    rawSelectorStored: false;
+    rawScriptStored: false;
+    rawDomStored: false;
+    rawSnapshotStored: false;
+    credentialMaterialStored: false;
+    summary: string;
+  }
+  const codexDesktopStructureMapJobs = new Map<string, CodexDesktopStructureMapBackgroundJob>();
+  let codexDesktopStructureMapJobQueue: Promise<void> = Promise.resolve();
 
   async function getStore(): Promise<CodexHubStore | undefined> {
     if (options.store) {
@@ -25039,6 +25081,45 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
       return { observation, run };
     });
 
+    server.get(`${prefix}/codex-desktop/structure-map-jobs`, async () => ({
+      jobs: Array.from(codexDesktopStructureMapJobs.values()).map(projectCodexDesktopStructureMapJob),
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      rawDomStored: false,
+      credentialMaterialStored: false,
+    }));
+
+    server.post(`${prefix}/codex-desktop/structure-map-jobs`, async (request, reply) => {
+      const body = request.body as CalibrationRequestBody | undefined;
+      if (hasForbiddenCalibrationRouteBody(body)) {
+        return reply.code(400).send(createCalibrationRejectedBodyResponse());
+      }
+      const resolved = await resolveCalibrationSessionAndGrant(body);
+      if ('response' in resolved) return reply.code(resolved.code).send(resolved.response);
+      const job = enqueueCodexDesktopStructureMapJob({
+        store: resolved.store,
+        session: resolved.session,
+        grant: resolved.grant,
+        body,
+        plannedRoundCount: normalizeStructureMapPlannedRoundCount(body?.plannedRoundCount),
+      });
+      return reply.code(202).send({
+        job: projectCodexDesktopStructureMapJob(job),
+        summary:
+          'Codex Desktop structure-map exploration was queued in Supervisor; poll this job for metadata-only progress and results.',
+      });
+    });
+
+    server.get(`${prefix}/codex-desktop/structure-map-jobs/:jobId`, async (request, reply) => {
+      const params = request.params as { jobId?: string };
+      const job = params.jobId ? codexDesktopStructureMapJobs.get(params.jobId) : undefined;
+      if (!job) {
+        return reply.code(404).send({ error: 'codex_desktop_structure_map_job_missing' });
+      }
+      return { job: projectCodexDesktopStructureMapJob(job) };
+    });
+
     server.post(`${prefix}/codex-desktop/structure-map-runs`, async (request, reply) => {
       const body = request.body as CalibrationRequestBody | undefined;
       if (hasForbiddenCalibrationRouteBody(body)) {
@@ -25386,6 +25467,192 @@ export function buildSupervisorServer(options: SupervisorServerOptions = {}) {
   }
 
   type SupervisorStore = NonNullable<Awaited<ReturnType<typeof getStore>>>;
+  type CalibrationSessionRecord = NonNullable<
+    Awaited<ReturnType<SupervisorStore['realClientCalibrationSessions']['getRecord']>>
+  >;
+  type CalibrationAuthorityGrantRecord = Awaited<
+    ReturnType<SupervisorStore['calibrationAuthorityGrants']['getRecord']>
+  >;
+
+  function normalizeStructureMapPlannedRoundCount(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 30;
+    return Math.max(1, Math.min(330, Math.trunc(value)));
+  }
+
+  function projectCodexDesktopStructureMapJob(job: CodexDesktopStructureMapBackgroundJob) {
+    return {
+      ...job,
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      rawDomStored: false,
+      rawSnapshotStored: false,
+      credentialMaterialStored: false,
+    };
+  }
+
+  function createCodexDesktopStructureMapCalibrationRecords(input: {
+    session: CalibrationSessionRecord;
+    grant: CalibrationAuthorityGrantRecord;
+    body?: CalibrationRequestBody;
+    structureMap: CodexDesktopStructureMapRunRecord;
+  }) {
+    const completed = input.structureMap.status === 'completed';
+    const observation = createCalibrationObservation({
+      session: input.session,
+      operationKind: 'codexDesktopStructureMap',
+      observationKind: 'codex_desktop_structure_map',
+      beforeStateSeed: readBodyString(input.body, 'beforeStateRefId'),
+      afterStateSeed:
+        readBodyString(input.body, 'afterStateRefId') ??
+        hashLocalMetadata({
+          status: input.structureMap.status,
+          endpointHash: input.structureMap.endpointHash,
+          probeKinds: input.structureMap.probeKinds,
+          panelCount: input.structureMap.panelMaps.length,
+          locatorCount: input.structureMap.locatorCandidates.length,
+        }),
+      cdpHttpBoundaryInvoked: input.structureMap.cdpHttpBoundaryInvoked,
+      cdpWebSocketBoundaryInvoked: input.structureMap.cdpWebSocketBoundaryInvoked,
+      electronActionInvoked: input.structureMap.safeInputBoundaryInvoked,
+    });
+    const run = createCalibrationRun({
+      session: input.session,
+      authorityGrant: input.grant,
+      operationKind: 'codexDesktopStructureMap',
+      status: completed
+        ? 'passed'
+        : input.structureMap.status === 'drift_blocked'
+          ? 'drift_blocked'
+          : input.structureMap.status === 'failed'
+            ? 'failed_requires_manual_repair'
+            : 'readiness_blocked',
+      preflightStatus: completed ? 'ready' : 'blocked',
+      codexDesktopStatus: input.structureMap.status,
+      realBoundaryReached:
+        input.structureMap.cdpHttpBoundaryInvoked || input.structureMap.cdpWebSocketBoundaryInvoked,
+      liveClientTouched: input.structureMap.cdpWebSocketBoundaryInvoked,
+      codexDesktopTouched: true,
+      postWriteVerified: false,
+      blockedReasons: input.structureMap.blockedReasons,
+    });
+    return { observation, run };
+  }
+
+  function enqueueCodexDesktopStructureMapJob(input: {
+    store: SupervisorStore;
+    session: CalibrationSessionRecord;
+    grant: CalibrationAuthorityGrantRecord;
+    body?: CalibrationRequestBody;
+    plannedRoundCount: number;
+  }): CodexDesktopStructureMapBackgroundJob {
+    const createdAt = foundationTimestamp();
+    const job: CodexDesktopStructureMapBackgroundJob = {
+      jobId: foundationId('codex_desktop_structure_map_job'),
+      sessionId: input.session.id,
+      authorityGrantId: input.grant?.id,
+      status: 'queued',
+      createdAt,
+      updatedAt: createdAt,
+      plannedRoundCount: input.plannedRoundCount,
+      completedRoundCount: 0,
+      endpointConfigured: Boolean(process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT),
+      targetCount: 0,
+      pageTargetCount: 0,
+      workerTargetCount: 0,
+      webSocketTargetCount: 0,
+      probeKinds: [],
+      blockReasons: [],
+      rawEndpointStored: false,
+      rawSelectorStored: false,
+      rawScriptStored: false,
+      rawDomStored: false,
+      rawSnapshotStored: false,
+      credentialMaterialStored: false,
+      summary:
+        'Codex Desktop structure-map background job is queued; no raw endpoint, selector, script, DOM, or credential material is stored.',
+    };
+    codexDesktopStructureMapJobs.set(job.jobId, job);
+    codexDesktopStructureMapJobQueue = codexDesktopStructureMapJobQueue
+      .catch(() => undefined)
+      .then(() => runCodexDesktopStructureMapJob(input, job));
+    return job;
+  }
+
+  async function runCodexDesktopStructureMapJob(
+    input: {
+      store: SupervisorStore;
+      session: CalibrationSessionRecord;
+      grant: CalibrationAuthorityGrantRecord;
+      body?: CalibrationRequestBody;
+      plannedRoundCount: number;
+    },
+    job: CodexDesktopStructureMapBackgroundJob,
+  ): Promise<void> {
+    const startedAt = foundationTimestamp();
+    Object.assign(job, {
+      status: 'running' satisfies CodexDesktopStructureMapBackgroundJobStatus,
+      startedAt,
+      updatedAt: startedAt,
+      summary:
+        'Codex Desktop structure-map background job is running through the governed CDP structure-map boundary.',
+    });
+    try {
+      const probe = options.codexDesktopStructureMapProbe ?? probeCodexDesktopStructureMap;
+      const structureMap = CodexDesktopStructureMapRunSchema.parse(
+        await probe({
+          endpointUrl: process.env.CODEXHUB_CODEX_DESKTOP_CDP_ENDPOINT,
+          observedAt: foundationTimestamp(),
+          plannedRoundCount: input.plannedRoundCount,
+        }),
+      );
+      const { observation, run } = createCodexDesktopStructureMapCalibrationRecords({
+        session: input.session,
+        grant: input.grant,
+        body: input.body,
+        structureMap,
+      });
+      await input.store.calibrationObservations.saveRecord(observation);
+      await input.store.calibrationRuns.saveRecord(run);
+      const completedAt = foundationTimestamp();
+      Object.assign(job, {
+        status:
+          structureMap.status === 'completed'
+            ? ('completed' satisfies CodexDesktopStructureMapBackgroundJobStatus)
+            : structureMap.status === 'failed'
+              ? ('failed' satisfies CodexDesktopStructureMapBackgroundJobStatus)
+              : ('blocked' satisfies CodexDesktopStructureMapBackgroundJobStatus),
+        updatedAt: completedAt,
+        completedAt,
+        structureMapRunId: structureMap.id,
+        observationId: observation.id,
+        calibrationRunId: run.id,
+        endpointConfigured: structureMap.endpointConfigured,
+        endpointHash: structureMap.endpointHash,
+        targetCount: structureMap.targetCount,
+        pageTargetCount: structureMap.pageTargetCount,
+        workerTargetCount: structureMap.workerTargetCount,
+        webSocketTargetCount: structureMap.webSocketTargetCount,
+        completedRoundCount: structureMap.completedRoundCount,
+        probeKinds: structureMap.probeKinds,
+        blockReasons: structureMap.blockedReasons,
+        summary: structureMap.summary,
+      });
+    } catch (error) {
+      const completedAt = foundationTimestamp();
+      Object.assign(job, {
+        status: 'failed' satisfies CodexDesktopStructureMapBackgroundJobStatus,
+        updatedAt: completedAt,
+        completedAt,
+        errorHash: hashLocalMetadata({
+          name: error instanceof Error ? error.name : 'unknown',
+          message: error instanceof Error ? error.message : 'unknown',
+        }),
+        summary:
+          'Codex Desktop structure-map background job failed; only an error hash was retained.',
+      });
+    }
+  }
 
   async function resolveCalibrationSurfacesAndManifests(
     store: SupervisorStore,

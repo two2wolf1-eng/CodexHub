@@ -9,6 +9,10 @@ M77 adds a governed Codex Desktop CDP structure-map path. It uses fixed multi-do
 - Added contracts for probe summaries, DOM structure summaries, DOMSnapshot summaries, layout regions, panel maps, blocked controls, locator candidates, drift signatures, and structure-map runs.
 - Added a fixed Electron/CDP adapter path for Target/Page/DOM/DOMSnapshot/CSS/Accessibility/Network/Log/Runtime metadata and safe read-click probes.
 - Added a Supervisor calibration route for `POST /api/real-client-calibration/codex-desktop/structure-map-runs`.
+- Added Supervisor background queue routes for long structure-map exploration:
+  - `POST /api/real-client-calibration/codex-desktop/structure-map-jobs`
+  - `GET /api/real-client-calibration/codex-desktop/structure-map-jobs`
+  - `GET /api/real-client-calibration/codex-desktop/structure-map-jobs/:jobId`
 - Updated route matrix and audit boundary allowlists for the reviewed structure-map boundary.
 
 ## Boundaries
@@ -21,3 +25,4 @@ M77 adds a governed Codex Desktop CDP structure-map path. It uses fixed multi-do
 
 - `pnpm nx run contracts:test --skip-nx-cache`
 - `pnpm nx run electron-cdp-adapter:test --skip-nx-cache`
+- `pnpm nx run supervisor:test --skip-nx-cache`

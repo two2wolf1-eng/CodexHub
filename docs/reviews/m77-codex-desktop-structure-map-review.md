@@ -9,11 +9,12 @@ The M77 implementation is a read-map expansion, not a generic remote-control sur
 - No raw endpoint, selector, JavaScript, DOM, DOMSnapshot, console text, network body, or credential material is persisted by the new contracts.
 - The CDP command set is fixed to read-oriented domains plus safe Input clicks for opening and closing read-only panels.
 - Supervisor routes continue to require local-control gating through the existing real-client-calibration family.
+- Long-running structure-map exploration can now be queued as a Supervisor background job and polled by id, so the chat thread does not own the CDP run lifetime.
 - Dangerous controls are represented as blocked-control records and are not clicked.
 
 ## Residual Risk
 
-The structure map depends on Chromium CDP command compatibility. If Codex Desktop changes its target shape or panel labels, M77 should record drift/blockers rather than expanding to arbitrary CDP commands.
+The structure map depends on Chromium CDP command compatibility. If Codex Desktop changes its target shape or panel labels, M77 should record drift/blockers rather than expanding to arbitrary CDP commands. Background jobs are process-local to the running Supervisor; a Supervisor restart drops in-memory job progress but persisted calibration observations/runs remain available after completion.
 
 ## Skills
 
